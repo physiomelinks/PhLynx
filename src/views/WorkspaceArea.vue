@@ -588,7 +588,7 @@ import { buildInstance } from '../services/import/buildWorkflow'
 
 import { notify } from '../utils/notify'
 import { getHelperLines } from '../utils/helperLines'
-import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
+import { fetchModuleLibraryResources, getModuleLibrarySettings } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { readFileAsText, cyrb53 } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
@@ -3085,35 +3085,6 @@ const handleKeyDown = (event) => {
   }
 }
 
-async function fetchAndLoadResource(entry, resourceType) {
-  try {
-    const url = getUrlForResource(entry.path)
-
-    // Fetch resource content
-    const response = await fetch(url)
-    if (!response.ok) throw new Error(`Failed to fetch ${entry.name}`)
-
-    // Process the response
-    const content = await response.text()
-
-    // Load the content
-    if (resourceType === 'cellml module' || resourceType === 'cellml units') {
-      await loadCellMLData(content, entry.file ?? entry.name, { notify: false })
-    } else if (resourceType === 'module config') {
-      await loadConfigData(content, entry.name, false)
-      // const jsonContent = JSON.parse(content)
-      // libraryStore.addConfigFile(jsonContent, entry.name, false)
-    } else if (resourceType === 'parameter file') {
-      const parsed = await parseParametersFile(content)
-      await loadParametersData(parsed, entry.name, { notify: false })
-    }
-
-    return true
-  } catch (err) {
-    return false
-  }
-}
-
 const cellmlModules = import.meta.glob('../assets/modules/*.cellml', {
   query: 'raw',
   eager: true,
@@ -3129,14 +3100,13 @@ const moduleConfigs = import.meta.glob('../assets/module_configs/*.json', {
 })
 
 const hydrateCellmlAndDependents = async () => {
-  // Load the manifest and the libCellML WebAssembly module.
-  const [manifest, instance] = await Promise.all([loadManifest(), libcellmlReadyPromise])
+  // Load the libCellML WebAssembly module and, if switched on, the module library's files.
+  const librarySettings = getModuleLibrarySettings()
+  const [libraryResources, instance] = await Promise.all([
+    librarySettings.enabled ? fetchModuleLibraryResources({ settings: librarySettings }) : null,
+    libcellmlReadyPromise,
+  ])
   initLibCellML(instance)
-
-  // const printPurgeUrl = false
-  // if (printPurgeUrl) {
-  //   console.log(getPurgedUrlForResource())
-  // }
 
   const promises = []
   for (const [path, content] of Object.entries(cellmlModules)) {
@@ -3147,41 +3117,11 @@ const hydrateCellmlAndDependents = async () => {
     promises.push(loadCellMLData(content.default, path.split('/').pop(), { notify: false }))
   }
 
-  // if (manifest?.modules) {
-  //   for (const entry of manifest.modules) {
-  //     if (printPurgeUrl) {
-  //       console.log(getPurgedUrlForResource(entry.path))
-  //     }
-  //     promises.push(fetchAndLoadResource(entry, 'cellml module'))
-  //   }
-  // }
-
-  // if (manifest?.units) {
-  //   for (const entry of manifest.units) {
-  //     if (printPurgeUrl) {
-  //       console.log(getPurgedUrlForResource(entry.path))
-  //     }
-  //     promises.push(fetchAndLoadResource(entry, 'cellml units'))
-  //   }
-  // }
-
-  // if (manifest?.parameters) {
-  //   for (const entry of manifest.parameters) {
-  //     if (printPurgeUrl) {
-  //       console.log(getPurgedUrlForResource(entry.path))
-  //     }
-  //     promises.push(fetchAndLoadResource(entry, 'parameter file'))
-  //   }
-  // }
-
-  // if (manifest?.configs) {
-  //   for (const entry of manifest.configs) {
-  //     if (printPurgeUrl) {
-  //       console.log(getPurgedUrlForResource(entry.path))
-  //     }
-  //     promises.push(fetchAndLoadResource(entry, 'module config'))
-  //   }
-  // }
+  // Module library files load after the bundled ones, so their math replaces
+  // bundled math of the same file and component name.
+  for (const entry of [...(libraryResources?.modules ?? []), ...(libraryResources?.units ?? [])]) {
+    promises.push(loadCellMLData(entry.content, entry.file ?? entry.name, { notify: false }))
+  }
 
   const results = await Promise.all(promises)
   const successCount = results.filter((result) => result?.ok).length
@@ -3202,11 +3142,29 @@ const hydrateCellmlAndDependents = async () => {
     })
   }
 
+  // Module library configs go first: addModule keeps the first config for a moduleRef.
+  for (const entry of libraryResources?.configs ?? []) {
+    libraryStore.addConfigFile(entry.file ?? entry.name, entry.content)
+  }
+
   for (const [path, content] of Object.entries(moduleConfigs)) {
     libraryStore.addConfigFile(path.split('/').pop(), content.default)
   }
 
-  return manifest
+  const libraryFailures = libraryResources?.failures ?? []
+  if (libraryFailures.length > 0) {
+    libraryFailures.forEach((failure) => console.warn('Module library:', failure.url, failure.error))
+    if (successCount > 0 || failCount > 0) await nextTick()
+    notify.warning({
+      title: 'Module Library',
+      message:
+        libraryFailures[0].collection === 'manifest'
+          ? `Could not load the module library manifest (${librarySettings.ref}); using the bundled modules.`
+          : `${libraryFailures.length} module library file${libraryFailures.length > 1 ? 's' : ''} failed to load.`,
+    })
+  }
+
+  return libraryResources
 }
 
 onMounted(async () => {
