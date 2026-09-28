@@ -45,7 +45,14 @@
         @change="$emit('change')"
       />
 
+      <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact. -->
+      <span
+        v-if="Array.isArray(port.multiportType)"
+        class="per-variable-multiport"
+        title="Per-variable multiport, one entry per port variable"
+      >{{ formatMultiportType(port.multiportType) }}</span>
       <Select
+        v-else
         v-model="port.multiportType"
         :options="MULTIPORT_OPTIONS"
         optionLabel="label"
@@ -74,6 +81,7 @@
 </template>
 
 <script setup>
+import { formatMultiportType } from '../utils/config'
 import { computed } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -298,5 +306,12 @@ const handleClass = computed(() => {
 .compact-multiselect-panel .p-checkbox-box {
   width: 14px !important;
   height: 14px !important;
+}
+
+.per-variable-multiport {
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

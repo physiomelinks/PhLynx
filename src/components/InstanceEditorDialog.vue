@@ -277,7 +277,14 @@
                     <Column header="Multiport" style="min-width: 110px">
                       <template #body="slotProps">
                         <div class="flex flex-col gap-1">
+                          <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact. -->
+                          <span
+                            v-if="Array.isArray(slotProps.data.multiportType)"
+                            class="per-variable-multiport"
+                            title="Per-variable multiport, one entry per port variable"
+                          >{{ formatMultiportType(slotProps.data.multiportType) }}</span>
                           <Select
+                            v-else
                             v-model="slotProps.data.multiportType"
                             :options="MULTIPORT_OPTIONS"
                             optionLabel="label"
@@ -365,6 +372,7 @@
 </template>
 
 <script setup>
+import { formatMultiportType } from '../utils/config'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
@@ -1486,5 +1494,12 @@ async function handleSave() {
   .right-pane--collapsed {
     display: none;
   }
+}
+
+.per-variable-multiport {
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

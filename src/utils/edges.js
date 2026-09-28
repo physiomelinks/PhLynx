@@ -73,10 +73,12 @@ export function getId(edgeIds, prefix = 'edge_') {
  * buildPorts sets multiportType to `p.multi_port ?? 'None'`, so:
  *   'None'               → single-connection (Python None serialised as string)
  *   null / undefined / false → single-connection (absent or falsy)
- *   any other truthy value   → multiport (unrestricted)
+ *   any other truthy value   → multiport (unrestricted), including a
+ *                              per-variable list such as ['sum', 'True']
  */
 export function isSingleConnection(port) {
   const mp = port.multiportType
+  if (Array.isArray(mp)) return false
   return !mp || mp === 'None'
 }
 
