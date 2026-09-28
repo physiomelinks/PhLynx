@@ -1,4 +1,5 @@
 import { isEmpty } from './variables.js'
+import { getVariableMultiportTypes, isPerVariableMultiport } from './config'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -874,6 +875,80 @@ function stripCelsiusToArbitraryUnit(xmlString) {
  *   { name, units, variables: [{ nodeId, variableName, ... }] }. Each becomes its own generated
  *   component summing the selected variables — see createInspectionModuleComponent.
  */
+/**
+ * Equivalences two variables, through a generated conversion component when
+ * their units are affine (e.g. celsius and kelvin).
+ */
+function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable) {
+  if (!srcVariable || !tgtVariable) return
+  const v1 = sourceComp.variableByName(srcVariable)
+  const v2 = targetComp.variableByName(tgtVariable)
+  if (v1 && v2) {
+    const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
+    if (!handled) {
+      _libcellml.Variable.addEquivalence(v1, v2)
+    }
+  }
+  v1?.delete()
+  v2?.delete()
+}
+
+function perVariableSumKey(component, port, varName) {
+  return `${component.name()}::${port.label}::${varName}`
+}
+
+/**
+ * Couples one port pair where either side has a per-variable (list-form)
+ * multi_port, as circulatory_autogen does. Variables pair by position. A "Sum"
+ * variable gets the neighbour's variable as a term of its generated summation
+ * (always added, whichever side of the edge it is on); every other variable is
+ * equivalenced directly, so a "True" variable is shared with every neighbour.
+ */
+function addPerVariableMultiportCoupling(model, sourceComp, srcLabel, targetComp, tgtLabel, multiPortSums) {
+  const describe = () =>
+    `"${srcLabel.label}" of "${sourceComp.name()}" ${JSON.stringify(srcLabel.variables)} to ` +
+    `"${tgtLabel.label}" of "${targetComp.name()}" ${JSON.stringify(tgtLabel.variables)}`
+
+  for (const label of [srcLabel, tgtLabel]) {
+    if (!isPerVariableMultiport(label) && label.multiportType !== 'None' && label.multiportType !== 'True') {
+      throw new Error(`Cannot connect ${describe()}: a per-variable multiport cannot couple to a "${label.multiportType}" multiport.`)
+    }
+  }
+  if (srcLabel.variables.length !== tgtLabel.variables.length) {
+    throw new Error(`Cannot connect ${describe()}: a per-variable multiport needs the same number of variables on both sides.`)
+  }
+
+  const srcTypes = getVariableMultiportTypes(srcLabel)
+  const tgtTypes = getVariableMultiportTypes(tgtLabel)
+
+  srcLabel.variables.forEach((srcVariable, i) => {
+    const tgtVariable = tgtLabel.variables[i]
+    const isSrcSum = srcTypes?.[i] === 'Sum'
+    const isTgtSum = tgtTypes?.[i] === 'Sum'
+
+    if (isSrcSum && isTgtSum) {
+      throw new Error(`Cannot connect ${describe()}: "${srcVariable}" and "${tgtVariable}" are both "sum" variables.`)
+    }
+    if (!isSrcSum && !isTgtSum) {
+      connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable)
+      return
+    }
+
+    const [sumComp, sumLabel, sumVariable, operandComp, operandVariable] = isSrcSum
+      ? [sourceComp, srcLabel, srcVariable, targetComp, tgtVariable]
+      : [targetComp, tgtLabel, tgtVariable, sourceComp, srcVariable]
+    const multiKey = perVariableSumKey(sumComp, sumLabel, sumVariable)
+    if (!multiPortSums.has(multiKey)) {
+      multiPortSums.set(multiKey, { sourceComp: sumComp, srcLabel: { variables: [sumVariable] }, targets: [] })
+    }
+    multiPortSums.get(multiKey).targets.push({
+      component: operandComp,
+      label: { variables: [operandVariable] },
+      isTarget: true,
+    })
+  })
+}
+
 export function generateFlattenedModel(nodes, edges, libraryStore, inspectionModules = []) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
@@ -1068,6 +1143,11 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       const couplings = edge.data?.couplings ?? []
 
       for (const { sourcePort: srcLabel, targetPort: tgtLabel } of couplings) {
+        if (isPerVariableMultiport(srcLabel) || isPerVariableMultiport(tgtLabel)) {
+          addPerVariableMultiportCoupling(model, sourceComp, srcLabel, targetComp, tgtLabel, multiPortSums)
+          continue
+        }
+
         const isSrcMultiportSum = srcLabel.multiportType === 'Sum'
         const isTgtMultiportSum = tgtLabel.multiportType === 'Sum'
         const isSrcMultiportMultiply = srcLabel.multiportType === 'Multiply'
@@ -1109,20 +1189,7 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
           // Direct one-to-one variable equivalence
           const minLength = Math.min(srcLabel.variables.length, tgtLabel.variables.length)
           for (let i = 0; i < minLength; i++) {
-            const srcVariable = srcLabel.variables[i]
-            const tgtVariable = tgtLabel.variables[i]
-            if (srcVariable && tgtVariable) {
-              const v1 = sourceComp.variableByName(srcVariable)
-              const v2 = targetComp.variableByName(tgtVariable)
-              if (v1 && v2) {
-                const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
-                if (!handled) {
-                  _libcellml.Variable.addEquivalence(v1, v2)
-                }
-              }
-              v1?.delete()
-              v2?.delete()
-            }
+            connectVariables(model, sourceComp, srcLabel.variables[i], targetComp, tgtLabel.variables[i])
           }
         }
       }
@@ -1165,6 +1232,25 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
         outputVar && outputVar.delete()
         targetVar && targetVar.delete()
         mulComp.delete()
+      }
+    }
+
+    // A per-variable "sum" variable with no neighbours sums over nothing: it is 0.
+    for (const node of nodes) {
+      for (const port of node.data.ports ?? []) {
+        const variableTypes = getVariableMultiportTypes(port)
+        if (!variableTypes) continue
+        const component = nodeComponentMap.get(node.id)
+        variableTypes.forEach((type, i) => {
+          const varName = port.variables[i]
+          const multiKey = perVariableSumKey(component, port, varName)
+          if (type !== 'Sum' || multiPortSums.has(multiKey)) return
+          console.warn(
+            `"${node.data.name}" variable "${varName}" (port "${port.label}") sums over its ` +
+              `connections, but none are connected; setting it to 0.`
+          )
+          multiPortSums.set(multiKey, { sourceComp: component, srcLabel: { variables: [varName] }, targets: [] })
+        })
       }
     }
 
