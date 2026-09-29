@@ -609,6 +609,7 @@ import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nod
 import { getId as getNextEdgeId, resolvePortCouplings } from '../utils/edges'
 import { getHandleId, getHandleUidFromHandleId, findMostCentralGhostHandle } from '../utils/handles'
 import { parseParametersFile } from '../utils/import'
+import { applyParametersToNodes } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
 import { extractGlobalConstants } from '../utils/variables'
 import {
@@ -1642,62 +1643,7 @@ const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackE
 
 const loadParametersData = async (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
   try {
-    const variableCatalogue = new Set()
-    const nodeMap = new Map(nodes.value.map((n) => [n.data.name, n]))
-    let totalLocal = 0
-
-    for (const [instance, node] of nodeMap) {
-      for (const variable of node.data.variables) {
-        variableCatalogue.add(variable.name.trim())
-      }
-
-      const instanceParameters = Array.from(content)
-        .filter((entry) => entry.variable_name.trimEnd().endsWith(instance))
-        .map((entry) => ({
-          ...entry,
-          name: entry.variable_name.trimEnd().slice(0, -instance.length).replace(/_+$/, ''),
-        }))
-
-      const paramsByName = new Map(instanceParameters.map((p) => [p.name.trim(), p]))
-      let updatedCount = 0
-      node.data.variables = node.data.variables.map((variable) => {
-        const match = paramsByName.get(variable.name.trim())
-        if (!match) return variable
-        updatedCount++
-
-        const matchedUnit = match.units.trim()
-        const currentUnit = variable.units.trim()
-
-        if (matchedUnit !== currentUnit) {
-          console.warn(
-            `Unit mismatch for "${variable.name}": node has "${currentUnit}", parameter has "${matchedUnit}"`
-          )
-        }
-
-        return {
-          ...variable,
-          value: match.value.trim(),
-          data_reference: match.data_reference.trim(),
-          type: 'constant',
-        }
-      })
-      totalLocal += updatedCount
-    }
-
-    const globalConstants = Array.from(content)
-      .filter((entry) => variableCatalogue.has(entry.variable_name.trimEnd()))
-      .map((entry) => ({
-        ...entry,
-        name: entry.variable_name.trimEnd(),
-      }))
-
-    globalConstants.forEach((p) => {
-      libraryStore.assignGlobalConstant(p.name, p.value, p.units, p.data_reference)
-    })
-
-    const totalGlobal = globalConstants.length
-
-    const totalUpdated = totalLocal + totalGlobal
+    const { totalUpdated } = applyParametersToNodes(nodes.value, content, libraryStore)
 
     if (shouldNotify && totalUpdated > 0) {
       if (trackEvents) {

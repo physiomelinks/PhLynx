@@ -158,4 +158,34 @@ describe('whole-port Sum multiport sign convention', () => {
     expect(equivalent(model, ['generated_summations', 'op_v'], ['cap2', 'v'])).toBe(true)
     model.delete()
   })
+
+  it('gives a whole-port Sum variable no initial value from a parameter', async () => {
+    const nodes = [
+      makeNode(store, 'artery', 'artery_Nout:pv_micro'),
+      makeNode(store, 'cap1', 'capillary:vp_micro'),
+      makeNode(store, 'cap2', 'capillary:vp_micro'),
+    ]
+    const sumVariable = nodes[0].data.variables.find((v) => v.name === 'v_out_sum')
+    Object.assign(sumVariable, { type: 'constant', value: '1e-6' })
+    const edges = connectAll(nodes, [
+      ['artery', 'cap1'],
+      ['artery', 'cap2'],
+    ])
+
+    const model = await generate(nodes, edges, store)
+
+    const component = model.componentByName('artery', true)
+    const variable = component.variableByName('v_out_sum')
+    const equivalentInitialValues = []
+    for (let i = 0; i < variable.equivalentVariableCount(); i++) {
+      const other = variable.equivalentVariable(i)
+      if (other.initialValue() !== '') equivalentInitialValues.push(other.name())
+      other.delete()
+    }
+    variable.delete()
+    component.delete()
+    expect(equivalentInitialValues).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"artery" variable "v_out_sum" is set by a connection'))
+    model.delete()
+  })
 })
