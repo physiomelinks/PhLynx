@@ -1,5 +1,6 @@
 import { isEmpty } from './variables.js'
 import { getVariableMultiportTypes, isPerVariableMultiport } from './config'
+import { getConnectionFedVariables } from './edges'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -1015,6 +1016,14 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       }
     }
 
+    // Variables whose value comes through a connection: a parameter value set
+    // on them is kept on the node but not emitted while they are connected.
+    const connectionFedVariables = getConnectionFedVariables(nodes, edges, libraryStore)
+    const warnIgnoredValue = (node, varName, value) =>
+      console.warn(
+        `"${node.data.name}" variable "${varName}" is set by a connection; ignoring its parameter value ${value}.`
+      )
+
     // ---------------------------------
     // Process Nodes (Create Components)
     // ---------------------------------
@@ -1050,7 +1059,16 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
         const unitsName = units.name()
 
         const nodeVariable = node.data.variables.find((v) => v.name === variable.name())
-        if (nodeVariable) {
+        const isConnectionFed = connectionFedVariables.get(node.id)?.has(variable.name())
+        if (nodeVariable && isConnectionFed) {
+          const value =
+            nodeVariable.type === 'global_constant'
+              ? libraryStore.getGlobalConstant(variable.name())?.value
+              : nodeVariable.type === 'constant'
+                ? nodeVariable.value
+                : null
+          if (!isEmpty(value)) warnIgnoredValue(node, variable.name(), value)
+        } else if (nodeVariable) {
           if (nodeVariable.type === 'global_constant') {
             const v = libraryStore.getGlobalConstant(variable.name())
             if (!isEmpty(v?.value)) {

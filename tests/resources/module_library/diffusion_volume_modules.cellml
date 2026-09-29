@@ -1,0 +1,131 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="modules" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <!-- Finite-volume diffusion of one species, as volumes joined by faces. A volume holds the
+         concentration C_P of one cell; a face carries the diffusive flux between the two volumes it
+         joins. Each volume sums the fluxes of however many faces are connected to it (list-form
+         multi_port "sum"), so a grid needs no ordered ports. -->
+    <component name="diffusion_volume">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="C_P_init" public_interface="in" units="millimolar"/>
+        <variable initial_value="C_P_init" name="C_P" public_interface="out" units="millimolar"/>
+        <!-- net diffusive flux into the cell from the faces on its entrance and exit ports -->
+        <variable name="J_in" public_interface="in" units="mol_per_s"/>
+        <variable name="J_out" public_interface="in" units="mol_per_s"/>
+        <variable name="flux_c" public_interface="in" units="mol_per_s"/>
+        <!-- the cell's volume: any cell shape (box, prism, tetrahedron, ...) -->
+        <variable name="V_P" public_interface="in" units="m3"/>
+        <variable name="M" public_interface="in" units="millimolar_per_s"/>
+        <variable name="M_reduced" public_interface="out" units="millimolar_per_s"/>
+        <!-- Michaelis-Menten consumption: M_reduced = M C_P/(C_P + C50); M < 0 consumes -->
+        <variable name="C50" public_interface="in" units="millimolar"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>M_reduced</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>M</ci>
+                        <ci>C_P</ci>
+                    </apply>
+                    <apply>
+                        <plus/>
+                        <ci>C_P</ci>
+                        <ci>C50</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>C_P</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <divide/>
+                        <apply>
+                            <plus/>
+                            <ci>J_in</ci>
+                            <ci>J_out</ci>
+                            <ci>flux_c</ci>
+                        </apply>
+                        <ci>V_P</ci>
+                    </apply>
+                    <ci>M_reduced</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
+    <!-- A face between an upstream and a downstream volume, of any mesh (2D or 3D, any cell shape).
+         D = open_flag sigma_diff A_f / (d_up + d_down): face area (in 2D, edge length times depth) over
+         the distance between the two cell centres through the face, d_up and d_down being each centre's
+         distance to the face (for box cells, half the cell width normal to the face). J = D (C_up - C_down) flows into the downstream volume
+         (J_down = J) and out of the upstream one (J_up = -J). With one side unconnected, that side's
+         concentration is a fixed boundary value. -->
+    <component name="diffusion_face">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="sigma_diff" public_interface="in" units="m2_per_s"/>
+        <variable name="A_f" public_interface="in" units="m2"/>
+        <variable name="d_up" public_interface="in" units="metre"/>
+        <variable name="d_down" public_interface="in" units="metre"/>
+        <variable name="open_flag" public_interface="in" units="dimensionless"/>
+        <variable name="C_up" public_interface="in" units="millimolar"/>
+        <variable name="C_down" public_interface="in" units="millimolar"/>
+        <variable name="D" public_interface="out" units="m3_per_s"/>
+        <variable name="J" public_interface="out" units="mol_per_s"/>
+        <variable name="J_up" public_interface="out" units="mol_per_s"/>
+        <variable name="J_down" public_interface="out" units="mol_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>D</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>open_flag</ci>
+                        <ci>sigma_diff</ci>
+                        <ci>A_f</ci>
+                    </apply>
+                    <apply>
+                        <plus/>
+                        <ci>d_up</ci>
+                        <ci>d_down</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>J</ci>
+                <apply>
+                    <times/>
+                    <ci>D</ci>
+                    <apply>
+                        <minus/>
+                        <ci>C_up</ci>
+                        <ci>C_down</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>J_down</ci>
+                <ci>J</ci>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>J_up</ci>
+                <apply>
+                    <minus/>
+                    <ci>J</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
+</model>
