@@ -62,7 +62,12 @@ function connectAll(nodes, pairs) {
   for (const [source, target] of pairs) {
     const sourceIndex = edges.filter((e) => e.source === source).length
     const targetIndex = edges.filter((e) => e.target === target).length
-    const couplings = resolvePortCouplings(byId.get(source).data.ports, byId.get(target).data.ports, sourceIndex, targetIndex)
+    const couplings = resolvePortCouplings(
+      byId.get(source).data.ports,
+      byId.get(target).data.ports,
+      sourceIndex,
+      targetIndex
+    )
     const check = checkAndClaimCouplings(source, target, couplings, used)
     expect(check.conflicts).toEqual([])
     edges.push({ id: `${source}--${target}`, source, target, data: { couplings } })
@@ -199,7 +204,10 @@ describe('per-variable (list-form) multi_port generation', () => {
   })
 
   it('sets an unconnected sum variable to 0 and warns', async () => {
-    const nodes = [makeNode(store, 'merge', 'flow_merge:vp'), makeNode(store, 'R3', 'resistor:pp', { u_out: 0, R: 5e6 })]
+    const nodes = [
+      makeNode(store, 'merge', 'flow_merge:vp'),
+      makeNode(store, 'R3', 'resistor:pp', { u_out: 0, R: 5e6 }),
+    ]
     const edges = connectAll(nodes, [['merge', 'R3']])
 
     const model = await generate(nodes, edges, store)

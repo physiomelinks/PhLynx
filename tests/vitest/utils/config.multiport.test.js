@@ -5,12 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
-import {
-  getVariableMultiportTypes,
-  normaliseConfig,
-  parseMultiport,
-  restorePorts,
-} from '../../../src/utils/config.js'
+import { getVariableMultiportTypes, normaliseConfig, parseMultiport, restorePorts } from '../../../src/utils/config.js'
 import { buildUsedPortKeys, checkAndClaimCouplings, resolvePortCouplings } from '../../../src/utils/edges.js'
 
 // Module library (circulatory-autogen-modules) cardiac configs, renamed to PhLynx's config keys.
@@ -86,7 +81,7 @@ describe('module configs with a per-variable multi_port', () => {
     }
   })
 
-  it('keeps whole-port multiports as before', () => {
+  it('round-trips whole-port multiports', () => {
     const config = {
       module_type: 'm',
       module_subtype: 's',
@@ -120,9 +115,11 @@ describe('module configs with a per-variable multi_port', () => {
     expect(checkAndClaimCouplings('R2', 'merge', second, used).valid).toBe(true)
     expect(buildUsedPortKeys([{ source: 'R1', target: 'merge', data: { couplings: first } }]).size).toBe(1)
 
-    // Control: a plain port still takes only one connection.
+    // A plain port still takes only one connection.
     const toR3 = resolvePortCouplings(mergePorts, resistorPorts, 0, 0)
     expect(checkAndClaimCouplings('merge', 'R3', toR3, used).valid).toBe(true)
-    expect(checkAndClaimCouplings('R2', 'R3', resolvePortCouplings(resistorPorts, resistorPorts), used).valid).toBe(false)
+    expect(checkAndClaimCouplings('R2', 'R3', resolvePortCouplings(resistorPorts, resistorPorts), used).valid).toBe(
+      false
+    )
   })
 })
