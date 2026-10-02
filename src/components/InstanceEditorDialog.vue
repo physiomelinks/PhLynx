@@ -278,7 +278,7 @@
                     <Column header="Multiport" style="min-width: 110px">
                       <template #body="slotProps">
                         <div class="flex flex-col gap-1">
-                          <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact (the port's variables are locked too, as entries pair with them by position). -->
+                          <!-- A per-variable multi_port list is read-only here; its entries pair with the variables by position. -->
                           <span
                             v-if="Array.isArray(slotProps.data.multiportType)"
                             class="per-variable-multiport"
@@ -373,7 +373,6 @@
 </template>
 
 <script setup>
-import { formatMultiportType } from '../utils/config'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
@@ -409,6 +408,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, areModelsEquivalent, extractVariablesFromMath } from '../utils/cellml'
 import { sanitiseNameOnBlur } from '../utils/misc'
+import { formatMultiportType } from '../utils/config'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

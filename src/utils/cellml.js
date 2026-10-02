@@ -460,11 +460,8 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   sumComp.addVariable(sumVar)
   _libcellml.Variable.addEquivalence(referenceVar, sumVar)
 
-  // Create Input Variables in the Sum Component.
-  // Every term is added, whichever side of the edge the Sum port is on and
-  // whether or not the term comes through a Multiply port, as in
-  // circulatory_autogen: e.g. an upstream Sum port's v_out_sum = +(sum of the
-  // downstream flows).
+  // Create Input Variables in the Sum Component. Every term is added, whichever
+  // side of the edge the Sum port is on (as in circulatory_autogen).
   const addVarNames = []
 
   targetComponentVarNameMap.forEach(({ component, varName: targetVarName }) => {
@@ -856,11 +853,15 @@ function addPerVariableMultiportCoupling(model, sourceComp, srcLabel, targetComp
 
   for (const label of [srcLabel, tgtLabel]) {
     if (!isPerVariableMultiport(label) && label.multiportType !== 'None' && label.multiportType !== 'True') {
-      throw new Error(`Cannot connect ${describe()}: a per-variable multiport cannot couple to a "${label.multiportType}" multiport.`)
+      throw new Error(
+        `Cannot connect ${describe()}: a per-variable multiport cannot couple to a "${label.multiportType}" multiport.`
+      )
     }
   }
   if (srcLabel.variables.length !== tgtLabel.variables.length) {
-    throw new Error(`Cannot connect ${describe()}: a per-variable multiport needs the same number of variables on both sides.`)
+    throw new Error(
+      `Cannot connect ${describe()}: a per-variable multiport needs the same number of variables on both sides.`
+    )
   }
 
   const srcTypes = getVariableMultiportTypes(srcLabel)

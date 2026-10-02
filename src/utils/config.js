@@ -98,32 +98,26 @@ export function restoreVariables(variables = []) {
   ])
 }
 
-/**
- * Normalises a config's `multi_port` to a port's `multiportType`.
- *
- * Whole-port values are case-insensitive: "True"/true, "Sum", "Multiply", else "None".
- * The list form, one entry per port variable (e.g. `["sum", "True"]`), is kept as a
- * copy of the list, exactly as written, so it exports unchanged; see
- * getVariableMultiportTypes for its meaning.
- */
+// Whole-port values are case-insensitive. A per-variable list is kept exactly as
+// written, so it exports unchanged (see getVariableMultiportTypes).
 export function parseMultiport(value) {
   if (Array.isArray(value)) return [...value]
-  if (value === true) return "True"
-  if (typeof value !== 'string') return "None"
+  if (value === true) return 'True'
+  if (typeof value !== 'string') return 'None'
   switch (value.toLowerCase()) {
     case 'true':
-      return "True"
+      return 'True'
     case 'sum':
-      return "Sum"
+      return 'Sum'
     case 'multiply':
-      return "Multiply"
+      return 'Multiply'
     default:
-      return "None"
+      return 'None'
   }
 }
 
 function unparseMultiport(value) {
-  if (value === "None") return undefined
+  if (value === 'None') return undefined
   if (Array.isArray(value)) return [...toRaw(value)]
   return value
 }
@@ -140,7 +134,7 @@ export function isPerVariableMultiport(port) {
  * A "Sum" variable (normally an input) is the sum, over every module connected
  * through the port, of the neighbour's corresponding port variable. A "True"
  * variable is shared with every connected neighbour. The port accepts any number
- * of connections. Same semantics as circulatory_autogen (libcuflynx).
+ * of connections. Same semantics as circulatory_autogen.
  *
  * @throws {Error} when the list does not have one "sum"/"True" entry per variable.
  */

@@ -46,7 +46,7 @@
         @change="$emit('change')"
       />
 
-      <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact (the port's variables are locked too, as entries pair with them by position). -->
+      <!-- A per-variable multi_port list is read-only here; its entries pair with the variables by position. -->
       <span
         v-if="Array.isArray(port.multiportType)"
         class="per-variable-multiport"
@@ -82,7 +82,6 @@
 </template>
 
 <script setup>
-import { formatMultiportType } from '../utils/config'
 import { computed } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -90,6 +89,7 @@ import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
 import { Handle, Position } from '@vue-flow/core'
 import { PORT_TYPE_OPTIONS, MULTIPORT_OPTIONS } from '../utils/constants'
+import { formatMultiportType } from '../utils/config'
 
 const props = defineProps({
   side: {

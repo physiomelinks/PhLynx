@@ -9,11 +9,9 @@ import { generateFlattenedModel, processCellMLData } from '../../../src/utils/ce
 import { resolvePortCouplings } from '../../../src/utils/edges.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
-// Sign convention for whole-port Sum multiports (as in circulatory_autogen):
-// every term of a generated sum is added, whether the Sum port is on the
-// upstream (exit) or downstream (entrance) side, and whether or not the term
-// comes through a Multiply port. PhLynx used to subtract both kinds of term.
-// Uses PhLynx's bundled microvasculature_network modules, where
+// Every term of a generated sum is added, whether the Sum port is on the upstream
+// (exit) or downstream (entrance) side, and whether or not the term comes through a
+// Multiply port. The bundled microvasculature_network modules have
 // dq_C/dt = v - v_out_sum, so v_out_sum must be the positive outflow.
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const assetDir = path.resolve(__dirname, '../../../src/assets')
@@ -26,7 +24,10 @@ function loadLibrary(store) {
   store.addUnitsFile({ componentFile: 'units.cellml', model: units.units.model })
   const modules = processCellMLData(readAsset('modules/microvasculature_network_modules.cellml'))
   store.addMathFile('microvasculature_network_modules.cellml', modules.components)
-  store.addConfigFile('microvasculature_network.json', JSON.parse(readAsset('module_configs/microvasculature_network.json')))
+  store.addConfigFile(
+    'microvasculature_network.json',
+    JSON.parse(readAsset('module_configs/microvasculature_network.json'))
+  )
 }
 
 function makeNode(store, name, moduleRef) {
@@ -49,7 +50,12 @@ function connectAll(nodes, pairs) {
   for (const [source, target] of pairs) {
     const sourceIndex = edges.filter((e) => e.source === source).length
     const targetIndex = edges.filter((e) => e.target === target).length
-    const couplings = resolvePortCouplings(byId.get(source).data.ports, byId.get(target).data.ports, sourceIndex, targetIndex)
+    const couplings = resolvePortCouplings(
+      byId.get(source).data.ports,
+      byId.get(target).data.ports,
+      sourceIndex,
+      targetIndex
+    )
     edges.push({ id: `${source}--${target}`, source, target, data: { couplings } })
   }
   return edges
@@ -154,7 +160,9 @@ describe('whole-port Sum multiport sign convention', () => {
     expect(sumMath).toMatch(/<plus\/>\s*<ci>op_v<\/ci>\s*<ci>op_scaled_v<\/ci>/)
     expect(sumMath).not.toContain('<minus/>')
     expect(equivalent(model, ['generated_summations', 'sum_of_v_in_sum'], ['junction', 'v_in_sum'])).toBe(true)
-    expect(equivalent(model, ['generated_summations', 'op_scaled_v'], ['generated_multiplications', 'scaled_v'])).toBe(true)
+    expect(equivalent(model, ['generated_summations', 'op_scaled_v'], ['generated_multiplications', 'scaled_v'])).toBe(
+      true
+    )
     expect(equivalent(model, ['generated_summations', 'op_v'], ['cap2', 'v'])).toBe(true)
     model.delete()
   })
