@@ -820,22 +820,6 @@ function stripCelsiusToArbitraryUnit(xmlString) {
 }
 
 /**
- * Builds a single flattened CellML model from the workspace graph.
- *
- * @param {Array} nodes - VueFlow nodes. Each node.data must include:
- *   { name, mathRef, variables }, where mathRef ('componentFile:componentName')
- *   is looked up in libraryStore.availableMath to get the raw CellML XML string
- *   for a standalone single-component model (see extractComponentsFromCellmlString).
- * @param {Array} edges - VueFlow edges. Each edge has { source, target, data: { couplings } },
- *   where source/target are node ids (there is no edge.sourceNode/edge.targetNode) and
- *   couplings are the pre-resolved port-label pairings produced by resolvePortCouplings.
- * @param {object} libraryStore - Pinia library store, providing availableMath (Map<mathRef, xmlString>),
- *   availableUnits (Array<{ componentFile, model }>), and getGlobalConstant(name).
- * @param {Array} inspectionModules - Records from useInspectionModuleStore().modules, each
- *   { name, units, variables: [{ nodeId, variableName, ... }] }. Each becomes its own generated
- *   component summing the selected variables — see createInspectionModuleComponent.
- */
-/**
  * Equivalences two variables, through a generated conversion component when
  * their units are affine (e.g. celsius and kelvin).
  */
@@ -908,6 +892,22 @@ function addPerVariableMultiportCoupling(model, sourceComp, srcLabel, targetComp
   })
 }
 
+/**
+ * Builds a single flattened CellML model from the workspace graph.
+ *
+ * @param {Array} nodes - VueFlow nodes. Each node.data must include:
+ *   { name, mathRef, variables }, where mathRef ('componentFile:componentName')
+ *   is looked up in libraryStore.availableMath to get the raw CellML XML string
+ *   for a standalone single-component model (see extractComponentsFromCellmlString).
+ * @param {Array} edges - VueFlow edges. Each edge has { source, target, data: { couplings } },
+ *   where source/target are node ids (there is no edge.sourceNode/edge.targetNode) and
+ *   couplings are the pre-resolved port-label pairings produced by resolvePortCouplings.
+ * @param {object} libraryStore - Pinia library store, providing availableMath (Map<mathRef, xmlString>),
+ *   availableUnits (Array<{ componentFile, model }>), and getGlobalConstant(name).
+ * @param {Array} inspectionModules - Records from useInspectionModuleStore().modules, each
+ *   { name, units, variables: [{ nodeId, variableName, ... }] }. Each becomes its own generated
+ *   component summing the selected variables — see createInspectionModuleComponent.
+ */
 export function generateFlattenedModel(nodes, edges, libraryStore, inspectionModules = []) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
