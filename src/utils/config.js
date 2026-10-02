@@ -98,14 +98,70 @@ export function restoreVariables(variables = []) {
   ])
 }
 
-function parseMultiport(value) {
-  if (value === true || value === "True") return "True"
-  if (value === "Sum") return "Sum"
-  if (value === "Multiply") return "Multiply"
-  return "None"
+// Whole-port values are case-insensitive. A per-variable list is kept exactly as
+// written, so it exports unchanged (see getVariableMultiportTypes).
+export function parseMultiport(value) {
+  if (Array.isArray(value)) return [...value]
+  if (value === true) return 'True'
+  if (typeof value !== 'string') return 'None'
+  switch (value.toLowerCase()) {
+    case 'true':
+      return 'True'
+    case 'sum':
+      return 'Sum'
+    case 'multiply':
+      return 'Multiply'
+    default:
+      return 'None'
+  }
 }
 
 function unparseMultiport(value) {
-  if (value === "None") return undefined
+  if (value === 'None') return undefined
+  if (Array.isArray(value)) return [...toRaw(value)]
   return value
+}
+
+/** Whether a port has a per-variable (list-form) multi_port. */
+export function isPerVariableMultiport(port) {
+  return Array.isArray(port?.multiportType)
+}
+
+/**
+ * The per-variable multiport types of a list-form port, normalised to "Sum" or
+ * "True", one per port variable; null for any other port.
+ *
+ * A "Sum" variable (normally an input) is the sum, over every module connected
+ * through the port, of the neighbour's corresponding port variable. A "True"
+ * variable is shared with every connected neighbour. The port accepts any number
+ * of connections. Same semantics as circulatory_autogen.
+ *
+ * @throws {Error} when the list does not have one "sum"/"True" entry per variable.
+ */
+export function getVariableMultiportTypes(port) {
+  if (!isPerVariableMultiport(port)) return null
+  const entries = port.multiportType
+  const variables = port.variables ?? []
+  if (entries.length !== variables.length) {
+    throw new Error(
+      `Port "${port.label}" has a per-variable multi_port ${JSON.stringify(entries)} of length ` +
+        `${entries.length}, but ${variables.length} variables; it needs one entry per variable.`
+    )
+  }
+  return entries.map((entry, i) => {
+    const type = parseMultiport(entry)
+    if (type !== 'Sum' && type !== 'True') {
+      throw new Error(
+        `Port "${port.label}" has multi_port entry ${JSON.stringify(entry)} for variable ` +
+          `"${variables[i]}"; per-variable entries must be "sum" or "True".`
+      )
+    }
+    return type
+  })
+}
+
+/** Display text for a port's multiportType. */
+export function formatMultiportType(multiportType) {
+  if (Array.isArray(multiportType)) return `Per variable: ${multiportType.join(', ')}`
+  return multiportType ?? 'None'
 }

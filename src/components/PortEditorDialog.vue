@@ -43,6 +43,7 @@
             <template #body="slotProps">
               <Select
                 v-model="slotProps.data.variables"
+                :disabled="Array.isArray(slotProps.data.multiportType)"
                 :options="props.variables"
                 optionLabel="name"
                 optionValue="name"
@@ -56,7 +57,14 @@
           <Column header="Multiport" style="width: 120px">
             <template #body="slotProps">
               <div class="flex flex-col gap-2">
+                <!-- A per-variable multi_port list is read-only here; its entries pair with the variables by position. -->
+                <span
+                  v-if="Array.isArray(slotProps.data.multiportType)"
+                  class="per-variable-multiport"
+                  title="Per-variable multiport, one entry per port variable"
+                >{{ formatMultiportType(slotProps.data.multiportType) }}</span>
                 <Select
+                  v-else
                   v-model="slotProps.data.multiportType"
                   :options="MULTIPORT_OPTIONS"
                   optionLabel="label"
@@ -122,6 +130,7 @@ import { notify } from '../utils/notify'
 import { sanitiseName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
 import { PORT_TYPE_OPTIONS, MULTIPORT_OPTIONS } from '../utils/constants'
+import { formatMultiportType } from '../utils/config'
 
 const props = defineProps({
   modelValue: {
@@ -309,5 +318,12 @@ function deletePort(index) {
   font-size: 12px;
   font-weight: 600;
   color: var(--p-text-muted-color);
+}
+
+.per-variable-multiport {
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

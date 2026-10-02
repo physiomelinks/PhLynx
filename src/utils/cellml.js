@@ -1,4 +1,5 @@
 import { isEmpty } from './variables.js'
+import { getVariableMultiportTypes, isPerVariableMultiport } from './config'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -458,19 +459,13 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   sumComp.addVariable(sumVar)
   _libcellml.Variable.addEquivalence(referenceVar, sumVar)
 
-  // Create Input Variables in the Sum Component
-  // if multiport sum is on target node, add; source node, subtract.
+  // Create Input Variables in the Sum Component. Every term is added, whichever
+  // side of the edge the Sum port is on (as in circulatory_autogen).
   const addVarNames = []
-  const subVarNames = []
 
-  targetComponentVarNameMap.forEach(({ component, varName: targetVarName, isTarget }) => {
+  targetComponentVarNameMap.forEach(({ component, varName: targetVarName }) => {
     const localVarName = nextAvailableVarName(sumComp, `op_${targetVarName}`)
-
-    if (isTarget) {
-      addVarNames.push(localVarName)
-    } else {
-      subVarNames.push(localVarName)
-    }
+    addVarNames.push(localVarName)
 
     const opVar = new _libcellml.Variable()
     opVar.setName(localVarName)
@@ -487,51 +482,14 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   referenceVar.delete()
   sumVar.delete()
 
-  // Generate MathML
-  // Format: sum = (a1 + a2 + ...) - (s1 + s2 + ...)
-  // Handles all four cases: adds only, subtracts only, both, or none.
+  // Generate MathML: sum = a1 + a2 + ..., or 0 with no terms.
   let rhsMathML
-  if (addVarNames.length === 0 && subVarNames.length === 0) {
+  if (addVarNames.length === 0) {
     rhsMathML = `<cn cellml:units="${unitsName}">0</cn>`
-  } else if (subVarNames.length === 0) {
-    // Only additions — keep original flat plus structure
+  } else {
     rhsMathML = `<apply>
         <plus/>
         ${addVarNames.map((name) => `<ci>${name}</ci>`).join('\n        ')}
-      </apply>`
-  } else if (addVarNames.length === 0) {
-    // Only subtractions — negate the sum
-    rhsMathML = `<apply>
-        <minus/>
-        ${
-          subVarNames.length === 1
-            ? `<ci>${subVarNames[0]}</ci>`
-            : `<apply>
-          <plus/>
-          ${subVarNames.map((name) => `<ci>${name}</ci>`).join('\n          ')}
-        </apply>`
-        }
-      </apply>`
-  } else {
-    // Mixed — additions minus sum-of-subtractions
-    const addsPart =
-      addVarNames.length === 1
-        ? `<ci>${addVarNames[0]}</ci>`
-        : `<apply>
-          <plus/>
-          ${addVarNames.map((name) => `<ci>${name}</ci>`).join('\n          ')}
-        </apply>`
-    const subsPart =
-      subVarNames.length === 1
-        ? `<ci>${subVarNames[0]}</ci>`
-        : `<apply>
-          <plus/>
-          ${subVarNames.map((name) => `<ci>${name}</ci>`).join('\n          ')}
-        </apply>`
-    rhsMathML = `<apply>
-        <minus/>
-        ${addsPart}
-        ${subsPart}
       </apply>`
   }
 
@@ -859,6 +817,83 @@ function stripCelsiusToArbitraryUnit(xmlString) {
 }
 
 /**
+ * Equivalences two variables, through a generated conversion component when
+ * their units are affine (e.g. celsius and kelvin).
+ */
+function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable) {
+  if (!srcVariable || !tgtVariable) return
+  const v1 = sourceComp.variableByName(srcVariable)
+  const v2 = targetComp.variableByName(tgtVariable)
+  if (v1 && v2) {
+    const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
+    if (!handled) {
+      _libcellml.Variable.addEquivalence(v1, v2)
+    }
+  }
+  v1?.delete()
+  v2?.delete()
+}
+
+function perVariableSumKey(component, port, varName) {
+  return `${component.name()}::${port.label}::${varName}`
+}
+
+/**
+ * Couples one port pair where either side has a per-variable (list-form)
+ * multi_port, as circulatory_autogen does. Variables pair by position. A "Sum"
+ * variable gets the neighbour's variable as a term of its generated summation
+ * (always added, whichever side of the edge it is on); every other variable is
+ * equivalenced directly, so a "True" variable is shared with every neighbour.
+ */
+function addPerVariableMultiportCoupling(model, sourceComp, srcLabel, targetComp, tgtLabel, multiPortSums) {
+  const describe = () =>
+    `"${srcLabel.label}" of "${sourceComp.name()}" ${JSON.stringify(srcLabel.variables)} to ` +
+    `"${tgtLabel.label}" of "${targetComp.name()}" ${JSON.stringify(tgtLabel.variables)}`
+
+  for (const label of [srcLabel, tgtLabel]) {
+    if (!isPerVariableMultiport(label) && label.multiportType !== 'None' && label.multiportType !== 'True') {
+      throw new Error(
+        `Cannot connect ${describe()}: a per-variable multiport cannot couple to a "${label.multiportType}" multiport.`
+      )
+    }
+  }
+  if (srcLabel.variables.length !== tgtLabel.variables.length) {
+    throw new Error(
+      `Cannot connect ${describe()}: a per-variable multiport needs the same number of variables on both sides.`
+    )
+  }
+
+  const srcTypes = getVariableMultiportTypes(srcLabel)
+  const tgtTypes = getVariableMultiportTypes(tgtLabel)
+
+  srcLabel.variables.forEach((srcVariable, i) => {
+    const tgtVariable = tgtLabel.variables[i]
+    const isSrcSum = srcTypes?.[i] === 'Sum'
+    const isTgtSum = tgtTypes?.[i] === 'Sum'
+
+    if (isSrcSum && isTgtSum) {
+      throw new Error(`Cannot connect ${describe()}: "${srcVariable}" and "${tgtVariable}" are both "sum" variables.`)
+    }
+    if (!isSrcSum && !isTgtSum) {
+      connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable)
+      return
+    }
+
+    const [sumComp, sumLabel, sumVariable, operandComp, operandVariable] = isSrcSum
+      ? [sourceComp, srcLabel, srcVariable, targetComp, tgtVariable]
+      : [targetComp, tgtLabel, tgtVariable, sourceComp, srcVariable]
+    const multiKey = perVariableSumKey(sumComp, sumLabel, sumVariable)
+    if (!multiPortSums.has(multiKey)) {
+      multiPortSums.set(multiKey, { sourceComp: sumComp, srcLabel: { variables: [sumVariable] }, targets: [] })
+    }
+    multiPortSums.get(multiKey).targets.push({
+      component: operandComp,
+      label: { variables: [operandVariable] },
+    })
+  })
+}
+
+/**
  * Builds a single flattened CellML model from the workspace graph.
  *
  * @param {Array} nodes - VueFlow nodes. Each node.data must include:
@@ -1068,6 +1103,11 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       const couplings = edge.data?.couplings ?? []
 
       for (const { sourcePort: srcLabel, targetPort: tgtLabel } of couplings) {
+        if (isPerVariableMultiport(srcLabel) || isPerVariableMultiport(tgtLabel)) {
+          addPerVariableMultiportCoupling(model, sourceComp, srcLabel, targetComp, tgtLabel, multiPortSums)
+          continue
+        }
+
         const isSrcMultiportSum = srcLabel.multiportType === 'Sum'
         const isTgtMultiportSum = tgtLabel.multiportType === 'Sum'
         const isSrcMultiportMultiply = srcLabel.multiportType === 'Multiply'
@@ -1103,26 +1143,12 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
           multiPortSums.get(multiKey).targets.push({
             component: operandComponent,
             label: operandLabel,
-            isTarget: !isSrcMultiportSum,
           })
         } else {
           // Direct one-to-one variable equivalence
           const minLength = Math.min(srcLabel.variables.length, tgtLabel.variables.length)
           for (let i = 0; i < minLength; i++) {
-            const srcVariable = srcLabel.variables[i]
-            const tgtVariable = tgtLabel.variables[i]
-            if (srcVariable && tgtVariable) {
-              const v1 = sourceComp.variableByName(srcVariable)
-              const v2 = targetComp.variableByName(tgtVariable)
-              if (v1 && v2) {
-                const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
-                if (!handled) {
-                  _libcellml.Variable.addEquivalence(v1, v2)
-                }
-              }
-              v1?.delete()
-              v2?.delete()
-            }
+            connectVariables(model, sourceComp, srcLabel.variables[i], targetComp, tgtLabel.variables[i])
           }
         }
       }
@@ -1168,6 +1194,25 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       }
     }
 
+    // A per-variable "sum" variable with no neighbours sums over nothing: it is 0.
+    for (const node of nodes) {
+      for (const port of node.data.ports ?? []) {
+        const variableTypes = getVariableMultiportTypes(port)
+        if (!variableTypes) continue
+        const component = nodeComponentMap.get(node.id)
+        variableTypes.forEach((type, i) => {
+          const varName = port.variables[i]
+          const multiKey = perVariableSumKey(component, port, varName)
+          if (type !== 'Sum' || multiPortSums.has(multiKey)) return
+          console.warn(
+            `"${node.data.name}" variable "${varName}" (port "${port.label}") sums over its ` +
+              `connections, but none are connected; setting it to 0.`
+          )
+          multiPortSums.set(multiKey, { sourceComp: component, srcLabel: { variables: [varName] }, targets: [] })
+        })
+      }
+    }
+
     // Pass 2: Handle Sum connections (including any operands injected by Multiply above).
     for (const sumData of multiPortSums.values()) {
       const { sourceComp, srcLabel, targets } = sumData
@@ -1179,13 +1224,13 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       const sourceVarName = sourceVarNames[0]
       const targetComponents = []
       for (const targetInfo of targets) {
-        const { component, label, isTarget } = targetInfo
+        const { component, label } = targetInfo
         const targetVarNames = label.variables
         if (targetVarNames.length !== 1) {
           throw new Error('Multi-port-sum target must have exactly one variable to be summed.')
         }
         const targetVarName = targetVarNames[0]
-        targetComponents.push({ component, varName: targetVarName, isTarget })
+        targetComponents.push({ component, varName: targetVarName })
       }
 
       createSummationComponent(model, sourceComp, sourceVarName, targetComponents)

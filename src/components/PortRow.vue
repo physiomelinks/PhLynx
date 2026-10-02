@@ -36,6 +36,7 @@
 
       <MultiSelect
         v-model="port.variables"
+        :disabled="Array.isArray(port.multiportType)"
         :options="variables"
         optionLabel="name"
         optionValue="name"
@@ -45,7 +46,14 @@
         @change="$emit('change')"
       />
 
+      <!-- A per-variable multi_port list is read-only here; its entries pair with the variables by position. -->
+      <span
+        v-if="Array.isArray(port.multiportType)"
+        class="per-variable-multiport"
+        title="Per-variable multiport, one entry per port variable"
+      >{{ formatMultiportType(port.multiportType) }}</span>
       <Select
+        v-else
         v-model="port.multiportType"
         :options="MULTIPORT_OPTIONS"
         optionLabel="label"
@@ -81,6 +89,7 @@ import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
 import { Handle, Position } from '@vue-flow/core'
 import { PORT_TYPE_OPTIONS, MULTIPORT_OPTIONS } from '../utils/constants'
+import { formatMultiportType } from '../utils/config'
 
 const props = defineProps({
   side: {
@@ -298,5 +307,12 @@ const handleClass = computed(() => {
 .compact-multiselect-panel .p-checkbox-box {
   width: 14px !important;
   height: 14px !important;
+}
+
+.per-variable-multiport {
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

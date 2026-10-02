@@ -263,6 +263,7 @@
                       <template #body="slotProps">
                         <MultiSelect
                           v-model="slotProps.data.variables"
+                          :disabled="Array.isArray(slotProps.data.multiportType)"
                           :options="parameterRows"
                           optionLabel="name"
                           optionValue="name"
@@ -277,7 +278,14 @@
                     <Column header="Multiport" style="min-width: 110px">
                       <template #body="slotProps">
                         <div class="flex flex-col gap-1">
+                          <!-- A per-variable multi_port list is read-only here; its entries pair with the variables by position. -->
+                          <span
+                            v-if="Array.isArray(slotProps.data.multiportType)"
+                            class="per-variable-multiport"
+                            title="Per-variable multiport, one entry per port variable"
+                          >{{ formatMultiportType(slotProps.data.multiportType) }}</span>
                           <Select
+                            v-else
                             v-model="slotProps.data.multiportType"
                             :options="MULTIPORT_OPTIONS"
                             optionLabel="label"
@@ -400,6 +408,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, areModelsEquivalent, extractVariablesFromMath } from '../utils/cellml'
 import { sanitiseNameOnBlur } from '../utils/misc'
+import { formatMultiportType } from '../utils/config'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -1486,5 +1495,12 @@ async function handleSave() {
   .right-pane--collapsed {
     display: none;
   }
+}
+
+.per-variable-multiport {
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
