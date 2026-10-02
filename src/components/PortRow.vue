@@ -36,6 +36,7 @@
 
       <MultiSelect
         v-model="port.variables"
+        :disabled="Array.isArray(port.multiportType)"
         :options="variables"
         optionLabel="name"
         optionValue="name"
@@ -45,7 +46,7 @@
         @change="$emit('change')"
       />
 
-      <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact. -->
+      <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact (the port's variables are locked too, as entries pair with them by position). -->
       <span
         v-if="Array.isArray(port.multiportType)"
         class="per-variable-multiport"

@@ -263,6 +263,7 @@
                       <template #body="slotProps">
                         <MultiSelect
                           v-model="slotProps.data.variables"
+                          :disabled="Array.isArray(slotProps.data.multiportType)"
                           :options="parameterRows"
                           optionLabel="name"
                           optionValue="name"
@@ -277,7 +278,7 @@
                     <Column header="Multiport" style="min-width: 110px">
                       <template #body="slotProps">
                         <div class="flex flex-col gap-1">
-                          <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact. -->
+                          <!-- Per-variable (list-form) multi_port: shown, not editable here, so it is kept intact (the port's variables are locked too, as entries pair with them by position). -->
                           <span
                             v-if="Array.isArray(slotProps.data.multiportType)"
                             class="per-variable-multiport"
