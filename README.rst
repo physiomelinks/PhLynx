@@ -104,6 +104,16 @@ with hot-reloading for the Vue frontend.
 
     yarn dev
 
+Per-variable ``multi_port``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A port's ``multi_port`` may be ``True``, ``sum`` or ``multiply`` (any case), or a list with one entry per port variable,
+for example ``{"port_type": "vessel_port", "variables": ["v_in", "u"], "multi_port": ["sum", "True"]}``.
+A port with a list accepts any number of connections.
+A ``sum`` variable is the sum, over every connected module, of the neighbour's corresponding port variable
+(0, with a warning, when nothing is connected); a ``True`` variable is shared with every connected module.
+This matches circulatory_autogen. The list is shown, but not editable, in the port editors, and is exported unchanged.
+
 Deployment
 ~~~~~~~~~~
 
