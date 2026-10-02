@@ -1,12 +1,6 @@
-// Loading modules, units and configs from the module library
+// Loads modules, units and configs from the module library
 // (physiomelinks/circulatory-autogen-modules) through its manifest.
-//
-// Off by default; the bundled assets in src/assets are always loaded. Switches
-// (Vite env vars, see README):
-//   VITE_LOAD_MODULE_LIBRARY=true   turn manifest loading on
-//   VITE_MODULE_LIBRARY_REF=<ref>   branch, tag or commit to load (default: main)
-//   VITE_MODULE_LIBRARY_URL=<url>   base URL to load from instead of jsDelivr,
-//                                   e.g. a local server over a checkout
+// Switched on with VITE_LOAD_MODULE_LIBRARY; see the README for the settings.
 const GITHUB_ORG = 'physiomelinks'
 const REPO = 'circulatory-autogen-modules'
 const DEFAULT_REF = 'main'

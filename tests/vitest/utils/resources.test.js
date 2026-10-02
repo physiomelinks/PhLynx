@@ -11,7 +11,9 @@ const manifest = {
   collections: {
     modules: [{ name: 'cardiac', file: 'cardiac_modules.cellml', path: 'modules/cardiac/cardiac_modules.cellml' }],
     units: [{ name: 'cardiac', file: 'cardiac_units.cellml', path: 'modules/cardiac/cardiac_units.cellml' }],
-    configs: [{ name: 'cardiac', file: 'cardiac_modules_config.json', path: 'modules/cardiac/cardiac_modules_config.json' }],
+    configs: [
+      { name: 'cardiac', file: 'cardiac_modules_config.json', path: 'modules/cardiac/cardiac_modules_config.json' },
+    ],
     parameters: [{ name: 'cardiac', file: 'cardiac_parameters.csv', path: 'modules/cardiac/cardiac_parameters.csv' }],
   },
 }
@@ -78,7 +80,11 @@ describe('fetchModuleLibraryResources', () => {
     )
     expect(result.failures).toEqual([])
     expect(result.modules).toEqual([
-      { ...manifest.collections.modules[0], url: `${base}modules/cardiac/cardiac_modules.cellml`, content: '<model name="m"/>' },
+      {
+        ...manifest.collections.modules[0],
+        url: `${base}modules/cardiac/cardiac_modules.cellml`,
+        content: '<model name="m"/>',
+      },
     ])
     expect(result.units[0].content).toBe('<model name="u"/>')
     expect(result.configs[0].content).toEqual([{ vessel_type: 'chamber' }])
