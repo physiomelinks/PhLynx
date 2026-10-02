@@ -193,7 +193,9 @@ describe('whole-port Sum multiport sign convention', () => {
     variable.delete()
     component.delete()
     expect(equivalentInitialValues).toEqual([])
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('"artery" variable "v_out_sum" is set by a connection'))
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('"artery" variable "v_out_sum" is set by a connection')
+    )
     model.delete()
   })
 })

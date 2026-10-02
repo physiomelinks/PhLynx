@@ -7,10 +7,7 @@
  * - A row named exactly like a variable of any node becomes a global constant
  *   (libraryStore.assignGlobalConstant).
  *
- * Node variables are updated in place (each node's `data.variables` is
- * replaced with updated copies). A variable that is later fed through a
- * connection keeps its value here; generateFlattenedModel does not emit it
- * while it is connected.
+ * Each node's `data.variables` is replaced with updated copies.
  *
  * @param {Array} nodes  workspace nodes ({ data: { name, variables } })
  * @param {Iterable} rows  parsed parameter rows (see parseParametersFile)

@@ -28,7 +28,10 @@ function loadLibrary(store) {
     if (result.components?.length) store.addMathFile(file, result.components)
     if (result.units.count > 0) store.addUnitsFile({ componentFile: file, model: result.units.model })
   }
-  store.addConfigFile('diffusion_volume_modules_config.json', JSON.parse(readResource('diffusion_volume_modules_config.json')))
+  store.addConfigFile(
+    'diffusion_volume_modules_config.json',
+    JSON.parse(readResource('diffusion_volume_modules_config.json'))
+  )
 }
 
 // The library's parameters file, one row per instance (`<variable>_<instance>`), globals as they are.
@@ -68,7 +71,12 @@ function connectAll(nodes, pairs) {
   for (const [source, target] of pairs) {
     const sourceIndex = edges.filter((e) => e.source === source).length
     const targetIndex = edges.filter((e) => e.target === target).length
-    const couplings = resolvePortCouplings(byId.get(source).data.ports, byId.get(target).data.ports, sourceIndex, targetIndex)
+    const couplings = resolvePortCouplings(
+      byId.get(source).data.ports,
+      byId.get(target).data.ports,
+      sourceIndex,
+      targetIndex
+    )
     edges.push({ id: `${source}--${target}`, source, target, data: { couplings } })
   }
   return edges

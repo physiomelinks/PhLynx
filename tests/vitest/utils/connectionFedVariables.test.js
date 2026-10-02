@@ -5,13 +5,34 @@ import { getConnectionFedVariables, resolvePortCouplings } from '../../../src/ut
 // Minimal modules: a source whose exit port gives [v, u_out], and a sink whose
 // entrance port takes [v_in (boundary_condition), u (variable)].
 const modules = new Map([
-  ['source:x', { variables: [{ name: 'v', type: 'variable' }, { name: 'u_out', type: 'boundary_condition' }] }],
-  ['sink:x', { variables: [{ name: 'v_in', type: 'boundary_condition' }, { name: 'u', type: 'variable' }] }],
+  [
+    'source:x',
+    {
+      variables: [
+        { name: 'v', type: 'variable' },
+        { name: 'u_out', type: 'boundary_condition' },
+      ],
+    },
+  ],
+  [
+    'sink:x',
+    {
+      variables: [
+        { name: 'v_in', type: 'boundary_condition' },
+        { name: 'u', type: 'variable' },
+      ],
+    },
+  ],
 ])
 const libraryStore = { availableModules: modules }
 
 const node = (id, moduleRef, ports) => ({ id, data: { name: id, moduleRef, ports } })
-const port = (portType, variables, multiportType = 'None') => ({ portType, label: 'vessel_port', variables, multiportType })
+const port = (portType, variables, multiportType = 'None') => ({
+  portType,
+  label: 'vessel_port',
+  variables,
+  multiportType,
+})
 
 function edgeBetween(source, target) {
   const couplings = resolvePortCouplings(source.data.ports, target.data.ports)
