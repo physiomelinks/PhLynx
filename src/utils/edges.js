@@ -1,6 +1,5 @@
 import { getVariableMultiportTypes } from './config'
 
-
 /**
  * edges.js
  *
@@ -291,13 +290,8 @@ export function getConnectionFedVariables(nodes, edges, libraryStore) {
 // --- Internal helpers --------------------------------------------------------
 
 /**
- * Groups portLabel entries by a composite key of `portType\x00label`, but only
- * for portTypes that are in the allowedTypes set. Preserves config-file order
- * within each group (which defines slot assignment).
- *
- * @param {Array}  portLabels
- * @param {Set}    allowedTypes
- * @returns {Map<string, Array>}  key: "portType\x00label", value: ordered array of portLabel entries
+ * A port's per-variable multiport types, or null for a whole-port multiport or a
+ * malformed list.
  */
 function perVariableTypes(port) {
   try {
@@ -307,6 +301,15 @@ function perVariableTypes(port) {
   }
 }
 
+/**
+ * Groups portLabel entries by a composite key of `portType\x00label`, but only
+ * for portTypes that are in the allowedTypes set. Preserves config-file order
+ * within each group (which defines slot assignment).
+ *
+ * @param {Array}  portLabels
+ * @param {Set}    allowedTypes
+ * @returns {Map<string, Array>}  key: "portType\x00label", value: ordered array of portLabel entries
+ */
 function groupByTypeAndLabel(portLabels, allowedTypes) {
   const groups = new Map()
   for (const pl of portLabels) {
