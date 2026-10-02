@@ -1,3 +1,4 @@
+import { getVariableMultiportTypes } from './config'
 
 /**
  * edges.js
@@ -211,7 +212,94 @@ export function buildUsedPortKeys(edges) {
   return used
 }
 
+/**
+ * Finds the node variables whose value comes through a connection, so a
+ * parameter value set on them must not be emitted (as circulatory_autogen does:
+ * a connected boundary_condition variable takes its value from the connection,
+ * and a parameters-file value for it is only used while it is unconnected).
+ *
+ * A variable is connection-fed when it is:
+ * - a boundary_condition variable (per its module config) directly coupled to
+ *   another module's variable, including through a whole-port "True" or a
+ *   per-variable "True" entry;
+ * - the target of a Multiply port (it receives the scaled source variable);
+ * - the summed variable of a whole-port Sum port that has a connection;
+ * - a per-variable "sum" variable (always given a generated sum, 0 when unconnected).
+ *
+ * @param {Array} nodes  workspace nodes ({ id, data: { moduleRef, ports } })
+ * @param {Array} edges  edges with resolved `data.couplings`
+ * @param {Object} libraryStore  for the modules' variable types (availableModules)
+ * @returns {Map<string, Set<string>>}  node id -> connection-fed variable names
+ */
+export function getConnectionFedVariables(nodes, edges, libraryStore) {
+  const nodeById = new Map(nodes.map((n) => [n.id, n]))
+  const fed = new Map()
+  const mark = (nodeId, varName) => {
+    if (!varName) return
+    if (!fed.has(nodeId)) fed.set(nodeId, new Set())
+    fed.get(nodeId).add(varName)
+  }
+  const isBoundaryCondition = (nodeId, varName) => {
+    const moduleRef = nodeById.get(nodeId)?.data?.moduleRef
+    const module = libraryStore?.availableModules?.get(moduleRef)
+    return module?.variables?.find((v) => v.name === varName)?.type === 'boundary_condition'
+  }
+  const markIfBoundaryCondition = (nodeId, varName) => {
+    if (isBoundaryCondition(nodeId, varName)) mark(nodeId, varName)
+  }
+
+  // Per-variable "sum" variables always get an equation.
+  for (const node of nodes) {
+    for (const port of node.data?.ports ?? []) {
+      const types = perVariableTypes(port)
+      types?.forEach((type, i) => type === 'Sum' && mark(node.id, port.variables[i]))
+    }
+  }
+
+  for (const edge of edges) {
+    for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
+      const srcVars = sourcePort.variables ?? []
+      const tgtVars = targetPort.variables ?? []
+      const srcTypes = perVariableTypes(sourcePort)
+      const tgtTypes = perVariableTypes(targetPort)
+
+      if (srcTypes || tgtTypes) {
+        srcVars.forEach((srcVar, i) => {
+          if (srcTypes?.[i] === 'Sum' || tgtTypes?.[i] === 'Sum') return // marked above
+          markIfBoundaryCondition(edge.source, srcVar)
+          markIfBoundaryCondition(edge.target, tgtVars[i])
+        })
+      } else if (sourcePort.multiportType === 'Multiply') {
+        mark(edge.target, tgtVars[0])
+      } else if (sourcePort.multiportType === 'Sum' || targetPort.multiportType === 'Sum') {
+        if (sourcePort.multiportType === 'Sum') mark(edge.source, srcVars[0])
+        if (targetPort.multiportType === 'Sum') mark(edge.target, tgtVars[0])
+      } else {
+        const n = Math.min(srcVars.length, tgtVars.length)
+        for (let i = 0; i < n; i++) {
+          markIfBoundaryCondition(edge.source, srcVars[i])
+          markIfBoundaryCondition(edge.target, tgtVars[i])
+        }
+      }
+    }
+  }
+
+  return fed
+}
+
 // --- Internal helpers --------------------------------------------------------
+
+/**
+ * A port's per-variable multiport types, or null for a whole-port multiport or a
+ * malformed list.
+ */
+function perVariableTypes(port) {
+  try {
+    return getVariableMultiportTypes(port)
+  } catch {
+    return null // malformed lists are reported by generateFlattenedModel
+  }
+}
 
 /**
  * Groups portLabel entries by a composite key of `portType\x00label`, but only
