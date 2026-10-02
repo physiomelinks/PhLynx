@@ -104,6 +104,35 @@ with hot-reloading for the Vue frontend.
 
     yarn dev
 
+Loading modules from the module library
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+By default PhLynx loads only the modules, units and module configs bundled in ``src/assets``.
+It can also load them from the module library,
+`physiomelinks/circulatory-autogen-modules <https://github.com/physiomelinks/circulatory-autogen-modules>`_,
+through the library's manifest (``manifests/vitalworkshop.json``).
+This is controlled by Vite environment variables, set in ``.env.local`` or on the command line:
+
+``VITE_LOAD_MODULE_LIBRARY``
+  ``true`` to load the module library at startup. Off by default.
+``VITE_MODULE_LIBRARY_REF``
+  The branch, tag or commit of the module library to load from jsDelivr. Defaults to ``main``.
+``VITE_MODULE_LIBRARY_URL``
+  A base URL to load from instead of jsDelivr, for example a local server over a checkout of the module library
+  (``npx http-server --cors -p 8000`` in the checkout, then ``VITE_MODULE_LIBRARY_URL=http://localhost:8000/``;
+  the server must send CORS headers).
+
+.. code-block:: bash
+
+    VITE_LOAD_MODULE_LIBRARY=true VITE_MODULE_LIBRARY_REF=main yarn dev
+
+The bundled files are always loaded. Module library files load after them, so a library CellML file replaces the bundled
+math of the same file and component name, and a library config takes precedence over a bundled config with the same
+module type and subtype.
+If the manifest or a file fails to load, PhLynx shows a warning and carries on with what it has.
+
+Module configs use PhLynx's keys (``module_type``, ``module_subtype``, ``component_file``, ``component_type``).
+
 Deployment
 ~~~~~~~~~~
 
