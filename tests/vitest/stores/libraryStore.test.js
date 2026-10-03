@@ -119,3 +119,21 @@ describe('instances of a module built from a CellML file', () => {
     expect(rows).toMatchObject({ k: '0.5', x_init: '1.5' })
   })
 })
+
+describe('libraryStore unit expansions', () => {
+  const UNITS = (definition) =>
+    `<model xmlns="http://www.cellml.org/cellml/2.0#" name="u"><units name="per_millis">${definition}</units></model>`
+
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('follows the units files, and is never saved', () => {
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'u.cellml', model: UNITS('<unit prefix="milli" units="second" exponent="-1"/>') })
+    expect(store.unitExpansions.get('per_millis')).toBe('10³ s⁻¹')
+
+    store.addUnitsFile({ componentFile: 'u.cellml', model: UNITS('<unit units="second" exponent="-1"/>') })
+    expect(store.unitExpansions.get('per_millis')).toBe('s⁻¹')
+
+    expect(Object.keys(store.getState())).not.toContain('unitExpansions')
+  })
+})

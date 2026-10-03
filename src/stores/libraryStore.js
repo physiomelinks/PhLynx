@@ -4,7 +4,7 @@ import { ref, computed, markRaw } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef } from '../utils/config'
 import { AFFINE_UNIT_CONVERSIONS, NEW_MODULE_MATH_REF, GHOST_MATH_REF, STANDARD_UNITS } from '../utils/constants'
 import { cyrb53 } from '../utils/misc'
-import { extractUnitNames } from '../utils/units'
+import { expandUnits, extractUnitNames } from '../utils/units'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import { analyzeBatchInBackground, analyzeInBackground } from '../services/math/mathWorkerClient'
 import { separateParameters } from '../services/math/separateParameters'
@@ -490,6 +490,9 @@ export const useLibraryStore = defineStore('library', () => {
     return names
   })
 
+  /** Each units name's SI base-unit expansion, for display. Derived, so never saved. */
+  const unitExpansions = computed(() => expandUnits(availableUnits.value.map((file) => file.model)))
+
   function hasUnits(name) {
     return availableUnitNames.value.has(name)
   }
@@ -505,6 +508,7 @@ export const useLibraryStore = defineStore('library', () => {
     // Derived State 
     globalVariables,
     availableUnitNames,
+    unitExpansions,
 
     // Actions
     addConfigFile,

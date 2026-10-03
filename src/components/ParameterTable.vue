@@ -146,6 +146,7 @@
               v-model="slotProps.data.units"
               :sanitise="cleanName"
               :notice="getUnitsNotice(slotProps.data)"
+              :suggest="suggestUnits"
               floating
               placeholder="e.g. millivolt"
             />
@@ -201,6 +202,7 @@ import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOpti
 import { isValueMissing, isTypeFixed as isRowTypeFixed, typeOptionsFor as rowTypeOptionsFor } from '../utils/parameterRows'
 import { PARAMETER_TYPE_OPTIONS, NO_ACCESS } from '../utils/constants'
 import { cleanName, getUniqueName } from '../utils/identifiers'
+import { unitSuggestions } from '../utils/units'
 import { isInitialisable } from '../services/math/variableKinds'
 
 const props = defineProps({
@@ -218,9 +220,17 @@ const props = defineProps({
   connectionSupplied: { type: Set, default: null },
   /** Names the equations use. */
   mathReferences: { type: Set, default: () => new Set() },
+  /** Units names in the library, offered as the units are typed. */
+  unitNames: { type: Set, default: () => new Set() },
+  /** Each units name's SI base-unit expansion, shown beside its suggestion. */
+  unitExpansions: { type: Map, default: () => new Map() },
 })
 
 const { confirm } = useConfirmDialog()
+
+/** Library units names that could complete the typed units, each with its SI base-unit expansion. */
+const suggestUnits = (typed) =>
+  unitSuggestions(typed, props.unitNames).map((value) => ({ value, detail: props.unitExpansions.get(value) ?? '' }))
 
 /** Picker value meaning "create a new initialiser" rather than pick an existing variable. */
 const NEW_INITIALISER_VALUE = '__new_initialiser__'
