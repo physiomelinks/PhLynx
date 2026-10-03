@@ -38,12 +38,16 @@ function applyParameterTypes(mod, parameterData) {
   return mod
 }
 
-export function useLoadFromCellML() {
+/**
+ * @param {object} [options]
+ * @param {object|import('vue').Ref<object>} [options.fitViewParams] fitView options applied after layout.
+ */
+export function useLoadFromCellML({ fitViewParams } = {}) {
   const { nodes: currentNodes, addNodes } = useVueFlow()
   const store = useLibraryStore()
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
-  const { prepareLayout } = useWorkflowLayout()
+  const { prepareLayout } = useWorkflowLayout({ fitViewParams })
 
   const loadFromCellML = async (parsedCellmlPayload, componentFile, parameterData = null) => {
     try {

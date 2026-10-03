@@ -633,8 +633,8 @@ function onContextSidebarResize(width) {
 
 const fitViewParams = computed(() => ({
   padding: {
-    left: 0.5,
-    right: 0,
+    left: `${libraryPanelWidth.value + 40}px`,
+    right: 0.1,
     top: 0.1,
     bottom: 0.1,
   },
@@ -917,8 +917,8 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
-const { loadFromInstanceArray } = useLoadFromInstanceArray()
-const { loadFromCellML } = useLoadFromCellML()
+const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
+const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
 const { capture } = useScreenshot()
 const { trackEvent } = useGtm()
 const { clearWorkspace } = useClearWorkspace()

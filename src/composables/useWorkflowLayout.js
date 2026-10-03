@@ -1,5 +1,5 @@
 import { useVueFlow } from '@vue-flow/core'
-import { nextTick, ref } from 'vue'
+import { nextTick, ref, toValue } from 'vue'
 
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { runFcoseLayout } from '../services/layouts/cytoscape'
@@ -7,7 +7,12 @@ import { runRescaleLayout } from '../services/layouts/rescale'
 import { notify } from '../utils/notify'
 import { reorganiseHandles } from '../utils/handles'
 
-export function useWorkflowLayout() {
+/**
+ * Lays out freshly added nodes, then connects edges and fits the view.
+ * @param {object} [options]
+ * @param {object|import('vue').Ref<object>} [options.fitViewParams] fitView options (e.g. padding clear of the library panel).
+ */
+export function useWorkflowLayout({ fitViewParams } = {}) {
   const { onNodesInitialized, addEdges, updateNodeInternals, fitView } = useVueFlow()
   const historyStore = useFlowHistoryStore()
   
@@ -58,7 +63,7 @@ export function useWorkflowLayout() {
 
       if (callback) callback(initializedNodes.length, initializedNodes.length, 'Finalizing view...')
       
-      fitView({ padding: 0.2, duration: 800 })
+      fitView({ padding: 0.2, ...toValue(fitViewParams), duration: 800 })
       await new Promise((resolve) => setTimeout(resolve, 800))
 
       if (callback) callback(initializedNodes.length, initializedNodes.length, 'Complete.')
