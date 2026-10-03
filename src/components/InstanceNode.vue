@@ -6,6 +6,7 @@
     :class="{ selected: selected }"
     @contextmenu.stop.prevent="openContextMenu"
     @mousedown.capture="StopDrag"
+    @dblclick="openInstanceEditor('parameters')"
   >
     <NodeResizer min-width="200" min-height="120" :is-visible="selected" />
 
