@@ -267,18 +267,7 @@
         >
           Report Issue
         </a>
-        <!-- Light / Dark Mode Toggle Slider -->
-        <div
-          class="theme-slider-container"
-          style="display: flex; align-items: center; margin-left: 20px; gap: 8px"
-          v-tooltip.bottom="isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
-        >
-          <ToggleSwitch :model-value="isDarkMode" @change="toggleDarkMode" aria-label="Toggle Theme">
-            <template #handle="{ checked }">
-              <i :class="['pi', checked ? 'pi-moon' : 'pi-sun']" style="font-size: 0.75rem"></i>
-            </template>
-          </ToggleSwitch>
-        </div>
+        <ThemeToggle style="margin-left: 20px" />
       </div>
     </header>
 
@@ -529,7 +518,7 @@ import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import ConfirmDialog from 'primevue/confirmdialog'
-import ToggleSwitch from 'primevue/toggleswitch'
+import ThemeToggle from '../components/ThemeToggle.vue'
 import { Toast } from 'primevue'
 import { useToast } from 'primevue/usetoast'
 
@@ -552,7 +541,6 @@ import { useLoadFromCellML } from '../composables/useLoadFromCellml'
 import { useLoadFromUrl } from '../composables/useLoadFromUrl'
 import { createUrlLoaders } from '../services/urlLoaders'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
-import { useColorScheme } from '../composables/useColorScheme'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useImportExportSend } from '../composables/useImportExportSend'
@@ -645,7 +633,6 @@ const SEARCH_BAR_TOP = 150
 const TOAST_GAP_BELOW_SEARCH_BAR = 16
 const toastTop = computed(() => SEARCH_BAR_TOP + TOAST_GAP_BELOW_SEARCH_BAR)
 
-const { isDarkMode, toggleDarkMode } = useColorScheme()
 
 const {
   addEdges,
@@ -3236,7 +3223,9 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.5rem 1rem;
+  height: var(--view-header-height);
+  box-sizing: border-box;
+  padding: 0 var(--view-header-padding-x);
   border-bottom: 1px solid var(--p-content-border-color);
   background-color: var(--p-content-background);
 }

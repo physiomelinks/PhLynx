@@ -1,17 +1,6 @@
 <template>
   <div class="docs-page relative-container" >
-    <div class="theme-toggle-wrapper">
-      <ToggleSwitch
-        :model-value="isDarkMode"
-        @change="toggleDarkMode"
-        v-tooltip.bottom="isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
-        aria-label="Toggle Theme"
-      >
-        <template #handle="{ checked }">
-          <i :class="['pi', checked ? 'pi-moon' : 'pi-sun']" style="font-size: 0.75rem"></i>
-        </template>
-      </ToggleSwitch>
-    </div>
+    <ThemeToggle floating />
 
     <aside :class="['left-sidebar', { collapsed: isCollapse }]">
       <div class="sidebar-header">
@@ -90,7 +79,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import Button from 'primevue/button'
-import ToggleSwitch from 'primevue/toggleswitch'
+import ThemeToggle from '../components/ThemeToggle.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useColorScheme } from '../composables/useColorScheme'
 import githubMarkdownLightCss from 'github-markdown-css/github-markdown-light.css?inline'
@@ -98,7 +87,7 @@ import githubMarkdownDarkCss from 'github-markdown-css/github-markdown-dark.css?
 
 const route = useRoute()
 const router = useRouter()
-const { isDarkMode, toggleDarkMode } = useColorScheme()
+const { isDarkMode } = useColorScheme()
 const isCollapse = ref(false)
 const openGroups = ref(['Getting Started', 'Guides', 'Reference', 'Help'])
 const markdownFiles = import.meta.glob('@docs/**/*.md', { eager: true })
@@ -637,12 +626,4 @@ watch(currentSlug, () => {
   position: relative;
 }
 
-.theme-toggle-wrapper {
-  position: absolute;
-  top: 11px;
-  right: 16px;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-}
 </style>

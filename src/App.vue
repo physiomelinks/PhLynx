@@ -118,6 +118,11 @@ function cancelEdit() {
 </script>
 
 <style>
+:root {
+  --view-header-height: 46px;
+  --view-header-padding-x: 1rem;
+}
+
 .app-layout {
   display: flex;
   flex-direction: column;
