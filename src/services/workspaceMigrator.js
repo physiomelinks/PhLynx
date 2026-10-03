@@ -1,9 +1,3 @@
-/**
- * Import mapper: legacy Phlynx build files -> new format.
- * Converts old workspace state to the 1.0.0 format.
- */
-
-// Import the helper function (adjust path as needed)
 import { extractComponentsFromCellmlString } from '../utils/cellml'
 import {
   MAIN_NODE_TYPE,

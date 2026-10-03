@@ -605,6 +605,7 @@ import {
   NEW_INSTANCE_MODULE_REF,
   NUM_GHOST_HANDLES_TOP_BOT,
   NUM_GHOST_HANDLES_LEFT_RIGHT,
+  PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { getId as getNextEdgeId, resolvePortCouplings } from '../utils/edges'
@@ -2646,7 +2647,7 @@ function snapshotFlowState() {
 
   return JSON.stringify({
     id: 'phlynx-flow-snapshot',
-    version: '1.0.0',
+    version: PHLYNX_PROJECT_VERSION,
     nodeData,
     edges: flowState.edges,
     mathLibrary: mathLibraryObject,
