@@ -91,7 +91,7 @@ export function isSingleConnection(port) {
  * Within each (portType, label) group on a given side, occurrences are ordered
  * as they appear in ports (which mirrors the config file order). The Nth
  * occurrence is selected by index, clamped to the last slot if the index exceeds
- * the group size — matching the module array semantics.
+ * the group size — matching the instance array semantics.
  *
  * For labels that appear only once (the common case), the index is irrelevant
  * and that single entry is always selected.

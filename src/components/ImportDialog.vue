@@ -4,8 +4,8 @@
     :header="config.title || 'Import File'"
     :style="{ width: '500px' }"
     modal
-    :dismissableMask="!isLoading"
-    :closable="!isLoading"
+    :dismissableMask="!isBusy"
+    :closable="!isBusy"
     :draggable="false"
     @update:visible="
       (visible) => {
@@ -21,7 +21,7 @@
       @dragleave.prevent="handleFormDragLeave"
       @drop.prevent="handleFormDrop"
     >
-      <form class="import-form" :class="{ 'is-loading-content': isLoading }">
+      <form class="import-form" :class="{ 'is-loading-content': isBusy }">
         <div class="form-header" v-if="requiredFieldsCount > 0">
           <span class="required-asterisk">*</span> Indicates required field
         </div>
@@ -37,10 +37,10 @@
             <div class="upload-row">
               <div
                 class="file-input-box"
-                :class="{ 'is-valid': isFieldReady(field.key), 'is-drag-active': fieldsDraggedOver.has(field.key) }"
-                @dragenter.stop.prevent="handleFieldDragEnter(field.key)"
-                @dragover.stop.prevent
-                @dragleave.stop.prevent="handleFieldDragLeave(field.key)"
+                :class="{ 'is-valid': isFieldReady(field.key) }"
+                @dragenter.prevent="handleFieldDragEnter(field.key)"
+                @dragover.prevent
+                @dragleave.prevent="handleFieldDragLeave(field.key)"
                 @drop.stop.prevent="(event) => handleFieldDrop(event, field)"
               >
                 <div class="file-names-area" @click.stop>
@@ -123,7 +123,7 @@
           </div>
         </div>
 
-        <div v-if="isInstanceArrayImport && !importReadiness" class="folder-import-row">
+        <div v-if="isInstanceArrayImport && !importReadiness?.resourcesAreLoaded" class="folder-import-row">
           <div class="folder-import-info">
             <i class="pi pi-folder" />
             <span v-if="folderStatus === 'connected'">
@@ -198,7 +198,7 @@
       </form>
 
       <Transition name="overlay-fade">
-        <div v-if="isLoading" class="loading-overlay">
+        <div v-if="isBusy" class="loading-overlay">
           <ProgressSpinner />
           <span class="loading-text">{{ loadingText }}</span>
         </div>
@@ -214,11 +214,11 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <Button label="Cancel" severity="secondary" text :disabled="isLoading" @click="closeDialog" />
+        <Button label="Cancel" severity="secondary" text :disabled="isBusy" @click="closeDialog" />
         <Button
           label="Import"
           severity="primary"
-          :disabled="!isFormValid || isLoading || !importReadiness?.resourcesAreLoaded"
+          :disabled="!isFormValid || isBusy || !importReadiness?.resourcesAreLoaded"
           :loading="isLoading"
           @click="handleConfirm"
         />
@@ -228,7 +228,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch, toRaw } from 'vue'
+import { computed, onMounted, reactive, ref, watch, toRaw } from 'vue'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
@@ -242,8 +242,15 @@ import { useFileDrop } from '../composables/useFileDrop'
 import { notify } from '../utils/notify'
 import { IMPORT_KEYS, MAX_VISIBLE_TAGS } from '../utils/constants'
 import { createDynamicFields, checkResourcesAreLoaded, getImportConfig } from '../utils/import'
-import { normaliseConfig } from '../utils/config'
-import { processCellMLData } from '../utils/cellml'
+import {
+  buildBatchSummary,
+  escapeHtml,
+  parseForRole,
+  planBatchEntries,
+  providesMissingModule,
+  requiredCellMLFilenames,
+} from '../utils/importBatch'
+import { normaliseConfig, parseMathRef } from '../utils/config'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -271,6 +278,14 @@ const stagedFiles = ref({
   configFiles: [], // { filename: string, payload: object }
 })
 
+// Counts batches in flight so the dialog stays locked until every queued batch has finished.
+const pendingBatchCount = ref(0)
+const isProcessing = computed(() => pendingBatchCount.value > 0)
+const isBusy = computed(() => isLoading.value || isProcessing.value)
+let lastSummary = null
+// Bumped on every form reset, so slow background work can tell the form it read has gone.
+let formGeneration = 0
+
 // --- Folder-based auto-import ---
 const {
   supportsFolderAccess,
@@ -290,8 +305,24 @@ function withImportLock(taskFn) {
   return run
 }
 
+/**
+ * Runs a task with the dialog locked and the loading overlay showing `text`.
+ * @param {string} text - Overlay message.
+ * @param {Function} taskFn - Async task to run.
+ */
+async function withBusy(text, taskFn) {
+  pendingBatchCount.value += 1
+  loadingText.value = text
+  try {
+    return await taskFn()
+  } finally {
+    pendingBatchCount.value -= 1
+  }
+}
+
 const isScanningFolder = ref(false)
 const foldersAttemptedFilenames = ref(new Set())
+let isAutoFillQueued = false
 
 // --- Drag-and-drop ---
 const { filesFromDataTransfer } = useFileDrop()
@@ -301,13 +332,13 @@ const fieldsDraggedOver = ref(new Set())
 const fieldDragCounters = new Map() // fieldKey -> counter
 
 function handleFormDragEnter() {
-  if (isLoading.value) return
+  if (isBusy.value) return
   formDragCounter += 1
   isDraggingOverForm.value = true
 }
 
 function handleFormDragLeave() {
-  if (isLoading.value) return
+  if (isBusy.value) return
   formDragCounter = Math.max(0, formDragCounter - 1)
   if (formDragCounter === 0) {
     isDraggingOverForm.value = false
@@ -315,14 +346,14 @@ function handleFormDragLeave() {
 }
 
 function handleFieldDragEnter(fieldKey) {
-  if (isLoading.value) return
+  if (isBusy.value) return
   const count = (fieldDragCounters.get(fieldKey) || 0) + 1
   fieldDragCounters.set(fieldKey, count)
   fieldsDraggedOver.value.add(fieldKey)
 }
 
 function handleFieldDragLeave(fieldKey) {
-  if (isLoading.value) return
+  if (isBusy.value) return
   const count = Math.max(0, (fieldDragCounters.get(fieldKey) || 0) - 1)
   fieldDragCounters.set(fieldKey, count)
   if (count === 0) {
@@ -338,9 +369,7 @@ function resetAllDragState() {
 }
 
 const blockOutsideDrop = (e) => {
-  const isMask = e.target.classList.contains('p-dialog-mask')
-  const insideContent = e.target.closest('.p-dialog')
-  if (isMask || !insideContent) {
+  if (!e.target.closest?.('.dialog-content')) {
     e.preventDefault()
     e.stopPropagation()
     e.dataTransfer.dropEffect = 'none'
@@ -391,15 +420,6 @@ async function handleForgetFolder() {
   foldersAttemptedFilenames.value = new Set()
 }
 
-function handleExceed(field) {
-  nextTick(() => {
-    notify.warning({
-      title: 'Too Many Files',
-      message: `The limit is ${field.limit}.`,
-    })
-  })
-}
-
 function setFileInputRef(el, fieldKey) {
   if (el) {
     fileInputRefs.value[fieldKey] = el
@@ -423,9 +443,12 @@ function isFieldExpanded(fieldKey) {
 }
 
 const removeFile = (fieldKey, filename) => {
+  if (isBusy.value) return
   const fieldState = formState[fieldKey]
   if (fieldState && fieldState.files.has(filename)) {
     fieldState.files.delete(filename)
+    // A removed file must not come straight back from the connected folder.
+    foldersAttemptedFilenames.value.add(filename)
 
     stagedFiles.value.mathFiles = stagedFiles.value.mathFiles.filter((f) => f.filename !== filename)
     stagedFiles.value.configFiles = stagedFiles.value.configFiles.filter((f) => f.filename !== filename)
@@ -519,9 +542,13 @@ const requiredFieldsCount = computed(() => {
   return displayFields.value.filter((field) => field.required !== false).length
 })
 
-const syncDynamicFields = async (completionStatus) => {
+function syncDynamicFields(completionStatus) {
   try {
-    const newFields = createDynamicFields(completionStatus)
+    const newFields = completionStatus.resourcesAreLoaded ? [] : createDynamicFields(completionStatus)
+    const neededKeys = new Set(newFields.map((f) => f.key))
+    dynamicFields.value = dynamicFields.value.filter(
+      (f) => neededKeys.has(f.key) || formState[f.key]?.files.size > 0
+    )
     const existingKeys = new Set(dynamicFields.value.map((f) => f.key))
 
     for (const newField of newFields) {
@@ -546,6 +573,7 @@ function createEmptyFieldState() {
 }
 
 function resetFormState(keepInstanceArray = false) {
+  formGeneration += 1
   dynamicFields.value = []
   Object.keys(formState).forEach((key) => {
     if (!(keepInstanceArray && key === IMPORT_KEYS.INSTANCE_ARRAY)) {
@@ -569,7 +597,7 @@ const createTemporaryStore = () => {
   const availableMath = detachReactivity(libraryStore.availableMath)
   const availableCollections = detachReactivity(libraryStore.availableCollections)
 
-  for (const { filename, payload: configs } of stagedFiles.value.configFiles) {
+  for (const { payload: configs } of stagedFiles.value.configFiles) {
     configs.forEach((config) => {
       const module = normaliseConfig(config)
       if (!availableMath.has(module.mathRef)) {
@@ -656,436 +684,398 @@ const isFormValid = computed(() => {
   })
 })
 
-// --- Handlers ---
-async function parseFile(field, rawFile) {
-  if (field.requiresStore && libraryStore) {
-    return field.parser(rawFile, libraryStore)
-  }
-  return field.parser(rawFile)
-}
-
-function extensionOf(filename) {
-  const dot = filename.lastIndexOf('.')
-  return dot === -1 ? '' : filename.slice(dot).toLowerCase()
-}
-
-function acceptsExtension(fieldConfig, filename) {
-  if (!fieldConfig?.accept) return true
-  return fieldConfig.accept
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .includes(extensionOf(filename))
-}
-
-function importPriority(filename) {
-  const ext = extensionOf(filename)
-  if (ext === '.csv') return 0
-  if (ext === '.json') return 1
-  if (ext === '.cellml' || ext === '.xml') return 2
-  return 3
-}
-
-function sortConfigsFirst(files, getName = (f) => f.name) {
-  return [...files].sort((a, b) => importPriority(getName(a)) - importPriority(getName(b)))
-}
-
-async function ingestFileIntoField(field, rawFile, { cleanupOnFailure = false, notifyStaging = true } = {}) {
-  const filename = rawFile.name
-
-  if (field.processUpload === 'cellml' && !validateCellMLFilename(rawFile, { silent: cleanupOnFailure || !notifyStaging })) {
-    return { ok: false, error: null, skip: !cleanupOnFailure }
-  }
-
-  if (field.key === IMPORT_KEYS.INSTANCE_ARRAY) {
-    const existingFiles = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files
-    if (existingFiles?.size > 0 && !existingFiles.has(filename)) {
-      resetForm(/* keepInstanceArray */ true)
-    }
-  }
-
-  if (!formState[field.key]) {
-    formState[field.key] = createEmptyFieldState()
-  }
-  const state = formState[field.key]
-  state.files.set(filename, { isValid: false, payload: null })
-
-  try {
-    const parsed = await parseFile(field, rawFile)
-
-    state.files.get(filename).payload = parsed?.data ?? parsed
-    state.readiness = parsed?.completionStatus ?? null
-    state.warnings = parsed?.completionStatus?.warnings ?? []
-
-    if (field.processUpload) {
-      stageValidatedFile(field, parsed, filename)
-    }
-
-    state.files.get(filename).isValid = true
-
-    const instanceArrayPayload = getInstanceArrayPayload()
-    if (instanceArrayPayload) {
-      const status = checkReadiness(instanceArrayPayload)
-
-      if (status && !status.resourcesAreLoaded) {
-        await syncDynamicFields(status)
-      }
-
-      if (field.processUpload && notifyStaging) {
-        notifyAfterStaging(field, filename, status)
-      }
-    } else {
-      importReadiness.value = {
-        resourcesAreLoaded: true,
-        errors: [],
-        warnings: [],
-      }
-    }
-
-    if (state.warnings.length && notifyStaging) {
-      await nextTick()
-      for (const w of state.warnings) {
-        notify.warning({
-          title: 'Import Warning',
-          message: w,
-        })
-      }
-    }
-
-    return { ok: true }
-  } catch (error) {
-    if (cleanupOnFailure) {
-      state.files.delete(filename)
-    } else {
-      const fileEntry = state.files.get(filename)
-      if (fileEntry) {
-        fileEntry.isValid = false
-        fileEntry.payload = null
-      }
-    }
-    state.warnings = []
-
-    const isUnexpectedError = error instanceof Error && error.constructor !== Error
-    if (isUnexpectedError) {
-      console.error(`[ImportDialog] Unexpected error while processing "${filename}" for field "${field.key}":`, error)
-      if (notifyStaging) {
-        notify.error({
-          title: 'Import Error',
-          message: `Something went wrong while checking readiness after loading "${filename}": ${error.message}`,
-        })
-      }
-    }
-
-    return { ok: false, error }
-  }
-}
-
+// --- Batch import ---
 const PROCESS_UPLOAD_BY_KEY = {
   [IMPORT_KEYS.CELLML_FILE]: 'cellml',
   [IMPORT_KEYS.MODULE_CONFIG]: 'config',
 }
 
-function candidateKeysExcluding(excludeKey) {
-  const keys = [IMPORT_KEYS.MODULE_CONFIG, IMPORT_KEYS.CELLML_FILE, IMPORT_KEYS.PARAMETER]
-  if (!formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files?.size) {
-    keys.unshift(IMPORT_KEYS.INSTANCE_ARRAY)
-  }
-  return keys.filter((k) => k !== excludeKey)
+const INSTANCE_ARRAY_ROLE_KEYS = [
+  IMPORT_KEYS.INSTANCE_ARRAY,
+  IMPORT_KEYS.PARAMETER,
+  IMPORT_KEYS.MODULE_CONFIG,
+  IMPORT_KEYS.CELLML_FILE,
+]
+
+const AUTO_FILL_ROLE_KEYS = [IMPORT_KEYS.MODULE_CONFIG, IMPORT_KEYS.CELLML_FILE]
+
+/**
+ * Returns the field config used to read files for a role. Configs and CellML get staged into the
+ * library on confirm, so they carry `processUpload`.
+ * @param {string} key - Import key.
+ * @returns {Object|null}
+ */
+function getRoleField(key) {
+  const baseField = getImportConfig(key)?.fields?.[0]
+  if (!baseField) return null
+  return PROCESS_UPLOAD_BY_KEY[key] && !baseField.processUpload
+    ? { ...baseField, processUpload: PROCESS_UPLOAD_BY_KEY[key] }
+    : baseField
 }
 
-async function classifyIntoOtherFields(rawFile, excludeKey) {
-  for (const key of candidateKeysExcluding(excludeKey)) {
-    const baseCandidateConfig = getImportConfig(key)?.fields?.[0]
-    if (!baseCandidateConfig) continue
-    if (!acceptsExtension(baseCandidateConfig, rawFile.name)) continue
+/**
+ * Lists the fields a dropped or selected file may belong to, with `preferredKey` tried first.
+ * Single-type dialogs only accept their own fields.
+ * @param {string} [preferredKey]
+ * @returns {Object[]}
+ */
+function getCandidateFields(preferredKey) {
+  const fields = isInstanceArrayImport.value
+    ? INSTANCE_ARRAY_ROLE_KEYS.map(getRoleField).filter(Boolean)
+    : [...(props.config.fields || [])]
+  if (!preferredKey) return fields
+  return [...fields.filter((f) => f.key === preferredKey), ...fields.filter((f) => f.key !== preferredKey)]
+}
 
-    const candidateConfig =
-      PROCESS_UPLOAD_BY_KEY[key] && !baseCandidateConfig.processUpload
-        ? { ...baseCandidateConfig, processUpload: PROCESS_UPLOAD_BY_KEY[key] }
-        : baseCandidateConfig
+function isFieldVisible(key) {
+  return displayFields.value.some((field) => field.key === key)
+}
 
-    const result = await ingestFileIntoField(candidateConfig, rawFile, { cleanupOnFailure: true, notifyStaging: false })
-    if (result.ok) {
-      const alreadyVisible =
-        (props.config.fields || []).some((f) => f.key === candidateConfig.key) ||
-        dynamicFields.value.some((f) => f.key === candidateConfig.key)
-      if (!alreadyVisible) {
-        dynamicFields.value.push(candidateConfig)
+function isFilePresent(filename) {
+  return Object.values(formState).some((state) => state.files?.has(filename))
+}
+
+/**
+ * Adds or replaces a valid file in a field, and shows the field if it is hidden.
+ * @param {Object} field - Field config the file was parsed with.
+ * @param {string} filename
+ * @param {any} payload - Parsed file contents.
+ */
+function setFieldFile(field, filename, payload) {
+  if (!formState[field.key]) {
+    formState[field.key] = createEmptyFieldState()
+  }
+  formState[field.key].files.set(filename, { isValid: true, payload })
+  if (!isFieldVisible(field.key)) {
+    dynamicFields.value.push(field)
+  }
+}
+
+/**
+ * Lists the CellML file names used by the instance array's modules, counting staged configs.
+ * @param {Object[]} instanceArrayPayload - Instance array rows.
+ * @returns {Set<string>}
+ */
+function getReferencedCellMLFilenames(instanceArrayPayload) {
+  const { availableModules } = createTemporaryStore()
+  const filenames = new Set()
+  for (const row of instanceArrayPayload) {
+    const mathRef = availableModules.get(`${row.module_type}:${row.module_subtype}`)?.mathRef
+    if (mathRef) filenames.add(parseMathRef(mathRef).componentFile)
+  }
+  return filenames
+}
+
+function stageFile(listKey, filename, payload) {
+  const others = stagedFiles.value[listKey].filter((f) => f.filename !== filename)
+  stagedFiles.value[listKey] = [...others, { filename, payload }]
+}
+
+/**
+ * Parses each entry without touching dialog state.
+ * @param {{ file: File }[]} entries - Planned entries.
+ * @param {Object[]} candidates - Candidate field configs.
+ * @returns {Promise<{ parsed: Object[], failed: Object[], skipped: Object[] }>}
+ */
+async function parseEntries(entries, candidates) {
+  const parsed = []
+  const failed = []
+  const skipped = []
+  for (const { file } of entries) {
+    const result = await parseForRole(file, candidates, { store: libraryStore })
+    if (!result.error) {
+      parsed.push({ ...result, file })
+    } else if (result.unsupported || result.unrecognised) {
+      skipped.push({ name: file.name, reason: result.unsupported ? result.error : 'not a recognised import file' })
+    } else {
+      failed.push({ name: file.name, reason: result.error })
+    }
+  }
+  return { parsed, failed, skipped }
+}
+
+/**
+ * Writes parsed files into the dialog in one synchronous step, so the UI updates once.
+ * @param {Object[]} parsed - Results from `parseEntries`.
+ * @param {Object[]} skipped - Receives files that are left out on purpose.
+ * @param {Object} [options]
+ * @param {boolean} [options.onlyRequiredCellML] - Stage CellML only when readiness says its file is still missing.
+ * @returns {{ name: string, key: string }[]} Files that were added.
+ */
+function commitParsedFiles(parsed, skipped, { onlyRequiredCellML = false } = {}) {
+  const placed = []
+  const byKey = (key) => parsed.filter((result) => result.key === key)
+  const place = (result) => {
+    setFieldFile(result.field, result.file.name, result.data)
+    placed.push({ name: result.file.name, key: result.key })
+  }
+
+  const [instanceArray, ...extraArrays] = byKey(IMPORT_KEYS.INSTANCE_ARRAY)
+  for (const extra of extraArrays) {
+    skipped.push({ name: extra.file.name, reason: `only one instance array per import (using ${instanceArray.file.name})` })
+  }
+  if (instanceArray) {
+    const existingFiles = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files
+    if (existingFiles?.size > 0 && !existingFiles.has(instanceArray.file.name)) {
+      resetForm()
+    }
+    place(instanceArray)
+  }
+
+  byKey(IMPORT_KEYS.PARAMETER).forEach(place)
+
+  for (const result of byKey(IMPORT_KEYS.MODULE_CONFIG)) {
+    place(result)
+    if (result.field.processUpload === 'config') stageFile('configFiles', result.file.name, result.data)
+  }
+
+  const instanceArrayPayload = getInstanceArrayPayload()
+  const status = instanceArrayPayload ? checkReadiness(instanceArrayPayload) : null
+  // While configs are still missing, the full set of CellML files the instance array uses is unknown.
+  const canJudgeCellML = status && (onlyRequiredCellML || !status.missingResources.modules.size)
+  let allowedCellMLFiles = null
+  if (canJudgeCellML) {
+    allowedCellMLFiles = onlyRequiredCellML
+      ? requiredCellMLFilenames(status)
+      : getReferencedCellMLFilenames(instanceArrayPayload)
+  }
+
+  for (const result of byKey(IMPORT_KEYS.CELLML_FILE)) {
+    if (result.field.processUpload === 'cellml') {
+      if (allowedCellMLFiles && !allowedCellMLFiles.has(result.file.name)) {
+        skipped.push({ name: result.file.name, reason: 'not used by any module in the instance array' })
+        continue
       }
-      return candidateConfig
+      stageFile('mathFiles', result.file.name, result.components)
     }
-  }
-  return null
-}
-
-async function processIncomingFiles(field, rawFiles, { strict = false } = {}) {
-  return withImportLock(() => runProcessIncomingFiles(field, rawFiles, { strict }))
-}
-
-async function runProcessIncomingFiles(field, rawFiles, { strict = false } = {}) {
-  const limit = field?.limit
-  let files = sortConfigsFirst(rawFiles)
-  if (limit && files.length > limit) {
-    handleExceed(field)
-    files = files.slice(0, limit)
+    place(result)
   }
 
-  for (const rawFile of files) {
-    const primary = await ingestFileIntoField(field, rawFile, { notifyStaging: true })
-    if (primary.ok) continue
-    if (primary.skip) continue
+  parsed
+    .filter((result) => !INSTANCE_ARRAY_ROLE_KEYS.includes(result.key))
+    .forEach(place)
 
-    if (!strict) {
-      const matchedField = await classifyIntoOtherFields(rawFile, field.key)
-      if (matchedField) continue
-    }
+  if (instanceArrayPayload) {
+    syncDynamicFields(checkReadiness(instanceArrayPayload))
+  } else if (!isInstanceArrayImport.value && placed.length > 0) {
+    importReadiness.value = { resourcesAreLoaded: true, errors: [], warnings: [] }
+  }
 
+  return placed
+}
+
+/**
+ * Replaces the previous summary toast with a new one.
+ * @param {Object} options - `notify` options.
+ */
+function showSummary(options) {
+  lastSummary?.close()
+  lastSummary = notify(options)
+}
+
+/**
+ * Sorts dropped or selected files into the dialog as one batch and reports the result once.
+ * @param {{ file: File, path: string }[]} entries
+ * @param {Object} [options]
+ * @param {string} [options.preferredKey] - Field the files were dropped on or selected for.
+ * @param {boolean} [options.isSelection] - True for files picked with a field's Select button.
+ */
+function importBatch(entries, options = {}) {
+  const text = `Sorting ${entries.length} file${entries.length === 1 ? '' : 's'}…`
+  return withBusy(text, () =>
+    withImportLock(async () => {
+      try {
+        await runImportBatch(entries, options)
+      } catch (error) {
+        console.error('[ImportDialog] Unexpected error while importing files:', error)
+        showSummary({
+          type: 'error',
+          title: 'Import Error',
+          message: escapeHtml(`Something went wrong while sorting the files: ${error.message}`),
+        })
+      }
+    })
+  )
+}
+
+async function runImportBatch(entries, { preferredKey, isSelection = false }) {
+  const { ordered, duplicates } = planBatchEntries(entries)
+  const { parsed, failed, skipped } = await parseEntries(ordered, getCandidateFields(preferredKey))
+  skipped.unshift(...duplicates)
+
+  const placed = commitParsedFiles(parsed, skipped)
+  const autoFill = await runAutoFillFromFolder()
+
+  if (failed.length || placed.length === 0) {
     trackEvent('import_action', {
       category: 'Import',
       action: 'import_error',
-      label: field.key || 'unknown_field',
+      label: preferredKey || props.config.fields?.[0]?.key || 'unknown_field',
       file_type: 'various',
     })
-    notify.error({
-      title: 'Import Error',
-      message: primary.error?.message || `"${rawFile.name}" is not a valid ${field.label || 'file'} for this field.`,
-    })
   }
+
+  // A single file picked for its own field already shows its result in the form.
+  const isQuietSelection =
+    isSelection &&
+    entries.length === 1 &&
+    placed.length === 1 &&
+    placed[0].key === preferredKey &&
+    !failed.length &&
+    !skipped.length &&
+    !autoFill?.count &&
+    (!isInstanceArrayImport.value ||
+      preferredKey === IMPORT_KEYS.INSTANCE_ARRAY ||
+      importReadiness.value?.resourcesAreLoaded)
+  if (isQuietSelection) {
+    lastSummary?.close()
+    return
+  }
+
+  showSummary(
+    buildBatchSummary({
+      placed,
+      failed,
+      skipped,
+      isInstanceArrayImport: isInstanceArrayImport.value,
+      hasInstanceArray: Boolean(getInstanceArrayPayload()),
+      readiness: importReadiness.value,
+      autoFill,
+    })
+  )
 }
 
 const handleFileChange = async (event, field) => {
   const selectedFiles = Array.from(event.target.files || [])
+  event.target.value = ''
   if (!selectedFiles.length) return
 
-  await processIncomingFiles(field, selectedFiles)
-
-  event.target.value = ''
-}
-
-async function handleFieldDrop(event, field) {
-  fieldDragCounters.set(field.key, 0)
-  fieldsDraggedOver.value.delete(field.key)
-  if (isLoading.value) return
-
-  const entries = await filesFromDataTransfer(event.dataTransfer)
-  if (!entries.length) {
-    notify.warning({
-      title: 'Nothing to Import',
-      message: 'No supported files were found in what you dropped.',
-    })
-    return
-  }
-
-  await processIncomingFiles(
-    field,
-    entries.map((e) => e.file),
-    { strict: true }
+  await importBatch(
+    selectedFiles.map((file) => ({ file, path: file.name })),
+    { preferredKey: field.key, isSelection: true }
   )
 }
 
-async function handleFormDrop(event) {
-  formDragCounter = 0
-  isDraggingOverForm.value = false
-  if (isLoading.value) return
-
-  const entries = await filesFromDataTransfer(event.dataTransfer)
-  if (!entries.length) {
-    notify.warning({
-      title: 'Nothing to Import',
-      message: 'No supported files were found in what you dropped.',
-    })
-    return
-  }
-
-  await withImportLock(() => runFormDropClassification(entries))
+function notifyNothingToImport() {
+  notify.warning({
+    title: 'Nothing to Import',
+    message: 'No supported files were found in what you dropped.',
+  })
 }
 
-async function runFormDropClassification(entries) {
-  const sorted = sortConfigsFirst(entries, (e) => e.file.name)
-  const unmatched = []
-  let stagedCount = 0
+/**
+ * Reads a drop and imports it as one batch, whichever part of the dialog it landed on.
+ * @param {DragEvent} event
+ * @param {string} [preferredKey] - Field the drop landed on.
+ */
+async function handleDrop(event, preferredKey) {
+  resetAllDragState()
+  if (isBusy.value) return
 
-  for (const { file } of sorted) {
-    const matched = await classifyIntoOtherFields(file, undefined)
-    if (matched) {
-      stagedCount++
-    } else {
-      unmatched.push(file.name)
+  // One outer busy scope keeps the overlay up between reading the drop and sorting it.
+  await withBusy('Reading dropped files…', async () => {
+    const entries = await filesFromDataTransfer(event.dataTransfer)
+    if (!entries.length) {
+      notifyNothingToImport()
+      return
     }
-  }
+    await importBatch(entries, { preferredKey })
+  })
+}
 
-  if (stagedCount > 0) {
-    const status = importReadiness.value
-    if (status?.resourcesAreLoaded) {
-      notify.success({
-        title: 'Folder Staged Successfully',
-        message: `Processed ${stagedCount} file${stagedCount > 1 ? 's' : ''}. All required resources are ready.`,
-      })
-    } else {
-      notify.info({
-        title: 'Files Staged',
-        message: `Staged ${stagedCount} file${stagedCount > 1 ? 's' : ''}. Additional required files are still needed.`,
-      })
-    }
-  }
+function handleFieldDrop(event, field) {
+  return handleDrop(event, field.key)
+}
 
-  if (unmatched.length) {
-    notify.warning({
-      title: 'Some Files Skipped',
-      message: `${unmatched.length} file${unmatched.length > 1 ? 's' : ''} didn't match any expected import type: ${unmatched
-        .slice(0, 5)
-        .join(', ')}${unmatched.length > 5 ? '…' : ''}`,
-    })
-  }
+function handleFormDrop(event) {
+  return handleDrop(event)
 }
 
 // --- Folder-based auto-import ---
-async function attemptAutoFillFromFolder() {
-  return withImportLock(() => runAutoFillFromFolder())
-}
-
+/**
+ * Stages the configs and CellML files that are still missing from the connected folder.
+ * Callers must hold the import lock.
+ * @returns {Promise<{ count: number, folderName: string }|null>} Null when nothing was attempted.
+ */
 async function runAutoFillFromFolder() {
-  if (isScanningFolder.value || folderStatus.value !== 'connected') return
+  const instanceArrayPayload = getInstanceArrayPayload()
+  if (folderStatus.value !== 'connected' || !instanceArrayPayload || importReadiness.value?.resourcesAreLoaded) {
+    return null
+  }
 
+  const startGeneration = formGeneration
   isScanningFolder.value = true
-  let stagedAny = false
-
   try {
-    const entries = sortConfigsFirst(await scanFolder(), (e) => e.file.name)
+    const entries = (await scanFolder()).filter(
+      ({ file }) => !foldersAttemptedFilenames.value.has(file.name) && !isFilePresent(file.name)
+    )
+    const { ordered } = planBatchEntries(entries)
+    const { parsed, failed } = await parseEntries(ordered, AUTO_FILL_ROLE_KEYS.map(getRoleField))
+    // The form was reset or closed while the folder was being read.
+    if (startGeneration !== formGeneration || !getInstanceArrayPayload()) return null
 
-    for (const { file } of entries) {
-      if (foldersAttemptedFilenames.value.has(file.name)) continue
-      foldersAttemptedFilenames.value.add(file.name)
+    // Unreadable files are not retried; valid but unneeded ones may be needed by a later config.
+    failed.forEach(({ name }) => foldersAttemptedFilenames.value.add(name))
 
-      const alreadyPresent = Object.values(formState).some((s) => s.files?.has(file.name))
-      if (alreadyPresent) continue
+    const status = importReadiness.value
+    const needed = parsed.filter(
+      (result) => result.key !== IMPORT_KEYS.MODULE_CONFIG || providesMissingModule(result.data, status)
+    )
+    // Committing nothing would still replace readiness and re-trigger this auto-fill.
+    if (needed.length === 0) return { count: 0, folderName: folderName.value }
 
-      const matched = await classifyIntoOtherFields(file, IMPORT_KEYS.INSTANCE_ARRAY)
-      if (matched) stagedAny = true
-    }
+    const placed = commitParsedFiles(needed, [], { onlyRequiredCellML: true })
+    placed.forEach(({ name }) => foldersAttemptedFilenames.value.add(name))
+    return { count: placed.length, folderName: folderName.value }
   } catch (error) {
     notify.error({
       title: 'Folder Import',
-      message: error.message || 'Failed to read files from the connected folder.',
+      message: escapeHtml(error.message || 'Failed to read files from the connected folder.'),
     })
+    return null
   } finally {
     isScanningFolder.value = false
   }
-
-  if (stagedAny && importReadiness.value && !importReadiness.value.resourcesAreLoaded) {
-    await runAutoFillFromFolder()
-  } else if (stagedAny) {
-    notify.success({
-      title: 'Folder Import',
-      message: 'Loaded the required files from the connected folder.',
-    })
-  }
 }
 
+/** Runs the connected-folder auto-fill on its own and reports anything it added. */
+function attemptAutoFillFromFolder() {
+  if (isAutoFillQueued) return
+  isAutoFillQueued = true
+  return withImportLock(async () => {
+    isAutoFillQueued = false
+    const result = await runAutoFillFromFolder()
+    if (!result?.count) return
+
+    const isReady = importReadiness.value?.resourcesAreLoaded
+    const files = `${result.count} file${result.count === 1 ? '' : 's'}`
+    showSummary({
+      type: isReady ? 'success' : 'warning',
+      title: 'Folder Import',
+      message: isReady
+        ? `Loaded ${files} from connected folder "${escapeHtml(result.folderName)}". Ready to import.`
+        : `Loaded ${files} from connected folder "${escapeHtml(result.folderName)}". Some required files are still missing.`,
+      duration: isReady ? 3000 : 6000,
+    })
+  })
+}
+
+// Batches run the auto-fill themselves; this covers readiness changes from removing files.
 watch(importReadiness, (status) => {
-  if (!status || status.resourcesAreLoaded) return
+  if (!status || status.resourcesAreLoaded || isBusy.value) return
   attemptAutoFillFromFolder()
 })
 
 watch(folderStatus, (status) => {
-  if (status !== 'connected') return
+  if (status !== 'connected' || isBusy.value) return
   if (importReadiness.value && !importReadiness.value.resourcesAreLoaded) {
     attemptAutoFillFromFolder()
   }
 })
 
-async function updateDynamicFields(completionStatus) {
+function updateDynamicFields(completionStatus) {
   importReadiness.value = completionStatus
-  if (completionStatus.resourcesAreLoaded) {
-    return
-  }
-  await syncDynamicFields(completionStatus)
-}
-
-function validateCellMLFilename(rawFile, { silent = false } = {}) {
-  const componentFileIssues = importReadiness.value?.missingResources?.componentFileIssues
-  if (!componentFileIssues?.length) return true
-
-  const expectedFilenames = componentFileIssues.filter((issue) => issue.file).map((issue) => issue.file)
-
-  if (expectedFilenames.length > 0 && !expectedFilenames.includes(rawFile.name)) {
-    if (!silent) {
-      notify.error({
-        title: 'Incorrect File Provided',
-        message: `The configuration expects: "${expectedFilenames.join(', ')}". You provided "${
-          rawFile.name
-        }". This file will not be processed.`,
-        duration: 6000,
-      })
-    }
-    return false
-  }
-  return true
-}
-
-async function stageValidatedFile(field, parsedData, filename) {
-  if (!field.processUpload) return
-
-  const data = parsedData
-
-  if (field.processUpload === 'cellml') {
-    const result = processCellMLData(data)
-    if (result.type === 'success') {
-      stagedFiles.value.mathFiles.push({
-        filename,
-        payload: result.components,
-      })
-    }
-  } else if (field.processUpload === 'config') {
-    stagedFiles.value.configFiles.push({
-      filename,
-      payload: data,
-    })
-  }
-}
-
-function notifyAfterStaging(field, filename, status) {
-  if (!status) return
-
-  if (field.processUpload === 'cellml') {
-    const componentIssues = status.missingResources?.componentFileIssues ?? []
-    const relevantIssue = componentIssues.find((issue) => issue.file === filename)
-
-    if (relevantIssue) {
-      let errorMsg = `File "${filename}" was staged but has issues.`
-      if (relevantIssue.issue === 'component_not_in_file') {
-        errorMsg = `"${filename}" does not contain the required components: ${relevantIssue.componentTypes.join(', ')}.`
-      } else if (relevantIssue.issue === 'filename_mismatch') {
-        errorMsg = `The components were found, but the file name must be exactly "${relevantIssue.expectedFile}" as defined in your config.`
-      }
-      notify.error({
-        title: 'Import Requirement Not Met',
-        message: errorMsg,
-        duration: 6000,
-      })
-    } else if (status.needsComponentFile) {
-      notify.warning({
-        title: 'Partial Success',
-        message: `"${filename}" is valid, but additional CellML components are still required.`,
-      })
-    } else {
-      notify.success({
-        title: 'CellML Ready',
-        message: `${filename} staged successfully.`,
-      })
-    }
-  } else if (field.processUpload === 'config') {
-    if (status.needsConfigFile) {
-      notify.warning({
-        title: 'Config Staged',
-        message: `"${filename}" added, but more configurations are still missing.`,
-      })
-    } else {
-      notify.success({
-        title: 'Success',
-        message: 'All configurations provided.',
-      })
-    }
-  }
+  syncDynamicFields(completionStatus)
 }
 
 const commitStagedFiles = () => {
@@ -1098,10 +1088,11 @@ const commitStagedFiles = () => {
 }
 
 const handleConfirm = async () => {
+  if (isBusy.value) return
   isLoading.value = true
   loadingText.value = 'Importing modules...'
+  lastSummary?.close()
 
-  await nextTick()
   await new Promise((resolve) => setTimeout(resolve, 50))
 
   commitStagedFiles()
@@ -1126,7 +1117,8 @@ const handleConfirm = async () => {
 }
 
 const closeDialog = () => {
-  if (isLoading.value) return
+  if (isBusy.value) return
+  lastSummary?.close()
   resetForm()
   loadingText.value = 'Loading...'
   emit('update:modelValue', false)
@@ -1302,12 +1294,6 @@ defineExpose({
 
 .file-input-box.is-valid {
   border-color: var(--p-green-500, #16a34a);
-}
-
-.file-input-box.is-drag-active {
-  border-color: var(--p-primary-color);
-  box-shadow: inset 0 0 0 1px var(--p-primary-color);
-  background-color: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
 }
 
 .file-input-box.is-valid:focus-within {

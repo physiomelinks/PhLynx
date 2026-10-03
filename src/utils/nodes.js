@@ -48,7 +48,7 @@ export function findAnyNode() {
 }
 
 /**
- * Puts new modules in the same reference frame if user imported using module array
+ * Puts new modules in the same reference frame if user imported using instance array
  * containing x and y (z ignored for now).
  */
 export function attachNewNodeToFrame(position, existingNodeData) {

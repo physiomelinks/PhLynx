@@ -1,7 +1,7 @@
 import { RESCALE_ASPECT_RATIO, RESCALE_TARGET_SPACING } from "../../utils/constants"
 
 
-// Used to rescale prescribed positions optionally provided in the module array file
+// Used to rescale prescribed positions optionally provided in the instance array file
 export async function runRescaleLayout(nodes, aspectRatio = RESCALE_ASPECT_RATIO, targetSpacing = RESCALE_TARGET_SPACING) {
     try {
         // Get range of x and y values

@@ -232,7 +232,7 @@ export const OMEX_FILE_TYPES = [
   },
 ]
 
-export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml'])
+export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml', '.xml'])
 export const DB_NAME = 'phlynx-import'
 export const STORE_NAME = 'handles'
 export const HANDLE_KEY = 'importFolderHandle'
