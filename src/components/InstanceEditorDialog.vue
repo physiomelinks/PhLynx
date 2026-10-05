@@ -6,29 +6,50 @@
     :draggable="false"
     :style="{ width: '95vw', maxWidth: '1680px', height: '90vh', maxHeight: '960px' }"
     class="module-editor-dialog"
+    :pt="DIALOG_PT"
     @update:visible="onDialogVisibleChange"
   >
     <template #header>
       <div class="custom-dialog-header">
-        <span class="header-prefix">Editing: </span>
-        <div class="header-input-wrapper">
-          <InputText
+        <div class="header-group">
+          <span class="header-label">Instance</span>
+          <SanitisedInput
+            ref="instanceNameRef"
             v-model="editableName"
-            placeholder="Enter instance name..."
-            size="small"
-            class="header-input"
-            :class="{ 'header-input--warning': isNameUnsanitary }"
-            @blur="sanitiseNameOnBlur(editableName)"
+            :sanitise="sanitiseName"
+            :invalid="!!nameError"
+            :notice="nameError"
+            placeholder="Instance name..."
+            width="260px"
+            font-size="1rem"
           />
-          <Transition name="name-warning-pop">
-            <div v-if="isNameUnsanitary" class="name-warning-popover" role="alert">
-              <div class="name-warning-arrow"></div>
-              <i class="pi pi-exclamation-triangle name-warning-icon"></i>
-              <span>Will be renamed to <strong>{{ sanitiseName(editableName) }}</strong></span>
-            </div>
-          </Transition>
         </div>
-        <span class="header-suffix">({{ componentName }} - {{ componentFile }})</span>
+
+        <span class="header-divider" aria-hidden="true"></span>
+
+        <div class="header-group header-group--secondary">
+          <span class="header-label header-label--secondary">Component</span>
+          <SanitisedInput
+            v-if="isManaged"
+            v-model="editableComponentName"
+            :sanitise="sanitiseName"
+            :fallback="componentNameForEditor"
+            placeholder="Component name..."
+            width="200px"
+          />
+          <span
+            v-else
+            class="header-static"
+            title="While Simple Mode is off, the text sets the component name (def comp ... as)."
+          >
+            {{ componentNameForEditor }}
+            <i class="pi pi-code"></i>
+          </span>
+          <span class="header-file" :title="`Defined in ${componentFile}`">
+            <i class="pi pi-file"></i>
+            <span class="header-file-name">{{ componentFile }}</span>
+          </span>
+        </div>
       </div>
     </template>
 
@@ -44,15 +65,55 @@
       :class="{ 'is-dragging': dragging, 'is-suppressed': isScreenTooSmall }"
       :inert="isScreenTooSmall"
     >
-      <!-- LEFT COLUMN: CellML Text Editor -->
-      <div class="pane left-pane" :style="leftPaneStyle" :class="{ 'left-pane--collapsed': rightCollapsed }">
-        <div class="editor-wrapper">
+      <!-- LEFT COLUMN: CellML Text or Math Editor -->
+      <div class="pane left-pane" :style="leftPaneStyle">
+        <Tabs :key="editorTabsKey" :value="editorKind" class="editor-tabs" @update:value="switchEditor">
+          <TabList>
+            <Tab v-for="option in EDITOR_OPTIONS" :key="option.value" :value="option.value">
+              <i :class="['pi', option.icon, 'tab-icon']"></i>
+              {{ option.label }}
+            </Tab>
+          </TabList>
+        </Tabs>
+        <Message v-if="pendingRename" class="rename-notice" severity="info" size="small" :closable="false">
+          <div class="rename-notice-body">
+            <span>
+              <strong>{{ pendingRename.from }}</strong> was renamed to <strong>{{ pendingRename.to }}</strong>, but is
+              still used in {{ pendingRename.uses }} {{ pendingRename.uses === 1 ? 'place' : 'places' }}.
+            </span>
+            <span class="rename-notice-actions">
+              <Button label="Rename all" size="small" text @click="renameEverywhere" />
+              <Button label="Keep both" size="small" text severity="secondary" @click="dismissRename" />
+            </span>
+          </div>
+        </Message>
+        <div ref="editorWrapperRef" class="editor-wrapper">
+          <div v-if="!isEditorReady" class="editor-pending">
+            <ProgressSpinner style="width: 32px; height: 32px" strokeWidth="4" />
+            <span>Preparing editor...</span>
+          </div>
           <CellMLTextEditor
-            ref="cellmlEditorRef"
-            :key="mathRef"
+            v-else-if="editorKind === 'text'"
+            ref="mathEditorRef"
             :model-value="currentModel"
-            @update:code="handleCodeUpdate"
-            @ready="handleEditorReady"
+            :layout="currentLayout"
+            :simple="isManaged"
+            @update:simple="onSimpleToggle"
+            :component-name="componentNameForEditor"
+            :variable-definitions="editorDefinitions"
+            @update:component-name="onEditorComponentName"
+            @change="handleEditorChange"
+            @save="handleSave"
+            @undo="handleEditorUndo"
+            @redo="handleEditorRedo"
+          />
+          <MathWorkbenchEditor
+            v-else
+            ref="mathEditorRef"
+            :model-value="currentModel"
+            :component-name="componentNameForEditor"
+            :variable-definitions="editorDefinitions"
+            @change="handleEditorChange"
             @save="handleSave"
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
@@ -88,13 +149,25 @@
 
       <!-- RIGHT COLUMN: Parameter & Port Tabs -->
       <div class="pane right-pane" :class="{ 'right-pane--collapsed': rightCollapsed }">
-        <!-- Collapsed rail: just a slim strip with a vertical label, click to expand -->
         <button
           v-if="rightCollapsed"
           type="button"
           class="collapsed-rail"
+          :aria-label="railAriaLabel"
           @click="toggleRightPanel"
         >
+          <span v-if="activeTab === 'parameters' && issueChips.length" class="rail-badges">
+            <span
+              v-for="chip in issueChips"
+              :key="chip.key"
+              class="rail-badge"
+              :class="`issue-chip--${chip.kind}`"
+              :title="chip.label"
+            >
+              <i :class="['pi', chip.icon]"></i>
+              {{ chip.count }}
+            </span>
+          </span>
           <span class="collapsed-rail-label">
             {{ activeTab === 'parameters' ? `Parameters (${parameterRows.length})` : `Ports (${editablePorts.length})` }}
           </span>
@@ -107,7 +180,7 @@
               Parameters ({{ parameterRows.length }})
             </Tab>
             <Tab value="ports">
-              <i class="pi pi-pencil tab-icon"></i>
+              <i class="pi pi-link tab-icon"></i>
               Ports ({{ editablePorts.length }})
             </Tab>
           </TabList>
@@ -115,132 +188,41 @@
           <TabPanels class="tab-panels-container">
             <!-- TAB 1: PARAMETER EDITOR -->
             <TabPanel value="parameters" class="tab-panel-flex">
-              <div class="parameters-tab-body">
-                <div class="toolbar-container">
-                  <div class="search-group">
-                    <div class="search-input-wrapper flex-1">
-                      <IconField class="w-full">
-                        <InputIcon class="pi pi-search" />
-                        <InputText
-                          v-model="searchQuery"
-                          class="w-full"
-                          size="small"
-                          :placeholder="`Search by ${searchColumn}...`"
-                        />
-                        <InputIcon
-                          v-if="searchQuery"
-                          class="clear-search-btn pi pi-times-circle"
-                          @click="searchQuery = ''"
-                        />
-                      </IconField>
-                    </div>
-                    <Select
-                      v-model="searchColumn"
-                      :options="searchColumnOptions"
-                      optionLabel="label"
-                      optionValue="value"
-                      size="small"
-                      class="search-column"
-                    />
-                  </div>
-
-                  <div class="bulk-controls">
-                    <span class="bulk-label">Bulk Type:</span>
-                    <Select
-                      v-model="bulkTypeValue"
-                      size="small"
-                      :options="PARAMETER_TYPE_OPTIONS"
-                      optionLabel="label"
-                      optionValue="value"
-                      placeholder="Select type..."
-                      class="bulk-select"
-                    />
-                    <Button
-                      size="small"
-                      :disabled="selectedRows.length === 0"
-                      @click="applyBulkType"
-                    >
-                      Apply ({{ selectedRows.length }})
-                    </Button>
-                  </div>
-                </div>
-
-                <div class="table-flex-wrapper">
-                  <DataTable
-                    ref="parametersTable"
-                    v-model:selection="selectedRows"
-                    :value="filteredParameterRows"
-                    dataKey="name"
-                    scrollable
-                    scrollHeight="flex"
-                    tableStyle="min-width: 520px"
-                    :sortField="sortField"
-                    :sortOrder="sortOrder"
-                    class="p-datatable-sm parameters-table"
-                    @sort="handleSortChange"
-                  >
-                    <Column selectionMode="multiple" headerStyle="width: 2.2rem" />
-                    <Column field="name" bodyClass="small-text-col" header="Name" sortable style="min-width: 120px" />
-                    <Column field="value" header="Value" sortable style="width: 120px">
-                      <template #body="slotProps">
-                        <InputText
-                          v-if="isEditableVariableType(slotProps.data.type)"
-                          v-model="slotProps.data.value"
-                          size="small"
-                          placeholder="Enter value..."
-                          class="w-full"
-                        />
-                        <span v-else class="text-muted">-</span>
-                      </template>
-                    </Column>
-                    <Column field="units" bodyClass="small-text-col" header="Units" sortable style="min-width: 110px" />
-                    <Column field="type" header="Type" sortable style="width: 100px">
-                      <template #body="slotProps">
-                        <Select
-                          v-model="slotProps.data.type"
-                          :options="PARAMETER_TYPE_OPTIONS"
-                          optionLabel="label"
-                          optionValue="value"
-                          size="small"
-                          class="w-full"
-                        />
-                      </template>
-                    </Column>
-                  </DataTable>
-                </div>
-              </div>
+              <ParameterTable
+                ref="parameterTableRef"
+                :rows="parameterRows"
+                :is-managed="isManaged"
+                :is-missing-units="isMissingUnits"
+                :get-units-notice="getUnitsNotice"
+                :issue-chips="issueChips"
+                :issue-filter="issueFilter"
+                :variable-kinds="variableKinds"
+                :connection-supplied="connectionSupplied"
+                :math-references="mathReferences"
+                :suggest-units="suggestUnitsFor"
+              />
             </TabPanel>
 
             <!-- TAB 2: PORT EDITOR -->
             <TabPanel value="ports" class="tab-panel-flex">
               <div class="ports-tab-body">
-                <div class="ports-header">
-                  <label class="form-label">Port Definitions</label>
-                  <Button icon="pi pi-plus" label="Add Port" severity="success" size="small" rounded outlined @click="addPort" />
-                </div>
+                <Message v-if="incompletePortCount" class="ports-header" severity="error" size="small" variant="simple">
+                  {{ incompletePortCount }} {{ incompletePortCount === 1 ? 'port needs' : 'ports need' }} a label and at
+                  least one variable.
+                </Message>
 
                 <div v-if="editablePorts.length" class="table-flex-wrapper">
                   <DataTable
+                    ref="portsTableRef"
                     :value="editablePorts"
                     size="small"
                     stripedRows
                     scrollable
                     scrollHeight="flex"
                     tableStyle="min-width: 580px"
+                    :rowClass="portRowClass"
                   >
-                    <Column header="" style="width: 25px">
-                      <template #body="slotProps">
-                        <Button
-                          icon="pi pi-trash"
-                          severity="danger"
-                          rounded
-                          text
-                          size="small"
-                          @click="deletePort(editablePorts.indexOf(slotProps.data))"
-                        />
-                      </template>
-                    </Column>
-                    <Column header="Type" style="width: 3cap">
+                    <Column header="Type" style="width: 140px">
                       <template #body="slotProps">
                         <Select
                           v-model="slotProps.data.portType"
@@ -255,53 +237,120 @@
 
                     <Column header="Label" style="min-width: 140px">
                       <template #body="slotProps">
-                        <InputText v-model="slotProps.data.label" placeholder="Enter label" size="small" class="w-full" />
+                        <div class="flex items-center gap-2">
+                          <!-- Whether the port is connected, as the edge dialog shows it -->
+                          <span
+                            :class="['port-status', portConnections(slotProps.data).length ? 'port-status--connected' : 'port-status--free']"
+                            v-tooltip.top="portStatus(slotProps.data)"
+                          ></span>
+                          <InputText
+                            v-model="slotProps.data.label"
+                            :invalid="isPortFlagged(slotProps.data) && !slotProps.data.label?.trim()"
+                            placeholder="Enter label"
+                            size="small"
+                            class="w-full"
+                          />
+                        </div>
                       </template>
                     </Column>
 
-                    <Column header="Variable(s)" style="min-width: 180px">
+                    <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
+                    <Column header="Multiport" style="width: 5rem">
+                      <template #body="slotProps">
+                        <Button
+                          icon="pi pi-arrows-h"
+                          text
+                          rounded
+                          size="small"
+                          :severity="isMultiport(slotProps.data) ? undefined : 'secondary'"
+                          :aria-pressed="isMultiport(slotProps.data)"
+                          aria-label="Multiport"
+                          v-tooltip.top="isMultiport(slotProps.data) ? 'Multiport: takes several connections' : 'Takes one connection'"
+                          @click="setMultiport(slotProps.data, !isMultiport(slotProps.data))"
+                        />
+                      </template>
+                    </Column>
+
+                    <Column header="Variables" style="min-width: 200px">
                       <template #body="slotProps">
                         <MultiSelect
-                          v-model="slotProps.data.variables"
+                          :modelValue="slotProps.data.variables"
+                          @update:modelValue="setPortVariables(slotProps.data, $event)"
+                          :invalid="isPortFlagged(slotProps.data) && !slotProps.data.variables?.length"
                           :options="parameterRows"
                           optionLabel="name"
                           optionValue="name"
                           size="small"
                           placeholder="Select variables"
                           class="w-full"
-                          :maxSelectedLabels="3"
-                        />
+                          filter
+                          autoFilterFocus
+                          resetFilterOnHide
+                          filterPlaceholder="Search variables..."
+                          emptyFilterMessage="No matching variables"
+                          :pt="{ overlay: { class: 'ports-variable-overlay' } }"
+                        >
+                          <template #value="{ value, placeholder }">
+                            <PortVariableChips
+                              v-if="value?.length"
+                              :port="slotProps.data"
+                              :limit="3"
+                              :invalid="isPortFlagged(slotProps.data)"
+                            />
+                            <template v-else>{{ placeholder }}</template>
+                          </template>
+                          <template #filtericon>
+                            <span class="ports-variable-filter-icons">
+                              <i class="pi pi-search"></i>
+                              <i
+                                class="search-clear-input pi pi-times-circle"
+                                role="button"
+                                aria-label="Clear search"
+                                @mousedown.prevent
+                                @click.stop="clearPortVariableSearch"
+                              ></i>
+                            </span>
+                          </template>
+                        </MultiSelect>
                       </template>
                     </Column>
 
-                    <Column header="Multiport" style="min-width: 110px">
+                    <!-- Frozen, so the delete button stays in view when the table scrolls sideways -->
+                    <Column frozen alignFrozen="right" style="width: 3rem">
                       <template #body="slotProps">
-                        <div class="flex flex-col gap-1">
-                          <Select
-                            v-model="slotProps.data.multiportType"
-                            :options="MULTIPORT_OPTIONS"
-                            optionLabel="label"
-                            optionValue="value"
-                            size="small"
-                            placeholder="Select"
-                            class="w-full"
-                          />
-                          <div v-if="slotProps.data.multiportType === 'Multiply'" class="flex items-center gap-1">
-                            <span class="multiply-prefix">&times;</span>
-                            <InputNumber
-                              v-model="slotProps.data.multiplyFactor"
-                              :showButtons="false"
-                              size="small"
-                              placeholder="1"
-                              class="w-full"
-                            />
-                          </div>
-                        </div>
+                        <Button
+                          icon="pi pi-trash"
+                          severity="danger"
+                          rounded
+                          text
+                          size="small"
+                          aria-label="Delete port"
+                          title="Delete port"
+                          @click="deletePort(editablePorts.indexOf(slotProps.data))"
+                        />
                       </template>
                     </Column>
                   </DataTable>
                 </div>
-                <div v-else class="empty-state">No ports defined for this instance.</div>
+                <Button
+                  v-if="editablePorts.length"
+                  class="add-port-row"
+                  icon="pi pi-plus"
+                  label="Add port"
+                  severity="secondary"
+                  size="small"
+                  text
+                  @click="addPort"
+                />
+                <div v-if="editablePorts.length" class="ports-key">
+                  <span class="port-key-item"><span class="port-status port-status--connected"></span>Connected</span>
+                  <span class="port-key-item"><span class="port-status port-status--free"></span>Available</span>
+                  <MultiportKey />
+                </div>
+                <div v-else class="empty-state">
+                  <span>No ports defined for this instance.</span>
+                  <Button icon="pi pi-plus" label="Add Port" severity="success" size="small" rounded outlined @click="addPort" />
+                </div>
               </div>
             </TabPanel>
           </TabPanels>
@@ -309,7 +358,7 @@
       </div>
     </div>
 
-    <!-- OVERLAY:  -->
+    <!-- OVERLAY: Resize Warning -->
     <Transition name="resize-warning">
       <div v-if="isScreenTooSmall" class="resize-warning-overlay">
         <div class="resize-warning-card">
@@ -340,24 +389,36 @@
       </div>
     </Transition>
 
+    <ComponentSaveAsDialog
+      v-if="saveAs.visible"
+      v-model="saveAs.visible"
+      :message="saveAs.message"
+      :initial-name="saveAs.initialName"
+      :file="componentFile"
+      :is-taken="isComponentNameTaken"
+      @confirm="(name) => resolveSaveAs(name)"
+      @cancel="resolveSaveAs(null)"
+    />
+
     <!-- DIALOG FOOTER -->
     <template #footer>
       <div class="dialog-footer" v-if="!loading && !isScreenTooSmall">
         <div
           v-if="siblingCount > 0"
           class="apply-all-checkbox"
-          :title="`Also update ${siblingCount} other node${
+          :title="`Also switch the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
-          } using ${componentName} from ${componentFile}`"
+          } using ${componentName} from ${componentFile} to the new math. Parameters and ports only change here.`"
         >
           <Checkbox v-model="applyToAll" binary inputId="applyToAll" />
-          <label for="applyToAll">Apply CellML changes to all instances</label>
-          <Tag severity="info" :value="String(siblingCount + 1)" />
+          <label for="applyToAll">
+            Apply math changes to all {{ siblingCount + 1 }} instances of <strong>{{ componentName }}</strong>
+          </label>
         </div>
 
         <div class="footer-buttons">
           <Button label="Cancel" severity="secondary" text @click="handleCancel" />
-          <Button label="Save All Changes" severity="primary" @click="handleSave" />
+          <Button label="Save" severity="primary" @click="handleSave" />
         </div>
       </div>
     </template>
@@ -365,7 +426,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
@@ -373,10 +434,8 @@ import Checkbox from 'primevue/checkbox'
 import Column from 'primevue/column'
 import DataTable from 'primevue/datatable'
 import Dialog from 'primevue/dialog'
-import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
-import InputIcon from 'primevue/inputicon'
-import IconField from 'primevue/iconfield'
+import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
@@ -385,21 +444,36 @@ import TabList from 'primevue/tablist'
 import TabPanel from 'primevue/tabpanel'
 import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
-import Tag from 'primevue/tag'
 
 import CellMLTextEditor from './CellMLTextEditor.vue'
+import MathWorkbenchEditor from './MathWorkbenchEditor.vue'
+import ParameterTable from './ParameterTable.vue'
+import SanitisedInput from './SanitisedInput.vue'
+import MultiportKey from './MultiportKey.vue'
+import PortVariableChips from './PortVariableChips.vue'
+import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
+
 import { useLibraryStore } from '../stores/libraryStore'
-import { useFlowHistoryStore } from '../stores/historyStore'
+import { useIssueFilter } from '../composables/useIssueFilter'
+import { createHistory } from '../stores/historyStore'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
+import { useMathSession } from '../composables/useMathSession'
+import { useAppSettings } from '../composables/useAppSettings'
 
-import { PARAMETER_TYPE_OPTIONS, PORT_TYPE_OPTIONS, MULTIPORT_OPTIONS } from '../utils/constants'
-import { isEditableVariableType, isEmpty } from '../utils/variables'
-import { sanitiseName } from '../utils/nodes'
+import { isInitialisable } from '../services/math/variableKinds'
+
+import { isEmpty, syncInitialiserUnits } from '../utils/variables'
+import { getUnknownUnitsNotice, isValueMissing } from '../utils/parameterRows'
+import { PORT_TYPE_OPTIONS, PROTECTED_MATH_REFS } from '../utils/constants'
+import { cleanName, sanitiseName } from '../utils/identifiers'
 import { detachReactivity } from '../utils/reactivity'
+import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
-import { getModelComponentNames, areModelsEquivalent, extractVariablesFromMath } from '../utils/cellml'
-import { sanitiseNameOnBlur } from '../utils/misc'
+import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
+import { findPort } from '../utils/ports'
+import { isMultiport, multiplyVariables, setMultiport, setPortVariables, variableFactor } from '../utils/multiport'
+import { suggestUnits } from '../utils/unitExpression'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -409,57 +483,189 @@ const props = defineProps({
   variables: { type: Array, default: () => [] },
   initialPorts: { type: Array, default: () => [] },
   existingNames: { type: Array, default: () => [] },
-  defaultTab: { type: String, default: 'parameters' }, // 'parameters' or 'ports'
+  defaultTab: { type: String, default: 'parameters' },  // 'parameters' or 'ports'
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const store = useLibraryStore()
-const history = useFlowHistoryStore()
+const history = reactive(createHistory())
 
 const { trackEvent } = useGtm()
-const { nodes } = useVueFlow()
+const { nodes, edges } = useVueFlow()
 const { confirm } = useConfirmDialog()
+const { settings: appSettings } = useAppSettings()
 
-const isNameUnsanitary = computed(() => editableName.value !== sanitiseName(editableName.value))
+/** Each units name's expansion beside its suggestion, in the units the user chose in Settings. */
+const unitExpansions = computed(() =>
+  appSettings.unitDisplay === 'base' ? store.unitExpansions : store.builtInUnitExpansions
+)
+
+/** Library units that could complete the typed units; a units expression (e.g. `mV/ms`) also offers a new units. */
+function suggestUnitsFor(typed) {
+  const library = { names: store.availableUnitNames, definitions: store.unitDefinitions, expansions: store.unitExpansions }
+  const options = { details: unitExpansions.value, builtIn: appSettings.unitDisplay !== 'base' }
+  return suggestUnits(typed, library, options).map(({ create, ...item }) =>
+    create ? { ...item, onPick: () => store.addGeneratedUnits(create) } : item
+  )
+}
 
 // ── State ────────────────────────────────────────────────────────────────────
 const loading = ref(false)
 const activeTab = ref('parameters')
 
-// CellML State
-const currentModel = ref('')       // parsed XML representation - used for variable extraction, save, etc.
-const currentCellmlText = ref('')  // raw CellML source text - what the editor actually displays
-const originalModel = ref('')
 const applyToAll = ref(false)
-
-// Parameter State
-const parameterRows = ref([])
-const selectedRows = ref([])
-const searchQuery = ref('')
-const searchColumn = ref('name')
-const searchColumnOptions = [
-  { label: 'Name', value: 'name' },
-  { label: 'Units', value: 'units' },
-  { label: 'Type', value: 'type' },
-]
-const bulkTypeValue = ref('')
-const sortField = ref('name')
-const sortOrder = ref(1)
+// The editor mounts after the table paints, so its synchronous parse doesn't delay the table.
+const isEditorReady = ref(false)
+const editorWrapperRef = ref(null)
+// The dialog focuses its close button once its opening transition ends, so the editor takes focus
+// after that. Dialog has no event for it; its transition options are merged into its <Transition>.
+const isDialogShown = ref(false)
+const DIALOG_PT = {
+  transition: {
+    onAfterEnter: () => {
+      isDialogShown.value = true
+    },
+  },
+}
 
 // Port & Instance State
 const editableName = ref('')
 const editablePorts = ref([])
+const instanceNameRef = ref(null)
+// Why the last save rejected the instance name; cleared once the name changes.
+const nameError = ref('')
+let rejectedName = ''
+// The ports a save rejected. Only these are flagged, so rows added afterwards start clean.
+const flaggedPorts = ref(new Set())
+const portsTableRef = ref(null)
 
-// Ref to the CellML editor, used to imperatively replay text during undo/redo
-const cellmlEditorRef = ref(null)
+watch(editableName, (name) => {
+  if (name !== rejectedName) nameError.value = ''
+})
+
+// Component Name
+const editableComponentName = ref('')
+const componentNameForEditor = ref('')
+
+watch(editableComponentName, (value) => {
+  const cleaned = cleanName(value)
+  if (cleaned) componentNameForEditor.value = cleaned
+})
+
+// Advanced Mode component name
+function onEditorComponentName(name) {
+  editableComponentName.value = name
+  componentNameForEditor.value = name
+}
+
+// Ref to the mounted math editor, used to imperatively replay text during undo/redo
+const mathEditorRef = ref(null)
+const parameterTableRef = ref(null)
+
+// The math, its analysis and the parameter rows.
+const session = useMathSession({ history, editorRef: mathEditorRef, ports: editablePorts })
+const {
+  isManaged,
+  currentModel,
+  currentLayout,
+  parameterRows,
+  editorDefinitions,
+  variableKinds,
+  connectionSupplied,
+  mathReferences,
+  pendingRename,
+  isMissingUnits,
+  handleEditorChange,
+  renameEverywhere,
+  dismissRename,
+} = session
+
+// ── Editor Choice ───────────────────────────────────────────────────────────
+const EDITOR_STORAGE_KEY = 'instanceEditorDialog.editorKind'
+const EDITOR_OPTIONS = [
+  { value: 'text', label: 'CellML Text', icon: 'pi-code' },
+  { value: 'math', label: 'Math Editor', icon: 'pi-calculator' },
+]
+
+function loadStoredEditorKind() {
+  try {
+    const stored = window.localStorage.getItem(EDITOR_STORAGE_KEY)
+    if (EDITOR_OPTIONS.some((option) => option.value === stored)) return stored
+  } catch (e) {
+    // localStorage unavailable (e.g. private browsing) - fall back to default
+  }
+  return 'text'
+}
+
+const editorKind = ref(loadStoredEditorKind())
+// Tabs keeps its own selection, so a cancelled switch remounts it to show the current editor.
+const editorTabsKey = ref(0)
+
+/**
+ * Swaps the math editor, keeping the session. The Math Editor always works in Simple Mode.
+ *
+ * @param {'text'|'math'} kind
+ */
+async function switchEditor(kind) {
+  if (kind === editorKind.value) return
+  await session.flushPendingChanges()
+
+  if ((mathEditorRef.value?.getErrors?.() ?? []).length > 0) {
+    const proceed = await confirm({
+      header: 'Discard Invalid Edits?',
+      message: 'The math has errors. If you switch editors, edits since the last valid version will be lost.',
+      severity: 'warning',
+      acceptLabel: 'Switch',
+      rejectLabel: 'Cancel',
+    })
+    if (!proceed) {
+      editorTabsKey.value++
+      return
+    }
+  }
+
+  if (kind === 'math') isManaged.value = true
+  editorKind.value = kind
+  try {
+    window.localStorage.setItem(EDITOR_STORAGE_KEY, kind)
+  } catch (e) {
+    // ignore storage errors
+  }
+}
+
+// ── Simple Mode preference ──────────────────────────────────────────────────
+// One app-wide choice, the last one the user made; it is never saved with the workspace.
+const MANAGED_STORAGE_KEY = 'instanceEditorDialog.simpleMode'
+
+function loadStoredManaged() {
+  try {
+    return window.localStorage.getItem(MANAGED_STORAGE_KEY) !== 'false'
+  } catch (e) {
+    return true // localStorage unavailable (e.g. private browsing) - fall back to Simple Mode
+  }
+}
+
+/**
+ * Applies the user's Simple Mode toggle and remembers it for the next open.
+ *
+ * @param {boolean} simple
+ */
+function onSimpleToggle(simple) {
+  isManaged.value = simple
+  try {
+    window.localStorage.setItem(MANAGED_STORAGE_KEY, String(simple))
+  } catch (e) {
+    // ignore storage errors
+  }
+}
 
 // ── Split / Collapse State ──────────────────────────────────────────────────
 const SPLIT_STORAGE_KEY = 'instanceEditorDialog.leftPanePercent'
 const DEFAULT_LEFT_PERCENT = 55
-const MIN_LEFT_PERCENT = 32
-const MAX_LEFT_PERCENT = 60
-const MIN_REQUIRED_WIDTH = 1000;
+const MIN_LEFT_PERCENT = 38
+const MAX_LEFT_PERCENT = 55
+const MIN_REQUIRED_WIDTH = 1000
 
 function loadStoredSplit() {
   try {
@@ -593,6 +799,74 @@ onUnmounted(() => {
   if (widthRafId !== null) cancelAnimationFrame(widthRafId)
 })
 
+// ── Issues ───────────────────────────────────────────────────────────────────
+const getUnitsNotice = (row) => getUnknownUnitsNotice(row, store.availableUnitNames)
+
+/**
+ * Checks whether a state's initial value is a variable that changes over time.
+ *
+ * @param {Object} row
+ * @returns {boolean}
+ */
+function hasTimeVaryingInitialiser(row) {
+  if (row.stateRole !== 'state' || !row.initialiser) return false
+  const initialiserRow = parameterRows.value.find((candidate) => candidate.name === row.initialiser)
+  return !!initialiserRow && !isInitialisable(initialiserRow, variableKinds.value)
+}
+
+const ISSUE_MATCHERS = {
+  units: (row) => isMissingUnits(row),
+  values: (row) => isValueMissing(row),
+  unknown: (row) => !!getUnitsNotice(row),
+  initialiser: hasTimeVaryingInitialiser,
+}
+
+const issueChips = computed(() => {
+  const rows = parameterRows.value
+  const count = (fn) => rows.filter(fn).length
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+  const missingUnits = count(ISSUE_MATCHERS.units)
+  const missingValues = count(ISSUE_MATCHERS.values)
+  const unknownUnits = count(ISSUE_MATCHERS.unknown)
+  const timeVaryingInitialisers = count(ISSUE_MATCHERS.initialiser)
+
+  const chips = []
+  if (missingUnits) {
+    chips.push({ key: 'units', kind: 'units', icon: 'pi-exclamation-circle', count: missingUnits, label: `${plural(missingUnits, 'variable')} missing units` })
+  }
+  if (missingValues) {
+    chips.push({ key: 'values', kind: 'units', icon: 'pi-sliders-h', count: missingValues, label: `${plural(missingValues, 'value')} required` })
+  }
+  if (timeVaryingInitialisers) {
+    chips.push({
+      key: 'initialiser',
+      kind: 'units',
+      icon: 'pi-exclamation-triangle',
+      count: timeVaryingInitialisers,
+      label: `${plural(timeVaryingInitialisers, 'state')} with time-varying initialiser`,
+    })
+  }
+  if (unknownUnits) {
+    chips.push({ key: 'unknown', kind: 'unknown', icon: 'pi-info-circle', count: unknownUnits, label: `${plural(unknownUnits, 'unit')} not in library` })
+  }
+  return chips
+})
+
+// ── "Show only" filter ───────────────────────────────────────────────────────
+const issueFilter = useIssueFilter({
+  rows: parameterRows,
+  matchers: ISSUE_MATCHERS,
+  availableKeys: computed(() => issueChips.value.map((chip) => chip.key)),
+})
+
+// Screen readers get the same information the badges show.
+const railAriaLabel = computed(() => {
+  const summary = activeTab.value === 'parameters' ? issueChips.value.map((chip) => chip.label).join(', ') : ''
+  const label = activeTab.value === 'parameters' ? `Parameters (${parameterRows.value.length})` : `Ports (${editablePorts.value.length})`
+  return summary ? `Expand panel. ${label}. ${summary}` : `Expand panel. ${label}`
+})
+
 // ── Computed ─────────────────────────────────────────────────────────────────
 const componentFile = computed(() => props.mathRef?.split(':')[0])
 const componentName = computed(() => props.mathRef?.split(':')[1])
@@ -604,204 +878,168 @@ const siblings = computed(() => {
 
 const siblingCount = computed(() => siblings.value.length)
 
-const isDirty = computed(() =>
-  !areModelsEquivalent(originalModel.value, currentModel.value)
+// ── Watchers & Handlers ──────────────────────────────────────────────────────
+let openRequestId = 0
+
+watch(
+  () => isDialogShown.value && isEditorReady.value,
+  async (canFocus) => {
+    if (!canFocus) return
+    await nextTick()
+    mathEditorRef.value?.focus?.()
+  }
 )
 
-const filteredParameterRows = computed(() => {
-  if (!searchQuery.value.trim()) return parameterRows.value
-  const query = searchQuery.value.toLowerCase()
-  const columnKey = searchColumn.value
-  return parameterRows.value.filter((row) => String(row[columnKey] || '').toLowerCase().includes(query))
-})
-
-// ── Watchers & Handlers ──────────────────────────────────────────────────────
 watch(
   () => props.modelValue,
   async (isOpen) => {
-    if (isOpen) {
-      loading.value = true
-      applyToAll.value = false
-      activeTab.value = props.defaultTab || 'parameters'
-
-      // Load Instance & Port data
-      editableName.value = props.initialName
-      editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
-        ...port,
-        variables: Array.isArray(port.variables)
-          ? port.variables.map((v) => (typeof v === 'object' && v !== null ? v.name : v))
-          : []
-      }))
-
-      // Load Parameters
-      parameterRows.value = props.variables.map((row) => ({
-        name: row.name,
-        value: row.type === 'global_constant' ? store.getGlobalConstant(row.name)?.value : row.value,
-        units: row.units,
-        type: row.type,
-        access: row.access,
-      }))
-      sortParameterRows('type', 1)
-
-      // Load CellML
-      try {
-        if (props.mathRef) {
-          const math = store.availableMath.get(props.mathRef)
-          currentModel.value = math
-          originalModel.value = math
-        }
-      } catch (e) {
-        console.error('Failed to load CellML source', e)
-      } finally {
-        await nextTick()
-        loading.value = false
-      }
+    if (!isOpen) {
+      isEditorReady.value = false
+      isDialogShown.value = false
+      history.clear()
+      return
     }
+
+    const requestId = ++openRequestId
+    history.clear()
+    loading.value = true
+    isEditorReady.value = false
+    applyToAll.value = false
+    nameError.value = ''
+    rejectedName = ''
+    flaggedPorts.value = new Set()
+    activeTab.value = props.defaultTab
+    issueFilter.reset()
+
+    editableName.value = props.initialName
+    editableComponentName.value = componentName.value
+    componentNameForEditor.value = componentName.value
+    editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
+      ...port,
+      variables: Array.isArray(port.variables)
+        ? port.variables.map((v) => (typeof v === 'object' && v !== null ? v.name : v))
+        : [],
+    }))
+    indexPortConnections()
+
+    // Saved stateRole/initialiser keep pairings the math alone can't reveal, such as shared initialisers.
+    const savedRows = props.variables.map((row) => ({
+      name: row.name,
+      value: row.type === 'global_constant' ? store.getGlobalConstant(row.name)?.value : row.value,
+      units: row.units,
+      type: row.type,
+      access: row.access,
+      data_reference: row.data_reference ?? null,
+      ...(row.stateRole === 'state' ? { stateRole: 'state', initialiser: row.initialiser } : {}),
+    }))
+
+    try {
+      await session.load({
+        mathRef: props.mathRef,
+        rows: savedRows,
+        managed: loadStoredManaged() || editorKind.value === 'math',
+      })
+    } catch (e) {
+      console.error('Failed to load CellML source', e)
+    }
+    if (requestId !== openRequestId) return
+
+    loading.value = false
+    await nextTick()
+    // rAF runs before the next paint; the timeout lands after it, so the table is on screen first.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    // The editor measures its glyphs when it mounts, so it waits out the dialog's opening scale.
+    await waitUntilStable(editorWrapperRef.value, 400)
+    if (requestId === openRequestId && props.modelValue) isEditorReady.value = true
   }
 )
 
-async function reconcileStagedState(newCode, newRawText) {
-  const extractedVariables = extractVariablesFromMath(newCode)
-  if (!extractedVariables) return
-
-  const previousCode = currentModel.value
-  const previousRawText = currentCellmlText.value
-  if (previousCode === newCode) return
-
-  const validVarNames = new Set(extractedVariables.map((v) => v.name))
-
-  const currentMap = new Map(parameterRows.value.map((row) => [row.name, row]))
-  const previousParameterRows = parameterRows.value
-
-  const newParameterRows = extractedVariables.map((variable) => {
-    const existing = currentMap.get(variable.name)
-
-    return {
-      name: variable.name,
-      units: variable.units,
-      access: variable.access || 'access',
-      value: existing ? existing.value : (variable.value || ''),
-      type: existing ? existing.type : (variable.type || 'constant'),
-    }
-  })
-
-  history.startBatch()
-
-  await history.executeAndAddCommand({
-    type: 'update-cellml-code',
-    undo: async () => {
-      currentModel.value = previousCode
-      currentCellmlText.value = previousRawText
-      await cellmlEditorRef.value?.setText(previousRawText)
-    },
-    redo: async () => {
-      currentModel.value = newCode
-      currentCellmlText.value = newRawText
-      await cellmlEditorRef.value?.setText(newRawText)
-    },
-  })
-
-  await history.executeAndAddCommand({
-    type: 'update-parameter-rows',
-    undo: async () => {
-      parameterRows.value = previousParameterRows
-    },
-    redo: async () => {
-      parameterRows.value = newParameterRows
-    },
-  })
-
-  for (const port of editablePorts.value) {
-    if (!Array.isArray(port.variables)) continue
-
-    const portVars = port.variables
-    const removed = portVars.filter((varName) => !validVarNames.has(varName))
-    if (removed.length === 0) continue
-
-    await history.executeAndAddCommand({
-      type: 'remove-variable-from-port',
-      undo: async () => {
-        port.variables = portVars
-      },
-      redo: async () => {
-        port.variables = port.variables.filter((varName) => validVarNames.has(varName))
-      },
-    })
-  }
-
-  history.endBatch()
-}
-
-function handleCodeUpdate(newCode, rawText, isValid) {
-  if (isValid) {
-    reconcileStagedState(newCode, rawText)
-  } else {
-    trackRawTextOnly(rawText)
-  }
-}
-
-async function trackRawTextOnly(rawText) {
-  const previousRawText = currentCellmlText.value
-  if (previousRawText === rawText) return
-
-  await history.executeAndAddCommand({
-    type: 'update-cellml-text-only',
-    undo: async () => {
-      currentCellmlText.value = previousRawText
-      await cellmlEditorRef.value?.setText(previousRawText)
-    },
-    redo: async () => {
-      currentCellmlText.value = rawText
-      await cellmlEditorRef.value?.setText(rawText)
-    },
-  })
-}
-
+// Pending editor changes are recorded first, so undo steps back from the latest edit.
 async function handleEditorUndo() {
+  await session.flushPendingChanges()
   if (!history.canUndo) return
   await history.undo()
 }
 
 async function handleEditorRedo() {
+  await session.flushPendingChanges()
   if (!history.canRedo) return
   await history.redo()
 }
 
-function handleEditorReady(canonicalMath, rawText) {
-  void isDirty.value
-  currentModel.value = canonicalMath
-  originalModel.value = canonicalMath
-  currentCellmlText.value = rawText ?? currentCellmlText.value
+function clearPortVariableSearch(event) {
+  const input = event.currentTarget.closest('.p-iconfield')?.querySelector('input')
+  if (!input) return
+  input.value = ''
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.focus()
 }
 
-function sortParameterRows(field = 'type', order = 1) {
-  parameterRows.value.sort((a, b) => {
-    const valA = String(a[field] || '').toLowerCase()
-    const valB = String(b[field] || '').toLowerCase()
-    const result = valA.localeCompare(valB)
-    return result !== 0 ? (order === 1 ? result : -result) : a.name.localeCompare(b.name)
+/**
+ * Checks whether a port has nothing filled in, so it can be dropped on save without losing work.
+ *
+ * @param {Object} port
+ * @returns {boolean}
+ */
+function isBlankPort(port) {
+  return !port.label?.trim() && !port.variables?.length
+}
+
+/**
+ * Checks whether a port is partly filled in: it has a label or variables, but not both.
+ *
+ * @param {Object} port
+ * @returns {boolean}
+ */
+function isIncompletePort(port) {
+  return !isBlankPort(port) && (!port.label?.trim() || !port.variables?.length)
+}
+
+/**
+ * Checks whether a port has a Multiply variable with no factor entered.
+ *
+ * @param {Object} port
+ * @returns {boolean}
+ */
+function isMissingFactor(port) {
+  return multiplyVariables(port).some((name) => isEmpty(variableFactor(port, name)))
+}
+
+const isPortFlagged = (port) => flaggedPorts.value.has(port)
+
+// The modules each port is connected to, read from the canvas edges when the editor opens.
+const connectionsByPort = new WeakMap()
+
+/** Records, for each editable port, the names of the modules its couplings reach. */
+function indexPortConnections() {
+  const nameOf = (id) => nodes.value.find((node) => node.id === id)?.data.name ?? id
+  editablePorts.value.forEach((port, i) => {
+    const original = props.initialPorts[i]
+    const names = edges.value.flatMap((edge) =>
+      (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
+        const own = edge.source === props.id ? sourcePort : edge.target === props.id ? targetPort : null
+        return own && findPort([original], own) ? [nameOf(edge.source === props.id ? edge.target : edge.source)] : []
+      })
+    )
+    connectionsByPort.set(toRaw(port), names)
   })
 }
 
-function handleSortChange(event) {
-  const field = event?.sortField || 'type'
-  const order = event?.sortOrder === -1 ? -1 : 1
-  sortField.value = field
-  sortOrder.value = order
-  sortParameterRows(field, order)
+const portConnections = (port) => connectionsByPort.get(toRaw(port)) ?? []
+
+const portStatus = (port) => {
+  const names = portConnections(port)
+  return names.length ? `Connected to ${names.join(', ')}` : 'Not connected'
 }
 
-function applyBulkType() {
-  if (!bulkTypeValue.value || selectedRows.value.length === 0) return
-  const targetType = bulkTypeValue.value
-  selectedRows.value.forEach((row) => {
-    row.type = targetType
-  })
-  selectedRows.value = []
-  bulkTypeValue.value = ''
-}
+const incompletePortCount = computed(
+  () => editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)).length
+)
 
-function addPort() {
+const portRowClass = (port) =>
+  isPortFlagged(port) && (isIncompletePort(port) || isMissingFactor(port)) ? 'port-row--invalid' : ''
+
+async function addPort() {
   editablePorts.value.push({
     portType: 'general_ports',
     variables: [],
@@ -809,6 +1047,10 @@ function addPort() {
     multiportType: 'None',
     multiplyFactor: 1,
   })
+  // Bring the new row into view; it's added at the bottom of the table.
+  await nextTick()
+  const scroller = portsTableRef.value?.$el?.querySelector('.p-datatable-table-container')
+  if (scroller) scroller.scrollTop = scroller.scrollHeight
 }
 
 function deletePort(index) {
@@ -824,7 +1066,11 @@ const onDialogVisibleChange = (visible) => {
 }
 
 async function handleCancel() {
-  if (isDirty.value) {
+  // Commit any rename and editor change still in flight, so an edit typed just before Escape counts.
+  parameterTableRef.value?.flushPendingRenames()
+  await session.flushPendingChanges()
+
+  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty()) {
     const confirmed = await confirm({
       header: 'Unsaved Changes',
       message: 'Are you sure you want to discard changes?',
@@ -837,10 +1083,47 @@ async function handleCancel() {
   emit('update:modelValue', false)
 }
 
+// ── Save As ──────────────────────────────────────────────────────────────────
+const saveAs = ref({ visible: false, message: '', initialName: '' })
+let saveAsResolver = null
+
+/**
+ * Explains why a component name can't be saved in this file, or returns '' when it can.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function isComponentNameTaken(name) {
+  const mathRef = `${componentFile.value}:${name}`
+  if (PROTECTED_MATH_REFS.has(mathRef)) return `"${name}" is a template and can't be overwritten.`
+  if (mathRef !== props.mathRef && store.availableMath.has(mathRef)) return `A component named "${name}" already exists.`
+  return ''
+}
+
+/**
+ * Asks for a new component name before saving math that can't keep its current one.
+ *
+ * @param {string} message - Why a new name is needed.
+ * @returns {Promise<string|null>} The new name, or null if cancelled.
+ */
+function promptComponentSaveAs(message) {
+  resolveSaveAs(null)
+  saveAs.value = { visible: true, message, initialName: sanitiseName(editableName.value ?? '') }
+  return new Promise((resolve) => {
+    saveAsResolver = resolve
+  })
+}
+
+function resolveSaveAs(name) {
+  saveAsResolver?.(name)
+  saveAsResolver = null
+}
+
 async function handleMathOverwrite() {
+  const message = siblingCount.value > 0 ? `This will affect ${siblingCount.value} other instances. ` : ''
   return confirm({
     header: 'Overwrite Math?',
-    message: `You are about to overwrite an existing math definition. This will affect ${siblingCount.value} other instances. Are you sure you want to proceed?`,
+    message: `You are about to overwrite an existing math definition. ${message}Are you sure you want to proceed?`,
     severity: 'warning',
     acceptLabel: 'Proceed',
     rejectLabel: 'Cancel',
@@ -848,65 +1131,140 @@ async function handleMathOverwrite() {
 }
 
 // ── Save Processing ──────────────────────────────────────────────────────────
+/**
+ * Flags the instance name field with a save error and moves focus to it.
+ *
+ * @param {string} message
+ */
+function rejectInstanceName(message) {
+  notify.error({ message })
+  nameError.value = message
+  rejectedName = editableName.value
+  instanceNameRef.value?.focus()
+}
+
+/**
+ * Shows a tab of the right panel, expanding the panel if it was collapsed.
+ *
+ * @param {'parameters'|'ports'} tab
+ */
+function showTab(tab) {
+  activeTab.value = tab
+  rightCollapsed.value = false
+}
+
 async function handleSave() {
+  // Commit any rename and editor change still in flight before reading state.
+  parameterTableRef.value?.flushPendingRenames()
+  await session.flushPendingChanges()
+
   // 1. Validate Instance Name
   if (!editableName.value || !editableName.value.trim()) {
-    notify.error({ message: 'Instance name cannot be empty.' })
-    activeTab.value = 'ports'
+    rejectInstanceName('Instance name cannot be empty.')
     return
   }
 
   const sanitised = sanitiseName(editableName.value)
 
   if (!sanitised) {
-    notify.error({ message: 'Instance name is invalid.' })
-    activeTab.value = 'ports'
+    rejectInstanceName('Instance name is invalid.')
     return
   }
   editableName.value = sanitised
 
   const nameExists = props.existingNames.some((n) => n === editableName.value && n !== props.initialName)
   if (nameExists) {
-    notify.error({ message: 'An instance with this name already exists.' })
-    activeTab.value = 'ports'
+    rejectInstanceName('An instance with this name already exists.')
+    return
+  }
+
+  if (isManaged.value && !cleanName(editableComponentName.value)) {
+    notify.error({ message: 'Component name is invalid.' })
     return
   }
 
   // 2. Validate Ports
-  const finalPorts = editablePorts.value.filter((p) => p.variables?.length && p.label?.trim())
-  const invalidFactor = finalPorts.find((p) => p.multiportType === 'Multiply' && isEmpty(p.multiplyFactor))
+  const incompletePorts = editablePorts.value.filter(isIncompletePort)
+  if (incompletePorts.length) {
+    flaggedPorts.value = new Set(incompletePorts)
+    notify.error({ message: 'Every port needs a label and at least one variable.' })
+    showTab('ports')
+    return
+  }
+  const finalPorts = editablePorts.value.filter((p) => !isBlankPort(p))
+  const invalidFactor = finalPorts.find(isMissingFactor)
   if (invalidFactor) {
+    flaggedPorts.value = new Set([invalidFactor])
     notify.error({ message: `Port "${invalidFactor.label}" has Multiply selected but missing scale factor.` })
-    activeTab.value = 'ports'
+    showTab('ports')
     return
   }
 
-  // 3. Process Global Constants from Parameters
+  // 2b. Validate no two parameter rows share a name. This can only happen via a renamed
+  // initialiser colliding with another row - block it here since a saved duplicate would
+  // silently break every name-keyed lookup downstream (buildVariableDeclarations, the initialiser
+  // picker options, port variable selection, ...).
+  const nameCounts = new Map()
   parameterRows.value.forEach((row) => {
-    if (row.type === 'global_constant') {
-      store.assignGlobalConstant(row.name, row.value, row.units, row.data_reference)
-    }
+    const cleaned = cleanName(row.name)
+    if (!cleaned) return
+    nameCounts.set(cleaned, (nameCounts.get(cleaned) ?? 0) + 1)
   })
+  const duplicateName = [...nameCounts.entries()].find(([, count]) => count > 1)?.[0]
+  if (duplicateName) {
+    notify.error({ message: `Two variables are both named "${duplicateName}". Rename one before saving.` })
+    showTab('parameters')
+    return
+  }
 
-  // 4. Process CellML Source Changes
+  const textErrors = mathEditorRef.value?.getErrors?.() ?? []
+  if (textErrors.length > 0) {
+    const proceed = await confirm({
+      header: editorKind.value === 'math' ? 'Math Has Errors' : 'CellML Text Has Errors',
+      message: 'If you continue, the last valid version of the model will be saved and any edits since then will be lost.',
+      severity: 'warning',
+      acceptLabel: 'Proceed',
+      rejectLabel: 'Cancel',
+    })
+    if (!proceed) return
+  }
+
+  // Values typed into the text belong in the rows, so an edit to values alone leaves the math unchanged.
+  session.separateTypedValues()
+
+  // Give each state and its initialiser the same units. In Advanced Mode the text owns units, so only
+  // blank initialisers are filled (see syncInitialiserUnits).
+  syncInitialiserUnits(parameterRows.value, { overwrite: isManaged.value })
+
+  // 3. Check the math's new reference
   let newMathRef = props.mathRef
-  if (isDirty.value) {
+  const isMathChanged = session.isDirty()
+  let mathToSave = currentModel.value
+  let layoutToSave = currentLayout.value
+  if (isMathChanged) {
     const componentNames = getModelComponentNames(currentModel.value)
     if (!componentNames || componentNames.length === 0) {
-      window.alert('Could not find a valid component name in the model.')
+      notify.error({ message: 'Could not find a valid component name in the model.' })
       return
     }
     const newComponentName = componentNames[0].trim()
-    newMathRef = `${componentFile.value}:${newComponentName}`
 
-    if (newMathRef === props.mathRef && store.availableMath.has(newMathRef)) {
+    newMathRef = `${componentFile.value}:${newComponentName}`
+    if (PROTECTED_MATH_REFS.has(newMathRef)) {
+      const renamed = await promptComponentSaveAs(
+        `"${newComponentName}" is the template new instances start from. Save your changes as a new component instead.`
+      )
+      if (!renamed) return
+      mathToSave = renameModelComponent(mathToSave, newComponentName, renamed)
+      layoutToSave = renameLayoutComponent(layoutToSave, newComponentName, renamed)
+      newMathRef = `${componentFile.value}:${renamed}`
+    } else if (store.availableMath.has(newMathRef)) {
       const overwrite = await handleMathOverwrite()
       if (!overwrite) return
     }
-    store.addMath(newMathRef, currentModel.value)
   }
 
-  const updateAll = (siblingCount.value > 0 && applyToAll.value) || siblingCount.value === 0
+  const updateAll = applyToAll.value || siblingCount.value === 0
 
   trackEvent('editor_action', {
     category: 'Editor',
@@ -914,17 +1272,34 @@ async function handleSave() {
     label: editableName.value,
   })
 
-  // Emit consolidated payload to parent workspace
-  emit('confirm', {
-    id: props.id,
-    name: editableName.value,
-    mathRef: newMathRef,
-    math: currentModel.value,
-    variables: parameterRows.value,
-    ports: finalPorts,
-    updateAll,
-    siblings: updateAll ? siblings.value : undefined,
-  })
+  const wasGlobal = new Set(props.variables.filter((row) => row.type === 'global_constant').map((row) => row.name))
+
+  emit(
+    'confirm',
+    detachReactivity({
+      id: props.id,
+      name: editableName.value,
+      mathRef: newMathRef,
+      previousMathRef: props.mathRef,
+      math: isMathChanged ? mathToSave : null,
+      layout: layoutToSave,
+      isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
+      // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
+      globalConstants: parameterRows.value
+        .filter((row) => row.type === 'global_constant')
+        .map(({ name, value, units, data_reference }) => ({
+          name,
+          value,
+          units,
+          data_reference,
+          overwrite: wasGlobal.has(name),
+        })),
+      variables: parameterRows.value,
+      ports: finalPorts,
+      updateAll,
+      siblings: updateAll ? siblings.value : [],
+    })
+  )
 
   emit('update:modelValue', false)
 }
@@ -938,23 +1313,72 @@ async function handleSave() {
   font-size: 1.125rem;
   font-weight: 600;
   width: 100%;
-  overflow: visible;
+  flex-wrap: wrap;
 }
 
-.header-prefix {
+.header-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.header-group--secondary {
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: normal;
+}
+
+.header-label {
   color: var(--p-text-color);
 }
 
-.header-input {
-  width: 300px;
-  font-size: 1rem;
-  font-weight: normal;
+.header-label--secondary {
+  color: var(--p-text-muted-color);
 }
 
-.header-suffix {
+.header-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 0.25rem 0.25rem;
+  background: var(--p-content-border-color);
+}
+
+/* The component name while the CellML text owns it: read-only, with a hint that it's set in the text */
+.header-static {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--p-text-color);
+  cursor: help;
+}
+
+.header-static .pi {
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
+}
+
+.header-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+  max-width: 16rem;
   color: var(--p-text-muted-color);
   font-size: 0.9rem;
   font-weight: normal;
+}
+
+.header-file .pi {
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+}
+
+.header-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .module-editor-dialog {
@@ -1018,19 +1442,27 @@ async function handleSave() {
   min-height: 0;
 }
 
-.left-pane {
-  min-width: 38%;
-  max-width: 55%;
-}
-
-.left-pane--collapsed {
-  max-width: 100%;
-}
-
 .editor-wrapper {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.rename-notice {
+  margin-bottom: 8px;
+}
+
+.rename-notice-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.rename-notice-actions {
+  display: flex;
+  gap: 4px;
 }
 
 /* ── Resize handle between the two panes; also hosts the collapse/expand button ── */
@@ -1119,9 +1551,40 @@ async function handleSave() {
   align-items: center;
 }
 
+.rail-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.rail-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 100%;
+  padding: 3px 0;
+  border-radius: 6px;
+  font-size: var(--dlg-fs-tiny);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--p-text-color);
+  background-color: color-mix(in srgb, var(--chip-color) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-color) 40%, transparent);
+}
+
+.rail-badge .pi {
+  font-size: 0.7rem;
+  color: var(--chip-color);
+}
+
 .collapsed-rail {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: none;
@@ -1175,7 +1638,6 @@ async function handleSave() {
   height: 100%;
 }
 
-.parameters-tab-body,
 .ports-tab-body {
   display: flex;
   flex-direction: column;
@@ -1199,11 +1661,16 @@ async function handleSave() {
   overflow: hidden !important;
 }
 
-.table-flex-wrapper :deep(.p-datatable-table-container),
-.table-flex-wrapper :deep(.p-datatable-wrapper) {
+.table-flex-wrapper :deep(.p-datatable-table-container) {
   min-height: 0 !important;
   flex: 1 1 auto !important;
   overflow-y: auto !important;
+}
+
+/* Matches the right pane's tab bar, so the two panes' headers line up */
+.editor-tabs {
+  flex-shrink: 0;
+  margin-bottom: 12px;
 }
 
 .tab-icon {
@@ -1211,81 +1678,106 @@ async function handleSave() {
   font-size: var(--dlg-fs-small);
 }
 
-/* Parameters Tab Styles */
-.toolbar-container {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 10px;
-  margin-bottom: 12px;
-  background-color: var(--p-content-hover-background, rgba(0, 0, 0, 0.02));
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 6px;
+/* Parameters tab: row-state stripes reach into ParameterTable via :deep */
+
+.right-pane :deep(.parameter-row--unresolved) {
+  background-color: color-mix(in srgb, var(--p-yellow-500, #eab308) 14%, transparent);
 }
 
-.search-group, .bulk-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Flat categories: a left-edge stripe only - no indentation, italics, arrows, or adjacency. A row
+   is either a state (green) or an initialiser (purple, whether shared or exclusive, computed or
+   plain); never both. */
+.right-pane :deep(tr.parameter-row--state) {
+  box-shadow: inset 3px 0 0 0 var(--p-green-500, #22c55e);
 }
 
-.search-group {
-  flex-wrap: wrap;
+.right-pane :deep(tr.parameter-row--initialiser) {
+  box-shadow: inset 3px 0 0 0 var(--p-purple-400, #a78bfa);
 }
 
-.search-input-wrapper {
-  position: relative;
+/* Unresolved/missing-value urgency always wins over the state/initialiser stripe colour. */
+.right-pane :deep(tr.parameter-row--state.parameter-row--unresolved),
+.right-pane :deep(tr.parameter-row--initialiser.parameter-row--unresolved) {
+  background-color: color-mix(in srgb, var(--p-yellow-500, #eab308) 14%, transparent);
 }
 
-.bulk-controls {
-  padding-top: 8px;
-  border-top: 1px solid var(--p-content-border-color);
-  flex-wrap: wrap;
+/* Selection checkboxes: the default is sized for forms, which is large in a dense table */
+.right-pane :deep(.parameters-table) {
+  --p-checkbox-width: 1rem;
+  --p-checkbox-height: 1rem;
+  --p-checkbox-icon-size: 0.625rem;
 }
-
-.bulk-controls .bulk-select {
-  margin-right: auto;
-}
-
-.search-column { width: 130px; flex: 0 0 auto; }
-.bulk-select { width: 180px; }
-.bulk-label { font-size: var(--dlg-fs-small); color: var(--p-text-muted-color); white-space: nowrap; }
 
 /* Ports Tab Styles */
-.form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.form-label {
-  font-weight: 600;
-  font-size: var(--dlg-fs-label);
-}
-
 .ports-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   margin-bottom: 8px;
   flex-shrink: 0;
 }
 
+/* Tints mix with the row's own opaque colour: the frozen delete cell inherits it, and a see-through
+   background would show the cells scrolling underneath. */
+.right-pane :deep(tr.port-row--invalid) {
+  background: color-mix(in srgb, var(--p-red-500, #ef4444) 10%, var(--p-datatable-row-background));
+}
+
+.right-pane :deep(tr.p-row-odd.port-row--invalid) {
+  background: color-mix(in srgb, var(--p-red-500, #ef4444) 10%, var(--p-datatable-row-striped-background));
+}
+
+/* Above the inputs in the cells scrolling underneath, which set their own stacking order */
+.right-pane :deep(.p-datatable-frozen-column) {
+  z-index: 2;
+  box-shadow: inset 1px 0 0 var(--p-datatable-body-cell-border-color);
+}
+
+/* A port's connection state, coloured as in the edge dialog's legend */
+.port-status {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--p-text-muted-color);
+}
+
+.port-status--connected {
+  background: var(--p-primary-color);
+}
+
+.ports-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px 0;
+}
+
+.port-key-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--p-text-muted-color);
+}
+
+.add-port-row {
+  flex-shrink: 0;
+  justify-content: center;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px dashed var(--p-content-border-color);
+}
+
 .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   color: var(--p-text-muted-color);
   font-size: var(--dlg-fs-small);
   margin-top: 16px;
-  text-align: center;
-}
-
-.multiply-prefix {
-  font-size: var(--dlg-fs-tiny);
-  font-weight: 600;
-  color: var(--p-text-muted-color);
 }
 
 .w-full { width: 100%; }
-.text-muted { color: var(--p-text-muted-color); }
 
 /* Normalise table typography - DataTable renders these cells directly */
 /* in our own template output (not teleported), so :deep() reaches them. */
@@ -1316,13 +1808,23 @@ async function handleSave() {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-right: auto;
   font-size: 0.85rem;
 }
 
 .footer-buttons {
   display: flex;
   gap: 8px;
+}
+
+.editor-pending {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 100%;
+  color: var(--p-text-muted-color);
 }
 
 .loading-overlay {
@@ -1486,5 +1988,68 @@ async function handleSave() {
   .right-pane--collapsed {
     display: none;
   }
+}
+</style>
+
+<!-- The variable picker's panel is teleported to <body>, so the scoped styles above can't reach it. -->
+<style>
+.ports-variable-overlay {
+  /* Sized to sit with the ports table (14px text), not the form-sized defaults. */
+  --p-multiselect-option-font-size: 0.875rem;
+  --p-multiselect-option-padding: 0.3125rem 0.625rem;
+  --p-multiselect-option-gap: 0.5rem;
+  --p-multiselect-list-padding: 0.25rem;
+  --p-multiselect-list-gap: 1px;
+  --p-checkbox-width: 1rem;
+  --p-checkbox-height: 1rem;
+  --p-checkbox-icon-size: 0.625rem;
+}
+
+.ports-variable-overlay .p-multiselect-header {
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+}
+
+.ports-variable-overlay .p-multiselect-header .p-inputtext {
+  font-size: 0.875rem;
+}
+
+/* Search field: search icon left, clear button right (only once there's text), like the other search bars. */
+.ports-variable-overlay .p-multiselect-header .p-iconfield .p-inputtext {
+  padding-inline: 2rem;
+}
+
+.ports-variable-overlay .p-multiselect-header .p-iconfield .p-inputicon {
+  /* One container spanning the field, so the two icons can sit at opposite ends. */
+  inset-inline: 0.625rem;
+  top: 50%;
+  margin-top: 0;
+  width: auto;
+  height: auto;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.ports-variable-overlay .ports-variable-filter-icons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.ports-variable-overlay .search-clear-input {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.ports-variable-overlay .search-clear-input:hover {
+  color: var(--p-text-color);
+}
+
+/* Empty field (its placeholder is showing): nothing to clear. Hidden rather than removed, so nothing shifts. */
+.ports-variable-overlay .p-multiselect-header .p-inputtext:placeholder-shown + .p-inputicon .search-clear-input {
+  visibility: hidden;
+  pointer-events: none;
 }
 </style>

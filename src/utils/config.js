@@ -1,6 +1,7 @@
 import { PORT_TYPE_OPTIONS } from './constants'
 import { toRaw } from 'vue'
 import { extractVariablesFromMath } from './cellml'
+import { parseMultiport } from './multiport'
 
 export function parseMathRef(mathRef) {
   const [componentFile, componentName] = mathRef.split(':')
@@ -96,13 +97,6 @@ export function restoreVariables(variables = []) {
     v.access,
     v.type
   ])
-}
-
-function parseMultiport(value) {
-  if (value === true || value === "True") return "True"
-  if (value === "Sum") return "Sum"
-  if (value === "Multiply") return "Multiply"
-  return "None"
 }
 
 function unparseMultiport(value) {

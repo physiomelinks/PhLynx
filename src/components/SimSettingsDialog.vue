@@ -547,6 +547,7 @@ import TabPanel from 'primevue/tabpanel'
 import TabView from 'primevue/tabview'
 
 import { useConfirmDialog } from '../composables/useConfirmDialog'
+import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { notify } from '../utils/notify'
 
@@ -560,6 +561,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 const { confirm } = useConfirmDialog()
+const libraryStore = useLibraryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const { simulationSettings, plotConfig, parameterScanConfig } = storeToRefs(simulationSettingsStore)
 
@@ -846,7 +848,9 @@ function buildVariableRows(nodes, selectedByKey) {
 }
 
 function pickDefaultValue(variable) {
-  const candidate = variable.defaultValue ?? variable.initialValue ?? variable.value
+  // A global constant's value is shared, so a node's own copy may be out of date.
+  const value = variable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name)?.value : variable.value
+  const candidate = variable.defaultValue ?? variable.initialValue ?? value
   const numeric = Number(candidate)
   return Number.isFinite(numeric) ? numeric : null
 }

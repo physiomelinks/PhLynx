@@ -40,15 +40,12 @@
           <Column field="variables" header="Port Variable(s)">
             <template #body="slotProps">
               <div v-if="slotProps.data.variables && slotProps.data.variables.length" class="flex flex-wrap gap-1">
-                <Tag v-for="v in slotProps.data.variables" :key="v">
-                  {{ v }}
-                </Tag>
+                <MultiportChip v-for="v in slotProps.data.variables" :key="v" :port="slotProps.data" :name="v" />
               </div>
               <span v-else class="text-slate-500">-</span>
             </template>
           </Column>
 
-          <Column field="multiportType" header="Multiport" style="width: 100px" />
         </DataTable>
       </TabPanel>
     </TabView>
@@ -68,6 +65,7 @@ import Dialog from 'primevue/dialog'
 import TabPanel from 'primevue/tabpanel'
 import TabView from 'primevue/tabview'
 import Tag from 'primevue/tag'
+import MultiportChip from './MultiportChip.vue'
 
 const props = defineProps({
   modelValue: Boolean,

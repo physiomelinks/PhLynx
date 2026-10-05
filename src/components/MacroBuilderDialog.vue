@@ -62,7 +62,6 @@
                 :id="props.id"
                 :data="props.data"
                 :selected="props.selected"
-                @open-edit-dialog="onOpenEditDialog"
                 :ref="(el) => (nodeRefs[props.id] = el)"
               />
             </template>
@@ -129,6 +128,7 @@ import {
   markerEnd,
 } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
+import { waitUntilStable } from '../utils/layout'
 import { getHandleUidFromHandleId } from '../utils/handles'
 import { useConfirm } from 'primevue'
 import { useClearWorkspace } from '../composables/useClearWorkspace.js'
@@ -157,7 +157,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['update:modelValue', 'generate', 'edit-node'])
+const emit = defineEmits(['update:modelValue', 'generate'])
 
 const multiplier = ref(1)
 const nodeRefs = ref({})
@@ -311,54 +311,6 @@ onConnect(async (connection) => {
 onConnectEnd(() => {
   revertPendingGhostIfUnused()
 })
-
-function onOpenEditDialog(eventPayload) {
-  emit('edit-node', {
-    ...eventPayload,
-    instanceId: FLOW_IDS.MACRO,
-  })
-}
-
-function waitUntilStable(el, maxTimeout = 500) {
-  return new Promise((resolve) => {
-    if (!el) return resolve()
-
-    let lastRect = ''
-    let stableFrames = 0
-    let rafId = null
-    let timerId = null
-
-    const cleanup = () => {
-      if (rafId) cancelAnimationFrame(rafId)
-      if (timerId) clearTimeout(timerId)
-    }
-
-    const check = () => {
-      const rect = el.getBoundingClientRect()
-      const currentRect = `${rect.width},${rect.height},${rect.top},${rect.left}`
-
-      if (rect.width > 0 && rect.height > 0 && currentRect === lastRect) {
-        stableFrames++
-        if (stableFrames >= 3) {
-          cleanup()
-          return resolve()
-        }
-      } else {
-        stableFrames = 0
-        lastRect = currentRect
-      }
-
-      rafId = requestAnimationFrame(check)
-    }
-
-    timerId = setTimeout(() => {
-      cleanup()
-      resolve()
-    }, maxTimeout)
-
-    rafId = requestAnimationFrame(check)
-  })
-}
 
 async function onDialogShow() {
   isFlowReady.value = false

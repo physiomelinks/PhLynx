@@ -22,22 +22,6 @@ export function generateUniqueInstanceName(currentName, existingNames) {
   return finalName
 }
 
-export function sanitiseName(name) {
-  // Sanitise: replace spaces with underscores, remove invalid characters
-  // Valid CellML component names: alphanumeric, underscore, and must start with letter or underscore
-  let sanitised = name
-    .trim()
-    .replace(/\s+/g, '_') // Replace spaces (and multiple spaces) with underscore
-    .replace(/[^a-zA-Z0-9_]/g, '') // Remove all invalid characters
-
-  // Ensure it starts with a letter or underscore
-  if (sanitised && !/^[a-zA-Z_]/.test(sanitised)) {
-    sanitised = '_' + sanitised
-  }
-
-  return sanitised
-}
-
 /**
  * Generates a unique node ID for drag-and-drop nodes.
  *
@@ -64,7 +48,7 @@ export function findAnyNode() {
 }
 
 /**
- * Puts new modules in the same reference frame if user imported using module array
+ * Puts new modules in the same reference frame if user imported using instance array
  * containing x and y (z ignored for now).
  */
 export function attachNewNodeToFrame(position, existingNodeData) {

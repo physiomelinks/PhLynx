@@ -3,6 +3,7 @@ import { TARGET_COMPATIBLE } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
 import { isSingleConnection } from '../utils/edges'
 import { isCompatible, findPort } from '../utils/ports'
+import { isMultiport } from '../utils/multiport'
 
 export function useEdgeCouplings(props, askSwapIntent) {
   const localSrcPorts = ref([])
@@ -181,6 +182,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
       portType: oldPort.portType,
       variables: oldPort.variables,
       multiportType: oldPort.multiportType,
+      multiplyFactor: oldPort.multiplyFactor,
     }
 
     const newCoupling = side === 'source'
@@ -281,7 +283,8 @@ export function useEdgeCouplings(props, askSwapIntent) {
       portType,
       label: inferFrom?.label ?? '',
       variables: [],           
-      multiportType: inferFrom?.multiportType ?? 'None',
+      // Multiport like its partner, its variables True until chosen: the partner's per-variable types don't fit.
+      multiportType: inferFrom && isMultiport(inferFrom) ? 'True' : 'None',
     }
 
     if (side === 'source') {

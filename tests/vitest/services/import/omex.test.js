@@ -6,6 +6,7 @@ import JSZip from 'jszip'
 
 import { extractOmexArchive, importOmexFile } from '../../../../src/services/import/omex.js'
 import { isSimulationJsonFile, isPhlynxFlowSnapshotFile } from '../../../../src/services/import/omexClassifiers.js'
+import { PHLYNX_PROJECT_VERSION } from '../../../../src/utils/constants.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -93,5 +94,43 @@ describe('Import OMEX', () => {
     await expect(importOmexFile(archivePayload.omex)).rejects.toThrow(
       'multiple CellML files require exactly one master CellML file'
     )
+  })
+})
+
+describe('isPhlynxFlowSnapshotFile', () => {
+  const snapshotFile = (fields) => ({
+    async: async () => JSON.stringify({ id: 'phlynx-flow-snapshot', nodeData: [], edges: [], ...fields }),
+  })
+
+  it.each(['1.0.0', '1.1.0', '1.10.0', '2.0.0'])('accepts version %s', async (version) => {
+    expect(await isPhlynxFlowSnapshotFile(snapshotFile({ version }))).toBe(true)
+  })
+
+  it.each([undefined, '', '0.9.0', 'legacy', '1.1.0-beta'])('rejects version %s', async (version) => {
+    expect(await isPhlynxFlowSnapshotFile(snapshotFile({ version }))).toBe(false)
+  })
+
+  it('recognises the snapshot in an archive exported at the current version', async () => {
+    const zip = new JSZip()
+    zip.file(
+      'manifest.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+      <omexManifest xmlns="http://identifiers.org/combine.specifications/omex-manifest">
+        <content location="./model.cellml" format="http://identifiers.org/combine.specifications/cellml" master="true"/>
+        <content location="./phlynx_flow.json" format="application/json"/>
+      </omexManifest>`
+    )
+    zip.file('model.cellml', '<model />')
+    zip.file(
+      'phlynx_flow.json',
+      JSON.stringify({ id: 'phlynx-flow-snapshot', version: PHLYNX_PROJECT_VERSION, nodeData: [], edges: [] })
+    )
+
+    const payload = await zip.generateAsync({ type: 'arraybuffer' })
+    const importPayload = new Map([['omex', new Map([['current.omex', { isValid: true, payload }]])]])
+
+    const archivePayload = await extractOmexArchive(importPayload)
+    const { files } = await importOmexFile(archivePayload.omex)
+    expect(files.flowSnapshot).toBe('phlynx_flow.json')
   })
 })

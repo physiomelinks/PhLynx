@@ -96,7 +96,7 @@
             <section class="context-section context-section--params">
               <template v-if="selectedNode && !isMultipleSelected">
                 <h4 class="context-section-title">
-                  {{ `${selectedNode.data?.name}` || 'Selected Instance' }}
+                  {{ `${parameterRowsNode?.data?.name ?? selectedNode.data?.name}` || 'Selected Instance' }}
                   <span class="context-count">({{ parameterRows.length }})</span>
                 </h4>
 
@@ -111,7 +111,9 @@
                   <InputIcon v-if="parameterSearch" class="search-clear-input pi pi-times-circle" @click="clearSearch"/>
                 </IconField>
 
-                <div v-if="parameterRows.length === 0" class="empty-hint">
+                <div v-if="!parameterRowsNode" />
+
+                <div v-else-if="parameterRows.length === 0" class="empty-hint">
                   This instance has no parameters.
                 </div>
 
@@ -119,24 +121,26 @@
                   No parameters match your search.
                 </div>
 
-                <div v-else class="table-flex-wrapper">
+                <div v-else-if="isParamsVisible" class="table-flex-wrapper">
                   <DataTable
+                    :key="parameterTableKey"
                     :value="filteredParameterRows"
                     dataKey="name"
                     scrollable
                     scrollHeight="flex"
+                    :virtualScrollerOptions="parameterVirtualScrollerOptions"
                     class="p-datatable-sm parameters-table"
                   >
                     <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px" />
                     <Column field="value" header="Value" style="min-width: 70px">
                       <template #body="slotProps">
                         <InputText
-                          v-if="isEditableVariableType(slotProps.data.type)"
+                          v-if="hasValueCell(slotProps.data.type)"
                           v-model="slotProps.data.value"
                           size="small"
-                          placeholder="Enter value..."
+                          :placeholder="valuePlaceholder(slotProps.data.type)"
                           class="w-full"
-                          @change="handleParameterValueChange"
+                          @change="handleParameterValueChange(slotProps.data)"
                         />
                         <span v-else class="text-muted">-</span>
                       </template>
@@ -146,7 +150,8 @@
                       <template #body="slotProps">
                         <Select
                           v-model="slotProps.data.type"
-                          :options="PARAMETER_TYPE_OPTIONS"
+                          :options="typeOptionsFor(slotProps.data)"
+                          :disabled="isTypeFixed(slotProps.data)"
                           optionLabel="label"
                           optionValue="value"
                           size="small"
@@ -244,7 +249,7 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, shallowRef, toRaw, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
@@ -260,12 +265,15 @@ import TabPanel from 'primevue/tabpanel'
 import InputIcon from 'primevue/inputicon'
 import IconField from 'primevue/iconfield'
 
-import { PARAMETER_TYPE_OPTIONS, FLOW_IDS } from '../utils/constants'
-import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
+import { FLOW_IDS } from '../utils/constants'
+import { isTypeFixed, typeOptionsFor } from '../utils/parameterRows'
 import { detachReactivity } from '../utils/reactivity'
-import { isEditableVariableType } from '../utils/variables'
+import { hasValueCell, valuePlaceholder } from '../utils/variables'
 
+import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useResizableAside } from '../composables/useResizableAside'
+import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
+import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 
 const props = defineProps({
@@ -312,11 +320,14 @@ const activeTabId = ref('global')
 const libraryStore = useLibraryStore()
 const inspectionModuleStore = useInspectionModuleStore()
 
-const { getSelectedNodes, updateNodeData } = useVueFlow(FLOW_IDS.MAIN)
+const { getSelectedNodes, updateNodeData, userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
+const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 
 const selectedNode = computed(() => getSelectedNodes.value[0] || null)
 
 const isMultipleSelected = computed(() => getSelectedNodes.value.length > 1)
+
+const isParamsVisible = computed(() => !isCollapsed.value && activeTabId.value === 'params')
 
 // Leaving this for future settings configuration to enable auto-popout / switch to instance parameters
 // watch(selectedNode, (node) => {
@@ -364,8 +375,6 @@ watch(
     const addedNames = Array.from(map.keys()).filter((name) => !previousNames.has(name))
     if (addedNames.length === 0) return
 
-    // Surface newly-added constants even if the user is currently on the Parameters tab.
-    activeTabId.value = 'global'
     newlyAddedNames.value = new Set(addedNames)
 
     clearTimeout(highlightTimeoutId)
@@ -377,7 +386,12 @@ watch(
 )
 
 function handleGlobalConstantChange(row) {
-  libraryStore.assignGlobalConstant(row.name, row.value, row.units, row.data_reference, { override: true })
+  recordEdit({
+    type: 'edit-global-constant',
+    nodeIds: [],
+    keys: [],
+    apply: () => libraryStore.assignGlobalConstant(row.name, row.value, row.units, row.data_reference, true),
+  })
 }
 
 onUnmounted(() => {
@@ -386,7 +400,12 @@ onUnmounted(() => {
 
 // ── Selected node parameters (lower subsection) ─────────────────────────────
 const parameterRows = ref([])
+/** Node the current `parameterRows` were built from; lags `selectedNode` until the deferred rebuild lands. */
+const parameterRowsNode = shallowRef(null)
 const parameterSearch = ref('')
+let pendingRowsRequestId = 0
+// The variables the sidebar last wrote, so only changes made elsewhere (e.g. undo) rebuild the rows.
+let lastWrittenVariables = null
 
 const filteredParameterRows = computed(() => {
   const term = parameterSearch.value.trim().toLowerCase()
@@ -400,40 +419,107 @@ watch(selectedNode, () => {
   parameterSearch.value = ''
 })
 
+const { virtualScrollerOptions: parameterVirtualScrollerOptions, tableKey: parameterTableKey } =
+  useVirtualScrollerOptions(parameterRows)
+
+/**
+ * Build detached sidebar rows from a node's variables, showing the shared value for global constants.
+ * @param {Object} node - Selected Vue Flow node.
+ * @returns {Array<Object>} Parameter rows.
+ */
+function buildParameterRows(node) {
+  return detachReactivity(node.data?.variables || []).map((row) => ({
+    name: row.name,
+    value: row.type === 'global_constant' ? libraryStore.getGlobalConstant(row.name)?.value : row.value,
+    units: row.units,
+    type: row.type,
+    access: row.access,
+    data_reference: row.data_reference,
+  }))
+}
+
+// Rows are only built while visible, never mid box-select, and after the next paint so a click-then-drag stays smooth.
 watch(
-  selectedNode,
-  (node) => {
+  [selectedNode, isParamsVisible, userSelectionActive],
+  async ([node, isVisible, isSelecting]) => {
+    const requestId = ++pendingRowsRequestId
+    if (!isVisible || isSelecting) return
+
     if (!node) {
       parameterRows.value = []
+      parameterRowsNode.value = null
       return
     }
 
-    parameterRows.value = detachReactivity(node.data?.variables || []).map((row) => ({
-      name: row.name,
-      value: row.type === 'global_constant' ? libraryStore.getGlobalConstant(row.name)?.value : row.value,
-      units: row.units,
-      type: row.type,
-      access: row.access,
-      data_reference: row.data_reference,
-    }))
+    // rAF runs before the next paint; the timeout lands after it.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    if (requestId !== pendingRowsRequestId) return
+
+    parameterRows.value = buildParameterRows(node)
+    parameterRowsNode.value = node
   },
   { immediate: true }
 )
 
-function persistParameterRows() {
-  if (!selectedNode.value) return
+watch(
+  () => toRaw(parameterRowsNode.value?.data?.variables),
+  (variables) => {
+    if (!variables || variables === lastWrittenVariables) return
+    parameterRows.value = buildParameterRows(parameterRowsNode.value)
+  }
+)
 
-  parameterRows.value.forEach((row) => {
-    if (row.type === 'global_constant') {
-      libraryStore.assignGlobalConstant(row.name, row.value, row.units, row.data_reference)
-    }
+// Undo or redo of a global constant changes only the store, so refresh the shown values in place.
+watch(
+  () => libraryStore.globalVariables,
+  (map) => {
+    parameterRows.value.forEach((row) => {
+      if (row.type === 'global_constant' && map.has(row.name)) row.value = map.get(row.name).value
+    })
+  },
+  { deep: true }
+)
+
+/**
+ * Write one edited row back to its node, leaving the node's other variables as they are.
+ * @param {Object} row - Edited sidebar row.
+ * @param {Object} options
+ * @param {boolean} options.isValueEdit - A value edit on a global constant overwrites the shared value.
+ */
+function persistParameterRow(row, { isValueEdit }) {
+  // Write back to the node the rows came from, which may briefly differ from the current selection.
+  const node = parameterRowsNode.value
+  if (!node) return
+
+  // Merge only what the sidebar edits, so saved fields it doesn't show (e.g. stateRole, initialiser) survive.
+  const variables = (node.data?.variables || []).map((variable) =>
+    variable.name === row.name ? { ...variable, value: row.value, type: row.type } : variable
+  )
+
+  recordEdit({
+    type: 'edit-parameters',
+    nodeIds: [node.id],
+    keys: ['variables'],
+    apply: () => {
+      if (row.type === 'global_constant') {
+        // Keep the shared units and reference, so one node's fields don't replace them.
+        const shared = libraryStore.getGlobalConstant(row.name)
+        libraryStore.assignGlobalConstant(
+          row.name,
+          row.value,
+          shared?.units ?? row.units,
+          shared?.data_reference ?? row.data_reference,
+          isValueEdit
+        )
+      }
+      lastWrittenVariables = detachReactivity(variables)
+      updateNodeData(node.id, { variables: lastWrittenVariables })
+    },
   })
-
-  updateNodeData(selectedNode.value.id, { variables: detachReactivity(parameterRows.value) })
 }
 
-function handleParameterValueChange() {
-  persistParameterRows()
+function handleParameterValueChange(row) {
+  persistParameterRow(row, { isValueEdit: true })
 }
 
 function handleParameterTypeChange(row) {
@@ -442,7 +528,7 @@ function handleParameterTypeChange(row) {
   if (row.type === 'global_constant') {
     row.value = libraryStore.getGlobalConstant(row.name)?.value ?? row.value
   }
-  persistParameterRows()
+  persistParameterRow(row, { isValueEdit: false })
 }
 </script>
 

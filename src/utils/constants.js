@@ -2,7 +2,7 @@ import { MarkerType } from '@vue-flow/core'
 
 export const DEFAULT_PROJECT_NAME = 'phlynx-project'
 export const PHLYNX_PROJECT_IDENTIFIER = 'phlynx-project'
-export const PHLYNX_PROJECT_VERSION = '1.0.0'
+export const PHLYNX_PROJECT_VERSION = '1.1.0'
 
 export const SOURCE_HANDLE_TYPE = 'source'
 export const TARGET_HANDLE_TYPE = 'target'
@@ -59,6 +59,10 @@ export const AFFINE_UNIT_CONVERSIONS = {
   fahrenheit: { baseUnit: 'kelvin',  scale: 5 / 9,    offset: 255.372 },
 }
 
+// Parameter tables mount only visible rows past this size; mounting a few hundred rows blocked the page.
+export const TABLE_VIRTUAL_SCROLL_MIN_ROWS = 40
+export const TABLE_ROW_HEIGHT_PX = 43
+
 // Edge connection dialog parameters
 export const OUTER_MARGIN = 24
 export const ROW_H    = 52          // px per port row
@@ -77,6 +81,9 @@ export const CELLML_NS = 'http://www.cellml.org/cellml/2.0#'
 export const MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
 export const BQBIOL_NS = 'http://biomodels.net/biology-qualifiers/'
 
+/** The reserved units file that holds units made from typed expressions, e.g. `mV/ms`. */
+export const GENERATED_UNITS_FILE = 'generated_units.cellml'
+
 export const STANDARD_UNITS = [
     'ampere',
     'becquerel',
@@ -89,14 +96,12 @@ export const STANDARD_UNITS = [
     'henry',
     'hertz',
     'joule',
-    'kat',
+    'katal',
     'kelvin',
     'kilogram',
-    'liter',
     'litre',
     'lumen',
     'lux',
-    'meter',
     'metre',
     'mole',
     'newton',
@@ -117,6 +122,11 @@ export const EXCLUDED_COMPONENTS = new Set(['environment'])
 export const TIME_UNITS = new Set(['second', 'millisecond', 'microsecond', 'minute', 'hour', 'ms', 's'])
 export const TIME_NAMES = new Set(['time', 't'])
 
+export const ACCESS = 'access'
+export const NO_ACCESS = 'no_access'
+
+export const VALUE_REQUIRED_TYPES = new Set(['constant', 'global_constant'])
+
 export const MAX_VISIBLE_TAGS = 1
 
 export const MAIN_NODE_TYPE = 'instanceNode'
@@ -127,6 +137,7 @@ export const GHOST_MODULE_REF = 'ghost:ghost'
 export const NEW_MODULE_FILENAME = 'template_modules.cellml'
 export const NEW_MODULE_MATH_REF = `${NEW_MODULE_FILENAME}:new_module`
 export const NEW_MODULE_REF = 'new_module:phlynx'
+export const PROTECTED_MATH_REFS = new Set([NEW_MODULE_MATH_REF, GHOST_MATH_REF])
 
 export const GHOST_MODULE_DEFINITION = {
   moduleRef: GHOST_MODULE_REF,
@@ -223,7 +234,7 @@ export const OMEX_FILE_TYPES = [
   },
 ]
 
-export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml'])
+export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml', '.xml'])
 export const DB_NAME = 'phlynx-import'
 export const STORE_NAME = 'handles'
 export const HANDLE_KEY = 'importFolderHandle'

@@ -7,12 +7,16 @@ import { buildWorkflowGraph } from '../services/import/buildWorkflow'
 import { notify } from '../utils/notify'
 import { useWorkflowLayout } from './useWorkflowLayout'
 
-export function useLoadFromInstanceArray() {
+/**
+ * @param {object} [options]
+ * @param {object|import('vue').Ref<object>} [options.fitViewParams] fitView options applied after layout.
+ */
+export function useLoadFromInstanceArray({ fitViewParams } = {}) {
   const { nodes, addNodes } = useVueFlow()
   const store = useLibraryStore()
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
-  const { prepareLayout } = useWorkflowLayout()
+  const { prepareLayout } = useWorkflowLayout({ fitViewParams })
 
   const loadFromInstanceArray = async (instanceArray, progressCallback = null) => {
     try {
@@ -22,7 +26,14 @@ export function useLoadFromInstanceArray() {
         progressCallback(0, instanceArray.instances.length, 'Building graph...')
       }
 
-      const result = buildWorkflowGraph(instanceArray.instances, store.availableModules, nodes.value, progressCallback)
+      const result = buildWorkflowGraph(
+        instanceArray.instances,
+        store.availableModules,
+        store.getMathAnalysis,
+        nodes.value,
+        progressCallback,
+        store.getMathDefaults
+      )
 
       if (progressCallback) {
         progressCallback(

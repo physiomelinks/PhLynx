@@ -12,18 +12,21 @@
  *
  * @param {object} plotConfig - The `plotConfig` field of SimSettingsDialog's confirm payload.
  * @param {object} parameterScan - The `parameterScan` field of SimSettingsDialog's confirm payload.
- * @param {object} voiInformation - Information for the VOI (typically the time axis variable).
- * @returns {object} The simulation.json object — JSON.stringify() before writing to the archive.
+ * @param {object} supplementalData - extractVoiAndParametersFromModel's result: `{ voi, mappedParameters }`.
+ *   `voi` (the time axis variable) is null for a model without ODEs.
+ * @returns {string|null} The simulation.json text, or null when there is nothing to simulate.
  */
 export function buildSimulationJson(plotConfig, parameterScan, supplementalData) {
   const voiInformation = supplementalData.voi
   const selections = plotConfig?.selections || []
   const scanSelections = parameterScan?.selections || []
-  const timeVariable = { id: formVoiVariableId(voiInformation), name: formVoiVariableName(voiInformation), units: voiInformation.units }
 
-  if (selections.length === 0 && scanSelections.length === 0 ) {
+  // Plots are over the VOI, so a model without one (no ODEs) gets no simulation.json.
+  if (!voiInformation || (selections.length === 0 && scanSelections.length === 0)) {
     return null
   }
+
+  const timeVariable = { id: formVoiVariableId(voiInformation), name: formVoiVariableName(voiInformation), units: voiInformation.units }
 
   const input = buildInput(scanSelections)
   const data = buildOutputData(selections, timeVariable)

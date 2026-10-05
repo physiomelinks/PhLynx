@@ -1,7 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed, shallowRef } from 'vue'
 
-export const useFlowHistoryStore = defineStore('flowHistory', () => {
+/**
+ * Creates an undo/redo command stack with batching. The workspace shares one (useFlowHistoryStore);
+ * an editor can make its own.
+ *
+ * @returns {Object} The stack's state and actions.
+ */
+export function createHistory() {
   // Command stack and pointer.
   const stack = ref([])
   const pointer = ref(-1)
@@ -163,7 +169,6 @@ export const useFlowHistoryStore = defineStore('flowHistory', () => {
     if (!canRedo.value) {
       return
     }
-    if (!canRedo.value) return
 
     working.value = true
     try {
@@ -192,4 +197,6 @@ export const useFlowHistoryStore = defineStore('flowHistory', () => {
     startBatch,
     undo,
   }
-})
+}
+
+export const useFlowHistoryStore = defineStore('flowHistory', createHistory)
