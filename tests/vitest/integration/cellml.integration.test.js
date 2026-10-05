@@ -59,4 +59,35 @@ describe('CellML integration', () => {
       'var_SN/Vol': { name: 'var_SN_Vol', componentName: 'instance_parameters' },
     })
   })
+
+  it('extracts VOI from a model whose state is initialised by a computed constant', () => {
+    const result = extractVoiAndParametersFromModel(odeModel('<variable name="V" units="dimensionless" initial_value="k_eff"/>'))
+
+    expect(result.voi).toEqual({ name: 't', componentName: 'c', units: 'second' })
+  })
+
+  it('throws the analyser errors for an invalid model', () => {
+    const modelString = odeModel('<variable name="V" units="dimensionless"/>') // state never initialised
+
+    expect(() => extractVoiAndParametersFromModel(modelString)).toThrow(/Analyser error count/)
+  })
 })
+
+/** A one-component ODE model, dV/dt = k_eff with k_eff = k1 * k2, completed by the given declaration of V. */
+function odeModel(stateDeclaration) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="m">
+  <component name="c">
+    <variable name="t" units="second"/>
+    ${stateDeclaration}
+    <variable name="k1" units="per_second" initial_value="2"/>
+    <variable name="k2" units="dimensionless" initial_value="3"/>
+    <variable name="k_eff" units="per_second"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+      <apply><eq/><ci>k_eff</ci><apply><times/><ci>k1</ci><ci>k2</ci></apply></apply>
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>V</ci></apply><ci>k_eff</ci></apply>
+    </math>
+  </component>
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+</model>`
+}

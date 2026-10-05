@@ -2593,10 +2593,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cellml-text-editor@npm:^0.2.1":
-  version: 0.2.1
-  resolution: "cellml-text-editor@npm:0.2.1"
-  checksum: 10c0/154b365311d9e0ebb987c1e9925a0c1f78ddb0b1c775df7b856da1ef9ea5e73d91ddeb827bd26bae5e4add2d4264b58356f09eb22957f48283b7c2b3391ff5db
+"cellml-text-editor@npm:^0.7.0":
+  version: 0.7.0
+  resolution: "cellml-text-editor@npm:0.7.0"
+  checksum: 10c0/0c890665fe350dc891c801329ea673e8e2413869a9382c29054b4ef2cf29888b4dc3e160ca8c6f4236bfc58b0adc1e34560a33275da6673f219c53ba228bb30f
   languageName: node
   linkType: hard
 
@@ -2867,13 +2867,6 @@ __metadata:
   dependencies:
     is-what: "npm:^5.2.0"
   checksum: 10c0/d0a4a4102334399dae8504a2c2e13f45ad05746a9fd5cc0df349a554e3749a05e8a6d62b3724a8049cd59fc0bbbf4f54c4edc94a428edc76211dffe3ac0af586
-  languageName: node
-  linkType: hard
-
-"core-js@npm:^3.38.1":
-  version: 3.46.0
-  resolution: "core-js@npm:3.46.0"
-  checksum: 10c0/12d559d39a58227881bc6c86c36d24dcfbe2d56e52dac42e35e8643278172596ab67f57ede98baf40b153ca1b830f37420ea32c3f7417c0c5a1fed46438ae187
   languageName: node
   linkType: hard
 
@@ -3176,6 +3169,44 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dom-serializer@npm:^3.0.0":
+  version: 3.1.1
+  resolution: "dom-serializer@npm:3.1.1"
+  dependencies:
+    domelementtype: "npm:^3.0.0"
+    domhandler: "npm:^6.0.0"
+    entities: "npm:^8.0.0"
+  checksum: 10c0/dc700204f0ef4a4c5a344bd8773703d5476dcca1a4af8b2d3fd9bcbbace833439b6ea3d3c48c4b387fa0b2456dd839caca354eed7f7c7f17bc47da8e217742ca
+  languageName: node
+  linkType: hard
+
+"domelementtype@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "domelementtype@npm:3.0.0"
+  checksum: 10c0/26e8ef992769c4f9bce941eb0cff7ce2ba3f1b3bf77710bb4b029055030625892e83da326cc36b1e444cf3bfdea7d1954791ee2227746387465da9929d16d954
+  languageName: node
+  linkType: hard
+
+"domhandler@npm:^6.0.0":
+  version: 6.0.1
+  resolution: "domhandler@npm:6.0.1"
+  dependencies:
+    domelementtype: "npm:^3.0.0"
+  checksum: 10c0/8655204dd9612b55813d5880e3e87e134d6dfb2de4bd80f342b3c97f41b167576a8c66c0449c2423999953aedfcda290f7be253a6f9bf71e815afa85f939d44e
+  languageName: node
+  linkType: hard
+
+"domutils@npm:^4.0.2":
+  version: 4.0.2
+  resolution: "domutils@npm:4.0.2"
+  dependencies:
+    dom-serializer: "npm:^3.0.0"
+    domelementtype: "npm:^3.0.0"
+    domhandler: "npm:^6.0.0"
+  checksum: 10c0/59827827ecf15ed1f43f4cb8db374484b6089bf40e32cb41c8e381525aeb5ef5d029e4f9d5f74a418bf3217b87a6cbabdf5b4ebed0a018bc533bd6349c46a739
+  languageName: node
+  linkType: hard
+
 "dotenv-expand@npm:^11.0.6":
   version: 11.0.7
   resolution: "dotenv-expand@npm:11.0.7"
@@ -3352,6 +3383,13 @@ __metadata:
   version: 6.0.1
   resolution: "entities@npm:6.0.1"
   checksum: 10c0/ed836ddac5acb34341094eb495185d527bd70e8632b6c0d59548cbfa23defdbae70b96f9a405c82904efa421230b5b3fd2283752447d737beffd3f3e6ee74414
+  languageName: node
+  linkType: hard
+
+"entities@npm:^8.0.0":
+  version: 8.1.0
+  resolution: "entities@npm:8.1.0"
+  checksum: 10c0/da0bf22912c19d2a4707783e1b905d3f6a977e93e0655a8d2c526455eb3996f668f9f2e4c2a07af8d6927d232c41b6e929a7044df0236c7bf6e9c38e070e3719
   languageName: node
   linkType: hard
 
@@ -4176,6 +4214,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"htmlparser2@npm:^12.0.0":
+  version: 12.0.0
+  resolution: "htmlparser2@npm:12.0.0"
+  dependencies:
+    domelementtype: "npm:^3.0.0"
+    domhandler: "npm:^6.0.0"
+    domutils: "npm:^4.0.2"
+    entities: "npm:^8.0.0"
+  checksum: 10c0/3fcdce24c06fc4c9c42c8142d6c139104a2c30f901ce046cb0bdeaa8678445294aaf4506569464a5c853c8b1d89609f7306ea133efd966bf703f574a394dcff9
+  languageName: node
+  linkType: hard
+
 "http-cache-semantics@npm:^4.0.0, http-cache-semantics@npm:^4.1.0, http-cache-semantics@npm:^4.1.1":
   version: 4.2.0
   resolution: "http-cache-semantics@npm:4.2.0"
@@ -4717,10 +4767,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"libcellml.js@npm:^0.6.2":
-  version: 0.6.3
-  resolution: "libcellml.js@npm:0.6.3"
-  checksum: 10c0/16211df9cd1149c780245e77751335182b748858f73085b3983b62402c6c78fcdb14dfc01e711e85cc0c7142618768270626a62dd5935b03dfaceda216614801
+"libcellml.js@npm:^0.7.1":
+  version: 0.7.1
+  resolution: "libcellml.js@npm:0.7.1"
+  checksum: 10c0/b78e534a9798f67b88600778f92c310621ae5b79332ccf957a211678699de80e6224131c809f47dc4ded01a5843bbe87195780f1e36075966d06384b66e1c3fc
   languageName: node
   linkType: hard
 
@@ -5698,7 +5748,7 @@ __metadata:
     "@vue-flow/minimap": "npm:^1.5.4"
     "@vue-flow/node-resizer": "npm:^1.5.0"
     "@vue/test-utils": "npm:^2.4.6"
-    cellml-text-editor: "npm:^0.2.1"
+    cellml-text-editor: "npm:^0.7.0"
     codemirror: "npm:^6.0.2"
     cytoscape: "npm:^3.33.1"
     cytoscape-fcose: "npm:^2.2.0"
@@ -5708,6 +5758,7 @@ __metadata:
     github-markdown-css: "npm:^5.8.1"
     happy-dom: "npm:^20.6.1"
     html-to-image: "npm:^1.11.13"
+    htmlparser2: "npm:^12.0.0"
     jszip: "npm:^3.10.1"
     katex: "npm:^0.16.27"
     markdown-it: "npm:^14.1.0"
@@ -5730,7 +5781,8 @@ __metadata:
     vue: "npm:^3.5.22"
     vue-codemirror: "npm:^6.1.1"
     vue-router: "npm:^4.6.4"
-    vue3-libcellml.js: "npm:^0.5.1"
+    vue3-libcellml.js: "npm:^0.7.1"
+    vue3-math-editor: "npm:0.3.2"
   languageName: unknown
   linkType: soft
 
@@ -7362,15 +7414,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vue3-libcellml.js@npm:^0.5.1":
-  version: 0.5.1
-  resolution: "vue3-libcellml.js@npm:0.5.1"
+"vue3-libcellml.js@npm:^0.7.1":
+  version: 0.7.1
+  resolution: "vue3-libcellml.js@npm:0.7.1"
   dependencies:
-    core-js: "npm:^3.38.1"
-    libcellml.js: "npm:^0.6.2"
+    libcellml.js: "npm:^0.7.1"
   peerDependencies:
-    vue: ^3.2.13
-  checksum: 10c0/dfca4af87d6fd675fa3693074e6c5c23cd0308eee381ad79d0270cf0aff2170b47b4a247b922b8e57ff677a21566466d1745a68ce37e23d0e7a09a90d8298cff
+    vue: ^3.5.12
+  checksum: 10c0/b977e5ff2a49dc9b0af0ccee4091a0f5850f4ae637820fca3fd5de8dec4ad957f6132767dbd37e060327c30120807c4c3827b37f606f0f3ba5b50a53db0bc67a
+  languageName: node
+  linkType: hard
+
+"vue3-math-editor@npm:0.3.2":
+  version: 0.3.2
+  resolution: "vue3-math-editor@npm:0.3.2"
+  peerDependencies:
+    "@primeuix/utils": ^0.6.2
+    katex: ^0.16.0 || ^0.17.0
+    primeicons: ^7.0.0
+    primevue: ^4.5.5
+    vue: ^3.5.0
+  checksum: 10c0/543b35bd53be882583baaac3afbe96f78ab8d57cad74da9ee390c86b397870cf75fdd9decd5cc2863b57ea85fb57784f0c373fff1987b1d4a2abc3707d2e278f
   languageName: node
   linkType: hard
 

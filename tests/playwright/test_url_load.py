@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import unittest
 
 from playwright.sync_api import sync_playwright, expect
@@ -10,6 +11,15 @@ except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
 
 
+MANIFEST_PATTERN = "**/manifests/vitalworkshop.json"
+
+
+def delay_manifest(route):
+    # Hold the manifest back so libCellML is always ready first, reproducing the URL load race.
+    time.sleep(3)
+    route.continue_()
+
+
 class TestLoadViaUrl(unittest.TestCase):
 
     def test_workspace_json_base64(self):
@@ -18,6 +28,7 @@ class TestLoadViaUrl(unittest.TestCase):
 
             context = browser.new_context()
             page = context.new_page()
+            page.route(MANIFEST_PATTERN, delay_manifest)
 
             with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
                 workspace_json = f.read().strip()
@@ -40,12 +51,37 @@ class TestLoadViaUrl(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_workspace_json_base64_without_manifest(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context()
+            page = context.new_page()
+            page.route(MANIFEST_PATTERN, lambda route: route.abort())
+
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
+
+            # ---------- START -----------
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible()
+            expect(page.get_by_role("main")).to_contain_text("var_SN")
+            expect(page.get_by_role("main")).to_contain_text("axon_SN")
+            expect(page.get_by_role("main")).to_contain_text("soma_SN")
+            page.close()
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
     def test_workspace_omex_base64(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
             context = browser.new_context()
             page = context.new_page()
+            page.route(MANIFEST_PATTERN, delay_manifest)
 
             with open(os.path.join(RESOURCE_PATH, "workspace-omex.base64")) as f:
                 workspace_omex = f.read().strip()

@@ -119,7 +119,7 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import { useGtm } from '../composables/useGtm'
 import { notify } from '../utils/notify'
-import { sanitiseName } from '../utils/nodes'
+import { sanitiseName } from '../utils/identifiers'
 import { detachReactivity } from '../utils/reactivity'
 import { PORT_TYPE_OPTIONS, MULTIPORT_OPTIONS } from '../utils/constants'
 

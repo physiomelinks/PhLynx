@@ -173,7 +173,7 @@
         <unit exponent="-3" units="metre"/>
     </units>
     <units name="mmHg">
-        <unit multiplier="133.32" units="pascal"/>
+        <unit multiplier="133.322" units="pascal"/>
     </units>
     <units name="per_mmHg">
         <unit exponent="-1" units="mmHg"/>

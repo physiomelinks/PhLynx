@@ -1,4 +1,7 @@
-import { isEmpty } from './variables.js'
+import { inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { analyzeMathXml } from '../services/math/analyzeMath.js'
+import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
+import { couplingConflicts, multiplyFactor, sharedSumConflicts, variableTypes } from './multiport.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -11,9 +14,39 @@ import {
 } from './constants.js'
 
 let _libcellml = null
+let resolveLibCellMLReady
+let rejectLibCellMLReady
+const libcellmlReady = new Promise((resolve, reject) => {
+  resolveLibCellMLReady = resolve
+  rejectLibCellMLReady = reject
+})
+// Avoid an unhandled rejection when nothing is waiting on readiness.
+libcellmlReady.catch(() => {})
 
 export function initLibCellML(instance) {
   _libcellml = instance
+  resolveLibCellMLReady(instance)
+}
+
+/**
+ * Initialises libCellML once the plugin's promise resolves, or fails whenLibCellMLReady() if it rejects.
+ *
+ * @param {Promise} ready - The plugin's libCellML promise.
+ * @returns {Promise} Settles with ready.
+ */
+export function bindLibCellML(ready) {
+  return ready.then(initLibCellML, (error) => {
+    rejectLibCellMLReady(error)
+    throw error
+  })
+}
+
+/**
+ * Resolves once initLibCellML has been called and CellML parsing is available; rejects if libCellML
+ * fails to load.
+ */
+export function whenLibCellMLReady() {
+  return libcellmlReady
 }
 
 /**
@@ -458,19 +491,16 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   sumComp.addVariable(sumVar)
   _libcellml.Variable.addEquivalence(referenceVar, sumVar)
 
-  // Create Input Variables in the Sum Component
-  // if multiport sum is on target node, add; source node, subtract.
+  // Create Input Variables in the Sum Component.
+  // Every term is added, whichever side of the edge the Sum port is on and
+  // whether or not the term comes through a Multiply port, as in
+  // circulatory_autogen: e.g. an upstream Sum port's v_out_sum = +(sum of the
+  // downstream flows).
   const addVarNames = []
-  const subVarNames = []
 
-  targetComponentVarNameMap.forEach(({ component, varName: targetVarName, isTarget }) => {
+  targetComponentVarNameMap.forEach(({ component, varName: targetVarName }) => {
     const localVarName = nextAvailableVarName(sumComp, `op_${targetVarName}`)
-
-    if (isTarget) {
-      addVarNames.push(localVarName)
-    } else {
-      subVarNames.push(localVarName)
-    }
+    addVarNames.push(localVarName)
 
     const opVar = new _libcellml.Variable()
     opVar.setName(localVarName)
@@ -487,51 +517,14 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   referenceVar.delete()
   sumVar.delete()
 
-  // Generate MathML
-  // Format: sum = (a1 + a2 + ...) - (s1 + s2 + ...)
-  // Handles all four cases: adds only, subtracts only, both, or none.
+  // Generate MathML: sum = a1 + a2 + ..., or 0 with no terms.
   let rhsMathML
-  if (addVarNames.length === 0 && subVarNames.length === 0) {
+  if (addVarNames.length === 0) {
     rhsMathML = `<cn cellml:units="${unitsName}">0</cn>`
-  } else if (subVarNames.length === 0) {
-    // Only additions — keep original flat plus structure
+  } else {
     rhsMathML = `<apply>
         <plus/>
         ${addVarNames.map((name) => `<ci>${name}</ci>`).join('\n        ')}
-      </apply>`
-  } else if (addVarNames.length === 0) {
-    // Only subtractions — negate the sum
-    rhsMathML = `<apply>
-        <minus/>
-        ${
-          subVarNames.length === 1
-            ? `<ci>${subVarNames[0]}</ci>`
-            : `<apply>
-          <plus/>
-          ${subVarNames.map((name) => `<ci>${name}</ci>`).join('\n          ')}
-        </apply>`
-        }
-      </apply>`
-  } else {
-    // Mixed — additions minus sum-of-subtractions
-    const addsPart =
-      addVarNames.length === 1
-        ? `<ci>${addVarNames[0]}</ci>`
-        : `<apply>
-          <plus/>
-          ${addVarNames.map((name) => `<ci>${name}</ci>`).join('\n          ')}
-        </apply>`
-    const subsPart =
-      subVarNames.length === 1
-        ? `<ci>${subVarNames[0]}</ci>`
-        : `<apply>
-          <plus/>
-          ${subVarNames.map((name) => `<ci>${name}</ci>`).join('\n          ')}
-        </apply>`
-    rhsMathML = `<apply>
-        <minus/>
-        ${addsPart}
-        ${subsPart}
       </apply>`
   }
 
@@ -771,6 +764,18 @@ function prioritizeEnvironmentComponent(xmlString) {
   return finalXmlString
 }
 
+/**
+ * Makes a component's variable public so it can connect to a sibling component. Math saved
+ * before variables were always declared public may still have private or missing interfaces.
+ *
+ * @param {Object} variable - A libcellml Variable.
+ */
+function ensurePublicInterface(variable) {
+  const interfaceType = variable.interfaceType()
+  if (interfaceType === 'public' || interfaceType === 'public_and_private') return
+  variable.setInterfaceTypeByString('public')
+}
+
 function addVariableToParameterComponent(model, variable, parameterComponent, parameterData) {
   let sourceVar = parameterComponent.variableByName(parameterData.name)
 
@@ -792,6 +797,7 @@ function addVariableToParameterComponent(model, variable, parameterComponent, pa
   }
 
   // Connect the constant parameter to the module variable.
+  ensurePublicInterface(variable)
   _libcellml.Variable.addEquivalence(sourceVar, variable)
 
   sourceVar.delete()
@@ -856,6 +862,23 @@ function stripCelsiusToArbitraryUnit(xmlString) {
 
   const serializer = new XMLSerializer()
   return serializer.serializeToString(doc)
+}
+
+/**
+ * Equivalences two variables, through a generated conversion component when
+ * their units are affine (e.g. celsius and kelvin).
+ */
+function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable) {
+  const v1 = sourceComp.variableByName(srcVariable)
+  const v2 = targetComp.variableByName(tgtVariable)
+  if (v1 && v2) {
+    const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
+    if (!handled) {
+      _libcellml.Variable.addEquivalence(v1, v2)
+    }
+  }
+  v1?.delete()
+  v2?.delete()
 }
 
 /**
@@ -971,15 +994,27 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
     parameterComponent.setName(PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME)
     model.addComponent(parameterComponent)
 
+    // A boundary condition's value is used only when nothing in its coupled group supplies one.
+    const boundaryValues = resolveBoundaryValues(nodes, edges)
+    if (boundaryValues.conflicts.length) {
+      throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
+    }
+    // Such a boundary condition is set like a constant.
+    const isSetAsConstant = (nodeId, v) =>
+      v.type === 'constant' || (v.type === 'boundary_condition' && !!boundaryValues.supplied.get(nodeId)?.has(v.name))
+
     // Count how many nodes use each constant variable name
     const constantNameRefCount = new Map()
     for (const node of nodes) {
       for (const v of node.data.variables ?? []) {
-        if (v.type === 'constant' && !isEmpty(v.value)) {
+        if (isSetAsConstant(node.id, v) && !isEmpty(v.value)) {
           constantNameRefCount.set(v.name, (constantNameRefCount.get(v.name) ?? 0) + 1)
         }
       }
     }
+
+    // Values live only in the parameter rows, so one left blank leaves its variable uninitialised.
+    const missingValues = []
 
     // ---------------------------------
     // Process Nodes (Create Components)
@@ -1024,8 +1059,12 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
                 ...v,
                 name: variable.name(),
               })
+            } else {
+              missingValues.push(`${node.data.name}.${variable.name()}`)
             }
-          } else if (nodeVariable.type === 'constant') {
+          } else if (boundaryValues.missing.get(node.id)?.has(nodeVariable.name)) {
+            missingValues.push(`${node.data.name}.${variable.name()}`)
+          } else if (isSetAsConstant(node.id, nodeVariable)) {
             const v = node.data.variables.find((cv) => cv.name === nodeVariable.name)
             if (!isEmpty(v?.value)) {
               const isShared = (constantNameRefCount.get(v.name) ?? 0) > 1
@@ -1033,6 +1072,8 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
                 ...v,
                 name: isShared ? `${node.data.name}_${v.name}` : v.name,
               })
+            } else {
+              missingValues.push(`${node.data.name}.${variable.name()}`)
             }
           }
         }
@@ -1045,13 +1086,29 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       }
     }
 
+    if (missingValues.length) {
+      const shown = missingValues.slice(0, 10).join(', ')
+      const more = missingValues.length > 10 ? ` and ${missingValues.length - 10} more` : ''
+      throw new Error(`Missing parameter values: ${shown}${more}.`)
+    }
+
     // ----------------------------------
     // Process Edges (Create Connections)
     // ----------------------------------
 
+    const [[sharedSum] = []] = sharedSumConflicts(edges, (id) => nodeComponentMap.get(id)?.name() ?? id).values()
+    if (sharedSum) throw new Error(`Cannot connect: ${sharedSum}`)
+
     const componentTrashCan = new Set()
+    // The terms of each Sum variable, keyed `component::variable`: a variable sums through one port
+    // (checked above), so this is one equation per Sum port variable.
     const multiPortSums = new Map()
-    const multiPortMultiplies = [] // Array of { sourceComp, sourceVarName, targetComp, targetVarName, factor }
+    const addSumTerm = (component, varName, term) => {
+      const key = `${component.name()}::${varName}`
+      if (!multiPortSums.has(key)) multiPortSums.set(key, { component, varName, terms: [] })
+      if (term) multiPortSums.get(key).terms.push(term)
+    }
+    let mulComp = null // generated_multiplications, kept until Pass 2 sums the outputs it holds
     for (const edge of edges) {
       // Edges only carry source/target node ids plus resolved coupling data
       // (see WorkspaceArea.vue's onConnect) — there is no edge.sourceNode /
@@ -1067,131 +1124,64 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       // correct — no need to re-derive from ports here.
       const couplings = edge.data?.couplings ?? []
 
-      for (const { sourcePort: srcLabel, targetPort: tgtLabel } of couplings) {
-        const isSrcMultiportSum = srcLabel.multiportType === 'Sum'
-        const isTgtMultiportSum = tgtLabel.multiportType === 'Sum'
-        const isSrcMultiportMultiply = srcLabel.multiportType === 'Multiply'
+      for (const { sourcePort, targetPort } of couplings) {
+        const [conflict] = couplingConflicts(sourcePort, targetPort)
+        if (conflict) throw new Error(`Cannot connect "${sourceComp.name()}" to "${targetComp.name()}": ${conflict}`)
+        const sourceTypes = variableTypes(sourcePort)
+        const targetTypes = variableTypes(targetPort)
 
-        if (isSrcMultiportSum && isTgtMultiportSum) {
-          throw new Error('Multi-port-sum to Multi-port-sum connections are not supported.')
-        } else if (isSrcMultiportMultiply) {
-          if (srcLabel.variables?.length !== 1 || tgtLabel.variables?.length !== 1) {
-            throw new Error('Multiport Multiply ports must each map exactly one variable.')
+        // Variables pair by position.
+        for (let i = 0; i < Math.min(sourceTypes.length, targetTypes.length); i++) {
+          const ends = [
+            { component: sourceComp, port: sourcePort, varName: sourcePort.variables[i], type: sourceTypes[i] },
+            { component: targetComp, port: targetPort, varName: targetPort.variables[i], type: targetTypes[i] },
+          ]
+          if (!ends[0].varName || !ends[1].varName) continue
+          const summed = ends.find((end) => end.type === 'Sum')
+          const scaled = ends.find((end) => end.type === 'Multiply')
+          if (!summed && !scaled) {
+            connectVariables(model, sourceComp, ends[0].varName, targetComp, ends[1].varName)
+            continue
           }
-          multiPortMultiplies.push({
-            sourceComp,
-            sourceVarName: srcLabel.variables[0],
-            targetComp,
-            targetVarName: tgtLabel.variables[0],
-            factor: Number(srcLabel.multiplyFactor ?? 1),
-            isTgtMultiportSum,
-            tgtLabel,
-          })
-        } else if (isSrcMultiportSum || isTgtMultiportSum) {
-          const multiSumLabel = isSrcMultiportSum ? srcLabel : tgtLabel
-          const multiSumComponent = isSrcMultiportSum ? sourceComp : targetComp
-          const operandLabel = isSrcMultiportSum ? tgtLabel : srcLabel
-          const operandComponent = isSrcMultiportSum ? targetComp : sourceComp
-          const multiKey = multiSumComponent.name() + '::' + multiSumLabel.label
-          if (!multiPortSums.has(multiKey)) {
-            multiPortSums.set(multiKey, {
-              sourceComp: multiSumComponent,
-              srcLabel: multiSumLabel,
-              targets: [],
-            })
+
+          // A Multiply variable reaches its neighbour times its factor, whichever end of the edge it is on.
+          let term = ends.find((end) => end !== summed)
+          if (scaled) {
+            const factor = multiplyFactor(scaled.port, i)
+            const { outputVarName } = createMultiplyComponent(model, scaled.component, scaled.varName, factor)
+            mulComp ??= model.componentByName('generated_multiplications', true)
+            term = { component: mulComp, varName: outputVarName }
           }
-          multiPortSums.get(multiKey).targets.push({
-            component: operandComponent,
-            label: operandLabel,
-            isTarget: !isSrcMultiportSum,
-          })
-        } else {
-          // Direct one-to-one variable equivalence
-          const minLength = Math.min(srcLabel.variables.length, tgtLabel.variables.length)
-          for (let i = 0; i < minLength; i++) {
-            const srcVariable = srcLabel.variables[i]
-            const tgtVariable = tgtLabel.variables[i]
-            if (srcVariable && tgtVariable) {
-              const v1 = sourceComp.variableByName(srcVariable)
-              const v2 = targetComp.variableByName(tgtVariable)
-              if (v1 && v2) {
-                const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
-                if (!handled) {
-                  _libcellml.Variable.addEquivalence(v1, v2)
-                }
-              }
-              v1?.delete()
-              v2?.delete()
+          if (summed) {
+            addSumTerm(summed.component, summed.varName, term)
+          } else {
+            const neighbour = ends.find((end) => end !== scaled)
+            const outputVar = mulComp.variableByName(term.varName)
+            const neighbourVar = neighbour.component.variableByName(neighbour.varName)
+            if (outputVar && neighbourVar) {
+              _libcellml.Variable.addEquivalence(outputVar, neighbourVar)
             }
+            outputVar?.delete()
+            neighbourVar?.delete()
           }
         }
       }
     }
 
-    // Handle Multi-Port-Sum Connections
-    const mulCompRefs = []
-    for (const mulData of multiPortMultiplies) {
-      const { sourceComp, sourceVarName, targetComp, targetVarName, factor, isTgtMultiportSum, tgtLabel } = mulData
-
-      const { outputVarName } = createMultiplyComponent(model, sourceComp, sourceVarName, factor)
-
-      if (isTgtMultiportSum) {
-        // The target has a Sum port: register the scaled output variable as a
-        // Sum operand so it gets added to the summation equation rather than
-        // equivalenced directly to the target.
-        const mulComp = model.componentByName('generated_multiplications', true)
-        mulCompRefs.push(mulComp) // keep alive until after Pass 2
-        const multiKey = targetComp.name() + '::' + tgtLabel.label
-        if (!multiPortSums.has(multiKey)) {
-          multiPortSums.set(multiKey, {
-            sourceComp: targetComp,
-            srcLabel: tgtLabel,
-            targets: [],
-          })
-        }
-        // The operand is the scaled output variable living in generated_multiplications
-        multiPortSums.get(multiKey).targets.push({
-          component: mulComp,
-          label: { variables: [outputVarName] },
-        })
-      } else {
-        // Direct target: wire the scaled output straight to the target variable
-        const mulComp = model.componentByName('generated_multiplications', true)
-        const outputVar = mulComp.variableByName(outputVarName)
-        const targetVar = targetComp.variableByName(targetVarName)
-        if (outputVar && targetVar) {
-          _libcellml.Variable.addEquivalence(outputVar, targetVar)
-        }
-        outputVar && outputVar.delete()
-        targetVar && targetVar.delete()
-        mulComp.delete()
+    // A Sum variable with nothing connected and no value of its own sums over nothing: it is 0.
+    for (const [nodeId, varNames] of boundaryValues.emptySums) {
+      const component = nodeComponentMap.get(nodeId)
+      for (const varName of varNames) {
+        console.warn(`"${component.name()}" variable "${varName}" sums over its connections, but none are connected; setting it to 0.`)
+        addSumTerm(component, varName)
       }
     }
 
-    // Pass 2: Handle Sum connections (including any operands injected by Multiply above).
-    for (const sumData of multiPortSums.values()) {
-      const { sourceComp, srcLabel, targets } = sumData
-
-      const sourceVarNames = srcLabel.variables
-      if (sourceVarNames.length !== 1) {
-        throw new Error('Multi-port-sum source must have exactly one variable representing the summed input.')
-      }
-      const sourceVarName = sourceVarNames[0]
-      const targetComponents = []
-      for (const targetInfo of targets) {
-        const { component, label, isTarget } = targetInfo
-        const targetVarNames = label.variables
-        if (targetVarNames.length !== 1) {
-          throw new Error('Multi-port-sum target must have exactly one variable to be summed.')
-        }
-        const targetVarName = targetVarNames[0]
-        targetComponents.push({ component, varName: targetVarName, isTarget })
-      }
-
-      createSummationComponent(model, sourceComp, sourceVarName, targetComponents)
+    // Pass 2: one summation per Sum variable, over its terms (Multiply outputs included).
+    for (const { component, varName, terms } of multiPortSums.values()) {
+      createSummationComponent(model, component, varName, terms)
     }
-
-    for (const ref of mulCompRefs) ref.delete()
+    mulComp?.delete()
 
     for (const comp of componentTrashCan) {
       comp && comp.delete()
@@ -1240,10 +1230,8 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
 
     analyser.analyseModel(flattenedModel)
     if (analyser.errorCount()) {
-      // FIXME: There is a bug in libCellML v0.6.3 where the analyser cannot handle
-      // initialisation of a variable that is computed. Fixed in v0.6.4, but we need
-      // a workaround for now to at least export something usable in the case where this is the only error.
-      handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`, true)
+      flattenedModel.delete()
+      handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
     }
 
     let flattenedModelString = printer.printModel(flattenedModel, false)
@@ -1287,18 +1275,24 @@ function isPossibleParameter(variable, includeInitialised = false) {
   const varName = variable.name()
   if (varName === 't' || varName === 'time') return false
   if (!includeInitialised && variable.initialValue() !== '') return false
-  if (variable.hasInterfaceType('public') || variable.hasInterfaceType('public_and_private')) return false
   return true
 }
 
 /**
- * Extracts unique variable names from a CellML model/component
+ * Extracts unique variable names from a CellML model/component. A variable the math computes is a
+ * `variable`; anything else is a `constant` until someone says otherwise.
  */
 export function extractVariablesFromMath(math, includeInitialisedVariables = true) {
   const garbageCollector = new Set() // To track created objects for cleanup.
   try {
     const variables = []
     if (math) {
+      const analysis = analyzeMathXml(math)
+      const roles = {
+        states: new Set(analysis?.stateVariables),
+        assigned: new Set(analysis?.assigned),
+        voi: new Set(analysis?.voi),
+      }
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)
       const model = parser.parseModel(math)
@@ -1313,11 +1307,12 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
         const units = variable.units()
         garbageCollector.add(units)
         if (isPossibleParameter(variable, includeInitialisedVariables)) {
-          variables.push({ 
+          const initialValue = variable.initialValue()
+          variables.push({
             name: variable.name(),
             units: units.name(),
-            value: variable.initialValue(),
-            type: variable.initialValue() !== '' ? 'constant' : 'variable',
+            value: isNumericLiteral(initialValue) ? initialValue : '',
+            type: inferType(variable.name(), roles),
             access: 'access',
             data_reference: 'unknown',
           })
@@ -1524,6 +1519,50 @@ export function getModelComponentNames(modelString) {
   return componentNames
 }
 
+/**
+ * Renames a component in a CellML model, along with every encapsulation and connection reference to it.
+ *
+ * @param {string} modelString - CellML XML.
+ * @param {string} fromName
+ * @param {string} toName
+ * @returns {string} The renamed model's XML.
+ */
+export function renameModelComponent(modelString, fromName, toName) {
+  const doc = new DOMParser().parseFromString(modelString, 'application/xml')
+  const renameAttribute = (tagName, attribute) => {
+    Array.from(doc.getElementsByTagNameNS(CELLML_NS, tagName)).forEach((el) => {
+      if (el.getAttribute(attribute) === fromName) el.setAttribute(attribute, toName)
+    })
+  }
+  renameAttribute('component', 'name')
+  renameAttribute('component_ref', 'component')
+  renameAttribute('map_components', 'component_1')
+  renameAttribute('map_components', 'component_2')
+  renameAttribute('connection', 'component_1')
+  renameAttribute('connection', 'component_2')
+  return new XMLSerializer().serializeToString(doc)
+}
+
+/**
+ * Renames a component in a CellML text layout, so its comments still match it after a rename.
+ *
+ * @param {import('cellml-text-editor').TextLayout | null} layout
+ * @param {string} fromName
+ * @param {string} toName
+ * @returns {import('cellml-text-editor').TextLayout | null} A renamed copy, or the layout unchanged when empty.
+ */
+export function renameLayoutComponent(layout, fromName, toName) {
+  if (!layout) return layout
+  const rename = (item) => (item.name === fromName ? { ...item, name: toName } : item)
+  return {
+    ...layout,
+    components: layout.components.map(rename),
+    ...(layout.model && {
+      model: { ...layout.model, blocks: layout.model.blocks.map((block) => (block.kind === 'comp' ? rename(block) : block)) },
+    }),
+  }
+}
+
 export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
   const mappedParameters = {}
   const garbageCollector = new Set()
@@ -1538,9 +1577,10 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
     garbageCollector.add(analyser)
 
     analyser.analyseModel(model)
-    const analyserModel = analyser.model()
-    // This change is for version 0.7.0 of libCellML, where the analyser.model() method is deprecated and replaced with analyser.analyserModel(). If you are using a version of libCellML prior to 0.7.0, you should use the commented line below instead.
-    // const analyserModel = analyser.analyserModel()
+    if (analyser.errorCount()) {
+      handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
+    }
+    const analyserModel = analyser.analyserModel()
     garbageCollector.add(analyserModel)
 
     const voi = analyserModel.voi()
@@ -1577,14 +1617,8 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
       }
     }
 
-    if (!voi) {
-      console.log('Current bug in analysing CellML models using constants for initialising variables.')
-      console.log('VOI variable is null because the model is not valid. This is a known issue in libCellML.')
-      console.log('Returning {name: time, componentName: environment, units: second} for VOI variable.')
-      console.log('But it should return null to indicate an error.')
-      // resolve(null)
-      return { voi: { name: 'time', componentName: 'environment', units: 'second' }, mappedParameters }
-    }
+    // A valid model with no ODEs has no VOI.
+    if (!voi) return { voi: null, mappedParameters }
 
     const voiVariable = voi.variable()
     garbageCollector.add(voiVariable)

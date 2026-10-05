@@ -1,17 +1,6 @@
 <template>
   <div class="h-screen overflow-y-auto">
-    <div class="theme-toggle-wrapper">
-      <ToggleSwitch
-        :model-value="isDarkMode"
-        @change="toggleDarkMode"
-        v-tooltip.bottom="isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'"
-        aria-label="Toggle Theme"
-      >
-        <template #handle="{ checked }">
-          <i :class="['pi', checked ? 'pi-moon' : 'pi-sun']" style="font-size: 0.75rem"></i>
-        </template>
-      </ToggleSwitch>
-    </div>
+    <ThemeToggle floating />
     <div class="about-wrapper">
       <transition name="fade-slide" appear>
         <div class="image-container" :class="{ 'is-compact': activeTab === 'changelog' }">
@@ -122,12 +111,10 @@ import Tab from 'primevue/tab'
 import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import Divider from 'primevue/divider'
-import ToggleSwitch from 'primevue/toggleswitch'
 
-import {useColorScheme} from '../composables/useColorScheme'
+import ThemeToggle from '../components/ThemeToggle.vue'
 
 const activeTab = ref('overview')
-const { isDarkMode, toggleDarkMode } = useColorScheme()
 
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ + __BUILD_STATE_MARKER__ : 'Dev'
 const commitHash = typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'N/A'
@@ -295,12 +282,4 @@ li {
   position: relative;
 }
 
-.theme-toggle-wrapper {
-  position: absolute;
-  top: 11px;
-  right: 16px;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-}
 </style>

@@ -53,6 +53,24 @@ export const isModuleConfigFile = async (fileObject, location = '') => {
   return false
 }
 
+/**
+ * Checks a dotted version number against a minimum, part by part.
+ *
+ * @param {string} version - e.g. '1.1.0'.
+ * @param {string} minimum - e.g. '1.0.0'.
+ * @returns {boolean} False when `version` isn't a dotted number.
+ */
+function isAtLeastVersion(version, minimum) {
+  if (!/^\d+(\.\d+)*$/.test(version)) return false
+  const parts = version.split('.').map(Number)
+  const minimumParts = minimum.split('.').map(Number)
+  for (let i = 0; i < Math.max(parts.length, minimumParts.length); i++) {
+    const difference = (parts[i] ?? 0) - (minimumParts[i] ?? 0)
+    if (difference !== 0) return difference > 0
+  }
+  return true
+}
+
 export const isPhlynxFlowSnapshotFile = async (fileObject) => {
   if (!fileObject || typeof fileObject.async !== 'function') {
     return false
@@ -69,7 +87,7 @@ export const isPhlynxFlowSnapshotFile = async (fileObject) => {
       typeof parsed.id === 'string' &&
       typeof parsed.version === 'string' &&
       parsed.id === 'phlynx-flow-snapshot' &&
-      parsed.version.startsWith('1.0')
+      isAtLeastVersion(parsed.version, '1.0.0')
     )
   } catch {
     return false

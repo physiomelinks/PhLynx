@@ -34,8 +34,23 @@
         @input="$emit('change')" 
       />
 
+      <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
+      <Button
+        class="multiport-toggle"
+        icon="pi pi-arrows-h"
+        text
+        rounded
+        size="small"
+        :severity="isMultiport(port) ? undefined : 'secondary'"
+        :aria-pressed="isMultiport(port)"
+        aria-label="Multiport"
+        :title="isMultiport(port) ? 'Multiport: takes several connections' : 'Takes one connection'"
+        @click="setMultiport(port, !isMultiport(port)); $emit('change')"
+      />
+
       <MultiSelect
-        v-model="port.variables"
+        :modelValue="port.variables"
+        @update:modelValue="setPortVariables(port, $event)"
         :options="variables"
         optionLabel="name"
         optionValue="name"
@@ -43,17 +58,12 @@
         placeholder="Select variables"
         size="small"
         @change="$emit('change')"
-      />
-
-      <Select
-        v-model="port.multiportType"
-        :options="MULTIPORT_OPTIONS"
-        optionLabel="label"
-        overlayClass="compact-dropdown-panel"
-        optionValue="value"
-        size="small"
-        @change="$emit('change')"
-      />
+      >
+        <template #value="{ value, placeholder }">
+          <PortVariableChips v-if="value?.length" :port="port" :limit="2" @change="$emit('change')" />
+          <template v-else>{{ placeholder }}</template>
+        </template>
+      </MultiSelect>
 
       <!-- Right actions for Source Row -->
       <template v-if="side === 'source'">
@@ -80,7 +90,9 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import MultiSelect from 'primevue/multiselect'
 import { Handle, Position } from '@vue-flow/core'
-import { PORT_TYPE_OPTIONS, MULTIPORT_OPTIONS } from '../utils/constants'
+import PortVariableChips from './PortVariableChips.vue'
+import { PORT_TYPE_OPTIONS } from '../utils/constants'
+import { isMultiport, setMultiport, setPortVariables } from '../utils/multiport'
 
 const props = defineProps({
   side: {
@@ -153,11 +165,11 @@ const handleClass = computed(() => {
 }
 
 .port-row--source .port-controls {
-  grid-template-columns: 60px minmax(0, 1fr) minmax(0, 1.2fr) 85px 16px 28px;
+  grid-template-columns: 60px minmax(0, 1fr) 56px minmax(0, 1.6fr) 16px 28px;
 }
 
 .port-row--target .port-controls {
-  grid-template-columns: 16px 28px 60px minmax(0, 1fr) minmax(0, 1.2fr) 85px;
+  grid-template-columns: 16px 28px 60px minmax(0, 1fr) 56px minmax(0, 1.6fr);
 }
 
 :deep(.p-select),
@@ -169,23 +181,29 @@ const handleClass = computed(() => {
 
 :deep(.p-inputtext),
 :deep(.p-select-label),
-:deep(.p-multiselect-label),
-:deep(.p-multiselect-token-label) {
+:deep(.p-multiselect-label) {
   font-size: 12px !important;
   padding-top: 4px !important;
   padding-bottom: 4px !important;
   line-height: 1.2;
 }
 
-:deep(.p-multiselect-token) {
-  padding: 2px 6px !important;
-  margin-top: 1px !important;
-  margin-bottom: 1px !important;
-}
-
 :deep(.p-select-dropdown),
 :deep(.p-multiselect-dropdown) {
   width: 24px !important;
+}
+
+.multiport-toggle {
+  justify-self: center;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+:deep(.p-multiselect-label) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
 }
 
 .drag-handle {

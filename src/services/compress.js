@@ -4,6 +4,8 @@ import { generateSedmlData } from './export/sedml'
 import { buildManifestXml } from './export/omex'
 import { buildSimulationJson } from './export/simulation'
 
+import { PHLYNX_PROJECT_VERSION } from '../utils/constants'
+
 import { useOmexStore } from '../stores/omexStore.js'
 
 // Helper: Converts a Blob to a pure Base64 string (strips the "data:..." prefix)
@@ -115,7 +117,7 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   zip.file(cellmlFileName, cellmlData.blob)
   zip.file('document.sedml', sedmlText)
   zip.file('flow-snapshot.json', flowSnapshot)
-  zip.file('changes.json', JSON.stringify({ id: 'phlynx-changes', version: '1.0.0', modified: addInfo.modified }))
+  zip.file('changes.json', JSON.stringify({ id: 'phlynx-changes', version: PHLYNX_PROJECT_VERSION, modified: addInfo.modified }))
 
   if (simulationJson !== null) {
     zip.file('simulation.json', simulationJson)

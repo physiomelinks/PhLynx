@@ -3,10 +3,53 @@ import Papa from 'papaparse'
 import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS } from './constants'
 import { isCellML, doesComponentExistInModel } from './cellml'
 
-export function hasRelevantExtension(filename) {
+/** Columns an instance array CSV must have. */
+const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
+
+/** Columns a parameters CSV must have. */
+const PARAMETER_COLUMNS = ['variable_name', 'units', 'value', 'data_reference']
+
+/** Keys each module configuration object must have. */
+const MODULE_CONFIG_KEYS = [
+  'entrance_ports',
+  'exit_ports',
+  'general_ports',
+  'module_subtype',
+  'module_type',
+  'module_format',
+  'component_file',
+  'component_type',
+]
+
+/**
+ * Builds a format error naming the required fields a file lacks, or null when none are missing.
+ * Files with none of the required fields are marked `unrelated`.
+ * @param {string} description - What the file failed to be, e.g. 'instance array file'.
+ * @param {string[]} required - Required column or key names.
+ * @param {string[]} present - Column or key names the file actually has.
+ * @param {string} fieldNoun - 'columns' or 'keys'.
+ * @returns {Error|null}
+ */
+function missingFieldsError(description, required, present, fieldNoun) {
+  const missing = required.filter((name) => !present.includes(name))
+  if (!missing.length) return null
+  return Object.assign(new Error(`Invalid ${description} format. Missing ${fieldNoun}: ${missing.join(', ')}.`), {
+    unrelated: missing.length === required.length,
+  })
+}
+
+/**
+ * Returns the lower-case extension of a file name, including the dot.
+ * @param {string} filename
+ * @returns {string}
+ */
+export function extensionOf(filename) {
   const dot = filename.lastIndexOf('.')
-  if (dot === -1) return false
-  return RELEVANT_EXTENSIONS.has(filename.slice(dot).toLowerCase())
+  return dot === -1 ? '' : filename.slice(dot).toLowerCase()
+}
+
+export function hasRelevantExtension(filename) {
+  return RELEVANT_EXTENSIONS.has(extensionOf(filename))
 }
 
 export function readEntries(dirReader) {
@@ -53,7 +96,7 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
   }
 
   if (!requestedModules || requestedModules.length === 0) {
-    warnings.push('No modules specified in the module array file.')
+    warnings.push('No modules specified in the instance array file.')
   }
 
   for (const module of requestedModules) {
@@ -229,17 +272,13 @@ const parseInstanceArray = (file, libraryStore = null) => {
       transformHeader: (header) => header.trim(),
       transform: (v) => v.trim(),
       complete: (results) => {
-        if (
-          !(
-            results.data?.length > 0 &&
-            'name' in results.data[0] &&
-            'module_subtype' in results.data[0] &&
-            'module_type' in results.data[0] &&
-            'inp_instances' in results.data[0] &&
-            'out_instances' in results.data[0]
-          )
-        ) {
-          reject(new Error(`Invalid module array file format. Required columns: name, module_type, module_subtype, inp_instances, out_instances`))
+        const schemaError = missingFieldsError('instance array file', INSTANCE_ARRAY_COLUMNS, results.meta.fields, 'columns')
+        if (schemaError) {
+          reject(schemaError)
+          return
+        }
+        if (!results.data?.length) {
+          reject(new Error('Instance array file has no rows.'))
           return
         }
         if (libraryStore) {
@@ -269,20 +308,14 @@ const parseConfigJson = (file) => {
     reader.onload = (e) => {
       try {
         const parsed = JSON.parse(e.target.result)
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-          throw new Error('Config file must be a non-empty array of configuration objects.')
-        } else if (!('entrance_ports' in parsed[0] &&
-            'exit_ports' in parsed[0] &&
-            'general_ports' in parsed[0] &&
-            'module_subtype' in parsed[0] &&
-            'module_type' in parsed[0] &&
-            'module_format' in parsed[0] &&
-            'component_file' in parsed[0] &&
-            'component_type' in parsed[0]
-          ))
-          {
-          throw new Error('Invalid module configuration file format.')
+        if (!Array.isArray(parsed)) {
+          throw Object.assign(new Error('Config file must be an array of configuration objects.'), { unrelated: true })
         }
+        if (parsed.length === 0) {
+          throw new Error('Config file must be a non-empty array of configuration objects.')
+        }
+        const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(parsed[0] ?? {}), 'keys')
+        if (schemaError) throw schemaError
         resolve(parsed)
       } catch (err) {
         reject(err)
@@ -295,24 +328,21 @@ const parseConfigJson = (file) => {
 export const parseParametersFile = (file) => {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
-      header: true, // Converts row 1 to object keys
+      header: true,
       skipEmptyLines: true,
 
       complete: (results) => {
+        const schemaError = missingFieldsError('parameter file', PARAMETER_COLUMNS, results.meta.fields, 'columns')
+        if (schemaError) {
+          reject(schemaError)
+          return
+        }
+
         const cleanData = results.data.filter((row) => {
           return row.variable_name && !row.variable_name.trim().startsWith('#')
         })
-
-        if (
-          cleanData.length === 0 ||
-          !(
-            'variable_name' in cleanData[0] &&
-            'units' in cleanData[0] &&
-            'value' in cleanData[0] &&
-            'data_reference' in cleanData[0]
-          )
-        ) {
-          reject(new Error('Invalid parameter file format.'))
+        if (cleanData.length === 0) {
+          reject(new Error('Parameter file has no parameter rows.'))
           return
         }
 
@@ -331,7 +361,8 @@ const parseCellML = (file) => {
       try {
         const content = e.target.result
         if (!isCellML(content)) {
-          reject(new Error('Invalid CellML file.'))
+          // Files without the CellML namespace are some other XML, not broken CellML.
+          reject(Object.assign(new Error('Invalid CellML file.'), { unrelated: !/cellml\.org\/cellml/.test(content) }))
           return
         }
         resolve(content)
@@ -405,7 +436,6 @@ const configs = {
         limit: 1,
         required: true,
         parser: parseInstanceArray,
-        requiresStore: true,
         isDynamic: true,
       },
       {

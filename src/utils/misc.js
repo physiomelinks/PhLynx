@@ -1,4 +1,4 @@
-import { sanitiseName } from '../utils/nodes'
+import { sanitiseName } from '../utils/identifiers'
 
 /**
  * Read a File object as text.

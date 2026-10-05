@@ -1,16 +1,72 @@
 <template>
-  <div class="container" ref="rootRef">
+  <div class="container" :class="{ 'is-resizing': draggingPreview }" ref="rootRef">
     <div class="panel">
-      <div v-if="errors.length > 0" class="error-banner">
-        <div v-for="(err, index) in errors" :key="index">
-          <strong>Line {{ err.line }}:</strong> {{ err.message }}
-        </div>
-      </div>
-      <div v-else class="preview-pane" ref="latexContainer"></div>
+      <!-- Equation preview (or parse errors) -->
+      <section
+        ref="previewSectionRef"
+        class="preview-section"
+        :class="{ 'preview-section--collapsed': previewCollapsed }"
+        :style="previewStyle"
+      >
+        <!-- Collapsed preview -->
+        <button
+          v-if="previewCollapsed"
+          type="button"
+          class="preview-collapsed-bar"
+          :class="{ 'preview-collapsed-bar--error': shownErrors.length > 0 }"
+          title="Expand equation preview"
+          @click="togglePreview"
+        >
+          <span class="preview-toggle-icon"><i class="pi pi-angle-down"></i></span>
+          <span v-if="shownErrors.length" class="preview-collapsed-text">
+            <strong v-if="shownErrors[0].line">Line {{ shownErrors[0].line }}:</strong> {{ shownErrors[0].message }}
+            <template v-if="shownErrors.length > 1"> (+{{ shownErrors.length - 1 }} more)</template>
+          </span>
+          <span v-else class="preview-collapsed-text">Equation preview</span>
+        </button>
 
-      <div class="panel">
+        <template v-else>
+          <button
+            type="button"
+            class="preview-toggle"
+            title="Collapse equation preview"
+            aria-label="Collapse equation preview"
+            @click="togglePreview"
+          >
+            <span class="preview-toggle-icon"><i class="pi pi-angle-up"></i></span>
+          </button>
+          <div v-if="shownErrors.length > 0" class="error-banner">
+            <div v-for="(err, index) in shownErrors" :key="index">
+              <strong v-if="err.line">Line {{ err.line }}:</strong> {{ err.message }}
+            </div>
+          </div>
+          <div v-else class="preview-pane" ref="latexContainer"></div>
+        </template>
+      </section>
+
+      <div
+        v-if="!previewCollapsed"
+        class="preview-resizer"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize equation preview"
+        :aria-valuenow="previewHeight"
+        :aria-valuemin="MIN_PREVIEW_HEIGHT"
+        tabindex="0"
+        @pointerdown="startPreviewResize"
+        @dblclick="resetPreviewHeight"
+        @keydown.up.prevent="nudgePreview(-16)"
+        @keydown.down.prevent="nudgePreview(16)"
+      >
+        <div class="preview-resizer-grip"></div>
+      </div>
+
+      <div class="editor-section">
         <div class="panel-header">
-          <h3>CellML Text</h3>
+          <label class="mode-switch">
+            <ToggleSwitch v-model="isSimple" />
+            <span>Simple Mode</span>
+          </label>
           <div class="font-size-control" role="group" aria-label="Editor font size">
             <button
               type="button"
@@ -37,11 +93,14 @@
         </div>
         <codemirror
           v-model="cellmlText"
-          :style="{ height: '400px', '--cm-font-size': fontSize + 'px' }"
+          class="editor-host"
+          :style="{ '--cm-font-size': fontSize + 'px' }"
           :autofocus="true"
           :indent-with-tab="true"
           :tab-size="2"
           :extensions="extensions"
+          :disabled="isLocked"
+          @ready="handleReady"
           @update="handleStateUpdate"
         >
         </codemirror>
@@ -51,86 +110,217 @@
 </template>
 
 <script setup>
+import ToggleSwitch from 'primevue/toggleswitch'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
 import { basicSetup } from 'codemirror'
 import { keymap } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
-import { oneDark } from '@codemirror/theme-one-dark' 
+import { oneDark } from '@codemirror/theme-one-dark'
 import 'katex/dist/katex.min.css'
 
-import { CellMLTextGenerator } from 'cellml-text-editor'
-import { CellMLTextParser } from 'cellml-text-editor'
-import { CellMLLatexGenerator } from 'cellml-text-editor'
-import { cellml } from 'cellml-text-editor'
+import {
+  CellMLTextGenerator,
+  CellMLTextParser,
+  CellMLLatexGenerator,
+  applyVariableDefinitions,
+  cellml,
+  mergeSimpleLayout,
+  renameIdentifier,
+} from 'cellml-text-editor'
 
 const katexPromise = import('katex')
 
 const props = defineProps({
   modelValue: {
     type: String,
-    default: '',
+    default: ''
+  },
+  simple: {
+    type: Boolean,
+    default: true
+  },
+  componentName: {
+    type: String,
+    default: ''
+  },
+  variableDefinitions: {
+    type: Array,
+    default: () => []
+  },
+  // The text layout saved with the math (comments, blank lines, statements as typed). Read on mount.
+  layout: {
+    type: Object,
+    default: null
   },
 })
 
-const emit = defineEmits(['update:code', 'save', 'ready', 'undo', 'redo'])
+/** What this editor's text is written in, so the session can tell its text from another editor's. */
+const FORMAT = 'cellml-text'
 
-// When true, the next `cellmlText` change came from setText() (an app-level
-// undo/redo replay), not a user keystroke
-let applyingExternalText = false
+/**
+ * Emits `change` with `{ source, format, text, valid, xml, layout }`, the contract useMathSession expects.
+ * `source` is 'init' on mount, 'edit' for typing, or 'external' after a prop change.
+ */
+const emit = defineEmits(['update:simple', 'update:componentName', 'change', 'save', 'undo', 'redo'])
 
-const generator = new CellMLTextGenerator()
-const parser = new CellMLTextParser()
+const DEBOUNCE_MS = 500
+
+const isSimple = computed({
+  get: () => props.simple,
+  set: (v) => emit('update:simple', v),
+})
+
+const generator = new CellMLTextGenerator({ simplified: props.simple })
+const parser = new CellMLTextParser({ simplified: props.simple })
 const latexGen = new CellMLLatexGenerator()
 
-const cellmlText = ref(generator.generate(props.modelValue))
+let lastXml = props.modelValue
+// The Advanced Mode layout of the last valid text. Simple Mode edits are merged into it.
+let lastLayout = props.layout
+
+// Math the text can't hold, found when the text was generated. Editing it would lose that math.
+const generatorErrors = ref([])
+
+/**
+ * Generates this editor's text for a model, noting anything the text can't hold.
+ *
+ * @param {string} xml
+ * @returns {string}
+ */
+function generateText(xml) {
+  const result = generator.generateResult(xml, { layout: lastLayout })
+  if (result.layoutRejected) console.warn('CellML text layout ignored: it would have changed the math.')
+  generatorErrors.value = result.errors
+  return result.text
+}
+
+const cellmlText = ref(generateText(lastXml))
 const errors = ref([])
+
+// The text is locked when it can't hold all the math; its parse errors then only repeat that.
+const isLocked = computed(() => generatorErrors.value.length > 0)
+const shownErrors = computed(() =>
+  isLocked.value
+    ? [
+        {
+          line: null,
+          message: "CellML Text can't show part of this math, so it can't be edited here. Use the Math Editor tab.",
+        },
+        ...generatorErrors.value.map(({ message }) => ({ line: null, message })),
+      ]
+    : errors.value
+)
 const latexContainer = ref(null)
 const rootRef = ref(null)
+const previewSectionRef = ref(null)
 
-let debouncer = null
 let currentDoc = null
+let debouncer = null
+let pendingSource = 'edit'
+let lastDefinitionsKey = ''
 let resizeObserver = null
 let resizeRaf = null
-const cursorLine = ref(1)
-const latexPreview = ref('')
 
-const MIN_FIT_SCALE = 0.50
+let applyingExternalText = false
+const cursorLine = ref(1)
+
+// ── Storage helpers ─────────────────────────────────────────────────────────
+function readStored(key) {
+  try {
+    return window.localStorage.getItem(key)
+  } catch (e) {
+    return null // localStorage unavailable (e.g. private browsing)
+  }
+}
+
+function writeStored(key, value) {
+  try {
+    window.localStorage.setItem(key, String(value))
+  } catch (e) {
+    // ignore storage errors
+  }
+}
+
+// ── Font size ───────────────────────────────────────────────────────────────
 const MIN_FONT_SIZE = 10
 const MAX_FONT_SIZE = 20
 const FONT_SIZE_STORAGE_KEY = 'cellml-editor-font-size'
 const DEFAULT_FONT_SIZE = 12.5
 
 function loadStoredFontSize() {
-  try {
-    const stored = Number(window.localStorage.getItem(FONT_SIZE_STORAGE_KEY))
-    if (stored && stored >= MIN_FONT_SIZE && stored <= MAX_FONT_SIZE) {
-      return stored
-    }
-  } catch (e) {
-    // localStorage unavailable (e.g. private browsing) - fall back to default
-  }
-  return DEFAULT_FONT_SIZE
+  const stored = Number(readStored(FONT_SIZE_STORAGE_KEY))
+  return stored && stored >= MIN_FONT_SIZE && stored <= MAX_FONT_SIZE ? stored : DEFAULT_FONT_SIZE
 }
 
 const fontSize = ref(loadStoredFontSize())
 
-function persistFontSize() {
-  try {
-    window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(fontSize.value))
-  } catch (e) {
-    // ignore storage errors
-  }
-}
-
 function increaseFontSize() {
   fontSize.value = Math.min(MAX_FONT_SIZE, fontSize.value + 1)
-  persistFontSize()
+  writeStored(FONT_SIZE_STORAGE_KEY, fontSize.value)
 }
 
 function decreaseFontSize() {
   fontSize.value = Math.max(MIN_FONT_SIZE, fontSize.value - 1)
-  persistFontSize()
+  writeStored(FONT_SIZE_STORAGE_KEY, fontSize.value)
+}
+
+// ── Equation preview: size + collapse ───────────────────────────────────────
+const MIN_FIT_SCALE = 0.5
+const MIN_PREVIEW_HEIGHT = 72
+const MAX_PREVIEW_HEIGHT = 480
+const DEFAULT_PREVIEW_HEIGHT = 150
+const PREVIEW_HEIGHT_STORAGE_KEY = 'cellml-editor-preview-height'
+const PREVIEW_COLLAPSED_STORAGE_KEY = 'cellml-editor-preview-collapsed'
+
+function clampPreviewHeight(value) {
+  const available = rootRef.value?.clientHeight
+  const max = available ? Math.min(MAX_PREVIEW_HEIGHT, Math.round(available * 0.6)) : MAX_PREVIEW_HEIGHT
+  return Math.min(max, Math.max(MIN_PREVIEW_HEIGHT, Math.round(value)))
+}
+
+const previewHeight = ref(clampPreviewHeight(Number(readStored(PREVIEW_HEIGHT_STORAGE_KEY)) || DEFAULT_PREVIEW_HEIGHT))
+const previewCollapsed = ref(readStored(PREVIEW_COLLAPSED_STORAGE_KEY) === 'true')
+const draggingPreview = ref(false)
+let dragStartY = 0
+let dragStartHeight = 0
+
+const previewStyle = computed(() => (previewCollapsed.value ? {} : { height: `${previewHeight.value}px` }))
+
+function togglePreview() {
+  previewCollapsed.value = !previewCollapsed.value
+  writeStored(PREVIEW_COLLAPSED_STORAGE_KEY, previewCollapsed.value)
+  if (!previewCollapsed.value) nextTick(updatePreview)
+}
+
+function onPreviewResizeMove(event) {
+  previewHeight.value = clampPreviewHeight(dragStartHeight + (event.clientY - dragStartY))
+}
+
+function stopPreviewResize() {
+  if (!draggingPreview.value) return
+  draggingPreview.value = false
+  window.removeEventListener('pointermove', onPreviewResizeMove)
+  writeStored(PREVIEW_HEIGHT_STORAGE_KEY, previewHeight.value)
+}
+
+function startPreviewResize(event) {
+  draggingPreview.value = true
+  dragStartY = event.clientY
+  dragStartHeight = previewHeight.value
+  event.currentTarget?.setPointerCapture?.(event.pointerId)
+  window.addEventListener('pointermove', onPreviewResizeMove)
+  window.addEventListener('pointerup', stopPreviewResize, { once: true })
+}
+
+function nudgePreview(delta) {
+  previewHeight.value = clampPreviewHeight(previewHeight.value + delta)
+  writeStored(PREVIEW_HEIGHT_STORAGE_KEY, previewHeight.value)
+}
+
+function resetPreviewHeight() {
+  previewHeight.value = clampPreviewHeight(DEFAULT_PREVIEW_HEIGHT)
+  writeStored(PREVIEW_HEIGHT_STORAGE_KEY, previewHeight.value)
 }
 
 // ── Dynamic Dark Mode Detection ─────────────────────────────────────────────
@@ -142,6 +332,11 @@ const checkDarkMode = () => {
 }
 
 let cmView = null
+
+// Captured as soon as the view exists, so focus() works before the first update.
+const handleReady = ({ view }) => {
+  cmView = view
+}
 
 const handleStateUpdate = (viewUpdate) => {
   cmView = viewUpdate.view
@@ -165,7 +360,6 @@ const shiftSpaceKeymap = keymap.of([
   },
 ])
 
-// Intercept undo/redo ahead of basicSetup's own historyKeymap (Mod-z / Mod-Shift-z / Mod-y)
 const appHistoryKeymap = Prec.highest(
   keymap.of([
     {
@@ -192,7 +386,16 @@ const appHistoryKeymap = Prec.highest(
   ])
 )
 
-// Dynamically inject theme extensions based on light vs. dark mode
+const handleKeyDown = (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    event.preventDefault()
+    emit('save')
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+    event.preventDefault()
+  }
+}
+
 const extensions = computed(() => {
   const base = [basicSetup, cellml(), shiftSpaceKeymap, appHistoryKeymap]
   return isDarkMode.value ? [...base, oneDark] : base
@@ -207,7 +410,7 @@ const applyFitScale = () => {
 
   const containerWidth = container.clientWidth - 30
   const containerHeight = container.clientHeight - 10
-  if (containerWidth <= 0 || containerHeight <=0) return
+  if (containerWidth <= 0 || containerHeight <= 0) return
 
   const contentWidth = content.scrollWidth
   const contentHeight = content.scrollHeight
@@ -228,7 +431,7 @@ const scheduleFitScale = () => {
 }
 
 const updatePreview = async () => {
-  if (!currentDoc) return
+  if (!currentDoc || previewCollapsed.value) return
 
   const katex = (await katexPromise).default
   const equations = Array.from(currentDoc.getElementsByTagNameNS('*', 'apply'))
@@ -254,61 +457,112 @@ const updatePreview = async () => {
     }
   }
 
+  if (!latexContainer.value) return
+
   if (bestMatch) {
-    const latex = latexGen.convert(bestMatch)
-    latexPreview.value = latex
-    if (latexContainer.value) {
-      katex.render(latex, latexContainer.value, { throwOnError: false, displayMode: true })
-      nextTick(applyFitScale)
-    }
+    katex.render(latexGen.convert(bestMatch), latexContainer.value, { throwOnError: false, displayMode: true })
+    nextTick(applyFitScale)
   } else {
-    latexPreview.value = ''
-    if (latexContainer.value) latexContainer.value.innerHTML = "<span class='placeholder'>No equation selected</span>"
+    latexContainer.value.innerHTML = "<span class='placeholder'>No equation selected</span>"
   }
 }
 
-const handleKeyDown = (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    event.preventDefault()
-    handleSave()
+// ── Parse -> declare variables -> report ──────────────────────────────────────
+const definitionsKey = () => (parser.simplified ? JSON.stringify(props.variableDefinitions) : '')
+
+/**
+ * Parses the text into CellML and reports the result.
+ *
+ * @param {'init'|'edit'|'external'} source - What triggered the parse.
+ * @param {Object} [options]
+ * @param {string} [options.text] - Text to parse; defaults to the editor's text.
+ * @param {boolean} [options.silent=false] - Parse without emitting `change`.
+ */
+function run(source, { text = cellmlText.value, silent = false } = {}) {
+  if (debouncer) {
+    clearTimeout(debouncer)
+    debouncer = null
   }
-  if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-    event.preventDefault()
-  }
-}
+  pendingSource = 'edit'
 
-const handleSave = () => {
-  emit('save')
-}
+  const simple = parser.simplified
+  const result = parser.parse(text, {
+    baseXml: lastXml,
+    componentName: props.componentName || undefined,
+    finalise: simple ? (doc) => applyVariableDefinitions(doc, props.variableDefinitions) : undefined,
+  })
 
-watch(cellmlText, (newText) => {
-  if (applyingExternalText) return
+  errors.value = result.errors
+  lastDefinitionsKey = definitionsKey()
 
-  if (debouncer) clearTimeout(debouncer)
-  debouncer = setTimeout(async () => {
-    try {
-      const parsed = parser.parse(newText)
-      errors.value = parsed.errors
-      const valid = errors.value.length === 0 && !!parsed.xml
+  const valid = result.errors.length === 0 && !!result.xml && !!result.doc
 
-      if (valid) {
-        currentDoc = parser['doc']
-      }
+  if (valid) {
+    currentDoc = result.doc
+    lastXml = result.xml
+    if (result.layout) lastLayout = simple ? mergeSimpleLayout(lastLayout, result.layout) : result.layout
 
-      emit('update:code', valid ? parsed.xml : null, newText, valid)
-
-      if (valid) {
-        await nextTick()
-        updatePreview()
-      }
-    } catch (e) {
-      // Parse threw outright - still emit so undo has a text snapshot.
-      emit('update:code', null, newText, false)
+    // Advanced Mode: the text defines the component name
+    const textComponentName = simple ? '' : result.doc.getElementsByTagName('component')[0]?.getAttribute('name')
+    if (textComponentName && textComponentName !== props.componentName) {
+      emit('update:componentName', textComponentName)
     }
-  }, 500)
+  }
+
+  if (!silent) {
+    emit('change', {
+      source,
+      format: FORMAT,
+      text,
+      valid,
+      xml: valid ? result.xml : null,
+      layout: valid ? lastLayout : null,
+    })
+  }
+
+  if (valid) nextTick(updatePreview)
+}
+
+function schedule(source) {
+  if (debouncer && pendingSource === 'edit') source = 'edit'
+  if (debouncer) clearTimeout(debouncer)
+  pendingSource = source
+  debouncer = setTimeout(() => run(pendingSource), DEBOUNCE_MS)
+}
+
+function flush() {
+  if (debouncer) run(pendingSource)
+}
+
+watch(cellmlText, () => {
+  if (!applyingExternalText) schedule('edit')
 })
 
-async function setText(newText) {
+watch(
+  () => props.variableDefinitions,
+  () => {
+    if (parser.simplified && definitionsKey() !== lastDefinitionsKey) schedule('external')
+  }
+)
+
+watch(
+  () => props.componentName,
+  () => {
+    if (parser.simplified) schedule('external')
+  }
+)
+
+watch(
+  () => props.simple,
+  (simple) => {
+    if (debouncer) run('edit') 
+    generator.simplified = simple
+    parser.simplified = simple
+    setText(generateText(lastXml), { report: true })
+  }
+)
+
+async function setText(newText, { report = false, source = 'external' } = {}) {
   if (debouncer) {
     clearTimeout(debouncer)
     debouncer = null
@@ -343,57 +597,69 @@ async function setText(newText) {
       selection: { anchor: from + insert.length },
     })
   } else {
-    // No view yet (shouldn't normally happen) - fall back to a full replace.
     cellmlText.value = newText
   }
 
   await nextTick()
   applyingExternalText = false
 
-  try {
-    const parsed = parser.parse(newText)
-    errors.value = parsed.errors
-    if (errors.value.length === 0 && parsed.xml) {
-      currentDoc = parser['doc']
-      await nextTick()
-      updatePreview()
-    }
-  } catch (e) {
-    // Do nothing for invalid syntax.
-  }
+  run(source, { text: newText, silent: !report })
 }
 
-defineExpose({ setText })
+/**
+ * Simple Mode: renames every use of a variable, keeping formatting and comments, and reports it as
+ * an edit.
+ *
+ * @param {string} from
+ * @param {string} to
+ * @returns {Promise<void>}
+ */
+function renameVariable(from, to) {
+  return setText(renameIdentifier(cellmlText.value, from, to), { report: true, source: 'edit' })
+}
+
+/**
+ * Shows a model written by another editor, as this editor's text.
+ *
+ * @param {string} xml
+ * @returns {Promise<void>}
+ */
+function setModel(xml) {
+  lastXml = xml
+  return setText(generateText(xml))
+}
+
+defineExpose({
+  format: FORMAT,
+  setText,
+  setModel,
+  renameVariable,
+  flush,
+  focus: () => cmView?.focus(),
+  getErrors: () => shownErrors.value,
+})
 
 onMounted(() => {
   checkDarkMode()
   observer = new MutationObserver(checkDarkMode)
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 
-  try {
-    const parsed = parser.parse(cellmlText.value)
-    errors.value = parsed.errors
-    if (errors.value.length === 0 && parsed.xml) {
-      currentDoc = parser['doc']
-      updatePreview()
-      emit('ready', parsed.xml, cellmlText.value)
-    }
-  } catch (e) {
-    // Do nothing for initial syntax load
-  }
+  run('init')
 
   window.addEventListener('keydown', handleKeyDown)
-  if (rootRef.value && typeof ResizeObserver !== 'undefined') {
+  if (previewSectionRef.value && typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(scheduleFitScale)
-    resizeObserver.observe(rootRef.value)
+    resizeObserver.observe(previewSectionRef.value)
   }
 })
 
 onUnmounted(() => {
+  if (debouncer) clearTimeout(debouncer)
   if (observer) observer.disconnect()
   if (resizeObserver) resizeObserver.disconnect()
   if (resizeRaf) cancelAnimationFrame(resizeRaf)
   window.removeEventListener('keydown', handleKeyDown)
+  window.removeEventListener('pointermove', onPreviewResizeMove)
 })
 </script>
 
@@ -417,15 +683,140 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  gap: 12px;
-  --eq-preview-height: clamp(170px, 24vh, 280px);
+  gap: 0;
 }
 
-.panel h3 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+.container.is-resizing {
+  user-select: none;
+  cursor: row-resize;
+}
+
+/* Equation preview: sized by the person (drag handle) or collapsed to a strip */
+.preview-section {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.preview-section--collapsed {
+  height: auto;
+  margin-bottom: 12px;
+}
+
+.preview-collapsed-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px 0 5px; /* 5px + the 1px border puts the chevron 6px from the corner, like the expanded button */
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--p-content-background) 96%, var(--p-text-color));
+  color: var(--p-text-muted-color);
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.preview-collapsed-bar:hover {
   color: var(--p-text-color);
+  background-color: var(--p-content-hover-background, rgba(255, 255, 255, 0.06));
+}
+
+.preview-collapsed-bar--error {
+  color: var(--p-red-400, #f87171);
+  border-color: color-mix(in srgb, var(--p-red-500, #ef4444) 35%, transparent);
+  background-color: color-mix(in srgb, var(--p-red-500, #ef4444) 15%, var(--p-content-background));
+}
+
+/* One box for the toggle in both states: 20px, centred 16px from the top and left edges of the preview. */
+.preview-toggle-icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  opacity: 0.7;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.preview-collapsed-bar:hover .preview-toggle-icon,
+.preview-toggle:hover .preview-toggle-icon,
+.preview-toggle:focus-visible .preview-toggle-icon {
+  opacity: 1;
+  background: var(--p-content-hover-background, rgba(255, 255, 255, 0.06));
+}
+
+.preview-toggle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+}
+
+.preview-toggle:hover {
+  color: var(--p-text-color);
+}
+
+.preview-collapsed-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Drag handle under the preview; also hosts the collapse button */
+.preview-resizer {
+  position: relative;
+  flex: 0 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.preview-resizer-grip {
+  width: 48px;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--p-content-border-color);
+  transition: background-color 0.15s ease;
+}
+
+.preview-resizer:hover .preview-resizer-grip,
+.preview-resizer:focus-visible .preview-resizer-grip {
+  background: var(--p-primary-color);
+}
+
+.preview-resizer:focus-visible {
+  outline: none;
+}
+
+/* Text area takes whatever height the preview leaves */
+.editor-section {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 12px;
+}
+
+.editor-host {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
 }
 
 .panel-header {
@@ -433,6 +824,30 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.mode-switch {
+  /* A compact switch: the default is sized for forms, which looks oversized next to a 13px label. */
+  --p-toggleswitch-width: 2rem;
+  --p-toggleswitch-height: 1.125rem;
+  --p-toggleswitch-handle-size: 0.75rem;
+  --p-toggleswitch-gap: 0.1875rem;
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.mode-switch:hover {
+  color: var(--p-text-color);
 }
 
 .font-size-control {
@@ -479,6 +894,7 @@ onUnmounted(() => {
 /* CodeMirror Base Styling */
 :deep(.cm-editor) {
   flex: 1;
+  min-width: 0;
   border-radius: 6px;
   font-size: var(--cm-font-size, 11.5px);
   overflow: hidden;
@@ -523,7 +939,8 @@ onUnmounted(() => {
 
 /* LaTeX Preview Area - Adapts to Dark Mode */
 .preview-pane {
-  height: var(--eq-preview-height);
+  height: 100%;
+  box-sizing: border-box;
   padding: 15px;
   background-color: color-mix(in srgb, var(--p-content-background) 96%, var(--p-text-color));
   border: 1px solid var(--p-content-border-color);
@@ -563,7 +980,7 @@ onUnmounted(() => {
   display: inline-block;
 }
 
-.placeholder {
+.preview-pane :deep(.placeholder) {
   color: var(--p-text-muted-color);
   font-style: italic;
   font-size: 0.85em;
@@ -578,7 +995,9 @@ onUnmounted(() => {
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85em;
-  height: var(--eq-preview-height);
+  height: 100%;
+  box-sizing: border-box;
+  padding-left: 40px; /* clear of the collapse button */
   display: flex;
   flex-direction: column;
   justify-content: center;

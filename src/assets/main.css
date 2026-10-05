@@ -4,6 +4,51 @@ body {
   font-family: Helvetica, Arial, sans-serif;
 }
 
+/* A port variable, coloured by its multiport type (see utils/multiport.js). */
+.multiport-chip {
+  --chip-color: var(--p-text-muted-color);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--p-text-color);
+  background-color: color-mix(in srgb, var(--chip-color) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-color) 40%, transparent);
+}
+
+button.multiport-chip {
+  cursor: pointer;
+}
+
+button.multiport-chip:hover {
+  background-color: color-mix(in srgb, var(--chip-color) 26%, transparent);
+}
+
+.multiport-chip:focus-visible {
+  outline: 2px solid var(--chip-color);
+  outline-offset: 1px;
+}
+
+.multiport-chip[data-multiport='True'] {
+  --chip-color: var(--p-blue-500);
+}
+
+.multiport-chip[data-multiport='Sum'] {
+  --chip-color: var(--p-purple-500);
+}
+
+.multiport-chip[data-multiport='Sum']::after {
+  content: '\00a0Σ';
+}
+
+.multiport-chip[data-multiport='Multiply'] {
+  --chip-color: var(--p-orange-500);
+}
+
 .dnd-flow {
   flex-direction: column;
   display: flex;
