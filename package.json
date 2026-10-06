@@ -18,7 +18,7 @@
     }
   ],
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "main": "src/electron/main.js",
   "scripts": {
@@ -79,7 +79,7 @@
     "vue-codemirror": "^6.1.1",
     "vue-router": "^4.6.4",
     "vue3-libcellml.js": "^0.7.1",
-    "vue3-math-editor": "0.3.2"
+    "vue3-math-editor": "^0.3.3"
   },
   "devDependencies": {
     "@hsorby/changelog": "^3.0.3",

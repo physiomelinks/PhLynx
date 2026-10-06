@@ -5782,7 +5782,7 @@ __metadata:
     vue-codemirror: "npm:^6.1.1"
     vue-router: "npm:^4.6.4"
     vue3-libcellml.js: "npm:^0.7.1"
-    vue3-math-editor: "npm:0.3.2"
+    vue3-math-editor: "npm:^0.3.3"
   languageName: unknown
   linkType: soft
 
@@ -7425,16 +7425,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vue3-math-editor@npm:0.3.2":
-  version: 0.3.2
-  resolution: "vue3-math-editor@npm:0.3.2"
+"vue3-math-editor@npm:^0.3.3":
+  version: 0.3.3
+  resolution: "vue3-math-editor@npm:0.3.3"
   peerDependencies:
     "@primeuix/utils": ^0.6.2
     katex: ^0.16.0 || ^0.17.0
     primeicons: ^7.0.0
     primevue: ^4.5.5
     vue: ^3.5.0
-  checksum: 10c0/543b35bd53be882583baaac3afbe96f78ab8d57cad74da9ee390c86b397870cf75fdd9decd5cc2863b57ea85fb57784f0c373fff1987b1d4a2abc3707d2e278f
+  checksum: 10c0/390a79b5cc4392016848d56de6119cfef14e11c0f18e32d02594c9f4f3807a0945b60a5554721bceb67ba9db5f37e06463e7232421d14a4986ededac0f1d1fb6
   languageName: node
   linkType: hard
 

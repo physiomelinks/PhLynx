@@ -3,7 +3,11 @@
 ###### Includes changes up to 2026-10-06
 
 #### Not Specified
-* Recognise OMEX flow snapshots from version 1.0.0 onwards by [@jmdowrick](https://github.com/jmdowrick) in [#643](https://github.com/physiomelinks/PhLynx/pull/643)
+* Update vue3-math-editor to v0.3.3 by [@jmdowrick](https://github.com/jmdowrick) in [#650](https://github.com/physiomelinks/PhLynx/pull/650)
+
+
+#### New Features
+* Introduce omex load on drop by [@jmdowrick](https://github.com/jmdowrick) in [#649](https://github.com/physiomelinks/PhLynx/pull/649)
 
 
 #### Contributors
