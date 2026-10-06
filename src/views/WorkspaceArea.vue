@@ -637,7 +637,6 @@ const SEARCH_BAR_TOP = 150
 const TOAST_GAP_BELOW_SEARCH_BAR = 16
 const toastTop = computed(() => SEARCH_BAR_TOP + TOAST_GAP_BELOW_SEARCH_BAR)
 
-
 const {
   addEdges,
   addNodes,
@@ -879,10 +878,12 @@ const onDrop = async (event) => {
 
     const cellmlFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.cellml'))
 
-    if (cellmlFiles.length === 0) {
+    const omexFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.omex'))
+
+    if (cellmlFiles.length === 0 && omexFiles.length === 0) {
       notify.warning({
         title: 'Unsupported File Type',
-        message: 'Only .cellml files can be dropped onto the workspace.',
+        message: 'Only .cellml and .omex files can be dropped onto the workspace.',
       })
       return
     }
@@ -895,7 +896,28 @@ const onDrop = async (event) => {
       return
     }
 
-    await loadCellMLFiles(cellmlFiles)
+    if (cellmlFiles.length > 0) {
+      await loadCellMLFiles(cellmlFiles)
+    }
+
+    if (omexFiles.length > 0) {
+      for (const file of omexFiles) {
+        try {
+          const arrayBuffer = await file.arrayBuffer()
+          const result = await importOmexFile(arrayBuffer)
+          await processImportedOmexArchive(arrayBuffer, result, file.name)
+          notify.success({
+            title: 'OMEX Import Complete',
+            message: `${file.name} imported successfully!`,
+          })
+        } catch (error) {
+          notify.error({
+            title: 'OMEX Import Failed',
+            message: error.message,
+          })
+        }
+      }
+    }
   } else {
     onDropModule(event)
   }

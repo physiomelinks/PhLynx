@@ -131,7 +131,7 @@
             <span v-else-if="supportsFolderAccess">
               Connect a folder to auto-load required files, or drag & drop / select several files at once below.
             </span>
-            <span v-else> Drag & drop a folder or file(s) and we'll sort them automatically. </span>
+            <span v-else> Drag & drop a folder or file(s) </span>
           </div>
           <div class="folder-import-actions">
             <Button
