@@ -537,10 +537,9 @@ watch(
   border-radius: 2px;
 }
 
-/* A hidden line's name stays, faded and struck through, so it can be clicked back on. */
+/* A hidden line's name stays, faded, so it can be clicked back on. */
 .plot-key-toggle.is-hidden {
   opacity: 0.45;
-  text-decoration: line-through;
 }
 
 .plot-key-swatch {
