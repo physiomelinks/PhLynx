@@ -6,6 +6,12 @@ import { writeDriverMathML } from '../protocol/libopencorEngine/protocolDrivers'
 
 export const DRIVER_COMPONENT = 'protocol_drivers'
 
+// The clock a protocol's export plots against: experiment_time is the model's time less time_offset, which each run
+// of the protocol sets, so that it reads 0 at the end of the warm-up and carries on across sub-experiments.
+export const CLOCK_COMPONENT = 'protocol_clock'
+export const CLOCK_OFFSET = `${CLOCK_COMPONENT}/time_offset`
+export const CLOCK_TIME = `${CLOCK_COMPONENT}/experiment_time`
+
 /**
  * Names a driver's variables in the model.
  *
@@ -117,6 +123,45 @@ export function addProtocolDrivers({ libcellml, cellml, drivers }) {
       component.appendMath(writeDriverMathML(driver, { ...names, time: 'time', valueUnits, timeUnits }))
     }
     return { cellml: printer.printModel(model, false), errors }
+  } finally {
+    handles.reverse().forEach((handle) => handle?.delete?.())
+  }
+}
+
+/**
+ * Adds a protocol's clock to a flattened model: experiment_time, the model's time less time_offset, a constant that
+ * starts at 0.
+ *
+ * @param {Object} options
+ * @param {Object} options.libcellml - The libcellml module (see whenLibCellMLReady).
+ * @param {string} options.cellml - The flattened model, with any drivers.
+ * @returns {{cellml: string, errors: string[]}} The model with its clock, and why it couldn't be added.
+ */
+export function addProtocolClock({ libcellml, cellml }) {
+  const parser = new libcellml.Parser(false)
+  const printer = new libcellml.Printer()
+  const model = parser.parseModel(cellml)
+  const handles = [parser, printer, model]
+  /** Keeps a handle to free, and gives it back. */
+  const keep = (handle) => (handles.push(handle), handle)
+  try {
+    const environment = keep(model.componentByName('environment', true))
+    const clock = environment && keep(environment.variableByName('time'))
+    if (!clock) return { cellml, errors: ['The model has no environment time for a protocol to follow.'] }
+    if (keep(model.componentByName(CLOCK_COMPONENT, true))) return { cellml, errors: [`The model already has a ${CLOCK_COMPONENT} component.`] }
+    const timeUnits = keep(clock.units()).name()
+
+    const component = keep(new libcellml.Component())
+    component.setName(CLOCK_COMPONENT)
+    model.addComponent(component)
+    const time = keep(addVariable(libcellml, component, { name: 'time', units: timeUnits }))
+    libcellml.Variable.addEquivalence(time, clock)
+    keep(addVariable(libcellml, component, { name: 'time_offset', units: timeUnits, initialValue: '0' }))
+    keep(addVariable(libcellml, component, { name: 'experiment_time', units: timeUnits }))
+    component.appendMath(
+      `<math xmlns="http://www.w3.org/1998/Math/MathML"><apply><eq/><ci>experiment_time</ci><apply><minus/><ci>time</ci><ci>time_offset</ci></apply></apply></math>`
+    )
+    return { cellml: printer.printModel(model, false), errors: [] }
   } finally {
     handles.reverse().forEach((handle) => handle?.delete?.())
   }

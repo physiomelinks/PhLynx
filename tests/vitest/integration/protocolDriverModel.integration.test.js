@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { addProtocolDrivers } from '../../../src/services/simulation/protocolDriverModel.js'
+import { addProtocolClock, addProtocolDrivers, CLOCK_OFFSET, CLOCK_TIME } from '../../../src/services/simulation/protocolDriverModel.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 // As PhLynx flattens a decay module: its constants in instance_parameters, its time in environment.
@@ -69,5 +69,50 @@ describe('addProtocolDrivers', () => {
   it("says which driven parameter the model doesn't have", () => {
     const { errors } = addProtocolDrivers({ libcellml, cellml: FLATTENED, drivers: [{ ...DRIVER, parameter: 'decay/nope' }] })
     expect(errors).toEqual(["The protocol drives decay/nope, which isn't in the model being simulated."])
+  })
+})
+
+describe('addProtocolClock', () => {
+  let libcellml
+
+  beforeAll(async () => {
+    libcellml = (await ensureLibCellmlReady()).instance
+  })
+
+  it('computes experiment time as the model time less an offset that starts at 0', () => {
+    const { cellml, errors } = addProtocolClock({ libcellml, cellml: FLATTENED })
+    expect(errors).toEqual([])
+    const { issues, model } = check(libcellml, cellml)
+    expect(issues).toEqual([])
+
+    const clock = model.componentByName('protocol_clock', true)
+    expect(clock.variableByName('time_offset').initialValue()).toBe('0')
+    expect(clock.variableByName('time_offset').units().name()).toBe('second')
+    expect(clock.variableByName('experiment_time').units().name()).toBe('second')
+    expect(clock.variableByName('time').equivalentVariable(0).name()).toBe('time')
+    expect(CLOCK_OFFSET).toBe('protocol_clock/time_offset')
+    expect(CLOCK_TIME).toBe('protocol_clock/experiment_time')
+
+    const analyser = new libcellml.Analyser()
+    analyser.analyseModel(model)
+    const analysed = analyser.analyserModel()
+    expect(libcellml.AnalyserModel.typeAsString(analysed.type())).toBe('ode')
+    const kind = (name) => libcellml.AnalyserVariable.typeAsString(analysed.analyserVariable(clock.variableByName(name.split('/')[1])).type())
+    expect(kind(CLOCK_OFFSET)).toBe('constant')
+    expect(kind(CLOCK_TIME)).toBe('algebraic_variable')
+  })
+
+  it('adds to a model with drivers', () => {
+    const driven = addProtocolDrivers({ libcellml, cellml: FLATTENED, drivers: [DRIVER] })
+    const { cellml, errors } = addProtocolClock({ libcellml, cellml: driven.cellml })
+    expect(errors).toEqual([])
+    expect(check(libcellml, cellml).issues).toEqual([])
+  })
+
+  it('says why a model without environment time, or with a clock already, gets none', () => {
+    const timeless = FLATTENED.replace('<component name="environment">', '<component name="surroundings">')
+    expect(addProtocolClock({ libcellml, cellml: timeless })).toEqual({ cellml: timeless, errors: ['The model has no environment time for a protocol to follow.'] })
+    const { cellml } = addProtocolClock({ libcellml, cellml: FLATTENED })
+    expect(addProtocolClock({ libcellml, cellml }).errors).toEqual(['The model already has a protocol_clock component.'])
   })
 })
