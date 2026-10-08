@@ -5,8 +5,22 @@
         <template v-if="titleParts">
           <template v-for="(part, index) in titleParts" :key="index"
             ><span v-if="index" class="plot-title-separator">, </span
-            ><span v-if="series.length > 1 && series[index]" class="plot-key-swatch plot-title-swatch" :style="{ background: colourOf(series[index]) }" aria-hidden="true"></span
-            ><span v-if="part.component" class="plot-title-component">{{ part.component }}/</span><span>{{ part.name }}</span></template
+            ><!-- A span rather than a button, so the title's ellipsis can cut a long name rather than drop it whole. --><span
+              v-if="titleNamesLines && series[index]"
+              role="button"
+              tabindex="0"
+              class="plot-key-toggle"
+              :class="{ 'is-hidden': isHidden(series[index]) }"
+              :aria-pressed="!isHidden(series[index])"
+              :title="toggleHint(series[index])"
+              @click="toggleSeries(series[index])"
+              @keydown.enter.prevent="toggleSeries(series[index])"
+              @keydown.space.prevent="toggleSeries(series[index])"
+              ><span class="plot-key-swatch plot-title-swatch" :style="{ background: colourOf(series[index]) }" aria-hidden="true"></span
+              ><span v-if="part.component" class="plot-title-component">{{ part.component }}/</span><span>{{ part.name }}</span></span
+            ><template v-else
+              ><span v-if="part.component" class="plot-title-component">{{ part.component }}/</span><span>{{ part.name }}</span></template
+            ></template
           >
         </template>
         <template v-else>{{ title }}</template>
@@ -15,9 +29,18 @@
       <span class="plot-unit">{{ unit }}</span>
     </figcaption>
     <!-- A key only when the title names the plot rather than its lines, which it colours itself. -->
-    <ul v-if="series.length > 1 && !titleParts" class="plot-key">
+    <ul v-if="series.length > 1 && !titleNamesLines" class="plot-key">
       <li v-for="item in series" :key="item.key">
-        <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
+        <button
+          type="button"
+          class="plot-key-toggle"
+          :class="{ 'is-hidden': isHidden(item) }"
+          :aria-pressed="!isHidden(item)"
+          :title="toggleHint(item)"
+          @click="toggleSeries(item)"
+        >
+          <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
+        </button>
       </li>
     </ul>
     <div class="plot-area">
@@ -25,7 +48,7 @@
       <!-- The values under the cursor, beside it, as plotly's hover does, in place of a legend line. -->
       <div v-if="readout" class="plot-readout" :style="{ left: `${readout.left}px`, top: `${readout.top}px` }" aria-hidden="true">
         <div class="plot-readout-time">{{ readout.time }}</div>
-        <div v-for="row in readout.rows" :key="row.key" class="plot-readout-row">
+        <div v-for="row in readout.rows.filter((row) => !hiddenKeys.has(row.key))" :key="row.key" class="plot-readout-row">
           <span class="plot-key-swatch" :style="{ background: row.colour }"></span>
           <span v-if="series.length > 1" class="plot-readout-label">{{ row.label }}</span>
           <span class="plot-readout-value">{{ row.value }}</span>
@@ -141,6 +164,41 @@ const shortUnit = (unit) => SHORT_UNITS[unit] ?? unit
 const chartEl = ref(null)
 const { isDarkMode } = useColorScheme()
 const readout = ref(null)
+// The keys of the series hidden by clicking them in the title or key, kept across redraws.
+const hiddenKeys = ref(new Set())
+
+/**
+ * Tells whether a series is hidden.
+ *
+ * @param {{key: string}} item
+ * @returns {boolean}
+ */
+const isHidden = (item) => hiddenKeys.value.has(item.key)
+
+// Whether the title names each line, and so carries their toggles; otherwise the key under it does.
+const titleNamesLines = computed(() => props.series.length > 1 && props.titleParts?.length === props.series.length)
+
+/**
+ * Describes what clicking a series' name does.
+ *
+ * @param {{label: string}} item
+ * @returns {string}
+ */
+const toggleHint = (item) => `${isHidden(item) ? 'Show' : 'Hide'} ${item.label}`
+
+/**
+ * Shows or hides a series' line, refitting the values to the lines left; the time range stays.
+ *
+ * @param {{key: string}} item
+ */
+function toggleSeries(item) {
+  const hidden = new Set(hiddenKeys.value)
+  if (hidden.has(item.key)) hidden.delete(item.key)
+  else hidden.add(item.key)
+  hiddenKeys.value = hidden
+  const index = props.series.findIndex((series) => series.key === item.key)
+  if (plot && index >= 0) plot.setSeries(index + 1, { show: !hidden.has(item.key) })
+}
 
 /**
  * Gets a series' line colour.
@@ -284,6 +342,7 @@ function buildOptions(width) {
       { label: props.x.label },
       ...props.series.map((series) => ({
         label: series.label,
+        show: !isHidden(series),
         stroke: SERIES_COLOURS[theme][series.slot],
         width: 2,
         points: { show: false },
@@ -298,8 +357,20 @@ function buildOptions(width) {
 
 const buildData = () => [props.x.values, ...props.series.map((series) => series.values)]
 
+/**
+ * Forgets hidden series no longer plotted, and all of them when one line is left, since it has no name
+ * to click to show it again.
+ */
+function pruneHidden() {
+  if (!hiddenKeys.value.size) return
+  const keys = new Set(props.series.length > 1 ? props.series.map((series) => series.key) : [])
+  const hidden = new Set([...hiddenKeys.value].filter((key) => keys.has(key)))
+  if (hidden.size !== hiddenKeys.value.size) hiddenKeys.value = hidden
+}
+
 /** Draws the chart afresh, as a change of series or theme needs. */
 function draw() {
+  pruneHidden()
   plot?.destroy()
   if (!chartEl.value) return
   isUpdatingData = true
@@ -349,9 +420,12 @@ defineExpose({
   snapshot() {
     if (!plot) return null
     const colours = SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light']
+    // Hidden lines aren't drawn, so the image's title and legend leave them out too.
+    const shown = props.series.filter((series) => !isHidden(series))
+    const name = titleNamesLines.value && shown.length ? shown.map((series) => series.label).join(', ') : props.title
     // The unit is in the heading, not on the canvas, so the image's title carries it.
-    const title = props.unit ? `${props.title} (${props.unit})` : props.title
-    return { title, canvas: plot.ctx.canvas, legend: props.series.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
+    const title = props.unit ? `${name} (${props.unit})` : name
+    return { title, canvas: plot.ctx.canvas, legend: shown.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
   },
 })
 // New values, as a slider moving gives, keep a zoomed chart on its time range, with the values refitted to it.
@@ -386,7 +460,8 @@ watch(
 
 .plot-title {
   min-width: 0;
-  overflow: hidden;
+  /* Clip rather than hide, so tabbing to a cut-off name can't scroll the title. */
+  overflow: clip;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: var(--dlg-fs-small, 0.8125rem);
@@ -427,6 +502,45 @@ watch(
   display: inline-block;
   margin-right: 4px;
   vertical-align: middle;
+}
+
+.plot-key-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.plot-title .plot-key-toggle {
+  display: inline;
+  gap: 0;
+}
+
+/* Inside the title, which clips anything outside it. */
+.plot-title .plot-key-toggle:focus-visible {
+  outline-offset: -2px;
+}
+
+.plot-key-toggle:hover {
+  text-decoration: underline;
+}
+
+.plot-key-toggle:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* A hidden line's name stays, faded and struck through, so it can be clicked back on. */
+.plot-key-toggle.is-hidden {
+  opacity: 0.45;
+  text-decoration: line-through;
 }
 
 .plot-key-swatch {
