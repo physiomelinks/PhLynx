@@ -30,7 +30,7 @@
         aria-label="What play runs"
         @update:model-value="switchRunMode"
       />
-      <ProtocolResultsControls />
+      <ProtocolResultsControls @play="emit('play')" />
       <ToggleButton
         v-model="isEditing"
         on-label="Edit"
@@ -213,7 +213,7 @@ function downloadPng() {
 
 .results-summary {
   flex: 1;
-  min-width: 12rem;
+  min-width: 9rem;
   margin: 0;
   font-size: 0.8125rem;
   color: var(--p-text-muted-color);

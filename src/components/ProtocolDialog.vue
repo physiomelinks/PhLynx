@@ -10,6 +10,18 @@
     @update:visible="(visible) => !visible && requestClose()"
   >
     <div @keydown="onKeydown">
+      <ProtocolPicker
+        v-if="protocolStore.protocols.length"
+        :protocols="protocolStore.protocols"
+        :active-location="protocolStore.activeProtocol?.location ?? null"
+        :check-name="protocolStore.checkProtocolName"
+        :name-protocol="protocolStore.nameProtocol"
+        @choose="choose"
+        @create="create"
+        @duplicate="duplicate"
+        @rename="rename"
+        @remove="remove"
+      />
       <ProtocolEditor :document="draft" :nodes="nodes" :get-global-constant="libraryStore.getGlobalConstant" @update:document="changeDraft" />
     </div>
 
@@ -31,8 +43,9 @@
 
 <script setup>
 /**
- * The workspace's experiment protocol, to write or edit. Everything is a draft until Save, which writes it as the
- * archive's obs_data.json; a close with unsaved changes asks first.
+ * The workspace's experiment protocols, to write or edit. The one chosen at the top is the active one, which play
+ * runs. Its edits are a draft until Save, which writes it as its obs_data.json; leaving it for another protocol, or
+ * closing, with unsaved changes asks first. Adding, copying, renaming and deleting protocols take effect at once.
  */
 import { computed, ref, watch } from 'vue'
 
@@ -40,6 +53,7 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 
 import ProtocolEditor from './simulation/ProtocolEditor.vue'
+import ProtocolPicker from './simulation/ProtocolPicker.vue'
 import { readObsDataParts } from '../services/protocol/obsDataDocument'
 import { validateProtocolInfo } from '../services/protocol/protocolValidation'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
@@ -107,17 +121,93 @@ function onKeydown(event) {
   else undo()
 }
 
+/** Starts the draft afresh from the active protocol's file, or none. */
+function loadDraft() {
+  const document = protocolStore.source?.document
+  draft.value = document == null ? null : JSON.parse(JSON.stringify(document))
+  initialSignature.value = JSON.stringify(draft.value)
+  past.value = []
+  future.value = []
+}
+
 watch(
   () => props.modelValue,
-  (isOpen) => {
-    if (!isOpen) return
-    const document = protocolStore.source?.document
-    draft.value = document == null ? null : JSON.parse(JSON.stringify(document))
-    initialSignature.value = JSON.stringify(draft.value)
-    past.value = []
-    future.value = []
-  }
+  (isOpen) => isOpen && loadDraft()
 )
+
+/**
+ * Asks before unsaved changes are lost, unless there are none.
+ *
+ * @param {string} message
+ * @returns {Promise<boolean>} Whether to go on.
+ */
+async function confirmDiscard(message) {
+  if (!hasChanges.value) return true
+  return confirm({
+    header: 'Discard unsaved changes?',
+    message,
+    severity: 'warning',
+    acceptLabel: 'Discard',
+    rejectLabel: 'Keep Editing',
+  })
+}
+
+/**
+ * Makes another protocol the active one, to edit and run.
+ *
+ * @param {string} location
+ */
+async function choose(location) {
+  if (!(await confirmDiscard('You have unsaved changes to this protocol. Switch without saving?'))) return
+  protocolStore.chooseProtocol(location)
+  loadDraft()
+}
+
+/**
+ * Adds an empty protocol and edits it.
+ *
+ * @param {string} name
+ */
+async function create(name) {
+  if (!(await confirmDiscard('You have unsaved changes to this protocol. Make a new one without saving?'))) return
+  protocolStore.createProtocol(name)
+  loadDraft()
+}
+
+/**
+ * Copies the active protocol, as saved, and edits the copy.
+ *
+ * @param {string} name
+ */
+async function duplicate(name) {
+  if (!(await confirmDiscard('The copy is of the protocol as saved. Discard your unsaved changes and copy it?'))) return
+  protocolStore.duplicateProtocol(protocolStore.activeProtocol.location, name)
+  loadDraft()
+}
+
+/**
+ * Renames the active protocol, keeping the draft.
+ *
+ * @param {string} name
+ */
+function rename(name) {
+  protocolStore.renameProtocol(protocolStore.activeProtocol.location, name)
+}
+
+/** Deletes the active protocol, once asked, and edits the next. */
+async function remove() {
+  const { location, name } = protocolStore.activeProtocol
+  const shouldDelete = await confirm({
+    header: `Delete ${name}?`,
+    message: `${name} and its observations will be removed from the workspace.${hasChanges.value ? ' Your unsaved changes go with them.' : ''}`,
+    severity: 'warning',
+    acceptLabel: 'Delete',
+    rejectLabel: 'Cancel',
+  })
+  if (!shouldDelete) return
+  protocolStore.removeProtocol(location)
+  loadDraft()
+}
 
 /** Saves the protocol and closes. */
 function save() {
@@ -128,16 +218,7 @@ function save() {
 
 /** Closes, asking first when there are unsaved changes. */
 async function requestClose() {
-  if (hasChanges.value) {
-    const shouldDiscard = await confirm({
-      header: 'Discard unsaved changes?',
-      message: 'You have unsaved changes to the protocol. Close without saving?',
-      severity: 'warning',
-      acceptLabel: 'Discard',
-      rejectLabel: 'Keep Editing',
-    })
-    if (!shouldDiscard) return
-  }
+  if (!(await confirmDiscard('You have unsaved changes to the protocol. Close without saving?'))) return
   emit('update:modelValue', false)
 }
 </script>

@@ -67,15 +67,15 @@ export function readObsDataParts(document) {
 const looksLikeObsData = (document) => Array.isArray(document) || (isMapping(document) && ('data_items' in document || 'protocol_info' in document))
 
 /**
- * Finds the obs_data among an archive's extra files, as CUFLynx picks it: a JSON file named with "obs" wins, whatever
- * it holds, or else the first whose contents look like obs_data. Files named with "param", PhLynx's module config and
- * its own state files are passed over.
+ * Lists the files CUFLynx would take as the obs_data among an archive's extra files, in the order it would pick
+ * them: the JSON files named with "obs", whatever they hold, or else the first whose contents look like obs_data.
+ * Files named with "param", PhLynx's module config and its own state files are passed over.
  *
  * @param {Array<{location: string, format: string, payload: *}>} extras - omexStore's preserved extras.
- * @returns {{index: number, entry: Object, document: Object|Array|undefined, parseError: Error|null}|null} The
- *   document is undefined, with the reason, when the file chosen isn't JSON.
+ * @returns {Array<{index: number, entry: Object, document: Object|Array|undefined, parseError: Error|null}>} A
+ *   document is undefined, with the reason, when its file isn't JSON.
  */
-export function findObsDataExtra(extras) {
+export function listObsDataExtras(extras) {
   const candidates = extras
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => {
@@ -95,12 +95,19 @@ export function findObsDataExtra(extras) {
         return { ...candidate, document: undefined, parseError: error }
       }
     })
-  return (
-    candidates.find(({ entry }) => /obs/i.test(baseName(entry.location))) ??
-    candidates.find(({ document }) => looksLikeObsData(document)) ??
-    null
-  )
+  const named = candidates.filter(({ entry }) => /obs/i.test(baseName(entry.location)))
+  if (named.length) return named
+  const found = candidates.find(({ document }) => looksLikeObsData(document))
+  return found ? [found] : []
 }
+
+/**
+ * Finds the obs_data among an archive's extra files, as CUFLynx picks it: the first of listObsDataExtras.
+ *
+ * @param {Array<{location: string, format: string, payload: *}>} extras - omexStore's preserved extras.
+ * @returns {{index: number, entry: Object, document: Object|Array|undefined, parseError: Error|null}|null}
+ */
+export const findObsDataExtra = (extras) => listObsDataExtras(extras)[0] ?? null
 
 /**
  * Writes an obs_data document as a file's contents, indented as CA and CUFLynx write it.
@@ -112,10 +119,47 @@ export function serialiseObsData(document) {
   return new TextEncoder().encode(`${JSON.stringify(document, null, 2)}\n`).buffer
 }
 
+/** The most characters of a protocol's name a file name keeps, well within what file systems allow. */
+export const MAXIMUM_PROTOCOL_NAME_LENGTH = 64
+
 /**
- * Names a new obs_data file after the model, as CA does.
+ * Turns a protocol's name into the part of a file name it is kept as: letters, digits, "_" and "-", with any run of
+ * other characters as one "_", cut to MAXIMUM_PROTOCOL_NAME_LENGTH characters.
+ *
+ * @param {string} name
+ * @returns {string} Empty when the name has nothing to keep.
+ */
+export const slugifyProtocolName = (name) =>
+  String(name ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .replace(/^_+/, '')
+    .slice(0, MAXIMUM_PROTOCOL_NAME_LENGTH)
+    .replace(/_+$/, '')
+
+/**
+ * Names a new obs_data file after the model, as CA does, and after the protocol it holds when it has a name.
  *
  * @param {string} stem - The model's name, without an extension.
+ * @param {string} [protocolName]
  * @returns {string}
  */
-export const buildObsDataLocation = (stem) => `${stem || 'model'}_obs_data.json`
+export function buildObsDataLocation(stem, protocolName) {
+  const slug = slugifyProtocolName(protocolName)
+  return slug ? `${stem || 'model'}_${slug}_obs_data.json` : `${stem || 'model'}_obs_data.json`
+}
+
+/**
+ * Names the protocol an obs_data file holds after the file: without its folders, its "_obs_data.json" or ".json"
+ * ending and a leading "<model>_", underscores read as spaces. A file named only after the model is named as the
+ * model.
+ *
+ * @param {string} location
+ * @param {string} [stem] - The model's name, without an extension.
+ * @returns {string}
+ */
+export function nameObsDataFile(location, stem) {
+  let name = baseName(location).replace(/\.json$/i, '').replace(/_?obs_data$/i, '')
+  if (stem && name.length > stem.length + 1 && name.startsWith(`${stem}_`)) name = name.slice(stem.length + 1)
+  return name.replace(/_+/g, ' ').trim() || 'Protocol'
+}

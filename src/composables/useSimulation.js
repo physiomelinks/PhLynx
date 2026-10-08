@@ -129,8 +129,10 @@ export function useSimulation() {
     const scope = resolveCurrentScope(nodeIds)
     // Read once, so a mode switched while the simulator loads can't mix the time course's inputs into a protocol run.
     const isProtocolRun = protocolStore.isActive
-    // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from.
+    // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from. Read
+    // once too, so another protocol chosen while the model flattens can't mix into this run.
     const drivers = isProtocolRun ? protocolStore.drivers : []
+    const view = isProtocolRun ? protocolStore.view : null
     const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')
     const overrides = selectRunOverrides(isProtocolRun)
     const settings = { ...simulationSettingsStore.simulationSettings }
@@ -171,7 +173,7 @@ export function useSimulation() {
 
       const onProgress = (progress) => token === runToken && (store.progress = progress)
       if (isProtocolRun) {
-        await runProtocolOn({ simulator, token, nodeIds, scope, structure, overrides, settings, signature, kept: changes ? kept : null, changes, onProgress })
+        await runProtocolOn({ simulator, token, nodeIds, scope, structure, view, drivers, overrides, settings, signature, kept: changes ? kept : null, changes, onProgress })
         return
       }
       let results
@@ -228,19 +230,20 @@ export function useSimulation() {
    * the model's values of any slider values it was flattened with; otherwise the scope is flattened, and the
    * simulator reads it and lists its variables, so the protocol's parameters can be found in it before anything runs.
    *
-   * @param {Object} options - What run worked out: `{ simulator, token, nodeIds, scope, structure, overrides,
-   *   settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when the model needs flattening.
+   * @param {Object} options - What run worked out: `{ simulator, token, nodeIds, scope, structure, view, drivers,
+   *   overrides, settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when the model needs
+   *   flattening, and `view` and `drivers` the protocol's as the run started.
    * @returns {Promise<void>}
    */
-  async function runProtocolOn({ simulator, token, nodeIds, scope, structure, overrides, settings: givenSettings, signature, kept, changes, onProgress }) {
+  async function runProtocolOn({ simulator, token, nodeIds, scope, structure, view, drivers, overrides, settings: givenSettings, signature, kept, changes, onProgress }) {
     let settings = givenSettings
     let source = kept
     if (!source) {
       const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
       let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
       if (token !== runToken) return
-      if (protocolStore.drivers.length) {
-        const added = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml, drivers: protocolStore.drivers })
+      if (drivers.length) {
+        const added = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml, drivers })
         if (token !== runToken) return
         if (added.errors.length) {
           store.report = { ...store.report, errors: added.errors }
@@ -265,8 +268,8 @@ export function useSimulation() {
     }
 
     const prepared = prepareProtocolRun({
-      view: protocolStore.view,
-      drivers: protocolStore.drivers,
+      view,
+      drivers,
       nodes: scope.nodes,
       mapping: source.mapping,
       variables: source.variables,

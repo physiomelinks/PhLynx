@@ -156,7 +156,7 @@
       </div>
     </Popover>
 
-    <ProtocolResultsControls :with-inputs="false" class="viewer-protocol" />
+    <ProtocolResultsControls :with-protocols="false" :with-inputs="false" class="viewer-protocol" />
     <!-- Rebuilt as the sliders show or hide, since a Splitter takes its panels as it mounts. -->
     <Splitter :key="showSliders ? 'with-sliders' : 'plot'" layout="vertical" class="viewer-body">
       <SplitterPanel :size="showSliders ? 60 : 100" :min-size="25" class="viewer-pane">
