@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- tests/resources/protocols/parity/decay.cellml with the protocol_clock component an exported protocol adds. -->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+  <component name="environment"><variable name="time" units="second" interface="public"/></component>
+  <component name="decay">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="x" units="dimensionless" initial_value="1"/>
+    <variable name="k" units="per_second" interface="public"/>
+    <variable name="u" units="per_second" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply><plus/><apply><times/><apply><minus/><ci>k</ci></apply><ci>x</ci></apply><ci>u</ci></apply></apply>
+    </math>
+  </component>
+  <component name="instance_parameters">
+    <variable name="k" units="per_second" initial_value="0.5" interface="public"/>
+    <variable name="u" units="per_second" initial_value="0" interface="public"/>
+  </component>
+  <component name="protocol_clock">
+    <variable name="time" units="second" interface="public"/>
+    <variable name="time_offset" units="second" initial_value="0"/>
+    <variable name="experiment_time" units="second"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>experiment_time</ci><apply><minus/><ci>time</ci><ci>time_offset</ci></apply></apply>
+    </math>
+  </component>
+  <connection component_1="environment" component_2="decay"><map_variables variable_1="time" variable_2="t"/></connection>
+  <connection component_1="environment" component_2="protocol_clock"><map_variables variable_1="time" variable_2="time"/></connection>
+  <connection component_1="decay" component_2="instance_parameters">
+    <map_variables variable_1="k" variable_2="k"/>
+    <map_variables variable_1="u" variable_2="u"/>
+  </connection>
+</model>
