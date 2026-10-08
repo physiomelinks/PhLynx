@@ -68,6 +68,7 @@ vi.mock('../../../src/services/simulation/protocolDriverModel', async (importOri
     drivenModels.push(drivers)
     return { cellml: `${cellml}<!-- drivers -->`, errors: [] }
   },
+  addProtocolClock: ({ cellml }) => ({ cellml: `${cellml}<!-- clock -->`, errors: [] }),
 }))
 
 const { cancelSimulation, forgetSimulationSession, useSimulation } = await import('../../../src/composables/useSimulation.js')
@@ -546,6 +547,103 @@ describe('useSimulation', () => {
       await settle()
       expect(engine.described).toEqual([])
       expect(engine.protocolRuns[0].options.baseChanges).toEqual([{ component: 'instance_parameters', variable: 'k', value: 1 }])
+    })
+
+    describe('prepareProtocolExport', () => {
+      // Earlier tests leave runs going.
+      beforeEach(() => cancelSimulation())
+
+      it('flattens the model as a protocol run does, with its drivers and clock, and plans the run on it', async () => {
+        useProtocol({ ...PROTOCOL, params_to_change: { 'a/k': [['up'], [3]] }, protocol_shapes: { up: { type: 'ramp', from: 0, to: 1 } } })
+        const { prepareProtocolExport } = useSimulation()
+
+        const prepared = await prepareProtocolExport({ nodeIds: null })
+
+        expect(prepared.errors).toEqual([])
+        expect(prepared.cellml).toBe('<model/><!-- drivers --><!-- clock -->')
+        expect(engine.described).toEqual([{ cellml: prepared.cellml, key: expect.any(Number) }])
+        expect(engine.protocolRuns).toEqual([])
+        expect(prepared.targets).toEqual(
+          new Map([
+            ['protocol_drivers/driver_1_selector', 'protocol_drivers/driver_1_selector'],
+            ['protocol_drivers/driver_1_value', 'protocol_drivers/driver_1_value'],
+          ])
+        )
+        expect(prepared.drivers).toBe(drivenModels.at(-1))
+        expect(prepared.drivers).toHaveLength(1)
+        expect(prepared.plan.experiments).toHaveLength(2)
+        expect(prepared.variables.get('a/x')).toEqual({ kind: 'state', unit: 'dimensionless' })
+        expect(prepared.voi).toEqual({ name: 'm/t', unit: 'second' })
+        expect(prepared.mapping.get('a::x')).toBe('a/x')
+        expect(prepared.scopeNodeIds).toBeNull()
+        expect(prepared.settings).toMatchObject({ pointInterval: expect.any(Number) })
+      })
+
+      it('exports the last run’s scope by default', async () => {
+        useProtocol(PROTOCOL)
+        nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, { name: 'k', type: 'constant', value: '1' }]), createNode('b')]
+        const { run, prepareProtocolExport } = useSimulation()
+        const done = run(['a'])
+        await settle()
+        engine.protocolRuns[0].finish(PROTOCOL_RESULTS)
+        await done
+
+        const prepared = await prepareProtocolExport()
+
+        expect(prepared.scopeNodeIds).toEqual(['a'])
+        expect(built.scopes.at(-1).nodes.map(({ id }) => id)).toEqual(['a'])
+      })
+
+      it('forgets the model the worker kept, so the next run reads its model again', async () => {
+        useProtocol(PROTOCOL)
+        const { run, prepareProtocolExport } = useSimulation()
+        const first = run(null)
+        await settle()
+        engine.protocolRuns[0].finish(PROTOCOL_RESULTS)
+        await first
+
+        await prepareProtocolExport()
+        const second = run(null)
+        await settle()
+
+        expect(engine.described).toHaveLength(3)
+        expect(engine.protocolRuns[1].options.key).toBe(engine.described[2].key)
+        engine.protocolRuns[1].finish(PROTOCOL_RESULTS)
+        await second
+      })
+
+      it('refuses while a run is going', async () => {
+        useProtocol(PROTOCOL)
+        const { run, prepareProtocolExport } = useSimulation()
+        run(null)
+        await settle()
+
+        const prepared = await prepareProtocolExport()
+
+        expect(prepared.errors).toEqual(['Wait for the run to finish, or stop it, before exporting the protocol.'])
+        expect(engine.described).toHaveLength(1)
+        cancelSimulation()
+      })
+
+      it("stops before reading the model when the protocol isn't valid", async () => {
+        useProtocol({ ...PROTOCOL, unknown: 1 })
+        const { prepareProtocolExport } = useSimulation()
+
+        const prepared = await prepareProtocolExport()
+
+        expect(prepared.errors).toEqual(["Unknown protocol_info keys not in schema: ['unknown']"])
+        expect(prepared.plan).toBeUndefined()
+        expect(engine.described).toEqual([])
+      })
+
+      it("reports the protocol's parameters the model doesn't have", async () => {
+        useProtocol({ ...PROTOCOL, params_to_change: { 'b/k': [[2], [3]] } })
+        const { prepareProtocolExport } = useSimulation()
+
+        const prepared = await prepareProtocolExport()
+
+        expect(prepared.errors).toEqual(["The protocol sets b/k, which isn't in the model being simulated."])
+      })
     })
 
     it('tells the results are out of date once the protocol is turned off', async () => {

@@ -12,7 +12,7 @@ import {
   resolveScope,
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
-import { addProtocolDrivers } from '../services/simulation/protocolDriverModel'
+import { addProtocolClock, addProtocolDrivers } from '../services/simulation/protocolDriverModel'
 import { prepareProtocolRun } from '../services/simulation/protocolRun'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -66,7 +66,8 @@ export function forgetSimulationSession() {
 /**
  * Runs scoped simulations of the workspace and keeps their results in simulationResultsStore.
  *
- * @returns {{run: Function, stop: Function, keepCurrent: Function, isStale: import('vue').ComputedRef<boolean>}}
+ * @returns {{run: Function, stop: Function, keepCurrent: Function, prepareProtocolExport: Function,
+ *   isStale: import('vue').ComputedRef<boolean>}}
  */
 export function useSimulation() {
   const { nodes, edges } = useVueFlow(FLOW_IDS.MAIN)
@@ -302,6 +303,85 @@ export function useSimulation() {
   }
 
   /**
+   * Prepares the protocol's export: the scope flattened as runProtocolOn flattens it, with its drivers and the
+   * protocol's clock (see addProtocolClock) written in, then read by the simulator to find the protocol's parameters in
+   * it and plan its run. Refused while a run is going, as the simulator reads one model at a time.
+   *
+   * @param {Object} [options]
+   * @param {string[]|null} [options.nodeIds] - The nodes to export, or null for every node; by default the last run's.
+   * @returns {Promise<{errors: string[], warnings: string[], cellml?: string, scope?: Object, scopeNodeIds?: string[]|null, plan?: Object,
+   *   targets?: Map<string, string>, inputs?: Map<string, Object>, drivers?: Array<Object>, settings?: Object, mapping?: Map<string, string>,
+   *   variables?: Map<string, {kind: string, unit: string}>, inspectionOutputs?: Array<Object>,
+   *   voi?: {name: string, unit: string}}>} Only `errors` and `warnings` when it can't be prepared.
+   */
+  async function prepareProtocolExport({ nodeIds = store.scopeNodeIds } = {}) {
+    // A run still flattening its model hasn't started yet, but will read it with the simulator.
+    const busy = () => !!currentRun || store.status === 'running'
+    const refusal = { errors: ['Wait for the run to finish, or stop it, before exporting the protocol.'], warnings: [] }
+    if (busy()) return refusal
+    const scope = resolveCurrentScope(nodeIds)
+    const report = summariseScopeReport(checkScope(scope, libraryStore))
+    const errors = [...report.errors, ...protocolStore.validation.errors]
+    const warnings = [...report.warnings, ...protocolStore.validation.warnings]
+    if (errors.length || !protocolStore.view) return { errors: errors.length ? errors : ['The workspace has no protocol to export.'], warnings }
+
+    const simulator = await whenLibOpenCORReady()
+    if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'], warnings }
+    // As runProtocolOn flattens it: the model as it is, without the sliders' values.
+    const withOverrides = applyParameterOverrides(scope, libraryStore, selectRunOverrides(true))
+    let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+    const libcellml = await whenLibCellMLReady()
+    if (protocolStore.drivers.length) {
+      const added = addProtocolDrivers({ libcellml, cellml, drivers: protocolStore.drivers })
+      if (added.errors.length) return { errors: added.errors, warnings }
+      cellml = added.cellml
+    }
+    // Each experiment's own time, from the end of its warm-up, for the exported plots' time axes.
+    const clocked = addProtocolClock({ libcellml, cellml })
+    if (clocked.errors.length) return { errors: clocked.errors, warnings }
+    cellml = clocked.cellml
+    if (busy()) return { ...refusal, warnings }
+
+    const built = { key: ++sessionCount, cellml }
+    // The worker keeps one model, and reading this one replaces the one kept, so the next run flattens afresh. Forgotten
+    // before reading, so a run started meanwhile doesn't rerun a model the worker no longer has.
+    session = null
+    let described
+    try {
+      described = await simulator.describeModel({ cellml, key: built.key })
+    } catch (error) {
+      return { errors: [error.message], warnings }
+    }
+    const mapped = await mapResults(built, scope, described)
+    const prepared = prepareProtocolRun({
+      view: protocolStore.view,
+      drivers: protocolStore.drivers,
+      nodes: scope.nodes,
+      mapping: mapped.mapping,
+      variables: described.variables,
+      settings: { ...simulationSettingsStore.simulationSettings },
+    })
+    return {
+      errors: prepared.errors,
+      warnings: [...warnings, ...prepared.warnings.filter((message) => !warnings.includes(message))],
+      cellml,
+      scope,
+      scopeNodeIds: nodeIds,
+      plan: prepared.plan,
+      targets: prepared.targets,
+      inputs: prepared.inputs,
+      // The drivers written into the model, which the SED-ML reads a driven input's number from.
+      drivers: protocolStore.drivers,
+      settings: prepared.settings,
+      mapping: mapped.mapping,
+      // With their units, unlike the kept model's, for the export's axes.
+      variables: new Map([...described.variables].map(([name, { kind, unit }]) => [name, { kind, unit }])),
+      inspectionOutputs: mapped.inspectionOutputs,
+      voi: { name: described.voi?.name ?? '', unit: described.voi?.unit ?? '' },
+    }
+  }
+
+  /**
    * Maps a newly flattened model's results back to the nodes, making it the kept model.
    *
    * @param {Object} built - The model's details (see run).
@@ -363,5 +443,5 @@ export function useSimulation() {
     return signRun(resolveCurrentScope(store.scopeNodeIds), selectRunOverrides()) !== store.signature
   })
 
-  return { run, stop, keepCurrent, isStale }
+  return { run, stop, keepCurrent, prepareProtocolExport, isStale }
 }
