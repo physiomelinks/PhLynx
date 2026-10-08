@@ -259,11 +259,9 @@ import {
 import { changesDuringWarmUp, nameExperiment, readProtocolInfo } from '../../services/protocol/protocolModel'
 import { findValueRange, sampleInput, writePolylinePoints } from '../../services/protocol/protocolPreview'
 import { validateProtocolInfo } from '../../services/protocol/protocolValidation'
-import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
+import { resolveExperimentColour } from '../../services/simulation/seriesSlots'
 import { buildVariableIndex } from '../../services/simulation/variableIndex'
 
-// Matplotlib's colour letters, as CA's experiment_colors use them.
-const MATPLOTLIB_COLOURS = { r: '#e34948', b: '#2a78d6', g: '#1baf7a', m: '#e87ba4', c: '#17becf', y: '#eda100', k: '#52514e' }
 const BOX = { width: 100, height: 40, inset: 2 }
 
 const props = defineProps({
@@ -411,10 +409,7 @@ const nameOf = (item, position) => item.label ?? nameExperiment(position)
  * @returns {string}
  */
 function colourOf(item, position) {
-  const given = item?.colour
-  if (given && MATPLOTLIB_COLOURS[given]) return MATPLOTLIB_COLOURS[given]
-  if (given && /^#[0-9a-f]{3,8}$/i.test(given)) return given
-  return SERIES_COLOURS.light[position % SERIES_COLOURS.light.length]
+  return resolveExperimentColour(item?.colour, position)
 }
 
 /**

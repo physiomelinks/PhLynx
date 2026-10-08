@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildVariableIndex, findInspectionModule, resolvePlotTarget, searchVariableIndex } from '../../../../src/services/simulation/variableIndex.js'
+import { buildVariableIndex, findInspectionModule, readInspectionOutputId, resolvePlotTarget, searchVariableIndex } from '../../../../src/services/simulation/variableIndex.js'
 
 const NODES = [
   {
@@ -97,5 +97,12 @@ describe('inspection modules', () => {
     expect(row).toMatchObject({ name: 'Total current', units: 'nA' })
     expect(findInspectionModule(node.id, MODULES)).toBe(MODULES[0])
     expect(findInspectionModule('dndnode_0', MODULES)).toBeNull()
+  })
+})
+
+describe('readInspectionOutputId', () => {
+  it("gives the inspection module an inspection node id stands for, and null for an instance's", () => {
+    expect(readInspectionOutputId('inspection:m1')).toBe('m1')
+    expect(readInspectionOutputId('node-1')).toBeNull()
   })
 })

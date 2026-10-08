@@ -6,7 +6,7 @@
 import { computed, unref } from 'vue'
 
 import { resolveGroups } from '../services/simulation/plotSelections'
-import { INSPECTION_COMPONENT, isInspectionNodeId } from '../services/simulation/variableIndex'
+import { INSPECTION_COMPONENT, isInspectionNodeId, readInspectionOutputId } from '../services/simulation/variableIndex'
 import { SERIES_COLOURS, assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
 import { readNodeSeries } from '../services/simulation/variableMapping'
 import { useAppSettings } from './useAppSettings'
@@ -127,7 +127,7 @@ export function useSimulationCharts(scopeNodes, { hasInputs = false } = {}) {
     const variables = (simulationSettingsStore.plotConfig?.selections ?? []).flatMap((selection) => {
       // An inspection module's output put on a plot, as a variable of no instance.
       if (isInspectionNodeId(selection.nodeId)) {
-        const output = outputsById.get(selection.nodeId.slice('inspection:'.length))
+        const output = outputsById.get(readInspectionOutputId(selection.nodeId))
         const series = output && results.variables.get(output.reportedName)
         if (!series) return []
         const node = { id: selection.nodeId, data: { name: INSPECTION_COMPONENT } }
