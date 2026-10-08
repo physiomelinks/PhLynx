@@ -441,6 +441,24 @@ describe('useSimulation', () => {
       await second
     })
 
+    it('runs the protocol as it was when play was pressed, though one is saved while the simulator loads', async () => {
+      useProtocol(PROTOCOL)
+      const release = holdSimulator()
+      const { run } = useSimulation()
+
+      const done = run(null)
+      await settle()
+      useProtocol({ ...PROTOCOL, params_to_change: { 'a/k': [[5], [6]] } })
+      release()
+      await settle()
+      const [{ options }] = engine.protocolRuns
+      expect(options.plan.experiments.map(({ segments }) => segments[0].values)).toEqual([[{ parameter: 'a/k', value: 2 }], [{ parameter: 'a/k', value: 3 }]])
+      engine.protocolRuns[0].finish(PROTOCOL_RESULTS)
+      await done
+      // Its results are the protocol's before the save, so they show as out of date.
+      expect(useSimulation().isStale.value).toBe(true)
+    })
+
     it("stops before running a protocol whose parameters the model doesn't have", async () => {
       useProtocol({ ...PROTOCOL, params_to_change: { 'b/k': [[2], [3]] } })
       const { run } = useSimulation()

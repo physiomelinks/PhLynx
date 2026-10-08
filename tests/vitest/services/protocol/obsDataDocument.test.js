@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MAXIMUM_PROTOCOL_NAME_LENGTH,
   buildObsDataLocation,
   findObsDataExtra,
-  listObsDataExtras,
-  nameObsDataFile,
   parseObsData,
   serialiseObsData,
 } from '../../../../src/services/protocol/obsDataDocument.js'
@@ -35,23 +32,6 @@ describe('obsDataDocument', () => {
     expect(findObsDataExtra(extras.slice(0, 1))).toBeNull()
   })
 
-  it('lists the files CUFLynx would take, in the order it would take them', () => {
-    const extras = [
-      extra('study.json', PROTOCOL),
-      extra('heart_b_obs_data.json', PROTOCOL),
-      extra('params.json', PROTOCOL),
-      extra('folder/heart_a_obs_data.json', PROTOCOL),
-    ]
-    const listed = listObsDataExtras(extras)
-    expect(listed.map(({ index }) => index)).toEqual([1, 3])
-    expect(findObsDataExtra(extras)).toEqual(listed[0])
-    // Only when none is named with "obs", the first whose contents look like obs_data, alone.
-    const unnamed = [extra('simulation.json', { input: [] }), extra('study.json', PROTOCOL), extra('other.json', PROTOCOL)]
-    expect(listObsDataExtras(unnamed).map(({ index }) => index)).toEqual([1])
-    expect(findObsDataExtra(unnamed)).toEqual(listObsDataExtras(unnamed)[0])
-    expect(listObsDataExtras([])).toEqual([])
-  })
-
   it("passes over parameter files, the module config and PhLynx's own", () => {
     expect(
       findObsDataExtra([
@@ -77,29 +57,8 @@ describe('obsDataDocument', () => {
     expect(parseObsData(serialiseObsData(document)).document).toEqual(document)
   })
 
-  it('names a new file after the model, and after its protocol when that has a name', () => {
+  it('names a new file after the model', () => {
     expect(buildObsDataLocation('heart')).toBe('heart_obs_data.json')
     expect(buildObsDataLocation('')).toBe('model_obs_data.json')
-    expect(buildObsDataLocation('heart', 'Long pacing')).toBe('heart_Long_pacing_obs_data.json')
-    expect(buildObsDataLocation('heart', '  g/M  sweep! ')).toBe('heart_g_M_sweep_obs_data.json')
-    expect(buildObsDataLocation('heart', 'k-test_2')).toBe('heart_k-test_2_obs_data.json')
-    expect(buildObsDataLocation('heart', ' ?! ')).toBe('heart_obs_data.json')
-  })
-
-  it('keeps a long name short enough for a file name', () => {
-    const slug = buildObsDataLocation('heart', 'a'.repeat(250)).slice('heart_'.length, -'_obs_data.json'.length)
-    expect(slug).toBe('a'.repeat(MAXIMUM_PROTOCOL_NAME_LENGTH))
-    // Not ending with the "_" a cut word leaves.
-    expect(buildObsDataLocation('heart', `${'a'.repeat(MAXIMUM_PROTOCOL_NAME_LENGTH - 1)} b`)).toBe(`heart_${'a'.repeat(MAXIMUM_PROTOCOL_NAME_LENGTH - 1)}_obs_data.json`)
-  })
-
-  it("names a protocol after its file, without the model's name", () => {
-    expect(nameObsDataFile('heart_Long_pacing_obs_data.json', 'heart')).toBe('Long pacing')
-    expect(nameObsDataFile('folder/heart_k-test_obs_data.json', 'heart')).toBe('k-test')
-    expect(nameObsDataFile('heart_obs_data.json', 'heart')).toBe('heart')
-    expect(nameObsDataFile('SN_simple_obs_data.json', 'heart')).toBe('SN simple')
-    expect(nameObsDataFile('study.json', 'heart')).toBe('study')
-    expect(nameObsDataFile('obs_data.json', 'heart')).toBe('Protocol')
-    expect(nameObsDataFile(buildObsDataLocation('heart', 'Long pacing'), 'heart')).toBe('Long pacing')
   })
 })

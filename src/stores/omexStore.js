@@ -163,44 +163,6 @@ export const useOmexStore = defineStore('omex', () => {
     preservedExtras.value = index < 0 ? [...preservedExtras.value, written] : preservedExtras.value.map((extra, i) => (i === index ? written : extra))
   }
 
-  /**
-   * Moves a file the archive carries to another place among them, the others keeping their order. The order is
-   * saved, and written into the archive's manifest.
-   *
-   * @param {string} location
-   * @param {number} index - Its place once moved.
-   */
-  function moveExtra(location, index) {
-    const from = preservedExtras.value.findIndex((extra) => extra.location === location)
-    if (from < 0) return
-    const extras = [...preservedExtras.value]
-    const [moved] = extras.splice(from, 1)
-    extras.splice(Math.max(0, Math.min(index, extras.length)), 0, moved)
-    preservedExtras.value = extras
-  }
-
-  /**
-   * Removes a file the archive carries.
-   *
-   * @param {string} location
-   */
-  function removeExtra(location) {
-    preservedExtras.value = preservedExtras.value.filter((extra) => extra.location !== location)
-  }
-
-  /**
-   * Moves a file the archive carries to another location, keeping its place among them.
-   *
-   * @param {string} location
-   * @param {string} nextLocation
-   * @throws {Error} When another file is at the new location.
-   */
-  function renameExtra(location, nextLocation) {
-    if (location === nextLocation) return
-    if (preservedExtras.value.some((extra) => extra.location === nextLocation)) throw new Error(`${nextLocation} already exists.`)
-    preservedExtras.value = preservedExtras.value.map((extra) => (extra.location === location ? { ...extra, location: nextLocation } : extra))
-  }
-
   return {
     archiveHash,
     archiveName,
@@ -211,9 +173,6 @@ export const useOmexStore = defineStore('omex', () => {
     resetState,
     setArchive,
     writeExtra,
-    moveExtra,
-    removeExtra,
-    renameExtra,
     setHash,
     loadState,
     getState,

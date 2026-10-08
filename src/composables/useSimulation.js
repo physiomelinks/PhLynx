@@ -130,7 +130,7 @@ export function useSimulation() {
     // Read once, so a mode switched while the simulator loads can't mix the time course's inputs into a protocol run.
     const isProtocolRun = protocolStore.isActive
     // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from. Read
-    // once too, so another protocol chosen while the model flattens can't mix into this run.
+    // once too, so a protocol saved while the model flattens can't mix into this run.
     const drivers = isProtocolRun ? protocolStore.drivers : []
     const view = isProtocolRun ? protocolStore.view : null
     const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')

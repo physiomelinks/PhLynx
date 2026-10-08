@@ -28,7 +28,7 @@
       </div>
       <SimulationStatusLine :status="statusLine" />
       <!-- A row of its own, as the sidebar is too narrow to fit them in the toolbar. -->
-      <ProtocolResultsControls @play="canPlay && play()" />
+      <ProtocolResultsControls />
     </header>
 
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
