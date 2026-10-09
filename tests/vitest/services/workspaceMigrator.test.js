@@ -363,3 +363,17 @@ describe('migrateWorkspace over saved workspaces', () => {
     expect(migrateWorkspace(saved)).toEqual(saved)
   })
 })
+
+describe('migrateWorkspace node colour categories', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  it.each(FIXTURES.filter(([, era]) => era === 'legacy'))('keeps the MVP domainType of %s', (name) => {
+    const doc = readFixture(name)
+    doc.flow.nodes[0].data.domainType = 'membrane'
+    const migrated = migrateWorkspace(doc)
+    expect(migrated.flow.nodes[0].data.domainType).toBe('membrane')
+    expect(migrated.flow.nodes.slice(1).every((node) => !('domainType' in node.data))).toBe(true)
+  })
+})
