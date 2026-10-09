@@ -138,9 +138,9 @@ describe('loadLibOpenCOR', () => {
     it("runs a protocol in the worker, rebuilding each experiment's results", async () => {
       const { worker, client } = await loadClient()
       const plan = { experiments: [] }
-      const run = client.startProtocol({ key: 4, settings: {}, plan, targets: new Map([['a/k', 'c/k']]) })
+      const run = client.startProtocol({ key: 4, settings: {}, plan, targets: new Map([['a/k', 'c/k']]), recorded: ['c/x'] })
       const { id } = worker.sent.at(-1)
-      expect(worker.sent.at(-1)).toEqual({ type: 'runProtocol', id, cellml: null, key: 4, settings: {}, plan, targets: [['a/k', 'c/k']], baseChanges: [] })
+      expect(worker.sent.at(-1)).toEqual({ type: 'runProtocol', id, cellml: null, key: 4, settings: {}, plan, targets: [['a/k', 'c/k']], baseChanges: [], recorded: ['c/x'] })
       const values = new Float64Array([1, 2])
       const experiment = { voi: { name: 't', values }, variables: [['c/x', { kind: 'state', values }]], subs: [] }
       worker.reply({ type: 'error', id, message: 'failed', issues: [], partialResults: { experiments: [experiment] } })

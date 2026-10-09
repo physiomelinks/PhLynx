@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
-import { markRaw, ref, shallowRef } from 'vue'
+import { computed, markRaw, ref, shallowRef } from 'vue'
+
+import { computeRunFeatures } from '../services/simulation/protocolFeatures'
+import { useProtocolStore } from './protocolStore'
 
 /**
  * Gives one experiment of a protocol run's results as a run's results.
@@ -17,6 +20,7 @@ export function selectExperiment({ experiments, issues, elapsedMs, isStopped }, 
  * The latest in-app simulation: its scope, status and results. Never saved with the workspace.
  */
 export const useSimulationResultsStore = defineStore('simulationResults', () => {
+  const protocolStore = useProtocolStore()
   /** 'idle', 'blocked' (the pre-flight found errors), 'running', 'done', 'stopped' or 'error'. */
   const status = ref('idle')
   const progress = ref(0)
@@ -30,6 +34,15 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   const protocolResults = shallowRef(null)
   /** What shows each of the protocol's parameters, as `parameter → { name, isStepped }`, `name` as reported. */
   const protocolInputs = shallowRef(new Map())
+  /** The variables a protocol run kept for its features, as `operand → reported name` (see resolveFeatureOperands). */
+  const featureOperands = shallowRef(new Map())
+  /**
+   * The protocol run's features, as circulatory_autogen computes them from the obs_data's prediction items as they
+   * are now; one whose variables the run didn't keep has an error.
+   */
+  const features = computed(() =>
+    protocolResults.value && featureOperands.value.size ? computeRunFeatures(protocolStore.source?.document, protocolResults.value, featureOperands.value) : []
+  )
   const mapping = shallowRef(null)
   /** The run's inspection module outputs: `[{ id, name, units, reportedName }]`. */
   const inspectionOutputs = shallowRef([])
@@ -99,12 +112,13 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   /**
    * Records a finished protocol run, showing one of its experiments as `results`.
    *
-   * @param {Object} run - `{ protocolResults, inputs, experiment, mapping, signature, inspectionOutputs }`.
+   * @param {Object} run - `{ protocolResults, inputs, featureOperands, experiment, mapping, signature, inspectionOutputs }`.
    */
   function finishProtocolRun(run) {
     finishRun({ ...run, results: selectExperiment(run.protocolResults, run.experiment) })
     protocolResults.value = markRaw(run.protocolResults)
     protocolInputs.value = markRaw(run.inputs ?? new Map())
+    featureOperands.value = markRaw(run.featureOperands ?? new Map())
   }
 
   /**
@@ -122,13 +136,15 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
    *
    * @param {'blocked'|'error'|'idle'} nextStatus
    * @param {{message: string, issues?: Array}|null} [nextError]
-   * @param {{results: Object, mapping: Map}|null} [partial] - The results computed before the failure.
+   * @param {{results: Object, mapping: Map, protocolResults?: Object, inputs?: Map, featureOperands?: Map}|null} [partial] -
+   *   The results computed before the failure.
    */
   function failRun(nextStatus, nextError = null, partial = null) {
     status.value = nextStatus
     error.value = nextError
     protocolResults.value = partial?.protocolResults ? markRaw(partial.protocolResults) : null
     protocolInputs.value = markRaw(partial?.inputs ?? new Map())
+    featureOperands.value = markRaw(partial?.featureOperands ?? new Map())
     results.value = partial ? markRaw(partial.results) : null
     mapping.value = partial ? markRaw(partial.mapping) : null
     inspectionOutputs.value = []
@@ -142,6 +158,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     error.value = null
     results.value = null
     protocolResults.value = null
+    featureOperands.value = markRaw(new Map())
     mapping.value = null
     signature.value = null
     seriesSlots = markRaw(new Map())
@@ -159,6 +176,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     results,
     protocolResults,
     protocolInputs,
+    featureOperands,
+    features,
     mapping,
     inspectionOutputs,
     signature,

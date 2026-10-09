@@ -41,6 +41,21 @@ describe('protocolStore', () => {
     expect(store.isProtocolMode).toBe(false)
   })
 
+  it("signs what the features record too, but not traces or feature plots", () => {
+    const store = useProtocolStore()
+    store.isProtocolMode = true
+    const signWith = (document) => {
+      addExtra('model_obs_data.json', JSON.stringify({ protocol_info: PROTOCOL, ...document }))
+      return store.signature
+    }
+    const peak = { data_item_name: 'peak', operands: ['a/x'], unit: 'm', operation: 'max' }
+    const plain = signWith({})
+    expect(signWith({ prediction_items: [{ data_item_name: 'x', operands: ['a/x'], unit: 'm' }] })).toBe(plain)
+    const withPeak = signWith({ prediction_items: [peak] })
+    expect(withPeak).not.toBe(plain)
+    expect(signWith({ prediction_items: [peak], prediction_plots: [{ name: 'p', kind: 'feature_vs_experiment', x: null, y: 'a/x', series: null }] })).toBe(withPeak)
+  })
+
   it("reports a protocol that can't run, and an obs_data file that isn't JSON", () => {
     const store = useProtocolStore()
     addExtra('model_obs_data.json', JSON.stringify({ protocol_info: { ...PROTOCOL, sim_times: [[0]] } }))

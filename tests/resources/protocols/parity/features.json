@@ -1,0 +1,392 @@
+{
+ "solver": {
+  "tolerance": 1e-10
+ },
+ "note": "Features (prediction items with an operation) of protocol runs whose values change between sub-experiments, each reduced over its sub-experiment's own samples, the first included, as circulatory_autogen computes them. ca-features.json holds CA's values (scripts/protocol-parity/generate_ca_features.py).",
+ "cases": [
+  {
+   "name": "the SN neuron: a conductance and a current step between sub-experiments",
+   "model": "sn.cellml",
+   "pointInterval": 0.001,
+   "maximumStep": 0.001,
+   "tolerance": 1e-09,
+   "obs_data": {
+    "protocol_info": {
+     "pre_times": [
+      0.05,
+      0.05
+     ],
+     "sim_times": [
+      [
+       0.1,
+       0.1
+      ],
+      [
+       0.1,
+       0.1
+      ]
+     ],
+     "params_to_change": {
+      "instance_parameters/g_M": [
+       [
+        0.00389,
+        0.00778
+       ],
+       [
+        0.00389,
+        0.01167
+       ]
+      ],
+      "instance_parameters/I_in": [
+       [
+        0,
+        0.02
+       ],
+       [
+        0,
+        0.02
+       ]
+      ]
+     },
+     "experiment_labels": [
+      "g_M doubled",
+      "g_M tripled"
+     ]
+    },
+    "prediction_items": [
+     {
+      "data_item_name": "iM_step_peak_e1",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M peak at the step",
+      "experiment_idx": 0,
+      "operation": "max_in_range",
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.05
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "iM_step_mean_e1",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M mean at the step",
+      "experiment_idx": 0,
+      "operation": "mean_in_range",
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.05
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "iM_min_e1",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M least",
+      "experiment_idx": 0,
+      "operation": "min",
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "iM_swing_e1",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M swing",
+      "experiment_idx": 0,
+      "operation": "max_minus_min_in_range",
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.5
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "V_peak_e1",
+      "operands": [
+       "soma_SN/V"
+      ],
+      "unit": "milliV",
+      "item_name_for_plotting": "V peak",
+      "experiment_idx": 0,
+      "operation": "max"
+     },
+     {
+      "data_item_name": "V_mean_before_e1",
+      "operands": [
+       "soma_SN/V"
+      ],
+      "unit": "milliV",
+      "item_name_for_plotting": "V mean before the step",
+      "experiment_idx": 0,
+      "operation": "mean",
+      "subexperiment_idx": 0
+     },
+     {
+      "data_item_name": "V_swing_e1",
+      "operands": [
+       "soma_SN/V"
+      ],
+      "unit": "milliV",
+      "item_name_for_plotting": "V swing",
+      "experiment_idx": 0,
+      "operation": "max_minus_min_in_range",
+      "operation_kwargs": {
+       "start_frac": 0.1,
+       "end_frac": 0.9
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "g_M_set_e1",
+      "operands": [
+       "instance_parameters/g_M"
+      ],
+      "unit": "microS",
+      "item_name_for_plotting": "g_M",
+      "experiment_idx": 0,
+      "operation": "max",
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "iM_step_peak_e2",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M peak at the step",
+      "experiment_idx": 1,
+      "operation": "max_in_range",
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.05
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "iM_step_mean_e2",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M mean at the step",
+      "experiment_idx": 1,
+      "operation": "mean_in_range",
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.05
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "iM_min_e2",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M least",
+      "experiment_idx": 1,
+      "operation": "min",
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "iM_swing_e2",
+      "operands": [
+       "soma_SN/i_M"
+      ],
+      "unit": "nanoA",
+      "item_name_for_plotting": "i_M swing",
+      "experiment_idx": 1,
+      "operation": "max_minus_min_in_range",
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.5
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "V_peak_e2",
+      "operands": [
+       "soma_SN/V"
+      ],
+      "unit": "milliV",
+      "item_name_for_plotting": "V peak",
+      "experiment_idx": 1,
+      "operation": "max"
+     },
+     {
+      "data_item_name": "V_mean_before_e2",
+      "operands": [
+       "soma_SN/V"
+      ],
+      "unit": "milliV",
+      "item_name_for_plotting": "V mean before the step",
+      "experiment_idx": 1,
+      "operation": "mean",
+      "subexperiment_idx": 0
+     },
+     {
+      "data_item_name": "V_swing_e2",
+      "operands": [
+       "soma_SN/V"
+      ],
+      "unit": "milliV",
+      "item_name_for_plotting": "V swing",
+      "experiment_idx": 1,
+      "operation": "max_minus_min_in_range",
+      "operation_kwargs": {
+       "start_frac": 0.1,
+       "end_frac": 0.9
+      },
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "g_M_set_e2",
+      "operands": [
+       "instance_parameters/g_M"
+      ],
+      "unit": "microS",
+      "item_name_for_plotting": "g_M",
+      "experiment_idx": 1,
+      "operation": "max",
+      "subexperiment_idx": 1
+     }
+    ],
+    "prediction_plots": [
+     {
+      "name": "i_M peak at the step vs g_M",
+      "kind": "feature_vs_input",
+      "x": {
+       "params_to_change": "instance_parameters/g_M",
+       "subexperiment_idx": 1
+      },
+      "y": "i_M peak at the step",
+      "series": null
+     },
+     {
+      "name": "V peak vs i_M peak",
+      "kind": "feature_vs_feature",
+      "x": "i_M peak at the step",
+      "y": "V peak",
+      "series": null
+     }
+    ]
+   }
+  },
+  {
+   "name": "decay: a rate step between sub-experiments",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "tolerance": 1e-09,
+   "obs_data": {
+    "protocol_info": {
+     "pre_times": [
+      1
+     ],
+     "sim_times": [
+      [
+       2,
+       2,
+       2
+      ]
+     ],
+     "params_to_change": {
+      "instance_parameters/k": [
+       [
+        0.5,
+        2,
+        0.5
+       ]
+      ]
+     }
+    },
+    "prediction_items": [
+     {
+      "data_item_name": "x_step_peak",
+      "operands": [
+       "decay/x"
+      ],
+      "unit": "dimensionless",
+      "item_name_for_plotting": "x_step_peak",
+      "experiment_idx": 0,
+      "operation": "max_in_range",
+      "subexperiment_idx": 1,
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.1
+      }
+     },
+     {
+      "data_item_name": "x_step_least",
+      "operands": [
+       "decay/x"
+      ],
+      "unit": "dimensionless",
+      "item_name_for_plotting": "x_step_least",
+      "experiment_idx": 0,
+      "operation": "min_in_range",
+      "subexperiment_idx": 2,
+      "operation_kwargs": {
+       "start_frac": 0,
+       "end_frac": 0.05
+      }
+     },
+     {
+      "data_item_name": "x_mean",
+      "operands": [
+       "decay/x"
+      ],
+      "unit": "dimensionless",
+      "item_name_for_plotting": "x_mean",
+      "experiment_idx": 0,
+      "operation": "mean",
+      "subexperiment_idx": 2
+     },
+     {
+      "data_item_name": "k_set",
+      "operands": [
+       "instance_parameters/k"
+      ],
+      "unit": "per_second",
+      "item_name_for_plotting": "k_set",
+      "experiment_idx": 0,
+      "operation": "mean",
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "k_set_peak",
+      "operands": [
+       "instance_parameters/k"
+      ],
+      "unit": "per_second",
+      "item_name_for_plotting": "k_set_peak",
+      "experiment_idx": 0,
+      "operation": "max_minus_min",
+      "subexperiment_idx": 1
+     },
+     {
+      "data_item_name": "time_mean",
+      "operands": [
+       "time"
+      ],
+      "unit": "second",
+      "item_name_for_plotting": "time_mean",
+      "experiment_idx": 0,
+      "operation": "mean",
+      "subexperiment_idx": 1
+     }
+    ]
+   }
+  }
+ ]
+}

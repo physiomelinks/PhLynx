@@ -12,6 +12,7 @@ import {
 } from '@physiomelinks/protocol-kit'
 
 import { planDrivers } from '../services/protocol/libopencorEngine/protocolDrivers'
+import { listFeatureOperands } from '../services/simulation/protocolFeatures'
 import { cyrb53 } from '../utils/misc'
 import { useOmexStore } from './omexStore'
 
@@ -73,8 +74,10 @@ export const useProtocolStore = defineStore('protocol', () => {
    * course. What every slider and run goes by.
    */
   const areSlidersOff = computed(() => isActive.value)
-  /** The protocol's inputs to a run, to tell when its results have gone stale. */
-  const signature = computed(() => (isActive.value ? String(cyrb53(JSON.stringify(protocolInfo.value))) : ''))
+  /** The protocol's inputs to a run, and what its features record, to tell when its results have gone stale. */
+  const signature = computed(() =>
+    isActive.value ? String(cyrb53(JSON.stringify([protocolInfo.value, listFeatureOperands(source.value?.document)]))) : ''
+  )
 
   /**
    * Shows an experiment's results.

@@ -13,6 +13,7 @@ import {
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
 import { addProtocolClock, addProtocolDrivers } from '../services/simulation/protocolDriverModel'
+import { listFeatureOperands, resolveFeatureOperands } from '../services/simulation/protocolFeatures'
 import { clampSolverSettings, findProtocolLimits, prepareProtocolRun } from '../services/simulation/protocolRun'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -133,6 +134,7 @@ export function useSimulation() {
     // once too, so a protocol saved while the model flattens can't mix into this run.
     const drivers = isProtocolRun ? protocolStore.drivers : []
     const view = isProtocolRun ? protocolStore.view : null
+    const featureOperandNames = isProtocolRun ? listFeatureOperands(protocolStore.source?.document) : []
     const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')
     const overrides = selectRunOverrides(isProtocolRun)
     const settings = { ...simulationSettingsStore.simulationSettings }
@@ -173,7 +175,22 @@ export function useSimulation() {
 
       const onProgress = (progress) => token === runToken && (store.progress = progress)
       if (isProtocolRun) {
-        await runProtocolOn({ simulator, token, nodeIds, scope, structure, view, drivers, overrides, settings, signature, kept: changes ? kept : null, changes, onProgress })
+        await runProtocolOn({
+          simulator,
+          token,
+          nodeIds,
+          scope,
+          structure,
+          view,
+          drivers,
+          featureOperandNames,
+          overrides,
+          settings,
+          signature,
+          kept: changes ? kept : null,
+          changes,
+          onProgress,
+        })
         return
       }
       let results
@@ -231,11 +248,27 @@ export function useSimulation() {
    * simulator reads it and lists its variables, so the protocol's parameters can be found in it before anything runs.
    *
    * @param {Object} options - What run worked out: `{ simulator, token, nodeIds, scope, structure, view, drivers,
-   *   overrides, settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when the model needs
-   *   flattening, and `view` and `drivers` the protocol's as the run started.
+   *   featureOperandNames, overrides, settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when
+   *   the model needs flattening, and `view`, `drivers` and `featureOperandNames` (see listFeatureOperands) the
+   *   protocol's as the run started.
    * @returns {Promise<void>}
    */
-  async function runProtocolOn({ simulator, token, nodeIds, scope, structure, view, drivers, overrides, settings: givenSettings, signature, kept, changes, onProgress }) {
+  async function runProtocolOn({
+    simulator,
+    token,
+    nodeIds,
+    scope,
+    structure,
+    view,
+    drivers,
+    featureOperandNames,
+    overrides,
+    settings: givenSettings,
+    signature,
+    kept,
+    changes,
+    onProgress,
+  }) {
     let settings = givenSettings
     let source = kept
     if (!source) {
@@ -283,14 +316,18 @@ export function useSimulation() {
       return
     }
 
+    // Each sub-experiment's own series of what the features reduce, as circulatory_autogen records them.
+    const featureOperands = resolveFeatureOperands({ operands: featureOperandNames, nodes: scope.nodes, mapping: source.mapping, variables: source.variables })
+    const recorded = [...new Set(featureOperands.values())]
     isCurrentRunKept = !!kept
-    currentRun = simulator.startProtocol({ key: source.key, settings, plan, targets, baseChanges: changes ?? [], onProgress })
+    currentRun = simulator.startProtocol({ key: source.key, settings, plan, targets, baseChanges: changes ?? [], recorded, onProgress })
     try {
       const protocolResults = await currentRun.promise
       if (token !== runToken) return
       store.finishProtocolRun({
         protocolResults,
         inputs,
+        featureOperands,
         experiment: protocolStore.activeExperiment,
         mapping: source.mapping,
         signature,
@@ -300,7 +337,7 @@ export function useSimulation() {
       if (error.code === 'no-session') session = null
       if (token !== runToken) return
       const partial = error.partialResults && { experiments: error.partialResults.experiments, issues: [], elapsedMs: 0, isStopped: false }
-      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, inputs, mapping: source.mapping }
+      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, inputs, featureOperands, mapping: source.mapping }
       store.failRun('error', { message: error.message, issues: error.issues ?? [] }, shown)
     }
   }
