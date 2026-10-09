@@ -114,12 +114,12 @@ function createClient(worker, onReady) {
      * Runs a protocol's segments in the worker; see protocolRunner.js. The model is read or reused as by
      * startSimulation.
      *
-     * @param {Object} options - `{ cellml, key, settings, plan, targets, baseChanges, onProgress }`, `targets`
+     * @param {Object} options - `{ cellml, key, settings, plan, targets, baseChanges, recorded, onProgress }`, `targets`
      *   mapping each protocol parameter to its reported name.
      * @returns {{promise: Promise<Object>, stop: Function}} Resolves with `{experiments, issues, elapsedMs, isStopped}`.
      */
-    startProtocol({ cellml = null, key = null, settings, plan, targets, baseChanges = [], onProgress = () => {} }) {
-      const message = { type: 'runProtocol', cellml, key, settings: { ...settings }, plan, targets: [...targets], baseChanges }
+    startProtocol({ cellml = null, key = null, settings, plan, targets, baseChanges = [], recorded = [], onProgress = () => {} }) {
+      const message = { type: 'runProtocol', cellml, key, settings: { ...settings }, plan, targets: [...targets], baseChanges, recorded: [...recorded] }
       return send(message, decodeProtocolResults, onProgress)
     },
   })

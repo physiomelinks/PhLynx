@@ -1,0 +1,35 @@
+{
+ "source": {
+  "libcuflynx": "0.7.3",
+  "myokit": "1.39.2",
+  "solver": "CVODE_myokit"
+ },
+ "cases": {
+  "the SN neuron: a conductance and a current step between sub-experiments": {
+   "iM_step_peak_e1": 0.0066314918405082305,
+   "iM_step_mean_e1": 0.006368296579206645,
+   "iM_min_e1": 0.002296232850042518,
+   "iM_swing_e1": 0.0032117958475439247,
+   "V_peak_e1": -65.29981562807873,
+   "V_mean_before_e1": -68.85841087539988,
+   "V_swing_e1": 11.118429485577153,
+   "g_M_set_e1": 0.00778,
+   "iM_step_peak_e2": 0.009947237760762352,
+   "iM_step_mean_e2": 0.009492260747059434,
+   "iM_min_e2": 0.0030719420347640786,
+   "iM_swing_e2": 0.005248940461413635,
+   "V_peak_e2": -65.29981562807872,
+   "V_mean_before_e2": -68.85841087539988,
+   "V_swing_e2": 11.545062862189454,
+   "g_M_set_e2": 0.01167
+  },
+  "decay: a rate step between sub-experiments": {
+   "x_step_peak": 0.22313016000000663,
+   "x_step_least": 0.003985868345091933,
+   "x_mean": 0.0025886284641636914,
+   "k_set": 2.0,
+   "k_set_peak": 0.0,
+   "time_mean": 4.0
+  }
+ }
+}

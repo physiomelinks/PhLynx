@@ -89,6 +89,40 @@ describe('runProtocol', () => {
     expect(results).toMatchObject({ issues: [], elapsedMs: 3, isStopped: false })
   })
 
+  it("keeps each sub-experiment's own series of the variables recorded, its first point under its own values", async () => {
+    const { experiments } = await runProtocol({ session: createFakeSession(), plan: STEP, settings: {}, targets: TARGETS, recorded: ['c/k', 'c/x', 'c/none'] }).promise
+
+    const [{ variables, subSeries }] = experiments
+    expect(subSeries.map((series) => Object.keys(series))).toEqual([
+      ['c/k', 'c/x'],
+      ['c/k', 'c/x'],
+    ])
+    // The joined series keep the first sub-experiment's last point at the boundary; the second's own starts at its k.
+    expect([...subSeries[0]['c/k']]).toEqual([0.5, 0.5, 0.5, 0.5, 0.5])
+    expect([...subSeries[1]['c/k']]).toEqual([1, 1, 1, 1, 1])
+    const x = variables.get('c/x').values
+    expect([...subSeries[0]['c/x']]).toEqual([...x.slice(0, 5)])
+    expect([...subSeries[1]['c/x']]).toEqual([...x.slice(4)])
+  })
+
+  it('keeps the own series of a sub-experiment split by a pulse whole, and none of one not run to its end', async () => {
+    const pulsed = plan({
+      pre_times: [0],
+      sim_times: [[4, 2]],
+      params_to_change: { 'decay/k': [['pulse', 1]] },
+      protocol_shapes: { pulse: { baseline: 0.5, events: [{ level: 2, start: 1, length: 1 }] } },
+    })
+    const { experiments } = await runProtocol({ session: createFakeSession(), plan: pulsed, settings: {}, targets: TARGETS, recorded: ['c/k'] }).promise
+    expect([...experiments[0].subSeries[0]['c/k']]).toEqual([0.5, 0.5, 0.5, 2, 2, 0.5, 0.5, 0.5, 0.5])
+    expect([...experiments[0].subSeries[1]['c/k']]).toEqual([1, 1, 1, 1, 1])
+
+    const session = createFakeSession({ isHeld: true })
+    const run = runProtocol({ session, plan: pulsed, settings: {}, targets: TARGETS, recorded: ['c/k'] })
+    await vi.waitFor(() => expect(session.runs).toHaveLength(1))
+    run.stop()
+    expect((await run.promise).experiments[0].subSeries).toEqual([null, null])
+  })
+
   it('runs a pulse as parts of its sub-experiment, joined on its points', async () => {
     const pulsed = plan({
       pre_times: [0],
