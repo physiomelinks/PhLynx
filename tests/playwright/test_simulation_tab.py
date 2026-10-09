@@ -1,5 +1,5 @@
+import csv
 import io
-import json
 import os
 import re
 import subprocess
@@ -70,16 +70,27 @@ SHOWN_I_IN = (
 CUFLYNX_PYTHON = os.environ.get("PHLYNX_CUFLYNX_PYTHON")
 # Downloads go to the browser's save, not the File System Access picker, which Playwright can't answer.
 USE_DOWNLOADS = "delete window.showSaveFilePicker"
-# ADD_PROTOCOL's experiments, recording the soma's voltage in the second sub-experiment of each: its trace, and its mean.
+# The outputs the protocol editor writes for ADD_PROTOCOL's experiments: the soma's voltage in the second sub-experiment
+# of each, its trace and its mean.
 OUTPUTS = [
-    {**item, "experiment_idx": e, "subexperiment_idx": 1}
+    {
+        "data_item_name": f"{name}_{label}",
+        "operands": ["soma_SN/V"],
+        "unit": "milliV",
+        **({"operation": "mean"} if name == "V_mean" else {}),
+        "experiment_idx": e,
+        "subexperiment_idx": 1,
+        "item_name_for_plotting": name,
+    }
+    for name in ("V", "V_mean")
     for e, label in enumerate(["SHR", "SHR_M_activation"])
-    for item in (
-        {"data_item_name": f"V_{label}", "operands": ["soma_SN/V"], "unit": "milliV", "item_name_for_plotting": "V", "trace_name_for_plotting": "V"},
-        {"data_item_name": f"V_mean_{label}", "operands": ["soma_SN/V"], "unit": "milliV", "item_name_for_plotting": "V_mean", "operation": "mean"},
-    )
 ]
-ADD_PROTOCOL_WITH_OUTPUTS = ADD_PROTOCOL.replace("data_items: [] }", f"data_items: [], prediction_items: {json.dumps(OUTPUTS)} }}")
+# The soma's mean voltage in each experiment's second sub-experiment, as PhLynx ran it.
+IN_APP_V_MEANS = (
+    f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
+    " return store.protocolResults.experiments.map(({ variables, subs }) => { const values = variables.get(name).values.slice(subs[1].startIndex, subs[1].endIndex + 1);"
+    " return values.reduce((sum, value) => sum + value, 0) / values.length }) })()"
+)
 # The workspace's obs_data, as saved.
 SAVED_OBS_DATA = (
     "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
@@ -622,13 +633,49 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
-            # The protocol's outputs stay as they were through an edit in the protocol editor and its save.
-            page.evaluate(ADD_PROTOCOL_WITH_OUTPUTS)
+            page.evaluate(ADD_PROTOCOL)
             page.get_by_role("button", name="Edit the protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Protocol")
+            # The input current, at its model value throughout, is tucked away until asked for.
+            show = dialog.get_by_role("button", name="Show 1 parameter at its model value")
+            expect(dialog.get_by_text("1 parameter at its model value", exact=True)).to_be_visible()
+            expect(dialog.get_by_role("button", name="Stop setting soma_SN/I_in")).to_have_count(0)
+            expect(dialog.get_by_role("button", name="Stop setting soma_SN/g_M")).to_be_visible()
+            expect(show).to_have_attribute("aria-expanded", "false")
+            show.click()
+            hide = dialog.get_by_role("button", name="Hide 1 parameter at its model value")
+            expect(hide).to_have_attribute("aria-expanded", "true")
+            expect(dialog.get_by_role("button", name="Stop setting soma_SN/I_in")).to_be_visible()
+            hide.click()
+            expect(dialog.get_by_role("button", name="Stop setting soma_SN/I_in")).to_have_count(0)
             dialog.get_by_role("button", name=re.compile(r"^Edit sub-experiment 1 length")).click()
             dialog.get_by_label("Sub-experiment 1 length", exact=True).fill("0.08")
             dialog.get_by_label("Sub-experiment 1 length", exact=True).press("Enter")
+
+            # The outputs, added in the editor: the voltage's trace and its mean over the second sub-experiment of both.
+            outputs = dialog.get_by_role("region", name="Outputs")
+            for name, kind in (("V", "Trace"), ("V_mean", "Feature")):
+                outputs.get_by_role("button", name="Add output").click()
+                form = outputs.get_by_role("form", name="Add an output")
+                form.get_by_role("combobox", name="Search for a variable to record").fill("soma_SN V")
+                page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(r"^soma_SN/V$"))).first.click()
+                form.get_by_role("group", name="What it records").get_by_text(kind, exact=True).click()
+                if kind == "Feature":
+                    form.get_by_role("combobox", name="Operation").click()
+                    page.get_by_role("option", name="Mean", exact=True).click()
+                form.get_by_label("Output name").fill(name)
+                form.get_by_role("combobox", name="Sub-experiment").click()
+                page.get_by_role("option", name="Sub-experiment 2").click()
+                expect(form.get_by_role("checkbox", name="SHR", exact=True)).to_be_checked()
+                expect(form.get_by_role("checkbox", name="SHR M-activation")).to_be_checked()
+                form.get_by_role("button", name="Add output").click()
+                expect(form).to_have_count(0)
+            expect(outputs.locator(".output-name")).to_have_text(["V", "V_mean"])
+            # An undo takes the last back, and a redo brings it again.
+            dialog.get_by_role("button", name="Undo").click()
+            expect(outputs.locator(".output-name")).to_have_text(["V"])
+            dialog.get_by_role("button", name="Redo").click()
+            expect(outputs.locator(".output-name")).to_have_text(["V", "V_mean"])
             dialog.get_by_role("button", name="Save").click()
             expect(dialog).to_be_hidden()
             saved = page.evaluate(SAVED_OBS_DATA)
@@ -639,6 +686,7 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_role("button", name="Run the protocol's experiments").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+            in_app_means = page.evaluate(IN_APP_V_MEANS)
             page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
             plot_variable(page, "soma_SN/V")
             page.get_by_role("button", name="Open the results in a larger view").click()
@@ -692,8 +740,16 @@ class TestSimulationTab(unittest.TestCase):
             run = subprocess.run([CUFLYNX_PYTHON, "run_protocol.py"], cwd=folder, capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stderr)
             with open(os.path.join(folder, "results", "features.csv")) as f:
-                features = [line.split(",")[0] for line in f.read().splitlines()[1:]]
-            self.assertEqual(features, ["V_mean_SHR", "V_mean_SHR_M_activation"])
+                features = list(csv.DictReader(f))
+            self.assertEqual([row["item"] for row in features], ["V_mean_SHR", "V_mean_SHR_M_activation"])
+            self.assertEqual([(row["feature"], row["experiment"], row["subexperiment"], row["operation"]) for row in features], [("V_mean", "0", "1", "mean"), ("V_mean", "1", "1", "mean")])
+            # The means PhLynx's own run gives, to the solvers' tolerances.
+            for row, mean in zip(features, in_app_means):
+                self.assertAlmostEqual(float(row["value"]), mean, delta=1e-3 * abs(mean), msg=row["item"])
+            # Each trace, plotted as CA names it when its item has no trace_name_for_plotting: by its variable.
+            with open(os.path.join(folder, "results", "traces.csv")) as f:
+                traces = {(row["experiment"], row["subexperiment"], row["group"], row["variable"]) for row in csv.DictReader(f)}
+            self.assertEqual(traces, {("0", "1", "soma_SN/V", "soma_SN/V"), ("1", "1", "soma_SN/V", "soma_SN/V")})
             for figure in ("traces.png", "features.png", "feature_plot_1.png"):
                 self.assertTrue(os.path.exists(os.path.join(folder, "results", figure)), figure)
 
