@@ -28,25 +28,25 @@
         @change="$emit('change')"
       />
 
-      <InputText 
-        v-model="port.label"
-        size="small"
-        @input="$emit('change')" 
-      />
+      <InputText v-model="port.label" size="small" @input="$emit('change')" />
 
       <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
       <Button
         class="multiport-toggle"
-        icon="pi pi-arrows-h"
         text
         rounded
         size="small"
         :severity="isMultiport(port) ? undefined : 'secondary'"
         :aria-pressed="isMultiport(port)"
         aria-label="Multiport"
-        :title="isMultiport(port) ? 'Multiport: takes several connections' : 'Takes one connection'"
-        @click="setMultiport(port, !isMultiport(port)); $emit('change')"
-      />
+        :title="isMultiport(port) ? 'Multiport: takes several connections' : 'Basicport: takes one connection'"
+        @click="setMultiport(port, !isMultiport(port));$emit('change')"
+      >
+        <template #icon>
+          <MultiportIcon v-if="isMultiport(port)" />
+          <BasicportIcon v-else />
+        </template>
+      </Button>
 
       <MultiSelect
         :modelValue="port.variables"
@@ -93,6 +93,8 @@ import { Handle, Position } from '@vue-flow/core'
 import PortVariableChips from './PortVariableChips.vue'
 import { PORT_TYPE_OPTIONS } from '../utils/constants'
 import { isMultiport, setMultiport, setPortVariables } from '../utils/multiport'
+import MultiportIcon from './icons/MultiportIcon.vue'
+import BasicportIcon from './icons/BasicportIcon.vue'
 
 const props = defineProps({
   side: {
@@ -260,7 +262,7 @@ const handleClass = computed(() => {
 }
 
 .handle--left {
-  left: 0 !important; 
+  left: 0 !important;
   transform: translate(-50%, -50%) !important;
 }
 

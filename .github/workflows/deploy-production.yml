@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -72,7 +72,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Get version from package.json
         id: version
@@ -105,13 +105,13 @@ jobs:
 
     steps:
       - name: Checkout Main Branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: source
           ref: main
 
       - name: Checkout Production Branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: production
           ref: production

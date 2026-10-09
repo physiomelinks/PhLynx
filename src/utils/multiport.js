@@ -133,6 +133,122 @@ export function sharedSumConflicts(edges, nameOf = (id) => id) {
   return conflicts
 }
 
+// ── Summary ─────────────────────────────────────────────────────────────────
+
+const samePort = (a, b) =>
+  !!a && !!b && a.label === b.label && a.portType === b.portType && JSON.stringify(a.variables) === JSON.stringify(b.variables)
+
+/** Runs a strict helper, recording its error in issues and returning fallback instead of throwing. */
+function attempt(read, issues, fallback) {
+  try {
+    return read()
+  } catch (error) {
+    if (!issues.includes(error.message)) issues.push(error.message)
+    return fallback
+  }
+}
+
+/**
+ * The math export builds for a node's Sum and Multiply variables, one entry per variable, as
+ * generateFlattenedModel does. Types and factors come from each port as edited; its connections from
+ * the port as saved, which the edges hold. Never throws: problems are listed in the entry's issues.
+ *
+ * Each term is a neighbour's variable with its role: 'term' (one term of this Sum variable, times
+ * factor), 'scaled' (equals factor times this Multiply variable) or 'feedsSum' (sums factor times this
+ * Multiply variable). An entry is pending when its port has changed in a way only saving resolves, and
+ * linkedElsewhere when its variable is also coupled through another of the node's ports.
+ *
+ * @param {string} nodeId
+ * @param {Object[]} edges - Edges with id, source, target and data.couplings.
+ * @param {Object} options
+ * @param {{ original?: Object, current: Object }[]} options.ownPorts - Each port as edited, beside its saved self.
+ * @param {(nodeId: string) => string} [options.nameOf] - A node's name.
+ * @returns {{ variable: string, portLabel: string, type: 'Sum'|'Multiply', factor: number|null, terms: Object[],
+ *   issues: string[], pending: boolean, connected: boolean, linkedElsewhere: boolean }[]}
+ */
+export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id }) {
+  const entries = []
+  const connectedSums = new Map() // variable → labels of the connected ports summing it
+  const coupledPorts = edges.flatMap((edge) =>
+    (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => [
+      ...(edge.source === nodeId ? [sourcePort] : []),
+      ...(edge.target === nodeId ? [targetPort] : []),
+    ])
+  )
+  for (const { original, current } of ownPorts) {
+    const portIssues = []
+    const types = attempt(() => variableTypes(current), portIssues, spread(current))
+    const pending =
+      !original ||
+      original.label !== current.label ||
+      original.portType !== current.portType ||
+      original.variables?.length !== current.variables?.length
+    const portEntries = new Map() // variable index → entry
+    types.forEach((type, i) => {
+      const variable = current.variables[i]
+      if ((type !== 'Sum' && type !== 'Multiply') || !variable) return
+      const issues = [...portIssues]
+      const factor = type === 'Multiply' ? attempt(() => multiplyFactor(current, i), issues, null) : null
+      const linkedElsewhere = coupledPorts.some((port) => !samePort(original, port) && port.variables?.includes(variable))
+      const entry = { variable, portLabel: current.label, type, factor, terms: [], issues, pending, connected: false, linkedElsewhere }
+      portEntries.set(i, entry)
+      entries.push(entry)
+    })
+    if (pending || !portEntries.size) continue
+
+    let connected = false
+    for (const edge of edges) {
+      for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
+        const ends = [
+          edge.source === nodeId && samePort(original, sourcePort) && [targetPort, edge.target],
+          edge.target === nodeId && samePort(original, targetPort) && [sourcePort, edge.source],
+        ].filter(Boolean)
+        for (const [neighbourPort, neighbourId] of ends) {
+          connected = true
+          const neighbourIssues = []
+          const neighbourTypes = attempt(() => variableTypes(neighbourPort), neighbourIssues, [])
+          if (neighbourTypes.length && neighbourTypes.length !== types.length) {
+            neighbourIssues.push(`Ports "${current.label}" and "${neighbourPort.label}" need the same number of variables to sum or multiply.`)
+          }
+          for (const [i, entry] of portEntries) {
+            entry.issues.push(...neighbourIssues.filter((message) => !entry.issues.includes(message)))
+            const variable = neighbourPort.variables?.[i]
+            const neighbourType = neighbourTypes[i]
+            if (!variable || !neighbourType) continue
+            entry.connected = true
+            if (neighbourType === entry.type) {
+              const message = `"${entry.variable}" and "${variable}" are both ${entry.type} variables.`
+              if (!entry.issues.includes(message)) entry.issues.push(message)
+              continue
+            }
+            const term = { nodeId: neighbourId, nodeName: nameOf(neighbourId), edgeId: edge.id, portLabel: neighbourPort.label, variable }
+            if (entry.type === 'Sum') {
+              const factor = neighbourType === 'Multiply' ? attempt(() => multiplyFactor(neighbourPort, i), entry.issues, null) : 1
+              entry.terms.push({ ...term, factor, role: 'term' })
+            } else {
+              entry.terms.push({ ...term, factor: entry.factor, role: neighbourType === 'Sum' ? 'feedsSum' : 'scaled' })
+            }
+          }
+        }
+      }
+    }
+    if (!connected) continue
+    for (const entry of portEntries.values()) {
+      if (entry.type !== 'Sum') continue
+      if (!connectedSums.has(entry.variable)) connectedSums.set(entry.variable, new Set())
+      connectedSums.get(entry.variable).add(entry.portLabel)
+    }
+  }
+
+  for (const entry of entries) {
+    const labels = entry.type === 'Sum' ? connectedSums.get(entry.variable) : null
+    if (!labels || labels.size < 2) continue
+    const ports = [...labels].map((label) => `"${label}"`).join(' and ')
+    entry.issues.push(`"${entry.variable}" sums through ports ${ports}; a variable can be summed through one port only.`)
+  }
+  return entries
+}
+
 // ── Editing ─────────────────────────────────────────────────────────────────
 
 const CYCLE = ['True', 'Sum', 'Multiply']

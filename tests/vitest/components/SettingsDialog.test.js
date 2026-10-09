@@ -2,6 +2,7 @@
 import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import Select from 'primevue/select'
+import ToggleSwitch from 'primevue/toggleswitch'
 import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -76,5 +77,22 @@ describe('SettingsDialog', () => {
     await wrapper.setProps({ modelValue: false })
     await wrapper.setProps({ modelValue: true })
     expect(wrapper.findComponent(Select).props('modelValue')).toBe('builtIn')
+  })
+
+  it('saves the image export choices', async () => {
+    await mountDialog()
+    const formatRow = wrapper.findAll('.setting-row').find((row) => row.text().includes('Image format'))
+    await formatRow.findComponent(Select).setValue('svg')
+    const warningsRow = wrapper.findAll('.setting-row').find((row) => row.text().includes('Include warning symbols'))
+    const toggle = warningsRow.findComponent(ToggleSwitch)
+    expect(toggle.props('modelValue')).toBe(false)
+    await toggle.setValue(true)
+    await button('Save Changes').trigger('click')
+
+    expect(settings).toMatchObject({ imageExportFormat: 'svg', imageExportWarnings: true })
+    expect(JSON.parse(window.localStorage.getItem('phlynx-settings'))).toMatchObject({
+      imageExportFormat: 'svg',
+      imageExportWarnings: true,
+    })
   })
 })
