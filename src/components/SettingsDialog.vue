@@ -40,12 +40,13 @@
             {{ selectedOption(setting).hint }}
           </small>
         </div>
-        <div v-else-if="setting.type === 'boolean'" class="setting-control setting-control--switch">
+
+        <div v-else-if="setting.type === 'toggle'" class="setting-control setting-control--toggle">
           <ToggleSwitch
             v-model="draft[setting.key]"
-            :input-id="`setting-${setting.key}`"
-            :aria-labelledby="`setting-${setting.key}-label`"
-            :aria-describedby="`setting-${setting.key}-desc`"
+            :inputId="`setting-${setting.key}`"
+            :ariaLabelledby="`setting-${setting.key}-label`"
+            :pt="{ input: { 'aria-describedby': `setting-${setting.key}-desc` } }"
           />
         </div>
       </div>
@@ -86,7 +87,7 @@ watch(
 )
 
 /** The option a select setting's draft has chosen. */
-const selectedOption = (setting) => setting.options.find((option) => option.value === draft[setting.key])
+const selectedOption = (setting) => setting.options?.find((option) => option.value === draft[setting.key])
 
 const closeDialog = () => {
   emit('update:modelValue', false)
@@ -132,7 +133,7 @@ function saveChanges() {
   flex-direction: column;
   gap: 4px;
 }
-.setting-control--switch {
+.setting-control--toggle {
   align-items: flex-end;
   justify-content: center;
 }

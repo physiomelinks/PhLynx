@@ -199,6 +199,51 @@ describe('libraryStore removing and restoring math', () => {
   })
 })
 
+describe('libraryStore removing modules', () => {
+  let store
+  const moduleRef = 'decay:default'
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+  })
+
+  it('removes a stub module, and its collection once empty', () => {
+    store.addModule({ moduleRef, mathRef: MATH_REF })
+    expect(store.availableModules.get(moduleRef).isStub).toBe(true)
+
+    store.removeModule(moduleRef)
+    expect(store.availableModules.has(moduleRef)).toBe(false)
+    expect(store.availableCollections.has(MATH_REF)).toBe(false)
+  })
+
+  it('keeps the collection while other modules use its math', () => {
+    store.addModule({ moduleRef, mathRef: MATH_REF })
+    store.addModule({ moduleRef: 'decay:fast', mathRef: MATH_REF })
+
+    store.removeModule(moduleRef)
+    expect([...store.availableCollections.get(MATH_REF)]).toEqual(['decay:fast'])
+  })
+
+  it('clears the stub flag of a module put back after its math was added', () => {
+    store.addModule({ moduleRef, mathRef: MATH_REF })
+    const removed = store.availableModules.get(moduleRef)
+    store.removeModule(moduleRef)
+    store.addMath(MATH_REF, XML)
+
+    store.addModule(removed)
+    expect(store.availableModules.get(moduleRef).isStub).toBeUndefined()
+  })
+
+  it('removes a module missing from every collection', () => {
+    store.addModule({ moduleRef, mathRef: MATH_REF })
+    store.availableCollections.delete(MATH_REF)
+
+    store.removeModule(moduleRef)
+    expect(store.availableModules.has(moduleRef)).toBe(false)
+  })
+})
+
 describe('instances of a module built from a CellML file', () => {
   beforeAll(async () => {
     await ensureLibCellmlReady() // extractVariablesFromMath parses with libcellml

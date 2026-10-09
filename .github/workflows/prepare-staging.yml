@@ -13,13 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: source
           fetch-depth: 0 # Fetching all history to find tags.
 
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: production
           ref: production
@@ -62,7 +62,14 @@ jobs:
               echo "latest.md is not empty, but the commit count is 0, so this must be a release changelog."
               mv changelogs/latest.md changelogs/$LAST_TAG.md
             else
-              echo "Generated changelogs/latest.md has content, and there are commits since the last release."
+              if [ "$COUNT" -eq 1 ]; then
+                PLURAL=""
+                VERB="was"
+              else
+                PLURAL="s"
+                VERB="were"
+              fi
+              echo "Generated changelogs/latest.md has content, and there $VERB $COUNT commit$PLURAL since the last release."
             fi
           else
             # If the file exists, delete it (using -f to avoid errors if it's already gone)
