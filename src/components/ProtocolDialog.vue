@@ -17,6 +17,7 @@
         :confirm="confirm"
         :palette="SERIES_COLOURS.light"
         :warn="findIgnoredSettings"
+        :dt="simulationSettingsStore.simulationSettings.pointInterval"
         @update:document="changeDraft"
       />
     </div>
@@ -54,6 +55,7 @@ import { SERIES_COLOURS } from '../services/simulation/seriesSlots'
 import { buildVariableIndex } from '../services/simulation/variableIndex'
 import { useLibraryStore } from '../stores/libraryStore'
 import { findIgnoredSettings, useProtocolStore } from '../stores/protocolStore'
+import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -63,6 +65,8 @@ const emit = defineEmits(['update:modelValue'])
 const { confirm } = useConfirmDialog()
 const libraryStore = useLibraryStore()
 const protocolStore = useProtocolStore()
+// Its point interval is the dt a run records at, which an output's range must take a sample of.
+const simulationSettingsStore = useSimulationSettingsStore()
 
 // The model's variables as the editor lists them, each under the name a protocol gives it. The label is that name too,
 // so the picker shows and searches what it always has.

@@ -4,12 +4,16 @@ import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import ConfirmationService from 'primevue/confirmationservice'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { addOutput, ensureProtocol } from '@physiomelinks/protocol-kit'
 import { isSettable, searchVariables } from '@physiomelinks/protocol-kit/editor'
 
 import ProtocolDialog from '../../../src/components/ProtocolDialog.vue'
 import { SERIES_COLOURS } from '../../../src/services/simulation/seriesSlots.js'
 import { buildVariableIndex, searchVariableIndex } from '../../../src/services/simulation/variableIndex.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useOmexStore } from '../../../src/stores/omexStore.js'
+import { useProtocolStore } from '../../../src/stores/protocolStore.js'
+import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
 
 const NODES = [
   {
@@ -78,5 +82,31 @@ describe('ProtocolDialog', () => {
     const { confirm, palette } = mountEditor()
     expect(confirm).toBeTypeOf('function')
     expect(palette).toEqual(SERIES_COLOURS.light)
+  })
+
+  it("checks outputs' ranges against the run's point interval", () => {
+    useSimulationSettingsStore().setSimulationSettings({ pointInterval: 0.25 })
+    expect(mountEditor().dt).toBe(0.25)
+  })
+
+  it("saves the outputs the editor adds into the workspace's obs_data, undoably until then", async () => {
+    mountEditor()
+    const editor = wrapper.findComponent({ name: 'ProtocolEditor' })
+    const withOutput = addOutput(ensureProtocol(null), { name: 'V_mean', operands: ['cell/V'], unit: 'mV', experiments: [0], operation: 'mean' })
+    editor.vm.$emit('update:document', withOutput)
+    await wrapper.vm.$nextTick()
+    expect(editor.props('document')).toEqual(withOutput)
+
+    await wrapper.find('button[aria-label="Undo"]').trigger('click')
+    expect(editor.props('document')).toBeNull()
+    await wrapper.find('button[aria-label="Redo"]').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+
+    const [extra] = useOmexStore().preservedExtras
+    expect(extra.location).toMatch(/obs_data\.json$/)
+    expect(useProtocolStore().source.document.prediction_items).toEqual(withOutput.prediction_items)
+    expect(withOutput.prediction_items).toEqual([
+      expect.objectContaining({ data_item_name: 'V_mean', operands: ['cell/V'], operation: 'mean', experiment_idx: 0, item_name_for_plotting: 'V_mean' }),
+    ])
   })
 })
