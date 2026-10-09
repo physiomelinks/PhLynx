@@ -228,7 +228,7 @@ describe('useProtocolExport', () => {
     useObsData({ ...OBS_DATA, prediction_items: [] })
     const exporter = useProtocolExport()
     await exporter.open()
-    expect(exporter.warnings.value).toContain('The protocol records no outputs, so the script has nothing to plot. Add some to its prediction_items.')
+    expect(exporter.warnings.value).toContain('The protocol records no outputs, so the script has nothing to plot. Add prediction_items to its obs_data file, by hand or in CUFLynx.')
     expect(exporter.warnings.value.some((warning) => warning.includes('#536'))).toBe(false)
   })
 
@@ -267,6 +267,7 @@ describe('useProtocolExport', () => {
     const script = await zip.file('run_protocol.py').async('string')
     expect(script).toContain("OBS_DATA = 'heart_obs_data.json'")
     expect(script).toContain('DT = 0.1  #')
+    expect(script).toContain("TIME_UNIT = 'second'  #")
     expect(script).toContain("    'a/k': 'instance_parameters/a_k',\n    # 'engine/pace': 'component/variable',")
     expect(script).toContain("    {'title': 'Peaks', 'x': {'input': 'a/k', 'subexperiment_idx': 0}, 'y': 'peak', 'series': None},")
     const readme = await zip.file('README.md').async('string')

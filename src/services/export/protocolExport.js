@@ -45,13 +45,19 @@ const NO_OPERATION = new Set(['', 'None', 'none', 'Null', 'null', 'nan'])
 export const isFeatureItem = (item) => item?.operation != null && !NO_OPERATION.has(String(item.operation).trim())
 
 /**
- * Names the group a prediction item is plotted in, as circulatory autogen defaults it: its item_name_for_plotting,
- * else its trace_name_for_plotting, else its first operand.
+ * Names the group a prediction item is plotted in, as circulatory autogen defaults it, its legacy keys read as their
+ * replacements (`variable` as data_item_name, `name_for_plotting` as trace_name_for_plotting): its
+ * item_name_for_plotting, else its trace_name_for_plotting, else its first operand, else its data_item_name.
  *
  * @param {Object} item
  * @returns {string}
  */
-export const nameItemGroup = (item) => item.item_name_for_plotting ?? item.trace_name_for_plotting ?? String(item.operands?.[0] ?? item.data_item_name ?? '')
+export function nameItemGroup(item) {
+  const name = item.data_item_name ?? item.variable
+  // CA records an item without operands as its own name.
+  const operand = Array.isArray(item.operands) && item.operands.length ? item.operands[0] : name
+  return String(item.item_name_for_plotting ?? item.trace_name_for_plotting ?? item.name_for_plotting ?? (String(operand ?? '') || String(name ?? '')))
+}
 
 /**
  * Reads an obs_data document's prediction items, and what the export needs to know of them.
@@ -199,22 +205,24 @@ function writeAssignment(name, value, comment, extraLines = []) {
  * @param {Object} options
  * @param {string} options.obsData - The obs_data file's name.
  * @param {number} options.dt - The time between recorded points.
+ * @param {string} [options.timeUnit] - The model's unit of time.
  * @param {Object} options.solverInfo - From buildSolverInfo.
  * @param {Object<string, string>} options.parameterNames - From buildParameterNames.
  * @param {string[]} [options.unresolved] - From buildParameterNames.
  * @param {Array<Object>} [options.featurePlots] - From buildFeaturePlots.
  * @returns {string} The lines between the header's markers.
  */
-export function buildScriptHeader({ obsData, dt, solverInfo, parameterNames, unresolved = [], featurePlots = [] }) {
+export function buildScriptHeader({ obsData, dt, timeUnit = '', solverInfo, parameterNames, unresolved = [], featurePlots = [] }) {
   return [
     `MODEL = ${formatPythonRepr(BUNDLE_FILES.model)}`,
     `OBS_DATA = ${formatPythonRepr(obsData)}`,
     `DT = ${formatPythonRepr(dt)}  # the time between recorded points`,
+    `TIME_UNIT = ${formatPythonRepr(timeUnit)}  # the unit of time, as the model has it`,
     ...writeAssignment('SOLVER_INFO', solverInfo, "CVODE's settings, as libcuflynx names them"),
     ...writeAssignment(
       'PARAMETER_NAMES',
       parameterNames,
-      "protocol parameters libcuflynx can't find in MODEL -> the model's names for them",
+      "protocol parameters libcuflynx can't find in MODEL -> the model's names for them, in outputs too",
       unresolved.map((parameter) => `# ${formatPythonRepr(parameter)}: 'component/variable',  # PhLynx found no variable for it in MODEL`)
     ),
     ...writeAssignment('FEATURE_PLOTS', featurePlots, 'features against another feature, a protocol input or the experiment'),
@@ -274,7 +282,8 @@ ${sedmlRows}| \`${BUNDLE_FILES.manifest}\` | The COMBINE archive manifest: renam
 
 ## Install
 
-Python 3.10 or later. libcuflynx runs the model with Myokit, which compiles it, so it needs a C compiler and SUNDIALS:
+Python 3.10 to 3.13: libcuflynx needs libcellml older than 0.7, which has no wheels for Python 3.14. libcuflynx runs the
+model with Myokit, which compiles it, so it needs a C compiler and SUNDIALS, and \`pip\` needs git to install it:
 
 - macOS: \`xcode-select --install\`, then \`brew install sundials\`.
 - Linux: your compiler (\`gcc\`) and SUNDIALS (\`libsundials-dev\` on Debian or Ubuntu).
@@ -298,18 +307,19 @@ released. Released libcuflynx 0.7.3, and CUFLynx until it updates, refuse an obs
 python ${BUNDLE_FILES.script}
 \`\`\`
 
-- \`--out DIR\`: where to write the results (\`results/\` by default).
+- \`--out DIR\`: where to write the results (\`results/\`, beside the script, by default).
 - \`--format png,svg,pdf\`: the figure formats to write.
 - \`--show\`: open the figures as well.
 
 ## Outputs
 
-In \`results/\`:
+In \`results/\`, beside the script:
 
 - \`traces.png\`: a plot per \`trace_name_for_plotting\` of the prediction items without an operation, each
   experiment in its colour (\`experiment_colors\`, \`experiment_labels\`).
 - \`features.png\`: a plot per feature (\`item_name_for_plotting\`), a point per experiment.
-- \`feature_plot_N.png\`: each of \`FEATURE_PLOTS\`, such as a current's peak against the voltage it was clamped at.
+- \`feature_plot_N.png\`: each of \`FEATURE_PLOTS\`, such as a current's peak against the voltage it was clamped at. One
+  whose feature wasn't computed, or has more than one item in an experiment, is skipped with a warning.
 - \`traces.csv\` and \`features.csv\`: every value plotted, a row per point.
 
 libcuflynx computes each feature with its own operation functions, over the sub-experiment's points, the first
@@ -317,9 +327,10 @@ included, so the numbers are those circulatory_autogen and CUFLynx compute.
 
 ## Changing what it runs and plots
 
-- **Outputs:** add or change \`prediction_items\` in \`${obsData}\`, in PhLynx's protocol editor or by hand.
-- **Settings:** the top of \`${BUNDLE_FILES.script}\`, between the lines PhLynx wrote: \`DT\`, \`SOLVER_INFO\`, \`FEATURE_PLOTS\`,
-  and \`PARAMETER_NAMES\`, which gives libcuflynx the model's name for a protocol parameter it can't find.
+- **Outputs:** add or change \`prediction_items\` in \`${obsData}\`, by hand or in CUFLynx.
+- **Settings:** the top of \`${BUNDLE_FILES.script}\`, between the lines PhLynx wrote: \`DT\`, \`TIME_UNIT\`, \`SOLVER_INFO\`, \`FEATURE_PLOTS\`,
+  and \`PARAMETER_NAMES\`, which gives libcuflynx the model's name for a protocol parameter it can't find, wherever the
+  protocol or its outputs name it.
 - **Plots:** each figure has its own function; add your own in \`your_plots\`, which gets the same tables as the CSVs.
 - A pulse shorter than \`SOLVER_INFO['MaximumStep']\` may be stepped over: lower it if one is.
 

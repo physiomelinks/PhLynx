@@ -13,6 +13,7 @@ import {
   fillScriptTemplate,
   generateProtocolZip,
   isFeatureItem,
+  nameItemGroup,
   readPredictionItems,
   validateFeaturePlots,
 } from '../../../../src/services/export/protocolExport.js'
@@ -78,6 +79,13 @@ describe('readPredictionItems', () => {
     expect(readPredictionItems({ prediction_items: [{ data_item_name: 'p', operands: ['a/b'], operation: 'max' }] }).featureGroups).toEqual([
       { name: 'a/b', experiments: [0] },
     ])
+  })
+
+  it('names the groups of items with legacy keys as CA does', () => {
+    expect(nameItemGroup({ variable: 'membrane/V', unit: 'mV', operation: 'max' })).toBe('membrane/V')
+    expect(nameItemGroup({ data_item_name: 'V_pk', name_for_plotting: 'Vpk', operands: ['membrane/V'], operation: 'max' })).toBe('Vpk')
+    expect(nameItemGroup({ data_item_name: 'V_pk', operands: [], operation: 'max' })).toBe('V_pk')
+    expect(nameItemGroup({ data_item_name: 'V_pk', operands: [''], operation: 'max' })).toBe('V_pk')
   })
 })
 
@@ -162,6 +170,7 @@ describe('buildScriptHeader', () => {
     const header = buildScriptHeader({
       obsData: "cell's_obs_data.json",
       dt: 0.05,
+      timeUnit: 'ms',
       solverInfo: { MaximumStep: 0.01, rtol: 1e-7, atol: 1e-7 },
       parameterNames: { 'soma_SN/g_M': 'instance_parameters/soma_SN_g_M' },
       unresolved: ['engine/pace'],
@@ -173,12 +182,13 @@ describe('buildScriptHeader', () => {
     expect(header).toBe(`MODEL = 'model.cellml'
 OBS_DATA = "cell's_obs_data.json"
 DT = 0.05  # the time between recorded points
+TIME_UNIT = 'ms'  # the unit of time, as the model has it
 SOLVER_INFO = {  # CVODE's settings, as libcuflynx names them
     'MaximumStep': 0.01,
     'rtol': 1e-07,
     'atol': 1e-07,
 }
-PARAMETER_NAMES = {  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them
+PARAMETER_NAMES = {  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them, in outputs too
     'soma_SN/g_M': 'instance_parameters/soma_SN_g_M',
     # 'engine/pace': 'component/variable',  # PhLynx found no variable for it in MODEL
 }
@@ -194,8 +204,9 @@ OPERATION_FUNCS_PATH = None  # a file of your own operation functions, for featu
     expect(header).toBe(`MODEL = 'model.cellml'
 OBS_DATA = 'obs_data.json'
 DT = 0.1  # the time between recorded points
+TIME_UNIT = ''  # the unit of time, as the model has it
 SOLVER_INFO = {}  # CVODE's settings, as libcuflynx names them
-PARAMETER_NAMES = {}  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them
+PARAMETER_NAMES = {}  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them, in outputs too
 FEATURE_PLOTS = []  # features against another feature, a protocol input or the experiment
 OPERATION_FUNCS_PATH = None  # a file of your own operation functions, for features that use them`)
     // The template's own header, so it runs as it is.
@@ -230,6 +241,9 @@ describe('buildBundleReadme', () => {
       expect(readme).toContain(text)
     }
     expect(readme).toContain('- Experiment 1: a warning.')
+    expect(readme).toContain('Python 3.10 to 3.13')
+    expect(readme).toContain('by hand or in CUFLynx')
+    expect(readme).not.toContain('protocol editor')
   })
 
   it('says why the SED-ML is left out, when it is', () => {

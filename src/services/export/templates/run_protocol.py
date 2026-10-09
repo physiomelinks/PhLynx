@@ -10,8 +10,9 @@ features.csv and a figure for each plot.
 MODEL = 'model.cellml'
 OBS_DATA = 'obs_data.json'
 DT = 0.1  # the time between recorded points
+TIME_UNIT = ''  # the unit of time, as the model has it
 SOLVER_INFO = {}  # CVODE's settings, as libcuflynx names them
-PARAMETER_NAMES = {}  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them
+PARAMETER_NAMES = {}  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them, in outputs too
 FEATURE_PLOTS = []  # features against another feature, a protocol input or the experiment
 OPERATION_FUNCS_PATH = None  # a file of your own operation functions, for features that use them
 # ---- End of what PhLynx wrote --------------------------------------------------------------------------------------
@@ -39,6 +40,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LINE_STYLES = ['-', '--', ':', '-.']
 
 
+def rename_operands(item):
+    """Gives an item the model's names for the parameters it records (PARAMETER_NAMES), its plotting names kept."""
+    name = item.get('data_item_name', item.get('variable'))
+    operands = item.get('operands') or ([name] if name is not None else [])  # libcuflynx's default: its own name
+    if not isinstance(operands, list) or not any(isinstance(o, str) and o in PARAMETER_NAMES for o in operands):
+        return
+    if item.get('trace_name_for_plotting') is None and 'name_for_plotting' not in item:
+        item['trace_name_for_plotting'] = str(operands[0])  # as libcuflynx would name it before the rename
+    item['operands'] = [PARAMETER_NAMES.get(o, o) if isinstance(o, str) else o for o in operands]
+
+
 def load():
     """OBS_DATA as written, and its protocol and prediction items as libcuflynx parses them, parameters renamed."""
     with open(os.path.join(HERE, OBS_DATA), encoding='utf-8-sig') as f:
@@ -46,10 +58,13 @@ def load():
     renamed = json.loads(json.dumps(obs))
     changes = renamed['protocol_info'].get('params_to_change', {})
     renamed['protocol_info']['params_to_change'] = {PARAMETER_NAMES.get(k, k): v for k, v in changes.items()}
+    for item in renamed.get('prediction_items') or []:
+        if isinstance(item, dict):
+            rename_operands(item)
     parsed = ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=renamed)
     if not parsed['prediction_info']['data_item_names']:
-        raise SystemExit(f'{OBS_DATA} has no prediction_items, so there is nothing to record. Add outputs to the '
-                         'protocol in PhLynx, or write prediction_items yourself.')
+        raise SystemExit(f'{OBS_DATA} has no prediction_items, so there is nothing to record. Add prediction_items to '
+                         'it, by hand or in CUFLynx.')
     return obs['protocol_info'], parsed['protocol_info'], parsed['prediction_info']
 
 
@@ -200,12 +215,13 @@ def trace_figure(traces, labels, colours):
                         label=None if r else (labels[e] if len(names) == 1 else f'{name} · {labels[e]}'))
         ax.set(title=group, ylabel=with_unit(group, rows['unit'].iloc[0]))
         ax.legend(fontsize='x-small')
-    axes[-1, 0].set_xlabel('Time')
+    axes[-1, 0].set_xlabel(with_unit('Time', TIME_UNIT))
     return fig
 
 
 def features_figure(features, labels, colours):
-    """A plot per feature (item_name_for_plotting): a point per experiment, in its colour."""
+    """A plot per feature (item_name_for_plotting): a point per experiment, in its colour, and a line per operation and
+    sub-experiment when the feature has more than one item in an experiment."""
     groups = list(dict.fromkeys(features['feature']))
     cols = min(len(groups), 3)
     rows_count = -(-len(groups) // cols)
@@ -213,11 +229,18 @@ def features_figure(features, labels, colours):
                              layout='constrained')
     for ax, group in zip(axes.flat, groups):
         rows = features[features['feature'] == group].sort_values('experiment')
-        x = rows['experiment'] + 1
-        ax.plot(x, rows['value'], color='0.7', zorder=1)
-        ax.scatter(x, rows['value'], c=[colours[e] for e in rows['experiment']], zorder=2)
-        ax.set_xticks(x, [labels[e] for e in rows['experiment']], rotation=30, ha='right')
+        repeated = rows['experiment'].duplicated().any()
+        parts = rows.groupby(['operation', 'subexperiment'], sort=False) if repeated else [((None, None), rows)]
+        for n, ((operation, s), own) in enumerate(parts):
+            x = own['experiment'] + 1
+            ax.plot(x, own['value'], color='0.7', ls=LINE_STYLES[n % 4], zorder=1,
+                    label=f'{operation}, sub-experiment {s + 1}' if repeated else None)
+            ax.scatter(x, own['value'], c=[colours[e] for e in own['experiment']], zorder=2)
+        experiments = sorted(set(rows['experiment']))
+        ax.set_xticks([e + 1 for e in experiments], [labels[e] for e in experiments], rotation=30, ha='right')
         ax.set(title=group, ylabel=with_unit(group, rows['unit'].iloc[0]))
+        if repeated:
+            ax.legend(fontsize='x-small')
     for ax in axes.flat[len(groups):]:
         ax.set_visible(False)
     return fig
@@ -232,16 +255,39 @@ def axis_values(axis, experiments, by, protocol_info):
     return by[axis].reindex(experiments).to_numpy()
 
 
-def axis_name(axis):
-    """A FEATURE_PLOTS axis's name."""
+def axis_name(axis, units):
+    """A FEATURE_PLOTS axis's name, a feature's with its unit."""
     if isinstance(axis, dict):
         return f"{axis['input']} (sub-experiment {axis['subexperiment_idx'] + 1})"
-    return 'Experiment' if axis == 'experiment' else axis
+    return 'Experiment' if axis == 'experiment' else with_unit(axis, units.get(axis))
+
+
+def plot_features(plot):
+    """The features a FEATURE_PLOTS pairing plots."""
+    return [axis for axis in (plot['y'], plot['x']) if isinstance(axis, str) and axis != 'experiment']
+
+
+def is_plottable(plot, features):
+    """Whether a FEATURE_PLOTS pairing can be drawn, warning why not: each of its features computed, once in an
+    experiment."""
+    names = plot_features(plot)
+    missing = [name for name in names if name not in set(features['feature'])]
+    twice = features[features.duplicated(['experiment', 'feature'], keep=False) & features['feature'].isin(names)]
+    if missing:
+        warnings.warn(f"The feature plot of {plot['y']} is skipped: no {', '.join(missing)} was computed (see the "
+                      'warnings above).')
+    elif len(twice):
+        warnings.warn(f"The feature plot of {plot['y']} is skipped: {', '.join(dict.fromkeys(twice['feature']))} has "
+                      f"more than one item in an experiment ({', '.join(twice['item'])}). Give each its own "
+                      f'item_name_for_plotting in {OBS_DATA}.')
+    return not missing and not len(twice)
 
 
 def feature_plot(plot, features, protocol_info):
     """A FEATURE_PLOTS pairing: a point per experiment, and a line per series value when it has a series."""
-    by = features.pivot_table(index='experiment', columns='feature', values='value')
+    names = plot_features(plot)
+    by = features[features['feature'].isin(names)].pivot(index='experiment', columns='feature', values='value')
+    units = features.groupby('feature')['unit'].first()
     df = pd.DataFrame({'y': by[plot['y']]}).dropna()
     df['x'] = axis_values(plot['x'], df.index, by, protocol_info)
     series = plot.get('series')
@@ -250,7 +296,8 @@ def feature_plot(plot, features, protocol_info):
     fig, ax = plt.subplots(figsize=(5, 3.5), layout='constrained')
     sns.lineplot(df.dropna(subset=['x']).sort_values('x'), x='x', y='y', hue='series' if series else None,
                  marker='o', ax=ax, sort=False)
-    ax.set(title=plot.get('title') or plot['y'], xlabel=axis_name(plot['x']), ylabel=plot['y'])
+    ax.set(title=plot.get('title') or plot['y'], xlabel=axis_name(plot['x'], units),
+           ylabel=with_unit(plot['y'], units[plot['y']]))
     if series:
         ax.get_legend().set_title(None)  # each entry names its input
     return fig
@@ -271,7 +318,8 @@ def your_plots(traces, features, labels, colours):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--out', default='results', help='where to write the figures and tables (default: results)')
+    parser.add_argument('--out', default=os.path.join(HERE, 'results'),
+                        help='where to write the figures and tables (default: results, beside this script)')
     parser.add_argument('--format', default='png', help='figure formats, comma-separated: png, svg, pdf')
     parser.add_argument('--show', action='store_true', help='open the figures as well')
     args = parser.parse_args()
@@ -280,6 +328,11 @@ def main():
     protocol_info, protocol, items = load()
     check_plots(protocol_info, items)
     traces, features, times = run(protocol, items)
+    # The tables first, so a plot that fails loses nothing computed.
+    os.makedirs(args.out, exist_ok=True)
+    traces.to_csv(os.path.join(args.out, 'traces.csv'), index=False)
+    features.to_csv(os.path.join(args.out, 'features.csv'), index=False)
+
     labels, colours = experiment_styles(protocol_info, len(times))
     sns.set_theme(style='ticks', context='paper')
     figures = {}
@@ -288,15 +341,13 @@ def main():
     if len(features):
         figures['features'] = features_figure(features, labels, colours)
     for n, plot in enumerate(FEATURE_PLOTS, 1):
-        figures[f'feature_plot_{n}'] = feature_plot(plot, features, protocol_info)
+        if is_plottable(plot, features):
+            figures[f'feature_plot_{n}'] = feature_plot(plot, features, protocol_info)
     figures.update(your_plots(traces, features, labels, colours))
 
-    os.makedirs(args.out, exist_ok=True)
     for name, fig in figures.items():
         for fmt in args.format.split(','):
             fig.savefig(os.path.join(args.out, f'{name}.{fmt.strip()}'), dpi=200)
-    traces.to_csv(os.path.join(args.out, 'traces.csv'), index=False)
-    features.to_csv(os.path.join(args.out, 'features.csv'), index=False)
     print(f'Wrote {len(figures)} figure(s), traces.csv and features.csv to {args.out}')
     if args.show:
         plt.show()
