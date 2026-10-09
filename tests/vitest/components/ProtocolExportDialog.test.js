@@ -134,6 +134,7 @@ describe('ProtocolExportDialog', () => {
     await mountDialog(createExporter({ featureGroups: [] }))
 
     expect(wrapper.text()).toContain('The protocol records no features.')
+    expect(wrapper.text()).toContain('add a Feature output, such as a mean or a peak, under Outputs in the protocol editor (Edit the protocol)')
     expect(button('Add feature plot').attributes('disabled')).toBeDefined()
   })
 

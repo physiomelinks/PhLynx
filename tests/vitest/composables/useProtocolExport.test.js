@@ -228,7 +228,7 @@ describe('useProtocolExport', () => {
     useObsData({ ...OBS_DATA, prediction_items: [] })
     const exporter = useProtocolExport()
     await exporter.open()
-    expect(exporter.warnings.value).toContain('The protocol records no outputs, so the script has nothing to plot. Add some under Outputs in the protocol editor.')
+    expect(exporter.warnings.value).toContain('The protocol records no outputs, so the script has nothing to plot. Add some under Outputs in the protocol editor (Edit the protocol).')
     expect(exporter.warnings.value.some((warning) => warning.includes('#536'))).toBe(false)
   })
 

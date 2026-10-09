@@ -63,8 +63,9 @@ def load():
             rename_operands(item)
     parsed = ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=renamed)
     if not parsed['prediction_info']['data_item_names']:
-        raise SystemExit(f'{OBS_DATA} has no prediction_items, so there is nothing to record. Add outputs in '
-                         "PhLynx's protocol editor and export again, or add prediction_items to it.")
+        raise SystemExit(f'{OBS_DATA} has no prediction_items, so there is nothing to record. Add outputs under '
+                         "Outputs in PhLynx's protocol editor (Edit the protocol) and export again, or add "
+                         'prediction_items to it.')
     return obs['protocol_info'], parsed['protocol_info'], parsed['prediction_info']
 
 

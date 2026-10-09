@@ -146,7 +146,7 @@ export function useProtocolExport() {
         // CUFLynx's limits among them.
         ...(prepared.value.warnings ?? []),
         ...(isReady.value && !predictions.value.items.length
-          ? ['The protocol records no outputs, so the script has nothing to plot. Add some under Outputs in the protocol editor.']
+          ? ['The protocol records no outputs, so the script has nothing to plot. Add some under Outputs in the protocol editor (Edit the protocol).']
           : []),
         ...(predictions.value.needsFeatureRelease
           ? [

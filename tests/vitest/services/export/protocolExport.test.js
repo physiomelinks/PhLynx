@@ -242,7 +242,7 @@ describe('buildBundleReadme', () => {
     }
     expect(readme).toContain('- Experiment 1: a warning.')
     expect(readme).toContain('Python 3.10 to 3.13')
-    expect(readme).toContain("PhLynx's protocol editor, under Outputs")
+    expect(readme).toContain("under Outputs in PhLynx's protocol editor (Edit the protocol)")
     expect(readme).not.toContain('by hand or in CUFLynx')
   })
 

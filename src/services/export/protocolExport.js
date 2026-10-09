@@ -327,8 +327,8 @@ included, so the numbers are those circulatory_autogen and CUFLynx compute.
 
 ## Changing what it runs and plots
 
-- **Outputs:** add or change them in PhLynx's protocol editor, under Outputs, and export again; or edit
-  \`prediction_items\` in \`${obsData}\`.
+- **Outputs:** add or change them under Outputs in PhLynx's protocol editor (Edit the protocol), and export again; or
+  edit \`prediction_items\` in \`${obsData}\`.
 - **Settings:** the top of \`${BUNDLE_FILES.script}\`, between the lines PhLynx wrote: \`DT\`, \`TIME_UNIT\`, \`SOLVER_INFO\`, \`FEATURE_PLOTS\`,
   and \`PARAMETER_NAMES\`, which gives libcuflynx the model's name for a protocol parameter it can't find, wherever the
   protocol or its outputs name it.

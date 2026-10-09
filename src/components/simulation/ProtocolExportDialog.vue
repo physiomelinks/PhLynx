@@ -41,7 +41,8 @@
           input too, such as a current's peak against the voltage it was clamped at: a point per experiment.
         </p>
         <p v-if="!featureGroups.length" class="section-hint">
-          The protocol records no features. To plot them here, add some to its outputs in the protocol editor.
+          The protocol records no features. To plot one here, add a Feature output, such as a mean or a peak, under
+          Outputs in the protocol editor (Edit the protocol).
         </p>
         <div v-for="(plot, p) in featurePlots" :key="p" class="feature-plot" role="group" :aria-label="`Feature plot ${p + 1}`">
           <div class="plot-line">
