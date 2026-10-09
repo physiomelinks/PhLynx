@@ -1,7 +1,7 @@
 """
 Checks that CUFLynx can run a protocol on a model PhLynx exported: it loads the CellML into Myokit as circulatory
 autogen does, then resolves each parameter the protocol sets with CA's own VariableNameResolver, and with the
-aliases for PhLynx's parameter components that src/services/protocol/protocolNames.js adds. It also checks
+aliases for PhLynx's parameter components that protocol-kit's protocolNames.js adds. It also checks
 Myokit's limits on inputs that change over time. Run by hand, not in CI:
 
     python3 scripts/protocol-parity/check_myokit_names.py model.cellml model_obs_data.json [path/to/circulatory_autogen]

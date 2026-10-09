@@ -1,11 +1,17 @@
 import { defineStore } from 'pinia'
 import { computed, markRaw, ref } from 'vue'
+import {
+  OBS_DATA_FORMAT,
+  buildObsDataLocation,
+  findCircAutogenLimits,
+  findObsDataExtra,
+  readObsDataParts,
+  readProtocolInfo,
+  serialiseObsData,
+  validateProtocolInfo,
+} from '@physiomelinks/protocol-kit'
 
-import { OBS_DATA_FORMAT, buildObsDataLocation, findObsDataExtra, readObsDataParts, serialiseObsData } from '../services/protocol/obsDataDocument'
 import { planDrivers } from '../services/protocol/libopencorEngine/protocolDrivers'
-import { findCircAutogenLimits } from '../services/protocol/protocolCompatibility'
-import { readProtocolInfo } from '../services/protocol/protocolModel'
-import { validateProtocolInfo } from '../services/protocol/protocolValidation'
 import { cyrb53 } from '../utils/misc'
 import { useOmexStore } from './omexStore'
 

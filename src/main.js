@@ -18,6 +18,7 @@ import 'markdown-it-github-alerts/styles/github-colors-light.css'
 import 'markdown-it-github-alerts/styles/github-colors-dark-class.css'
 import 'markdown-it-github-alerts/styles/github-base.css'
 import 'primeicons/primeicons.css'
+import '@physiomelinks/protocol-kit/editor.css'
 
 import './assets/style.css'
 import './assets/main.css'

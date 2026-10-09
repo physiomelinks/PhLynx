@@ -1,5 +1,6 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
+import { readProtocolInfo, validateProtocolInfo } from '@physiomelinks/protocol-kit'
 
 import {
   BUNDLE_FILES,
@@ -14,8 +15,6 @@ import {
   writeTarget,
 } from '../../../../src/services/export/protocolSedml.js'
 import { planDrivers } from '../../../../src/services/protocol/libopencorEngine/protocolDrivers.js'
-import { readProtocolInfo } from '../../../../src/services/protocol/protocolModel.js'
-import { validateProtocolInfo } from '../../../../src/services/protocol/protocolValidation.js'
 import { CLOCK_TIME, DRIVER_COMPONENT } from '../../../../src/services/simulation/protocolDriverModel.js'
 import { prepareProtocolRun } from '../../../../src/services/simulation/protocolRun.js'
 import { SERIES_COLOURS } from '../../../../src/services/simulation/seriesSlots.js'

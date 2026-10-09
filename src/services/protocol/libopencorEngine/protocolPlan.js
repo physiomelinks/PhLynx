@@ -4,8 +4,7 @@
  * its clock back at 0. The warm-up runs on its own, through CA's own count of points, so that the solver's limit on
  * steps between two points isn't spent on the whole of it.
  */
-import { changesDuringWarmUp } from '../protocolModel.js'
-import { PACING, findIntervals } from '../protocolShapes.js'
+import { PACING, changesDuringWarmUp, findIntervals } from '@physiomelinks/protocol-kit'
 
 // A protocol split into more runs than this would be slow to run.
 export const MAX_SEGMENTS = 2000
