@@ -55,7 +55,7 @@ describe('protocolStore', () => {
     expect(signWith({ prediction_items: [{ data_item_name: 'x', operands: ['a/x'], unit: 'm' }] })).toBe(plain)
     const withPeak = signWith({ prediction_items: [peak] })
     expect(withPeak).not.toBe(plain)
-    expect(signWith({ prediction_items: [peak], prediction_plots: [{ name: 'p', kind: 'feature_vs_experiment', x: null, y: 'a/x', series: null }] })).toBe(withPeak)
+    expect(signWith({ prediction_items: [peak], prediction_plots: [{ name: 'p', kind: 'feature_vs_feature', x: 'a/x', y: 'a/x', series: null }] })).toBe(withPeak)
   })
 
   it("shows the feature plots as the settings say, until switched, and again once reset", async () => {

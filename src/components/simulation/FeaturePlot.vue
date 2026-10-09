@@ -6,7 +6,7 @@
     </figcaption>
     <ul v-if="keyed.length > 1" class="plot-key">
       <li v-for="item in keyed" :key="item.key">
-        <span class="plot-key-swatch" :class="{ 'is-point': !item.showsLine }" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
+        <span class="plot-key-swatch" :class="swatchClass(item)" :style="swatchStyle(item)" aria-hidden="true"></span>{{ item.label }}
       </li>
     </ul>
     <div class="plot-area">
@@ -14,7 +14,7 @@
       <div v-if="readout" class="plot-readout" :style="{ left: `${readout.left}px`, top: `${readout.top}px` }" aria-hidden="true">
         <div class="plot-readout-x">{{ readout.x }}</div>
         <div v-for="row in readout.rows" :key="row.key" class="plot-readout-row">
-          <span class="plot-key-swatch" :style="{ background: row.colour }"></span>
+          <span class="plot-key-swatch" :class="swatchClass(row)" :style="swatchStyle(row)"></span>
           <span v-if="row.label" class="plot-readout-label">{{ row.label }}</span>
           <span class="plot-readout-value">{{ row.value }}</span>
         </div>
@@ -26,7 +26,8 @@
 <script setup>
 /**
  * One feature plot of a protocol run: a uPlot chart of points joined by lines, against the experiments, another
- * feature or a protocol input (see services/simulation/featureCharts.js).
+ * feature or a protocol input, and any measured values as rings with their std as whiskers (see
+ * services/simulation/featureCharts.js).
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import uPlot from 'uplot'
@@ -42,12 +43,17 @@ const props = defineProps({
   x: { type: Object, required: true }, // { label, unit, values, labels }, `labels` naming each value, or null
   // What the y axis is, when the title doesn't say.
   yLabel: { type: String, default: '' },
-  series: { type: Array, required: true }, // [{ key, label, slot, values, showsLine, showsPoints, isInKey }], slot null for no colour
+  // [{ key, label, slot, values, showsLine, showsPoints, isInKey, errors?, isMeasured? }], slot null for no colour,
+  // `errors` each value's std for a measured series
+  series: { type: Array, required: true },
   height: { type: Number, default: 220 },
 })
 
 // The readout's width, about, to keep it inside the chart.
 const READOUT_WIDTH_PX = 150
+// A point's size, and a measured one's ring, which its whiskers stop short of.
+const POINT_SIZE_PX = 8
+const WHISKER_CAP_PX = 4
 const AXIS_LABEL_FONT = '600 11px system-ui, -apple-system, "Segoe UI", sans-serif'
 
 const chartEl = ref(null)
@@ -64,6 +70,25 @@ const xTitle = computed(() => (props.x.unit && props.x.unit !== 'dimensionless' 
  * @returns {string}
  */
 const colourOf = (item) => (item.slot == null ? CHROME[isDarkMode.value ? 'dark' : 'light'].neutral : SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][item.slot])
+
+/**
+ * Classes a key or readout swatch: a line, a point, or a measured value's ring.
+ *
+ * @param {{showsLine: boolean, isMeasured?: boolean}} item
+ * @returns {Object}
+ */
+const swatchClass = (item) => ({ 'is-point': !item.showsLine, 'is-measured': !!item.isMeasured })
+
+/**
+ * Colours a key or readout swatch: filled, or a ring for a measured value.
+ *
+ * @param {Object} item - A series, or a readout row with its `colour`.
+ * @returns {Object}
+ */
+function swatchStyle(item) {
+  const colour = item.colour ?? colourOf(item)
+  return item.isMeasured ? { borderColor: colour } : { background: colour }
+}
 
 /**
  * Names an x value: its label, or the value.
@@ -109,8 +134,72 @@ function updateReadout(chart) {
     left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX),
     top: over.offsetTop + 6,
     x: nameX(chart.data[0][idx]),
-    rows: rows.map((item) => ({ key: item.key, label: keyed.value.length > 1 ? item.label : '', colour: colourOf(item), value: formatValue(item.values[idx]) })),
+    rows: rows.map((item) => ({
+      key: item.key,
+      label: keyed.value.length > 1 ? item.label : '',
+      colour: colourOf(item),
+      showsLine: item.showsLine,
+      isMeasured: !!item.isMeasured,
+      value: Number.isFinite(item.errors?.[idx]) ? `${formatValue(item.values[idx])} ± ${formatValue(item.errors[idx])}` : formatValue(item.values[idx]),
+    })),
   }
+}
+
+/**
+ * Pads the y range around the values and the measured values' whiskers, as uPlot pads its own.
+ *
+ * @param {Object} _ - The chart.
+ * @param {number|null} min
+ * @param {number|null} max
+ * @returns {number[]}
+ */
+function rangeY(_, min, max) {
+  let low = min ?? Infinity
+  let high = max ?? -Infinity
+  for (const { values, errors } of props.series) {
+    if (!errors) continue
+    values.forEach((value, index) => {
+      if (value == null || !Number.isFinite(errors[index])) return
+      low = Math.min(low, value - errors[index])
+      high = Math.max(high, value + errors[index])
+    })
+  }
+  return low <= high ? uPlot.rangeNum(low, high, 0.1, true) : [0, 1]
+}
+
+/**
+ * Draws each measured value's std as a whisker above and below its ring, capped.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function drawWhiskers(chart) {
+  const { ctx } = chart
+  const ratio = uPlot.pxRatio
+  const gap = (POINT_SIZE_PX / 2 + 1) * ratio
+  const cap = (WHISKER_CAP_PX / 2) * ratio
+  ctx.save()
+  ctx.lineWidth = 1.5 * ratio
+  props.series.forEach((item) => {
+    if (!item.errors) return
+    ctx.strokeStyle = colourOf(item)
+    ctx.beginPath()
+    item.values.forEach((value, index) => {
+      const error = item.errors[index]
+      if (value == null || !Number.isFinite(error) || error <= 0) return
+      const x = chart.valToPos(chart.data[0][index], 'x', true)
+      const centre = chart.valToPos(value, 'y', true)
+      for (const end of [chart.valToPos(value + error, 'y', true), chart.valToPos(value - error, 'y', true)]) {
+        const toward = Math.sign(end - centre)
+        if (Math.abs(end - centre) <= gap) continue
+        ctx.moveTo(x, centre + toward * gap)
+        ctx.lineTo(x, end)
+        ctx.moveTo(x - cap, end)
+        ctx.lineTo(x + cap, end)
+      }
+    })
+    ctx.stroke()
+  })
+  ctx.restore()
 }
 
 let plot = null
@@ -141,9 +230,9 @@ function buildOptions(width) {
   return {
     width,
     height: props.height,
-    scales: { x: { time: false, range: rangeX } },
+    scales: { x: { time: false, range: rangeX }, y: { range: rangeY } },
     cursor: { y: false, points: { size: 9 } },
-    hooks: { setCursor: [updateReadout] },
+    hooks: { setCursor: [updateReadout], draw: [drawWhiskers] },
     legend: { show: false },
     padding: [8, ({ axes }) => Math.max(12, Math.ceil(measureLabel(axes[0]?._values?.at(-1) ?? '') / 2) + 2), 0, 0],
     axes: [
@@ -158,7 +247,10 @@ function buildOptions(width) {
         width: item.showsLine ? 2 : 0,
         // A series of points alone draws no line.
         ...(!item.showsLine && { paths: () => null }),
-        points: { show: item.showsPoints, size: 8, width: 1, stroke: colourOf(item), fill: colourOf(item) },
+        // A measured value is a ring, its whiskers drawn after (drawWhiskers).
+        points: item.isMeasured
+          ? { show: true, size: POINT_SIZE_PX, width: 1.5, stroke: colourOf(item), fill: 'transparent' }
+          : { show: item.showsPoints, size: POINT_SIZE_PX, width: 1, stroke: colourOf(item), fill: colourOf(item) },
         spanGaps: true,
       })),
     ],
@@ -273,6 +365,12 @@ defineExpose({
   width: 8px;
   height: 8px;
   border-radius: 50%;
+}
+
+/* A measured value: a ring. */
+.plot-key-swatch.is-measured {
+  box-sizing: border-box;
+  border: 1.5px solid;
 }
 
 .plot-area {

@@ -523,6 +523,8 @@ class TestSimulationTab(unittest.TestCase):
             titles = tab.locator(".feature-plot .plot-title")
             expect(titles).to_have_text(["V_mean", "V_peak", "Mean voltage against g_M"])
             expect(tab.locator(".simulation-plot")).to_have_count(1)
+            # The input on x has the unit the run reported for it.
+            expect(tab.locator(".feature-plot").nth(2).locator(".u-wrap")).to_have_attribute("aria-label", re.compile(r"against soma_SN/g_M \(sub-experiment 2\) \(.+\)$"))
             # A point per experiment, in its colour, named in the key.
             expect(tab.locator(".feature-plot").first.locator(".plot-key li")).to_have_text(["SHR", "SHR M-activation"])
             # Plots only: no table of the values.

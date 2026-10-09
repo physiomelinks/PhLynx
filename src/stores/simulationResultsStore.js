@@ -38,11 +38,9 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   const featureOperands = shallowRef(new Map())
   /**
    * The protocol run's features, as circulatory_autogen computes them from the obs_data's prediction items as they
-   * are now; one whose variables the run didn't keep has an error.
+   * are now; one whose variables the run didn't keep has an error. One of the time alone needs no variable kept.
    */
-  const features = computed(() =>
-    protocolResults.value && featureOperands.value.size ? computeRunFeatures(protocolStore.source?.document, protocolResults.value, featureOperands.value) : []
-  )
+  const features = computed(() => (protocolResults.value ? computeRunFeatures(protocolStore.source?.document, protocolResults.value, featureOperands.value) : []))
   const mapping = shallowRef(null)
   /** The run's inspection module outputs: `[{ id, name, units, reportedName }]`. */
   const inspectionOutputs = shallowRef([])

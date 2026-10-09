@@ -4,9 +4,9 @@
  * unit; and after them, when asked for, a protocol run's feature plots.
  */
 import { computed, unref } from 'vue'
-import { computePlotSeries } from '@physiomelinks/protocol-kit'
+import { computePlotSeries, listPredictionPlots } from '@physiomelinks/protocol-kit'
 
-import { buildFeatureGroupCharts, buildPredictionPlotCharts } from '../services/simulation/featureCharts'
+import { addInputUnits, buildFeatureGroupCharts, buildPredictionPlotCharts } from '../services/simulation/featureCharts'
 import { resolveGroups } from '../services/simulation/plotSelections'
 import { INSPECTION_COMPONENT, isInspectionNodeId, readInspectionOutputId } from '../services/simulation/variableIndex'
 import { SERIES_COLOURS, assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
@@ -281,9 +281,14 @@ export function useSimulationCharts(scopeNodes, { hasInputs = false, hasFeatures
   // Plots only: a feature's value is read off its point.
   const featureCharts = computed(() => {
     if (!store.protocolResults || !(hasFeatures || protocolStore.isShowingFeatures) || !store.features.length) return []
+    const document = protocolStore.source?.document
     const names = store.protocolResults.experiments.map((_, e) => protocolStore.view?.experiments[e]?.label ?? `Experiment ${e + 1}`)
-    const plots = computePlotSeries(protocolStore.source?.document, store.features)
-    return [...buildFeatureGroupCharts(store.features, names), ...buildPredictionPlotCharts(plots, names)]
+    // An input's unit, as the run reported the variable that shows it.
+    const variables = store.protocolResults.experiments[0]?.variables
+    const unitOf = (parameter) => variables?.get(store.protocolInputs.get(parameter)?.name)?.unit ?? ''
+    const plots = addInputUnits(computePlotSeries(document, store.features), listPredictionPlots(document), unitOf)
+    const items = Array.isArray(document?.prediction_items) ? document.prediction_items : []
+    return [...buildFeatureGroupCharts(store.features, names, items), ...buildPredictionPlotCharts(plots, names)]
   })
 
   return { xAxis, charts, featureCharts }

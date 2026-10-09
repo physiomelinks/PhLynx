@@ -68,7 +68,8 @@ const experimentCount = computed(
   () => resultsStore.protocolResults?.experiments.length ?? (protocolStore.isProtocolMode ? protocolStore.view?.experiments.length ?? 0 : 0)
 )
 const hasInputs = computed(() => resultsStore.protocolResults != null && resultsStore.protocolInputs.size > 0)
-const hasFeatures = computed(() => resultsStore.features.length > 0)
+// Only features with a value are drawn.
+const hasFeatures = computed(() => resultsStore.features.some(({ value }) => Number.isFinite(value)))
 const isShown = computed(
   () => (props.withPicker && experimentCount.value > 1) || (props.withInputs && hasInputs.value) || (props.withFeatures && hasFeatures.value)
 )

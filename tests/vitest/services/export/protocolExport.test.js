@@ -82,10 +82,12 @@ describe('describePredictionPlots', () => {
     })
     expect(plots.map(({ name, pairing, series }) => [name, pairing, series])).toEqual([
       ['I–V', 'I_peak against membrane/V_clamp (sub-experiment 2)', 'a line per value of membrane/g (sub-experiment 2)'],
-      ['Steps', 'V_step across the experiments', null],
+      ['Steps', 'V_step', null],
       ['Odd', 'I_peak against V_step', null],
     ])
-    expect(plots.map(({ errors }) => errors.length)).toEqual([0, 0, 1])
+    expect(plots.map(({ errors }) => errors.length)).toEqual([0, 1, 1])
+    // Only the proposal's two kinds.
+    expect(plots[1].errors[0]).toMatch(/Its kind must be 'feature_vs_feature' or 'feature_vs_input', got 'feature_vs_experiment'/)
     expect(plots[2].errors[0]).toMatch(/x and y cover different experiments/)
     expect(describePredictionPlots(IV)).toEqual([])
     expect(describePredictionPlots(undefined)).toEqual([])

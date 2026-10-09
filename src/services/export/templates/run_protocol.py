@@ -38,9 +38,9 @@ except ImportError as error:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LINE_STYLES = ['-', '--', ':', '-.']
-# A prediction plot's keys, and the ways it reads x: another feature, an input's value, or the experiment.
+# A prediction plot's keys, and the ways it reads x: another feature, or an input's value.
 PLOT_KEYS = ('name', 'kind', 'x', 'y', 'series')
-PLOT_KINDS = ('feature_vs_feature', 'feature_vs_input', 'feature_vs_experiment')
+PLOT_KINDS = ('feature_vs_feature', 'feature_vs_input')
 
 
 def rename_operands(item):
@@ -112,7 +112,7 @@ def plot_problems(plot, groups, protocol_info, names):
         problems.append('another plot has its name')
     kind = plot.get('kind')
     if kind not in PLOT_KINDS:
-        problems.append(f'its kind must be {", ".join(PLOT_KINDS)}, not {kind!r}')
+        problems.append(f'its kind must be {" or ".join(PLOT_KINDS)}, not {kind!r}')
 
     def group(axis):
         name = plot.get(axis)
@@ -154,8 +154,6 @@ def plot_problems(plot, groups, protocol_info, names):
             problems.append('x and y cover different experiments; each point needs both')
     elif kind == 'feature_vs_input':
         input_ref('x', experiments)
-    elif kind == 'feature_vs_experiment' and plot.get('x') is not None:
-        problems.append(f"x is null for a feature_vs_experiment plot, not {plot['x']!r}")
     if plot.get('series') is not None:
         input_ref('series', experiments)
     return problems
@@ -291,9 +289,19 @@ def trace_figure(traces, labels, colours):
     return fig
 
 
-def features_figure(features, labels, colours):
-    """A plot per feature (item_name_for_plotting): a point per experiment, in its colour, and a line per operation and
-    sub-experiment when the feature has more than one item in an experiment."""
+def item_identity(items, name):
+    """What tells a feature's items apart across the experiments: its operation, sub-experiment, operands and
+    operation_kwargs, as PhLynx draws a line per item; and a label, and its operands and kwargs to add to it."""
+    i = items['data_item_names'].index(name)
+    operands, kwargs = list(items['operands'][i]), dict(items['operation_kwargs'][i] or {})
+    operation, s = items['operations'][i], int(items['subexperiment_idxs'][i])
+    detail = '; '.join(part for part in (', '.join(operands), ', '.join(f'{k} {v}' for k, v in kwargs.items())) if part)
+    return json.dumps([operation, s, operands, sorted(kwargs.items())], default=str), f'{operation}, sub-experiment {s + 1}', detail
+
+
+def features_figure(features, items, labels, colours):
+    """A plot per feature (item_name_for_plotting): a point per experiment, in its colour, and a line per item (its
+    operation, sub-experiment, operands and kwargs) when the feature has more than one item in an experiment."""
     groups = list(dict.fromkeys(features['feature']))
     cols = min(len(groups), 3)
     rows_count = -(-len(groups) // cols)
@@ -302,11 +310,21 @@ def features_figure(features, labels, colours):
     for ax, group in zip(axes.flat, groups):
         rows = features[features['feature'] == group].sort_values('experiment')
         repeated = rows['experiment'].duplicated().any()
-        parts = rows.groupby(['operation', 'subexperiment'], sort=False) if repeated else [((None, None), rows)]
-        for n, ((operation, s), own) in enumerate(parts):
+        if repeated:
+            identities = {name: item_identity(items, name) for name in rows['item']}
+            line = rows['item'].map(lambda name: identities[name][0])
+            names = {key: (label, detail) for key, label, detail in identities.values()}
+            bases = [label for label, _ in names.values()]
+            parts = [(key, rows[line == key]) for key in dict.fromkeys(line)]
+        else:
+            parts = [(None, rows)]
+        for n, (key, own) in enumerate(parts):
             x = own['experiment'] + 1
-            ax.plot(x, own['value'], color='0.7', ls=LINE_STYLES[n % 4], zorder=1,
-                    label=f'{operation}, sub-experiment {s + 1}' if repeated else None)
+            label = None
+            if repeated:
+                base, detail = names[key]
+                label = f'{base} ({detail})' if bases.count(base) > 1 and detail else base
+            ax.plot(x, own['value'], color='0.7', ls=LINE_STYLES[n % 4], zorder=1, label=label)
             ax.scatter(x, own['value'], c=[colours[e] for e in own['experiment']], zorder=2)
         experiments = sorted(set(rows['experiment']))
         ax.set_xticks([e + 1 for e in experiments], [labels[e] for e in experiments], rotation=30, ha='right')
@@ -318,29 +336,47 @@ def features_figure(features, labels, colours):
     return fig
 
 
-def plot_points(plot, features, protocol_info, groups):
-    """A prediction plot's points, as PhLynx pairs them: one per experiment of its y group, sorted by series, then x;
-    one whose feature wasn't computed is skipped with a warning."""
+def measured(items, name):
+    """A y item's own value and std, as obs_data gives them, or nan where it has none."""
+    i = items['data_item_names'].index(name)
+    number = lambda v: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else np.nan
+    return number(items['values'][i]), number(items['stds'][i])
+
+
+def plot_points(plot, features, items, protocol_info, groups):
+    """A prediction plot's points, as PhLynx pairs them: one per experiment of its y group, sorted by series, then x,
+    with the y item's measured value and std; one whose feature wasn't computed is skipped with a warning."""
     value = features.set_index(['feature', 'experiment'])['value']
     rows = []
     for e in sorted(groups[plot['y']]['by_experiment']):
         y = value.get((plot['y'], e), np.nan)
-        x = {'feature_vs_feature': lambda: value.get((plot['x'], e), np.nan),
-             'feature_vs_input': lambda: input_value(protocol_info, plot['x'], e)}.get(plot['kind'], lambda: e + 1)()
+        if plot['kind'] == 'feature_vs_feature':
+            x = value.get((plot['x'], e), np.nan)
+        else:
+            x = input_value(protocol_info, plot['x'], e)
         if not (np.isfinite(x) and np.isfinite(y)):
             warnings.warn(f"The feature plot {plot['name']} leaves out experiment {e + 1}: its features weren't computed "
                           '(see the warnings above).')
             continue
         series = input_value(protocol_info, plot['series'], e) if plot.get('series') else np.nan
-        rows.append({'experiment': e, 'x': float(x), 'y': float(y), 'series': series})
-    df = pd.DataFrame(rows, columns=['experiment', 'x', 'y', 'series'])
+        value_measured, std = measured(items, groups[plot['y']]['by_experiment'][e][0])
+        rows.append({'experiment': e, 'x': float(x), 'y': float(y), 'series': series, 'measured': value_measured, 'std': std})
+    df = pd.DataFrame(rows, columns=['experiment', 'x', 'y', 'series', 'measured', 'std'])
     return df.sort_values(['series', 'x'], kind='stable', na_position='first') if len(df) else df
 
 
-def prediction_plot(plot, features, protocol_info, groups, labels, colours):
+def draw_measured(ax, df, colour, label):
+    """A prediction plot's measured values, where its y items have them: rings with their std as error bars."""
+    own = df[np.isfinite(df['measured'])]
+    if len(own):
+        ax.errorbar(own['x'], own['measured'], yerr=own['std'].fillna(0), fmt='o', mfc='none', color=colour, capsize=3,
+                    zorder=3, label=label)
+
+
+def prediction_plot(plot, features, items, protocol_info, groups, labels, colours):
     """A prediction plot: a line per series value, in its own colour, or else a line through a point per experiment,
-    in its colour, as PhLynx draws it. None when it has no point."""
-    df = plot_points(plot, features, protocol_info, groups)
+    in its colour, and the y items' measured values with their std, as PhLynx draws it. None when it has no point."""
+    df = plot_points(plot, features, items, protocol_info, groups)
     if not len(df):
         warnings.warn(f"The feature plot {plot['name']} is skipped: none of its features were computed.")
         return None
@@ -349,16 +385,16 @@ def prediction_plot(plot, features, protocol_info, groups, labels, colours):
     if plot.get('series'):
         palette = sns.color_palette('deep', df['series'].nunique())
         for k, (value, line) in enumerate(df.groupby('series', sort=True)):
-            ax.plot(line['x'], line['y'], marker='o', color=palette[k], label=f"{describe_input(plot['series'])} = {value:g}")
+            label = f"{describe_input(plot['series'])} = {value:g}"
+            ax.plot(line['x'], line['y'], marker='o', color=palette[k], label=label)
+            draw_measured(ax, line, palette[k], f'{label}, measured')
     else:
         ax.plot(df['x'], df['y'], color='0.6', zorder=1)
         for _, point in df.iterrows():
             e = int(point['experiment'])
             ax.scatter(point['x'], point['y'], color=colours[e], zorder=2, label=labels[e])
-    if plot['kind'] == 'feature_vs_experiment':
-        ax.set_xticks(df['x'], [labels[int(e)] for e in df['experiment']], rotation=30, ha='right')
-        xlabel = 'Experiment'
-    elif plot['kind'] == 'feature_vs_input':
+        draw_measured(ax, df, '0.35', 'Measured')
+    if plot['kind'] == 'feature_vs_input':
         xlabel = describe_input(plot['x'])
     else:
         xlabel = with_unit(plot['x'], units.get(plot['x']))
@@ -411,7 +447,7 @@ def main():
     if len(traces):
         figures['traces'] = trace_figure(traces, labels, colours)
     if len(features):
-        figures['features'] = features_figure(features, labels, colours)
+        figures['features'] = features_figure(features, items, labels, colours)
     groups = feature_groups(items)
     names = [plot.get('name') for plot in plots if isinstance(plot, dict)]
     for n, plot in enumerate(plots, 1):
@@ -420,7 +456,7 @@ def main():
             name = plot.get('name') if isinstance(plot, dict) else None
             warnings.warn(f'The feature plot {name or n} is skipped: {"; ".join(problems)}.')
             continue
-        figure = prediction_plot(plot, features, protocol_info, groups, labels, colours) if len(features) else None
+        figure = prediction_plot(plot, features, items, protocol_info, groups, labels, colours) if len(features) else None
         if figure is not None:
             figures[figure_name(plot['name'], figures)] = figure
     figures.update(your_plots(traces, features, labels, colours))

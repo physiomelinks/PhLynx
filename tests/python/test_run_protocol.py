@@ -89,47 +89,61 @@ class PlotsTest(unittest.TestCase):
         self.assertEqual([(s.start, s.stop) for s in slices], [(0, 11), (10, 31)])
 
     def items(self, rows):
-        """Prediction items as libcuflynx parses them: (name, group, experiment, operation)."""
+        """Prediction items as libcuflynx parses them: (name, group, experiment, operation), and optionally a dict of
+        operands, operation_kwargs, subexperiment_idx, value and std."""
+        extra = [row[4] if len(row) > 4 else {} for row in rows]
         return {
             "data_item_names": [row[0] for row in rows],
             "item_names_for_plotting": [row[1] for row in rows],
             "experiment_idxs": [row[2] for row in rows],
             "operations": [row[3] for row in rows],
             "data_types": [None for _ in rows],
+            "operands": [e.get("operands", ["m/x"]) for e in extra],
+            "operation_kwargs": [e.get("operation_kwargs", {}) for e in extra],
+            "subexperiment_idxs": [e.get("subexperiment_idx", 0) for e in extra],
+            "values": [e.get("value") for e in extra],
+            "stds": [e.get("std") for e in extra],
         }
 
-    def test_plots_a_feature_against_another_an_input_and_the_experiment(self):
+    def test_plots_a_feature_against_another_or_an_input_with_its_measured_values(self):
         features = self.features(
             [("I_e0", "I_peak", 0, 1, "min", "nA", -1.0), ("I_e1", "I_peak", 1, 1, "min", "nA", -2.0),
              ("V_e0", "V_mean", 0, 1, "mean", "mV", 0.0), ("V_e1", "V_mean", 1, 1, "mean", "mV", -20.0)]
         )
-        groups = self.script.feature_groups(self.items([("I_e0", "I_peak", 0, "min"), ("I_e1", "I_peak", 1, "min"),
-                                                        ("V_e0", "V_mean", 0, "mean"), ("V_e1", "V_mean", 1, "mean")]))
+        items = self.items([("I_e0", "I_peak", 0, "min", {"value": -1.5, "std": 0.25}), ("I_e1", "I_peak", 1, "min"),
+                            ("V_e0", "V_mean", 0, "mean"), ("V_e1", "V_mean", 1, "mean")])
+        groups = self.script.feature_groups(items)
         protocol_info = {"params_to_change": {"m/Vc": [[-80, -20], [-80, 0]], "m/T": [[10, 10], [20, 20]]}}
         labels, colours = ["Control", "Blocked"], ["r", "b"]
         plot = {"name": "I-V", "kind": "feature_vs_feature", "x": "V_mean", "y": "I_peak", "series": None}
         self.assertEqual(self.script.plot_problems(plot, groups, protocol_info, ["I-V"]), [])
-        ax = self.script.prediction_plot(plot, features, protocol_info, groups, labels, colours).axes[0]
+        ax = self.script.prediction_plot(plot, features, items, protocol_info, groups, labels, colours).axes[0]
         self.assertEqual((ax.get_title(), ax.get_xlabel(), ax.get_ylabel()), ("I-V", "V_mean (mV)", "I_peak (nA)"))
-        # Sorted by x, a line of no colour of its own through a point per experiment, in its colour.
+        # Sorted by x, a line of no colour of its own through a point per experiment, in its colour, and the one
+        # measured value, with its std as an error bar.
         self.assertEqual(list(ax.lines[0].get_xdata()), [-20.0, 0.0])
-        self.assertEqual([text.get_text() for text in ax.get_legend().get_texts()], ["Blocked", "Control"])
+        self.assertEqual([text.get_text() for text in ax.get_legend().get_texts()], ["Blocked", "Control", "Measured"])
+        (bars,) = ax.containers
+        self.assertEqual((list(bars.lines[0].get_xdata()), list(bars.lines[0].get_ydata())), ([0.0], [-1.5]))
         plot = {"name": "I-V", "kind": "feature_vs_input", "x": {"params_to_change": "m/Vc", "subexperiment_idx": 1}, "y": "I_peak",
                 "series": {"params_to_change": "m/T", "subexperiment_idx": 0}}
-        ax = self.script.prediction_plot(plot, features, protocol_info, groups, labels, colours).axes[0]
+        ax = self.script.prediction_plot(plot, features, items, protocol_info, groups, labels, colours).axes[0]
         self.assertEqual(ax.get_xlabel(), "m/Vc (sub-experiment 2)")
-        self.assertEqual([list(line.get_ydata()) for line in ax.lines], [[-1.0], [-2.0]])
-        self.assertEqual([text.get_text() for text in ax.get_legend().get_texts()], ["m/T (sub-experiment 1) = 10", "m/T (sub-experiment 1) = 20"])
+        self.assertEqual([list(line.get_ydata()) for line in ax.lines if line.get_label().startswith("m/T")], [[-1.0], [-2.0]])
+        self.assertEqual([text.get_text() for text in ax.get_legend().get_texts()],
+                         ["m/T (sub-experiment 1) = 10", "m/T (sub-experiment 1) = 20", "m/T (sub-experiment 1) = 10, measured"])
+        # The proposal's two kinds only.
         plot = {"name": "Peaks", "kind": "feature_vs_experiment", "x": None, "y": "I_peak", "series": None}
-        ax = self.script.prediction_plot(plot, features, protocol_info, groups, labels, colours).axes[0]
-        self.assertEqual([tick.get_text() for tick in ax.get_xticklabels()], ["Control", "Blocked"])
+        self.assertEqual(self.script.plot_problems(plot, groups, protocol_info, ["Peaks"]),
+                         ["its kind must be feature_vs_feature or feature_vs_input, not 'feature_vs_experiment'"])
 
     def test_skips_a_prediction_plot_phlynx_would_not_draw_and_a_point_not_computed(self):
-        groups = self.script.feature_groups(self.items([("V_max", "membrane/V", 0, "max"), ("V_min", "membrane/V", 0, "min"),
-                                                        ("V", "trace", 0, None), ("I_e0", "I_peak", 0, "min")]))
+        items = self.items([("V_max", "membrane/V", 0, "max"), ("V_min", "membrane/V", 0, "min"), ("V", "trace", 0, None),
+                            ("I_e0", "I_peak", 0, "min")])
+        groups = self.script.feature_groups(items)
         protocol_info = {"params_to_change": {"m/Vc": [["step"]]}}
         problems = lambda plot: self.script.plot_problems(plot, groups, protocol_info, [plot.get("name")])
-        self.assertEqual(problems({"name": "a", "kind": "feature_vs_experiment", "x": None, "y": "membrane/V", "series": None}),
+        self.assertEqual(problems({"name": "a", "kind": "feature_vs_feature", "x": "I_peak", "y": "membrane/V", "series": None}),
                          ["y names 'membrane/V', which has more than one item in an experiment; a plot takes one"])
         self.assertEqual(problems({"name": "a", "kind": "feature_vs_feature", "x": "trace", "y": "nope", "colour": "r"}), [
             "it has keys it does not take: colour",
@@ -138,17 +152,28 @@ class PlotsTest(unittest.TestCase):
         ])
         self.assertEqual(problems({"name": "a", "kind": "feature_vs_input", "x": {"params_to_change": "m/Vc", "subexperiment_idx": 0}, "y": "I_peak"}),
                          ["x reads m/Vc (sub-experiment 1) in experiment 1, which is 'step', not a number"])
-        self.assertEqual(self.script.plot_problems({"name": "a", "kind": "feature_vs_experiment", "x": None, "y": "I_peak"}, groups, protocol_info, ["a", "a"]),
+        self.assertEqual(self.script.plot_problems({"name": "a", "kind": "feature_vs_feature", "x": "I_peak", "y": "I_peak"}, groups, protocol_info, ["a", "a"]),
                          ["another plot has its name"])
         features = self.features([("V_max", "membrane/V", 0, 0, "max", "mV", -21.1), ("V_min", "membrane/V", 0, 0, "min", "mV", -80.0)])
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            plot = {"name": "Peaks", "kind": "feature_vs_experiment", "x": None, "y": "I_peak", "series": None}
-            self.assertIsNone(self.script.prediction_plot(plot, features, protocol_info, groups, ["E1"], ["r"]))
+            plot = {"name": "Peaks", "kind": "feature_vs_feature", "x": "I_peak", "y": "I_peak", "series": None}
+            self.assertIsNone(self.script.prediction_plot(plot, features, items, protocol_info, groups, ["E1"], ["r"]))
         self.assertIn("The feature plot Peaks leaves out experiment 1", str(caught[0].message))
         # features.png draws a group with more than one item in an experiment apart, as a line each.
-        ax = self.script.features_figure(features, ["Experiment 1"], ["r"]).axes[0]
+        ax = self.script.features_figure(features, items, ["Experiment 1"], ["r"]).axes[0]
         self.assertEqual([text.get_text() for text in ax.get_legend().get_texts()], ["max, sub-experiment 1", "min, sub-experiment 1"])
+        # Two items of one operation and sub-experiment are told apart by their operands and kwargs.
+        items = self.items([("Na_e0", "I_peak", 0, "min", {"operands": ["i_Na/i"], "operation_kwargs": {"end_frac": 0.2}}),
+                            ("K_e0", "I_peak", 0, "min", {"operands": ["i_K/i"]}),
+                            ("Na_e1", "I_peak", 1, "min", {"operands": ["i_Na/i"], "operation_kwargs": {"end_frac": 0.2}}),
+                            ("K_e1", "I_peak", 1, "min", {"operands": ["i_K/i"]})])
+        features = self.features([("Na_e0", "I_peak", 0, 0, "min", "nA", -3.0), ("K_e0", "I_peak", 0, 0, "min", "nA", -1.0),
+                                  ("Na_e1", "I_peak", 1, 0, "min", "nA", -4.0), ("K_e1", "I_peak", 1, 0, "min", "nA", -2.0)])
+        ax = self.script.features_figure(features, items, ["E1", "E2"], ["r", "b"]).axes[0]
+        self.assertEqual([text.get_text() for text in ax.get_legend().get_texts()],
+                         ["min, sub-experiment 1 (i_Na/i; end_frac 0.2)", "min, sub-experiment 1 (i_K/i)"])
+        self.assertEqual([list(line.get_ydata()) for line in ax.lines], [[-3.0, -4.0], [-1.0, -2.0]])
 
     def test_names_a_figure_after_its_plot_once(self):
         self.assertEqual(self.script.figure_name("I–V curve (peak)", {"traces"}), "I_V_curve_peak")

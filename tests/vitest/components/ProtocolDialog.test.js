@@ -116,7 +116,7 @@ describe('ProtocolDialog', () => {
     const withOutput = addOutput(ensureProtocol(null), { name: 'V_mean', operands: ['cell/V'], unit: 'mV', experiments: [0], operation: 'mean' })
     editor.vm.$emit('update:document', withOutput)
     await wrapper.vm.$nextTick()
-    const withPlot = addPredictionPlot(editor.props('document'), { name: 'V_mean by experiment', kind: 'feature_vs_experiment', y: 'V_mean' })
+    const withPlot = addPredictionPlot(editor.props('document'), { name: 'V_mean vs V_mean', kind: 'feature_vs_feature', x: 'V_mean', y: 'V_mean' })
     editor.vm.$emit('update:document', withPlot)
     await wrapper.vm.$nextTick()
     await wrapper.find('button[aria-label="Undo"]').trigger('click')
@@ -124,7 +124,7 @@ describe('ProtocolDialog', () => {
     await wrapper.find('button[aria-label="Redo"]').trigger('click')
     await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
 
-    expect(useProtocolStore().source.document.prediction_plots).toEqual([{ name: 'V_mean by experiment', kind: 'feature_vs_experiment', x: null, y: 'V_mean', series: null }])
+    expect(useProtocolStore().source.document.prediction_plots).toEqual([{ name: 'V_mean vs V_mean', kind: 'feature_vs_feature', x: 'V_mean', y: 'V_mean', series: null }])
     expect(useProtocolStore().source.document.prediction_items).toEqual(withOutput.prediction_items)
   })
 })

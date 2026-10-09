@@ -78,7 +78,6 @@ export function describePredictionPlots(document) {
     const against = {
       feature_vs_feature: () => `against ${plot.x}`,
       feature_vs_input: () => (isInputReference(plot.x) ? `against ${describeInputReference(plot.x)}` : ''),
-      feature_vs_experiment: () => 'across the experiments',
     }[plot?.kind]
     return {
       name: String(plot?.name ?? ''),
