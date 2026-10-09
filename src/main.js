@@ -24,6 +24,7 @@ import './assets/main.css'
 import './assets/sanitisewarning.css'
 
 import router from './router'
+import { useNodeThemeStore } from './stores/nodeThemeStore'
 import App from './App.vue'
 import { waitForIsolationReload } from './utils/isolation'
 import { libopencor, loadLibOpenCOR } from './services/simulation/libopencorLoader'
@@ -61,4 +62,7 @@ waitForIsolationReload().then(() => {
 
   // In the background, so the simulator is ready by the time it's needed; nothing waits for it here.
   loadLibOpenCOR()
+
+  // Shared node colour themes load in the background; the built-in theme covers first paint.
+  useNodeThemeStore(pinia).init()
 })

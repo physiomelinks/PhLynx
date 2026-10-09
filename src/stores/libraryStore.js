@@ -185,8 +185,11 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   function addModule(module) {
+    // Recomputed every time, since a module put back by undo may carry a stale flag.
     if (!availableMath.value.has(module.mathRef) && module.mathRef !== GHOST_MATH_REF) {
       module.isStub = true
+    } else {
+      delete module.isStub
     }
 
     if (!availableModules.value.has(module.moduleRef)) {
@@ -440,15 +443,20 @@ export const useLibraryStore = defineStore('library', () => {
     availableCollections.value.set(newMathRef, existingSet)
   }
 
+  /**
+   * Removes a module and its place in its math's collection. Stubs, whose math is missing, go too.
+   *
+   * @param {string} moduleRef
+   */
   function removeModule(moduleRef) {
     if (!availableModules.value.has(moduleRef)) return
 
     const mathRef = availableModules.value.get(moduleRef).mathRef
     const set = availableCollections.value.get(mathRef)
-    if (!set) return
-
-    set.delete(moduleRef)
-    if (set.size === 0) availableCollections.value.delete(mathRef)
+    if (set) {
+      set.delete(moduleRef)
+      if (set.size === 0) availableCollections.value.delete(mathRef)
+    }
 
     availableModules.value.delete(moduleRef)
   }

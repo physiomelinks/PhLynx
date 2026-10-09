@@ -8,6 +8,7 @@ import {
   cycleMultiportType,
   isMultiport,
   multiplyFactor,
+  multiportSummary,
   parseMultiport,
   restorePortVariables,
   setMultiport,
@@ -247,4 +248,188 @@ it('round-trips a per-variable multi_port through a bundled config', () => {
   const exitPort = module.ports.find((p) => p.portType === 'exit_ports')
   expect(variableTypes(exitPort)).toEqual(['Sum', 'True'])
   expect(restorePorts(module.ports).exit_ports[0].multi_port).toEqual(['sum', 'True'])
+})
+
+describe('multiportSummary', () => {
+  const own = (variables, multiportType, multiplyFactor, label = 'own') => ({
+    label,
+    portType: 'general_ports',
+    variables,
+    multiportType,
+    multiplyFactor,
+  })
+  const other = (variables, multiportType, multiplyFactor, label = 'other') => ({
+    label,
+    portType: 'general_ports',
+    variables,
+    multiportType,
+    multiplyFactor,
+  })
+  const edge = (id, source, target, sourcePort, targetPort) => ({ id, source, target, data: { couplings: [{ sourcePort, targetPort }] } })
+  const names = { hub: 'Hub', a: 'Leaf A', b: 'Leaf B' }
+  const nameOf = (id) => names[id] ?? id
+  /** The summary for node hub, its ports unedited. */
+  const summarise = (ports, edges) =>
+    multiportSummary('hub', edges, { nameOf, ownPorts: ports.map((port) => ({ original: port, current: port })) })
+  const brief = (entry) => entry.terms.map(({ nodeId, variable, factor, role }) => ({ nodeId, variable, factor, role }))
+
+  it('sums the paired variable of every connection, on either end of the edge', () => {
+    const hub = own(['v_sum'], 'Sum')
+    const [entry] = summarise(
+      [hub],
+      [edge('e1', 'hub', 'a', hub, other(['v'], 'None')), edge('e2', 'b', 'hub', other(['w'], 'True'), hub)]
+    )
+    expect(entry).toMatchObject({ variable: 'v_sum', portLabel: 'own', type: 'Sum', issues: [], pending: false })
+    expect(entry.terms).toEqual([
+      { nodeId: 'a', nodeName: 'Leaf A', edgeId: 'e1', portLabel: 'other', variable: 'v', factor: 1, role: 'term' },
+      { nodeId: 'b', nodeName: 'Leaf B', edgeId: 'e2', portLabel: 'other', variable: 'w', factor: 1, role: 'term' },
+    ])
+  })
+
+  it("scales a summed term by a Multiply neighbour's factor", () => {
+    const hub = own(['v_sum'], 'Sum')
+    const [entry] = summarise([hub], [edge('e1', 'hub', 'a', hub, other(['v'], 'Multiply', 2))])
+    expect(brief(entry)).toEqual([{ nodeId: 'a', variable: 'v', factor: 2, role: 'term' }])
+  })
+
+  it('sends a Multiply variable times its factor to a plain or Sum neighbour', () => {
+    const hub = own(['q'], 'Multiply', 3)
+    const [entry] = summarise(
+      [hub],
+      [edge('e1', 'hub', 'a', hub, other(['q_in'], 'None')), edge('e2', 'hub', 'b', hub, other(['q_sum'], 'Sum'))]
+    )
+    expect(entry).toMatchObject({ type: 'Multiply', factor: 3 })
+    expect(brief(entry)).toEqual([
+      { nodeId: 'a', variable: 'q_in', factor: 3, role: 'scaled' },
+      { nodeId: 'b', variable: 'q_sum', factor: 3, role: 'feedsSum' },
+    ])
+  })
+
+  it('lists only Sum and Multiply variables of a per-variable port, pairing by position', () => {
+    const hub = own(['v_sum', 'u', 'q'], ['sum', 'True', 'multiply'], [null, null, 4])
+    const entries = summarise([hub], [edge('e1', 'hub', 'a', hub, other(['v', 'u', 'q_in'], 'True'))])
+    expect(entries.map(({ variable, type }) => [variable, type])).toEqual([
+      ['v_sum', 'Sum'],
+      ['q', 'Multiply'],
+    ])
+    expect(brief(entries[0])).toEqual([{ nodeId: 'a', variable: 'v', factor: 1, role: 'term' }])
+    expect(brief(entries[1])).toEqual([{ nodeId: 'a', variable: 'q_in', factor: 4, role: 'scaled' }])
+  })
+
+  it('lists a Sum variable nothing is connected to with no terms', () => {
+    const [entry] = summarise([own(['v_sum'], 'Sum')], [])
+    expect(entry).toMatchObject({ variable: 'v_sum', terms: [], issues: [] })
+  })
+
+  it('ignores plain variables, plain ports and edges that do not reach the node', () => {
+    const hub = own(['v_sum'], 'Sum')
+    const entries = summarise(
+      [hub, own(['u'], 'True', undefined, 'shared')],
+      [edge('e1', 'a', 'b', other(['v'], 'None'), other(['v'], 'None'))]
+    )
+    expect(entries).toHaveLength(1)
+    expect(entries[0].terms).toEqual([])
+  })
+
+  it('reads both ends of an edge from the node to itself', () => {
+    const hub = own(['v_sum'], 'Sum')
+    const loop = own(['v'], 'None', undefined, 'loop')
+    const [entry] = summarise([hub, loop], [edge('e1', 'hub', 'hub', hub, loop)])
+    expect(brief(entry)).toEqual([{ nodeId: 'hub', variable: 'v', factor: 1, role: 'term' }])
+  })
+
+  it.each([
+    ['Sum', 'Sum'],
+    ['Multiply', 'Multiply'],
+  ])('reports a %s variable paired with another %s variable', (type) => {
+    const hub = own(['x'], type, 2)
+    const [entry] = summarise([hub], [edge('e1', 'hub', 'a', hub, other(['y'], type, 2))])
+    expect(entry).toMatchObject({ terms: [], connected: true })
+    expect(entry.issues).toEqual([`"x" and "y" are both ${type} variables.`])
+  })
+
+  it('reports a conflict once however many neighbours repeat it', () => {
+    const hub = own(['x'], 'Sum')
+    const [entry] = summarise([hub], ['a', 'b'].map((id) => edge(id, 'hub', id, hub, other(['y'], 'Sum'))))
+    expect(entry.issues).toEqual(['"x" and "y" are both Sum variables.'])
+  })
+
+  it('notes a Sum variable that another of the node\'s ports connects', () => {
+    const hub = own(['x'], 'Sum', undefined, 'unused')
+    const shared = own(['x'], 'True', undefined, 'shared')
+    const [entry] = summarise([hub, shared], [edge('e1', 'hub', 'a', shared, other(['y'], 'None'))])
+    expect(entry).toMatchObject({ terms: [], connected: false, linkedElsewhere: true })
+  })
+
+  it('reports ports of different lengths', () => {
+    const hub = own(['v_sum', 'u'], ['sum', 'True'])
+    const [entry] = summarise([hub], [edge('e1', 'hub', 'a', hub, other(['v'], 'None'))])
+    expect(entry.issues).toEqual(['Ports "own" and "other" need the same number of variables to sum or multiply.'])
+  })
+
+  it('reports malformed types and factors instead of throwing', () => {
+    const hub = own(['q'], 'Multiply', 'lots')
+    const [entry] = summarise([hub], [edge('e1', 'hub', 'a', hub, other(['q_in', 'x'], ['sum']))])
+    expect(entry.factor).toBeNull()
+    expect(entry.issues).toEqual([
+      'Port "own" variable "q" needs a numeric multiply factor.',
+      'Port "other" has 1 multiport entries for 2 variables.',
+    ])
+  })
+
+  it('reports a variable summed through two connected ports', () => {
+    const first = own(['v_sum'], 'Sum', undefined, 'in')
+    const second = own(['v_sum'], 'Sum', undefined, 'out')
+    const entries = summarise(
+      [first, second],
+      [edge('e1', 'hub', 'a', first, other(['v'], 'None')), edge('e2', 'hub', 'b', second, other(['w'], 'None'))]
+    )
+    expect(entries.map((entry) => entry.issues)).toEqual([
+      ['"v_sum" sums through ports "in" and "out"; a variable can be summed through one port only.'],
+      ['"v_sum" sums through ports "in" and "out"; a variable can be summed through one port only.'],
+    ])
+  })
+
+  it('does not change its inputs', () => {
+    const hub = own(['v_sum'], 'Sum')
+    const edges = [edge('e1', 'hub', 'a', hub, other(['v'], 'Multiply', 'bad'))]
+    const frozen = structuredClone(edges)
+    summarise([hub], edges)
+    expect(edges).toEqual(frozen)
+  })
+
+  describe('as the ports are edited', () => {
+    const saved = own(['v', 'u'], 'True')
+    const edges = [edge('e1', 'hub', 'a', saved, other(['w', 'u'], 'None'))]
+
+    it('reads types and factors from the edited port and connections from the saved one', () => {
+      const current = { ...saved, variables: ['v_renamed', 'u'], multiportType: ['multiply', 'True'], multiplyFactor: 5 }
+      const [entry] = multiportSummary('hub', edges, { nameOf, ownPorts: [{ original: saved, current }] })
+      expect(entry).toMatchObject({ variable: 'v_renamed', type: 'Multiply', factor: 5, pending: false })
+      expect(brief(entry)).toEqual([{ nodeId: 'a', variable: 'w', factor: 5, role: 'scaled' }])
+    })
+
+    it.each([
+      ['label', { label: 'renamed' }],
+      ['type', { portType: 'exit_ports' }],
+    ])('marks a port whose %s changed as pending, since saving recouples it', (_, change) => {
+      const current = { ...saved, multiportType: 'Sum', ...change }
+      const entries = multiportSummary('hub', edges, { nameOf, ownPorts: [{ original: saved, current }] })
+      expect(entries.every((entry) => entry.pending && !entry.terms.length)).toBe(true)
+    })
+
+    it('marks a port added, or given other variables, as pending, with no terms', () => {
+      const added = own(['x'], 'Sum', undefined, 'new')
+      const grown = { ...saved, variables: ['v', 'u', 'z'], multiportType: 'Sum' }
+      const entries = multiportSummary('hub', edges, {
+        nameOf,
+        ownPorts: [
+          { original: undefined, current: added },
+          { original: saved, current: grown },
+        ],
+      })
+      expect(entries.every((entry) => entry.pending && !entry.terms.length)).toBe(true)
+      expect(entries.map((entry) => entry.variable)).toEqual(['x', 'v', 'u', 'z'])
+    })
+  })
 })

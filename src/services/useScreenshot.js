@@ -1,6 +1,8 @@
 import { toJpeg as ElToJpg, toPng as ElToPng } from 'html-to-image'
 import { ref } from 'vue'
 
+import { buildFlowSvg } from './export/svg'
+
 export function useScreenshot() {
   const dataUrl = ref('')
   const imgType = ref('png')
@@ -23,15 +25,18 @@ export function useScreenshot() {
     fixEdges(el)
     let data
 
-    const readableDate = new Date().toISOString().slice(0, 19).replace('T', '-T').replace(/:/g, '-')
-    const fileName = options.fileName ?? `phylnx-screenshot-D${readableDate}`
+    const fileName = options.fileName ?? defaultFileName()
+    const format = options.format ?? 'png'
 
-    switch (options.type) {
+    switch (format) {
       case 'jpeg':
         data = await toJpeg(el, options)
         break
       case 'png':
         data = await toPng(el, options)
+        break
+      case 'svg':
+        data = toSvg(el, options)
         break
       default:
         data = await toPng(el, options)
@@ -90,6 +95,35 @@ export function useScreenshot() {
         error.value = err
         throw new Error(err)
       })
+  }
+
+  /**
+   * Draws the flow as a native SVG (vector shapes and text, no embedded bitmap), for posters and
+   * figures that need to scale.
+   *
+   * @param {HTMLElement} el - The `.vue-flow` element.
+   * @param {Object} options
+   * @param {{ x: number, y: number, zoom: number }} options.viewport
+   * @returns {string|null} The SVG markup, or null when there is nothing to draw.
+   */
+  function toSvg(el, options = {}) {
+    error.value = null
+    try {
+      const svg = buildFlowSvg(el, options)
+      if (!svg) return null
+      if (dataUrl.value.startsWith('blob:')) URL.revokeObjectURL(dataUrl.value)
+      dataUrl.value = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
+      imgType.value = 'svg'
+      return svg
+    } catch (err) {
+      error.value = err
+      throw err
+    }
+  }
+
+  function defaultFileName() {
+    const readableDate = new Date().toISOString().slice(0, 19).replace('T', '-T').replace(/:/g, '-')
+    return `phlynx-screenshot-D${readableDate}`
   }
 
   function download(fileName) {
