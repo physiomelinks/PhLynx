@@ -13,7 +13,7 @@ import {
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
 import { addProtocolClock, addProtocolDrivers } from '../services/simulation/protocolDriverModel'
-import { prepareProtocolRun } from '../services/simulation/protocolRun'
+import { clampSolverSettings, prepareProtocolRun } from '../services/simulation/protocolRun'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -306,16 +306,20 @@ export function useSimulation() {
   }
 
   /**
-   * Prepares the protocol's export: the scope flattened as runProtocolOn flattens it, with its drivers and the
-   * protocol's clock (see addProtocolClock) written in, then read by the simulator to find the protocol's parameters in
-   * it and plan its run. Refused while a run is going, as the simulator reads one model at a time.
+   * Prepares the protocol's export: the scope flattened as runProtocolOn flattens it, kept plain for the script, and
+   * with its drivers and the protocol's clock (see addProtocolClock) written in for the SED-ML. The simulator reads
+   * the second to find the protocol's parameters in it and plan its run. When it can't be planned, the SED-ML is left
+   * out, with why, and the simulator reads the plain model instead. Refused while a run is going, as the simulator
+   * reads one model at a time.
    *
    * @param {Object} [options]
    * @param {string[]|null} [options.nodeIds] - The nodes to export, or null for every node; by default the last run's.
-   * @returns {Promise<{errors: string[], warnings: string[], cellml?: string, scope?: Object, scopeNodeIds?: string[]|null, plan?: Object,
-   *   targets?: Map<string, string>, inputs?: Map<string, Object>, drivers?: Array<Object>, settings?: Object, mapping?: Map<string, string>,
-   *   variables?: Map<string, {kind: string, unit: string}>, inspectionOutputs?: Array<Object>,
-   *   voi?: {name: string, unit: string}}>} Only `errors` and `warnings` when it can't be prepared.
+   * @returns {Promise<{errors: string[], warnings: string[], cellml?: string, scope?: Object, scopeNodeIds?: string[]|null,
+   *   settings?: Object, mapping?: Map<string, string>, variables?: Map<string, {kind: string, unit: string}>,
+   *   inspectionOutputs?: Array<Object>, voi?: {name: string, unit: string}, sedml?: {cellml: string, plan: Object,
+   *   targets: Map<string, string>, inputs: Map<string, Object>, drivers: Array<Object>}|null, sedmlProblem?: string|null}>}
+   *   Only `errors` and `warnings` when it can't be prepared. `cellml` is the plain model, and `settings` the run's,
+   *   with CVODE's step clamped for the drivers.
    */
   async function prepareProtocolExport({ nodeIds = store.scopeNodeIds } = {}) {
     // A run still flattening its model hasn't started yet, but will read it with the simulator.
@@ -332,55 +336,55 @@ export function useSimulation() {
     if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'], warnings }
     // As runProtocolOn flattens it: the model as it is, without the sliders' values.
     const withOverrides = applyParameterOverrides(scope, libraryStore, selectRunOverrides(true))
-    let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+    const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
     const libcellml = await whenLibCellMLReady()
-    if (protocolStore.drivers.length) {
-      const added = addProtocolDrivers({ libcellml, cellml, drivers: protocolStore.drivers })
-      if (added.errors.length) return { errors: added.errors, warnings }
-      cellml = added.cellml
+    const { drivers } = protocolStore
+    let driven = cellml
+    let sedmlProblem = null
+    if (drivers.length) {
+      const added = addProtocolDrivers({ libcellml, cellml: driven, drivers })
+      if (added.errors.length) sedmlProblem = added.errors.join(' ')
+      else driven = added.cellml
     }
-    // Each experiment's own time, from the end of its warm-up, for the exported plots' time axes.
-    const clocked = addProtocolClock({ libcellml, cellml })
-    if (clocked.errors.length) return { errors: clocked.errors, warnings }
-    cellml = clocked.cellml
+    // Each experiment's own time, from the end of its warm-up, for the SED-ML's time axes.
+    if (!sedmlProblem) {
+      const clocked = addProtocolClock({ libcellml, cellml: driven })
+      if (clocked.errors.length) sedmlProblem = clocked.errors.join(' ')
+      else driven = clocked.cellml
+    }
     if (busy()) return { ...refusal, warnings }
 
-    const built = { key: ++sessionCount, cellml }
+    const built = { key: ++sessionCount, cellml: sedmlProblem ? cellml : driven }
     // The worker keeps one model, and reading this one replaces the one kept, so the next run flattens afresh. Forgotten
     // before reading, so a run started meanwhile doesn't rerun a model the worker no longer has.
     session = null
     let described
     try {
-      described = await simulator.describeModel({ cellml, key: built.key })
+      described = await simulator.describeModel({ cellml: built.cellml, key: built.key })
     } catch (error) {
       return { errors: [error.message], warnings }
     }
     const mapped = await mapResults(built, scope, described)
-    const prepared = prepareProtocolRun({
-      view: protocolStore.view,
-      drivers: protocolStore.drivers,
-      nodes: scope.nodes,
-      mapping: mapped.mapping,
-      variables: described.variables,
-      settings: { ...simulationSettingsStore.simulationSettings },
-    })
+    const settings = clampSolverSettings({ ...simulationSettingsStore.simulationSettings }, drivers)
+    const prepared = sedmlProblem
+      ? null
+      : prepareProtocolRun({ view: protocolStore.view, drivers, nodes: scope.nodes, mapping: mapped.mapping, variables: described.variables, settings })
+    if (prepared?.errors.length) sedmlProblem = prepared.errors.join(' ')
     return {
-      errors: prepared.errors,
-      warnings: [...warnings, ...prepared.warnings.filter((message) => !warnings.includes(message))],
+      errors: [],
+      warnings: [...warnings, ...(prepared?.warnings ?? []).filter((message) => !warnings.includes(message))],
       cellml,
       scope,
       scopeNodeIds: nodeIds,
-      plan: prepared.plan,
-      targets: prepared.targets,
-      inputs: prepared.inputs,
-      // The drivers written into the model, which the SED-ML reads a driven input's number from.
-      drivers: protocolStore.drivers,
-      settings: prepared.settings,
+      settings,
       mapping: mapped.mapping,
       // With their units, unlike the kept model's, for the export's axes.
       variables: new Map([...described.variables].map(([name, { kind, unit }]) => [name, { kind, unit }])),
       inspectionOutputs: mapped.inspectionOutputs,
       voi: { name: described.voi?.name ?? '', unit: described.voi?.unit ?? '' },
+      // What the SED-ML runs: PhLynx's plan, on the model with its drivers and clock written in.
+      sedml: sedmlProblem ? null : { cellml: driven, plan: prepared.plan, targets: prepared.targets, inputs: prepared.inputs, drivers },
+      sedmlProblem,
     }
   }
 

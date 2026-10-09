@@ -50,15 +50,15 @@
         @click="downloadPng"
       />
       <!-- Wrapped, so its reason shows while it's disabled. -->
-      <span v-if="protocolStore.hasProtocol" v-tooltip.bottom="sedmlHint" class="sedml-button">
+      <span v-if="protocolStore.hasProtocol" v-tooltip.bottom="exportHint" class="export-button">
         <Button
-          label="SED-ML"
+          label="Export protocol"
           icon="pi pi-file-export"
           size="small"
           outlined
-          :disabled="!canExportSedml"
-          aria-label="Export the protocol as SED-ML, with a Python script that runs it"
-          @click="sedmlExport.open()"
+          :disabled="!canExportProtocol"
+          aria-label="Export the protocol, with a Python script that runs it and plots its outputs"
+          @click="protocolExport.open()"
         />
       </span>
     </div>
@@ -94,14 +94,14 @@
       />
     </div>
 
-    <ProtocolSedmlExportDialog v-if="protocolStore.hasProtocol" :exporter="sedmlExport" />
+    <ProtocolExportDialog v-if="protocolStore.hasProtocol" :exporter="protocolExport" />
   </Dialog>
 </template>
 
 <script setup>
 /**
  * The plotted results at full size: the Simulation tab's charts with their cursors in step, their values
- * downloadable as CSV and the charts as one PNG, and a protocol exportable as SED-ML. Beside them, as in the tab, an
+ * downloadable as CSV and the charts as one PNG, and a protocol exportable with a script that runs it. Beside them, as in the tab, an
  * instance's plotted variables and sliders can be changed.
  */
 import { computed, ref } from 'vue'
@@ -112,10 +112,10 @@ import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
-import ProtocolSedmlExportDialog from './ProtocolSedmlExportDialog.vue'
+import ProtocolExportDialog from './ProtocolExportDialog.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
-import { useProtocolSedmlExport } from '../../composables/useProtocolSedmlExport'
+import { useProtocolExport } from '../../composables/useProtocolExport'
 import { buildResultsCsv, collectResultColumns, composeChartsImage } from '../../services/simulation/resultsExport'
 import { useProtocolStore } from '../../stores/protocolStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -139,14 +139,14 @@ const emit = defineEmits(['change', 'play'])
 
 const protocolStore = useProtocolStore()
 const resultsStore = useSimulationResultsStore()
-const sedmlExport = useProtocolSedmlExport()
+const protocolExport = useProtocolExport()
 // The protocol exports once it's valid, and not mid-run, as exporting reads the model with the simulator.
-const canExportSedml = computed(() => resultsStore.status !== 'running' && !protocolStore.validation.errors.length && !!protocolStore.view)
-const sedmlHint = computed(() =>
+const canExportProtocol = computed(() => resultsStore.status !== 'running' && !protocolStore.validation.errors.length && !!protocolStore.view)
+const exportHint = computed(() =>
   resultsStore.status === 'running'
     ? 'Export the protocol once the run finishes'
-    : canExportSedml.value
-      ? 'Export the protocol as SED-ML, with a Python script that runs it and draws its plots'
+    : canExportProtocol.value
+      ? 'Export the protocol, with a Python script that runs it and plots its outputs'
       : 'Fix the protocol’s errors to export it'
 )
 const RUN_MODES = [
@@ -272,7 +272,7 @@ function downloadPng() {
   overflow-y: auto;
 }
 
-.sedml-button {
+.export-button {
   display: inline-flex;
 }
 

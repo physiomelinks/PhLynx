@@ -1,6 +1,4 @@
-python-libsedml>=2.0.34
-myokit>=1.39
-numpy
-pandas
+# libcuflynx from circulatory_autogen #536, which computes prediction items' features; a release will replace it.
+libcuflynx @ git+https://github.com/physiomelinks/circulatory_autogen@7e9fdb5518861d56a359d9f4328ff8d759c17af2
 matplotlib>=3.8
 seaborn>=0.13
