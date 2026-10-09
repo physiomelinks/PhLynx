@@ -48,16 +48,16 @@ import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
 
 const CHROME = {
-  light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7' },
-  dark: { text: '#c3c2b7', grid: '#2c2c2a', axis: '#383835' },
+  light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7', band: 'rgba(82, 81, 78, 0.06)' },
+  dark: { text: '#c3c2b7', grid: '#2c2c2a', axis: '#383835', band: 'rgba(195, 194, 183, 0.07)' },
 }
 const props = defineProps({
   title: { type: String, required: true },
   // The title as instance/variable paths, to show each instance muted, or null to show `title`.
   titleParts: { type: Array, default: null },
   unit: { type: String, required: true },
-  x: { type: Object, required: true }, // { label, unit, values }
-  series: { type: Array, required: true }, // [{ key, label, slot, values }]
+  x: { type: Object, required: true }, // { label, unit, values, segments? }, segments [{ from, to, number }]
+  series: { type: Array, required: true }, // [{ key, label, slot, values, isStepped? }]
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
   syncKey: { type: String, default: null },
@@ -81,14 +81,40 @@ function formatTicks(_, splits) {
   return splits.map((value) => value.toFixed(decimals))
 }
 
+const AXIS_FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif'
+// What an axis takes beside its labels: uPlot's ticks (10px) and the gap after them (5px), and a little to spare.
+const AXIS_CHROME_PX = 18
+let measuringContext = null
+
 /**
- * Sizes the value axis to fit its longest tick label; its unit is in the chart's heading.
+ * Measures a tick label as the axis draws it.
+ *
+ * @param {string} text
+ * @returns {number} Pixels.
+ */
+function measureLabel(text) {
+  measuringContext ??= document.createElement('canvas').getContext('2d')
+  if (!measuringContext) return text.length * 7
+  measuringContext.font = AXIS_FONT
+  return measuringContext.measureText(text).width
+}
+
+/**
+ * Sizes the value axis to fit its widest tick label; its unit is in the chart's heading.
  *
  * @param {Object} _ - The chart.
  * @param {string[]|null} values - The tick labels, once known.
  * @returns {number} Pixels.
  */
-const sizeValueAxis = (_, values) => Math.max(32, Math.ceil(Math.max(0, ...(values ?? []).map((value) => value.length)) * 6.5) + 12)
+const sizeValueAxis = (_, values) => Math.max(32, Math.ceil(Math.max(0, ...(values ?? []).map(measureLabel))) + AXIS_CHROME_PX)
+
+/**
+ * Pads the chart's right side by half its last time label, which is centred on the right edge, so it isn't cut off.
+ *
+ * @param {Object} chart
+ * @returns {number} Pixels.
+ */
+const padRight = (chart) => Math.max(12, Math.ceil(measureLabel(chart.axes[0]?._values?.at(-1) ?? '') / 2) + 2)
 
 /**
  * Formats a value for the readout, to 5 significant figures.
@@ -142,10 +168,46 @@ function updateReadout(chart) {
   readout.value = {
     left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX),
     top: over.offsetTop + 6,
-    time: `${formatValue(chart.data[0][idx])}${props.x.unit ? ` ${shortUnit(props.x.unit)}` : ''}`,
+    time: `${formatValue(chart.data[0][idx])}${props.x.unit ? ` ${shortUnit(props.x.unit)}` : ''}${findSegmentLabel(chart.data[0][idx])}`,
     rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
   }
 }
+/**
+ * Names the sub-experiment a time falls in, for the readout; the later one at a boundary.
+ *
+ * @param {number} time
+ * @returns {string} ` · sub n`, or nothing outside a protocol.
+ */
+function findSegmentLabel(time) {
+  const segment = (props.x.segments ?? []).findLast(({ from, to }) => time >= from && time <= to)
+  return segment ? ` · sub ${segment.number}` : ''
+}
+
+/**
+ * Shades every other sub-experiment of a protocol's run behind the lines, so where each starts shows.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function drawSegments(chart) {
+  const segments = props.x.segments ?? []
+  if (segments.length < 2) return
+  const { ctx, bbox } = chart
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(bbox.left, bbox.top, bbox.width, bbox.height)
+  ctx.clip()
+  ctx.fillStyle = CHROME[isDarkMode.value ? 'dark' : 'light'].band
+  segments.forEach(({ from, to }, index) => {
+    if (index % 2 === 0) return
+    const left = chart.valToPos(from, 'x', true)
+    const right = chart.valToPos(to, 'x', true)
+    ctx.fillRect(left, bbox.top, right - left, bbox.height)
+  })
+  ctx.restore()
+}
+
+const STEPPED_PATHS = uPlot.paths.stepped({ align: -1 })
+
 let plot = null
 // The time range zoomed into, kept across new values and redraws; null when showing the whole run.
 let zoom = getChartZoom(props.zoomKey)
@@ -200,7 +262,7 @@ function buildOptions(width) {
     stroke: chrome.text,
     grid: { stroke: chrome.grid, width: 1 },
     ticks: { stroke: chrome.axis, width: 1 },
-    font: '11px system-ui, -apple-system, "Segoe UI", sans-serif',
+    font: AXIS_FONT,
   })
   // The time's unit on its last tick, in place of an axis title under the ticks.
   const timeTicks = (chart, splits) => {
@@ -214,9 +276,9 @@ function buildOptions(width) {
     scales: { x: { time: false } },
     // Synced charts plot different series, so hiding one mustn't hide its namesake by position elsewhere.
     cursor: { y: false, points: { size: 8 }, ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false } }) },
-    hooks: { setScale: [recordZoom], setCursor: [updateReadout] },
+    hooks: { setScale: [recordZoom], setCursor: [updateReadout], drawClear: [drawSegments] },
     legend: { show: false },
-    padding: [8, 12, 0, 0],
+    padding: [8, padRight, 0, 0],
     axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],
     series: [
       { label: props.x.label },
@@ -225,6 +287,10 @@ function buildOptions(width) {
         stroke: SERIES_COLOURS[theme][series.slot],
         width: 2,
         points: { show: false },
+        // Every experiment shown at once has points only at its own times; its line carries on across the others'.
+        spanGaps: true,
+        // A value that changes at a point holds from the point before, so a step shows where its sub-experiment starts.
+        ...(series.isStepped && { paths: STEPPED_PATHS }),
       })),
     ],
   }

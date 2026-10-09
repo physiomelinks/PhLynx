@@ -1,0 +1,577 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sedML xmlns="http://sed-ml.org/sed-ml/level1/version4" xmlns:cellml="http://www.cellml.org/cellml/2.0#" level="1" version="4">
+  <listOfModels>
+    <model id="model" language="urn:sedml:language:cellml.2_0" source="model.cellml"/>
+  </listOfModels>
+  <listOfSimulations>
+    <uniformTimeCourse id="sim1" initialTime="0" outputStartTime="0" outputEndTime="1" numberOfSteps="10">
+      <algorithm kisaoID="KISAO:0000019">
+        <listOfAlgorithmParameters>
+          <algorithmParameter kisaoID="KISAO:0000209" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000211" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000415" value="50000"/>
+          <algorithmParameter kisaoID="KISAO:0000467" value="0.01"/>
+          <algorithmParameter kisaoID="KISAO:0000475" value="BDF"/>
+          <algorithmParameter kisaoID="KISAO:0000476" value="Newton"/>
+          <algorithmParameter kisaoID="KISAO:0000477" value="Dense"/>
+          <algorithmParameter kisaoID="KISAO:0000478" value="Banded"/>
+          <algorithmParameter kisaoID="KISAO:0000479" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000480" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000481" value="true"/>
+        </listOfAlgorithmParameters>
+      </algorithm>
+    </uniformTimeCourse>
+    <uniformTimeCourse id="sim2" initialTime="1" outputStartTime="1" outputEndTime="2" numberOfSteps="10">
+      <algorithm kisaoID="KISAO:0000019">
+        <listOfAlgorithmParameters>
+          <algorithmParameter kisaoID="KISAO:0000209" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000211" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000415" value="50000"/>
+          <algorithmParameter kisaoID="KISAO:0000467" value="0.01"/>
+          <algorithmParameter kisaoID="KISAO:0000475" value="BDF"/>
+          <algorithmParameter kisaoID="KISAO:0000476" value="Newton"/>
+          <algorithmParameter kisaoID="KISAO:0000477" value="Dense"/>
+          <algorithmParameter kisaoID="KISAO:0000478" value="Banded"/>
+          <algorithmParameter kisaoID="KISAO:0000479" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000480" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000481" value="true"/>
+        </listOfAlgorithmParameters>
+      </algorithm>
+    </uniformTimeCourse>
+    <uniformTimeCourse id="sim3" initialTime="0" outputStartTime="0.1" outputEndTime="2" numberOfSteps="19">
+      <algorithm kisaoID="KISAO:0000019">
+        <listOfAlgorithmParameters>
+          <algorithmParameter kisaoID="KISAO:0000209" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000211" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000415" value="50000"/>
+          <algorithmParameter kisaoID="KISAO:0000467" value="0.01"/>
+          <algorithmParameter kisaoID="KISAO:0000475" value="BDF"/>
+          <algorithmParameter kisaoID="KISAO:0000476" value="Newton"/>
+          <algorithmParameter kisaoID="KISAO:0000477" value="Dense"/>
+          <algorithmParameter kisaoID="KISAO:0000478" value="Banded"/>
+          <algorithmParameter kisaoID="KISAO:0000479" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000480" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000481" value="true"/>
+        </listOfAlgorithmParameters>
+      </algorithm>
+    </uniformTimeCourse>
+    <uniformTimeCourse id="sim4" initialTime="0" outputStartTime="0.1" outputEndTime="1.9000000000000001" numberOfSteps="18">
+      <algorithm kisaoID="KISAO:0000019">
+        <listOfAlgorithmParameters>
+          <algorithmParameter kisaoID="KISAO:0000209" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000211" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000415" value="50000"/>
+          <algorithmParameter kisaoID="KISAO:0000467" value="0.01"/>
+          <algorithmParameter kisaoID="KISAO:0000475" value="BDF"/>
+          <algorithmParameter kisaoID="KISAO:0000476" value="Newton"/>
+          <algorithmParameter kisaoID="KISAO:0000477" value="Dense"/>
+          <algorithmParameter kisaoID="KISAO:0000478" value="Banded"/>
+          <algorithmParameter kisaoID="KISAO:0000479" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000480" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000481" value="true"/>
+        </listOfAlgorithmParameters>
+      </algorithm>
+    </uniformTimeCourse>
+    <uniformTimeCourse id="sim5" initialTime="1.9000000000000001" outputStartTime="2" outputEndTime="2" numberOfSteps="1">
+      <algorithm kisaoID="KISAO:0000019">
+        <listOfAlgorithmParameters>
+          <algorithmParameter kisaoID="KISAO:0000209" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000211" value="1e-10"/>
+          <algorithmParameter kisaoID="KISAO:0000415" value="50000"/>
+          <algorithmParameter kisaoID="KISAO:0000467" value="0.01"/>
+          <algorithmParameter kisaoID="KISAO:0000475" value="BDF"/>
+          <algorithmParameter kisaoID="KISAO:0000476" value="Newton"/>
+          <algorithmParameter kisaoID="KISAO:0000477" value="Dense"/>
+          <algorithmParameter kisaoID="KISAO:0000478" value="Banded"/>
+          <algorithmParameter kisaoID="KISAO:0000479" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000480" value="0"/>
+          <algorithmParameter kisaoID="KISAO:0000481" value="true"/>
+        </listOfAlgorithmParameters>
+      </algorithm>
+    </uniformTimeCourse>
+  </listOfSimulations>
+  <listOfTasks>
+    <task id="task1" modelReference="model" simulationReference="sim1"/>
+    <task id="task2" modelReference="model" simulationReference="sim2"/>
+    <task id="task3" modelReference="model" simulationReference="sim3"/>
+    <task id="task4" modelReference="model" simulationReference="sim4"/>
+    <task id="task5" modelReference="model" simulationReference="sim5"/>
+    <repeatedTask id="exp0" range="exp0_range" resetModel="true" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp0_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp0_warmup_st" order="1" task="exp0_warmup"/>
+        <subTask id="exp0_logged_st" order="2" task="exp0_logged"/>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp0_warmup" range="exp0_warmup_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp0_warmup_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp0_w0" order="1" task="task1">
+          <listOfChanges>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0.5</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='time_offset']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>1</cn>
+              </math>
+            </setValue>
+          </listOfChanges>
+        </subTask>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp0_logged" range="exp0_logged_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp0_logged_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp0_sub0_st" order="1" task="exp0_sub0"/>
+        <subTask id="exp0_sub1_st" order="2" task="exp0_sub1"/>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp0_sub0" range="exp0_sub0_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp0_sub0_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp0_s0_seg0" order="1" task="task2">
+          <listOfChanges>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0.5</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='time_offset']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>1</cn>
+              </math>
+            </setValue>
+          </listOfChanges>
+        </subTask>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp0_sub1" range="exp0_sub1_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp0_sub1_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp0_s1_seg0" order="1" task="task3">
+          <listOfChanges>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>2</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='time_offset']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>-1</cn>
+              </math>
+            </setValue>
+          </listOfChanges>
+        </subTask>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp1" range="exp1_range" resetModel="true" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp1_range">
+          <value>1</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp1_warmup_st" order="1" task="exp1_warmup"/>
+        <subTask id="exp1_logged_st" order="2" task="exp1_logged"/>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp1_warmup" range="exp1_warmup_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp1_warmup_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp1_w0" order="1" task="task1">
+          <listOfChanges>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>1</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='time_offset']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>1</cn>
+              </math>
+            </setValue>
+          </listOfChanges>
+        </subTask>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp1_logged" range="exp1_logged_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp1_logged_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp1_sub0_st" order="1" task="exp1_sub0"/>
+        <subTask id="exp1_sub1_st" order="2" task="exp1_sub1"/>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp1_sub0" range="exp1_sub0_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp1_sub0_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp1_s0_seg0" order="1" task="task2">
+          <listOfChanges>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>1</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='time_offset']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>1</cn>
+              </math>
+            </setValue>
+          </listOfChanges>
+        </subTask>
+      </listOfSubTasks>
+    </repeatedTask>
+    <repeatedTask id="exp1_sub1" range="exp1_sub1_range" resetModel="false" concatenate="true">
+      <listOfRanges>
+        <vectorRange id="exp1_sub1_range">
+          <value>0</value>
+        </vectorRange>
+      </listOfRanges>
+      <listOfSubTasks>
+        <subTask id="exp1_s1_seg0" order="1" task="task4">
+          <listOfChanges>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0.25</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='time_offset']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>-1</cn>
+              </math>
+            </setValue>
+          </listOfChanges>
+        </subTask>
+        <subTask id="exp1_s1_seg1_single" order="2" task="task5">
+          <listOfChanges>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0.25</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>0.5</cn>
+              </math>
+            </setValue>
+            <setValue modelReference="model" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='time_offset']">
+              <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <cn>-1</cn>
+              </math>
+            </setValue>
+          </listOfChanges>
+        </subTask>
+      </listOfSubTasks>
+    </repeatedTask>
+  </listOfTasks>
+  <listOfDataGenerators>
+    <dataGenerator id="dg_e0_time" name="Time · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='experiment_time']" taskReference="exp0_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e0_in0" name="k · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']" taskReference="exp0_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e0_tr0" name="x · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp0_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e0_tr1" name="u · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']" taskReference="exp0_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e0_f0" name="mean_x_sub2 · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp0_sub1" dimensionTerm="KISAO:0000841"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e0_f1" name="swing_x_sub1 · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <apply>
+          <minus/>
+          <ci>vmax</ci>
+          <ci>vmin</ci>
+        </apply>
+      </math>
+      <listOfVariables>
+        <variable id="vmax" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp0_sub0" dimensionTerm="KISAO:0000830"/>
+        <variable id="vmin" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp0_sub0" dimensionTerm="KISAO:0000840"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e0_fp0_x" name="instance_parameters/k · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <cn>2</cn>
+      </math>
+    </dataGenerator>
+    <dataGenerator id="dg_e0_fp1_x" name="Experiment · Experiment 1">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <cn>1</cn>
+      </math>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_time" name="Time · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='protocol_clock']/cellml:variable[@name='experiment_time']" taskReference="exp1_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_in0" name="k · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='k']" taskReference="exp1_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_tr0" name="x · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp1_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_tr1" name="u · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='instance_parameters']/cellml:variable[@name='u']" taskReference="exp1_logged"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_f0" name="mean_x_sub2 · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <ci>v</ci>
+      </math>
+      <listOfVariables>
+        <variable id="v" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp1_sub1" dimensionTerm="KISAO:0000841"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_f1" name="swing_x_sub1 · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <apply>
+          <minus/>
+          <ci>vmax</ci>
+          <ci>vmin</ci>
+        </apply>
+      </math>
+      <listOfVariables>
+        <variable id="vmax" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp1_sub0" dimensionTerm="KISAO:0000830"/>
+        <variable id="vmin" target="/cellml:model/cellml:component[@name='decay']/cellml:variable[@name='x']" taskReference="exp1_sub0" dimensionTerm="KISAO:0000840"/>
+      </listOfVariables>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_fp0_x" name="instance_parameters/k · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <cn>0.25</cn>
+      </math>
+    </dataGenerator>
+    <dataGenerator id="dg_e1_fp1_x" name="Experiment · Experiment 2">
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <cn>2</cn>
+      </math>
+    </dataGenerator>
+  </listOfDataGenerators>
+  <listOfOutputs>
+    <plot2D id="plot_inputs_e0" name="Inputs · Experiment 1" legend="true">
+      <xAxis type="linear" name="Time (second)"/>
+      <yAxis type="linear" name="k (per_second)"/>
+      <listOfCurves>
+        <curve id="c_inputs_e0_in0" name="k · Experiment 1" style="style_e0" xDataReference="dg_e0_time" yDataReference="dg_e0_in0"/>
+      </listOfCurves>
+    </plot2D>
+    <plot2D id="plot_inputs_e1" name="Inputs · Experiment 2" legend="true">
+      <xAxis type="linear" name="Time (second)"/>
+      <yAxis type="linear" name="k (per_second)"/>
+      <listOfCurves>
+        <curve id="c_inputs_e1_in0" name="k · Experiment 2" style="style_e1" xDataReference="dg_e1_time" yDataReference="dg_e1_in0"/>
+      </listOfCurves>
+    </plot2D>
+    <plot2D id="plot_g0_e0" name="State · Experiment 1" legend="true">
+      <xAxis type="linear" name="Time (second)"/>
+      <yAxis type="linear" name="x (dimensionless)"/>
+      <listOfCurves>
+        <curve id="c_g0_e0_tr0" name="x · Experiment 1" style="style_e0" xDataReference="dg_e0_time" yDataReference="dg_e0_tr0"/>
+      </listOfCurves>
+    </plot2D>
+    <plot2D id="plot_g0_e1" name="State · Experiment 2" legend="true">
+      <xAxis type="linear" name="Time (second)"/>
+      <yAxis type="linear" name="x (dimensionless)"/>
+      <listOfCurves>
+        <curve id="c_g0_e1_tr0" name="x · Experiment 2" style="style_e1" xDataReference="dg_e1_time" yDataReference="dg_e1_tr0"/>
+      </listOfCurves>
+    </plot2D>
+    <plot2D id="plot_g1_e0" name="Input · Experiment 1" legend="true">
+      <xAxis type="linear" name="Time (second)"/>
+      <yAxis type="linear" name="u (per_second)"/>
+      <listOfCurves>
+        <curve id="c_g1_e0_tr1" name="u · Experiment 1" style="style_e0" xDataReference="dg_e0_time" yDataReference="dg_e0_tr1"/>
+      </listOfCurves>
+    </plot2D>
+    <plot2D id="plot_g1_e1" name="Input · Experiment 2" legend="true">
+      <xAxis type="linear" name="Time (second)"/>
+      <yAxis type="linear" name="u (per_second)"/>
+      <listOfCurves>
+        <curve id="c_g1_e1_tr1" name="u · Experiment 2" style="style_e1" xDataReference="dg_e1_time" yDataReference="dg_e1_tr1"/>
+      </listOfCurves>
+    </plot2D>
+    <figure id="figure_traces" numRows="3" numCols="2">
+      <listOfSubPlots>
+        <subPlot plot="plot_inputs_e0" row="1" col="1"/>
+        <subPlot plot="plot_inputs_e1" row="1" col="2"/>
+        <subPlot plot="plot_g0_e0" row="2" col="1"/>
+        <subPlot plot="plot_g0_e1" row="2" col="2"/>
+        <subPlot plot="plot_g1_e0" row="3" col="1"/>
+        <subPlot plot="plot_g1_e1" row="3" col="2"/>
+      </listOfSubPlots>
+    </figure>
+    <plot2D id="plot_fp0" name="Mean x against k" legend="true">
+      <xAxis type="linear" name="instance_parameters/k (per_second)"/>
+      <yAxis type="linear" name="mean_x_sub2"/>
+      <listOfCurves>
+        <curve id="c_fp0_e0" name="Experiment 1" style="style_fp0_e0" xDataReference="dg_e0_fp0_x" yDataReference="dg_e0_f0"/>
+        <curve id="c_fp0_e1" name="Experiment 2" style="style_fp0_e1" xDataReference="dg_e1_fp0_x" yDataReference="dg_e1_f0"/>
+      </listOfCurves>
+    </plot2D>
+    <plot2D id="plot_fp1" name="Swing by experiment" legend="true">
+      <xAxis type="linear" name="Experiment"/>
+      <yAxis type="linear" name="swing_x_sub1"/>
+      <listOfCurves>
+        <curve id="c_fp1_e0" name="Experiment 1" style="style_fp1_e0" xDataReference="dg_e0_fp1_x" yDataReference="dg_e0_f1"/>
+        <curve id="c_fp1_e1" name="Experiment 2" style="style_fp1_e1" xDataReference="dg_e1_fp1_x" yDataReference="dg_e1_f1"/>
+      </listOfCurves>
+    </plot2D>
+    <report id="report">
+      <listOfDataSets>
+        <dataSet id="ds_dg_e0_time" label="Time · Experiment 1" dataReference="dg_e0_time"/>
+        <dataSet id="ds_dg_e0_in0" label="k · Experiment 1" dataReference="dg_e0_in0"/>
+        <dataSet id="ds_dg_e0_tr0" label="x · Experiment 1" dataReference="dg_e0_tr0"/>
+        <dataSet id="ds_dg_e0_tr1" label="u · Experiment 1" dataReference="dg_e0_tr1"/>
+        <dataSet id="ds_dg_e0_f0" label="mean_x_sub2 · Experiment 1" dataReference="dg_e0_f0"/>
+        <dataSet id="ds_dg_e0_f1" label="swing_x_sub1 · Experiment 1" dataReference="dg_e0_f1"/>
+        <dataSet id="ds_dg_e0_fp0_x" label="instance_parameters/k · Experiment 1" dataReference="dg_e0_fp0_x"/>
+        <dataSet id="ds_dg_e0_fp1_x" label="Experiment · Experiment 1" dataReference="dg_e0_fp1_x"/>
+        <dataSet id="ds_dg_e1_time" label="Time · Experiment 2" dataReference="dg_e1_time"/>
+        <dataSet id="ds_dg_e1_in0" label="k · Experiment 2" dataReference="dg_e1_in0"/>
+        <dataSet id="ds_dg_e1_tr0" label="x · Experiment 2" dataReference="dg_e1_tr0"/>
+        <dataSet id="ds_dg_e1_tr1" label="u · Experiment 2" dataReference="dg_e1_tr1"/>
+        <dataSet id="ds_dg_e1_f0" label="mean_x_sub2 · Experiment 2" dataReference="dg_e1_f0"/>
+        <dataSet id="ds_dg_e1_f1" label="swing_x_sub1 · Experiment 2" dataReference="dg_e1_f1"/>
+        <dataSet id="ds_dg_e1_fp0_x" label="instance_parameters/k · Experiment 2" dataReference="dg_e1_fp0_x"/>
+        <dataSet id="ds_dg_e1_fp1_x" label="Experiment · Experiment 2" dataReference="dg_e1_fp1_x"/>
+      </listOfDataSets>
+    </report>
+  </listOfOutputs>
+  <listOfStyles>
+    <style id="style_e0">
+      <line type="solid" color="2A78D6" thickness="1.5"/>
+    </style>
+    <style id="style_e1">
+      <line type="solid" color="EB683480" thickness="1.5"/>
+    </style>
+    <style id="style_fp0">
+      <line type="solid" color="7F7F7F" thickness="1.5"/>
+      <marker size="6" type="circle" fill="7F7F7F" lineColor="7F7F7F"/>
+    </style>
+    <style id="style_fp0_e0" baseStyle="style_fp0">
+      <marker fill="2A78D6" lineColor="2A78D6"/>
+    </style>
+    <style id="style_fp0_e1" baseStyle="style_fp0">
+      <marker fill="EB683480" lineColor="EB683480"/>
+    </style>
+    <style id="style_fp1">
+      <line type="solid" color="7F7F7F" thickness="1.5"/>
+      <marker size="6" type="circle" fill="7F7F7F" lineColor="7F7F7F"/>
+    </style>
+    <style id="style_fp1_e0" baseStyle="style_fp1">
+      <marker fill="2A78D6" lineColor="2A78D6"/>
+    </style>
+    <style id="style_fp1_e1" baseStyle="style_fp1">
+      <marker fill="EB683480" lineColor="EB683480"/>
+    </style>
+  </listOfStyles>
+</sedML>

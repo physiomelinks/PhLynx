@@ -20,6 +20,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { generateExportZip } from '../services/export/ca'
@@ -49,6 +50,7 @@ export function useImportExportSend({
   const inspectionModuleStore = useInspectionModuleStore()
   const sessionMetadataStore = useSessionMetadataStore()
   const omexStore = useOmexStore()
+  const protocolStore = useProtocolStore()
   const { confirm } = useConfirmDialog()
 
   const currentImportKey = ref(IMPORT_KEYS.INSTANCE_ARRAY)
@@ -200,7 +202,7 @@ export function useImportExportSend({
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating and zipping CA files.',
-      action: (finalName) => generateExportZip(finalName, nodes.value, edges.value, libraryStore),
+      action: (finalName) => generateExportZip(finalName, nodes.value, edges.value, libraryStore, protocolStore.source?.entry.payload ?? null),
       successMessage: () => 'Circulatory Autogen export zip generated.',
     },
     {

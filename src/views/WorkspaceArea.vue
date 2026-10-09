@@ -485,6 +485,8 @@
   <SimulationFloatingViewer :nodes="nodes" />
   <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="nodes" />
 
+  <ProtocolDialog v-model="protocolDialog.visible" :nodes="nodes" />
+
   <SettingsDialog v-model="settingsDialogVisible" />
 
   <ImportDialog
@@ -566,6 +568,7 @@ import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
 import SimSettingsDialog from '../components/SimSettingsDialog.vue'
+import ProtocolDialog from '../components/ProtocolDialog.vue'
 import SimulationFloatingViewer from '../components/simulation/SimulationFloatingViewer.vue'
 import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
@@ -588,6 +591,7 @@ import { migrateWorkspace, separateNodeParameters } from '../services/workspaceM
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { useSimulation } from '../composables/useSimulation'
 import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
+import { useProtocolDialog } from '../composables/useProtocolDialog'
 import { useFloatingViewer } from '../composables/useFloatingViewer'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
@@ -717,6 +721,7 @@ const dialogVisible = computed(() => {
     replacementDialogVisible.value ||
     macroBuilderDialogVisible.value ||
     simSettingsDialog.visible ||
+    protocolDialog.visible ||
     settingsDialogVisible.value ||
     edgeConnectionDialogVisible.value ||
     instanceEditorDialogVisible.value ||
@@ -977,6 +982,7 @@ const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
 const { state: simSettingsDialog, open: openSimSettingsDialog } = useSimSettingsDialog()
+const { state: protocolDialog } = useProtocolDialog()
 const settingsDialogVisible = ref(false)
 const edgeConnectionDialogVisible = ref(false)
 const inspectionModuleDialogVisible = ref(false)

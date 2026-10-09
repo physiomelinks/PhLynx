@@ -7,6 +7,7 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
+import { useProtocolStore } from '../stores/protocolStore'
 import { cancelSimulation, forgetSimulationSession } from './useSimulation'
 import { resetSliderReruns } from './useSliderReruns'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
@@ -57,6 +58,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         forgetSimulationSession()
         resetSliderReruns()
         useSimulationResultsStore().resetState()
+        useProtocolStore().resetState()
         inspectionStore.resetState()
         omexStore.resetState()
         sessionMetadataStore.resetState()

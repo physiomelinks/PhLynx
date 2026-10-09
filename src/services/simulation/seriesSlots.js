@@ -45,3 +45,20 @@ export function chunkSeries(series) {
   for (let i = 0; i < series.length; i += SLOT_COUNT) charts.push(series.slice(i, i + SLOT_COUNT))
   return charts
 }
+
+// Matplotlib's colour letters, as CA's experiment_colors use them.
+const MATPLOTLIB_COLOURS = { r: '#e34948', b: '#2a78d6', g: '#1baf7a', m: '#e87ba4', c: '#17becf', y: '#eda100', k: '#52514e' }
+
+/**
+ * Colours an experiment as its protocol does (a matplotlib colour letter or a '#' hex colour, with or without alpha),
+ * or by its place when it gives none that PhLynx reads.
+ *
+ * @param {string|null|undefined} colour - From experiment_colors.
+ * @param {number} index - The experiment's place, from 0.
+ * @returns {string} '#rgb', '#rgba', '#rrggbb' or '#rrggbbaa'.
+ */
+export function resolveExperimentColour(colour, index) {
+  if (colour && MATPLOTLIB_COLOURS[colour]) return MATPLOTLIB_COLOURS[colour]
+  if (colour && /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(colour)) return colour
+  return SERIES_COLOURS.light[index % SERIES_COLOURS.light.length]
+}

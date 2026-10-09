@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   checkSettings,
+  checkTimeCourse,
   countComputedPoints,
   createSimulationSession,
   MAX_RESULT_BYTES,
@@ -357,6 +358,44 @@ describe('createSimulationSession', () => {
 
     session.dispose()
     expect(fake.freed.slice(7)).toEqual(['change', 'model', 'simulation', 'document', 'unmanage file', 'file manager', 'file'])
+  })
+
+  it("runs a time course it is given in place of the settings' own, as a protocol's segment does", async () => {
+    const fake = createFakeLibOpenCOR()
+    const session = createSimulationSession({ module: fake.loc, cellml: '<model/>' })
+    const timeCourse = { initialTime: 0, outputStartTime: 1, outputEndTime: 3, numberOfSteps: 4 }
+
+    // The settings' own times would be refused; only their solver is used.
+    await session.run({ settings: { ...SETTINGS, pointInterval: 99 }, timeCourse }).promise
+    expect(fake.simulation).toMatchObject(timeCourse)
+    await expect(session.run({ settings: SETTINGS, timeCourse: { ...timeCourse, numberOfSteps: 0 } }).promise).rejects.toThrow(/at least one step/)
+    await expect(session.run({ settings: { ...SETTINGS, solver: 'Leapfrog' }, timeCourse }).promise).rejects.toThrow(/Leapfrog/)
+  })
+
+  it("lists its model's variables without running it, freeing what it made", () => {
+    const fake = createFakeLibOpenCOR()
+    const session = createSimulationSession({ module: fake.loc, cellml: '<model/>' })
+
+    expect(session.describe()).toEqual({ voi: { name: 'c/t', unit: 'second' }, variables: new Map([['c/x', { kind: 'state', unit: 'metre' }]]) })
+    expect(fake.instance.startRun).not.toHaveBeenCalled()
+    expect(fake.freed).toEqual(['task', 'instance'])
+  })
+})
+
+describe('checkTimeCourse', () => {
+  const COURSE = { initialTime: 0, outputStartTime: 0, outputEndTime: 1, numberOfSteps: 2 }
+
+  it.each([
+    ['a missing time', { outputEndTime: null }, /needs a value/],
+    ['an end at the start', { outputEndTime: 0 }, /end after the start/],
+    ['a fractional number of steps', { numberOfSteps: 1.5 }, /at least one step/],
+    ['an initial time after the start', { initialTime: 0.5 }, /can’t be after the start/],
+  ])('rejects %s', (_, change, message) => {
+    expect(() => checkTimeCourse({ ...COURSE, ...change })).toThrow(message)
+  })
+
+  it('accepts a warm-up before the output starts', () => {
+    expect(() => checkTimeCourse({ ...COURSE, outputStartTime: 0.5, outputEndTime: 2 })).not.toThrow()
   })
 })
 

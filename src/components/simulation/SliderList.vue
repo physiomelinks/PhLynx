@@ -1,11 +1,12 @@
 <template>
   <section class="slider-list" aria-label="Parameter sliders">
+    <p v-if="protocolStore.areSlidersOff" class="slider-hint" role="note">Sliders are off while the protocol runs. Switch to the time course to use them.</p>
     <div v-for="slider in sliders" :key="slider.valueKey" class="slider-row">
       <div class="slider-head">
         <span class="slider-label" :title="`${slider.componentLabel}/${slider.parameterName}`">
           <span class="slider-component">{{ slider.componentLabel }}/</span><span class="slider-name">{{ slider.parameterName }}</span>
         </span>
-        <span class="slider-value" :class="{ 'slider-value--changed': slider.isChanged }">
+        <span class="slider-value" :class="{ 'slider-value--changed': slider.isChanged && !protocolStore.areSlidersOff }">
           {{ formatValue(slider.value) }} {{ slider.units }}
         </span>
         <Button
@@ -27,6 +28,9 @@
         :step="slider.positionStep"
         :aria-label="`${slider.parameterName} value`"
         :aria-valuetext="`${formatValue(slider.value)} ${slider.units}`"
+        :disabled="protocolStore.areSlidersOff"
+        :tabindex="protocolStore.areSlidersOff ? -1 : 0"
+        :pt="{ handle: { 'aria-disabled': protocolStore.areSlidersOff } }"
         class="slider-control"
         @update:model-value="(position) => setValue(slider, fromPosition(slider, position))"
       />
@@ -120,7 +124,8 @@
 /**
  * The parameter sliders of the whole model. A slider's value is tried out in runs without changing the
  * model until it is applied; moving one asks for runs as it moves. Sliders of instances the last run left
- * out are listed apart.
+ * out are listed apart. While the protocol runs, the sliders are off and keep their values for the time
+ * course; adding, removing and changing ranges still work, as they run nothing.
  */
 import { computed, nextTick, onBeforeUnmount, ref, useId } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
@@ -143,6 +148,7 @@ import {
 } from '../../services/simulation/parameterSliders'
 import { GLOBAL_COMPONENT, buildVariableIndex } from '../../services/simulation/variableIndex'
 import { useLibraryStore } from '../../stores/libraryStore'
+import { useProtocolStore } from '../../stores/protocolStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
 import { FLOW_IDS } from '../../utils/constants'
@@ -162,6 +168,7 @@ const props = defineProps({
 const emit = defineEmits(['change'])
 
 const libraryStore = useLibraryStore()
+const protocolStore = useProtocolStore()
 const resultsStore = useSimulationResultsStore()
 const settingsStore = useSimulationSettingsStore()
 const { updateNodeData } = useVueFlow(FLOW_IDS.MAIN)
@@ -293,13 +300,16 @@ function addSlider(entry) {
 let rerunFrame = null
 onBeforeUnmount(() => {
   // A run still waited for is asked for now, so a slider moved just before leaving still counts.
-  if (rerunFrame) emit('change')
+  if (rerunFrame && !protocolStore.areSlidersOff) emit('change')
   cancelAnimationFrame(rerunFrame)
 })
 
-/** Asks for a run once per frame while sliders move; the panel runs as often as the simulator keeps up. */
+/**
+ * Asks for a run once per frame while sliders move; the panel runs as often as the simulator keeps up. None while
+ * the sliders are off, as their values don't reach the protocol's runs.
+ */
 function scheduleRerun() {
-  if (rerunFrame) return
+  if (rerunFrame || protocolStore.areSlidersOff) return
   rerunFrame = requestAnimationFrame(() => {
     rerunFrame = null
     emit('change')
@@ -342,7 +352,8 @@ const formatValue = (value) => (Number.isFinite(value) ? Number(value.toPrecisio
  * @param {number|null} value
  */
 function setValue(slider, value) {
-  if (value !== null && value === slider.value) return
+  // The handle still takes keys when disabled.
+  if (protocolStore.areSlidersOff || (value !== null && value === slider.value)) return
   resultsStore.setSliderValue(slider.valueKey, value)
   scheduleRerun()
 }
@@ -388,6 +399,7 @@ function updateRange(slider, range) {
  * @param {Object} slider
  */
 function applyToModel(slider) {
+  if (protocolStore.areSlidersOff) return
   const value = String(slider.value)
   props.keepCurrent(() => {
     if (slider.type === 'global_constant') {
@@ -427,8 +439,8 @@ const menuItems = computed(() => {
   const slider = menuSlider.value
   if (!slider) return []
   return [
-    { label: 'Back to the model’s value', icon: 'pi pi-undo', disabled: !slider.isChanged, command: () => setValue(slider, null) },
-    { label: 'Apply this value to the model', icon: 'pi pi-check', disabled: !slider.isChanged, command: () => applyToModel(slider) },
+    { label: 'Back to the model’s value', icon: 'pi pi-undo', disabled: !slider.isChanged || protocolStore.areSlidersOff, command: () => setValue(slider, null) },
+    { label: 'Apply this value to the model', icon: 'pi pi-check', disabled: !slider.isChanged || protocolStore.areSlidersOff, command: () => applyToModel(slider) },
     { label: 'Edit range…', icon: 'pi pi-arrows-h', command: () => openRange(slider) },
     { separator: true },
     { label: 'Remove slider', icon: 'pi pi-trash', command: () => removeDefinitions(slider.definitions) },

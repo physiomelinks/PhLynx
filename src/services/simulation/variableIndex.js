@@ -22,6 +22,14 @@ const INSPECTION_NODE_PREFIX = 'inspection:'
 export const isInspectionNodeId = (nodeId) => typeof nodeId === 'string' && nodeId.startsWith(INSPECTION_NODE_PREFIX)
 
 /**
+ * Gets the id of the inspection module (and its output) a plotted variable's node id stands for.
+ *
+ * @param {string} nodeId
+ * @returns {string|null} Null for an instance's node id.
+ */
+export const readInspectionOutputId = (nodeId) => (isInspectionNodeId(nodeId) ? nodeId.slice(INSPECTION_NODE_PREFIX.length) : null)
+
+/**
  * Gets the inspection module a plotted variable's node id stands for.
  *
  * @param {string} nodeId

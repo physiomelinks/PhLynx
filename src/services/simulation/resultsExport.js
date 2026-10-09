@@ -49,7 +49,8 @@ export const columnHeader = ({ label, unit }) => (unit ? `${label} (${unit})` : 
 export function buildResultsCsv(columns) {
   const pointCount = Math.min(...columns.map((column) => column.values.length))
   const lines = [columns.map((column) => csvField(columnHeader(column))).join(',')]
-  for (let i = 0; i < pointCount; i++) lines.push(columns.map((column) => String(column.values[i])).join(','))
+  // A gap, where one experiment shown with others has no point, is an empty field.
+  for (let i = 0; i < pointCount; i++) lines.push(columns.map((column) => (column.values[i] == null ? '' : String(column.values[i]))).join(','))
   return `${lines.join('\r\n')}\r\n`
 }
 

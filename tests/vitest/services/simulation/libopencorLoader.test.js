@@ -31,7 +31,7 @@ describe('loadLibOpenCOR', () => {
     expect(worker.sent).toEqual([{ type: 'load', base: expect.stringMatching(/^\/libopencor\/[\d.]+\/$/) }])
     worker.reply({ type: 'ready', versionString: '1.2.3' })
 
-    expect(await loading).toEqual({ startSimulation: expect.any(Function) })
+    expect(await loading).toMatchObject({ startSimulation: expect.any(Function), describeModel: expect.any(Function), startProtocol: expect.any(Function) })
     expect({ ...libopencor }).toEqual({ status: 'ready', reason: null, versionString: '1.2.3' })
   })
 
@@ -123,6 +123,30 @@ describe('loadLibOpenCOR', () => {
 
       const error = await run.promise.catch((reason) => reason)
       expect(error.partialResults.variables.get('c/x').values).toBe(values)
+    })
+
+    it("lists a model's variables without running it", async () => {
+      const { worker, client } = await loadClient()
+      const described = client.describeModel({ cellml: '<model/>', key: 4 })
+      const { id } = worker.sent.at(-1)
+      expect(worker.sent.at(-1)).toEqual({ type: 'describe', id, cellml: '<model/>', key: 4 })
+      worker.reply({ type: 'done', id, results: { voi: { name: 't', unit: 's' }, variables: [['c/x', { kind: 'state', unit: 'm' }]] } })
+
+      expect((await described).variables.get('c/x')).toEqual({ kind: 'state', unit: 'm' })
+    })
+
+    it("runs a protocol in the worker, rebuilding each experiment's results", async () => {
+      const { worker, client } = await loadClient()
+      const plan = { experiments: [] }
+      const run = client.startProtocol({ key: 4, settings: {}, plan, targets: new Map([['a/k', 'c/k']]) })
+      const { id } = worker.sent.at(-1)
+      expect(worker.sent.at(-1)).toEqual({ type: 'runProtocol', id, cellml: null, key: 4, settings: {}, plan, targets: [['a/k', 'c/k']], baseChanges: [] })
+      const values = new Float64Array([1, 2])
+      const experiment = { voi: { name: 't', values }, variables: [['c/x', { kind: 'state', values }]], subs: [] }
+      worker.reply({ type: 'error', id, message: 'failed', issues: [], partialResults: { experiments: [experiment] } })
+
+      const error = await run.promise.catch((reason) => reason)
+      expect(error.partialResults.experiments[0].variables.get('c/x').values).toBe(values)
     })
 
     it('fails every run when the worker stops working', async () => {

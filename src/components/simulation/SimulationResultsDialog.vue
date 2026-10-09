@@ -18,6 +18,19 @@
   >
     <div class="results-toolbar">
       <p class="results-summary">{{ summary }}</p>
+      <!-- As the toolbar's protocol button does, switching runs at once. -->
+      <SelectButton
+        v-if="protocolStore.hasProtocol || protocolStore.source?.parseError"
+        :model-value="protocolStore.isProtocolMode"
+        :options="RUN_MODES"
+        option-label="label"
+        option-value="value"
+        :allow-empty="false"
+        size="small"
+        aria-label="What play runs"
+        @update:model-value="switchRunMode"
+      />
+      <ProtocolResultsControls />
       <ToggleButton
         v-model="isEditing"
         on-label="Edit"
@@ -36,6 +49,18 @@
         aria-label="Download the charts as a PNG image"
         @click="downloadPng"
       />
+      <!-- Wrapped, so its reason shows while it's disabled. -->
+      <span v-if="protocolStore.hasProtocol" v-tooltip.bottom="sedmlHint" class="sedml-button">
+        <Button
+          label="SED-ML"
+          icon="pi pi-file-export"
+          size="small"
+          outlined
+          :disabled="!canExportSedml"
+          aria-label="Export the protocol as SED-ML, with a Python script that runs it"
+          @click="sedmlExport.open()"
+        />
+      </span>
     </div>
 
     <div class="results-body" :class="{ 'results-body--editing': isEditing }">
@@ -68,24 +93,32 @@
         @change="emit('change')"
       />
     </div>
+
+    <ProtocolSedmlExportDialog v-if="protocolStore.hasProtocol" :exporter="sedmlExport" />
   </Dialog>
 </template>
 
 <script setup>
 /**
  * The plotted results at full size: the Simulation tab's charts with their cursors in step, their values
- * downloadable as CSV and the charts as one PNG. Beside them, as in the tab, an
+ * downloadable as CSV and the charts as one PNG, and a protocol exportable as SED-ML. Beside them, as in the tab, an
  * instance's plotted variables and sliders can be changed.
  */
 import { computed, ref } from 'vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
+import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 
+import ProtocolResultsControls from './ProtocolResultsControls.vue'
+import ProtocolSedmlExportDialog from './ProtocolSedmlExportDialog.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
+import { useProtocolSedmlExport } from '../../composables/useProtocolSedmlExport'
 import { buildResultsCsv, collectResultColumns, composeChartsImage } from '../../services/simulation/resultsExport'
+import { useProtocolStore } from '../../stores/protocolStore'
+import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { legacyDownload } from '../../utils/save'
 
 const FILE_NAME = 'simulation-results'
@@ -102,7 +135,34 @@ const props = defineProps({
   keepCurrent: { type: Function, required: true },
 })
 // A slider moved, so the scope wants running again.
-const emit = defineEmits(['change'])
+const emit = defineEmits(['change', 'play'])
+
+const protocolStore = useProtocolStore()
+const resultsStore = useSimulationResultsStore()
+const sedmlExport = useProtocolSedmlExport()
+// The protocol exports once it's valid, and not mid-run, as exporting reads the model with the simulator.
+const canExportSedml = computed(() => resultsStore.status !== 'running' && !protocolStore.validation.errors.length && !!protocolStore.view)
+const sedmlHint = computed(() =>
+  resultsStore.status === 'running'
+    ? 'Export the protocol once the run finishes'
+    : canExportSedml.value
+      ? 'Export the protocol as SED-ML, with a Python script that runs it and draws its plots'
+      : 'Fix the protocol’s errors to export it'
+)
+const RUN_MODES = [
+  { label: 'Time course', value: false },
+  { label: 'Protocol', value: true },
+]
+
+/**
+ * Switches play between the time course and the protocol, and runs it.
+ *
+ * @param {boolean} isProtocolMode
+ */
+function switchRunMode(isProtocolMode) {
+  protocolStore.isProtocolMode = isProtocolMode
+  emit('play')
+}
 
 const isEditing = ref(true)
 const isMaximized = ref(false)
@@ -210,6 +270,10 @@ function downloadPng() {
   gap: 16px;
   min-height: 0;
   overflow-y: auto;
+}
+
+.sedml-button {
+  display: inline-flex;
 }
 
 .results-hint {

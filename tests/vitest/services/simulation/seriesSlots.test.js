@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { assignSeriesSlots, chunkSeries, SLOT_COUNT } from '../../../../src/services/simulation/seriesSlots.js'
+import { assignSeriesSlots, chunkSeries, resolveExperimentColour, SERIES_COLOURS, SLOT_COUNT } from '../../../../src/services/simulation/seriesSlots.js'
 
 describe('assignSeriesSlots', () => {
   it('gives new series the lowest free slots, in order', () => {
@@ -26,5 +26,15 @@ describe('chunkSeries', () => {
     const series = Array.from({ length: SLOT_COUNT + 3 }, (_, i) => i)
     expect(chunkSeries(series).map((chart) => chart.length)).toEqual([SLOT_COUNT, 3])
     expect(chunkSeries([])).toEqual([])
+  })
+})
+
+describe('resolveExperimentColour', () => {
+  it('reads a matplotlib letter or a hex colour, alpha kept, and falls back to the slot colour', () => {
+    expect(resolveExperimentColour('r', 0)).toBe('#e34948')
+    expect(resolveExperimentColour('#ff000080', 0)).toBe('#ff000080')
+    expect(resolveExperimentColour('#0f0', 0)).toBe('#0f0')
+    expect(resolveExperimentColour('#12345', 1)).toBe(SERIES_COLOURS.light[1])
+    expect(resolveExperimentColour(null, 9)).toBe(SERIES_COLOURS.light[1])
   })
 })

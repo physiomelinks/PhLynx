@@ -11,9 +11,11 @@ import { PORT_TYPE_OPTIONS } from '../../utils/constants'
  * @param {Array} nodes - The array of nodes from Vue Flow.
  * @param {Array} edges - The array of edges from Vue Flow.
  * @param {Object} libraryStore - The Pinia builder store.
+ * @param {ArrayBuffer|string|null} [obsData] - The workspace's obs_data.json, with its protocol, written as
+ *   `<fileName>_obs_data.json` beside the config, as CA names it.
  * @returns {Promise<Blob>} A promise that resolves with the zip file blob.
  */
-export async function generateExportZip(fileName, nodes, edges, libraryStore) {
+export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
   try {
     const zip = new JSZip()
 
@@ -121,6 +123,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore) {
     zip.file(`${fileName}_module_config.json`, JSON.stringify(module_config, null, 2))
     zip.file(`${fileName}_module_array.csv`, Papa.unparse(instance_array))
     zip.file(`${fileName}_parameters.csv`, Papa.unparse(consolidatedParameters))
+    if (obsData != null) zip.file(`${fileName}_obs_data.json`, obsData)
 
     const zipBlob = await zip.generateAsync({
       type: 'blob',

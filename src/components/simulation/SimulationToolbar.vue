@@ -39,6 +39,22 @@
       <span class="toolbar-scope-label">{{ scopeLabel }}</span>
     </label>
 
+    <template v-if="protocolStore.hasProtocol || protocolStore.source?.parseError">
+      <Button
+        icon="pi pi-list-check"
+        text
+        rounded
+        size="small"
+        class="toolbar-protocol"
+        :severity="protocolStore.isProtocolMode ? 'primary' : 'secondary'"
+        :aria-pressed="protocolStore.isProtocolMode"
+        :label="protocolStore.isProtocolMode && experimentCount < 2 ? 'Protocol' : undefined"
+        aria-label="Run the protocol's experiments"
+        v-tooltip.bottom="protocolStore.isProtocolMode ? 'Running the protocol: switch back to the time course' : 'Run the protocol\'s experiments'"
+        @click="toggleProtocol"
+      />
+    </template>
+
     <span class="toolbar-spacer"></span>
     <Button
       icon="pi pi-clone"
@@ -63,6 +79,17 @@
       @click="emit('expand')"
     />
     <Button
+      icon="pi pi-pen-to-square"
+      text
+      rounded
+      size="small"
+      severity="secondary"
+      :disabled="isRunning"
+      :aria-label="protocolStore.hasProtocol ? 'Edit the protocol' : 'Create a protocol'"
+      v-tooltip.bottom="protocolStore.hasProtocol ? 'Edit the protocol' : 'Create a protocol: experiments that set parameters'"
+      @click="openProtocolDialog"
+    />
+    <Button
       icon="pi pi-cog"
       text
       rounded
@@ -78,8 +105,9 @@
 
 <script setup>
 /**
- * The Simulation tab's controls: play or stop, whether play runs the selection or the whole model, and
- * buttons for the larger view and the simulation settings.
+ * The Simulation tab's controls: play or stop, whether play runs the selection or the whole model, whether it
+ * runs the workspace's protocol and which experiment is shown, and buttons for the larger view, the protocol and the
+ * simulation settings.
  */
 import { computed } from 'vue'
 
@@ -87,7 +115,9 @@ import Button from 'primevue/button'
 import ToggleSwitch from 'primevue/toggleswitch'
 
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
+import { useProtocolDialog } from '../../composables/useProtocolDialog'
 import { useSimSettingsDialog } from '../../composables/useSimSettingsDialog'
+import { useProtocolStore } from '../../stores/protocolStore'
 
 const scopeMode = defineModel('scopeMode', { type: String, default: 'model' })
 const props = defineProps({
@@ -108,6 +138,17 @@ const props = defineProps({
 const emit = defineEmits(['play', 'stop', 'expand'])
 
 const { open: openSimSettings } = useSimSettingsDialog()
+const { open: openProtocolDialog } = useProtocolDialog()
+const protocolStore = useProtocolStore()
+
+const experimentCount = computed(() => protocolStore.view?.experiments.length ?? 0)
+
+/** Switches play between the protocol and the time course, running at once as switching the scope does. */
+function toggleProtocol() {
+  protocolStore.isProtocolMode = !protocolStore.isProtocolMode
+  if (canPlay.value && !props.isRunning) emit('play')
+}
+
 const { state: floatingViewer, toggle: toggleFloatingViewer } = useFloatingViewer()
 
 const isWholeModel = computed({
@@ -163,6 +204,18 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 
 .scope-icon {
   font-size: 0.7rem;
+}
+
+.toolbar-protocol {
+  flex-shrink: 0;
+}
+
+
+/* Too narrow: the protocol button without its label. */
+@container (max-width: 300px) {
+  .toolbar-protocol :deep(.p-button-label) {
+    display: none;
+  }
 }
 
 .toolbar-spacer {

@@ -36,4 +36,12 @@ describe('columnHeader', () => {
   it('leaves out a missing unit', () => {
     expect(columnHeader({ label: 'x', unit: '' })).toBe('x')
   })
+
+  it("leaves a gap empty, where an experiment shown with others has no point", () => {
+    const csv = buildResultsCsv([
+      { label: 't', unit: 's', values: [0, 1] },
+      { label: 'x', unit: '', values: [null, 2] },
+    ])
+    expect(csv).toBe('t (s),x\r\n0,\r\n1,2\r\n')
+  })
 })

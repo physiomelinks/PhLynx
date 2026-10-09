@@ -2,6 +2,18 @@ import { defineStore } from 'pinia'
 import { markRaw, ref, shallowRef } from 'vue'
 
 /**
+ * Gives one experiment of a protocol run's results as a run's results.
+ *
+ * @param {{experiments: Array, issues: Array, elapsedMs: number, isStopped: boolean}} protocolResults
+ * @param {number} index - Kept within the experiments run.
+ * @returns {Object} `{ voi, variables, subs, issues, elapsedMs, isStopped }`.
+ */
+export function selectExperiment({ experiments, issues, elapsedMs, isStopped }, index) {
+  const experiment = experiments[Math.min(Math.max(index, 0), experiments.length - 1)] ?? { voi: { name: '', unit: '', values: new Float64Array() }, variables: new Map(), subs: [] }
+  return { ...experiment, issues, elapsedMs, isStopped }
+}
+
+/**
  * The latest in-app simulation: its scope, status and results. Never saved with the workspace.
  */
 export const useSimulationResultsStore = defineStore('simulationResults', () => {
@@ -14,6 +26,10 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   const report = ref({ errors: [], warnings: [] })
   const error = ref(null)
   const results = shallowRef(null)
+  /** A protocol run's results, every experiment's: `{ experiments, issues, elapsedMs, isStopped }`, or null. */
+  const protocolResults = shallowRef(null)
+  /** What shows each of the protocol's parameters, as `parameter → { name, isStepped }`, `name` as reported. */
+  const protocolInputs = shallowRef(new Map())
   const mapping = shallowRef(null)
   /** The run's inspection module outputs: `[{ id, name, units, reportedName }]`. */
   const inspectionOutputs = shallowRef([])
@@ -58,6 +74,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     signature.value = null
     if (!isSameScope) {
       results.value = null
+      protocolResults.value = null
       mapping.value = null
       seriesSlots = markRaw(new Map())
       inspectionOutputs.value = []
@@ -73,9 +90,30 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     status.value = run.results.isStopped ? 'stopped' : 'done'
     progress.value = 1
     results.value = markRaw(run.results)
+    protocolResults.value = null
     mapping.value = markRaw(run.mapping)
     inspectionOutputs.value = run.inspectionOutputs ?? []
     signature.value = run.signature
+  }
+
+  /**
+   * Records a finished protocol run, showing one of its experiments as `results`.
+   *
+   * @param {Object} run - `{ protocolResults, inputs, experiment, mapping, signature, inspectionOutputs }`.
+   */
+  function finishProtocolRun(run) {
+    finishRun({ ...run, results: selectExperiment(run.protocolResults, run.experiment) })
+    protocolResults.value = markRaw(run.protocolResults)
+    protocolInputs.value = markRaw(run.inputs ?? new Map())
+  }
+
+  /**
+   * Shows another experiment of the protocol run's results.
+   *
+   * @param {number} index
+   */
+  function showExperiment(index) {
+    if (protocolResults.value) results.value = markRaw(selectExperiment(protocolResults.value, index))
   }
 
   /**
@@ -89,6 +127,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   function failRun(nextStatus, nextError = null, partial = null) {
     status.value = nextStatus
     error.value = nextError
+    protocolResults.value = partial?.protocolResults ? markRaw(partial.protocolResults) : null
+    protocolInputs.value = markRaw(partial?.inputs ?? new Map())
     results.value = partial ? markRaw(partial.results) : null
     mapping.value = partial ? markRaw(partial.mapping) : null
     inspectionOutputs.value = []
@@ -101,6 +141,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     report.value = { errors: [], warnings: [] }
     error.value = null
     results.value = null
+    protocolResults.value = null
     mapping.value = null
     signature.value = null
     seriesSlots = markRaw(new Map())
@@ -116,6 +157,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     report,
     error,
     results,
+    protocolResults,
+    protocolInputs,
     mapping,
     inspectionOutputs,
     signature,
@@ -126,6 +169,8 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     scopeMode,
     startRun,
     finishRun,
+    finishProtocolRun,
+    showExperiment,
     failRun,
     resetState,
   }

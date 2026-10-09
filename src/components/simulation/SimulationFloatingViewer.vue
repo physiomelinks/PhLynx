@@ -156,6 +156,7 @@
       </div>
     </Popover>
 
+    <ProtocolResultsControls :with-inputs="false" class="viewer-protocol" />
     <!-- Rebuilt as the sliders show or hide, since a Splitter takes its panels as it mounts. -->
     <Splitter :key="showSliders ? 'with-sliders' : 'plot'" layout="vertical" class="viewer-body">
       <SplitterPanel :size="showSliders ? 60 : 100" :min-size="25" class="viewer-pane">
@@ -218,12 +219,13 @@ import Splitter from 'primevue/splitter'
 import ToggleSwitch from 'primevue/toggleswitch'
 import SplitterPanel from 'primevue/splitterpanel'
 
+import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
 import { useSimulation } from '../../composables/useSimulation'
-import { INSPECTION_PLOT, useSimulationCharts } from '../../composables/useSimulationCharts'
+import { INSPECTION_PLOT, PROTOCOL_INPUTS_PLOT, useSimulationCharts } from '../../composables/useSimulationCharts'
 import { useSelectionAutoRun } from '../../composables/useSelectionAutoRun'
 import { useSliderReruns } from '../../composables/useSliderReruns'
 import { libopencor } from '../../services/simulation/libopencorLoader'
@@ -307,11 +309,14 @@ function resizeBy(element, change) {
   return height - rect.height
 }
 const scopeNodes = computed(() => (store.scopeNodeIds ? props.nodes.filter((node) => store.scopeNodeIds.includes(node.id)) : props.nodes))
-const { xAxis, charts } = useSimulationCharts(scopeNodes)
+// The values a protocol set are one of its plots to pick, rather than shown on a toggle.
+const { xAxis, charts } = useSimulationCharts(scopeNodes, { hasInputs: true })
 
 // Every plot, empty ones too, so one can be picked and filled here; inspection outputs make one of their own.
 const plotOptions = computed(() => {
   const plots = resolveGroups(settingsStore.plotConfig).map(({ id, name }) => ({ id, name }))
+  // The values a protocol set, while they're shown.
+  if (charts.value.some((chart) => chart.plotId === PROTOCOL_INPUTS_PLOT)) plots.push({ id: PROTOCOL_INPUTS_PLOT, name: 'Protocol inputs' })
   return charts.value.some((chart) => chart.plotId === INSPECTION_PLOT) ? [...plots, { id: INSPECTION_PLOT, name: 'Inspection modules' }] : plots
 })
 // The plot shown: the one picked, or the first with something on it while that one is gone.
@@ -472,6 +477,11 @@ function pinWhereShown() {
 .viewer-scope {
   flex-shrink: 0;
   margin: 0 2px;
+}
+
+.viewer-protocol {
+  flex-shrink: 0;
+  padding: 0 0 6px;
 }
 
 .viewer-body {

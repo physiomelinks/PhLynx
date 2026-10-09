@@ -47,7 +47,7 @@ const FIXED_CVODE_PARAMETERS = [
  * @param {number} value
  * @returns {string}
  */
-const formatSedNumber = (value) => String(value).replace(/e([+-])(\d)$/, 'e$10$2')
+export const formatSedNumber = (value) => String(value).replace(/e([+-])(\d)$/, 'e$10$2')
 
 /**
  * Gets the solver settings to run with, taking the defaults for any a settings object lacks.

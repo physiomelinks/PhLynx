@@ -5,6 +5,7 @@
  * make a model hard to solve, gives way to the newest values rather than holding the slider up.
  */
 import { libopencor } from '../services/simulation/libopencorLoader'
+import { useProtocolStore } from '../stores/protocolStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { getRunToken, isRerunningKeptModel, useSimulation } from './useSimulation'
 
@@ -16,16 +17,22 @@ let isSliderRerunWaiting = false
 const recentRunMs = []
 
 /**
- * Reruns the scope with the slider values, or queues the newest values behind the run going.
+ * Reruns the scope with the slider values, or queues the newest values behind the run going. Nothing reruns while
+ * the sliders are off, as their values don't reach the protocol's runs.
  *
  * @param {Object} store - simulationResultsStore.
  * @param {Function} run - useSimulation's run.
+ * @param {Object} protocolStore
  */
-function rerunForSliders(store, run) {
+function rerunForSliders(store, run, protocolStore) {
+  if (protocolStore.areSlidersOff) {
+    isSliderRerunWaiting = false
+    return
+  }
   // Before any run there is no scope to rerun: the next play uses the slider values.
   if (['unavailable', 'error'].includes(libopencor.status) || !store.results) return
   if (!sliderRun) {
-    startSliderRun(store, run)
+    startSliderRun(store, run, protocolStore)
     return
   }
   isSliderRerunWaiting = true
@@ -33,7 +40,7 @@ function rerunForSliders(store, run) {
   if (!isRerunningKeptModel()) return
   const typical = [...recentRunMs].sort((a, b) => a - b)[Math.floor(recentRunMs.length / 2)] ?? SLOW_RUN_MIN_MS
   // run() stops the run going and ignores its results.
-  if (performance.now() - sliderRunStartedAt > Math.max(SLOW_RUN_MIN_MS, typical * SLOW_RUN_FACTOR)) startSliderRun(store, run)
+  if (performance.now() - sliderRunStartedAt > Math.max(SLOW_RUN_MIN_MS, typical * SLOW_RUN_FACTOR)) startSliderRun(store, run, protocolStore)
 }
 
 /**
@@ -41,8 +48,9 @@ function rerunForSliders(store, run) {
  *
  * @param {Object} store
  * @param {Function} run
+ * @param {Object} protocolStore
  */
-function startSliderRun(store, run) {
+function startSliderRun(store, run, protocolStore) {
   isSliderRerunWaiting = false
   const startedAt = performance.now()
   sliderRunStartedAt = startedAt
@@ -63,7 +71,7 @@ function startSliderRun(store, run) {
     if (recentRunMs.length > 5) recentRunMs.shift()
     if (isSliderRerunWaiting) {
       isSliderRerunWaiting = false
-      rerunForSliders(store, run)
+      rerunForSliders(store, run, protocolStore)
     }
   })
 }
@@ -82,6 +90,7 @@ export function resetSliderReruns() {
  */
 export function useSliderReruns() {
   const store = useSimulationResultsStore()
+  const protocolStore = useProtocolStore()
   const { run } = useSimulation()
-  return { rerunForSliders: () => rerunForSliders(store, run) }
+  return { rerunForSliders: () => rerunForSliders(store, run, protocolStore) }
 }

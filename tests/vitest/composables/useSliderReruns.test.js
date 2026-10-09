@@ -18,6 +18,8 @@ vi.mock('../../../src/composables/useSimulation', () => ({
 vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
 const store = vi.hoisted(() => ({ results: {}, scopeNodeIds: ['a'], status: 'done' }))
 vi.mock('../../../src/stores/simulationResultsStore', () => ({ useSimulationResultsStore: () => store }))
+const protocolStore = vi.hoisted(() => ({ areSlidersOff: false }))
+vi.mock('../../../src/stores/protocolStore', () => ({ useProtocolStore: () => protocolStore }))
 
 const { resetSliderReruns, useSliderReruns } = await import('../../../src/composables/useSliderReruns.js')
 
@@ -28,6 +30,7 @@ describe('useSliderReruns', () => {
     resetSliderReruns()
     Object.assign(simulation, { runs: [], token: 0, isKept: false })
     Object.assign(store, { results: {}, status: 'done' })
+    protocolStore.areSlidersOff = false
     vi.useRealTimers()
   })
 
@@ -77,5 +80,20 @@ describe('useSliderReruns', () => {
     simulation.runs[0].finish()
     await Promise.resolve()
     expect(simulation.runs).toHaveLength(2)
+  })
+
+  it('does nothing while the sliders are off, dropping values that waited from before', async () => {
+    const { rerunForSliders } = useSliderReruns()
+    rerunForSliders()
+    rerunForSliders()
+    protocolStore.areSlidersOff = true
+    rerunForSliders()
+    expect(simulation.runs).toHaveLength(1)
+
+    // Back in the time course, the run finishing doesn't start one for the dropped values.
+    protocolStore.areSlidersOff = false
+    simulation.runs[0].finish()
+    await settle()
+    expect(simulation.runs).toHaveLength(1)
   })
 })

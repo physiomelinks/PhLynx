@@ -27,6 +27,8 @@
         />
       </div>
       <SimulationStatusLine :status="statusLine" />
+      <!-- A row of its own, as the sidebar is too narrow to fit them in the toolbar. -->
+      <ProtocolResultsControls />
     </header>
 
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
@@ -70,6 +72,7 @@
       :scope-node-ids="store.scopeNodeIds"
       :keep-current="keepCurrent"
       @change="rerunForSliders"
+      @play="canPlay && play()"
     />
   </section>
 </template>
@@ -87,6 +90,7 @@ import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import Select from 'primevue/select'
 
+import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import SimulationResultsDialog from './SimulationResultsDialog.vue'
@@ -122,9 +126,11 @@ const scopeNodes = computed(() =>
   store.scopeNodeIds ? nodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : nodes.value
 )
 const scopeSummary = computed(() => {
-  if (!store.scopeNodeIds) return 'Simulated the whole model'
+  const experiments = store.protocolResults?.experiments.length
+  const ran = experiments ? `Ran ${experiments} protocol ${experiments === 1 ? 'experiment' : 'experiments'} on` : 'Simulated'
+  if (!store.scopeNodeIds) return `${ran} the whole model`
   const count = store.scopeNodeIds.length
-  return `Simulated ${count} ${count === 1 ? 'instance' : 'instances'} on their own`
+  return `${ran} ${count} ${count === 1 ? 'instance' : 'instances'} on their own`
 })
 const stoppedAt = computed(() => {
   const voi = store.results?.voi
