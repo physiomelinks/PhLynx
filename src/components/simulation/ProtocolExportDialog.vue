@@ -41,8 +41,7 @@
           input too, such as a current's peak against the voltage it was clamped at: a point per experiment.
         </p>
         <p v-if="!featureGroups.length" class="section-hint">
-          The protocol records no features. To plot them here, add prediction_items with an operation to its obs_data
-          file, by hand or in CUFLynx.
+          The protocol records no features. To plot them here, add some to its outputs in the protocol editor.
         </p>
         <div v-for="(plot, p) in featurePlots" :key="p" class="feature-plot" role="group" :aria-label="`Feature plot ${p + 1}`">
           <div class="plot-line">
@@ -160,7 +159,7 @@
 /**
  * Exports the protocol with a Python script that runs it and plots its outputs: a summary of what it holds, what to
  * know before running it, and plots of the obs_data's features against each other, a protocol input or the experiment.
- * The outputs themselves are the obs_data's prediction_items, written by hand or in CUFLynx.
+ * The outputs themselves are the obs_data's prediction_items, edited under Outputs in the protocol editor.
  */
 import { computed } from 'vue'
 

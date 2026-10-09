@@ -242,8 +242,8 @@ describe('buildBundleReadme', () => {
     }
     expect(readme).toContain('- Experiment 1: a warning.')
     expect(readme).toContain('Python 3.10 to 3.13')
-    expect(readme).toContain('by hand or in CUFLynx')
-    expect(readme).not.toContain('protocol editor')
+    expect(readme).toContain("PhLynx's protocol editor, under Outputs")
+    expect(readme).not.toContain('by hand or in CUFLynx')
   })
 
   it('says why the SED-ML is left out, when it is', () => {
