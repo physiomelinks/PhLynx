@@ -85,6 +85,12 @@ SAVED_OBS_DATA = (
     "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
     " return JSON.parse(new TextDecoder().decode(extras.find(({ location }) => location === 'SN_simple_obs_data.json').payload)) })()"
 )
+# The workspace's obs_data as saved, its bytes as a list.
+SAVED_OBS_DATA_BYTES = (
+    "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
+    " const { payload } = extras.find(({ location }) => location === 'SN_simple_obs_data.json');"
+    " return [...(typeof payload === 'string' ? new TextEncoder().encode(payload) : new Uint8Array(payload))] })()"
+)
 
 
 def simulate_selection(page):
@@ -628,6 +634,7 @@ class TestSimulationTab(unittest.TestCase):
             saved = page.evaluate(SAVED_OBS_DATA)
             self.assertEqual(saved["protocol_info"]["sim_times"][0], [0.08, 0.1])
             self.assertEqual(saved["prediction_items"], OUTPUTS)
+            saved_bytes = bytes(page.evaluate(SAVED_OBS_DATA_BYTES))
 
             page.get_by_role("button", name="Run the protocol's experiments").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
@@ -657,7 +664,11 @@ class TestSimulationTab(unittest.TestCase):
                 bundle = zipfile.ZipFile(io.BytesIO(f.read()))
             names = set(bundle.namelist())
             self.assertTrue({"run_protocol.py", "model.cellml", "SN_simple_obs_data.json", "requirements.txt", "README.md", "manifest.xml"} <= names, names)
-            self.assertEqual(json.loads(bundle.read("SN_simple_obs_data.json")), saved)
+            self.assertEqual(bundle.read("SN_simple_obs_data.json"), saved_bytes)
+            # The plain model: the drivers and clock are only in the SED-ML's.
+            model = bundle.read("model.cellml").decode()
+            self.assertNotIn("protocol_drivers", model)
+            self.assertNotIn("protocol_clock", model)
             script = bundle.read("run_protocol.py").decode()
             header = {}
             exec(script[: script.index("# ---- End of what PhLynx wrote")], header)
@@ -675,7 +686,7 @@ class TestSimulationTab(unittest.TestCase):
 
         # The script runs it with libcuflynx, recording the mean of each experiment and plotting it.
         if not CUFLYNX_PYTHON:
-            return
+            self.skipTest("PHLYNX_CUFLYNX_PYTHON not set, so run_protocol.py isn't run")
         with tempfile.TemporaryDirectory() as folder:
             bundle.extractall(folder)
             run = subprocess.run([CUFLYNX_PYTHON, "run_protocol.py"], cwd=folder, capture_output=True, text=True)
