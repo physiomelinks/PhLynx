@@ -13,7 +13,7 @@ import {
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
 import { addProtocolClock, addProtocolDrivers } from '../services/simulation/protocolDriverModel'
-import { clampSolverSettings, prepareProtocolRun } from '../services/simulation/protocolRun'
+import { clampSolverSettings, findProtocolLimits, prepareProtocolRun } from '../services/simulation/protocolRun'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -370,9 +370,13 @@ export function useSimulation() {
       ? null
       : prepareProtocolRun({ view: protocolStore.view, drivers, nodes: scope.nodes, mapping: mapped.mapping, variables: described.variables, settings })
     if (prepared?.errors.length) sedmlProblem = prepared.errors.join(' ')
+    // CUFLynx's limits still apply to the script, which runs the plain model, when PhLynx's run can't be prepared.
+    const limits = prepared
+      ? prepared.warnings
+      : findProtocolLimits({ view: protocolStore.view, nodes: scope.nodes, mapping: mapped.mapping, variables: described.variables })
     return {
       errors: [],
-      warnings: [...warnings, ...(prepared?.warnings ?? []).filter((message) => !warnings.includes(message))],
+      warnings: [...warnings, ...limits.filter((message) => !warnings.includes(message))],
       cellml,
       scope,
       scopeNodeIds: nodeIds,

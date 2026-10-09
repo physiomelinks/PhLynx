@@ -672,6 +672,23 @@ describe('useSimulation', () => {
         expect(prepared.variables.has('instance_parameters/k')).toBe(true)
       })
 
+      it("still warns of CUFLynx's limits when the run's plan is left out", async () => {
+        useProtocol({ ...PROTOCOL, params_to_change: { 'a/k': [['up'], [3]], 'a/x': [['up'], [3]] }, protocol_shapes: { up: { type: 'ramp', from: 0, to: 1 } } })
+        clocking.errors = ['The model has a protocol_clock already.']
+        const { prepareProtocolExport } = useSimulation()
+
+        const prepared = await prepareProtocolExport()
+        clocking.errors = []
+
+        expect(prepared.sedml).toBeNull()
+        expect(prepared.warnings).toEqual(
+          expect.arrayContaining([
+            "CUFLynx can't run experiment 1, sub-experiment 1: a/k and a/x all change over time, and it follows only one at once.",
+            "CUFLynx can't run a/x changing over time, as it is a state.",
+          ])
+        )
+      })
+
       it("leaves the run's plan out, with why, when the model lacks a parameter the protocol sets", async () => {
         useProtocol({ ...PROTOCOL, params_to_change: { 'b/q': [[2], [3]] } })
         const { prepareProtocolExport } = useSimulation()
