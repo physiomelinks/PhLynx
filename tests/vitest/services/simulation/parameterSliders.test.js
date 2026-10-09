@@ -56,15 +56,16 @@ describe('parameter sliders', () => {
       default: 2,
       max: 2.2,
       step: null,
+      label: null,
     })
   })
 
   it('lists scan rows, keeping an existing slider’s settings', () => {
-    const existing = new Map([['n1::k', { selected: true, min: 0, max: 5, default: 3, step: 0.5 }]])
+    const existing = new Map([['n1::k', { selected: true, min: 0, max: 5, default: 3, step: 0.5, label: 'k_{ao}' }]])
     const rows = buildParameterScanRows([node], existing, getGlobalConstant)
     expect(rows.map((row) => row.parameterName)).toEqual(['k', 'R', 'x_init'])
-    expect(rows[0]).toMatchObject({ selected: true, min: 0, max: 5, default: 3, step: 0.5 })
-    expect(rows[2]).toMatchObject({ selected: false, default: 0.5 })
+    expect(rows[0]).toMatchObject({ selected: true, min: 0, max: 5, default: 3, step: 0.5, label: 'k_{ao}' })
+    expect(rows[2]).toMatchObject({ selected: false, default: 0.5, label: null })
   })
 
   it('adds, replaces and removes sliders, keeping other config', () => {

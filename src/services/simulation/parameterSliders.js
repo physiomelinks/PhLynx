@@ -67,6 +67,8 @@ export function createSliderDefinition(node, row, getGlobalConstant) {
     default: defaultValue,
     max: bounds.max,
     step: null,
+    // A display name, such as a CUFLynx params_for_id `name_for_plotting`; null falls back to nodeName/parameterName.
+    label: null,
   }
 }
 
@@ -93,6 +95,7 @@ export function buildParameterScanRows(nodes, selectedByKey, getGlobalConstant) 
         min: existing?.min ?? definition.min,
         max: existing?.max ?? definition.max,
         step: existing?.step ?? null,
+        label: existing?.label ?? definition.label,
       })
     }
   }

@@ -333,6 +333,8 @@ function convertStore(oldStore, globalConstantNames) {
  *   `timeStep` is its step. Older files get the settings every run used: CVODE, 1e-7, 500 and 0.
  *   A plotConfig selection's nodeId may be `inspection:<module id>`, an inspection module's output put on
  *   a plot, with variableName the module's name; older files have none.
+ *   A parameterScanConfig selection may have a `label` (a CUFLynx params_for_id `name_for_plotting`,
+ *   round-tripped through it); older files have none, and the UI falls back to `nodeName/parameterName`.
  */
 const LEGACY_VERSION = 'legacy'
 

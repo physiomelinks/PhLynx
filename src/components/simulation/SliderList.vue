@@ -4,7 +4,8 @@
     <div v-for="slider in sliders" :key="slider.valueKey" class="slider-row">
       <div class="slider-head">
         <span class="slider-label" :title="`${slider.componentLabel}/${slider.parameterName}`">
-          <span class="slider-component">{{ slider.componentLabel }}/</span><span class="slider-name">{{ slider.parameterName }}</span>
+          <template v-if="slider.label"><span class="slider-name">{{ slider.label }}</span></template>
+          <template v-else><span class="slider-component">{{ slider.componentLabel }}/</span><span class="slider-name">{{ slider.parameterName }}</span></template>
         </span>
         <span class="slider-value" :class="{ 'slider-value--changed': slider.isChanged && !protocolStore.areSlidersOff }">
           {{ formatValue(slider.value) }} {{ slider.units }}
