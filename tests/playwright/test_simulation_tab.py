@@ -1,6 +1,11 @@
+import io
+import json
 import os
 import re
+import subprocess
+import tempfile
 import unittest
+import zipfile
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -59,6 +64,26 @@ ADD_RAMP_PROTOCOL = ADD_PROTOCOL.replace(
 SHOWN_I_IN = (
     f"(() => {{ const store = {RESULTS_STORE}; const values = store.results.variables.get(store.protocolInputs.get('soma_SN/I_in').name).values;"
     " return [values[0], values[10], values.at(-1)] })()"
+)
+
+# A Python with libcuflynx from circulatory_autogen #536, to run an exported protocol's script; skipped without one.
+CUFLYNX_PYTHON = os.environ.get("PHLYNX_CUFLYNX_PYTHON")
+# Downloads go to the browser's save, not the File System Access picker, which Playwright can't answer.
+USE_DOWNLOADS = "delete window.showSaveFilePicker"
+# ADD_PROTOCOL's experiments, recording the soma's voltage in the second sub-experiment of each: its trace, and its mean.
+OUTPUTS = [
+    {**item, "experiment_idx": e, "subexperiment_idx": 1}
+    for e, label in enumerate(["SHR", "SHR_M_activation"])
+    for item in (
+        {"data_item_name": f"V_{label}", "operands": ["soma_SN/V"], "unit": "milliV", "item_name_for_plotting": "V", "trace_name_for_plotting": "V"},
+        {"data_item_name": f"V_mean_{label}", "operands": ["soma_SN/V"], "unit": "milliV", "item_name_for_plotting": "V_mean", "operation": "mean"},
+    )
+]
+ADD_PROTOCOL_WITH_OUTPUTS = ADD_PROTOCOL.replace("data_items: [] }", f"data_items: [], prediction_items: {json.dumps(OUTPUTS)} }}")
+# The workspace's obs_data, as saved.
+SAVED_OBS_DATA = (
+    "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
+    " return JSON.parse(new TextDecoder().decode(extras.find(({ location }) => location === 'SN_simple_obs_data.json').payload)) })()"
 )
 
 
@@ -570,6 +595,96 @@ class TestSimulationTab(unittest.TestCase):
 
             context.close()
             browser.close()
+
+    def test_exports_a_protocol_with_a_script_that_records_its_outputs(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000}, accept_downloads=True)
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            context.add_init_script(USE_DOWNLOADS)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+
+            # The protocol's outputs stay as they were through an edit in the protocol editor and its save.
+            page.evaluate(ADD_PROTOCOL_WITH_OUTPUTS)
+            page.get_by_role("button", name="Edit the protocol", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Protocol")
+            dialog.get_by_role("button", name=re.compile(r"^Edit sub-experiment 1 length")).click()
+            dialog.get_by_label("Sub-experiment 1 length", exact=True).fill("0.08")
+            dialog.get_by_label("Sub-experiment 1 length", exact=True).press("Enter")
+            dialog.get_by_role("button", name="Save").click()
+            expect(dialog).to_be_hidden()
+            saved = page.evaluate(SAVED_OBS_DATA)
+            self.assertEqual(saved["protocol_info"]["sim_times"][0], [0.08, 0.1])
+            self.assertEqual(saved["prediction_items"], OUTPUTS)
+
+            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+            page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
+            plot_variable(page, "soma_SN/V")
+            page.get_by_role("button", name="Open the results in a larger view").click()
+            results = page.get_by_role("dialog", name="Simulation results")
+            results.get_by_role("button", name=re.compile(r"^Export the protocol")).click()
+
+            # The mean voltage, plotted against the M current's conductance in the second sub-experiment.
+            export = page.get_by_role("dialog", name="Export the protocol")
+            export.get_by_role("button", name="Add feature plot").click()
+            export.get_by_label("Feature plot 1 title").fill("Mean voltage against g_M")
+            expect(export.get_by_role("combobox", name="Feature plot 1 y")).to_contain_text("V_mean")
+            export.get_by_role("group", name="Feature plot 1 x").get_by_text("Protocol input", exact=True).click()
+            export.get_by_role("combobox", name="Feature plot 1 x input").click()
+            page.get_by_role("option", name="soma_SN/g_M").click()
+            export.get_by_role("combobox", name="Feature plot 1 x sub-experiment").click()
+            page.get_by_role("option", name="Sub-experiment 2").click()
+            with page.expect_download() as download:
+                export.get_by_role("button", name="Export ZIP").click()
+            expect(export).to_be_hidden()
+
+            # The zip holds the script, the model it runs and the workspace's obs_data, byte for byte.
+            with open(download.value.path(), "rb") as f:
+                bundle = zipfile.ZipFile(io.BytesIO(f.read()))
+            names = set(bundle.namelist())
+            self.assertTrue({"run_protocol.py", "model.cellml", "SN_simple_obs_data.json", "requirements.txt", "README.md", "manifest.xml"} <= names, names)
+            self.assertEqual(json.loads(bundle.read("SN_simple_obs_data.json")), saved)
+            script = bundle.read("run_protocol.py").decode()
+            header = {}
+            exec(script[: script.index("# ---- End of what PhLynx wrote")], header)
+            self.assertEqual(header["MODEL"], "model.cellml")
+            self.assertEqual(header["OBS_DATA"], "SN_simple_obs_data.json")
+            self.assertEqual(header["DT"], 0.01)
+            self.assertEqual(
+                header["FEATURE_PLOTS"],
+                [{"title": "Mean voltage against g_M", "x": {"input": "soma_SN/g_M", "subexperiment_idx": 1}, "y": "V_mean", "series": None}],
+            )
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+        # The script runs it with libcuflynx, recording the mean of each experiment and plotting it.
+        if not CUFLYNX_PYTHON:
+            return
+        with tempfile.TemporaryDirectory() as folder:
+            bundle.extractall(folder)
+            run = subprocess.run([CUFLYNX_PYTHON, "run_protocol.py"], cwd=folder, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            with open(os.path.join(folder, "results", "features.csv")) as f:
+                features = [line.split(",")[0] for line in f.read().splitlines()[1:]]
+            self.assertEqual(features, ["V_mean_SHR", "V_mean_SHR_M_activation"])
+            for figure in ("traces.png", "features.png", "feature_plot_1.png"):
+                self.assertTrue(os.path.exists(os.path.join(folder, "results", figure)), figure)
 
     def test_toolbar_plays_with_f9_and_opens_the_solver_settings(self):
         with sync_playwright() as playwright:
