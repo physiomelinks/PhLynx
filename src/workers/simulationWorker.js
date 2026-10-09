@@ -38,7 +38,7 @@ async function load(base) {
  * @param {Object} results - `{ voi, variables }`, variables as a Map.
  * @returns {{results: Object, buffers: ArrayBuffer[]}}
  */
-function forPosting(results) {
+export function forPosting(results) {
   const variables = [...results.variables]
   const buffers = [results.voi.values.buffer, ...variables.map(([, series]) => series.values.buffer)]
   return { results: { ...results, variables }, buffers }
@@ -51,7 +51,7 @@ function forPosting(results) {
  * @param {{experiments: Array}} results
  * @returns {{results: Object, buffers: ArrayBuffer[]}}
  */
-function forPostingProtocol(results) {
+export function forPostingProtocol(results) {
   const postings = results.experiments.map(forPosting)
   const ownBuffers = results.experiments.flatMap(({ subSeries }) => (subSeries ?? []).flatMap((series) => Object.values(series ?? {}).map(({ buffer }) => buffer)))
   return {
