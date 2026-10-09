@@ -59,7 +59,15 @@
           </div>
           <div class="plot-line">
             <span class="axis-label">y</span>
-            <Select v-model="plot.y" :options="featureNames" size="small" placeholder="Feature" :aria-label="`Feature plot ${p + 1} y`" class="plot-select" />
+            <Select
+              v-model="plot.y"
+              :options="featureNames"
+              size="small"
+              placeholder="Feature"
+              :invalid="isInvalid(p, 'y')"
+              :aria-label="`Feature plot ${p + 1} y`"
+              class="plot-select"
+            />
           </div>
           <div class="plot-line">
             <span class="axis-label">x</span>
@@ -79,6 +87,7 @@
               :options="featureNames"
               size="small"
               placeholder="Feature"
+              :invalid="isInvalid(p, 'x.feature')"
               :aria-label="`Feature plot ${p + 1} x feature`"
               class="plot-select"
             />
@@ -88,6 +97,7 @@
                 :options="inputNames"
                 size="small"
                 placeholder="Input"
+                :invalid="isInvalid(p, 'x.input', 'x')"
                 :aria-label="`Feature plot ${p + 1} x input`"
                 class="plot-select"
               />
@@ -97,6 +107,7 @@
                 option-label="label"
                 option-value="value"
                 size="small"
+                :invalid="isInvalid(p, 'x.subexperiment', 'x')"
                 :aria-label="`Feature plot ${p + 1} x sub-experiment`"
               />
             </template>
@@ -114,6 +125,7 @@
                 :options="inputNames"
                 size="small"
                 placeholder="Input"
+                :invalid="isInvalid(p, 'series.input', 'series')"
                 :aria-label="`Feature plot ${p + 1} series input`"
                 class="plot-select"
               />
@@ -123,14 +135,16 @@
                 option-label="label"
                 option-value="value"
                 size="small"
+                :invalid="isInvalid(p, 'series.subexperiment', 'series')"
                 :aria-label="`Feature plot ${p + 1} series sub-experiment`"
               />
             </template>
           </div>
+          <Message v-for="error in errorsAt(p)" :key="`${error.path}:${error.message}`" severity="error" size="small">{{ error.message }}</Message>
         </div>
         <Button label="Add feature plot" icon="pi pi-plus" text size="small" :disabled="!featureGroups.length" @click="addFeaturePlot" />
-        <div v-if="plotErrors.length" class="messages" role="status">
-          <Message v-for="error in plotErrors" :key="`${error.path}:${error.message}`" severity="error" size="small">{{ error.message }}</Message>
+        <div v-if="otherErrors.length" class="messages" role="status">
+          <Message v-for="error in otherErrors" :key="`${error.path}:${error.message}`" severity="error" size="small">{{ error.message }}</Message>
         </div>
       </section>
     </template>
@@ -213,10 +227,34 @@ function createX(kind) {
   return { kind }
 }
 
-/** Adds a feature plot of the first feature against the experiments. */
+/**
+ * Adds a feature plot of the first feature against the next, else against the first protocol input, else against the
+ * experiments, which features.png already plots.
+ */
 function addFeaturePlot() {
-  featurePlots.value.push({ title: '', y: featureNames.value[0] ?? null, x: createX('experiment'), series: null })
+  const kind = featureNames.value.length > 1 ? 'feature' : inputNames.value.length ? 'input' : 'experiment'
+  featurePlots.value.push({ title: '', y: featureNames.value[0] ?? null, x: createX(kind), series: null })
 }
+
+/**
+ * Lists a feature plot's problems, to show in its row.
+ *
+ * @param {number} p - Its place.
+ * @returns {Array<{path: string, message: string}>}
+ */
+const errorsAt = (p) => plotErrors.value.filter(({ path }) => path.startsWith(`featurePlots[${p}].`) || path === `featurePlots[${p}]`)
+
+// The problems of no plot shown, as of one removed meanwhile.
+const otherErrors = computed(() => plotErrors.value.filter(({ path }) => !featurePlots.value.some((_, p) => errorsAt(p).some((error) => error.path === path))))
+
+/**
+ * Whether one of a feature plot's fields has a problem.
+ *
+ * @param {number} p - Its place.
+ * @param {...string} fields - Paths within the plot, such as `x.input`.
+ * @returns {boolean}
+ */
+const isInvalid = (p, ...fields) => plotErrors.value.some(({ path }) => fields.some((field) => path === `featurePlots[${p}].${field}`))
 </script>
 
 <style scoped>

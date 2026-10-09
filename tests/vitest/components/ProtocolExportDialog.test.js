@@ -102,11 +102,12 @@ describe('ProtocolExportDialog', () => {
     expect(button('Export ZIP').attributes('disabled')).toBeDefined()
   })
 
-  it('pairs the first feature with the experiments, then with a protocol input and a line per value of another', async () => {
+  it('pairs the first feature with the next, then with a protocol input and a line per value of another', async () => {
     const exporter = createExporter()
     await mountDialog(exporter)
     await button('Add feature plot').trigger('click')
-    expect(exporter.featurePlots.value).toEqual([{ title: '', y: 'I_peak', x: { kind: 'experiment' }, series: null }])
+    // Not the experiments, which features.png plots already.
+    expect(exporter.featurePlots.value).toEqual([{ title: '', y: 'I_peak', x: { kind: 'feature', feature: 'V_step' }, series: null }])
     expect(wrapper.findComponent(Select).props('options')).toEqual(['I_peak', 'V_step'])
 
     wrapper.findComponent(SelectButton).vm.$emit('update:modelValue', 'feature')
@@ -136,10 +137,28 @@ describe('ProtocolExportDialog', () => {
     expect(button('Add feature plot').attributes('disabled')).toBeDefined()
   })
 
-  it("shows the plots' problems and blocks the export", async () => {
-    await mountDialog(createExporter({ plotErrors: [{ path: 'featurePlots[0].y', message: 'Choose a feature to plot.' }] }))
+  it("shows the plots' problems in their rows, marking the fields, and blocks the export", async () => {
+    const exporter = createExporter({
+      plotErrors: [
+        { path: 'featurePlots[1].x', message: "a/k isn't one number in experiment 2, sub-experiment 1." },
+        { path: 'featurePlots[3].y', message: 'Choose a feature to plot.' },
+      ],
+    })
+    exporter.featurePlots.value = [
+      { title: '', y: 'I_peak', x: { kind: 'experiment' }, series: null },
+      { title: '', y: 'I_peak', x: { kind: 'input', input: 'a/k', subexperiment: 0 }, series: null },
+    ]
+    await mountDialog(exporter)
 
-    expect(wrapper.findAll('.p-message-error').map((message) => message.text())).toEqual(['Choose a feature to plot.'])
+    const rows = wrapper.findAll('.feature-plot')
+    expect(rows[0].findAll('.p-message-error')).toHaveLength(0)
+    expect(rows[1].findAll('.p-message-error').map((message) => message.text())).toEqual(["a/k isn't one number in experiment 2, sub-experiment 1."])
+    expect(wrapper.findAllComponents(Select).filter((select) => select.props('invalid')).map((select) => select.props('ariaLabel'))).toEqual([
+      'Feature plot 2 x input',
+      'Feature plot 2 x sub-experiment',
+    ])
+    // Of no plot shown: below them.
+    expect(wrapper.find('.export-section > .messages').text()).toBe('Choose a feature to plot.')
     expect(button('Export ZIP').attributes('disabled')).toBeDefined()
   })
 
