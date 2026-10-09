@@ -148,7 +148,7 @@ describe('useProtocolExport', () => {
     await opening
 
     expect(exporter.isPreparing.value).toBe(false)
-    expect(exporter.featureGroups.value).toEqual([{ name: 'peak', experiments: [0, 1] }])
+    expect(exporter.predictionPlots.value).toEqual([])
     // engine/pace is only in the SED-ML's model, so the script's can't set it.
     expect(exporter.parameterNames.value).toEqual({ names: { 'a/k': 'instance_parameters/a_k' }, unresolved: ['engine/pace'] })
     expect(exporter.solverInfo.value).toEqual({ MaximumStep: 0.01, rtol: 1e-7, atol: 1e-7 })
@@ -210,18 +210,22 @@ describe('useProtocolExport', () => {
     expect(exporter.sedml.value).toEqual({ sedml: null, problem: 'No variable.' })
   })
 
-  it('checks the feature plots against the features the obs_data records, and forgets them on opening again', async () => {
+  it("lists the obs_data's feature plots, and warns of one the script skips", async () => {
+    useObsData({
+      ...OBS_DATA,
+      prediction_plots: [
+        { name: 'Peaks', kind: 'feature_vs_input', x: { params_to_change: 'a/k', subexperiment_idx: 0 }, y: 'peak', series: null },
+        { name: 'Paced', kind: 'feature_vs_input', x: { params_to_change: 'engine/pace', subexperiment_idx: 3 }, y: 'peak', series: null },
+      ],
+    })
     const exporter = useProtocolExport()
     await exporter.open()
-    exporter.featurePlots.value.push({ title: '', y: 'trough', x: { kind: 'input', input: 'engine/pace', subexperiment: 1 }, series: null })
-
-    expect(exporter.plotErrors.value).toEqual([{ path: 'featurePlots[0].y', message: 'The protocol records no feature called trough.' }])
-    expect(exporter.canExport.value).toBe(false)
-    exporter.featurePlots.value[0].y = 'peak'
-    expect(exporter.plotErrors.value).toEqual([])
-
-    await exporter.open()
-    expect(exporter.featurePlots.value).toEqual([])
+    expect(exporter.predictionPlots.value.map(({ name, pairing, errors }) => [name, pairing, errors.length])).toEqual([
+      ['Peaks', 'peak against a/k (sub-experiment 1)', 0],
+      ['Paced', 'peak against engine/pace (sub-experiment 4)', 2],
+    ])
+    expect(exporter.warnings.value.filter((warning) => warning.startsWith('The script skips the feature plot Paced: '))).toHaveLength(1)
+    expect(exporter.canExport.value).toBe(true)
   })
 
   it('warns when the protocol records no outputs', async () => {
@@ -247,7 +251,6 @@ describe('useProtocolExport', () => {
     useSessionMetadataStore().setLastSaveName('heart.json')
     const exporter = useProtocolExport()
     await exporter.open()
-    exporter.featurePlots.value.push({ title: 'Peaks', y: 'peak', x: { kind: 'input', input: 'a/k', subexperiment: 0 }, series: null })
 
     const exporting = exporter.exportZip()
     // Asked at once, while the click still counts.
@@ -269,7 +272,7 @@ describe('useProtocolExport', () => {
     expect(script).toContain('DT = 0.1  #')
     expect(script).toContain("TIME_UNIT = 'second'  #")
     expect(script).toContain("    'a/k': 'instance_parameters/a_k',\n    # 'engine/pace': 'component/variable',")
-    expect(script).toContain("    {'title': 'Peaks', 'x': {'input': 'a/k', 'subexperiment_idx': 0}, 'y': 'peak', 'series': None},")
+    expect(script).not.toContain('FEATURE_PLOTS')
     const readme = await zip.file('README.md').async('string')
     expect(readme.startsWith('# heart_protocol')).toBe(true)
     expect(readme).toContain('- A warning from the plan.')

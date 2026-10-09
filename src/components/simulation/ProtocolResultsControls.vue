@@ -15,7 +15,7 @@
       v-if="withInputs && hasInputs"
       icon="pi pi-sliders-h"
       label="Inputs"
-      class="inputs-button"
+      class="results-toggle"
       text
       size="small"
       :severity="protocolStore.isShowingInputs ? 'primary' : 'secondary'"
@@ -24,13 +24,26 @@
       v-tooltip.bottom="protocolStore.isShowingInputs ? 'Hide the values the protocol set' : 'Show the values the protocol set, after the results'"
       @click="protocolStore.isShowingInputs = !protocolStore.isShowingInputs"
     />
+    <Button
+      v-if="withFeatures && hasFeatures"
+      icon="pi pi-chart-scatter"
+      label="Features"
+      class="results-toggle"
+      text
+      size="small"
+      :severity="protocolStore.isShowingFeatures ? 'primary' : 'secondary'"
+      :aria-pressed="protocolStore.isShowingFeatures"
+      aria-label="Show the feature plots"
+      v-tooltip.bottom="protocolStore.isShowingFeatures ? 'Hide the feature plots' : 'Show the features across the experiments, and the protocol’s feature plots, after the results'"
+      @click="protocolStore.isShowingFeatures = !protocolStore.isShowingFeatures"
+    />
   </div>
 </template>
 
 <script setup>
 /**
  * The controls of a protocol run's results, wherever they are shown: which experiment, or all of them at once, and
- * whether the values the protocol set are plotted too.
+ * whether the values the protocol set, and its feature plots, are plotted too.
  */
 import { computed } from 'vue'
 
@@ -44,6 +57,7 @@ import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 const props = defineProps({
   withPicker: { type: Boolean, default: true },
   withInputs: { type: Boolean, default: true },
+  withFeatures: { type: Boolean, default: true },
 })
 
 const protocolStore = useProtocolStore()
@@ -54,7 +68,10 @@ const experimentCount = computed(
   () => resultsStore.protocolResults?.experiments.length ?? (protocolStore.isProtocolMode ? protocolStore.view?.experiments.length ?? 0 : 0)
 )
 const hasInputs = computed(() => resultsStore.protocolResults != null && resultsStore.protocolInputs.size > 0)
-const isShown = computed(() => (props.withPicker && experimentCount.value > 1) || (props.withInputs && hasInputs.value))
+const hasFeatures = computed(() => resultsStore.features.length > 0)
+const isShown = computed(
+  () => (props.withPicker && experimentCount.value > 1) || (props.withInputs && hasInputs.value) || (props.withFeatures && hasFeatures.value)
+)
 const experimentOptions = computed(() => {
   const experiments = Array.from({ length: experimentCount.value }, (_, index) => ({
     label: protocolStore.view?.experiments[index]?.label ?? nameExperiment(index),
@@ -83,7 +100,7 @@ function showExperiment(index) {
   min-width: 0;
 }
 
-.inputs-button {
+.results-toggle {
   flex-shrink: 0;
 }
 

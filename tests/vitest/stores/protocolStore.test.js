@@ -1,6 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { nextTick } from 'vue'
 
+import { useAppSettings } from '../../../src/composables/useAppSettings.js'
 import { useOmexStore } from '../../../src/stores/omexStore.js'
 import { findIgnoredSettings, useProtocolStore } from '../../../src/stores/protocolStore.js'
 
@@ -54,6 +56,21 @@ describe('protocolStore', () => {
     const withPeak = signWith({ prediction_items: [peak] })
     expect(withPeak).not.toBe(plain)
     expect(signWith({ prediction_items: [peak], prediction_plots: [{ name: 'p', kind: 'feature_vs_experiment', x: null, y: 'a/x', series: null }] })).toBe(withPeak)
+  })
+
+  it("shows the feature plots as the settings say, until switched, and again once reset", async () => {
+    const { saveAppSettings } = useAppSettings()
+    const store = useProtocolStore()
+    expect(store.isShowingFeatures).toBe(false)
+    saveAppSettings({ showFeaturePlots: true })
+    await nextTick()
+    expect(store.isShowingFeatures).toBe(true)
+    store.isShowingFeatures = false
+    store.resetState()
+    expect(store.isShowingFeatures).toBe(true)
+    saveAppSettings({ showFeaturePlots: false })
+    await nextTick()
+    expect(store.isShowingFeatures).toBe(false)
   })
 
   it("reports a protocol that can't run, and an obs_data file that isn't JSON", () => {

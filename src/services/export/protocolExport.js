@@ -1,10 +1,19 @@
 /**
  * Bundles a protocol to run outside PhLynx: run_protocol.py, which runs the workspace's obs_data with libcuflynx
- * (circulatory_autogen) and plots its prediction items, with the model it runs on, and the SED-ML of PhLynx's own run
- * when PhLynx can plan it. Only the script's header is written per export; its body is templates/run_protocol.py.
+ * (circulatory_autogen) and plots its prediction items and prediction plots, with the model it runs on, and the
+ * SED-ML of PhLynx's own run when PhLynx can plan it. Only the script's header is written per export; its body is
+ * templates/run_protocol.py.
  */
 import JSZip from 'jszip'
-import { formatPythonRepr, readObsDataParts, resolveParameterName } from '@physiomelinks/protocol-kit'
+import {
+  describeInputReference,
+  formatPythonRepr,
+  isInputReference,
+  listPredictionPlots,
+  readObsDataParts,
+  resolveParameterName,
+  validatePredictionPlots,
+} from '@physiomelinks/protocol-kit'
 
 import { buildManifestXml } from './omex'
 import { SEDML_MODEL } from './protocolSedml'
@@ -45,41 +54,39 @@ const NO_OPERATION = new Set(['', 'None', 'none', 'Null', 'null', 'nan'])
 export const isFeatureItem = (item) => item?.operation != null && !NO_OPERATION.has(String(item.operation).trim())
 
 /**
- * Names the group a prediction item is plotted in, as circulatory autogen defaults it, its legacy keys read as their
- * replacements (`variable` as data_item_name, `name_for_plotting` as trace_name_for_plotting): its
- * item_name_for_plotting, else its trace_name_for_plotting, else its first operand, else its data_item_name.
- *
- * @param {Object} item
- * @returns {string}
- */
-export function nameItemGroup(item) {
-  const name = item.data_item_name ?? item.variable
-  // CA records an item without operands as its own name.
-  const operand = Array.isArray(item.operands) && item.operands.length ? item.operands[0] : name
-  return String(item.item_name_for_plotting ?? item.trace_name_for_plotting ?? item.name_for_plotting ?? (String(operand ?? '') || String(name ?? '')))
-}
-
-/**
  * Reads an obs_data document's prediction items, and what the export needs to know of them.
  *
  * @param {Object|Array|undefined} document - The obs_data, as parsed.
- * @returns {{items: Array<Object>, featureGroups: Array<{name: string, experiments: number[]}>, needsFeatureRelease: boolean}}
- *   `featureGroups` each feature's name with the experiments it's recorded in, in order; `needsFeatureRelease`
- *   whether any item has an operation or a sub-experiment, which only libcuflynx from CA_FEATURES_PR reads.
+ * @returns {{items: Array<Object>, needsFeatureRelease: boolean}} `needsFeatureRelease` whether any item has an
+ *   operation or a sub-experiment, which only libcuflynx from CA_FEATURES_PR reads.
  */
 export function readPredictionItems(document) {
   const items = document === undefined ? [] : readObsDataParts(document).predictionItems.filter((item) => item && typeof item === 'object')
-  const groups = new Map()
-  for (const item of items.filter(isFeatureItem)) {
-    const name = nameItemGroup(item)
-    if (!groups.has(name)) groups.set(name, new Set())
-    groups.get(name).add(Number(item.experiment_idx ?? 0))
-  }
-  return {
-    items,
-    featureGroups: [...groups].map(([name, experiments]) => ({ name, experiments: [...experiments].sort((a, b) => a - b) })),
-    needsFeatureRelease: items.some((item) => isFeatureItem(item) || item.subexperiment_idx != null),
-  }
+  return { items, needsFeatureRelease: items.some((item) => isFeatureItem(item) || item.subexperiment_idx != null) }
+}
+
+/**
+ * Describes an obs_data document's feature plots (its prediction_plots), which the script reads from it, as the
+ * export shows them: each as it pairs its features, and what stops the script drawing it.
+ *
+ * @param {Object|Array|undefined} document - The obs_data, as parsed.
+ * @returns {Array<{name: string, pairing: string, series: string|null, errors: string[]}>}
+ */
+export function describePredictionPlots(document) {
+  const { plotErrors } = validatePredictionPlots(document ?? null)
+  return listPredictionPlots(document ?? null).map((plot, index) => {
+    const against = {
+      feature_vs_feature: () => `against ${plot.x}`,
+      feature_vs_input: () => (isInputReference(plot.x) ? `against ${describeInputReference(plot.x)}` : ''),
+      feature_vs_experiment: () => 'across the experiments',
+    }[plot?.kind]
+    return {
+      name: String(plot?.name ?? ''),
+      pairing: [plot?.y, against?.()].filter(Boolean).join(' '),
+      series: isInputReference(plot?.series) ? `a line per value of ${describeInputReference(plot.series)}` : null,
+      errors: plotErrors[index] ?? [],
+    }
+  })
 }
 
 /**
@@ -121,65 +128,6 @@ export function buildSolverInfo(settings) {
 }
 
 /**
- * Turns the export dialog's feature plots into the script's FEATURE_PLOTS.
- *
- * @param {Array<Object>} featurePlots - `{title, y, x, series}`: `y` a feature's name; `x` as `{kind: 'feature',
- *   feature}`, `{kind: 'input', input, subexperiment}` or `{kind: 'experiment'}`; `series` null or `{input,
- *   subexperiment}`. Sub-experiments from 0.
- * @returns {Array<Object>} `{title, x, y, series}`: `x` a feature's name, `{input, subexperiment_idx}` or
- *   'experiment'; `series` null or `{input, subexperiment_idx}`.
- */
-export function buildFeaturePlots(featurePlots) {
-  const input = (axis) => ({ input: axis.input, subexperiment_idx: axis.subexperiment })
-  return featurePlots.map(({ title, y, x, series }) => ({
-    title: title?.trim() || null,
-    x: x.kind === 'feature' ? x.feature : x.kind === 'input' ? input(x) : 'experiment',
-    y,
-    series: series ? input(series) : null,
-  }))
-}
-
-/**
- * Checks the export dialog's feature plots: each of features the obs_data records, against an input that is one
- * number in that sub-experiment of every experiment the plot's feature is recorded in.
- *
- * @param {Object} options
- * @param {Object} options.view - The protocol, from readProtocolInfo.
- * @param {Array<{name: string, experiments: number[]}>} options.featureGroups - From readPredictionItems.
- * @param {Array<Object>} options.featurePlots - As buildFeaturePlots takes them.
- * @returns {Array<{path: string, message: string}>} `path` as `featurePlots[0].x`.
- */
-export function validateFeaturePlots({ view, featureGroups, featurePlots }) {
-  const errors = []
-  /** Records a problem. */
-  const add = (path, message) => errors.push({ path, message })
-  const groups = new Map(featureGroups.map(({ name, experiments }) => [name, experiments]))
-  /** Checks a feature is recorded. */
-  const checkFeature = (path, name, missing) => !groups.has(name) && add(path, name ? `The protocol records no feature called ${name}.` : missing)
-  /** Checks an input is one number in a sub-experiment of each experiment. */
-  const checkInput = (path, { input, subexperiment }, experiments) => {
-    const control = view.controls.find((candidate) => candidate.parameter === input)
-    if (!control) return add(`${path}.input`, input ? `${input} isn't an input of the protocol.` : 'Choose an input of the protocol.')
-    for (const e of experiments) {
-      const cell = control.cells[e]?.[subexperiment]
-      if (!cell) return add(`${path}.subexperiment`, `Experiment ${e + 1} has no sub-experiment ${subexperiment + 1}.`)
-      if (cell.kind !== 'constant') return add(path, `${input} isn't one number in experiment ${e + 1}, sub-experiment ${subexperiment + 1}.`)
-    }
-  }
-
-  featurePlots.forEach(({ y, x, series }, p) => {
-    const path = `featurePlots[${p}]`
-    checkFeature(`${path}.y`, y, 'Choose a feature to plot.')
-    const experiments = groups.get(y) ?? []
-    if (x?.kind === 'feature') checkFeature(`${path}.x.feature`, x.feature, 'Choose a feature to plot against.')
-    else if (x?.kind === 'input') checkInput(`${path}.x`, x, experiments)
-    else if (x?.kind !== 'experiment') add(`${path}.x.kind`, 'Plot against a feature, an input or the experiment.')
-    if (series) checkInput(`${path}.series`, series, experiments)
-  })
-  return errors
-}
-
-/**
  * Writes a Python assignment, its comment after it, its dict or list a line an entry when it has any.
  *
  * @param {string} name
@@ -209,10 +157,9 @@ function writeAssignment(name, value, comment, extraLines = []) {
  * @param {Object} options.solverInfo - From buildSolverInfo.
  * @param {Object<string, string>} options.parameterNames - From buildParameterNames.
  * @param {string[]} [options.unresolved] - From buildParameterNames.
- * @param {Array<Object>} [options.featurePlots] - From buildFeaturePlots.
  * @returns {string} The lines between the header's markers.
  */
-export function buildScriptHeader({ obsData, dt, timeUnit = '', solverInfo, parameterNames, unresolved = [], featurePlots = [] }) {
+export function buildScriptHeader({ obsData, dt, timeUnit = '', solverInfo, parameterNames, unresolved = [] }) {
   return [
     `MODEL = ${formatPythonRepr(BUNDLE_FILES.model)}`,
     `OBS_DATA = ${formatPythonRepr(obsData)}`,
@@ -225,7 +172,6 @@ export function buildScriptHeader({ obsData, dt, timeUnit = '', solverInfo, para
       "protocol parameters libcuflynx can't find in MODEL -> the model's names for them, in outputs too",
       unresolved.map((parameter) => `# ${formatPythonRepr(parameter)}: 'component/variable',  # PhLynx found no variable for it in MODEL`)
     ),
-    ...writeAssignment('FEATURE_PLOTS', featurePlots, 'features against another feature, a protocol input or the experiment'),
     'OPERATION_FUNCS_PATH = None  # a file of your own operation functions, for features that use them',
   ].join('\n')
 }
@@ -275,7 +221,7 @@ Exported by PhLynx. \`${BUNDLE_FILES.script}\` runs the protocol in \`${obsData}
 | File | What it is |
 | --- | --- |
 | \`${BUNDLE_FILES.script}\` | Runs the protocol, writes the outputs, and draws the plots. Edit it freely. |
-| \`${obsData}\` | The protocol (\`protocol_info\`) and its outputs (\`prediction_items\`), as the workspace has it. CUFLynx reads it too. |
+| \`${obsData}\` | The protocol (\`protocol_info\`), its outputs (\`prediction_items\`) and feature plots (\`prediction_plots\`), as the workspace has it. CUFLynx reads it too. |
 | \`${BUNDLE_FILES.model}\` | The flattened model. |
 | \`${BUNDLE_FILES.requirements}\` | The Python packages the script needs. |
 ${sedmlRows}| \`${BUNDLE_FILES.manifest}\` | The COMBINE archive manifest: rename the zip to \`.omex\` to open it as one. |
@@ -318,8 +264,9 @@ In \`results/\`, beside the script:
 - \`traces.png\`: a plot per \`trace_name_for_plotting\` of the prediction items without an operation, each
   experiment in its colour (\`experiment_colors\`, \`experiment_labels\`).
 - \`features.png\`: a plot per feature (\`item_name_for_plotting\`), a point per experiment.
-- \`feature_plot_N.png\`: each of \`FEATURE_PLOTS\`, such as a current's peak against the voltage it was clamped at. One
-  whose feature wasn't computed, or has more than one item in an experiment, is skipped with a warning.
+- A figure for each of \`${obsData}\`'s feature plots (\`prediction_plots\`), named after it, such as a current's peak
+  against the voltage it was clamped at: the plots PhLynx shows after a run. One with a problem, or whose features
+  weren't computed, is skipped with a warning.
 - \`traces.csv\` and \`features.csv\`: every value plotted, a row per point.
 
 libcuflynx computes each feature with its own operation functions, over the sub-experiment's points, the first
@@ -327,9 +274,9 @@ included, so the numbers are those circulatory_autogen and CUFLynx compute.
 
 ## Changing what it runs and plots
 
-- **Outputs:** add or change them under Outputs in PhLynx's protocol editor (Edit the protocol), and export again; or
-  edit \`prediction_items\` in \`${obsData}\`.
-- **Settings:** the top of \`${BUNDLE_FILES.script}\`, between the lines PhLynx wrote: \`DT\`, \`TIME_UNIT\`, \`SOLVER_INFO\`, \`FEATURE_PLOTS\`,
+- **Outputs and feature plots:** add or change them under Outputs in PhLynx's protocol editor (Edit the protocol), and
+  export again; or edit \`prediction_items\` and \`prediction_plots\` in \`${obsData}\`.
+- **Settings:** the top of \`${BUNDLE_FILES.script}\`, between the lines PhLynx wrote: \`DT\`, \`TIME_UNIT\`, \`SOLVER_INFO\`,
   and \`PARAMETER_NAMES\`, which gives libcuflynx the model's name for a protocol parameter it can't find, wherever the
   protocol or its outputs name it.
 - **Plots:** each figure has its own function; add your own in \`your_plots\`, which gets the same tables as the CSVs.

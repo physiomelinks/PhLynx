@@ -1,10 +1,12 @@
 /**
  * The charts of a run's results, as every simulation view shows them: the plotted variables of the simulated
  * instances, the values a protocol set when asked for, then the inspection modules' outputs, one chart per plot and
- * unit.
+ * unit; and after them, when asked for, a protocol run's feature plots.
  */
 import { computed, unref } from 'vue'
+import { computePlotSeries } from '@physiomelinks/protocol-kit'
 
+import { buildFeatureGroupCharts, buildPredictionPlotCharts } from '../services/simulation/featureCharts'
 import { resolveGroups } from '../services/simulation/plotSelections'
 import { INSPECTION_COMPONENT, isInspectionNodeId, readInspectionOutputId } from '../services/simulation/variableIndex'
 import { SERIES_COLOURS, assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
@@ -69,11 +71,13 @@ export function spreadValues(values, positions, length) {
  * Builds the charts of the shown results.
  *
  * @param {import('vue').Ref<Array<Object>>|Array<Object>} scopeNodes - The simulated instances.
- * @param {{hasInputs?: boolean}} [options] - `hasInputs` charts the values a protocol set whether or not they're
- *   asked for, for a view that shows one chart at a time.
- * @returns {{xAxis: import('vue').ComputedRef<Object>, charts: import('vue').ComputedRef<Array<Object>>}}
+ * @param {{hasInputs?: boolean, hasFeatures?: boolean}} [options] - `hasInputs` charts the values a protocol set,
+ *   and `hasFeatures` its features, whether or not they're asked for, for a view that shows one chart at a time.
+ * @returns {{xAxis: import('vue').ComputedRef<Object>, charts: import('vue').ComputedRef<Array<Object>>,
+ *   featureCharts: import('vue').ComputedRef<Array<Object>>}} `featureCharts` as FeaturePlot takes them: each group
+ *   of features across the experiments, then each of the obs_data's prediction plots.
  */
-export function useSimulationCharts(scopeNodes, { hasInputs = false } = {}) {
+export function useSimulationCharts(scopeNodes, { hasInputs = false, hasFeatures = false } = {}) {
   const store = useSimulationResultsStore()
   const protocolStore = useProtocolStore()
   const simulationSettingsStore = useSimulationSettingsStore()
@@ -274,5 +278,13 @@ export function useSimulationCharts(scopeNodes, { hasInputs = false } = {}) {
     return result
   })
 
-  return { xAxis, charts }
+  // Plots only: a feature's value is read off its point.
+  const featureCharts = computed(() => {
+    if (!store.protocolResults || !(hasFeatures || protocolStore.isShowingFeatures) || !store.features.length) return []
+    const names = store.protocolResults.experiments.map((_, e) => protocolStore.view?.experiments[e]?.label ?? `Experiment ${e + 1}`)
+    const plots = computePlotSeries(protocolStore.source?.document, store.features)
+    return [...buildFeatureGroupCharts(store.features, names), ...buildPredictionPlotCharts(plots, names)]
+  })
+
+  return { xAxis, charts, featureCharts }
 }

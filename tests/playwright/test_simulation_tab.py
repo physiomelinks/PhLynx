@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import os
 import re
 import subprocess
@@ -92,11 +93,30 @@ SAVED_PROTOCOL_INFO = {
     "params_to_change": {"soma_SN/I_in": [[0, 0], [0, 0]], "soma_SN/g_M": [[0.00389, 0.00389], [0.00778, 0.00778]]},
     "experiment_labels": ["SHR", "SHR M-activation"],
 }
-# The soma's mean voltage in each experiment's second sub-experiment, as PhLynx ran it.
-IN_APP_V_MEANS = (
-    f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
-    " return store.protocolResults.experiments.map(({ variables, subs }) => { const values = variables.get(name).values.slice(subs[1].startIndex, subs[1].endIndex + 1);"
-    " return values.reduce((sum, value) => sum + value, 0) / values.length }) })()"
+# The feature plot the protocol editor adds for OUTPUTS: the mean voltage against g_M in the second sub-experiment.
+FEATURE_PLOT = {
+    "name": "Mean voltage against g_M",
+    "kind": "feature_vs_input",
+    "x": {"params_to_change": "soma_SN/g_M", "subexperiment_idx": 1},
+    "y": "V_mean",
+    "series": None,
+}
+# The features of the protocol run, as PhLynx computes them: `{name: value}`.
+IN_APP_FEATURES = f"Object.fromEntries({RESULTS_STORE}.features.map(({{ name, value }}) => [name, value]))"
+# ADD_PROTOCOL's obs_data with features, the soma's mean and peak voltage in the second sub-experiment of each
+# experiment, and FEATURE_PLOT.
+ADD_FEATURES_PROTOCOL = ADD_PROTOCOL.replace(
+    "JSON.stringify({ protocol_info: protocol, data_items: [] })",
+    "JSON.stringify({ protocol_info: protocol, data_items: [], prediction_items: "
+    + json.dumps([
+        {"data_item_name": f"{name}_{e}", "operands": ["soma_SN/V"], "unit": "milliV", "operation": operation,
+         "experiment_idx": e, "subexperiment_idx": 1, "item_name_for_plotting": name}
+        for name, operation in (("V_mean", "mean"), ("V_peak", "max"))
+        for e in range(2)
+    ])
+    + ", prediction_plots: "
+    + json.dumps([FEATURE_PLOT])
+    + " })",
 )
 # The workspace's obs_data, as saved.
 SAVED_OBS_DATA = (
@@ -466,6 +486,78 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_plots_a_protocols_features_when_asked(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000}, accept_downloads=True)
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(SHORTEN_SIMULATION)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            page.evaluate(ADD_FEATURES_PROTOCOL)
+            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+            features = page.evaluate(IN_APP_FEATURES)
+            self.assertEqual(sorted(features), ["V_mean_0", "V_mean_1", "V_peak_0", "V_peak_1"])
+            page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
+            plot_variable(page, "soma_SN/V")
+
+            # The settings don't show them by default, so they wait for the Features toggle.
+            tab = page.locator(".simulation-panel")
+            features_toggle = tab.get_by_role("button", name="Show the feature plots")
+            expect(features_toggle).to_have_attribute("aria-pressed", "false")
+            expect(page.locator(".feature-plot")).to_have_count(0)
+            features_toggle.click()
+            # After the traces: each feature across the experiments, then the protocol's feature plot.
+            titles = tab.locator(".feature-plot .plot-title")
+            expect(titles).to_have_text(["V_mean", "V_peak", "Mean voltage against g_M"])
+            expect(tab.locator(".simulation-plot")).to_have_count(1)
+            # A point per experiment, in its colour, named in the key.
+            expect(tab.locator(".feature-plot").first.locator(".plot-key li")).to_have_text(["SHR", "SHR M-activation"])
+            # Plots only: no table of the values.
+            expect(tab.locator(".feature-plot table, .panel-features table")).to_have_count(0)
+
+            # The larger view shows them too, in its PNG but not its CSV, and hides them in both views.
+            page.get_by_role("button", name="Open the results in a larger view").click()
+            dialog = page.get_by_role("dialog", name="Simulation results")
+            expect(dialog.locator(".feature-plot .plot-title")).to_have_text(["V_mean", "V_peak", "Mean voltage against g_M"])
+            with page.expect_download() as download:
+                dialog.get_by_role("button", name="Download the results as CSV").click()
+            with open(download.value.path()) as f:
+                self.assertEqual(f.readline().strip(), "time (second),soma_SN/V (milliV)")
+            with page.expect_download() as download:
+                dialog.get_by_role("button", name="Download the charts as a PNG image").click()
+            with open(download.value.path(), "rb") as f:
+                self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
+            dialog_toggle = dialog.get_by_role("button", name="Show the feature plots")
+            expect(dialog_toggle).to_have_attribute("aria-pressed", "true")
+            dialog_toggle.click()
+            expect(dialog.locator(".feature-plot")).to_have_count(0)
+            dialog.get_by_role("button", name="Close", exact=True).click()
+            expect(page.locator(".feature-plot")).to_have_count(0)
+
+            # Turned on in Settings, they show without asking.
+            page.get_by_role("button", name="Settings", exact=True).click()
+            page.get_by_role("switch", name="Show feature plots").check()
+            page.get_by_role("button", name="Save Changes").click()
+            expect(titles).to_have_text(["V_mean", "V_peak", "Mean voltage against g_M"])
+            expect(features_toggle).to_have_attribute("aria-pressed", "true")
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
     def test_runs_a_protocol_ramp_as_an_input_the_model_computes(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
@@ -683,34 +775,44 @@ class TestSimulationTab(unittest.TestCase):
             expect(outputs.locator(".output-name")).to_have_text(["V"])
             dialog.get_by_role("button", name="Redo").click()
             expect(outputs.locator(".output-name")).to_have_text(["V", "V_mean"])
+            # The mean, plotted against the M current's conductance in the second sub-experiment, below the outputs.
+            plots = dialog.get_by_role("region", name="Feature plots")
+            plots.get_by_role("button", name="Add feature plot").click()
+            form = plots.get_by_role("form", name="Add a feature plot")
+            form.get_by_role("combobox", name="Feature to plot (y)").click()
+            page.get_by_role("option", name="V_mean", exact=True).click()
+            form.get_by_text("An input", exact=True).click()
+            form.get_by_role("combobox", name="Input on x", exact=True).click()
+            page.get_by_role("option", name="soma_SN/g_M").click()
+            expect(form.get_by_role("combobox", name="Sub-experiment of the input on x")).to_contain_text("Sub-experiment 2")
+            form.get_by_label("Feature plot title").fill("Mean voltage against g_M")
+            form.get_by_role("button", name="Add feature plot").click()
+            expect(plots.locator(".plot-name")).to_have_text(["Mean voltage against g_M"])
             dialog.get_by_role("button", name="Save").click()
             expect(dialog).to_be_hidden()
             saved = page.evaluate(SAVED_OBS_DATA)
             # The protocol as it was but the length changed, the input current at its model value included.
             self.assertEqual(saved["protocol_info"], SAVED_PROTOCOL_INFO)
             self.assertEqual(saved["prediction_items"], OUTPUTS)
+            self.assertEqual(saved["prediction_plots"], [FEATURE_PLOT])
             saved_bytes = bytes(page.evaluate(SAVED_OBS_DATA_BYTES))
 
             page.get_by_role("button", name="Run the protocol's experiments").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
-            in_app_means = page.evaluate(IN_APP_V_MEANS)
+            in_app_features = page.evaluate(IN_APP_FEATURES)
+            self.assertEqual(sorted(in_app_features), ["V_mean_SHR", "V_mean_SHR_M_activation"])
             page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
             plot_variable(page, "soma_SN/V")
             page.get_by_role("button", name="Open the results in a larger view").click()
             results = page.get_by_role("dialog", name="Simulation results")
             results.get_by_role("button", name=re.compile(r"^Export the protocol")).click()
 
-            # The mean voltage, plotted against the M current's conductance in the second sub-experiment.
+            # The feature plot, as the obs_data has it, which the script reads: shown, not edited, here.
             export = page.get_by_role("dialog", name="Export the protocol")
-            export.get_by_role("button", name="Add feature plot").click()
-            export.get_by_label("Feature plot 1 title").fill("Mean voltage against g_M")
-            expect(export.get_by_role("combobox", name="Feature plot 1 y")).to_contain_text("V_mean")
-            export.get_by_role("group", name="Feature plot 1 x").get_by_text("Protocol input", exact=True).click()
-            export.get_by_role("combobox", name="Feature plot 1 x input").click()
-            page.get_by_role("option", name="soma_SN/g_M").click()
-            export.get_by_role("combobox", name="Feature plot 1 x sub-experiment").click()
-            page.get_by_role("option", name="Sub-experiment 2").click()
+            expect(export.locator(".feature-plot .plot-name")).to_have_text(["Mean voltage against g_M"])
+            expect(export.locator(".feature-plot .plot-pairing")).to_have_text(["V_mean against soma_SN/g_M (sub-experiment 2)"])
+            expect(export.get_by_role("button", name="Add feature plot")).to_have_count(0)
             with page.expect_download() as download:
                 export.get_by_role("button", name="Export ZIP").click()
             expect(export).to_be_hidden()
@@ -731,10 +833,7 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(header["MODEL"], "model.cellml")
             self.assertEqual(header["OBS_DATA"], "SN_simple_obs_data.json")
             self.assertEqual(header["DT"], 0.01)
-            self.assertEqual(
-                header["FEATURE_PLOTS"],
-                [{"title": "Mean voltage against g_M", "x": {"input": "soma_SN/g_M", "subexperiment_idx": 1}, "y": "V_mean", "series": None}],
-            )
+            self.assertNotIn("FEATURE_PLOTS", header)
             # ----------- END ------------
 
             context.close()
@@ -751,14 +850,17 @@ class TestSimulationTab(unittest.TestCase):
                 features = list(csv.DictReader(f))
             self.assertEqual([row["item"] for row in features], ["V_mean_SHR", "V_mean_SHR_M_activation"])
             self.assertEqual([(row["feature"], row["experiment"], row["subexperiment"], row["operation"]) for row in features], [("V_mean", "0", "1", "mean"), ("V_mean", "1", "1", "mean")])
-            # The means PhLynx's own run gives, to the solvers' tolerances.
-            for row, mean in zip(features, in_app_means):
-                self.assertAlmostEqual(float(row["value"]), mean, delta=1e-3 * abs(mean), msg=row["item"])
+            # The means PhLynx's own run gives, each over its sub-experiment's own points as CA's, to the solvers' tolerances.
+            for row in features:
+                mean = in_app_features[row["item"]]
+                print(f"\n{row['item']}: run_protocol.py {row['value']}, PhLynx {mean!r}")
+                self.assertAlmostEqual(float(row["value"]), mean, delta=1e-5 * abs(mean), msg=row["item"])
             # Each trace, plotted as CA names it when its item has no trace_name_for_plotting: by its variable.
             with open(os.path.join(folder, "results", "traces.csv")) as f:
                 traces = {(row["experiment"], row["subexperiment"], row["group"], row["variable"]) for row in csv.DictReader(f)}
             self.assertEqual(traces, {("0", "1", "soma_SN/V", "soma_SN/V"), ("1", "1", "soma_SN/V", "soma_SN/V")})
-            for figure in ("traces.png", "features.png", "feature_plot_1.png"):
+            # The feature plot, named after itself.
+            for figure in ("traces.png", "features.png", "Mean_voltage_against_g_M.png"):
                 self.assertTrue(os.path.exists(os.path.join(folder, "results", figure)), figure)
 
     def test_toolbar_plays_with_f9_and_opens_the_solver_settings(self):

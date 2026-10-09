@@ -79,6 +79,20 @@
             :height="chartHeight"
             sync-key="simulation-results-dialog"
           />
+          <section v-if="featureCharts.length" class="results-features">
+            <h3 class="results-features-title">Features</h3>
+            <FeaturePlot
+              v-for="chart in featureCharts"
+              :key="chart.key"
+              :ref="(plot) => setPlot(chart.key, plot)"
+              :title="chart.title"
+              :unit="chart.unit"
+              :x="chart.x"
+              :y-label="chart.yLabel"
+              :series="chart.series"
+              :height="chartHeight"
+            />
+          </section>
           <p class="results-hint">Drag across a chart to zoom in; double-click it to zoom out.</p>
         </div>
 
@@ -100,8 +114,9 @@
 
 <script setup>
 /**
- * The plotted results at full size: the Simulation tab's charts with their cursors in step, their values
- * downloadable as CSV and the charts as one PNG, and a protocol exportable with a script that runs it. Beside them, as in the tab, an
+ * The plotted results at full size: the Simulation tab's charts with their cursors in step, then a protocol run's
+ * feature plots when shown, their values downloadable as CSV and the charts as one PNG, and a protocol exportable
+ * with a script that runs it. Beside them, as in the tab, an
  * instance's plotted variables and sliders can be changed.
  */
 import { computed, ref } from 'vue'
@@ -111,6 +126,7 @@ import Dialog from 'primevue/dialog'
 import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 
+import FeaturePlot from './FeaturePlot.vue'
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import ProtocolExportDialog from './ProtocolExportDialog.vue'
 import SimulationControls from './SimulationControls.vue'
@@ -128,6 +144,8 @@ const props = defineProps({
   summary: { type: String, default: '' },
   x: { type: Object, required: true }, // { label, unit, values }
   charts: { type: Array, required: true }, // [{ key, title, unit, series }], as the Simulation tab shows them
+  // A protocol run's feature plots, when shown, as FeaturePlot takes them; after the charts, and in the PNG, not the CSV.
+  featureCharts: { type: Array, default: () => [] },
   // Every node, whose variables can be plotted or given sliders beside the charts.
   nodes: { type: Array, required: true },
   // The nodes the shown run simulated, or null for all of them.
@@ -192,9 +210,9 @@ function downloadCsv() {
   legacyDownload(`${FILE_NAME}.csv`, new Blob([buildResultsCsv(columns.value)], { type: 'text/csv' }))
 }
 
-/** Downloads the charts, as shown, as one PNG on the dialog's background. */
+/** Downloads the charts, as shown, as one PNG on the dialog's background, the feature plots after them. */
 function downloadPng() {
-  const snapshots = props.charts.map((chart) => plots.get(chart.key)?.snapshot()).filter(Boolean)
+  const snapshots = [...props.charts, ...props.featureCharts].map((chart) => plots.get(chart.key)?.snapshot()).filter(Boolean)
   if (!snapshots.length) return
   const style = getComputedStyle(chartsEl.value.closest('.p-dialog'))
   const image = composeChartsImage(snapshots, { background: style.backgroundColor, text: style.color })
@@ -274,6 +292,22 @@ function downloadPng() {
 
 .export-button {
   display: inline-flex;
+}
+
+.results-features {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* After the traces, a group of its own. */
+.results-features-title {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--p-content-border-color);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--p-text-muted-color);
 }
 
 .results-hint {

@@ -3,8 +3,8 @@
 
 OBS_DATA's protocol_info sets up the experiments, and its prediction_items say what to record: a variable's trace, or
 a feature, which is an operation over one sub-experiment (a peak, say). libcuflynx computes the features with its own
-operation functions, so they are the numbers circulatory_autogen and CUFLynx compute. Writes traces.csv,
-features.csv and a figure for each plot.
+operation functions, so they are the numbers circulatory_autogen and CUFLynx compute. Its prediction_plots pair the
+features across the experiments, as PhLynx plots them. Writes traces.csv, features.csv and a figure for each plot.
 """
 # ---- Written by PhLynx's export ------------------------------------------------------------------------------------
 MODEL = 'model.cellml'
@@ -13,12 +13,12 @@ DT = 0.1  # the time between recorded points
 TIME_UNIT = ''  # the unit of time, as the model has it
 SOLVER_INFO = {}  # CVODE's settings, as libcuflynx names them
 PARAMETER_NAMES = {}  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them, in outputs too
-FEATURE_PLOTS = []  # features against another feature, a protocol input or the experiment
 OPERATION_FUNCS_PATH = None  # a file of your own operation functions, for features that use them
 # ---- End of what PhLynx wrote --------------------------------------------------------------------------------------
 import argparse
 import json
 import os
+import re
 import warnings
 
 import matplotlib.pyplot as plt
@@ -38,6 +38,9 @@ except ImportError as error:
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LINE_STYLES = ['-', '--', ':', '-.']
+# A prediction plot's keys, and the ways it reads x: another feature, an input's value, or the experiment.
+PLOT_KEYS = ('name', 'kind', 'x', 'y', 'series')
+PLOT_KINDS = ('feature_vs_feature', 'feature_vs_input', 'feature_vs_experiment')
 
 
 def rename_operands(item):
@@ -52,7 +55,8 @@ def rename_operands(item):
 
 
 def load():
-    """OBS_DATA as written, and its protocol and prediction items as libcuflynx parses them, parameters renamed."""
+    """OBS_DATA's protocol and prediction plots as written, and its protocol and prediction items as libcuflynx parses
+    them, parameters renamed."""
     with open(os.path.join(HERE, OBS_DATA), encoding='utf-8-sig') as f:
         obs = json.load(f)
     renamed = json.loads(json.dumps(obs))
@@ -66,28 +70,95 @@ def load():
         raise SystemExit(f'{OBS_DATA} has no prediction_items, so there is nothing to record. Add outputs under '
                          "Outputs in PhLynx's protocol editor (Edit the protocol) and export again, or add "
                          'prediction_items to it.')
-    return obs['protocol_info'], parsed['protocol_info'], parsed['prediction_info']
+    plots = obs.get('prediction_plots') or []
+    if not isinstance(plots, list):
+        warnings.warn(f'{OBS_DATA}\'s prediction_plots is not a list, so no feature plot is drawn.')
+        plots = []
+    return obs['protocol_info'], plots, parsed['protocol_info'], parsed['prediction_info']
 
 
-def number(protocol_info, ref, e):
-    """The number the protocol sets an input to in a sub-experiment of experiment e, or nan if it changes there."""
-    value = protocol_info['params_to_change'][ref['input']][e][ref['subexperiment_idx']]
-    return float(value) if isinstance(value, (int, float)) else np.nan
+def input_value(protocol_info, ref, e):
+    """The number a prediction plot's input reference reads in experiment e, or nan if it isn't one there."""
+    value = protocol_info['params_to_change'][ref['params_to_change']][e][ref['subexperiment_idx']]
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else np.nan
 
 
-def check_plots(protocol_info, items):
-    """Stops, naming them all, when FEATURE_PLOTS names features or inputs OBS_DATA doesn't have."""
-    groups = {g for g, op in zip(items['item_names_for_plotting'], items['operations']) if op is not None}
-    missing = set()
-    for plot in FEATURE_PLOTS:
-        for axis in (plot['x'], plot['y'], plot.get('series')):
-            if isinstance(axis, dict):
-                missing |= {axis['input']} - set(protocol_info.get('params_to_change', {}))
-            elif axis not in (None, 'experiment'):
-                missing |= {axis} - groups
-    if missing:
-        raise SystemExit(f'FEATURE_PLOTS names {", ".join(sorted(missing))}, which {OBS_DATA} has no feature or input '
-                         f'called. Its features are {", ".join(sorted(groups)) or "none"}.')
+def describe_input(ref):
+    """An input reference, as the axes and PhLynx name it."""
+    return f"{ref['params_to_change']} (sub-experiment {ref['subexperiment_idx'] + 1})"
+
+
+def feature_groups(items):
+    """Each group of prediction items (item_name_for_plotting): its items by experiment, and whether each is a feature,
+    an operation that isn't a series."""
+    groups = {}
+    for i, group in enumerate(items['item_names_for_plotting']):
+        entry = groups.setdefault(group, {'by_experiment': {}, 'is_feature': True})
+        entry['by_experiment'].setdefault(int(items['experiment_idxs'][i]), []).append(items['data_item_names'][i])
+        if items['operations'][i] is None or items['data_types'][i] == 'series':
+            entry['is_feature'] = False
+    return groups
+
+
+def plot_problems(plot, groups, protocol_info, names):
+    """What stops a prediction plot being drawn, as PhLynx's protocol editor checks it."""
+    if not isinstance(plot, dict):
+        return [f'it must be a dict, not {type(plot).__name__}']
+    unknown = sorted(set(plot) - set(PLOT_KEYS))
+    problems = [f'it has keys it does not take: {", ".join(unknown)}'] if unknown else []
+    if not isinstance(plot.get('name'), str) or not plot['name'].strip():
+        problems.append('it needs a name')
+    elif names.count(plot['name']) > 1:
+        problems.append('another plot has its name')
+    kind = plot.get('kind')
+    if kind not in PLOT_KINDS:
+        problems.append(f'its kind must be {", ".join(PLOT_KINDS)}, not {kind!r}')
+
+    def group(axis):
+        name = plot.get(axis)
+        entry = groups.get(name) if isinstance(name, str) else None
+        if entry is None:
+            problems.append(f'{axis} names no group of prediction items: {name!r}')
+        elif not entry['is_feature']:
+            problems.append(f'{axis} names {name!r}, which has items that are not features')
+        elif any(len(names_in) > 1 for names_in in entry['by_experiment'].values()):
+            problems.append(f'{axis} names {name!r}, which has more than one item in an experiment; a plot takes one')
+        return entry
+
+    def input_ref(axis, experiments):
+        ref = plot.get(axis)
+        if not isinstance(ref, dict) or set(ref) != {'params_to_change', 'subexperiment_idx'}:
+            problems.append(f"{axis} must be {{'params_to_change': <key>, 'subexperiment_idx': <int>}}, not {ref!r}")
+            return
+        rows = (protocol_info.get('params_to_change') or {}).get(ref['params_to_change'])
+        if rows is None:
+            problems.append(f"{axis} names {ref['params_to_change']!r}, which the protocol doesn't set")
+            return
+        sub = ref['subexperiment_idx']
+        if not isinstance(sub, int) or isinstance(sub, bool) or sub < 0:
+            problems.append(f'{axis} names the sub-experiment {sub!r}, not one counted from 0')
+            return
+        for e in experiments:
+            try:
+                value = rows[e][sub]
+            except (IndexError, KeyError, TypeError):
+                value = None
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                problems.append(f'{axis} reads {describe_input(ref)} in experiment {e + 1}, which is {value!r}, not a number')
+
+    y = group('y')
+    experiments = sorted(y['by_experiment']) if y else []
+    if kind == 'feature_vs_feature':
+        x = group('x')
+        if x and y and sorted(x['by_experiment']) != experiments:
+            problems.append('x and y cover different experiments; each point needs both')
+    elif kind == 'feature_vs_input':
+        input_ref('x', experiments)
+    elif kind == 'feature_vs_experiment' and plot.get('x') is not None:
+        problems.append(f"x is null for a feature_vs_experiment plot, not {plot['x']!r}")
+    if plot.get('series') is not None:
+        input_ref('series', experiments)
+    return problems
 
 
 def check_names(helper, protocol, items):
@@ -247,61 +318,62 @@ def features_figure(features, labels, colours):
     return fig
 
 
-def axis_values(axis, experiments, by, protocol_info):
-    """A FEATURE_PLOTS axis's value in each experiment: a feature's, an input's number, or the experiment's number."""
-    if axis == 'experiment':
-        return experiments + 1
-    if isinstance(axis, dict):
-        return [number(protocol_info, axis, e) for e in experiments]
-    return by[axis].reindex(experiments).to_numpy()
+def plot_points(plot, features, protocol_info, groups):
+    """A prediction plot's points, as PhLynx pairs them: one per experiment of its y group, sorted by series, then x;
+    one whose feature wasn't computed is skipped with a warning."""
+    value = features.set_index(['feature', 'experiment'])['value']
+    rows = []
+    for e in sorted(groups[plot['y']]['by_experiment']):
+        y = value.get((plot['y'], e), np.nan)
+        x = {'feature_vs_feature': lambda: value.get((plot['x'], e), np.nan),
+             'feature_vs_input': lambda: input_value(protocol_info, plot['x'], e)}.get(plot['kind'], lambda: e + 1)()
+        if not (np.isfinite(x) and np.isfinite(y)):
+            warnings.warn(f"The feature plot {plot['name']} leaves out experiment {e + 1}: its features weren't computed "
+                          '(see the warnings above).')
+            continue
+        series = input_value(protocol_info, plot['series'], e) if plot.get('series') else np.nan
+        rows.append({'experiment': e, 'x': float(x), 'y': float(y), 'series': series})
+    df = pd.DataFrame(rows, columns=['experiment', 'x', 'y', 'series'])
+    return df.sort_values(['series', 'x'], kind='stable', na_position='first') if len(df) else df
 
 
-def axis_name(axis, units):
-    """A FEATURE_PLOTS axis's name, a feature's with its unit."""
-    if isinstance(axis, dict):
-        return f"{axis['input']} (sub-experiment {axis['subexperiment_idx'] + 1})"
-    return 'Experiment' if axis == 'experiment' else with_unit(axis, units.get(axis))
-
-
-def plot_features(plot):
-    """The features a FEATURE_PLOTS pairing plots."""
-    return [axis for axis in (plot['y'], plot['x']) if isinstance(axis, str) and axis != 'experiment']
-
-
-def is_plottable(plot, features):
-    """Whether a FEATURE_PLOTS pairing can be drawn, warning why not: each of its features computed, once in an
-    experiment."""
-    names = plot_features(plot)
-    missing = [name for name in names if name not in set(features['feature'])]
-    twice = features[features.duplicated(['experiment', 'feature'], keep=False) & features['feature'].isin(names)]
-    if missing:
-        warnings.warn(f"The feature plot of {plot['y']} is skipped: no {', '.join(missing)} was computed (see the "
-                      'warnings above).')
-    elif len(twice):
-        warnings.warn(f"The feature plot of {plot['y']} is skipped: {', '.join(dict.fromkeys(twice['feature']))} has "
-                      f"more than one item in an experiment ({', '.join(twice['item'])}). Give each its own "
-                      f'item_name_for_plotting in {OBS_DATA}.')
-    return not missing and not len(twice)
-
-
-def feature_plot(plot, features, protocol_info):
-    """A FEATURE_PLOTS pairing: a point per experiment, and a line per series value when it has a series."""
-    names = plot_features(plot)
-    by = features[features['feature'].isin(names)].pivot(index='experiment', columns='feature', values='value')
+def prediction_plot(plot, features, protocol_info, groups, labels, colours):
+    """A prediction plot: a line per series value, in its own colour, or else a line through a point per experiment,
+    in its colour, as PhLynx draws it. None when it has no point."""
+    df = plot_points(plot, features, protocol_info, groups)
+    if not len(df):
+        warnings.warn(f"The feature plot {plot['name']} is skipped: none of its features were computed.")
+        return None
     units = features.groupby('feature')['unit'].first()
-    df = pd.DataFrame({'y': by[plot['y']]}).dropna()
-    df['x'] = axis_values(plot['x'], df.index, by, protocol_info)
-    series = plot.get('series')
-    if series:
-        df['series'] = [f"{series['input']} = {v:g}" for v in axis_values(series, df.index, by, protocol_info)]
     fig, ax = plt.subplots(figsize=(5, 3.5), layout='constrained')
-    sns.lineplot(df.dropna(subset=['x']).sort_values('x'), x='x', y='y', hue='series' if series else None,
-                 marker='o', ax=ax, sort=False)
-    ax.set(title=plot.get('title') or plot['y'], xlabel=axis_name(plot['x'], units),
-           ylabel=with_unit(plot['y'], units[plot['y']]))
-    if series:
-        ax.get_legend().set_title(None)  # each entry names its input
+    if plot.get('series'):
+        palette = sns.color_palette('deep', df['series'].nunique())
+        for k, (value, line) in enumerate(df.groupby('series', sort=True)):
+            ax.plot(line['x'], line['y'], marker='o', color=palette[k], label=f"{describe_input(plot['series'])} = {value:g}")
+    else:
+        ax.plot(df['x'], df['y'], color='0.6', zorder=1)
+        for _, point in df.iterrows():
+            e = int(point['experiment'])
+            ax.scatter(point['x'], point['y'], color=colours[e], zorder=2, label=labels[e])
+    if plot['kind'] == 'feature_vs_experiment':
+        ax.set_xticks(df['x'], [labels[int(e)] for e in df['experiment']], rotation=30, ha='right')
+        xlabel = 'Experiment'
+    elif plot['kind'] == 'feature_vs_input':
+        xlabel = describe_input(plot['x'])
+    else:
+        xlabel = with_unit(plot['x'], units.get(plot['x']))
+    ax.set(title=plot['name'], xlabel=xlabel, ylabel=with_unit(plot['y'], units.get(plot['y'])))
+    ax.legend(fontsize='x-small')
     return fig
+
+
+def figure_name(name, taken):
+    """A file stem for a prediction plot, from its name, not one taken."""
+    stem = re.sub(r'[^\w\-]+', '_', name).strip('_') or 'feature_plot'
+    unique, n = stem, 2
+    while unique in taken:
+        unique, n = f'{stem}_{n}', n + 1
+    return unique
 
 
 # ---- Your plots ----------------------------------------------------------------------------------------------------
@@ -326,8 +398,7 @@ def main():
     args = parser.parse_args()
     warnings.formatwarning = lambda message, *_, **__: f'Warning: {message}\n'
 
-    protocol_info, protocol, items = load()
-    check_plots(protocol_info, items)
+    protocol_info, plots, protocol, items = load()
     traces, features, times = run(protocol, items)
     # The tables first, so a plot that fails loses nothing computed.
     os.makedirs(args.out, exist_ok=True)
@@ -341,9 +412,17 @@ def main():
         figures['traces'] = trace_figure(traces, labels, colours)
     if len(features):
         figures['features'] = features_figure(features, labels, colours)
-    for n, plot in enumerate(FEATURE_PLOTS, 1):
-        if is_plottable(plot, features):
-            figures[f'feature_plot_{n}'] = feature_plot(plot, features, protocol_info)
+    groups = feature_groups(items)
+    names = [plot.get('name') for plot in plots if isinstance(plot, dict)]
+    for n, plot in enumerate(plots, 1):
+        problems = plot_problems(plot, groups, protocol_info, names)
+        if problems:
+            name = plot.get('name') if isinstance(plot, dict) else None
+            warnings.warn(f'The feature plot {name or n} is skipped: {"; ".join(problems)}.')
+            continue
+        figure = prediction_plot(plot, features, protocol_info, groups, labels, colours) if len(features) else None
+        if figure is not None:
+            figures[figure_name(plot['name'], figures)] = figure
     figures.update(your_plots(traces, features, labels, colours))
 
     for name, fig in figures.items():

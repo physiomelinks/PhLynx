@@ -30,6 +30,14 @@ export const SETTING_SECTIONS = [
         description: 'After a run, show the outputs of the inspection modules it covered as a plot of their own.',
         default: false,
       },
+      {
+        key: 'showFeaturePlots',
+        type: 'toggle',
+        label: 'Show feature plots',
+        description:
+          "After a protocol run, plot its features (its outputs with an operation, such as a peak) across the experiments, and the protocol's feature plots, after the results. Each results view can show or hide them too.",
+        default: false,
+      },
     ],
   },
   {

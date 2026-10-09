@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, markRaw, ref } from 'vue'
+import { computed, markRaw, ref, watch } from 'vue'
 import {
   OBS_DATA_FORMAT,
   buildObsDataLocation,
@@ -11,6 +11,7 @@ import {
   validateProtocolInfo,
 } from '@physiomelinks/protocol-kit'
 
+import { useAppSettings } from '../composables/useAppSettings'
 import { planDrivers } from '../services/protocol/libopencorEngine/protocolDrivers'
 import { listFeatureOperands } from '../services/simulation/protocolFeatures'
 import { cyrb53 } from '../utils/misc'
@@ -35,12 +36,19 @@ export const findIgnoredSettings = (protocolInfo) =>
  */
 export const useProtocolStore = defineStore('protocol', () => {
   const omexStore = useOmexStore()
+  const { settings } = useAppSettings()
   /** Whether play runs the protocol rather than the settings' time course; the session's choice. */
   const isProtocolMode = ref(false)
   /** The experiment whose results are shown, by index, or ALL_EXPERIMENTS. */
   const activeExperiment = ref(0)
   /** Whether the values the protocol set are plotted after the results. */
   const isShowingInputs = ref(false)
+  /** Whether the run's features are plotted after the results; as the settings say, until switched. */
+  const isShowingFeatures = ref(settings.showFeaturePlots)
+  watch(
+    () => settings.showFeaturePlots,
+    (isShown) => (isShowingFeatures.value = isShown)
+  )
 
   /** The obs_data file found among the archive's files, or null. */
   const source = computed(() => findObsDataExtra(omexStore.preservedExtras))
@@ -103,12 +111,14 @@ export const useProtocolStore = defineStore('protocol', () => {
     isProtocolMode.value = false
     activeExperiment.value = 0
     isShowingInputs.value = false
+    isShowingFeatures.value = settings.showFeaturePlots
   }
 
   return {
     isProtocolMode,
     activeExperiment,
     isShowingInputs,
+    isShowingFeatures,
     source,
     protocolInfo,
     hasProtocol,

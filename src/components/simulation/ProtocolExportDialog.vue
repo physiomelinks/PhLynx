@@ -37,115 +37,18 @@
       <section v-if="prepared.cellml" class="export-section" aria-labelledby="export-feature-plots-heading">
         <h4 id="export-feature-plots-heading">Feature plots</h4>
         <p class="section-hint">
-          The script plots each feature against the experiments. Here, plot one against another feature or a protocol
-          input too, such as a current's peak against the voltage it was clamped at: a point per experiment.
+          The script plots each feature against the experiments, and draws the protocol's own feature plots, as PhLynx
+          shows them after a run. Add or change them under Outputs in the protocol editor (Edit the protocol).
         </p>
-        <p v-if="!featureGroups.length" class="section-hint">
-          The protocol records no features. To plot one here, add a Feature output, such as a mean or a peak, under
-          Outputs in the protocol editor (Edit the protocol).
-        </p>
-        <div v-for="(plot, p) in featurePlots" :key="p" class="feature-plot" role="group" :aria-label="`Feature plot ${p + 1}`">
-          <div class="plot-line">
-            <InputText v-model="plot.title" size="small" placeholder="Title" :aria-label="`Feature plot ${p + 1} title`" class="plot-title" />
-            <Button
-              icon="pi pi-trash"
-              text
-              rounded
-              size="small"
-              severity="secondary"
-              :aria-label="`Remove feature plot ${p + 1}`"
-              @click="featurePlots.splice(p, 1)"
-            />
-          </div>
-          <div class="plot-line">
-            <span class="axis-label">y</span>
-            <Select
-              v-model="plot.y"
-              :options="featureNames"
-              size="small"
-              placeholder="Feature"
-              :invalid="isInvalid(p, 'y')"
-              :aria-label="`Feature plot ${p + 1} y`"
-              class="plot-select"
-            />
-          </div>
-          <div class="plot-line">
-            <span class="axis-label">x</span>
-            <SelectButton
-              :model-value="plot.x.kind"
-              :options="X_KINDS"
-              option-label="label"
-              option-value="value"
-              :allow-empty="false"
-              size="small"
-              :aria-label="`Feature plot ${p + 1} x`"
-              @update:model-value="(kind) => (plot.x = createX(kind))"
-            />
-            <Select
-              v-if="plot.x.kind === 'feature'"
-              v-model="plot.x.feature"
-              :options="featureNames"
-              size="small"
-              placeholder="Feature"
-              :invalid="isInvalid(p, 'x.feature')"
-              :aria-label="`Feature plot ${p + 1} x feature`"
-              class="plot-select"
-            />
-            <template v-else-if="plot.x.kind === 'input'">
-              <Select
-                v-model="plot.x.input"
-                :options="inputNames"
-                size="small"
-                placeholder="Input"
-                :invalid="isInvalid(p, 'x.input', 'x')"
-                :aria-label="`Feature plot ${p + 1} x input`"
-                class="plot-select"
-              />
-              <Select
-                v-model="plot.x.subexperiment"
-                :options="subOptions"
-                option-label="label"
-                option-value="value"
-                size="small"
-                :invalid="isInvalid(p, 'x.subexperiment', 'x')"
-                :aria-label="`Feature plot ${p + 1} x sub-experiment`"
-              />
-            </template>
-          </div>
-          <div class="plot-line">
-            <ToggleSwitch
-              :model-value="!!plot.series"
-              :input-id="`export-series-${p}`"
-              @update:model-value="(isOn) => (plot.series = isOn ? { input: inputNames[0] ?? null, subexperiment: 0 } : null)"
-            />
-            <label :for="`export-series-${p}`">A line per value of</label>
-            <template v-if="plot.series">
-              <Select
-                v-model="plot.series.input"
-                :options="inputNames"
-                size="small"
-                placeholder="Input"
-                :invalid="isInvalid(p, 'series.input', 'series')"
-                :aria-label="`Feature plot ${p + 1} series input`"
-                class="plot-select"
-              />
-              <Select
-                v-model="plot.series.subexperiment"
-                :options="subOptions"
-                option-label="label"
-                option-value="value"
-                size="small"
-                :invalid="isInvalid(p, 'series.subexperiment', 'series')"
-                :aria-label="`Feature plot ${p + 1} series sub-experiment`"
-              />
-            </template>
-          </div>
-          <Message v-for="error in errorsAt(p)" :key="`${error.path}:${error.message}`" severity="error" size="small">{{ error.message }}</Message>
-        </div>
-        <Button label="Add feature plot" icon="pi pi-plus" text size="small" :disabled="!featureGroups.length" @click="addFeaturePlot" />
-        <div v-if="otherErrors.length" class="messages" role="status">
-          <Message v-for="error in otherErrors" :key="`${error.path}:${error.message}`" severity="error" size="small">{{ error.message }}</Message>
-        </div>
+        <ul v-if="predictionPlots.length" class="feature-plots">
+          <li v-for="(plot, p) in predictionPlots" :key="p" class="feature-plot">
+            <span class="plot-name">{{ plot.name || '(unnamed)' }}</span>
+            <span class="plot-pairing">{{ [plot.pairing, plot.series].filter(Boolean).join(', ') }}</span>
+            <!-- Why, among the warnings above, which the bundle's README lists too. -->
+            <span v-if="plot.errors.length" class="plot-skipped">skipped, as the warning above says</span>
+          </li>
+        </ul>
+        <p v-else class="section-hint">The protocol has no feature plots of its own.</p>
       </section>
     </template>
 
@@ -159,45 +62,27 @@
 <script setup>
 /**
  * Exports the protocol with a Python script that runs it and plots its outputs: a summary of what it holds, what to
- * know before running it, and plots of the obs_data's features against each other, a protocol input or the experiment.
- * The outputs themselves are the obs_data's prediction_items, edited under Outputs in the protocol editor.
+ * know before running it, and the feature plots it draws. The outputs and feature plots themselves are the obs_data's
+ * prediction_items and prediction_plots, edited under Outputs in the protocol editor.
  */
 import { computed } from 'vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
-import Select from 'primevue/select'
-import SelectButton from 'primevue/selectbutton'
-import ToggleSwitch from 'primevue/toggleswitch'
 import { nameExperiment } from '@physiomelinks/protocol-kit'
 
 import { useProtocolStore } from '../../stores/protocolStore'
-
-const X_KINDS = [
-  { label: 'Feature', value: 'feature' },
-  { label: 'Protocol input', value: 'input' },
-  { label: 'Experiment', value: 'experiment' },
-]
 
 const props = defineProps({
   // From useProtocolExport.
   exporter: { type: Object, required: true },
 })
 
-const { visible, isPreparing, isExporting, prepared, errors, warnings, featurePlots, plotErrors, featureGroups, solverInfo, files, canExport } =
-  props.exporter
+const { visible, isPreparing, isExporting, prepared, errors, warnings, predictionPlots, solverInfo, files, canExport } = props.exporter
 const protocolStore = useProtocolStore()
 
 const experimentLabels = computed(() => (protocolStore.view?.experiments ?? []).map((experiment, index) => experiment.label ?? nameExperiment(index)))
-const featureNames = computed(() => featureGroups.value.map(({ name }) => name))
-const inputNames = computed(() => (protocolStore.view?.controls ?? []).map(({ parameter }) => parameter))
-// Up to the most any experiment has, numbered from 1.
-const subOptions = computed(() => {
-  const count = Math.max(0, ...(protocolStore.view?.experiments ?? []).map(({ subs }) => subs.length))
-  return Array.from({ length: count }, (_, s) => ({ label: `Sub-experiment ${s + 1}`, value: s }))
-})
 
 const scopeLabel = computed(() => {
   const count = prepared.value?.scope?.nodes?.length ?? 0
@@ -214,47 +99,6 @@ const solverLabel = computed(() => {
     ...(prepared.value?.settings?.pointInterval ? [`a point every ${prepared.value.settings.pointInterval} ${unit}`.trim()] : []),
   ].join(' · ')
 })
-
-/**
- * Gives a feature plot's x of a kind, with the first choices filled in.
- *
- * @param {'feature'|'input'|'experiment'} kind
- * @returns {Object}
- */
-function createX(kind) {
-  if (kind === 'feature') return { kind, feature: featureNames.value[1] ?? featureNames.value[0] ?? null }
-  if (kind === 'input') return { kind, input: inputNames.value[0] ?? null, subexperiment: 0 }
-  return { kind }
-}
-
-/**
- * Adds a feature plot of the first feature against the next, else against the first protocol input, else against the
- * experiments, which features.png already plots.
- */
-function addFeaturePlot() {
-  const kind = featureNames.value.length > 1 ? 'feature' : inputNames.value.length ? 'input' : 'experiment'
-  featurePlots.value.push({ title: '', y: featureNames.value[0] ?? null, x: createX(kind), series: null })
-}
-
-/**
- * Lists a feature plot's problems, to show in its row.
- *
- * @param {number} p - Its place.
- * @returns {Array<{path: string, message: string}>}
- */
-const errorsAt = (p) => plotErrors.value.filter(({ path }) => path.startsWith(`featurePlots[${p}].`) || path === `featurePlots[${p}]`)
-
-// The problems of no plot shown, as of one removed meanwhile.
-const otherErrors = computed(() => plotErrors.value.filter(({ path }) => !featurePlots.value.some((_, p) => errorsAt(p).some((error) => error.path === path))))
-
-/**
- * Whether one of a feature plot's fields has a problem.
- *
- * @param {number} p - Its place.
- * @param {...string} fields - Paths within the plot, such as `x.input`.
- * @returns {boolean}
- */
-const isInvalid = (p, ...fields) => plotErrors.value.some(({ path }) => fields.some((field) => path === `featurePlots[${p}].${field}`))
 </script>
 
 <style scoped>
@@ -311,32 +155,34 @@ const isInvalid = (p, ...fields) => plotErrors.value.some(({ path }) => fields.s
   font-size: 0.875rem;
 }
 
-.plot-line {
+.feature-plots {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   font-size: 0.8125rem;
 }
 
 .feature-plot {
-  padding: 8px 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px 0;
   border-bottom: 1px dashed var(--p-content-border-color);
 }
 
-.plot-title {
-  flex: 1;
-  min-width: 10rem;
-}
-
-.plot-select {
-  min-width: 10rem;
-}
-
-.axis-label {
-  width: 1rem;
+.plot-name {
   font-weight: 600;
+}
+
+.plot-pairing {
   color: var(--p-text-muted-color);
+}
+
+.plot-skipped {
+  color: var(--p-orange-600, #c2410c);
 }
 </style>

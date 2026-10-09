@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import ConfirmationService from 'primevue/confirmationservice'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addOutput, ensureProtocol } from '@physiomelinks/protocol-kit'
+import { addOutput, addPredictionPlot, ensureProtocol } from '@physiomelinks/protocol-kit'
 import { isSettable, searchVariables } from '@physiomelinks/protocol-kit/editor'
 
 import ProtocolDialog from '../../../src/components/ProtocolDialog.vue'
@@ -108,5 +108,23 @@ describe('ProtocolDialog', () => {
     expect(withOutput.prediction_items).toEqual([
       expect.objectContaining({ data_item_name: 'V_mean', operands: ['cell/V'], operation: 'mean', experiment_idx: 0, item_name_for_plotting: 'V_mean' }),
     ])
+  })
+
+  it("saves the feature plots the Outputs editor adds as the obs_data's prediction_plots, undoably until then", async () => {
+    mountEditor()
+    const editor = wrapper.findComponent({ name: 'ProtocolEditor' })
+    const withOutput = addOutput(ensureProtocol(null), { name: 'V_mean', operands: ['cell/V'], unit: 'mV', experiments: [0], operation: 'mean' })
+    editor.vm.$emit('update:document', withOutput)
+    await wrapper.vm.$nextTick()
+    const withPlot = addPredictionPlot(editor.props('document'), { name: 'V_mean by experiment', kind: 'feature_vs_experiment', y: 'V_mean' })
+    editor.vm.$emit('update:document', withPlot)
+    await wrapper.vm.$nextTick()
+    await wrapper.find('button[aria-label="Undo"]').trigger('click')
+    expect(editor.props('document').prediction_plots).toBeUndefined()
+    await wrapper.find('button[aria-label="Redo"]').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+
+    expect(useProtocolStore().source.document.prediction_plots).toEqual([{ name: 'V_mean by experiment', kind: 'feature_vs_experiment', x: null, y: 'V_mean', series: null }])
+    expect(useProtocolStore().source.document.prediction_items).toEqual(withOutput.prediction_items)
   })
 })

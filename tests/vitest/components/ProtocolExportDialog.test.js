@@ -2,8 +2,6 @@
 import { computed, nextTick, ref, shallowRef } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
-import Select from 'primevue/select'
-import SelectButton from 'primevue/selectbutton'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../src/stores/protocolStore', async () => {
@@ -43,7 +41,6 @@ function createExporter(overrides = {}) {
     voi: { name: 'm/t', unit: 'second' },
     ...overrides.prepared,
   })
-  const plotErrors = ref(overrides.plotErrors ?? [])
   return {
     visible: ref(true),
     isPreparing: ref(false),
@@ -51,12 +48,10 @@ function createExporter(overrides = {}) {
     prepared,
     errors: computed(() => prepared.value.errors),
     warnings: computed(() => prepared.value.warnings),
-    featurePlots: ref([]),
-    plotErrors,
-    featureGroups: ref(overrides.featureGroups ?? [{ name: 'I_peak', experiments: [0, 1] }, { name: 'V_step', experiments: [0, 1] }]),
+    predictionPlots: ref(overrides.predictionPlots ?? []),
     solverInfo: ref({ MaximumStep: 0.01, rtol: 1e-7, atol: 1e-7 }),
     files: ref(['run_protocol.py', 'model.cellml', 'cell_obs_data.json']),
-    canExport: computed(() => !prepared.value.errors.length && !plotErrors.value.length),
+    canExport: computed(() => !prepared.value.errors.length),
     open: vi.fn(),
     close: vi.fn(),
     exportZip: vi.fn(),
@@ -76,7 +71,6 @@ async function mountDialog(exporter) {
 }
 
 const button = (label) => wrapper.findAll('button').find((b) => b.text() === label)
-const byLabel = (label) => wrapper.find(`[aria-label="${label}"]`)
 
 describe('ProtocolExportDialog', () => {
   beforeEach(() => {
@@ -102,65 +96,31 @@ describe('ProtocolExportDialog', () => {
     expect(button('Export ZIP').attributes('disabled')).toBeDefined()
   })
 
-  it('pairs the first feature with the next, then with a protocol input and a line per value of another', async () => {
-    const exporter = createExporter()
-    await mountDialog(exporter)
-    await button('Add feature plot').trigger('click')
-    // Not the experiments, which features.png plots already.
-    expect(exporter.featurePlots.value).toEqual([{ title: '', y: 'I_peak', x: { kind: 'feature', feature: 'V_step' }, series: null }])
-    expect(wrapper.findComponent(Select).props('options')).toEqual(['I_peak', 'V_step'])
-
-    wrapper.findComponent(SelectButton).vm.$emit('update:modelValue', 'feature')
-    await nextTick()
-    expect(exporter.featurePlots.value[0].x).toEqual({ kind: 'feature', feature: 'V_step' })
-
-    wrapper.findComponent(SelectButton).vm.$emit('update:modelValue', 'input')
-    await nextTick()
-    expect(exporter.featurePlots.value[0].x).toEqual({ kind: 'input', input: 'a/k', subexperiment: 0 })
-    expect(byLabel('Feature plot 1 x input').exists()).toBe(true)
-    // Up to the most sub-experiments any experiment has.
-    const [, , sub] = wrapper.findAllComponents(Select)
-    expect(sub.props('options').map(({ value }) => value)).toEqual([0, 1, 2])
-
-    await wrapper.find('#export-series-0').setValue(true)
-    expect(exporter.featurePlots.value[0].series).toEqual({ input: 'a/k', subexperiment: 0 })
-    expect(byLabel('Feature plot 1 series input').exists()).toBe(true)
-
-    await byLabel('Remove feature plot 1').trigger('click')
-    expect(exporter.featurePlots.value).toEqual([])
-  })
-
-  it('says how to get features when the protocol records none, and offers no plot of them', async () => {
-    await mountDialog(createExporter({ featureGroups: [] }))
-
-    expect(wrapper.text()).toContain('The protocol records no features.')
-    expect(wrapper.text()).toContain('add a Feature output, such as a mean or a peak, under Outputs in the protocol editor (Edit the protocol)')
-    expect(button('Add feature plot').attributes('disabled')).toBeDefined()
-  })
-
-  it("shows the plots' problems in their rows, marking the fields, and blocks the export", async () => {
-    const exporter = createExporter({
-      plotErrors: [
-        { path: 'featurePlots[1].x', message: "a/k isn't one number in experiment 2, sub-experiment 1." },
-        { path: 'featurePlots[3].y', message: 'Choose a feature to plot.' },
-      ],
-    })
-    exporter.featurePlots.value = [
-      { title: '', y: 'I_peak', x: { kind: 'experiment' }, series: null },
-      { title: '', y: 'I_peak', x: { kind: 'input', input: 'a/k', subexperiment: 0 }, series: null },
-    ]
-    await mountDialog(exporter)
+  it("lists the obs_data's feature plots read-only, pointing to the protocol editor, and those the script skips", async () => {
+    await mountDialog(
+      createExporter({
+        predictionPlots: [
+          { name: 'I–V', pairing: 'I_peak against a/k (sub-experiment 2)', series: 'a line per value of a/g (sub-experiment 1)', errors: [] },
+          { name: 'Odd', pairing: 'I_peak against V_step', series: null, errors: ['x and y cover different experiments.'] },
+        ],
+      })
+    )
 
     const rows = wrapper.findAll('.feature-plot')
-    expect(rows[0].findAll('.p-message-error')).toHaveLength(0)
-    expect(rows[1].findAll('.p-message-error').map((message) => message.text())).toEqual(["a/k isn't one number in experiment 2, sub-experiment 1."])
-    expect(wrapper.findAllComponents(Select).filter((select) => select.props('invalid')).map((select) => select.props('ariaLabel'))).toEqual([
-      'Feature plot 2 x input',
-      'Feature plot 2 x sub-experiment',
-    ])
-    // Of no plot shown: below them.
-    expect(wrapper.find('.export-section > .messages').text()).toBe('Choose a feature to plot.')
-    expect(button('Export ZIP').attributes('disabled')).toBeDefined()
+    expect(rows.map((row) => row.find('.plot-name').text())).toEqual(['I–V', 'Odd'])
+    expect(rows[0].find('.plot-pairing').text()).toBe('I_peak against a/k (sub-experiment 2), a line per value of a/g (sub-experiment 1)')
+    expect(rows[0].find('.plot-skipped').exists()).toBe(false)
+    expect(rows[1].find('.plot-skipped').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Add or change them under Outputs in the protocol editor (Edit the protocol).')
+    // Nothing to edit here.
+    expect(wrapper.findAll('input, select')).toHaveLength(0)
+    expect(button('Add feature plot')).toBeUndefined()
+    expect(button('Export ZIP').attributes('disabled')).toBeUndefined()
+  })
+
+  it('says when the protocol has no feature plots of its own', async () => {
+    await mountDialog(createExporter())
+    expect(wrapper.text()).toContain('The protocol has no feature plots of its own.')
   })
 
   it('exports, or closes, when asked', async () => {

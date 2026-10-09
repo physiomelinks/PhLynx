@@ -16,9 +16,10 @@ describe('app settings registry', () => {
     }
   })
 
-  it('defaults to CellML built-in units, and inspection modules not plotted', () => {
+  it('defaults to CellML built-in units, and inspection modules and feature plots not shown', () => {
     expect(defaultAppSettings().unitDisplay).toBe('builtIn')
     expect(defaultAppSettings().plotInspectionModules).toBe(false)
+    expect(defaultAppSettings().showFeaturePlots).toBe(false)
   })
 
   it('accepts only true or false for an on/off setting', () => {

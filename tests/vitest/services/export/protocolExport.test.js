@@ -1,21 +1,18 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
-import { readProtocolInfo, validateProtocolInfo } from '@physiomelinks/protocol-kit'
 
 import {
   BUNDLE_FILES,
   BUNDLE_REQUIREMENTS,
   buildBundleReadme,
-  buildFeaturePlots,
   buildParameterNames,
   buildScriptHeader,
   buildSolverInfo,
+  describePredictionPlots,
   fillScriptTemplate,
   generateProtocolZip,
   isFeatureItem,
-  nameItemGroup,
   readPredictionItems,
-  validateFeaturePlots,
 } from '../../../../src/services/export/protocolExport.js'
 import template from '../../../../src/services/export/templates/run_protocol.py?raw'
 
@@ -55,37 +52,43 @@ const IV = {
     { data_item_name: 'none', operands: ['membrane/V'], unit: 'mV', operation: 'None', experiment_idx: 1 },
   ],
 }
-const VIEW = readProtocolInfo(validateProtocolInfo(IV.protocol_info).protocolInfo)
 
 describe('readPredictionItems', () => {
-  it("groups the features by name, with the experiments they're recorded in, and says when they need CA #536", () => {
-    const { items, featureGroups, needsFeatureRelease } = readPredictionItems(IV)
+  it('reads the prediction items, and says when they need CA #536', () => {
+    const { items, needsFeatureRelease } = readPredictionItems(IV)
     expect(items).toHaveLength(5)
-    expect(featureGroups).toEqual([
-      { name: 'I_peak', experiments: [0, 1] },
-      { name: 'V_step', experiments: [1] },
-    ])
     expect(needsFeatureRelease).toBe(true)
     expect(isFeatureItem({ operation: ' none' })).toBe(false)
   })
 
   it('reads a file without prediction items, or a trace of one sub-experiment, as CA does', () => {
-    expect(readPredictionItems({ protocol_info: IV.protocol_info })).toEqual({ items: [], featureGroups: [], needsFeatureRelease: false })
+    expect(readPredictionItems({ protocol_info: IV.protocol_info })).toEqual({ items: [], needsFeatureRelease: false })
     expect(readPredictionItems(undefined).items).toEqual([])
     expect(readPredictionItems([{ data_item_name: 'old' }]).items).toEqual([])
     const traced = readPredictionItems({ prediction_items: [{ data_item_name: 'V', operands: ['membrane/V'], subexperiment_idx: 0 }] })
     expect(traced.needsFeatureRelease).toBe(true)
-    // Named as CA defaults it: by trace_name_for_plotting, else the first operand.
-    expect(readPredictionItems({ prediction_items: [{ data_item_name: 'p', operands: ['a/b'], operation: 'max' }] }).featureGroups).toEqual([
-      { name: 'a/b', experiments: [0] },
-    ])
   })
+})
 
-  it('names the groups of items with legacy keys as CA does', () => {
-    expect(nameItemGroup({ variable: 'membrane/V', unit: 'mV', operation: 'max' })).toBe('membrane/V')
-    expect(nameItemGroup({ data_item_name: 'V_pk', name_for_plotting: 'Vpk', operands: ['membrane/V'], operation: 'max' })).toBe('Vpk')
-    expect(nameItemGroup({ data_item_name: 'V_pk', operands: [], operation: 'max' })).toBe('V_pk')
-    expect(nameItemGroup({ data_item_name: 'V_pk', operands: [''], operation: 'max' })).toBe('V_pk')
+describe('describePredictionPlots', () => {
+  it('describes each feature plot the script reads from the obs_data, with what stops it drawing one', () => {
+    const plots = describePredictionPlots({
+      ...IV,
+      prediction_plots: [
+        { name: 'I–V', kind: 'feature_vs_input', x: { params_to_change: 'membrane/V_clamp', subexperiment_idx: 1 }, y: 'I_peak', series: { params_to_change: 'membrane/g', subexperiment_idx: 1 } },
+        { name: 'Steps', kind: 'feature_vs_experiment', x: null, y: 'V_step', series: null },
+        { name: 'Odd', kind: 'feature_vs_feature', x: 'V_step', y: 'I_peak', series: null },
+      ],
+    })
+    expect(plots.map(({ name, pairing, series }) => [name, pairing, series])).toEqual([
+      ['I–V', 'I_peak against membrane/V_clamp (sub-experiment 2)', 'a line per value of membrane/g (sub-experiment 2)'],
+      ['Steps', 'V_step across the experiments', null],
+      ['Odd', 'I_peak against V_step', null],
+    ])
+    expect(plots.map(({ errors }) => errors.length)).toEqual([0, 0, 1])
+    expect(plots[2].errors[0]).toMatch(/x and y cover different experiments/)
+    expect(describePredictionPlots(IV)).toEqual([])
+    expect(describePredictionPlots(undefined)).toEqual([])
   })
 })
 
@@ -112,61 +115,8 @@ describe('buildSolverInfo', () => {
   })
 })
 
-describe('buildFeaturePlots', () => {
-  it("writes the dialog's plots as the script reads them", () => {
-    expect(
-      buildFeaturePlots([
-        { title: ' I–V ', y: 'I_peak', x: { kind: 'input', input: 'membrane/V_clamp', subexperiment: 1 }, series: { input: 'membrane/g', subexperiment: 1 } },
-        { title: '', y: 'I_peak', x: { kind: 'feature', feature: 'V_step' }, series: null },
-        { title: '', y: 'V_step', x: { kind: 'experiment' }, series: null },
-      ])
-    ).toEqual([
-      { title: 'I–V', x: { input: 'membrane/V_clamp', subexperiment_idx: 1 }, y: 'I_peak', series: { input: 'membrane/g', subexperiment_idx: 1 } },
-      { title: null, x: 'V_step', y: 'I_peak', series: null },
-      { title: null, x: 'experiment', y: 'V_step', series: null },
-    ])
-  })
-})
-
-describe('validateFeaturePlots', () => {
-  const { featureGroups } = readPredictionItems(IV)
-  /** Checks some plots against the I–V protocol. */
-  const validate = (featurePlots) => validateFeaturePlots({ view: VIEW, featureGroups, featurePlots })
-
-  it('accepts features against features, inputs that are numbers where they are recorded, and the experiment', () => {
-    expect(
-      validate([
-        { title: '', y: 'I_peak', x: { kind: 'input', input: 'membrane/V_clamp', subexperiment: 1 }, series: { input: 'membrane/g', subexperiment: 1 } },
-        { title: '', y: 'I_peak', x: { kind: 'feature', feature: 'V_step' }, series: null },
-        // Only experiment 2 records V_step, and its third sub-experiment ramps V_clamp in no other.
-        { title: '', y: 'V_step', x: { kind: 'experiment' }, series: { input: 'membrane/g', subexperiment: 2 } },
-      ])
-    ).toEqual([])
-  })
-
-  it('says what is wrong with each, by its path', () => {
-    expect(
-      validate([
-        { title: '', y: 'nope', x: { kind: 'feature', feature: null }, series: null },
-        { title: '', y: 'I_peak', x: { kind: 'input', input: 'membrane/V_clamp', subexperiment: 2 }, series: { input: 'b/k', subexperiment: 0 } },
-        { title: '', y: 'V_step', x: { kind: 'input', input: 'membrane/V_clamp', subexperiment: 2 }, series: { input: null, subexperiment: 0 } },
-        { title: '', y: null, x: { kind: 'sideways' }, series: null },
-      ])
-    ).toEqual([
-      { path: 'featurePlots[0].y', message: 'The protocol records no feature called nope.' },
-      { path: 'featurePlots[0].x.feature', message: 'Choose a feature to plot against.' },
-      { path: 'featurePlots[1].x.subexperiment', message: 'Experiment 1 has no sub-experiment 3.' },
-      { path: 'featurePlots[1].series.input', message: "b/k isn't an input of the protocol." },
-      { path: 'featurePlots[2].x', message: "membrane/V_clamp isn't one number in experiment 2, sub-experiment 3." },
-      { path: 'featurePlots[2].series.input', message: 'Choose an input of the protocol.' },
-      { path: 'featurePlots[3].y', message: 'Choose a feature to plot.' },
-      { path: 'featurePlots[3].x.kind', message: 'Plot against a feature, an input or the experiment.' },
-    ])
-  })
-})
-
 describe('buildScriptHeader', () => {
-  it('writes the settings, the renamed and unresolved parameters, and the feature plots', () => {
+  it('writes the settings, and the renamed and unresolved parameters', () => {
     const header = buildScriptHeader({
       obsData: "cell's_obs_data.json",
       dt: 0.05,
@@ -174,10 +124,6 @@ describe('buildScriptHeader', () => {
       solverInfo: { MaximumStep: 0.01, rtol: 1e-7, atol: 1e-7 },
       parameterNames: { 'soma_SN/g_M': 'instance_parameters/soma_SN_g_M' },
       unresolved: ['engine/pace'],
-      featurePlots: buildFeaturePlots([
-        { title: 'I–V', y: 'I_peak', x: { kind: 'input', input: 'membrane/V_clamp', subexperiment: 1 }, series: null },
-        { title: '', y: 'I_peak', x: { kind: 'experiment' }, series: { input: 'membrane/g', subexperiment: 0 } },
-      ]),
     })
     expect(header).toBe(`MODEL = 'model.cellml'
 OBS_DATA = "cell's_obs_data.json"
@@ -192,10 +138,6 @@ PARAMETER_NAMES = {  # protocol parameters libcuflynx can't find in MODEL -> the
     'soma_SN/g_M': 'instance_parameters/soma_SN_g_M',
     # 'engine/pace': 'component/variable',  # PhLynx found no variable for it in MODEL
 }
-FEATURE_PLOTS = [  # features against another feature, a protocol input or the experiment
-    {'title': 'I–V', 'x': {'input': 'membrane/V_clamp', 'subexperiment_idx': 1}, 'y': 'I_peak', 'series': None},
-    {'title': None, 'x': 'experiment', 'y': 'I_peak', 'series': {'input': 'membrane/g', 'subexperiment_idx': 0}},
-]
 OPERATION_FUNCS_PATH = None  # a file of your own operation functions, for features that use them`)
   })
 
@@ -207,7 +149,6 @@ DT = 0.1  # the time between recorded points
 TIME_UNIT = ''  # the unit of time, as the model has it
 SOLVER_INFO = {}  # CVODE's settings, as libcuflynx names them
 PARAMETER_NAMES = {}  # protocol parameters libcuflynx can't find in MODEL -> the model's names for them, in outputs too
-FEATURE_PLOTS = []  # features against another feature, a protocol input or the experiment
 OPERATION_FUNCS_PATH = None  # a file of your own operation functions, for features that use them`)
     // The template's own header, so it runs as it is.
     expect(template).toContain(header)
@@ -237,9 +178,10 @@ describe('buildBundleReadme', () => {
     for (const text of ['heart_obs_data.json', 'brew install sundials', 'conda-forge', 'C compiler', 'python run_protocol.py', '#536', '0.7.3']) {
       expect(readme).toContain(text)
     }
-    for (const text of ['--out', '--format', '--show', 'traces.csv', 'features.csv', 'feature_plot_N', 'your_plots', 'PARAMETER_NAMES', 'FEATURE_PLOTS']) {
+    for (const text of ['--out', '--format', '--show', 'traces.csv', 'features.csv', 'prediction_plots', 'your_plots', 'PARAMETER_NAMES']) {
       expect(readme).toContain(text)
     }
+    expect(readme).not.toContain('FEATURE_PLOTS')
     expect(readme).toContain('- Experiment 1: a warning.')
     expect(readme).toContain('Python 3.10 to 3.13')
     expect(readme).toContain("under Outputs in PhLynx's protocol editor (Edit the protocol)")

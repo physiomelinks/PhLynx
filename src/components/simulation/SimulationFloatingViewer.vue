@@ -33,7 +33,7 @@
           </template>
         </Select>
         <Button
-          v-if="plotId !== INSPECTION_PLOT"
+          v-if="plotId !== INSPECTION_PLOT && !shownFeatureChart"
           icon="pi pi-pencil"
           text
           rounded
@@ -156,12 +156,21 @@
       </div>
     </Popover>
 
-    <ProtocolResultsControls :with-inputs="false" class="viewer-protocol" />
+    <ProtocolResultsControls :with-inputs="false" :with-features="false" class="viewer-protocol" />
     <!-- Rebuilt as the sliders show or hide, since a Splitter takes its panels as it mounts. -->
     <Splitter :key="showSliders ? 'with-sliders' : 'plot'" layout="vertical" class="viewer-body">
       <SplitterPanel :size="showSliders ? 60 : 100" :min-size="25" class="viewer-pane">
         <div ref="chartEl" class="viewer-chart">
-          <template v-if="shownCharts.length">
+          <FeaturePlot
+            v-if="shownFeatureChart"
+            :title="shownFeatureChart.title"
+            :unit="shownFeatureChart.unit"
+            :x="shownFeatureChart.x"
+            :y-label="shownFeatureChart.yLabel"
+            :series="shownFeatureChart.series"
+            :height="chartHeight"
+          />
+          <template v-else-if="shownCharts.length">
             <SimulationPlot
               v-for="chart in shownCharts"
               :key="chart.key"
@@ -220,6 +229,7 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import SplitterPanel from 'primevue/splitterpanel'
 
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
+import FeaturePlot from './FeaturePlot.vue'
 import SimulationPlot from './SimulationPlot.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
@@ -309,15 +319,16 @@ function resizeBy(element, change) {
   return height - rect.height
 }
 const scopeNodes = computed(() => (store.scopeNodeIds ? props.nodes.filter((node) => store.scopeNodeIds.includes(node.id)) : props.nodes))
-// The values a protocol set are one of its plots to pick, rather than shown on a toggle.
-const { xAxis, charts } = useSimulationCharts(scopeNodes, { hasInputs: true })
+// The values a protocol set, and each of its feature plots, are plots to pick, rather than shown on a toggle.
+const { xAxis, charts, featureCharts } = useSimulationCharts(scopeNodes, { hasInputs: true, hasFeatures: true })
 
 // Every plot, empty ones too, so one can be picked and filled here; inspection outputs make one of their own.
 const plotOptions = computed(() => {
   const plots = resolveGroups(settingsStore.plotConfig).map(({ id, name }) => ({ id, name }))
   // The values a protocol set, while they're shown.
   if (charts.value.some((chart) => chart.plotId === PROTOCOL_INPUTS_PLOT)) plots.push({ id: PROTOCOL_INPUTS_PLOT, name: 'Protocol inputs' })
-  return charts.value.some((chart) => chart.plotId === INSPECTION_PLOT) ? [...plots, { id: INSPECTION_PLOT, name: 'Inspection modules' }] : plots
+  if (charts.value.some((chart) => chart.plotId === INSPECTION_PLOT)) plots.push({ id: INSPECTION_PLOT, name: 'Inspection modules' })
+  return [...plots, ...featureCharts.value.map((chart) => ({ id: chart.key, name: `Feature: ${chart.title}` }))]
 })
 // The plot shown: the one picked, or the first with something on it while that one is gone.
 const plotId = ref(null)
@@ -339,6 +350,7 @@ const pickedPlot = computed({
 const shownPlotName = computed(() => plotOptions.value.find((plot) => plot.id === plotId.value)?.name ?? 'the plot')
 // A plot from an older workspace that mixes units makes several charts, shown one under another.
 const shownCharts = computed(() => charts.value.filter((chart) => chart.plotId === plotId.value))
+const shownFeatureChart = computed(() => featureCharts.value.find((chart) => chart.key === plotId.value) ?? null)
 const emptyText = computed(() => {
   if (!shownSelections.value.length) return `Nothing on ${shownPlotName.value} yet.`
   return store.results ? `${shownPlotName.value}'s variables weren't in the last run.` : 'Press play to simulate it.'

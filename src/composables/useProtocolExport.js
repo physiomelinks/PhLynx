@@ -1,6 +1,6 @@
 /**
- * The protocol's export: what its dialog shows and the feature plots it chooses, and the zip it saves (run_protocol.py
- * and its notes, the model, the workspace's obs_data as it is, and the SED-ML of PhLynx's run when it can be planned).
+ * The protocol's export: what its dialog shows, and the zip it saves (run_protocol.py and its notes, the model, the
+ * workspace's obs_data as it is, with its feature plots, and the SED-ML of PhLynx's run when it can be planned).
  */
 import { computed, markRaw, ref, shallowRef } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
@@ -11,14 +11,13 @@ import {
   BUNDLE_FILES,
   CA_FEATURES_PR,
   buildBundleReadme,
-  buildFeaturePlots,
   buildParameterNames,
   buildScriptHeader,
   buildSolverInfo,
+  describePredictionPlots,
   fillScriptTemplate,
   generateProtocolZip,
   readPredictionItems,
-  validateFeaturePlots,
 } from '../services/export/protocolExport'
 import { buildProtocolSedml } from '../services/export/protocolSedml'
 import { resolveGroups, resolvePlotConfig } from '../services/simulation/plotSelections'
@@ -55,9 +54,7 @@ const baseName = (location) => location.slice(location.lastIndexOf('/') + 1)
  *
  * @returns {{visible: import('vue').Ref<boolean>, isPreparing: import('vue').Ref<boolean>, isExporting: import('vue').Ref<boolean>,
  *   prepared: import('vue').ShallowRef<Object|null>, errors: import('vue').ComputedRef<string[]>,
- *   warnings: import('vue').ComputedRef<string[]>, featurePlots: import('vue').Ref<Array<Object>>,
- *   plotErrors: import('vue').ComputedRef<Array<{path: string, message: string}>>,
- *   featureGroups: import('vue').ComputedRef<Array<{name: string, experiments: number[]}>>,
+ *   warnings: import('vue').ComputedRef<string[]>, predictionPlots: import('vue').ComputedRef<Array<Object>>,
  *   parameterNames: import('vue').ComputedRef<{names: Object, unresolved: string[]}>, solverInfo: import('vue').ComputedRef<Object>,
  *   sedml: import('vue').ComputedRef<{sedml: string|null, problem: string|null}>, files: import('vue').ComputedRef<string[]>,
  *   canExport: import('vue').ComputedRef<boolean>, open: Function, close: Function, exportZip: Function}}
@@ -74,14 +71,13 @@ export function useProtocolExport() {
   const isExporting = ref(false)
   /** What prepareProtocolExport gave, or null while it prepares. */
   const prepared = shallowRef(null)
-  /** `[{ title, y, x, series }]`, as buildFeaturePlots takes them. */
-  const featurePlots = ref([])
   // The latest open, so an older one still preparing is ignored.
   let openToken = 0
 
   const isReady = computed(() => !!prepared.value?.cellml)
   const predictions = computed(() => readPredictionItems(protocolStore.source?.document))
-  const featureGroups = computed(() => predictions.value.featureGroups)
+  // The obs_data's feature plots, which the script reads from it; they're edited under Outputs in the protocol editor.
+  const predictionPlots = computed(() => describePredictionPlots(protocolStore.source?.document))
   const obsDataName = computed(() => baseName(protocolStore.source?.entry.location ?? 'obs_data.json'))
 
   // The protocol's parameters by the plain model's names, where libcuflynx wouldn't find them itself.
@@ -153,6 +149,9 @@ export function useProtocolExport() {
               `Some outputs are features, or of one sub-experiment, which need libcuflynx from circulatory_autogen #${CA_FEATURES_PR}. requirements.txt installs it; released libcuflynx 0.7.3 and CUFLynx refuse this obs_data until it's released.`,
             ]
           : []),
+        ...predictionPlots.value
+          .filter(({ errors: plotProblems }) => plotProblems.length)
+          .map(({ name, errors: plotProblems }) => `The script skips the feature plot ${name || '(unnamed)'}: ${plotProblems.join(' ')}`),
         ...(renamed.length ? [`The script gives libcuflynx the model's names for ${renamed.join(', ')}, in PARAMETER_NAMES.`] : []),
         ...(unresolved.length ? [`PhLynx found no variable in the model for ${unresolved.join(', ')}: name it in the script's PARAMETER_NAMES before running it.`] : []),
         ...(sedml.value.problem ? [`${BUNDLE_FILES.sedml}, PhLynx's own run, is left out: ${sedml.value.problem}`] : []),
@@ -160,11 +159,7 @@ export function useProtocolExport() {
     ]
   })
 
-  const plotErrors = computed(() =>
-    protocolStore.view ? validateFeaturePlots({ view: protocolStore.view, featureGroups: featureGroups.value, featurePlots: featurePlots.value }) : []
-  )
-
-  const canExport = computed(() => isReady.value && !isPreparing.value && !isExporting.value && !errors.value.length && !plotErrors.value.length)
+  const canExport = computed(() => isReady.value && !isPreparing.value && !isExporting.value && !errors.value.length)
 
   /**
    * Gets the plotted variables of the results view, by the names the exported model reports, plot by plot, for the
@@ -196,7 +191,7 @@ export function useProtocolExport() {
   }
 
   /**
-   * Opens the dialog, with no feature plots chosen, and prepares the export.
+   * Opens the dialog, and prepares the export.
    *
    * @returns {Promise<void>}
    */
@@ -204,7 +199,6 @@ export function useProtocolExport() {
     const token = ++openToken
     visible.value = true
     prepared.value = null
-    featurePlots.value = []
     isPreparing.value = true
     try {
       const result = await prepareProtocolExport()
@@ -248,7 +242,6 @@ export function useProtocolExport() {
         solverInfo: solverInfo.value,
         parameterNames: names,
         unresolved,
-        featurePlots: buildFeaturePlots(featurePlots.value),
       })
       const { sedml: document, problem } = sedml.value
       const blob = await generateProtocolZip({
@@ -276,9 +269,7 @@ export function useProtocolExport() {
     prepared,
     errors,
     warnings,
-    featurePlots,
-    plotErrors,
-    featureGroups,
+    predictionPlots,
     parameterNames,
     solverInfo,
     sedml,
