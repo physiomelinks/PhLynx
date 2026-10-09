@@ -392,9 +392,9 @@
             :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
           >
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
-            <MiniMap :pannable="true" :zoomable="true" class="mini-map" />
+            <MiniMap :pannable="true" :zoomable="true" :node-color="miniMapNodeColour" class="mini-map" />
             <Controls :fit-view-params="fitViewParams">
-              <ControlButton :disabled="screenshotDisabled" title="PNG Screenshot" @click="doPngScreenshot">
+              <ControlButton :disabled="screenshotDisabled" :title="imageExportTitle" @click="doImageExport">
                 <i class="pi pi-image"></i>
               </ControlButton>
             </Controls>
@@ -585,6 +585,10 @@ import { notify } from '../utils/notify'
 import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
+import { useColorScheme } from '../composables/useColorScheme'
+import { useAppSettings } from '../composables/useAppSettings'
+import { useNodeThemeStore } from '../stores/nodeThemeStore'
+import { categoryColour } from '../utils/nodeThemes'
 import { readFileAsText, cyrb53 } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
@@ -929,9 +933,17 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
+const nodeThemeStore = useNodeThemeStore()
+const { isDarkMode } = useColorScheme()
+const { settings: appSettings } = useAppSettings()
+
+/** MiniMap nodes follow the active node colour theme; uncategorised nodes keep the MiniMap default grey. */
+function miniMapNodeColour(node) {
+  return categoryColour(nodeThemeStore.activeTheme, node.data?.domainType, isDarkMode.value) ?? (isDarkMode.value ? '#3f3f46' : '#e2e2e2')
+}
 const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
 const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
-const { capture } = useScreenshot()
+const { capture, error: captureError } = useScreenshot()
 const { trackEvent } = useGtm()
 const { clearWorkspace } = useClearWorkspace()
 
@@ -2655,8 +2667,50 @@ const handleRedo = () => {
   historyStore.redo()
 }
 
-function doPngScreenshot() {
-  capture(vueFlowRef.value, { shouldDownload: true })
+/**
+ * Runs a capture with nothing selected, so selection outlines, resize grips and highlighted edges
+ * stay out of the image, then puts the selection back.
+ */
+async function withoutSelection(captureFn) {
+  const selectedNodes = getSelectedNodes.value.slice()
+  const selectedEdges = getSelectedEdges.value.slice()
+  selectedNodes.forEach((n) => (n.selected = false))
+  selectedEdges.forEach((e) => (e.selected = false))
+  await nextTick()
+  await new Promise((resolve) => requestAnimationFrame(resolve))
+  try {
+    return await captureFn()
+  } finally {
+    selectedNodes.forEach((n) => (n.selected = true))
+    selectedEdges.forEach((e) => (e.selected = true))
+  }
+}
+
+const imageExportTitle = computed(
+  () => `Export image (${appSettings.imageExportFormat.toUpperCase()}); format and warnings are in Settings`
+)
+
+/**
+ * Exports the canvas in the format chosen in Settings. Edit buttons are always hidden, warning badges
+ * unless Settings asks for them; hiding (rather than removing) keeps the rest of each card in place.
+ */
+function doImageExport() {
+  const root = vueFlowRef.value
+  const format = appSettings.imageExportFormat
+  const includeWarnings = appSettings.imageExportWarnings
+  return withoutSelection(async () => {
+    root.classList.add('image-export')
+    root.classList.toggle('image-export--no-warnings', !includeWarnings)
+    
+    try {
+      await capture(root, { format: format, viewport: viewport.value, includeWarnings, shouldDownload: true })
+      if (captureError.value) {
+        notify.error({ title: 'Screenshot error', message: 'Something went wrong while taking the screenshot.\n - ' + captureError.value.message })
+      }
+    } finally {
+      root.classList.remove('image-export', 'image-export--no-warnings')
+    }
+  }).catch((err) => notify.error({ title: 'Image export failed', message: err?.message ?? String(err) }))
 }
 
 const getBoundingCenter = (nodes) => {
@@ -3387,5 +3441,14 @@ watch(
 .node-search-dimmed {
   opacity: 0.25 !important;
   transition: opacity 0.2s ease;
+}
+
+/* While exporting an image: never the edit controls, and warnings only when Settings asks. */
+.image-export .instance-button,
+.image-export .delete-handle-popover-btn,
+.image-export .vue-flow__resize-control,
+.image-export--no-warnings .status-indicator,
+.image-export--no-warnings .coupling-edge-warning {
+  visibility: hidden !important;
 }
 </style>

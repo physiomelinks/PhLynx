@@ -11,6 +11,7 @@ import { migrateWorkspace } from '../../../src/services/workspaceMigrator.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { resolvePortCouplings } from '../../../src/utils/edges.js'
 import { generateFlattenedModel } from '../../../src/utils/cellml.js'
+import { multiportSummary } from '../../../src/utils/multiport.js'
 import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
@@ -304,6 +305,21 @@ describe('generateFlattenedModel multiport couplings', () => {
     const hub = buildNode('hub', 'file:hub', [vesselPort('exit_ports', ['v_sum', 'u'], hubTypes)])
     const leaf = buildNode('leaf', 'file:leaf', [vesselPort('entrance_ports', ['v', 'u'], leafTypes)])
     expect(() => generateFlattenedModel([hub, leaf], [connect(hub, leaf)], store)).toThrow(message)
+  })
+
+  it('summarises the same sum the export builds', async () => {
+    const hub = buildNode('hub', 'file:hub', [vesselPort('exit_ports', ['v_sum', 'u'], ['sum', 'True'])])
+    const leaves = [
+      buildNode('leaf_1', 'file:leaf', [vesselPort('entrance_ports', ['v', 'u'], ['multiply', 'None'], 2)]),
+      buildNode('leaf_2', 'file:leaf', [vesselPort('entrance_ports', ['v', 'u'], 'None')]),
+    ]
+    const edges = leaves.map((leaf) => connect(hub, leaf))
+    const ownPorts = hub.data.ports.map((port) => ({ original: port, current: port }))
+
+    const [entry] = multiportSummary('hub', edges, { ownPorts })
+    const math = await summationMath([hub, ...leaves], edges)
+    expect(math.match(/<ci>op_[^<]*<\/ci>/g)).toHaveLength(entry.terms.length)
+    expect(math.match(/<ci>op_scaled_v[^<]*<\/ci>/g)).toHaveLength(entry.terms.filter((term) => term.factor === 2).length)
   })
 
   it('rejects a sum between ports with different numbers of variables', () => {

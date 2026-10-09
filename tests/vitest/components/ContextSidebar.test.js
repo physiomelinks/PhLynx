@@ -40,7 +40,7 @@ async function waitForRows() {
 
 /** Mounts the sidebar on the Params tab and waits for its rows. */
 async function mountOnParams() {
-  wrapper = mount(ContextSidebar, { global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null } }, directives: { tooltip: {} } } })
+  wrapper = mount(ContextSidebar, { global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true }, directives: { tooltip: {} } } })
   wrapper.vm.isCollapsed = false
   wrapper.vm.activeTabId = 'params'
   await waitForRows()

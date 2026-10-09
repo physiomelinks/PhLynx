@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "plain",
+  "name": "Plain",
+  "description": "A single neutral highlight colour. The built-in fallback until a shared default is agreed.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "categories": [
+    { "key": "highlight", "label": "Highlight", "color": "#dbe4f0", "dark": "#2c3a4d" }
+  ]
+}
