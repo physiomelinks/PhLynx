@@ -1,20 +1,32 @@
 # Changelog
 
 
-## Unofficial Release
-###### Includes changes up to 2026-10-06
+## v0.4.2
+###### Released on 2026-10-09
 
 #### Not Specified
 * Update vue3-math-editor to v0.3.3 by [@jmdowrick](https://github.com/jmdowrick) in [#650](https://github.com/physiomelinks/PhLynx/pull/650)
 
 
 #### New Features
+* Add SVG output for screenshots by [@hsorby](https://github.com/hsorby) in [#665](https://github.com/physiomelinks/PhLynx/pull/665)
+* Add multiport summary to math editor by [@jmdowrick](https://github.com/jmdowrick) in [#645](https://github.com/physiomelinks/PhLynx/pull/645)
+* Implement a colour scheming mechanism. by [@hsorby](https://github.com/hsorby) in [#663](https://github.com/physiomelinks/PhLynx/pull/663)
 * Introduce omex load on drop by [@jmdowrick](https://github.com/jmdowrick) in [#649](https://github.com/physiomelinks/PhLynx/pull/649)
+
+
+#### Fixed Bugs
+* Allow removing stub modules from the library area. by [@jmdowrick](https://github.com/jmdowrick) in [#667](https://github.com/physiomelinks/PhLynx/pull/667)
 
 
 #### Contributors
 
 <kbd>
+  <a href="https://github.com/hsorby">
+    <img src="https://avatars.githubusercontent.com/u/778048?u=31d6ee5b17c95630c61a61e7cfe0c008b138b769&v=4&s=100" width="50" height="50"><br>
+    <sub>@hsorby</sub>
+  </a>
+</kbd> <kbd>
   <a href="https://github.com/jmdowrick">
     <img src="https://avatars.githubusercontent.com/u/146781982?u=94c7295b017c61161e81ba34c929524b31a423c2&v=4&s=100" width="50" height="50"><br>
     <sub>@jmdowrick</sub>

@@ -1,6 +1,6 @@
 /**
  * The settings, by section, in the order the dialog shows them. Each `select` setting offers `options`, each with
- * an optional `hint` shown beneath its label; a `boolean` setting is on or off.
+ * an optional `hint` shown beneath its label; a `toggle` setting is on or off.
  */
 export const SETTING_SECTIONS = [
   {
@@ -25,9 +25,32 @@ export const SETTING_SECTIONS = [
     settings: [
       {
         key: 'plotInspectionModules',
-        type: 'boolean',
+        type: 'toggle',
         label: 'Plot inspection modules',
         description: 'After a run, show the outputs of the inspection modules it covered as a plot of their own.',
+        default: false,
+      },
+    ],
+  },
+  {
+    title: 'Image export',
+    settings: [
+      {
+        key: 'imageExportFormat',
+        type: 'select',
+        label: 'Image format',
+        description: 'What the export button in the canvas controls saves. The edit buttons on instances are never included.',
+        options: [
+          { value: 'png', label: 'PNG', hint: 'A picture of the canvas at screen resolution' },
+          { value: 'svg', label: 'SVG', hint: 'Vector shapes and text that stay sharp at any size, for posters' },
+        ],
+        default: 'png',
+      },
+      {
+        key: 'imageExportWarnings',
+        type: 'toggle',
+        label: 'Include warning symbols',
+        description: 'Show the missing-parameter and coupling warnings in exported images.',
         default: false,
       },
     ],
@@ -54,7 +77,7 @@ export function isValidAppSetting(key, value) {
   switch (setting?.type) {
     case 'select':
       return setting.options.some((option) => option.value === value)
-    case 'boolean':
+    case 'toggle':
       return typeof value === 'boolean'
     default:
       return false

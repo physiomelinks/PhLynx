@@ -11,7 +11,7 @@ describe('app settings registry', () => {
 
   it('gives every setting a known type and a valid default', () => {
     for (const setting of SETTINGS) {
-      expect(['select', 'boolean'], setting.key).toContain(setting.type)
+      expect(['select', 'toggle'], setting.key).toContain(setting.type)
       expect(isValidAppSetting(setting.key, setting.default), setting.key).toBe(true)
     }
   })
@@ -31,5 +31,13 @@ describe('app settings registry', () => {
     expect(isValidAppSetting('unitDisplay', 'simplified')).toBe(false)
     expect(isValidAppSetting('unitDisplay', undefined)).toBe(false)
     expect(isValidAppSetting('nowhere', 'base')).toBe(false)
+  })
+
+  it('exports PNG without warnings unless the user chooses otherwise', () => {
+    expect(defaultAppSettings()).toMatchObject({ imageExportFormat: 'png', imageExportWarnings: false })
+    expect(isValidAppSetting('imageExportFormat', 'svg')).toBe(true)
+    expect(isValidAppSetting('imageExportFormat', 'jpeg')).toBe(false)
+    expect(isValidAppSetting('imageExportWarnings', true)).toBe(true)
+    expect(isValidAppSetting('imageExportWarnings', 'yes')).toBe(false)
   })
 })

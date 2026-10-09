@@ -10,16 +10,19 @@ import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const confirm = vi.fn(async () => true)
+const flowNodes = ref([])
+const flowEdges = ref([])
 vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
-  useVueFlow: () => ({ nodes: ref([]) }),
+  useVueFlow: () => ({ nodes: flowNodes, edges: flowEdges }),
 }))
 vi.mock('../../../src/utils/layout', () => ({ waitUntilStable: () => Promise.resolve() }))
 
 const { default: InstanceEditorDialog } = await import('../../../src/components/InstanceEditorDialog.vue')
 const { default: ComponentSaveAsDialog } = await import('../../../src/components/dialogs/ComponentSaveAsDialog.vue')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
+const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -84,6 +87,7 @@ function mountDialog(props = {}) {
         ParameterTable: ParameterTableStub,
         SimulationPanel: { name: 'SimulationPanel', props: ['instanceId'], template: '<div class="simulation-panel-stub" />' },
       },
+      directives: { tooltip: {} },
     },
   })
   return wrapper
@@ -320,5 +324,63 @@ describe('InstanceEditorDialog Plot tab', () => {
 
     expect(confirm).not.toHaveBeenCalled()
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+  })
+})
+
+describe('InstanceEditorDialog multiport summary', () => {
+  const port = (label, variables, multiportType, multiplyFactor) => ({ portType: 'general_ports', label, variables, multiportType, multiplyFactor })
+  const ports = () => [port('pressure', ['k'], 'True'), port('flow', ['x'], 'Sum')]
+  const leafPort = port('flow', ['x_out'], 'None')
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    useLibraryStore().addMath(MATH_REF, XML)
+    const initialPorts = ports()
+    flowNodes.value = [
+      { id: 'a', data: { name: 'a', ports: initialPorts } },
+      { id: 'leaf', data: { name: 'Leaf', ports: [leafPort] } },
+    ]
+    flowEdges.value = [{ id: 'a--leaf', source: 'a', target: 'leaf', data: { couplings: [{ sourcePort: initialPorts[1], targetPort: leafPort }] } }]
+  })
+
+  afterEach(() => {
+    flowNodes.value = []
+    flowEdges.value = []
+  })
+
+  const summaryText = () => wrapper.find('.multiport-summary__body').text().replace(/\s+/g, ' ')
+
+  it.each(['text', 'math'])('shows the sum above the %s editor', async (kind) => {
+    window.localStorage.setItem('instanceEditorDialog.editorKind', kind)
+    mountDialog({ initialPorts: flowNodes.value[0].data.ports })
+    await open()
+    expect(summaryText()).toMatch(/x\s*=\s*x_out/)
+  })
+
+  it('follows the ports as they are edited, and leaves the saved ports and math alone', async () => {
+    mountDialog({ initialPorts: flowNodes.value[0].data.ports })
+    const editor = await open()
+    await report(editor, 'init', XML)
+
+    wrapper.vm.deletePort(0)
+    await flushPromises()
+    expect(summaryText()).toMatch(/x\s*=\s*x_out/)
+
+    cycleMultiportType(wrapper.vm.editablePorts[0], 'x')
+    await flushPromises()
+    expect(summaryText()).toMatch(/x_out\s*=\s*x/)
+    expect(summaryText()).not.toContain('Σ')
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.ports).toEqual([{ ...port('flow', ['x'], 'Multiply', 1) }])
+    expect(save.math).not.toContain('x_out')
   })
 })
