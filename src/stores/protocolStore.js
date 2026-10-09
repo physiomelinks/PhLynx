@@ -19,6 +19,15 @@ import { useOmexStore } from './omexStore'
 export const ALL_EXPERIMENTS = -1
 
 /**
+ * Warns of what PhLynx ignores in a protocol_info: offline_pre_time, which only calibration uses.
+ *
+ * @param {Object} protocolInfo
+ * @returns {string[]}
+ */
+export const findIgnoredSettings = (protocolInfo) =>
+  protocolInfo?.offline_pre_time != null ? ['offline_pre_time is only used for calibration, so PhLynx ignores it.'] : []
+
+/**
  * The workspace's experiment protocol, read from the obs_data.json its archive carries (CUFLynx and circulatory
  * autogen's format), and whether play runs it. Never saved itself: the obs_data file is saved with the archive's
  * other files.
@@ -42,7 +51,8 @@ export const useProtocolStore = defineStore('protocol', () => {
   const validation = computed(() => {
     if (source.value?.parseError) return { errors: [`${source.value.entry.location} isn't valid JSON: ${source.value.parseError.message}`], warnings: [] }
     if (!hasProtocol.value) return { errors: [], warnings: [] }
-    const { errors, warnings, protocolInfo: valid } = validateProtocolInfo(protocolInfo.value)
+    const { errors, warnings: checked, protocolInfo: valid } = validateProtocolInfo(protocolInfo.value)
+    const warnings = [...checked, ...findIgnoredSettings(protocolInfo.value)]
     // What CUFLynx couldn't run, though PhLynx can.
     return { errors, warnings: valid ? [...warnings, ...findCircAutogenLimits(readProtocolInfo(valid))] : warnings }
   })

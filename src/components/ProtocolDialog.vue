@@ -16,6 +16,7 @@
         :get-value="findValue"
         :confirm="confirm"
         :palette="SERIES_COLOURS.light"
+        :warn="findIgnoredSettings"
         @update:document="changeDraft"
       />
     </div>
@@ -52,7 +53,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { SERIES_COLOURS } from '../services/simulation/seriesSlots'
 import { buildVariableIndex } from '../services/simulation/variableIndex'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useProtocolStore } from '../stores/protocolStore'
+import { findIgnoredSettings, useProtocolStore } from '../stores/protocolStore'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
