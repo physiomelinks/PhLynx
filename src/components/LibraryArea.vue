@@ -54,7 +54,7 @@
                 :draggable="!selectable && !activeModule(card).isStub"
                 @dragstart="handleDragStart($event, activeModule(card))"
                 @dragend="handleDragEnd"
-                @click="selectable && handleSelect(activeModule(card))"
+                @click="selectable && !activeModule(card).isStub && handleSelect(activeModule(card))"
               >
                 <div class="mlc__card-inner">
                   <div class="mlc__card-body">
@@ -66,7 +66,7 @@
                         severity="secondary"
                         text
                         rounded
-                        class="mlc__preview-btn"
+                        class="mlc__preview-btn mlc__remove-btn"
                         v-tooltip.top="'Remove module'"
                         @click.stop="deleteModule(activeModule(card))"
                       />
@@ -246,6 +246,7 @@ function activeModule(card) {
 
 function deleteModule(card) {
   const deletedModule = store.availableModules.get(card.moduleRef)
+  if (!deletedModule) return
 
   history.executeAndAddCommand({
     type: 'remove-module',
@@ -256,8 +257,6 @@ function deleteModule(card) {
       store.removeModule(deletedModule.moduleRef)
     },
   })
-
-  store.removeModule(card.moduleRef)
 }
 
 // ─── Drag & Drop ──────────────────────────────────────────────────────────────
@@ -442,10 +441,13 @@ function handleSelect(module) {
 .mlc__card--draggable { cursor: grab; }
 .mlc__card--draggable:active { cursor: grabbing; }
 .mlc__card--selectable { cursor: pointer; }
-.mlc__card--stub { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+/* A stub has no math, so it can't be dragged or selected, but it must still be removable. */
+.mlc__card--stub { cursor: not-allowed; }
+.mlc__card--stub .mlc__card-header > :not(.mlc__remove-btn),
+.mlc__card--stub .mlc__config-row { opacity: 0.45; }
 
 .mlc__card--draggable:hover,
-.mlc__card--selectable:hover {
+.mlc__card--selectable:not(.mlc__card--stub):hover {
   border-color: var(--mlc-accent);
   box-shadow: 0 0 0 2px var(--mlc-accent-light), 0 2px 6px color-mix(in srgb, var(--p-text-color) 18%, transparent);
 }

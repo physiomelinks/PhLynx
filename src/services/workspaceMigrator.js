@@ -97,6 +97,8 @@ function convertNode(node, newId, globalConstantNames, paramLookup, uidMap) {
     ports: convertPorts(oldData),
     handles: convertHandles(oldData, uidMap),
   }
+  // The MVP's node colour category; the colour theme now maps it to a colour.
+  if (oldData.domainType) newData.domainType = oldData.domainType
 
   const newNode = {
     id: newId,

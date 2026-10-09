@@ -39,3 +39,4 @@ coverage/
 
 # Local Claude Code configuration and skills
 .claude/
+Claude outputs/

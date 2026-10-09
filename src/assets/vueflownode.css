@@ -96,22 +96,31 @@ div.instance-name,
   background: #f5f7fa;
 }
 
-.domain-type-default.instance-card {
+/* Node colour comes from the active theme via --node-fill / --node-fill-dark (see utils/nodeThemes.js). */
+.instance-card {
   background-color: var(--p-content-background);
 }
 
-.domain-type-compartment.instance-card {
-  background-color: #ffe7e1;
+.instance-card.has-category {
+  background-color: var(--node-fill);
 }
 
-.domain-type-membrane.instance-card {
-  background-color: #ffe2ec;
+.p-dark .instance-card.has-category {
+  background-color: var(--node-fill-dark);
+}
+.instance-card.has-category {
+  --node-button-base: var(--node-fill);
 }
 
-.domain-type-process.instance-card {
-  background-color: #e1edff;
+.p-dark .instance-card.has-category {
+  --node-button-base: var(--node-fill-dark);
 }
 
-.domain-type-protein.instance-card {
-  background-color: #d1fff0;
+.instance-card.has-category .instance-button {
+  --p-button-secondary-background: color-mix(in srgb, var(--node-button-base), var(--p-text-color) 12%);
+  --p-button-secondary-hover-background: color-mix(in srgb, var(--node-button-base), var(--p-text-color) 20%);
+  --p-button-secondary-active-background: color-mix(in srgb, var(--node-button-base), var(--p-text-color) 28%);
+  --p-button-secondary-border-color: transparent;
+  --p-button-secondary-hover-border-color: transparent;
+  --p-button-secondary-active-border-color: transparent;
 }

@@ -10,7 +10,7 @@
   >
     <NodeResizer min-width="200" min-height="120" :is-visible="selected" />
 
-    <div :class="[domainTypeClass, 'instance-card']">
+    <div :class="['instance-card', { 'has-category': categoryStyle }]" :style="categoryStyle">
       <!-- Top Actions Row -->
       <div class="card-header-actions">
         <div class="instance-details">
@@ -101,12 +101,14 @@ import Button from 'primevue/button'
 import SanitisedInput from './SanitisedInput.vue'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
 import { sanitiseName } from '../utils/identifiers'
 import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
 import { detachReactivity } from '../utils/reactivity'
 import { HANDLE_VARIANT } from '../utils/constants'
+import { categoryStyle as themeCategoryStyle } from '../utils/nodeThemes'
 import { useHandleManagement } from '../composables/useHandleManagement'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 
@@ -117,6 +119,7 @@ const { beginGhostActivation, revertPendingGhostIfUnused } = useHandleManagement
 const { recordEdit } = useNodeDataHistory(flowId)
 const historyStore = useFlowHistoryStore()
 const libraryStore = useLibraryStore()
+const nodeThemeStore = useNodeThemeStore()
 
 const props = defineProps({
   id: {
@@ -155,9 +158,8 @@ const componentName = computed(() => props.data.mathRef.split(':')[1])
 
 const mathFile = computed(() => props.data.mathRef.split(':')[0])
 
-const domainTypeClass = computed(() => {
-  return props.data.domainType ? `domain-type-${props.data.domainType}` : 'domain-type-default'
-})
+// The node stores a category key; the active theme decides its colour (none when the theme lacks it).
+const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeTheme, props.data.domainType))
 
 const isMissingParameters = computed(() => {
   for (const variable of props.data.variables || []) {
@@ -174,25 +176,6 @@ const isMissingParameters = computed(() => {
   }
   return false
 })
-
-function handleSetDomainType(newType) {
-  updateNodeData(props.id, { domainType: newType })
-}
-
-const domainMenuRef = ref(null)
-
-function toggleDomainMenu(event) {
-  domainMenuRef.value?.toggle(event)
-}
-
-const domainTypeMenuItems = [
-  { label: 'Membrane', command: () => handleSetDomainType('membrane') },
-  { label: 'Process', command: () => handleSetDomainType('process') },
-  { label: 'Compartment', command: () => handleSetDomainType('compartment') },
-  { label: 'Protein', command: () => handleSetDomainType('protein') },
-  { separator: true },
-  { label: 'Reset to Default', command: () => handleSetDomainType(undefined) },
-]
 
 const portMenuRef = ref(null)
 

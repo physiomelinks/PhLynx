@@ -40,6 +40,15 @@
             {{ selectedOption(setting).hint }}
           </small>
         </div>
+
+        <div v-else-if="setting.type === 'toggle'" class="setting-control setting-control--toggle">
+          <ToggleSwitch
+            v-model="draft[setting.key]"
+            :inputId="`setting-${setting.key}`"
+            :ariaLabelledby="`setting-${setting.key}-label`"
+            :pt="{ input: { 'aria-describedby': `setting-${setting.key}-desc` } }"
+          />
+        </div>
       </div>
     </section>
 
@@ -55,7 +64,7 @@
 
 <script setup>
 import { reactive, watch } from 'vue'
-import { Dialog, Button, Select } from 'primevue'
+import { Dialog, Button, Select, ToggleSwitch } from 'primevue'
 
 import { useAppSettings } from '../composables/useAppSettings'
 import { SETTING_SECTIONS } from '../utils/appSettings'
@@ -78,7 +87,7 @@ watch(
 )
 
 /** The option a select setting's draft has chosen. */
-const selectedOption = (setting) => setting.options.find((option) => option.value === draft[setting.key])
+const selectedOption = (setting) => setting.options?.find((option) => option.value === draft[setting.key])
 
 const closeDialog = () => {
   emit('update:modelValue', false)
@@ -123,6 +132,9 @@ function saveChanges() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.setting-control--toggle {
+  align-items: flex-end;
 }
 .setting-option {
   display: flex;

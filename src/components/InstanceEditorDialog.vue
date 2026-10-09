@@ -78,8 +78,8 @@
         <Message v-if="pendingRename" class="rename-notice" severity="info" size="small" :closable="false">
           <div class="rename-notice-body">
             <span>
-              <strong>{{ pendingRename.from }}</strong> was renamed to <strong>{{ pendingRename.to }}</strong>, but is
-              still used in {{ pendingRename.uses }} {{ pendingRename.uses === 1 ? 'place' : 'places' }}.
+              <strong>{{ pendingRename.from }}</strong> was renamed to <strong>{{ pendingRename.to }}</strong
+              >, but is still used in {{ pendingRename.uses }} {{ pendingRename.uses === 1 ? 'place' : 'places' }}.
             </span>
             <span class="rename-notice-actions">
               <Button label="Rename all" size="small" text @click="renameEverywhere" />
@@ -87,6 +87,7 @@
             </span>
           </div>
         </Message>
+        <MultiportSummary v-if="isEditorReady" :entries="multiportEntries" />
         <div ref="editorWrapperRef" class="editor-wrapper">
           <div v-if="!isEditorReady" class="editor-pending">
             <ProgressSpinner style="width: 32px; height: 32px" strokeWidth="4" />
@@ -169,7 +170,9 @@
             </span>
           </span>
           <span class="collapsed-rail-label">
-            {{ activeTab === 'parameters' ? `Parameters (${parameterRows.length})` : `Ports (${editablePorts.length})` }}
+            {{
+              activeTab === 'parameters' ? `Parameters (${parameterRows.length})` : `Ports (${editablePorts.length})`
+            }}
           </span>
         </button>
 
@@ -240,7 +243,10 @@
                         <div class="flex items-center gap-2">
                           <!-- Whether the port is connected, as the edge dialog shows it -->
                           <span
-                            :class="['port-status', portConnections(slotProps.data).length ? 'port-status--connected' : 'port-status--free']"
+                            :class="[
+                              'port-status',
+                              portConnections(slotProps.data).length ? 'port-status--connected' : 'port-status--free',
+                            ]"
                             v-tooltip.top="portStatus(slotProps.data)"
                           ></span>
                           <InputText
@@ -255,19 +261,27 @@
                     </Column>
 
                     <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
-                    <Column header="Multiport" style="width: 5rem">
+                    <Column header="Mode" style="width: 5rem">
                       <template #body="slotProps">
                         <Button
-                          icon="pi pi-arrows-h"
                           text
                           rounded
                           size="small"
                           :severity="isMultiport(slotProps.data) ? undefined : 'secondary'"
                           :aria-pressed="isMultiport(slotProps.data)"
                           aria-label="Multiport"
-                          v-tooltip.top="isMultiport(slotProps.data) ? 'Multiport: takes several connections' : 'Takes one connection'"
+                          :title="
+                            isMultiport(slotProps.data)
+                              ? 'Multiport: takes several connections'
+                              : 'Basicport: takes one connection'
+                          "
                           @click="setMultiport(slotProps.data, !isMultiport(slotProps.data))"
-                        />
+                        >
+                          <template #icon>
+                            <MultiportIcon v-if="isMultiport(slotProps.data)" />
+                            <BasicportIcon v-else />
+                          </template>
+                        </Button>
                       </template>
                     </Column>
 
@@ -349,7 +363,15 @@
                 </div>
                 <div v-else class="empty-state">
                   <span>No ports defined for this instance.</span>
-                  <Button icon="pi pi-plus" label="Add Port" severity="success" size="small" rounded outlined @click="addPort" />
+                  <Button
+                    icon="pi pi-plus"
+                    label="Add Port"
+                    severity="success"
+                    size="small"
+                    rounded
+                    outlined
+                    @click="addPort"
+                  />
                 </div>
               </div>
             </TabPanel>
@@ -369,8 +391,8 @@
           </div>
           <h3 class="resize-warning-title">More room needed</h3>
           <p class="resize-warning-copy">
-            Widen your browser window to keep editing — the parameter and port panels
-            need a bit more horizontal space to display properly.
+            Widen your browser window to keep editing — the parameter and port panels need a bit more horizontal space
+            to display properly.
           </p>
           <div
             class="resize-warning-meter"
@@ -450,8 +472,11 @@ import MathWorkbenchEditor from './MathWorkbenchEditor.vue'
 import ParameterTable from './ParameterTable.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
+import MultiportSummary from './MultiportSummary.vue'
 import PortVariableChips from './PortVariableChips.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
+import MultiportIcon from './icons/MultiportIcon.vue'
+import BasicportIcon from './icons/BasicportIcon.vue'
 
 import { useLibraryStore } from '../stores/libraryStore'
 import { useIssueFilter } from '../composables/useIssueFilter'
@@ -472,7 +497,14 @@ import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { findPort } from '../utils/ports'
-import { isMultiport, multiplyVariables, setMultiport, setPortVariables, variableFactor } from '../utils/multiport'
+import {
+  isMultiport,
+  multiplyVariables,
+  multiportSummary,
+  setMultiport,
+  setPortVariables,
+  variableFactor,
+} from '../utils/multiport'
 import { suggestUnits } from '../utils/unitExpression'
 
 const props = defineProps({
@@ -483,7 +515,7 @@ const props = defineProps({
   variables: { type: Array, default: () => [] },
   initialPorts: { type: Array, default: () => [] },
   existingNames: { type: Array, default: () => [] },
-  defaultTab: { type: String, default: 'parameters' },  // 'parameters' or 'ports'
+  defaultTab: { type: String, default: 'parameters' }, // 'parameters' or 'ports'
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
@@ -503,7 +535,11 @@ const unitExpansions = computed(() =>
 
 /** Library units that could complete the typed units; a units expression (e.g. `mV/ms`) also offers a new units. */
 function suggestUnitsFor(typed) {
-  const library = { names: store.availableUnitNames, definitions: store.unitDefinitions, expansions: store.unitExpansions }
+  const library = {
+    names: store.availableUnitNames,
+    definitions: store.unitDefinitions,
+    expansions: store.unitExpansions,
+  }
   const options = { details: unitExpansions.value, builtIn: appSettings.unitDisplay !== 'base' }
   return suggestUnits(typed, library, options).map(({ create, ...item }) =>
     create ? { ...item, onPick: () => store.addGeneratedUnits(create) } : item
@@ -753,9 +789,7 @@ const RESIZE_MEDIA_QUERY = `(min-width: ${MIN_REQUIRED_WIDTH}px)`
 const isScreenTooSmall = ref(false)
 const currentWidth = ref(window.innerWidth)
 
-const widthProgressPercent = computed(() =>
-  Math.min(100, Math.round((currentWidth.value / MIN_REQUIRED_WIDTH) * 100))
-)
+const widthProgressPercent = computed(() => Math.min(100, Math.round((currentWidth.value / MIN_REQUIRED_WIDTH) * 100)))
 
 let resizeMql = null
 let widthRafId = null
@@ -833,10 +867,22 @@ const issueChips = computed(() => {
 
   const chips = []
   if (missingUnits) {
-    chips.push({ key: 'units', kind: 'units', icon: 'pi-exclamation-circle', count: missingUnits, label: `${plural(missingUnits, 'variable')} missing units` })
+    chips.push({
+      key: 'units',
+      kind: 'units',
+      icon: 'pi-exclamation-circle',
+      count: missingUnits,
+      label: `${plural(missingUnits, 'variable')} missing units`,
+    })
   }
   if (missingValues) {
-    chips.push({ key: 'values', kind: 'units', icon: 'pi-sliders-h', count: missingValues, label: `${plural(missingValues, 'value')} required` })
+    chips.push({
+      key: 'values',
+      kind: 'units',
+      icon: 'pi-sliders-h',
+      count: missingValues,
+      label: `${plural(missingValues, 'value')} required`,
+    })
   }
   if (timeVaryingInitialisers) {
     chips.push({
@@ -848,7 +894,13 @@ const issueChips = computed(() => {
     })
   }
   if (unknownUnits) {
-    chips.push({ key: 'unknown', kind: 'unknown', icon: 'pi-info-circle', count: unknownUnits, label: `${plural(unknownUnits, 'unit')} not in library` })
+    chips.push({
+      key: 'unknown',
+      kind: 'unknown',
+      icon: 'pi-info-circle',
+      count: unknownUnits,
+      label: `${plural(unknownUnits, 'unit')} not in library`,
+    })
   }
   return chips
 })
@@ -863,7 +915,10 @@ const issueFilter = useIssueFilter({
 // Screen readers get the same information the badges show.
 const railAriaLabel = computed(() => {
   const summary = activeTab.value === 'parameters' ? issueChips.value.map((chip) => chip.label).join(', ') : ''
-  const label = activeTab.value === 'parameters' ? `Parameters (${parameterRows.value.length})` : `Ports (${editablePorts.value.length})`
+  const label =
+    activeTab.value === 'parameters'
+      ? `Parameters (${parameterRows.value.length})`
+      : `Ports (${editablePorts.value.length})`
   return summary ? `Expand panel. ${label}. ${summary}` : `Expand panel. ${label}`
 })
 
@@ -1009,12 +1064,16 @@ const isPortFlagged = (port) => flaggedPorts.value.has(port)
 
 // The modules each port is connected to, read from the canvas edges when the editor opens.
 const connectionsByPort = new WeakMap()
+// Each editable port's saved self, which the canvas edges hold.
+const originalByPort = new WeakMap()
 
-/** Records, for each editable port, the names of the modules its couplings reach. */
+const nameOf = (id) => nodes.value.find((node) => node.id === id)?.data.name ?? id
+
+/** Records, for each editable port, its saved self and the names of the modules its couplings reach. */
 function indexPortConnections() {
-  const nameOf = (id) => nodes.value.find((node) => node.id === id)?.data.name ?? id
   editablePorts.value.forEach((port, i) => {
     const original = props.initialPorts[i]
+    originalByPort.set(toRaw(port), original)
     const names = edges.value.flatMap((edge) =>
       (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
         const own = edge.source === props.id ? sourcePort : edge.target === props.id ? targetPort : null
@@ -1024,6 +1083,14 @@ function indexPortConnections() {
     connectionsByPort.set(toRaw(port), names)
   })
 }
+
+/** The math export builds for this instance's Sum and Multiply variables, as the ports are edited. */
+const multiportEntries = computed(() =>
+  multiportSummary(props.id, edges.value ?? [], {
+    nameOf,
+    ownPorts: editablePorts.value.map((current) => ({ original: originalByPort.get(toRaw(current)), current })),
+  })
+)
 
 const portConnections = (port) => connectionsByPort.get(toRaw(port)) ?? []
 
@@ -1096,7 +1163,8 @@ let saveAsResolver = null
 function isComponentNameTaken(name) {
   const mathRef = `${componentFile.value}:${name}`
   if (PROTECTED_MATH_REFS.has(mathRef)) return `"${name}" is a template and can't be overwritten.`
-  if (mathRef !== props.mathRef && store.availableMath.has(mathRef)) return `A component named "${name}" already exists.`
+  if (mathRef !== props.mathRef && store.availableMath.has(mathRef))
+    return `A component named "${name}" already exists.`
   return ''
 }
 
@@ -1221,7 +1289,8 @@ async function handleSave() {
   if (textErrors.length > 0) {
     const proceed = await confirm({
       header: editorKind.value === 'math' ? 'Math Has Errors' : 'CellML Text Has Errors',
-      message: 'If you continue, the last valid version of the model will be saved and any edits since then will be lost.',
+      message:
+        'If you continue, the last valid version of the model will be saved and any edits since then will be lost.',
       severity: 'warning',
       acceptLabel: 'Proceed',
       rejectLabel: 'Cancel',
@@ -1403,10 +1472,10 @@ async function handleSave() {
 }
 
 .editor-grid {
-  --dlg-fs-label: 0.875rem;   /* 14px - field/section labels */
-  --dlg-fs-body: 0.875rem;    /* 14px - table cells, inputs */
-  --dlg-fs-small: 0.8125rem;  /* 13px - secondary/meta text */
-  --dlg-fs-tiny: 0.75rem;     /* 12px - badges, prefixes only */
+  --dlg-fs-label: 0.875rem; /* 14px - field/section labels */
+  --dlg-fs-body: 0.875rem; /* 14px - table cells, inputs */
+  --dlg-fs-small: 0.8125rem; /* 13px - secondary/meta text */
+  --dlg-fs-tiny: 0.75rem; /* 12px - badges, prefixes only */
 
   display: flex;
   align-items: stretch;
@@ -1777,7 +1846,9 @@ async function handleSave() {
   margin-top: 16px;
 }
 
-.w-full { width: 100%; }
+.w-full {
+  width: 100%;
+}
 
 /* Normalise table typography - DataTable renders these cells directly */
 /* in our own template output (not teleported), so :deep() reaches them. */
@@ -1892,13 +1963,27 @@ async function handleSave() {
 }
 
 @keyframes resize-warning-pulse-left {
-  0%, 100% { transform: translateX(0); opacity: 0.4; }
-  50% { transform: translateX(-6px); opacity: 1; }
+  0%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateX(-6px);
+    opacity: 1;
+  }
 }
 
 @keyframes resize-warning-pulse-right {
-  0%, 100% { transform: translateX(0); opacity: 0.4; }
-  50% { transform: translateX(6px); opacity: 1; }
+  0%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateX(6px);
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

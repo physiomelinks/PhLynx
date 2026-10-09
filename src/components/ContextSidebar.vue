@@ -178,6 +178,7 @@
           <TabPanel value="props">
             <section class="context-section context-section--global">
               <h4 class="context-section-title">Properties</h4>
+              <NodeColourPanel />
             </section>
           </TabPanel>
 
@@ -275,6 +276,7 @@ import { useResizableAside } from '../composables/useResizableAside'
 import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import NodeColourPanel from './NodeColourPanel.vue'
 
 const props = defineProps({
   initialWidth: {

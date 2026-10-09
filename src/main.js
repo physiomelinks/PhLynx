@@ -24,6 +24,7 @@ import './assets/main.css'
 import './assets/sanitisewarning.css'
 
 import router from './router'
+import { useNodeThemeStore } from './stores/nodeThemeStore'
 import App from './App.vue'
 
 const app = createApp(App)
@@ -52,3 +53,6 @@ app.directive('ripple', Ripple)
 app.use(libcellmlPlugin)
 app.component('GlossaryLink', GlossaryLink)
 app.mount('#app')
+
+// Shared node colour themes load in the background; the built-in theme covers first paint.
+useNodeThemeStore(pinia).init()
