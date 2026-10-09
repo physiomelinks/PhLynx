@@ -231,6 +231,21 @@ class TestSimulationTab(unittest.TestCase):
             # Same plot and unit, so both lines share a chart, named by instance.
             expect(page.locator(".simulation-plot")).to_have_count(1)
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V, axon_SN/V")
+
+            # Clicking a line's name hides it, leaving it out of the hover readout, and clicking it again shows it.
+            chart = page.locator(".simulation-plot")
+            axon_toggle = chart.get_by_role("button", name="axon_SN/V", exact=True)
+            box = chart.locator(".u-over").bounding_box()
+            hover = (box["x"] + box["width"] * 0.6, box["y"] + box["height"] / 2)
+            axon_toggle.click()
+            expect(axon_toggle).to_have_attribute("aria-pressed", "false")
+            page.mouse.move(*hover)
+            expect(chart.locator(".plot-readout-row")).to_have_count(1)
+            expect(chart.locator(".plot-readout-label")).to_have_text("soma_SN/V")
+            axon_toggle.click()
+            expect(axon_toggle).to_have_attribute("aria-pressed", "true")
+            page.mouse.move(*hover)
+            expect(chart.locator(".plot-readout-row")).to_have_count(2)
             # ----------- END ------------
 
             context.close()

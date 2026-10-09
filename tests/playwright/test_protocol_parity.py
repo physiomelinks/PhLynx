@@ -24,8 +24,7 @@ RUN_CASE = """async () => {
   const spec = __CASE__
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
   const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
-  const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
-  const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
+  const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
   const { planDrivers } = await import('/src/services/protocol/libopencorEngine/protocolDrivers.js')
   const { addProtocolDrivers } = await import('/src/services/simulation/protocolDriverModel.js')
   const { prepareProtocolRun } = await import('/src/services/simulation/protocolRun.js')

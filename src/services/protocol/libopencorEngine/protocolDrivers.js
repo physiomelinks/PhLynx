@@ -3,7 +3,7 @@
  * compute itself: a model can't be driven from outside it while it runs. Each driven parameter gets a driver, which
  * a selector constant switches between the inputs it takes, one per sub-experiment.
  */
-import { PACING } from '../protocolShapes.js'
+import { PACING } from '@physiomelinks/protocol-kit'
 
 /**
  * Whether a cell changes continuously, so its parameter needs a driver.

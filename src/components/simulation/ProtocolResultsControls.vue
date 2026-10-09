@@ -36,8 +36,8 @@ import { computed } from 'vue'
 
 import Button from 'primevue/button'
 import Select from 'primevue/select'
+import { nameExperiment } from '@physiomelinks/protocol-kit'
 
-import { nameExperiment } from '../../services/protocol/protocolModel'
 import { ALL_EXPERIMENTS, useProtocolStore } from '../../stores/protocolStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 

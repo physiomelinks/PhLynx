@@ -228,10 +228,10 @@ import Message from 'primevue/message'
 import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
+import { nameExperiment } from '@physiomelinks/protocol-kit'
 
 import VariablePathPicker from './VariablePathPicker.vue'
 import { countSharedSubexperiments, FEATURE_OPERATIONS } from '../../services/export/protocolSedml'
-import { nameExperiment } from '../../services/protocol/protocolModel'
 import { SOLVERS, resolveSolverSettings } from '../../services/simulation/sedParameters'
 import { useProtocolStore } from '../../stores/protocolStore'
 

@@ -5,13 +5,13 @@
  * its sub-experiments, and each segment of those a sub-task that sets its values first.
  */
 import JSZip from 'jszip'
+import { nameExperiment, resolveExperimentColour } from '@physiomelinks/protocol-kit'
 
 import { buildManifestXml } from './omex'
 import requirements from './templates/requirements.txt?raw'
-import { nameExperiment } from '../protocol/protocolModel'
 import { CLOCK_COMPONENT, CLOCK_OFFSET, CLOCK_TIME, DRIVER_COMPONENT, nameDriverVariables } from '../simulation/protocolDriverModel'
 import { buildAlgorithm, formatSedNumber } from '../simulation/sedParameters'
-import { resolveExperimentColour, SERIES_COLOURS } from '../simulation/seriesSlots'
+import { SERIES_COLOURS } from '../simulation/seriesSlots'
 
 /** The operations a feature reduces a variable over a sub-experiment with. */
 export const FEATURE_OPERATIONS = ['mean', 'min', 'max', 'max_minus_min']
@@ -260,7 +260,7 @@ export function buildProtocolSedml({
   }
   const kindOf = (parameter) => variables.get(reportedOf(parameter))?.kind
   const labelOf = (e) => experiments[e]?.label ?? nameExperiment(e)
-  const colourOf = (e) => writeColour(resolveExperimentColour(experiments[e]?.colour, e))
+  const colourOf = (e) => writeColour(resolveExperimentColour(experiments[e]?.colour, e, SERIES_COLOURS.light))
 
   // One simulation, and its task, for each distinct time course.
   const simulations = new Map()

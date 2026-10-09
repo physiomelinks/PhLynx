@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { readProtocolInfo, validateProtocolInfo } from '@physiomelinks/protocol-kit'
 
 import { findShortestFeature, planDrivers, writeDriverMathML, writeTraceMathML } from '../../../../../src/services/protocol/libopencorEngine/protocolDrivers.js'
-import { readProtocolInfo } from '../../../../../src/services/protocol/protocolModel.js'
-import { validateProtocolInfo } from '../../../../../src/services/protocol/protocolValidation.js'
 
 /**
  * Reads a protocol_info as PhLynx runs it.

@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readProtocolInfo, validateProtocolInfo } from '@physiomelinks/protocol-kit'
 
 import { MAX_RESULT_BYTES, SimulationError } from '../../../../src/services/simulation/engine.js'
 import { mergeChanges, runProtocol } from '../../../../src/services/simulation/protocolRunner.js'
 import { buildLinearSpace, compileProtocolPlan } from '../../../../src/services/protocol/libopencorEngine/protocolPlan.js'
-import { readProtocolInfo } from '../../../../src/services/protocol/protocolModel.js'
-import { validateProtocolInfo } from '../../../../src/services/protocol/protocolValidation.js'
 
 const TARGETS = new Map([['decay/k', 'c/k']])
 

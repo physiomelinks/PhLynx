@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { EXPERIMENT_PALETTE } from '@physiomelinks/protocol-kit'
 
-import { assignSeriesSlots, chunkSeries, resolveExperimentColour, SERIES_COLOURS, SLOT_COUNT } from '../../../../src/services/simulation/seriesSlots.js'
+import { assignSeriesSlots, chunkSeries, SERIES_COLOURS, SLOT_COUNT } from '../../../../src/services/simulation/seriesSlots.js'
 
 describe('assignSeriesSlots', () => {
   it('gives new series the lowest free slots, in order', () => {
@@ -29,12 +30,8 @@ describe('chunkSeries', () => {
   })
 })
 
-describe('resolveExperimentColour', () => {
-  it('reads a matplotlib letter or a hex colour, alpha kept, and falls back to the slot colour', () => {
-    expect(resolveExperimentColour('r', 0)).toBe('#e34948')
-    expect(resolveExperimentColour('#ff000080', 0)).toBe('#ff000080')
-    expect(resolveExperimentColour('#0f0', 0)).toBe('#0f0')
-    expect(resolveExperimentColour('#12345', 1)).toBe(SERIES_COLOURS.light[1])
-    expect(resolveExperimentColour(null, 9)).toBe(SERIES_COLOURS.light[1])
+describe('SERIES_COLOURS', () => {
+  it("colours experiments as protocol-kit does by default, so the editor's and the charts' colours agree", () => {
+    expect(SERIES_COLOURS.light).toEqual(EXPERIMENT_PALETTE)
   })
 })

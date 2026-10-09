@@ -1,16 +1,31 @@
 import { defineStore } from 'pinia'
 import { computed, markRaw, ref } from 'vue'
+import {
+  OBS_DATA_FORMAT,
+  buildObsDataLocation,
+  findCircAutogenLimits,
+  findObsDataExtra,
+  readObsDataParts,
+  readProtocolInfo,
+  serialiseObsData,
+  validateProtocolInfo,
+} from '@physiomelinks/protocol-kit'
 
-import { OBS_DATA_FORMAT, buildObsDataLocation, findObsDataExtra, readObsDataParts, serialiseObsData } from '../services/protocol/obsDataDocument'
 import { planDrivers } from '../services/protocol/libopencorEngine/protocolDrivers'
-import { findCircAutogenLimits } from '../services/protocol/protocolCompatibility'
-import { readProtocolInfo } from '../services/protocol/protocolModel'
-import { validateProtocolInfo } from '../services/protocol/protocolValidation'
 import { cyrb53 } from '../utils/misc'
 import { useOmexStore } from './omexStore'
 
 // The experiment to show for every experiment at once.
 export const ALL_EXPERIMENTS = -1
+
+/**
+ * Warns of what PhLynx ignores in a protocol_info: offline_pre_time, which only calibration uses.
+ *
+ * @param {Object} protocolInfo
+ * @returns {string[]}
+ */
+export const findIgnoredSettings = (protocolInfo) =>
+  protocolInfo?.offline_pre_time != null ? ['offline_pre_time is only used for calibration, so PhLynx ignores it.'] : []
 
 /**
  * The workspace's experiment protocol, read from the obs_data.json its archive carries (CUFLynx and circulatory
@@ -36,7 +51,8 @@ export const useProtocolStore = defineStore('protocol', () => {
   const validation = computed(() => {
     if (source.value?.parseError) return { errors: [`${source.value.entry.location} isn't valid JSON: ${source.value.parseError.message}`], warnings: [] }
     if (!hasProtocol.value) return { errors: [], warnings: [] }
-    const { errors, warnings, protocolInfo: valid } = validateProtocolInfo(protocolInfo.value)
+    const { errors, warnings: checked, protocolInfo: valid } = validateProtocolInfo(protocolInfo.value)
+    const warnings = [...checked, ...findIgnoredSettings(protocolInfo.value)]
     // What CUFLynx couldn't run, though PhLynx can.
     return { errors, warnings: valid ? [...warnings, ...findCircAutogenLimits(readProtocolInfo(valid))] : warnings }
   })

@@ -2,11 +2,12 @@
  * Works out a protocol's run on a model the simulator has read: the variable each parameter sets, the planned
  * segments, what the inputs chart shows, and the solver settings its drivers need.
  */
+import { findCircAutogenLimits } from '@physiomelinks/protocol-kit'
+
 import { DRIVER_COMPONENT, nameDriverVariables } from './protocolDriverModel'
 import { resolveProtocolTargets } from './protocolTargets'
 import { findShortestFeature } from '../protocol/libopencorEngine/protocolDrivers'
 import { compileProtocolPlan } from '../protocol/libopencorEngine/protocolPlan'
-import { findCircAutogenLimits } from '../protocol/protocolCompatibility'
 
 /**
  * Prepares a protocol's run.

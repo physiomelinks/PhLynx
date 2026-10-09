@@ -4,6 +4,7 @@
  */
 import { computed, markRaw, ref, shallowRef, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
+import { nameExperiment } from '@physiomelinks/protocol-kit'
 
 import { useSimulation } from './useSimulation'
 import {
@@ -12,7 +13,6 @@ import {
   generateProtocolSedmlZip,
   validateExportFeatures,
 } from '../services/export/protocolSedml'
-import { nameExperiment } from '../services/protocol/protocolModel'
 import { resolveGroups, resolvePlotConfig } from '../services/simulation/plotSelections'
 import { CLOCK_COMPONENT } from '../services/simulation/protocolDriverModel'
 import { isInspectionNodeId, readInspectionOutputId } from '../services/simulation/variableIndex'

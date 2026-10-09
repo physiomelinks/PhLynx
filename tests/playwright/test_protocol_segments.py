@@ -221,8 +221,7 @@ CARRY_WORKSPACE_STATES = """async () => {
 # k = 1 for 2 s, as CA would run the same protocol_info.
 RUN_PROTOCOL = """async () => {
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
-  const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
-  const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
+  const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
   const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-run-' + Math.round(performance.now())
@@ -244,8 +243,7 @@ RUN_PROTOCOL = """async () => {
 # A pulse of k = 100 lasting 0.01 s in 10 s of decay at k = 0: x must fall by exactly e^-1, however brief the pulse.
 RUN_SHORT_PULSE = """async () => {
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
-  const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
-  const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
+  const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
   const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-pulse-' + Math.round(performance.now())
@@ -265,8 +263,7 @@ RUN_SHORT_PULSE = """async () => {
 RUN_RAMP = """async () => {
   const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
   const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
-  const { validateProtocolInfo } = await import('/src/services/protocol/protocolValidation.js')
-  const { readProtocolInfo } = await import('/src/services/protocol/protocolModel.js')
+  const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
   const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const { planDrivers, findShortestFeature } = await import('/src/services/protocol/libopencorEngine/protocolDrivers.js')
   const { addProtocolDrivers } = await import('/src/services/simulation/protocolDriverModel.js')

@@ -1,19 +1,18 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
+import { alignWithWarmUp, normaliseShape, parseObsData, readProtocolInfo, validateProtocolInfo } from '@physiomelinks/protocol-kit'
 
-import { parseObsData } from '../../../../../src/services/protocol/obsDataDocument.js'
-import { readProtocolInfo } from '../../../../../src/services/protocol/protocolModel.js'
 import {
   buildExperimentTime,
   buildLinearSpace,
   compileProtocolPlan,
   joinSegmentValues,
 } from '../../../../../src/services/protocol/libopencorEngine/protocolPlan.js'
-import { validateProtocolInfo } from '../../../../../src/services/protocol/protocolValidation.js'
 
 const RESOURCES = join(__dirname, '../../../../resources/protocols')
+const SOURCE = join(__dirname, '../../../../../src/services/protocol/libopencorEngine')
 
 /**
  * Reads a protocol_info as PhLynx runs it.
@@ -219,5 +218,49 @@ describe('joining segments', () => {
     joinSegmentValues(joined, Float64Array.of(1, 2, 3), experiment.segments[0].startIndex, false)
     joinSegmentValues(joined, Float64Array.of(9, 4), experiment.segments[1].startIndex, true)
     expect([...joined]).toEqual([1, 2, 3, 4])
+  })
+})
+
+describe('alignWithWarmUp', () => {
+  /**
+   * Plans an experiment of one 4 s sub-experiment after a 2 s warm-up.
+   *
+   * @param {Object} document
+   * @returns {Object}
+   */
+  const planOf = (document) => compileProtocolPlan({ view: read(document.protocol_info), pointInterval: 0.5, drivers: new Map() })
+  const withInput = (leaf, extra) => ({ protocol_info: { pre_times: [2], sim_times: [[4]], params_to_change: { 'a/k': [[leaf]] }, ...extra } })
+
+  it('starts a pulse with its sub-experiment, not with the warm-up, and stops the warning', () => {
+    const document = withInput('p', { protocol_shapes: { p: { events: [{ level: 5, start: 1, length: 2 }] } } })
+    expect(planOf(document).warnings).toHaveLength(1)
+    const shape = normaliseShape(document.protocol_info.protocol_shapes.p, 'p')
+    const plan = planOf(alignWithWarmUp(document, { parameter: 'a/k', experiment: 0, shape }))
+    expect(plan.warnings).toEqual([])
+    // Logged from t = 2, the pulse is 1 to 3 into the sub-experiment, as written.
+    expect(plan.experiments[0].segments.filter(({ isLogged }) => isLogged).map(({ timeCourse, values }) => [timeCourse.outputStartTime, values[0].value])).toEqual([
+      [2, 0],
+      [3, 5],
+      [5, 0],
+    ])
+  })
+
+  it('holds a trace at its first value through the warm-up, without a warning', () => {
+    const trace = alignWithWarmUp(withInput('x', { protocol_traces: { x: { t: [0, 1], values: [4, 5] } } }), { parameter: 'a/k', experiment: 0, trace: { t: [0, 1], values: [4, 5] } })
+    expect(planOf(trace).warnings).toEqual([])
+  })
+})
+
+describe('src/services/protocol/libopencorEngine', () => {
+  it('imports only protocol-kit and its own modules', () => {
+    // Every module specifier: static imports and re-exports (over several lines too), bare imports and dynamic ones.
+    const SPECIFIERS = /\b(?:import|export)\b[^'"`;]*?\bfrom\s*['"]([^'"]+)['"]|\bimport\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"`]([^'"`]+)['"`]/g
+    const files = readdirSync(SOURCE).filter((name) => name.endsWith('.js'))
+    const imports = files.flatMap((name) =>
+      [...readFileSync(join(SOURCE, name), 'utf8').matchAll(SPECIFIERS)].map((match) => [name, match[1] ?? match[2] ?? match[3]])
+    )
+    expect(imports.length).toBeGreaterThan(0)
+    expect(imports.filter(([, from]) => from !== '@physiomelinks/protocol-kit' && !/^\.\/\w+\.js$/.test(from))).toEqual([])
+    expect(files.some((name) => /\bimport\s*\(\s*[^'"`\s]/.test(readFileSync(join(SOURCE, name), 'utf8')))).toBe(false)
   })
 })

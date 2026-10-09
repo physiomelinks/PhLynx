@@ -2,7 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { useOmexStore } from '../../../src/stores/omexStore.js'
-import { useProtocolStore } from '../../../src/stores/protocolStore.js'
+import { findIgnoredSettings, useProtocolStore } from '../../../src/stores/protocolStore.js'
 
 const PROTOCOL = { pre_times: [0], sim_times: [[1]], params_to_change: { 'a/k': [[2]] } }
 
@@ -50,6 +50,13 @@ describe('protocolStore', () => {
     addExtra('broken_obs_data.json', '{')
     expect(store.hasProtocol).toBe(false)
     expect(store.validation.errors[0]).toMatch(/^broken_obs_data.json isn't valid JSON: /)
+  })
+
+  it('warns that PhLynx ignores a calibration-only warm-up', () => {
+    const store = useProtocolStore()
+    addExtra('model_obs_data.json', JSON.stringify({ protocol_info: { ...PROTOCOL, offline_pre_time: 10 } }))
+    expect(store.validation).toEqual({ errors: [], warnings: ['offline_pre_time is only used for calibration, so PhLynx ignores it.'] })
+    expect(findIgnoredSettings(PROTOCOL)).toEqual([])
   })
 
   it('saves an edited document over the file read, or as a new one named after the model', () => {

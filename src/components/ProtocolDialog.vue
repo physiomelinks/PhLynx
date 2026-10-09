@@ -10,7 +10,15 @@
     @update:visible="(visible) => !visible && requestClose()"
   >
     <div @keydown="onKeydown">
-      <ProtocolEditor :document="draft" :nodes="nodes" :get-global-constant="libraryStore.getGlobalConstant" @update:document="changeDraft" />
+      <ProtocolEditor
+        :document="draft"
+        :variables="variables"
+        :get-value="findValue"
+        :confirm="confirm"
+        :palette="SERIES_COLOURS.light"
+        :warn="findIgnoredSettings"
+        @update:document="changeDraft"
+      />
     </div>
 
     <template #footer>
@@ -38,13 +46,14 @@ import { computed, ref, watch } from 'vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
+import { readObsDataParts, validateProtocolInfo } from '@physiomelinks/protocol-kit'
+import { ProtocolEditor } from '@physiomelinks/protocol-kit/editor'
 
-import ProtocolEditor from './simulation/ProtocolEditor.vue'
-import { readObsDataParts } from '../services/protocol/obsDataDocument'
-import { validateProtocolInfo } from '../services/protocol/protocolValidation'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
+import { SERIES_COLOURS } from '../services/simulation/seriesSlots'
+import { buildVariableIndex } from '../services/simulation/variableIndex'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useProtocolStore } from '../stores/protocolStore'
+import { findIgnoredSettings, useProtocolStore } from '../stores/protocolStore'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -54,6 +63,13 @@ const emit = defineEmits(['update:modelValue'])
 const { confirm } = useConfirmDialog()
 const libraryStore = useLibraryStore()
 const protocolStore = useProtocolStore()
+
+// The model's variables as the editor lists them, each under the name a protocol gives it. The label is that name too,
+// so the picker shows and searches what it always has.
+const variableIndex = computed(() => buildVariableIndex(props.nodes))
+const variables = computed(() =>
+  variableIndex.value.map((entry) => ({ name: entry.path, label: entry.path, unit: entry.units, kind: entry.kind, value: findRow(entry)?.value }))
+)
 
 // The obs_data document being edited, or null while the workspace has none.
 const draft = ref(null)
@@ -66,6 +82,28 @@ const errorCount = computed(() => {
   const protocolInfo = draft.value ? readObsDataParts(draft.value).protocolInfo : null
   return protocolInfo ? validateProtocolInfo(protocolInfo).errors.length : 0
 })
+
+/**
+ * Finds the node's row an index entry stands for.
+ *
+ * @param {Object} entry - Of buildVariableIndex.
+ * @returns {Object|undefined}
+ */
+function findRow(entry) {
+  return props.nodes.find((node) => node.id === entry.nodeId)?.data?.variables?.find((row) => row.name === entry.rowName)
+}
+
+/**
+ * Reads a variable's value in the model: a global constant's from the library, as a node's own copy may be out of date.
+ *
+ * @param {string} name - `instance/variable`, as the editor names it.
+ * @returns {*}
+ */
+function findValue(name) {
+  const entry = variableIndex.value.find((candidate) => candidate.path === name)
+  const row = entry && findRow(entry)
+  return row?.type === 'global_constant' ? libraryStore.getGlobalConstant(row.name)?.value : row?.value
+}
 
 /**
  * Takes an edit of the draft, keeping the one before to undo to.
