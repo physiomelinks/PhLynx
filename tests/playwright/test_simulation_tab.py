@@ -85,6 +85,13 @@ OUTPUTS = [
     for name in ("V", "V_mean")
     for e, label in enumerate(["SHR", "SHR_M_activation"])
 ]
+# ADD_PROTOCOL's protocol, its first experiment's first sub-experiment shortened to 0.08 s in the editor.
+SAVED_PROTOCOL_INFO = {
+    "pre_times": [0.05, 0.05],
+    "sim_times": [[0.08, 0.1], [0.1, 0.1]],
+    "params_to_change": {"soma_SN/I_in": [[0, 0], [0, 0]], "soma_SN/g_M": [[0.00389, 0.00389], [0.00778, 0.00778]]},
+    "experiment_labels": ["SHR", "SHR M-activation"],
+}
 # The soma's mean voltage in each experiment's second sub-experiment, as PhLynx ran it.
 IN_APP_V_MEANS = (
     f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
@@ -667,7 +674,8 @@ class TestSimulationTab(unittest.TestCase):
             dialog.get_by_role("button", name="Save").click()
             expect(dialog).to_be_hidden()
             saved = page.evaluate(SAVED_OBS_DATA)
-            self.assertEqual(saved["protocol_info"]["sim_times"][0], [0.08, 0.1])
+            # The protocol as it was but the length changed, the input current at its model value included.
+            self.assertEqual(saved["protocol_info"], SAVED_PROTOCOL_INFO)
             self.assertEqual(saved["prediction_items"], OUTPUTS)
             saved_bytes = bytes(page.evaluate(SAVED_OBS_DATA_BYTES))
 
