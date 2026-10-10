@@ -14,19 +14,22 @@ export const TIME_OPERAND = 'time'
 const CONSTANT_KINDS = new Set(['constant', 'computedConstant'])
 
 /**
- * Lists the operands of an obs_data's features: its prediction items with an operation, other than a series.
+ * Lists the operands of an obs_data's features: its prediction items with an operation, other than a series, then its
+ * constant data items with one (see computeDataItemFeatures).
  *
  * @param {Object|Array|undefined} document - The obs_data, as parsed.
  * @returns {string[]} Each once, in order.
  */
 export function listFeatureOperands(document) {
   if (document === undefined || document === null) return []
-  const { predictionItems, protocolInfo } = readObsDataParts(document)
-  const operands = predictionItems.flatMap((item, index) => {
-    if (!item || typeof item !== 'object' || readOperation(item.operation) == null || item.data_type === 'series') return []
+  const { dataItems, predictionItems, protocolInfo } = readObsDataParts(document)
+  const isFeature = (item) => !!item && typeof item === 'object' && readOperation(item.operation) != null
+  const predicted = predictionItems.flatMap((item, index) => {
+    if (!isFeature(item) || item.data_type === 'series') return []
     return readPredictionItem(item, index, protocolInfo?.sim_times).entry?.operands ?? []
   })
-  return [...new Set(operands.filter((operand) => typeof operand === 'string'))]
+  const measured = dataItems.flatMap((item) => (isFeature(item) && (item.data_type ?? 'constant') === 'constant' && Array.isArray(item.operands) ? item.operands : []))
+  return [...new Set([...predicted, ...measured].filter((operand) => typeof operand === 'string'))]
 }
 
 /**

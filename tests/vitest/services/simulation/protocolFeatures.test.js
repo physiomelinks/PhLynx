@@ -50,6 +50,21 @@ describe('listFeatureOperands', () => {
     expect(listFeatureOperands(undefined)).toEqual([])
     expect(listFeatureOperands([{ variable: 'x' }])).toEqual([])
   })
+
+  it("adds the constant data items' operands after the prediction items'", () => {
+    const document = {
+      protocol_info: PROTOCOL_INFO,
+      data_items: [
+        feature('peak_obs', ['soma_SN/V'], 'max', { value: 1, std: 0.1 }),
+        feature('peak_again', ['soma_SN/i_M'], 'max', { value: 1, std: 0.1 }),
+        feature('trace', ['axon/x'], 'max', { data_type: 'series', value: [1, 2] }),
+        { data_item_name: 'no_operation', operands: ['axon/y'], unit: 'mV', value: 1 },
+      ],
+      prediction_items: [feature('peak', ['soma_SN/i_M'], 'max')],
+    }
+    expect(listFeatureOperands(document)).toEqual(['soma_SN/i_M', 'soma_SN/V'])
+    expect(listFeatureOperands([feature('bare', ['axon/z'], 'min', { value: 1 })])).toEqual(['axon/z'])
+  })
 })
 
 describe('resolveFeatureOperands', () => {
