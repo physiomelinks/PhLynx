@@ -63,13 +63,16 @@ function convertPorts(oldData) {
   }))
 }
 
-function convertHandles(oldData, uidMap) {
+// Legacy port uids are only unique within a node: a copied node keeps its original's.
+const portKey = (nodeId, uid) => `${nodeId}:${uid}`
+
+function convertHandles(oldNodeId, oldData, uidMap) {
   const migratedHandles = buildGhostHandles()
   for (const port of oldData.ports) {
     const oldUid = port.uid
     const centralGhost = findMostCentralGhostHandle(port.side, migratedHandles)
     if (!centralGhost) return
-    uidMap[oldUid] = centralGhost.uid
+    uidMap[portKey(oldNodeId, oldUid)] = centralGhost.uid
     const handle = migratedHandles.find((h) => h.uid === centralGhost.uid)
     if (handle) {
       handle.variant = HANDLE_VARIANT.DEFAULT
@@ -94,7 +97,7 @@ function convertNode(node, newId, globalConstantNames, paramLookup, uidMap) {
     moduleRef: `${moduleType}:${bcType}`,
     variables: mergeVariables(oldData, nodeName, globalConstantNames, paramLookup),
     ports: convertPorts(oldData),
-    handles: convertHandles(oldData, uidMap),
+    handles: convertHandles(node.id, oldData, uidMap),
   }
   // The MVP's node colour category; the colour theme now maps it to a colour.
   if (oldData.domainType) newData.domainType = oldData.domainType
@@ -134,7 +137,7 @@ function convertEdge(edge, idMap, uidMap) {
     newTarget = newTarget || oldTarget
   }
 
-  function remapHandle(h, label) {
+  function remapHandle(h, label, oldNodeId) {
     if (!h) return null
     let oldUid = h
     if (!h.startsWith('port_')) {
@@ -143,7 +146,7 @@ function convertEdge(edge, idMap, uidMap) {
       oldUid = h.slice(5)
     }
 
-    let newUid = uidMap[oldUid]
+    let newUid = uidMap[portKey(oldNodeId, oldUid)]
     if (!newUid) {
       console.warn(
         `Edge '${edge.id}': ${label} uid '${oldUid}' not found among converted node handles; keeping original uid.`
@@ -164,8 +167,8 @@ function convertEdge(edge, idMap, uidMap) {
     type: edge.type,
     source: newSource,
     target: newTarget,
-    sourceHandle: remapHandle(edge.sourceHandle, 'sourceHandle'),
-    targetHandle: remapHandle(edge.targetHandle, 'targetHandle'),
+    sourceHandle: remapHandle(edge.sourceHandle, 'sourceHandle', oldSource),
+    targetHandle: remapHandle(edge.targetHandle, 'targetHandle', oldTarget),
     data: { couplings: newCouplings },
     label: edge.label || '',
     markerEnd: edge.markerEnd,

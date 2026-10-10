@@ -218,6 +218,40 @@ describe('migrateWorkspace', () => {
     expect(migrated.simulation.plotConfig).toEqual({ groups: [] })
   })
 
+  it("connects each legacy edge to its own node's handle when a copied node shares its original's port uids", () => {
+    const legacyNode = (id, ports) => ({
+      id,
+      position: { x: 0, y: 0 },
+      data: { name: id, sourceFile: 'm.cellml', componentName: 'c', portLabels: [], portOptions: [], variables: [], ports },
+    })
+    const shared = [
+      { uid: 'shared-top', side: 'top' },
+      { uid: 'shared-bottom', side: 'bottom' },
+    ]
+    const legacyEdge = (source, target) => ({
+      id: `${source}--${target}`,
+      type: 'smoothstep',
+      source,
+      target,
+      sourceHandle: 'port_shared-bottom',
+      targetHandle: 'port_shared-top',
+      data: { couplings: [] },
+    })
+    const migrated = migrateWorkspace({
+      flow: {
+        nodes: [legacyNode('original', shared), legacyNode('copy', shared), legacyNode('other', shared)],
+        edges: [legacyEdge('original', 'other'), legacyEdge('other', 'copy')],
+      },
+      store: { availableModules: [], availableUnits: [], globalConstants: [] },
+    })
+
+    const handlesOf = new Map(migrated.flow.nodes.map(({ id, data }) => [id, data.handles.map((h) => `handle_${h.uid}`)]))
+    for (const edge of migrated.flow.edges) {
+      expect(handlesOf.get(edge.source)).toContain(edge.sourceHandle)
+      expect(handlesOf.get(edge.target)).toContain(edge.targetHandle)
+    }
+  })
+
   it('refuses a version it does not know', () => {
     expect(() => migrateWorkspace({ version: '99.0.0', flow: { nodes: [] }, store: {} })).toThrow(/99\.0\.0/)
   })
