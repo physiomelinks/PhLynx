@@ -1,7 +1,7 @@
 <template>
   <Dialog
     :visible="modelValue"
-    header="Protocol"
+    header="Edit obs_data"
     modal
     :draggable="false"
     :dismissableMask="true"
@@ -10,14 +10,16 @@
     @update:visible="(visible) => !visible && requestClose()"
   >
     <div @keydown="onKeydown">
-      <ProtocolEditor
+      <ObsDataEditor
         :document="draft"
         :variables="variables"
+        preset="phlynx"
         :get-value="findValue"
         :confirm="confirm"
         :palette="SERIES_COLOURS.light"
         :warn="findIgnoredSettings"
         :dt="simulationSettingsStore.simulationSettings.pointInterval"
+        :show-data-items="settings.showDataItems"
         @update:document="changeDraft"
       />
     </div>
@@ -26,6 +28,7 @@
       <div class="dialog-footer">
         <Button icon="pi pi-undo" text rounded severity="secondary" :disabled="!past.length" aria-label="Undo" v-tooltip.top="'Undo (⌘Z)'" @click="undo" />
         <Button icon="pi pi-refresh" text rounded severity="secondary" :disabled="!future.length" aria-label="Redo" v-tooltip.top="'Redo (⇧⌘Z)'" @click="redo" />
+        <span class="footer-count">{{ dataItemCount }} data item(s)</span>
         <span class="footer-spacer"></span>
         <span v-if="errorCount" class="footer-problems" role="status">
           <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
@@ -40,7 +43,8 @@
 
 <script setup>
 /**
- * The workspace's experiment protocol, to write or edit. Everything is a draft until Save, which writes it as the
+ * The workspace's obs_data, to write or edit as CUFLynx's "Edit obs_data" does: its protocol_info, prediction_items and
+ * prediction_plots, and its data_items listed read-only. Everything is a draft until Save, which writes it as the
  * archive's obs_data.json; a close with unsaved changes asks first.
  */
 import { computed, ref, watch } from 'vue'
@@ -48,8 +52,9 @@ import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import { readObsDataParts, validateProtocolInfo } from '@physiomelinks/protocol-kit'
-import { ProtocolEditor } from '@physiomelinks/protocol-kit/editor'
+import { ObsDataEditor } from '@physiomelinks/protocol-kit/editor'
 
+import { useAppSettings } from '../composables/useAppSettings'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { SERIES_COLOURS } from '../services/simulation/seriesSlots'
 import { buildVariableIndex } from '../services/simulation/variableIndex'
@@ -63,9 +68,11 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 const { confirm } = useConfirmDialog()
+// Data items are listed, not edited: their calibration fields belong to CUFLynx, and the user can hide them.
+const { settings } = useAppSettings()
 const libraryStore = useLibraryStore()
 const protocolStore = useProtocolStore()
-// Its point interval is the dt a run records at, which an output's range must take a sample of.
+// Its point interval is the dt a run records at, which a prediction item's range must take a sample of.
 const simulationSettingsStore = useSimulationSettingsStore()
 
 // The model's variables as the editor lists them, each under the name a protocol gives it. The label is that name too,
@@ -82,6 +89,7 @@ const hasChanges = computed(() => JSON.stringify(draft.value) !== initialSignatu
 // The drafts before and after the one shown, for undo and redo.
 const past = ref([])
 const future = ref([])
+const dataItemCount = computed(() => (draft.value ? readObsDataParts(draft.value).dataItems.length : 0))
 const errorCount = computed(() => {
   const protocolInfo = draft.value ? readObsDataParts(draft.value).protocolInfo : null
   return protocolInfo ? validateProtocolInfo(protocolInfo).errors.length : 0
@@ -161,7 +169,7 @@ watch(
   }
 )
 
-/** Saves the protocol and closes. */
+/** Saves the obs_data and closes. */
 function save() {
   protocolStore.saveDocument(draft.value)
   initialSignature.value = JSON.stringify(draft.value)
@@ -173,7 +181,7 @@ async function requestClose() {
   if (hasChanges.value) {
     const shouldDiscard = await confirm({
       header: 'Discard unsaved changes?',
-      message: 'You have unsaved changes to the protocol. Close without saving?',
+      message: 'You have unsaved changes to the obs_data. Close without saving?',
       severity: 'warning',
       acceptLabel: 'Discard',
       rejectLabel: 'Keep Editing',
@@ -194,6 +202,11 @@ async function requestClose() {
 
 .footer-spacer {
   flex: 1;
+}
+
+.footer-count {
+  color: var(--p-text-muted-color);
+  font-size: 0.8125rem;
 }
 
 .footer-problems {

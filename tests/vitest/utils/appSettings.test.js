@@ -21,6 +21,14 @@ describe('app settings registry', () => {
     expect(defaultAppSettings().plotInspectionModules).toBe(false)
   })
 
+  it('shows data items unless the user chooses otherwise, with the simulation\'s settings', () => {
+    expect(defaultAppSettings().showDataItems).toBe(true)
+    expect(isValidAppSetting('showDataItems', false)).toBe(true)
+    expect(isValidAppSetting('showDataItems', 'no')).toBe(false)
+    const keys = SETTING_SECTIONS.find((section) => section.title === 'Simulation').settings.map((setting) => setting.key)
+    expect(keys).toEqual(['plotInspectionModules', 'showDataItems'])
+  })
+
   it('accepts only true or false for an on/off setting', () => {
     expect(isValidAppSetting('plotInspectionModules', true)).toBe(true)
     expect(isValidAppSetting('plotInspectionModules', 'yes')).toBe(false)
