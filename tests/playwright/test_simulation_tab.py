@@ -799,6 +799,9 @@ class TestSimulationTab(unittest.TestCase):
             page.evaluate(ADD_PROTOCOL)
             page.get_by_role("button", name="Edit the protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Protocol")
+            # With no data items, there is no section for them: PhLynx only lists them.
+            expect(dialog.get_by_role("region", name="Outputs")).to_be_visible()
+            expect(dialog.get_by_role("region", name="Data items")).to_have_count(0)
             # The input current, at its model value throughout, is tucked away until asked for.
             show = dialog.get_by_role("button", name="Show 1 parameter at its model value")
             expect(dialog.get_by_text("1 parameter at its model value", exact=True)).to_be_visible()

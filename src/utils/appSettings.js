@@ -38,11 +38,6 @@ export const SETTING_SECTIONS = [
           "After a protocol run, plot its features (its outputs with an operation, such as a peak) across the experiments, and the protocol's feature plots, after the results. Each results view can show or hide them too.",
         default: false,
       },
-    ],
-  },
-  {
-    title: 'Protocols',
-    settings: [
       {
         key: 'showDataItems',
         type: 'toggle',

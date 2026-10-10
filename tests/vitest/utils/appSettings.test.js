@@ -28,6 +28,11 @@ describe('app settings registry', () => {
     expect(isValidAppSetting('showDataItems', 'no')).toBe(false)
   })
 
+  it('keeps the protocol display settings together, with the simulation\'s', () => {
+    const keys = SETTING_SECTIONS.find((section) => section.title === 'Simulation').settings.map((setting) => setting.key)
+    expect(keys).toEqual(['plotInspectionModules', 'showFeaturePlots', 'showDataItems'])
+  })
+
   it('accepts only true or false for an on/off setting', () => {
     expect(isValidAppSetting('plotInspectionModules', true)).toBe(true)
     expect(isValidAppSetting('plotInspectionModules', 'yes')).toBe(false)
