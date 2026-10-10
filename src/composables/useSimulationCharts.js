@@ -1,11 +1,15 @@
 /**
  * The charts of a run's results, as every simulation view shows them: the plotted variables of the simulated
  * instances, the values a protocol set when asked for, then the inspection modules' outputs, one chart per plot and
- * unit.
+ * unit; after them, a protocol run's obs_data plots, and its prediction plots.
  */
 import { computed, unref } from 'vue'
+import { computePlotSeries, listPredictionPlots } from '@physiomelinks/protocol-kit'
 
 import { resolveGroups } from '../services/simulation/plotSelections'
+import { addInputUnits, buildPredictionPlotCharts } from '../services/simulation/predictionPlotCharts'
+import { buildObsDataCharts } from '../services/simulation/protocolPlotGroups'
+import { findProtocolTarget } from '../services/simulation/protocolTargets'
 import { INSPECTION_COMPONENT, isInspectionNodeId, readInspectionOutputId } from '../services/simulation/variableIndex'
 import { SERIES_COLOURS, assignSeriesSlots, chunkSeries } from '../services/simulation/seriesSlots'
 import { readNodeSeries } from '../services/simulation/variableMapping'
@@ -71,7 +75,9 @@ export function spreadValues(values, positions, length) {
  * @param {import('vue').Ref<Array<Object>>|Array<Object>} scopeNodes - The simulated instances.
  * @param {{hasInputs?: boolean}} [options] - `hasInputs` charts the values a protocol set whether or not they're
  *   asked for, for a view that shows one chart at a time.
- * @returns {{xAxis: import('vue').ComputedRef<Object>, charts: import('vue').ComputedRef<Array<Object>>}}
+ * @returns {{xAxis: import('vue').ComputedRef<Object>, charts: import('vue').ComputedRef<Array<Object>>,
+ *   predictionPlotCharts: import('vue').ComputedRef<Array<Object>>}} `charts` end with the obs_data's plots (see
+ *   buildObsDataCharts), with their `references`; `predictionPlotCharts` as FeaturePlot takes them.
  */
 export function useSimulationCharts(scopeNodes, { hasInputs = false } = {}) {
   const store = useSimulationResultsStore()
@@ -212,7 +218,7 @@ export function useSimulationCharts(scopeNodes, { hasInputs = false } = {}) {
 
   // One chart per plot and unit, since one axis can't carry two; variables from different instances share a
   // chart when they share both. A series keeps its colour while it stays plotted.
-  const charts = computed(() => {
+  const plotCharts = computed(() => {
     const previousSlots = store.getSeriesSlots()
     if (!store.results) return []
     // Named as the plot cards name them, even for an imported config that lists no plots.
@@ -274,5 +280,41 @@ export function useSimulationCharts(scopeNodes, { hasInputs = false } = {}) {
     return result
   })
 
-  return { xAxis, charts }
+  // The experiments' names, as the picker names them.
+  const experimentNames = computed(() =>
+    (store.protocolResults?.experiments ?? []).map((_, e) => protocolStore.view?.experiments[e]?.label ?? `Experiment ${e + 1}`)
+  )
+
+  // The obs_data's variables, for the experiment shown or all of them, with their data items' obs and calc lines.
+  const obsDataCharts = computed(() => {
+    const experiments = store.protocolResults?.experiments ?? []
+    const document = protocolStore.source?.document
+    if (!experiments.length || !store.results || document == null) return []
+    const shared = overlay.value
+    const shownIndex = Math.min(Math.max(protocolStore.activeExperiment, 0), experiments.length - 1)
+    const shown = shared
+      ? experiments.map((results, e) => ({ experiment: e, name: shared.names[e], results, place: (values) => spreadValues(values, shared.positions[e], shared.times.length) }))
+      : [{ experiment: shownIndex, name: experimentNames.value[shownIndex], results: experiments[shownIndex], place: (values) => values }]
+    const nodes = unref(scopeNodes)
+    const mapping = store.mapping ?? new Map()
+    const variables = experiments[0].variables
+    // As the features' operands are found, those the run kept first.
+    const resolve = (qname) => store.featureOperands.get(qname) ?? findProtocolTarget(String(qname), { nodes, mapping, variables })
+    return buildObsDataCharts({ document, shown, resolve, features: store.features, dataItemFeatures: store.dataItemFeatures })
+  })
+
+  const charts = computed(() => [...plotCharts.value, ...obsDataCharts.value])
+
+  // The obs_data's prediction plots, each of its features paired across the experiments; plots only.
+  const predictionPlotCharts = computed(() => {
+    const document = protocolStore.source?.document
+    if (!store.protocolResults || !store.features.length || !listPredictionPlots(document).length) return []
+    // An input's unit, as the run reported the variable that shows it.
+    const variables = store.protocolResults.experiments[0]?.variables
+    const unitOf = (parameter) => variables?.get(store.protocolInputs.get(parameter)?.name)?.unit ?? ''
+    const plots = addInputUnits(computePlotSeries(document, store.features), listPredictionPlots(document), unitOf)
+    return buildPredictionPlotCharts(plots, experimentNames.value)
+  })
+
+  return { xAxis, charts, predictionPlotCharts }
 }

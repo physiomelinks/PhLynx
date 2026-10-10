@@ -77,9 +77,24 @@
             :unit="chart.unit"
             :x="xAxis"
             :series="chart.series"
+            :references="chart.references"
             :height="chartHeight"
             sync-key="simulation-results-dialog"
           />
+          <section v-if="predictionPlotCharts.length" class="results-prediction-plots" aria-labelledby="results-prediction-plots-title">
+            <h3 id="results-prediction-plots-title" class="results-prediction-plots-title">Prediction plots</h3>
+            <FeaturePlot
+              v-for="chart in predictionPlotCharts"
+              :key="chart.key"
+              :ref="(plot) => setPlot(chart.key, plot)"
+              :title="chart.title"
+              :unit="chart.unit"
+              :x="chart.x"
+              :y-label="chart.yLabel"
+              :series="chart.series"
+              :height="chartHeight"
+            />
+          </section>
           <p class="results-hint">Drag across a chart to zoom in; double-click it to zoom out.</p>
         </div>
 
@@ -99,8 +114,8 @@
 
 <script setup>
 /**
- * The plotted results at full size: the Simulation tab's charts with their cursors in step, their values
- * downloadable as CSV and the charts as one PNG, and a protocol's run as SED-ML. Beside them, as in the tab, an
+ * The plotted results at full size: the Simulation tab's charts with their cursors in step, then a protocol run's
+ * prediction plots, their values downloadable as CSV and the charts as one PNG, and a protocol's run as SED-ML. Beside them, as in the tab, an
  * instance's plotted variables and sliders can be changed.
  */
 import { computed, ref } from 'vue'
@@ -110,6 +125,7 @@ import Dialog from 'primevue/dialog'
 import SelectButton from 'primevue/selectbutton'
 import ToggleButton from 'primevue/togglebutton'
 
+import FeaturePlot from './FeaturePlot.vue'
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
@@ -124,7 +140,9 @@ const visible = defineModel('visible', { type: Boolean, default: false })
 const props = defineProps({
   summary: { type: String, default: '' },
   x: { type: Object, required: true }, // { label, unit, values }
-  charts: { type: Array, required: true }, // [{ key, title, unit, series }], as the Simulation tab shows them
+  charts: { type: Array, required: true }, // [{ key, title, unit, series, references? }], as the Simulation tab shows them
+  // A protocol run's prediction plots, as FeaturePlot takes them; after the charts, and in the PNG, not the CSV.
+  predictionPlotCharts: { type: Array, default: () => [] },
   // Every node, whose variables can be plotted or given sliders beside the charts.
   nodes: { type: Array, required: true },
   // The nodes the shown run simulated, or null for all of them.
@@ -180,9 +198,9 @@ function downloadCsv() {
   legacyDownload(`${FILE_NAME}.csv`, new Blob([buildResultsCsv(columns.value)], { type: 'text/csv' }))
 }
 
-/** Downloads the charts, as shown, as one PNG on the dialog's background. */
+/** Downloads the charts, as shown, as one PNG on the dialog's background, the prediction plots after them. */
 function downloadPng() {
-  const snapshots = props.charts.map((chart) => plots.get(chart.key)?.snapshot()).filter(Boolean)
+  const snapshots = [...props.charts, ...props.predictionPlotCharts].map((chart) => plots.get(chart.key)?.snapshot()).filter(Boolean)
   if (!snapshots.length) return
   const style = getComputedStyle(chartsEl.value.closest('.p-dialog'))
   const image = composeChartsImage(snapshots, { background: style.backgroundColor, text: style.color })
@@ -262,6 +280,22 @@ function downloadPng() {
 
 .export-button {
   display: inline-flex;
+}
+
+.results-prediction-plots {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* After the traces, a group of its own. */
+.results-prediction-plots-title {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--p-content-border-color);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--p-text-muted-color);
 }
 
 .results-hint {

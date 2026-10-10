@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildFeatureSegments,
   buildOperandTime,
+  computeRunDataItemFeatures,
   computeRunFeatures,
   listFeatureOperands,
   resolveFeatureOperands,
@@ -141,5 +142,23 @@ describe('computeRunFeatures', () => {
     const [peak] = computeRunFeatures({ protocol_info: PROTOCOL_INFO, prediction_items: [feature('peak', ['soma_SN/i_M'], 'max')] }, stopped, OPERANDS)
     expect(peak).toMatchObject({ value: NaN, error: "Sub-experiment 2 of experiment 1 wasn't run." })
     expect(computeRunFeatures(undefined, RESULTS, OPERANDS)).toEqual([])
+  })
+
+  it("computes the data items' features from the same series, as CA scores them, a kwarg naming an item before it", () => {
+    const document = {
+      protocol_info: PROTOCOL_INFO,
+      data_items: [
+        feature('step_obs', ['soma_SN/i_M'], 'max', { subexperiment_idx: 1, value: 5, std: 1 }),
+        feature('half', ['time'], 'mean', { value: 0.5, std: 0.1 }),
+        feature('early', ['soma_SN/i_M'], 'mean_in_range', { subexperiment_idx: 0, operation_kwargs: { start_frac: 0, end_frac: 'half' }, value: 1, std: 1 }),
+      ],
+    }
+    const features = computeRunDataItemFeatures(document, RESULTS, OPERANDS)
+    expect(features.map(({ name, value, kwargs }) => [name, value, kwargs])).toEqual([
+      ['step_obs', 6, {}],
+      ['half', 1, {}],
+      ['early', 1.5, { start_frac: 0, end_frac: 1 }],
+    ])
+    expect(computeRunDataItemFeatures(document, null, OPERANDS)).toEqual([])
   })
 })

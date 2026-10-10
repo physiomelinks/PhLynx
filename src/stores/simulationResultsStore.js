@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, markRaw, ref, shallowRef } from 'vue'
 
-import { computeRunFeatures } from '../services/simulation/protocolFeatures'
+import { computeRunDataItemFeatures, computeRunFeatures } from '../services/simulation/protocolFeatures'
 import { useProtocolStore } from './protocolStore'
 
 /**
@@ -42,6 +42,10 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
    */
   const features = computed(() =>
     protocolResults.value && featureOperands.value.size ? computeRunFeatures(protocolStore.source?.document, protocolResults.value, featureOperands.value) : []
+  )
+  /** The features the run gives the obs_data's data items, as circulatory_autogen scores them, computed as `features` are. */
+  const dataItemFeatures = computed(() =>
+    protocolResults.value && featureOperands.value.size ? computeRunDataItemFeatures(protocolStore.source?.document, protocolResults.value, featureOperands.value) : []
   )
   const mapping = shallowRef(null)
   /** The run's inspection module outputs: `[{ id, name, units, reportedName }]`. */
@@ -178,6 +182,7 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     protocolInputs,
     featureOperands,
     features,
+    dataItemFeatures,
     mapping,
     inspectionOutputs,
     signature,

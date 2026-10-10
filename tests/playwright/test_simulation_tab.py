@@ -96,6 +96,33 @@ ADD_DATA_ITEMS_PROTOCOL = ADD_PROTOCOL.replace(
     ]),
 )
 
+# The SN features case of the protocol parity checks (tests/resources/protocols/parity/features.json), whose model the
+# workspace's SN model is, with CA's values for it, and a data item measuring what its V_peak_e1 computes: V's max in
+# the first experiment's second sub-experiment.
+PARITY = os.path.join(RESOURCE_PATH, "protocols", "parity")
+with open(os.path.join(PARITY, "features.json")) as _features:
+    _spec = json.load(_features)
+FEATURES_CASE = _spec["cases"][0]
+FEATURES_SETTINGS = (
+    "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationSettings')"
+    f".setSimulationSettings({{ pointInterval: {FEATURES_CASE['pointInterval']}, timeStep: {FEATURES_CASE['maximumStep']},"
+    f" tolerance: {_spec['solver']['tolerance']}, maxSteps: 50000 }})"
+)
+with open(os.path.join(PARITY, "ca-features.json")) as _references:
+    CA_FEATURES = json.load(_references)["cases"][FEATURES_CASE["name"]]
+FEATURES_OBS_DATA = {
+    **FEATURES_CASE["obs_data"],
+    "data_items": [
+        {"data_item_name": "V_peak_obs", "operands": ["soma_SN/V"], "unit": "milliV", "operation": "max", "data_type": "constant",
+         "plot_type": "horizontal", "value": -60, "std": 1, "weight": 1, "experiment_idx": 0, "subexperiment_idx": 1},
+    ],
+}
+ADD_FEATURES_PROTOCOL = (
+    "(() => { const payload = new TextEncoder().encode(" + json.dumps(json.dumps(FEATURES_OBS_DATA)) + ").buffer;"
+    " document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex')"
+    ".setArchive({ extras: [{ location: 'SN_simple_obs_data.json', format: 'application/json', payload }] }) })()"
+)
+
 
 def simulate_selection(page):
     """Switches the Simulation tab to the selection, then presses play."""
@@ -751,6 +778,83 @@ class TestSimulationTab(unittest.TestCase):
             expect(dialog.get_by_role("region", name="data_items")).to_have_count(0)
             dialog.get_by_role("button", name="Cancel").click()
             self.assertEqual(page.evaluate(SAVED_OBS_DATA), saved)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_plots_the_obs_data_items_and_prediction_plots_of_a_protocol_run(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
+            page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
+            page.evaluate(FEATURES_SETTINGS)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            page.evaluate(ADD_FEATURES_PROTOCOL)
+            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
+            self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
+
+            # A plot per variable the obs_data names, after the plotted ones (none here).
+            panel = page.locator(".panel-figures")
+            titles = panel.locator(".simulation-plot .plot-title")
+            expect(titles).to_have_text(["soma_SN/i_M", "soma_SN/V", "instance_parameters/g_M"])
+            voltage = panel.locator(".simulation-plot").filter(has=page.locator(".plot-title", has_text=re.compile(r"^soma_SN/V$")))
+            # The data item's measurement dashed and the run's value solid, beside the prediction item's feature.
+            obs = voltage.get_by_role("button", name="V_peak_obs (obs max)")
+            calc = voltage.get_by_role("button", name="V_peak_obs (calc max)")
+            expect(obs.locator(".plot-key-swatch")).to_have_class(re.compile(r"is-dashed"))
+            expect(calc.locator(".plot-key-swatch")).not_to_have_class(re.compile(r"is-dashed"))
+            self.assertEqual(float(obs.get_attribute("data-value")), -60)
+            # The run's value is CA's, as V_peak_e1 computes the same.
+            calc_value = float(calc.get_attribute("data-value"))
+            gap = abs(calc_value - CA_FEATURES["V_peak_e1"]) / abs(CA_FEATURES["V_peak_e1"])
+            print(f"\nV_peak_obs (calc max): PhLynx {calc_value!r}, CA {CA_FEATURES['V_peak_e1']!r}, relative difference {gap:.2e}")
+            self.assertLess(gap, 1e-12)
+            self.assertEqual(calc_value, page.evaluate(f"{RESULTS_STORE}.dataItemFeatures[0].value"))
+            current = panel.locator(".simulation-plot").filter(has=page.locator(".plot-title", has_text="soma_SN/i_M"))
+            peak = current.get_by_role("button", name="i_M peak at the step (calc max_in_range)")
+            self.assertLess(abs(float(peak.get_attribute("data-value")) - CA_FEATURES["iM_step_peak_e1"]) / CA_FEATURES["iM_step_peak_e1"], FEATURES_CASE["tolerance"])
+            # Clicking a line's name hides it, and again shows it.
+            calc.click()
+            expect(calc).to_have_attribute("aria-pressed", "false")
+            calc.click()
+            expect(calc).to_have_attribute("aria-pressed", "true")
+
+            # The obs_data's prediction plots after them: i_M's peak against the g_M each experiment set.
+            prediction_plots = panel.get_by_role("region", name="Prediction plots")
+            expect(prediction_plots.locator(".feature-plot .plot-title")).to_have_text(["i_M peak at the step vs g_M", "V peak vs i_M peak"])
+            expect(prediction_plots.locator(".feature-plot").first.locator(".plot-key")).to_contain_text("g_M doubled")
+
+            # The second experiment has no data item; every experiment at once draws each in its own colour.
+            picker = page.get_by_role("combobox", name="Experiment to show")
+            picker.click()
+            page.get_by_role("option", name="g_M tripled").click()
+            expect(voltage.get_by_role("button", name="V_peak_obs (obs max)")).to_have_count(0)
+            expect(voltage.get_by_role("button", name="V peak (calc max)")).to_have_count(1)
+            picker.click()
+            page.get_by_role("option", name="All experiments").click()
+            expect(voltage.get_by_role("button", name="V_peak_obs (obs max)")).to_have_count(1)
+            expect(voltage.get_by_role("button", name="V peak (calc max)")).to_have_count(2)
+            expect(voltage.locator(".plot-key")).to_contain_text("g_M doubled")
+
+            # The larger view shows them too.
+            page.get_by_role("button", name="Open the results in a larger view").click()
+            dialog = page.get_by_role("dialog", name="Simulation results")
+            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text(["soma_SN/i_M", "soma_SN/V", "instance_parameters/g_M"])
+            expect(dialog.get_by_role("button", name="V_peak_obs (calc max)")).to_be_visible()
+            expect(dialog.get_by_role("region", name="Prediction plots").locator(".feature-plot")).to_have_count(2)
             # ----------- END ------------
 
             context.close()

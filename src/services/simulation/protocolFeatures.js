@@ -3,7 +3,7 @@
  * prediction item with an operation, reduced over its sub-experiment's own series, which the runner keeps for the
  * variables they need (see protocolRunner.js).
  */
-import { computeFeatures, readObsDataParts, readOperation, readPredictionItem } from '@physiomelinks/protocol-kit'
+import { computeDataItemFeatures, computeFeatures, readObsDataParts, readOperation, readPredictionItem } from '@physiomelinks/protocol-kit'
 
 import { findProtocolTarget } from './protocolTargets'
 import { buildLinearSpace } from '../protocol/libopencorEngine/protocolPlan'
@@ -102,4 +102,16 @@ export function buildFeatureSegments(protocolResults, operands) {
  */
 export function computeRunFeatures(document, protocolResults, operands) {
   return protocolResults ? computeFeatures(document, buildFeatureSegments(protocolResults, operands)) : []
+}
+
+/**
+ * Computes the features a protocol run gives the obs_data's data items, as circulatory_autogen scores them.
+ *
+ * @param {Object|Array|undefined} document - The obs_data, as parsed.
+ * @param {Object} protocolResults - The run's.
+ * @param {Map<string, string>} operands - From resolveFeatureOperands.
+ * @returns {Array<Object>} As computeDataItemFeatures gives them.
+ */
+export function computeRunDataItemFeatures(document, protocolResults, operands) {
+  return protocolResults && document != null ? computeDataItemFeatures(document, buildFeatureSegments(protocolResults, operands)) : []
 }
