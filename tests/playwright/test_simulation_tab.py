@@ -1,9 +1,7 @@
-import csv
 import io
+import json
 import os
 import re
-import subprocess
-import tempfile
 import unittest
 import zipfile
 
@@ -66,24 +64,13 @@ SHOWN_I_IN = (
     " return [values[0], values[10], values.at(-1)] })()"
 )
 
-# A Python with libcuflynx from circulatory_autogen #536, to run an exported protocol's script; skipped without one.
-CUFLYNX_PYTHON = os.environ.get("PHLYNX_CUFLYNX_PYTHON")
 # Downloads go to the browser's save, not the File System Access picker, which Playwright can't answer.
 USE_DOWNLOADS = "delete window.showSaveFilePicker"
-# The outputs the protocol editor writes for ADD_PROTOCOL's experiments: the soma's voltage in the second sub-experiment
-# of each, its trace and its mean.
-OUTPUTS = [
-    {
-        "data_item_name": f"{name}_{label}",
-        "operands": ["soma_SN/V"],
-        "unit": "milliV",
-        **({"operation": "mean"} if name == "V_mean" else {}),
-        "experiment_idx": e,
-        "subexperiment_idx": 1,
-        "item_name_for_plotting": name,
-    }
-    for name in ("V", "V_mean")
-    for e, label in enumerate(["SHR", "SHR_M_activation"])
+# The prediction items added in Edit obs_data for ADD_PROTOCOL's experiments: the soma's voltage in the second
+# sub-experiment of the first, its trace and its mean.
+PREDICTION_ITEMS = [
+    {"data_item_name": "soma_SN/V", "operands": ["soma_SN/V"], "unit": "milliV", "experiment_idx": 0, "subexperiment_idx": 1},
+    {"data_item_name": "soma_SN/V_2", "operands": ["soma_SN/V"], "unit": "milliV", "operation": "mean", "experiment_idx": 0, "subexperiment_idx": 1},
 ]
 # ADD_PROTOCOL's protocol, its first experiment's first sub-experiment shortened to 0.08 s in the editor.
 SAVED_PROTOCOL_INFO = {
@@ -92,22 +79,21 @@ SAVED_PROTOCOL_INFO = {
     "params_to_change": {"soma_SN/I_in": [[0, 0], [0, 0]], "soma_SN/g_M": [[0.00389, 0.00389], [0.00778, 0.00778]]},
     "experiment_labels": ["SHR", "SHR M-activation"],
 }
-# The soma's mean voltage in each experiment's second sub-experiment, as PhLynx ran it.
-IN_APP_V_MEANS = (
-    f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
-    " return store.protocolResults.experiments.map(({ variables, subs }) => { const values = variables.get(name).values.slice(subs[1].startIndex, subs[1].endIndex + 1);"
-    " return values.reduce((sum, value) => sum + value, 0) / values.length }) })()"
-)
 # The workspace's obs_data, as saved.
 SAVED_OBS_DATA = (
     "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
     " return JSON.parse(new TextDecoder().decode(extras.find(({ location }) => location === 'SN_simple_obs_data.json').payload)) })()"
 )
-# The workspace's obs_data as saved, its bytes as a list.
-SAVED_OBS_DATA_BYTES = (
-    "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
-    " const { payload } = extras.find(({ location }) => location === 'SN_simple_obs_data.json');"
-    " return [...(typeof payload === 'string' ? new TextEncoder().encode(payload) : new Uint8Array(payload))] })()"
+# ADD_PROTOCOL's obs_data with data items as CUFLynx writes them: the soma's peak voltage in the second sub-experiment
+# of each experiment, with what a calibration fits it with.
+ADD_DATA_ITEMS_PROTOCOL = ADD_PROTOCOL.replace(
+    "data_items: []",
+    "data_items: "
+    + json.dumps([
+        {"data_item_name": f"V_peak_{label}", "operands": ["soma_SN/V"], "unit": "milliV", "operation": "max",
+         "data_type": "constant", "value": 30, "std": 2, "weight": 1, "experiment_idx": e, "subexperiment_idx": 1}
+        for e, label in enumerate(["SHR", "SHR_M_activation"])
+    ]),
 )
 
 
@@ -520,9 +506,9 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             # A protocol of two sub-experiments, the second doubling the M current's conductance, then a copy of it.
-            page.get_by_role("button", name="Create a protocol", exact=True).click()
-            dialog = page.get_by_role("dialog", name="Protocol")
-            dialog.get_by_role("button", name="Create a protocol").click()
+            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Edit obs_data")
+            dialog.get_by_role("button", name="Add protocol_info").click()
             dialog.get_by_role("button", name="Add parameter to set").click()
             pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
             dialog.get_by_role("button", name=re.compile(r"^Edit sub-experiment 1 length")).click()
@@ -569,9 +555,9 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".resizable-context-panel .aside-collapse-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
-            page.get_by_role("button", name="Create a protocol", exact=True).click()
-            dialog = page.get_by_role("dialog", name="Protocol")
-            dialog.get_by_role("button", name="Create a protocol").click()
+            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Edit obs_data")
+            dialog.get_by_role("button", name="Add protocol_info").click()
             dialog.get_by_role("button", name=re.compile(r"^Edit sub-experiment 1 length")).click()
             dialog.get_by_label("Sub-experiment 1 length", exact=True).fill("0.1")
             dialog.get_by_label("Sub-experiment 1 length", exact=True).press("Enter")
@@ -620,7 +606,7 @@ class TestSimulationTab(unittest.TestCase):
             context.close()
             browser.close()
 
-    def test_exports_a_protocol_with_a_script_that_records_its_outputs(self):
+    def test_edits_prediction_items_and_downloads_the_run_as_sedml(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
@@ -641,8 +627,12 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             page.evaluate(ADD_PROTOCOL)
-            page.get_by_role("button", name="Edit the protocol", exact=True).click()
-            dialog = page.get_by_role("dialog", name="Protocol")
+            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Edit obs_data")
+            # With no data items, there are none to list, and the footer counts none.
+            expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
+            expect(dialog.get_by_role("region", name="data_items")).to_contain_text("No data_items")
+            expect(dialog.get_by_text("0 data item(s)")).to_be_visible()
             # The input current, at its model value throughout, is tucked away until asked for.
             show = dialog.get_by_role("button", name="Show 1 parameter at its model value")
             expect(dialog.get_by_text("1 parameter at its model value", exact=True)).to_be_visible()
@@ -659,107 +649,112 @@ class TestSimulationTab(unittest.TestCase):
             dialog.get_by_label("Sub-experiment 1 length", exact=True).fill("0.08")
             dialog.get_by_label("Sub-experiment 1 length", exact=True).press("Enter")
 
-            # The outputs, added in the editor: the voltage's trace and its mean over the second sub-experiment of both.
-            outputs = dialog.get_by_role("region", name="Outputs")
-            for name, kind in (("V", "Trace"), ("V_mean", "Feature")):
-                outputs.get_by_role("button", name="Add output").click()
-                form = outputs.get_by_role("form", name="Add an output")
-                form.get_by_role("combobox", name="Search for a variable to record").fill("soma_SN V")
-                page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(r"^soma_SN/V$"))).first.click()
-                form.get_by_role("group", name="What it records").get_by_text(kind, exact=True).click()
-                if kind == "Feature":
-                    form.get_by_role("combobox", name="Operation").click()
-                    page.get_by_role("option", name="Mean", exact=True).click()
-                form.get_by_label("Output name").fill(name)
-                form.get_by_role("combobox", name="Sub-experiment").click()
-                page.get_by_role("option", name="Sub-experiment 2").click()
-                expect(form.get_by_role("checkbox", name="SHR", exact=True)).to_be_checked()
-                expect(form.get_by_role("checkbox", name="SHR M-activation")).to_be_checked()
-                form.get_by_role("button", name="Add output").click()
-                expect(form).to_have_count(0)
-            expect(outputs.locator(".output-name")).to_have_text(["V", "V_mean"])
-            # An undo takes the last back, and a redo brings it again.
+            # Two prediction items, a row each: the voltage's trace in the second sub-experiment, and its mean there.
+            section = dialog.get_by_role("region", name="prediction_items")
+            rows = section.get_by_test_id("od-prediction-row")
+            for position, operation in ((0, ""), (1, "mean")):
+                section.get_by_role("button", name="Add prediction").click()
+                row = rows.nth(position)
+                row.get_by_role("button", name="variable").click()
+                pick_path(page, "variable", "soma_SN/V", within=row)
+                expect(row.get_by_role("button", name="variable")).to_have_text("soma_SN/V")
+                expect(row.get_by_label("unit", exact=True)).to_have_value("milliV")
+                row.get_by_label("sub", exact=True).select_option("1")
+                if operation:
+                    row.get_by_label("operation", exact=True).select_option(operation)
+            expect(rows).to_have_count(2)
+            # Its name follows the variable's, apart from the first's.
+            expect(rows.nth(1).get_by_label("name", exact=True)).to_have_value("soma_SN/V_2")
+            # An undo takes the operation back, and a redo brings it again.
             dialog.get_by_role("button", name="Undo").click()
-            expect(outputs.locator(".output-name")).to_have_text(["V"])
+            expect(rows.nth(1).get_by_label("operation", exact=True)).to_have_value("")
             dialog.get_by_role("button", name="Redo").click()
-            expect(outputs.locator(".output-name")).to_have_text(["V", "V_mean"])
+            expect(rows.nth(1).get_by_label("operation", exact=True)).to_have_value("mean")
             dialog.get_by_role("button", name="Save").click()
             expect(dialog).to_be_hidden()
             saved = page.evaluate(SAVED_OBS_DATA)
             # The protocol as it was but the length changed, the input current at its model value included.
             self.assertEqual(saved["protocol_info"], SAVED_PROTOCOL_INFO)
-            self.assertEqual(saved["prediction_items"], OUTPUTS)
-            saved_bytes = bytes(page.evaluate(SAVED_OBS_DATA_BYTES))
+            self.assertEqual(saved["prediction_items"], PREDICTION_ITEMS)
 
             page.get_by_role("button", name="Run the protocol's experiments").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
-            in_app_means = page.evaluate(IN_APP_V_MEANS)
             page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
             plot_variable(page, "soma_SN/V")
             page.get_by_role("button", name="Open the results in a larger view").click()
             results = page.get_by_role("dialog", name="Simulation results")
-            results.get_by_role("button", name=re.compile(r"^Export the protocol")).click()
-
-            # The mean voltage, plotted against the M current's conductance in the second sub-experiment.
-            export = page.get_by_role("dialog", name="Export the protocol")
-            export.get_by_role("button", name="Add feature plot").click()
-            export.get_by_label("Feature plot 1 title").fill("Mean voltage against g_M")
-            expect(export.get_by_role("combobox", name="Feature plot 1 y")).to_contain_text("V_mean")
-            export.get_by_role("group", name="Feature plot 1 x").get_by_text("Protocol input", exact=True).click()
-            export.get_by_role("combobox", name="Feature plot 1 x input").click()
-            page.get_by_role("option", name="soma_SN/g_M").click()
-            export.get_by_role("combobox", name="Feature plot 1 x sub-experiment").click()
-            page.get_by_role("option", name="Sub-experiment 2").click()
             with page.expect_download() as download:
-                export.get_by_role("button", name="Export ZIP").click()
-            expect(export).to_be_hidden()
+                results.get_by_role("button", name="Download the protocol's run as SED-ML").click()
 
-            # The zip holds the script, the model it runs and the workspace's obs_data, byte for byte.
+            # The zip holds the SED-ML and the model it runs, with the protocol's clock written in.
             with open(download.value.path(), "rb") as f:
                 bundle = zipfile.ZipFile(io.BytesIO(f.read()))
-            names = set(bundle.namelist())
-            self.assertTrue({"run_protocol.py", "model.cellml", "SN_simple_obs_data.json", "requirements.txt", "README.md", "manifest.xml"} <= names, names)
-            self.assertEqual(bundle.read("SN_simple_obs_data.json"), saved_bytes)
-            # The plain model: the drivers and clock are only in the SED-ML's.
-            model = bundle.read("model.cellml").decode()
-            self.assertNotIn("protocol_drivers", model)
-            self.assertNotIn("protocol_clock", model)
-            script = bundle.read("run_protocol.py").decode()
-            header = {}
-            exec(script[: script.index("# ---- End of what PhLynx wrote")], header)
-            self.assertEqual(header["MODEL"], "model.cellml")
-            self.assertEqual(header["OBS_DATA"], "SN_simple_obs_data.json")
-            self.assertEqual(header["DT"], 0.01)
-            self.assertEqual(
-                header["FEATURE_PLOTS"],
-                [{"title": "Mean voltage against g_M", "x": {"input": "soma_SN/g_M", "subexperiment_idx": 1}, "y": "V_mean", "series": None}],
-            )
+            self.assertEqual(sorted(bundle.namelist()), ["manifest.xml", "protocol.sedml", "protocol_model.cellml"])
+            self.assertIn("protocol_clock", bundle.read("protocol_model.cellml").decode())
+            sedml = bundle.read("protocol.sedml").decode()
+            self.assertIn('source="protocol_model.cellml"', sedml)
+            self.assertIn("soma_SN", sedml)
             # ----------- END ------------
 
             context.close()
             browser.close()
 
-        # The script runs it with libcuflynx, recording the mean of each experiment and plotting it.
-        if not CUFLYNX_PYTHON:
-            self.skipTest("PHLYNX_CUFLYNX_PYTHON not set, so run_protocol.py isn't run")
-        with tempfile.TemporaryDirectory() as folder:
-            bundle.extractall(folder)
-            run = subprocess.run([CUFLYNX_PYTHON, "run_protocol.py"], cwd=folder, capture_output=True, text=True)
-            self.assertEqual(run.returncode, 0, run.stderr)
-            with open(os.path.join(folder, "results", "features.csv")) as f:
-                features = list(csv.DictReader(f))
-            self.assertEqual([row["item"] for row in features], ["V_mean_SHR", "V_mean_SHR_M_activation"])
-            self.assertEqual([(row["feature"], row["experiment"], row["subexperiment"], row["operation"]) for row in features], [("V_mean", "0", "1", "mean"), ("V_mean", "1", "1", "mean")])
-            # The means PhLynx's own run gives, to the solvers' tolerances.
-            for row, mean in zip(features, in_app_means):
-                self.assertAlmostEqual(float(row["value"]), mean, delta=1e-3 * abs(mean), msg=row["item"])
-            # Each trace, plotted as CA names it when its item has no trace_name_for_plotting: by its variable.
-            with open(os.path.join(folder, "results", "traces.csv")) as f:
-                traces = {(row["experiment"], row["subexperiment"], row["group"], row["variable"]) for row in csv.DictReader(f)}
-            self.assertEqual(traces, {("0", "1", "soma_SN/V", "soma_SN/V"), ("1", "1", "soma_SN/V", "soma_SN/V")})
-            for figure in ("traces.png", "features.png", "feature_plot_1.png"):
-                self.assertTrue(os.path.exists(os.path.join(folder, "results", figure)), figure)
+    def test_lists_the_data_items_read_only_unless_the_settings_hide_them(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            page.evaluate(ADD_DATA_ITEMS_PROTOCOL)
+            saved = page.evaluate(SAVED_OBS_DATA)
+
+            # A row each, without what a calibration needs or a way to edit them.
+            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Edit obs_data")
+            section = dialog.get_by_role("region", name="data_items")
+            rows = section.get_by_test_id("od-data-row")
+            expect(rows).to_have_count(2)
+            expect(rows.first).to_contain_text("V_peak_SHR")
+            expect(rows.first).to_contain_text("max")
+            expect(rows.nth(1)).to_contain_text("V_peak_SHR_M_activation")
+            expect(section.locator("input, select")).to_have_count(0)
+            expect(section.get_by_role("button", name="remove")).to_have_count(0)
+            expect(dialog.get_by_text("2 data item(s)")).to_be_visible()
+            # Its details show its operands, but not its weight.
+            rows.first.get_by_role("button", name="details").click()
+            expect(rows.first).to_contain_text("soma_SN/V")
+            expect(rows.first).not_to_contain_text("weight")
+            expect(section.locator("input, select")).to_have_count(0)
+            # Listing them changes nothing to save.
+            expect(dialog.get_by_role("button", name="Save")).to_be_disabled()
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+
+            # Turned off in Settings, the section goes; the obs_data is as it was.
+            page.get_by_role("button", name="Settings", exact=True).click()
+            show_data_items = page.get_by_role("switch", name="Show data items")
+            expect(show_data_items).to_be_checked()
+            show_data_items.uncheck()
+            page.get_by_role("button", name="Save Changes").click()
+            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
+            expect(dialog.get_by_role("region", name="data_items")).to_have_count(0)
+            dialog.get_by_role("button", name="Cancel").click()
+            self.assertEqual(page.evaluate(SAVED_OBS_DATA), saved)
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
 
     def test_toolbar_plays_with_f9_and_opens_the_solver_settings(self):
         with sync_playwright() as playwright:
