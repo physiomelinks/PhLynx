@@ -412,15 +412,16 @@ describe('scoped models', () => {
 
   const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
 
-  it('stops a selection with nothing to integrate, which the build would reject', () => {
+  it('builds a selection with nothing to integrate as an algebraic system, with no clock', async () => {
     const { nodes, edges } = buildNetwork()
     const scope = resolveScope(['leaf_1'], nodes, edges)
     const report = checkScope(scope, store)
 
-    expect(report.errors).toEqual([expect.stringMatching(/no instance in this selection has a differential equation/i)])
+    expect(report.errors).toEqual([])
     expect(report.zeroedBoundaries).toEqual([{ nodeId: 'leaf_1', nodeName: 'leaf_1', variableName: 'u' }])
-    expect(report.canBuild).toBe(false)
-    expect(() => buildScopedModel(scope, store)).toThrow()
+    expect(report.canBuild).toBe(true)
+    const text = await buildScopedModel(scope, store).text()
+    expect(text).not.toMatch(/<component name="environment"/)
   })
 
   it('sets a boundary condition the cut leaves without a value to 0', async () => {
@@ -529,9 +530,9 @@ describe('mapping a scoped run’s results back to instances', () => {
     return { scope, cellml: await buildScopedModel(scope, store).text() }
   }
 
-  /** Results reporting values under the given names, as the engine returns them. */
+  /** Results reporting values under the given names, as the engine returns them, over the hub's VoI t. */
   const resultsFor = (names) => ({
-    voi: { name: 'environment/time', unit: 'second', values: new Float64Array([0, 1]) },
+    voi: { name: 'environment/t', unit: 'second', values: new Float64Array([0, 1]) },
     variables: new Map(names.map((name, i) => [name, { kind: 'algebraic', unit: '', values: new Float64Array([i, i]) }])),
   })
 
@@ -541,14 +542,14 @@ describe('mapping a scoped run’s results back to instances', () => {
 
     const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
 
-    expect(mapping.get(mappingKey('hub', 't'))).toBe('environment/time')
+    expect(mapping.get(mappingKey('hub', 't'))).toBe('environment/t')
     expect(mapping.get(mappingKey('hub', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_2', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_1', 'v'))).toBe('leaf_1/v')
     expect(mapping.get(mappingKey('leaf_2', 'k'))).toBe('instance_parameters/leaf_2_k')
     expect(readNodeSeries(results, mapping, 'leaf_2', 'u')).toMatchObject({ name: 'hub/u', kind: 'algebraic' })
-    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/time', kind: 'voi' })
+    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/t', kind: 'voi' })
   })
 
   it('follows the run when it reports another member of the same variables', async () => {

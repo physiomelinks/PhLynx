@@ -37,6 +37,7 @@
         v-model:target-plot-id="targetPlotId"
         :plot-config="settingsStore.plotConfig"
         :nodes="nodes"
+        :index="index"
         :scope-node-ids="scopeNodeIds"
         :series-slots="resultsStore.getSeriesSlots()"
         @update:plot-config="settingsStore.setPlotConfig"

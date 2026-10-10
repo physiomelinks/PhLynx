@@ -158,6 +158,80 @@
           </template>
         </div>
       </section>
+      <section :ref="(el) => (sections.sweep = el)" class="block">
+        <div class="block-header">
+          <h4>Sweep</h4>
+          <span class="subtle">For a model without differential equations: solve it at each value of one parameter, and plot against it.</span>
+        </div>
+        <div v-if="localSimulationSettings.sweep" class="sweep-parameter" data-testid="sim-sweep-parameter">
+          <span class="sweep-path">
+            <span class="subtle">{{ localSimulationSettings.sweep.nodeName }}/</span><strong>{{ localSimulationSettings.sweep.parameterName }}</strong>
+          </span>
+          <span class="subtle">{{ localSimulationSettings.sweep.units }}</span>
+          <Button
+            icon="pi pi-times"
+            text
+            rounded
+            size="small"
+            severity="secondary"
+            aria-label="Stop sweeping"
+            v-tooltip.top="'Stop sweeping'"
+            @click="localSimulationSettings.sweep = null"
+          />
+        </div>
+        <VariablePathPicker
+          :index="variableIndex"
+          :filter="(entry) => isSweepableRow({ name: entry.name, type: entry.kind })"
+          :placeholder="localSimulationSettings.sweep ? 'Sweep another parameter…' : 'Choose a parameter to sweep…'"
+          aria-label="Choose a parameter to sweep"
+          @pick="sweepEntry"
+        />
+        <div v-if="localSimulationSettings.sweep" class="settings-grid sweep-range">
+          <div class="field">
+            <label for="sim-sweep-from">From</label>
+            <InputNumber
+              v-model="localSimulationSettings.sweep.from"
+              input-id="sim-sweep-from"
+              :pt:pcInputText:root="{ 'data-testid': 'sim-sweep-from' }"
+              :suffix="sweepSuffix"
+              :minFractionDigits="0"
+              :maxFractionDigits="8"
+              fluid
+            />
+          </div>
+          <div class="field">
+            <label for="sim-sweep-to">To</label>
+            <InputNumber
+              v-model="localSimulationSettings.sweep.to"
+              input-id="sim-sweep-to"
+              :pt:pcInputText:root="{ 'data-testid': 'sim-sweep-to' }"
+              :suffix="sweepSuffix"
+              :minFractionDigits="0"
+              :maxFractionDigits="8"
+              fluid
+            />
+          </div>
+          <div class="field">
+            <label for="sim-sweep-points">Points</label>
+            <InputNumber
+              v-model="localSimulationSettings.sweep.points"
+              input-id="sim-sweep-points"
+              :pt:pcInputText:root="{ 'data-testid': 'sim-sweep-points' }"
+              :min="2"
+              :max="MAX_SWEEP_POINTS"
+              :useGrouping="false"
+              fluid
+            />
+            <small class="subtle">Evenly spaced, ends included.</small>
+          </div>
+        </div>
+        <Message v-if="sweepProblem" severity="warn" size="small" class="time-note">{{ sweepProblem }}</Message>
+        <Message v-else-if="localSimulationSettings.sweep" severity="secondary" size="small" class="time-note">
+          A model with differential equations runs its time course instead. Web OpenCOR can’t run sweeps, so an export solves the model
+          once, at the parameter’s own value.
+        </Message>
+      </section>
+
       <section :ref="(el) => (sections.plots = el)" class="block">
         <div class="block-header">
           <h4>Plots</h4>
@@ -187,6 +261,7 @@
           v-model:target-plot-id="targetPlotId"
           v-model:plot-config="draftPlotConfig"
           :nodes="nodes"
+          :index="variableIndex"
           class="plots-list"
           @add-here="focusPlotPicker"
         />
@@ -237,10 +312,11 @@ import VariablePathPicker from './simulation/VariablePathPicker.vue'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { plotVariable, resolveGroups } from '../services/simulation/plotSelections'
 import { MAX_SOLVER_STEPS, SOLVERS, findSolverSettingsProblem } from '../services/simulation/sedParameters'
+import { createSweep, findSweepProblem, isSweepableRow, MAX_SWEEP_POINTS } from '../services/simulation/sweep'
 import { buildVariableIndex, resolvePlotTarget } from '../services/simulation/variableIndex'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
-import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { cloneSimulationSettings, useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -323,7 +399,7 @@ function plotEntry(entry) {
  */
 function createDraftPayload() {
   return {
-    simulationSettings: { ...localSimulationSettings.value },
+    simulationSettings: JSON.parse(JSON.stringify(localSimulationSettings.value)),
     plotConfig: draftPlotConfig.value,
     parameterScanConfig: draftScanConfig.value,
   }
@@ -333,7 +409,7 @@ const hasUnsavedChanges = computed(() => props.modelValue && JSON.stringify(crea
 
 /** Copies the store into the drafts, as the dialog opens. */
 function initialiseDialog() {
-  localSimulationSettings.value = { ...simulationSettings.value }
+  localSimulationSettings.value = cloneSimulationSettings(simulationSettings.value)
   draftPlotConfig.value = JSON.parse(JSON.stringify(plotConfig.value ?? {}))
   draftScanConfig.value = JSON.parse(JSON.stringify(parameterScanConfig.value?.selections ? parameterScanConfig.value : { selections: [] }))
   plotNote.value = ''
@@ -361,6 +437,22 @@ const isSettling = computed(() => {
 const solverProblem = computed(() => findSolverSettingsProblem(localSimulationSettings.value))
 
 const isFixedStepSolver = computed(() => !!SOLVERS[localSimulationSettings.value.solver]?.isFixedStep)
+
+const sweepProblem = computed(() => (localSimulationSettings.value.sweep ? findSweepProblem(localSimulationSettings.value.sweep) : null))
+const sweepSuffix = computed(() => {
+  const units = localSimulationSettings.value.sweep?.units
+  return units && units !== 'dimensionless' ? ` ${units}` : ''
+})
+
+/**
+ * Sweeps a picked parameter, over a range around its value.
+ *
+ * @param {Object} entry - From the variable index.
+ */
+function sweepEntry(entry) {
+  const target = resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
+  if (target) localSimulationSettings.value.sweep = createSweep(target.node, target.row, libraryStore.getGlobalConstant)
+}
 
 /**
  * Changes the solver. The time step means a fixed-step solver's step but CVODE's maximum step, so moving
@@ -462,6 +554,25 @@ async function requestClose() {
 }
 .solver-problem {
   margin-right: auto;
+}
+
+.sweep-parameter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.875rem;
+}
+
+.sweep-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sweep-range {
+  margin-top: 10px;
 }
 
 .time-note {

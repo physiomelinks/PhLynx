@@ -4,16 +4,21 @@
 
 /**
  * Gets the columns of the plotted results: the variable of integration, then each plotted series once,
- * in chart order, even when it is on more than one chart.
+ * in chart order, even when it is on more than one chart. A steady state has no variable of integration.
  *
- * @param {{label: string, unit: string, values: Float64Array}} xAxis
- * @param {Array<{unit: string, series: Array<{key: string, label: string, values: Float64Array}>}>} charts
+ * @param {{label: string, unit: string, values: Float64Array, isSteadyState?: boolean}} xAxis
+ * @param {Array<{unit: string, x?: Object|null, series: Array<{key: string, label: string, values: Float64Array}>}>} charts
  * @returns {Array<{key: string, label: string, unit: string, values: Float64Array}>}
  */
 export function collectResultColumns(xAxis, charts) {
-  const columns = [{ key: '__voi__', label: xAxis.label, unit: xAxis.unit, values: xAxis.values }]
+  const columns = xAxis.isSteadyState ? [] : [{ key: '__voi__', label: xAxis.label, unit: xAxis.unit, values: xAxis.values }]
   const seen = new Set()
   for (const chart of charts) {
+    // A plot against another variable of the run, as a phase plot is, has that variable as a column too.
+    if (chart.x && !seen.has(chart.x.key)) {
+      seen.add(chart.x.key)
+      columns.push({ key: chart.x.key, label: chart.x.label, unit: chart.x.unit, values: chart.x.values })
+    }
     for (const series of chart.series) {
       if (seen.has(series.key)) continue
       seen.add(series.key)
@@ -47,7 +52,7 @@ export const columnHeader = ({ label, unit }) => (unit ? `${label} (${unit})` : 
  * @returns {string}
  */
 export function buildResultsCsv(columns) {
-  const pointCount = Math.min(...columns.map((column) => column.values.length))
+  const pointCount = columns.length ? Math.min(...columns.map((column) => column.values.length)) : 0
   const lines = [columns.map((column) => csvField(columnHeader(column))).join(',')]
   for (let i = 0; i < pointCount; i++) lines.push(columns.map((column) => String(column.values[i])).join(','))
   return `${lines.join('\r\n')}\r\n`

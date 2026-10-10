@@ -3,7 +3,7 @@
  * Pure (no Vue, no DOM), so it is safe in a worker.
  *
  * A row's type says where its value comes from:
- * - `variable`: this component's math computes it (state, assigned, voi, time). Only computed
+ * - `variable`: this component's math computes it (state, assigned, VoI). Only computed
  *   rows are variables, and computed rows always are.
  * - `boundary_condition`: another module supplies it through a port.
  * - `constant` / `global_constant`: the parameter pane supplies it. The default for a new row.
@@ -11,8 +11,8 @@
  * it as its own boundary condition, so a stored type is always kept. Ports only re-type a stale
  * `variable` the math doesn't compute: in a port it becomes a boundary condition, else a constant.
  */
-import { TIME_NAMES, ACCESS, NO_ACCESS } from '../../utils/constants'
-import { accessFromInterface, inferType, isNumericLiteral, syncInitialiserUnits } from '../../utils/variables'
+import { ACCESS, NO_ACCESS } from '../../utils/constants'
+import { accessFromInterface, findVoiNames, inferType, isNumericLiteral, syncInitialiserUnits } from '../../utils/variables'
 
 export const SIMPLE_MODE = 'simple'
 export const ADVANCED_MODE = 'advanced'
@@ -29,10 +29,13 @@ export const modeFor = (isSimple) => (isSimple ? SIMPLE_MODE : ADVANCED_MODE)
  * Gets the roles the math gives its variables, as used by inferType.
  *
  * @param {import('./analyzeMath').MathAnalysis} analysis
+ * @param {Array} rows - Rows giving units the math doesn't declare.
  * @returns {{states: Set<string>, assigned: Set<string>, voi: Set<string>}}
  */
-function getRoles(analysis) {
-  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), voi: new Set(analysis.voi) }
+function getRoles(analysis, rows) {
+  const rowUnits = new Map(rows.map((row) => [row.name, row.units]))
+  const voi = findVoiNames(analysis, (name) => rowUnits.get(name))
+  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), voi }
 }
 
 /**
@@ -73,7 +76,7 @@ export function getPortVariables(ports = []) {
  */
 export function applyPortTypes(rows, analysis, portVariables) {
   if (!analysis) return rows
-  const roles = getRoles(analysis)
+  const roles = getRoles(analysis, rows)
   for (const row of rows) {
     if (row.stateRole === 'state') continue
     const type = resolveRowType(row.name, roles, row, portVariables)
@@ -146,7 +149,7 @@ function buildSimpleModeRow(name, declaration, previousRow, { roles, portVariabl
  */
 function buildAdvancedModeRow(name, declaration, previousRow, { roles, portVariables, defaults }) {
   const hasInitialValue = !!declaration.initialValue
-  const defaultAccess = TIME_NAMES.has(name) ? accessFromInterface(declaration.interface) : ACCESS
+  const defaultAccess = roles.voi.has(name) ? accessFromInterface(declaration.interface) : ACCESS
   return {
     name,
     units: declaration.units,
@@ -229,7 +232,7 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   const declaredByName = new Map(analysis.declared.map((variable) => [variable.name, variable]))
   const stateNames = new Set(analysis.stateVariables)
   const initialiserOf = findInitialiserPairings(analysis, previousRows, stateNames)
-  const context = { roles: getRoles(analysis), portVariables: portVariables ? new Set(portVariables) : null, defaults }
+  const context = { roles: getRoles(analysis, previousRows), portVariables: portVariables ? new Set(portVariables) : null, defaults }
 
   const rows = []
   const listedNames = new Set()

@@ -14,10 +14,11 @@ export function makeGroupId(index) {
 }
 
 /**
- * Fills in group ids and names, starting with one "Plot 1" group when there are none.
+ * Fills in group ids and names, starting with one "Plot 1" group when there are none. A plot that plots
+ * against a variable rather than time keeps it as `xAxis` (see setPlotXAxis).
  *
- * @param {Array<{id?: string, name?: string}>} [existingGroups]
- * @returns {Array<{id: string, name: string}>}
+ * @param {Array<{id?: string, name?: string, xAxis?: Object}>} [existingGroups]
+ * @returns {Array<{id: string, name: string, xAxis?: Object}>}
  */
 export function normaliseGroups(existingGroups) {
   if (!Array.isArray(existingGroups) || existingGroups.length === 0) {
@@ -27,6 +28,7 @@ export function normaliseGroups(existingGroups) {
   return existingGroups.map((group, index) => ({
     id: group.id || makeGroupId(index),
     name: group.name || `Plot ${index + 1}`,
+    ...(group.xAxis && { xAxis: { ...group.xAxis } }),
   }))
 }
 
@@ -253,15 +255,52 @@ export function setNodePlotVariables(plotConfig, node, entries) {
  */
 export function resolvePlotConfig(plotConfig, nodes) {
   const nodesById = new Map((nodes || []).map((node) => [node.id, node]))
+  const resolve = (reference) => {
+    const node = nodesById.get(reference.nodeId)
+    const row = node?.data?.variables?.find((variable) => variable.name === reference.variableName)
+    return node?.data?.name && isPlottableRow(row) ? { node, row } : null
+  }
 
   const selections = (plotConfig?.selections || []).flatMap((selection) => {
-    const node = nodesById.get(selection.nodeId)
-    const row = node?.data?.variables?.find((variable) => variable.name === selection.variableName)
-    if (!node?.data?.name || !isPlottableRow(row)) return []
-    return [createPlotSelection(node, row, selection.groupId ?? null)]
+    const found = resolve(selection)
+    return found ? [createPlotSelection(found.node, found.row, selection.groupId ?? null)] : []
+  })
+  // A plot against a variable that is gone plots against time.
+  const groups = (plotConfig?.groups || []).map(({ xAxis, ...group }) => {
+    const found = xAxis && resolve(xAxis)
+    return found ? { ...group, xAxis: createPlotXAxis(found.node, found.row) } : group
   })
 
-  return withSelections(plotConfig, plotConfig?.groups || [], selections)
+  return withSelections(plotConfig, groups, selections)
+}
+
+/**
+ * Builds the reference to the variable a plot plots against, in place of time.
+ *
+ * @param {Object} node - A workspace node, or an inspection module's stand-in.
+ * @param {Object} row
+ * @returns {{key: string, nodeId: string, nodeName: string, variableName: string, units: string}}
+ */
+export function createPlotXAxis(node, row) {
+  return { key: `${node.id}::${row.name}`, nodeId: node.id, nodeName: node.data.name, variableName: row.name, units: row.units || '' }
+}
+
+/**
+ * Plots a plot against a variable from the same run, as a phase plot does, or against time again.
+ *
+ * @param {Object} plotConfig
+ * @param {string} id
+ * @param {Object|null} xAxis - From createPlotXAxis, or null for time.
+ * @returns {Object}
+ */
+export function setPlotXAxis(plotConfig, id, xAxis) {
+  const groups = resolveGroups(plotConfig)
+  if (!groups.some((group) => group.id === id)) return plotConfig
+  const nextGroups = groups.map(({ xAxis: previous, ...group }) => {
+    if (group.id !== id) return previous ? { ...group, xAxis: previous } : group
+    return xAxis ? { ...group, xAxis: { ...xAxis } } : group
+  })
+  return withSelections(plotConfig, nextGroups, plotConfig?.selections || [])
 }
 
 /**

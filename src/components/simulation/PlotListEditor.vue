@@ -50,6 +50,33 @@
         />
       </header>
 
+      <!-- Against time unless set otherwise: a phase plot, against another variable of the same run. -->
+      <div v-if="choosingXFor === plot.id" class="plot-x">
+        <VariablePathPicker
+          :index="index"
+          :filter="(entry) => entry.plottable"
+          placeholder="Plot against…"
+          :aria-label="`Choose a variable to plot ${plot.name} against`"
+          @pick="(entry) => pickXAxis(plot, entry)"
+        />
+        <Button icon="pi pi-times" text rounded size="small" severity="secondary" aria-label="Cancel" @click="choosingXFor = null" />
+      </div>
+      <div v-else-if="plot.xAxis" class="plot-x">
+        <span class="plot-x-text" :title="`Plotted against ${plot.xAxis.label}`">
+          Against <span class="plot-variable-component">{{ plot.xAxis.componentLabel }}/</span><span class="plot-variable-name">{{ plot.xAxis.variableName }}</span>
+        </span>
+        <Button
+          icon="pi pi-times"
+          text
+          rounded
+          size="small"
+          severity="secondary"
+          :aria-label="`Plot ${plot.name} against time again`"
+          v-tooltip.left="'Plot against time again'"
+          @click="emitConfig(setPlotXAxis(plotConfig, plot.id, null))"
+        />
+      </div>
+
       <ul v-if="plot.selections.length" class="plot-variables">
         <li v-for="selection in plot.selections" :key="selection.key" class="plot-variable" :class="{ 'plot-variable--elsewhere': !selection.inScope }">
           <span class="plot-swatch" :class="{ 'plot-swatch--none': !selection.colour }" :style="{ background: selection.colour ?? 'transparent' }" aria-hidden="true"></span>
@@ -137,6 +164,7 @@ import InputText from 'primevue/inputtext'
 import Menu from 'primevue/menu'
 import Select from 'primevue/select'
 
+import VariablePathPicker from './VariablePathPicker.vue'
 import { useColorScheme } from '../../composables/useColorScheme'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import {
@@ -150,9 +178,12 @@ import {
   removePlotSelection,
   renamePlot,
   resolveGroups,
+  createPlotXAxis,
+  setPlotXAxis,
 } from '../../services/simulation/plotSelections'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
-import { INSPECTION_COMPONENT, isInspectionNodeId } from '../../services/simulation/variableIndex'
+import { INSPECTION_COMPONENT, isInspectionNodeId, resolvePlotTarget } from '../../services/simulation/variableIndex'
+import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 
 const targetPlotId = defineModel('targetPlotId', { type: String, default: null })
 const props = defineProps({
@@ -162,6 +193,9 @@ const props = defineProps({
   scopeNodeIds: { type: Array, default: null },
   // Colour slots by series key, as the charts give them.
   seriesSlots: { type: Map, default: () => new Map() },
+  // The variable search's index (see buildVariableIndex), to choose a variable to plot against; without
+  // it, plots can't be set against anything but time.
+  index: { type: Array, default: null },
 })
 const emit = defineEmits(['update:plotConfig', 'add-here'])
 
@@ -171,6 +205,9 @@ const menu = ref(null)
 const menuPlot = ref(null)
 const renamingId = ref(null)
 const renameText = ref('')
+// The plot whose variable to plot against is being chosen.
+const choosingXFor = ref(null)
+const inspectionStore = useInspectionModuleStore()
 
 const nodesById = computed(() => new Map(props.nodes.map((node) => [node.id, node])))
 
@@ -195,9 +232,22 @@ function describeSelection(selection) {
   }
 }
 
+/**
+ * Describes the variable a plot plots against, with its instance as named now.
+ *
+ * @param {Object|undefined} xAxis
+ * @returns {Object|null}
+ */
+function describeXAxis(xAxis) {
+  if (!xAxis) return null
+  const componentLabel = isInspectionNodeId(xAxis.nodeId) ? INSPECTION_COMPONENT : nodesById.value.get(xAxis.nodeId)?.data?.name ?? 'missing instance'
+  return { ...xAxis, componentLabel, label: `${componentLabel}/${xAxis.variableName}` }
+}
+
 const plots = computed(() =>
   resolveGroups(props.plotConfig).map((group) => ({
     ...group,
+    xAxis: describeXAxis(group.xAxis),
     units: getPlotUnits(props.plotConfig, group.id),
     selections: (props.plotConfig?.selections ?? []).filter((selection) => selection.groupId === group.id).map(describeSelection),
   }))
@@ -307,10 +357,34 @@ const menuItems = computed(() => {
       disabled: index >= plots.value.length - 1,
       command: () => emitConfig(movePlot(props.plotConfig, plot.id, 1)),
     },
+    ...(props.index
+      ? [
+          { separator: true },
+          { label: 'Plot against a variable…', icon: 'pi pi-arrows-h', command: () => (choosingXFor.value = plot.id) },
+          {
+            label: 'Plot against time',
+            icon: 'pi pi-clock',
+            disabled: !plot.xAxis,
+            command: () => emitConfig(setPlotXAxis(props.plotConfig, plot.id, null)),
+          },
+        ]
+      : []),
     { separator: true },
     { label: 'Remove plot', icon: 'pi pi-trash', disabled: plots.value.length <= 1, command: () => removeWithConfirm(plot) },
   ]
 })
+
+/**
+ * Plots a plot against a picked variable, as a phase plot does.
+ *
+ * @param {Object} plot
+ * @param {Object} entry - From the variable index.
+ */
+function pickXAxis(plot, entry) {
+  const target = resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
+  choosingXFor.value = null
+  if (target) emitConfig(setPlotXAxis(props.plotConfig, plot.id, createPlotXAxis(target.node, target.row)))
+}
 
 /**
  * Opens a plot's menu.
@@ -452,6 +526,27 @@ function openMenu(event, plot) {
 /* Removing reads as removing, not as closing: a bin, red as the pointer reaches it. */
 .remove-button:hover {
   color: var(--p-red-500);
+}
+
+.plot-x {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin: 2px 0 4px;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
+}
+
+.plot-x > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.plot-x-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .plot-empty {

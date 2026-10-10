@@ -9,6 +9,7 @@ import {
   buildPlotConfig,
   buildPlotVariableRows,
   choosePlotForUnits,
+  createPlotXAxis,
   getPlotUnits,
   getNodePlotEntries,
   movePlot,
@@ -19,6 +20,7 @@ import {
   resolveGroups,
   resolvePlotConfig,
   setNodePlotVariables,
+  setPlotXAxis,
 } from '../../../../src/services/simulation/plotSelections.js'
 
 const GROUPS = [
@@ -321,5 +323,38 @@ describe('one unit per plot', () => {
     expect(choosePlotForUnits(config, 'second', 'plot-1')).toBe('plot-2')
     expect(choosePlotForUnits(config, 'volt', 'plot-1')).toBe('plot-3')
     expect(choosePlotForUnits(buildPlotConfig(GROUPS, config.selections), 'volt', 'plot-1')).toBeNull()
+  })
+})
+
+describe('plotting against a variable', () => {
+  const node = createNode('a', 'cell')
+  const [x, y] = node.data.variables
+  const config = buildPlotConfig(GROUPS, [selectionOf('a', 'x', 'plot-1'), selectionOf('a', 'y', 'plot-2')])
+  const phase = setPlotXAxis(config, 'plot-1', createPlotXAxis(node, y))
+
+  it('sets one plot against a variable, and back against time', () => {
+    expect(resolveGroups(phase)).toEqual([
+      { id: 'plot-1', name: 'Plot 1', xAxis: { key: 'a::y', nodeId: 'a', nodeName: 'cell', variableName: 'y', units: 'second' } },
+      { id: 'plot-2', name: 'Pressures' },
+    ])
+    expect(resolveGroups(setPlotXAxis(phase, 'plot-1', null))).toEqual(GROUPS)
+    expect(setPlotXAxis(config, 'missing', createPlotXAxis(node, x))).toBe(config)
+  })
+
+  it('keeps the variable as plots are renamed, moved and added', () => {
+    const edited = addPlot(movePlot(renamePlot(phase, 'plot-1', 'Phase'), 'plot-1', 1)).plotConfig
+    expect(resolveGroups(edited).find((group) => group.id === 'plot-1')).toMatchObject({ name: 'Phase', xAxis: { key: 'a::y' } })
+  })
+
+  it('exports the plot against its variable, renamed as the instance is now, and drops one that is gone', () => {
+    const renamed = [{ ...node, data: { ...node.data, name: 'soma' } }]
+    const exported = resolvePlotConfig(phase, renamed)
+    expect(exported.groups[0].xAxis.nodeName).toBe('soma')
+    expect(resolvePlotConfig(phase, []).groups[0].xAxis).toBeUndefined()
+
+    const voi = { componentName: 'environment', name: 'time', units: 'second' }
+    const json = JSON.parse(buildSimulationJson(exported, {}, { voi, mappedParameters: {} }))
+    expect(json.output.plots.map((plot) => plot.xValue)).toEqual(['data__soma__y', 'voi__environment__time'])
+    expect(json.output.data.map((entry) => entry.id)).toEqual(['data__soma__x', 'data__soma__y', 'voi__environment__time'])
   })
 })

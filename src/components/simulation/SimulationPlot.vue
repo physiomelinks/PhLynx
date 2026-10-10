@@ -10,17 +10,28 @@
           >
         </template>
         <template v-else>{{ title }}</template>
+        <!-- What the x-axis is, when it isn't time: a phase plot's variable, or a sweep's parameter. -->
+        <span v-if="againstLabel" class="plot-title-against"> vs {{ againstLabel }}</span>
       </span>
       <!-- The values' unit, here rather than as a rotated axis title, which takes a column of the chart. -->
       <span class="plot-unit">{{ unit }}</span>
     </figcaption>
+    <p v-if="note" class="plot-note">{{ note }}</p>
     <!-- A key only when the title names the plot rather than its lines, which it colours itself. -->
-    <ul v-if="series.length > 1 && !titleParts" class="plot-key">
+    <ul v-if="series.length > 1 && !titleParts && !x.isSteadyState" class="plot-key">
       <li v-for="item in series" :key="item.key">
         <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
       </li>
     </ul>
-    <div class="plot-area">
+    <!-- A steady state has one value per variable and no time to plot them against. -->
+    <ul v-if="x.isSteadyState" class="plot-values">
+      <li v-for="item in series" :key="item.key">
+        <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>
+        <span class="plot-values-label">{{ item.label }}</span>
+        <span class="plot-values-value">{{ formatValue(item.values[0]) }}</span>
+      </li>
+    </ul>
+    <div v-else class="plot-area">
       <div ref="chartEl" class="plot-chart"></div>
       <!-- The values under the cursor, beside it, as plotly's hover does, in place of a legend line. -->
       <div v-if="readout" class="plot-readout" :style="{ left: `${readout.left}px`, top: `${readout.top}px` }" aria-hidden="true">
@@ -37,7 +48,9 @@
 
 <script setup>
 /**
- * One simulation chart: a uPlot line chart of series that share a unit, against the variable of integration.
+ * One simulation chart: a uPlot line chart of series that share a unit, against the variable of integration,
+ * or against another variable of the same run, as a phase plot is. A steady state (a model without ODEs)
+ * has no variable of integration, so its values are listed instead.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import uPlot from 'uplot'
@@ -45,6 +58,7 @@ import 'uplot/dist/uPlot.min.css'
 
 import { useColorScheme } from '../../composables/useColorScheme'
 import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
+import { findNearestPoint } from '../../services/simulation/nearestPoint'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
 
 const CHROME = {
@@ -56,13 +70,16 @@ const props = defineProps({
   // The title as instance/variable paths, to show each instance muted, or null to show `title`.
   titleParts: { type: Array, default: null },
   unit: { type: String, required: true },
-  x: { type: Object, required: true }, // { label, unit, values }
+  // { label, unit, values, isSteadyState, isSweep, isPhase, run }: a phase plot's `run` is the run's own x-axis.
+  x: { type: Object, required: true },
   series: { type: Array, required: true }, // [{ key, label, slot, values }]
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
   syncKey: { type: String, default: null },
   // Names the chart, so it keeps its zoom when rebuilt.
   zoomKey: { type: String, default: null },
+  // A line under the title, such as why the plot isn't against the variable it is set to plot against.
+  note: { type: String, default: null },
 })
 
 /**
@@ -112,6 +129,16 @@ const SHORT_UNITS = { second: 's', millisecond: 'ms', microsecond: 'µs', minute
  */
 const shortUnit = (unit) => SHORT_UNITS[unit] ?? unit
 
+// Names the x-axis in the heading when it isn't time, as no axis title does.
+const againstLabel = computed(() => (props.x.isPhase || props.x.isSweep ? props.x.label : null))
+
+/**
+ * Gets the x-axis unit to show on its last tick and in the readout: none for a dimensionless one.
+ *
+ * @returns {string}
+ */
+const xUnit = () => (props.x.unit && props.x.unit !== 'dimensionless' ? shortUnit(props.x.unit) : '')
+
 const chartEl = ref(null)
 const { isDarkMode } = useColorScheme()
 const readout = ref(null)
@@ -131,19 +158,84 @@ const colourOf = (item) => SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][i
  * @param {Object} chart - The uPlot chart.
  */
 function updateReadout(chart) {
+  if (props.x.isPhase) {
+    updatePhaseReadout(chart)
+    return
+  }
   const { idx, left } = chart.cursor
   if (idx == null || left == null || left < 0) {
     readout.value = null
     return
   }
+  readout.value = {
+    ...placeReadout(chart, left),
+    time: `${formatValue(chart.data[0][idx])}${xUnit() ? ` ${xUnit()}` : ''}`,
+    rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
+  }
+}
+
+/**
+ * Places the readout beside the cursor, flipping to its left near the chart's right edge.
+ *
+ * @param {Object} chart - The uPlot chart.
+ * @param {number} left - The cursor's position in the plot area.
+ * @returns {{left: number, top: number}}
+ */
+function placeReadout(chart, left) {
   const over = chart.over
   const x = over.offsetLeft + left
   const fitsRight = x + 12 + READOUT_WIDTH_PX <= chart.root.clientWidth
+  return { left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX), top: over.offsetTop + 6 }
+}
+
+// How near the cursor, in pixels, a phase plot's point must be to be read out.
+const PHASE_HOVER_RADIUS_PX = 40
+
+/**
+ * Finds a phase plot series' point nearest the cursor, for uPlot to mark and the readout to show.
+ *
+ * @param {Object} chart - The uPlot chart.
+ * @param {number} seriesIndex
+ * @returns {number|null}
+ */
+function nearestPhasePoint(chart, seriesIndex) {
+  const { left, top } = chart.cursor
+  if (seriesIndex === 0 || left == null || left < 0) return null
+  const [xs, ys] = chart.data[seriesIndex]
+  const toLeft = (value) => chart.valToPos(value, 'x')
+  const toTop = (value) => chart.valToPos(value, 'y')
+  return findNearestPoint(xs, ys, toLeft, toTop, left, top, PHASE_HOVER_RADIUS_PX)
+}
+
+/**
+ * Shows a phase plot's points nearest the cursor: the nearest one's x and when in the run it is, then each
+ * series' value at its own nearest point.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function updatePhaseReadout(chart) {
+  const { left, top, idxs } = chart.cursor
+  const found = props.series
+    .map((item, i) => ({ item, idx: idxs?.[i + 1] }))
+    .filter(({ idx }) => idx != null)
+    .map((point) => {
+      const pointLeft = chart.valToPos(props.x.values[point.idx], 'x')
+      const pointTop = chart.valToPos(point.item.values[point.idx], 'y')
+      return { ...point, distance: Math.hypot(pointLeft - left, pointTop - top) }
+    })
+  if (!found.length) {
+    readout.value = null
+    return
+  }
+  const nearest = found.reduce((best, point) => (point.distance < best.distance ? point : best))
+  const unitOf = (unit) => (unit && unit !== 'dimensionless' ? ` ${shortUnit(unit)}` : '')
+  const name = (label) => label?.split('/').pop() ?? ''
+  const run = props.x.run
+  const when = run?.values?.length ? ` · ${name(run.label)} ${formatValue(run.values[nearest.idx])}${unitOf(run.unit)}` : ''
   readout.value = {
-    left: fitsRight ? x + 12 : Math.max(0, x - 12 - READOUT_WIDTH_PX),
-    top: over.offsetTop + 6,
-    time: `${formatValue(chart.data[0][idx])}${props.x.unit ? ` ${shortUnit(props.x.unit)}` : ''}`,
-    rows: props.series.map((item) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
+    ...placeReadout(chart, left),
+    time: `${name(props.x.label)} ${formatValue(props.x.values[nearest.idx])}${xUnit() ? ` ${xUnit()}` : ''}${when}`,
+    rows: found.map(({ item, idx }) => ({ key: item.key, label: item.label, colour: colourOf(item), value: formatValue(item.values[idx]) })),
   }
 }
 let plot = null
@@ -155,6 +247,7 @@ let isUpdatingData = false
  * Sets the zoom again after new values, unless they no longer reach it, as after a change of time course.
  */
 function restoreZoom() {
+  if (props.x.isPhase) return
   const times = plot?.data?.[0]
   if (!zoom || !times?.length) return
   if (zoom.max <= times[0] || zoom.min >= times[times.length - 1]) {
@@ -172,7 +265,7 @@ function restoreZoom() {
  * @param {string} key - The scale that changed.
  */
 function recordZoom(chart, key) {
-  if (key !== 'x' || isUpdatingData) return
+  if (key !== 'x' || isUpdatingData || props.x.isPhase) return
   const { min, max } = chart.scales.x
   const times = chart.data[0]
   if (min == null || max == null || !times?.length) return
@@ -205,8 +298,37 @@ function buildOptions(width) {
   // The time's unit on its last tick, in place of an axis title under the ticks.
   const timeTicks = (chart, splits) => {
     const labels = formatTicks(chart, splits)
-    if (props.x.unit && labels.length) labels[labels.length - 1] += ` ${shortUnit(props.x.unit)}`
+    if (xUnit() && labels.length) labels[labels.length - 1] += ` ${xUnit()}`
     return labels
+  }
+  if (props.x.isPhase) {
+    // Each series against the x variable, its points joined in the run's order, as a phase plot needs.
+    return {
+      mode: 2,
+      width,
+      height: props.height,
+      scales: { x: { time: false }, y: {} },
+      // uPlot marks each series' point that nearestPhasePoint finds, as its readout shows.
+      cursor: { drag: { x: true, y: true }, points: { size: 8 }, dataIdx: nearestPhasePoint },
+      hooks: { setCursor: [updateReadout] },
+      legend: { show: false },
+      padding: [8, 12, 0, 0],
+      axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],
+      series: [
+        {},
+        ...props.series.map((series) => ({
+          label: series.label,
+          stroke: SERIES_COLOURS[theme][series.slot],
+          width: 2,
+          facets: [
+            { scale: 'x', auto: true },
+            { scale: 'y', auto: true },
+          ],
+          paths: joinInOrder,
+          points: { show: false },
+        })),
+      ],
+    }
   }
   return {
     width,
@@ -230,11 +352,41 @@ function buildOptions(width) {
   }
 }
 
-const buildData = () => [props.x.values, ...props.series.map((series) => series.values)]
+const buildData = () =>
+  props.x.isPhase
+    ? [null, ...props.series.map((series) => [props.x.values, series.values])]
+    : [props.x.values, ...props.series.map((series) => series.values)]
+
+/**
+ * Draws a phase plot's series: its points joined in order, as the x values needn't increase. uPlot's own
+ * line paths thin out points by assuming they do.
+ *
+ * @param {Object} chart - The uPlot chart.
+ * @param {number} seriesIndex
+ * @returns {{stroke: Path2D, fill: null, clip: null, band: null, gaps: null, flags: number}}
+ */
+function joinInOrder(chart, seriesIndex) {
+  const [xs, ys] = chart.data[seriesIndex]
+  const stroke = new Path2D()
+  let isDrawing = false
+  for (let i = 0; i < xs.length; i++) {
+    if (!Number.isFinite(xs[i]) || !Number.isFinite(ys[i])) {
+      isDrawing = false
+      continue
+    }
+    const left = chart.valToPos(xs[i], 'x', true)
+    const top = chart.valToPos(ys[i], 'y', true)
+    if (isDrawing) stroke.lineTo(left, top)
+    else stroke.moveTo(left, top)
+    isDrawing = true
+  }
+  return { stroke, fill: null, clip: null, band: null, gaps: null, flags: 0 }
+}
 
 /** Draws the chart afresh, as a change of series or theme needs. */
 function draw() {
   plot?.destroy()
+  plot = null
   if (!chartEl.value) return
   isUpdatingData = true
   plot = new uPlot(buildOptions(chartEl.value.clientWidth || 300), buildData(), chartEl.value)
@@ -256,7 +408,7 @@ onMounted(() => {
     const width = Math.floor(entry.contentRect.width)
     if (plot && width > 0 && width !== plot.width) plot.setSize({ width, height: props.height })
   })
-  resizeObserver.observe(chartEl.value)
+  if (chartEl.value) resizeObserver.observe(chartEl.value)
 })
 
 onBeforeUnmount(() => {
@@ -266,8 +418,17 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.series.map((series) => `${series.key}:${series.slot}`).join('|'), isDarkMode.value, props.x.unit, props.unit, props.syncKey],
+  () => [props.series.map((series) => `${series.key}:${series.slot}`).join('|'), isDarkMode.value, props.x.unit, props.x.label, props.x.isPhase, props.unit, props.syncKey],
   draw
+)
+// The chart's element comes and goes as the results switch between a time course and a steady state.
+watch(
+  () => props.x.isSteadyState,
+  () => {
+    draw()
+    if (chartEl.value) resizeObserver?.observe(chartEl.value)
+  },
+  { flush: 'post' }
 )
 watch(
   () => props.height,
@@ -284,7 +445,7 @@ defineExpose({
     if (!plot) return null
     const colours = SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light']
     // The unit is in the heading, not on the canvas, so the image's title carries it.
-    const title = props.unit ? `${props.title} (${props.unit})` : props.title
+    const title = `${props.title}${againstLabel.value ? ` vs ${againstLabel.value}` : ''}${props.unit ? ` (${props.unit})` : ''}`
     return { title, canvas: plot.ctx.canvas, legend: props.series.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
   },
 })
@@ -334,6 +495,10 @@ watch(
   color: var(--p-text-muted-color);
 }
 
+.plot-title-against {
+  color: var(--p-text-muted-color);
+}
+
 .plot-unit {
   flex-shrink: 0;
   font-size: 0.75rem;
@@ -361,6 +526,40 @@ watch(
   display: inline-block;
   margin-right: 4px;
   vertical-align: middle;
+}
+
+.plot-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
+}
+
+.plot-values {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.plot-values li {
+  display: contents;
+}
+
+.plot-values-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--p-text-muted-color);
+}
+
+.plot-values-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .plot-key-swatch {

@@ -45,10 +45,10 @@ function forPosting(results) {
 /**
  * Runs a simulation and posts its results, reading the model first when the message brings one.
  *
- * @param {Object} message - `{ id, cellml, key, settings, changes }`; without `cellml`, `key` must name the
+ * @param {Object} message - `{ id, cellml, key, settings, changes, sweep }`; without `cellml`, `key` must name the
  *   session to reuse.
  */
-async function run({ id, cellml, key, settings, changes }) {
+async function run({ id, cellml, key, settings, changes, sweep }) {
   // Asked to stop before its turn, as when a newer run took its place: reading its model would be wasted.
   if (cellml != null && runs.get(id)?.isStopped) {
     runs.delete(id)
@@ -70,6 +70,7 @@ async function run({ id, cellml, key, settings, changes }) {
     const simulation = session.run({
       settings,
       changes,
+      sweep,
       onProgress: (value) => self.postMessage({ type: 'progress', id, value }),
     })
     // Asked to stop while waiting its turn, it stops at once, with no points.

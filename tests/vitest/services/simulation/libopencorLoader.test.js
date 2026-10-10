@@ -1,3 +1,4 @@
+import { reactive } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { libopencor, loadLibOpenCOR, resetLibOpenCORLoader, whenLibOpenCORReady } from '../../../../src/services/simulation/libopencorLoader.js'
@@ -76,7 +77,7 @@ describe('loadLibOpenCOR', () => {
 
       const run = client.startSimulation({ cellml: '<model/>', settings: { endingPoint: 1 }, onProgress })
       const { id } = worker.sent.at(-1)
-      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: '<model/>', key: null, settings: { endingPoint: 1 }, changes: [] })
+      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: '<model/>', key: null, settings: { endingPoint: 1 }, changes: [], sweep: null })
       worker.reply({ type: 'progress', id, value: 0.5 })
       const values = new Float64Array([1, 2])
       worker.reply({ type: 'done', id, results: { voi: { name: 't', values }, variables: [['c/x', { kind: 'state', values }]], isStopped: false } })
@@ -87,13 +88,23 @@ describe('loadLibOpenCOR', () => {
       expect(results.variables.get('c/x').kind).toBe('state')
     })
 
+    it('sends the store’s reactive settings as plain data a worker message can carry', async () => {
+      const { worker, client } = await loadClient()
+      const settings = reactive({ endingPoint: 1, sweep: { parameterName: 'V', from: -1, to: 1, points: 3 } })
+
+      client.startSimulation({ key: 3, settings: { ...settings } })
+
+      expect(() => structuredClone(worker.sent.at(-1))).not.toThrow()
+      expect(worker.sent.at(-1).settings).toEqual({ endingPoint: 1, sweep: { parameterName: 'V', from: -1, to: 1, points: 3 } })
+    })
+
     it('reruns the model the worker keeps by its key, with parameter changes', async () => {
       const { worker, client } = await loadClient()
       const changes = [{ component: 'instance_parameters', variable: 'k', value: 2 }]
 
       const run = client.startSimulation({ key: 3, settings: {}, changes })
       const { id } = worker.sent.at(-1)
-      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: null, key: 3, settings: {}, changes })
+      expect(worker.sent.at(-1)).toEqual({ type: 'run', id, cellml: null, key: 3, settings: {}, changes, sweep: null })
       worker.reply({ type: 'error', id, message: 'The model needs reading again.', issues: [], code: 'no-session' })
 
       expect((await run.promise.catch((reason) => reason)).code).toBe('no-session')

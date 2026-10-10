@@ -12,8 +12,12 @@ const engine = vi.hoisted(() => ({ runs: [] }))
 const simulator = vi.hoisted(() => ({
   startSimulation: (options) => {
     let finish
-    const promise = new Promise((resolve) => (finish = resolve))
-    const run = { options, finish, stop: vi.fn(), promise }
+    let fail
+    const promise = new Promise((resolve, reject) => {
+      finish = resolve
+      fail = reject
+    })
+    const run = { options, finish, fail, stop: vi.fn(), promise }
     engine.runs.push(run)
     return run
   },
@@ -40,7 +44,9 @@ vi.mock('../../../src/services/simulation/variableMapping', () => ({
   buildVariableMapping: () => new Map([['a::x', 'a/x'], ['a::k', 'instance_parameters/k']]),
   mapInspectionModules: () => [],
 }))
-vi.mock('../../../src/utils/cellml', () => ({ whenLibCellMLReady: async () => ({}) }))
+// A test may hold libcellml back, to act while a run's results are being mapped.
+const libcellml = vi.hoisted(() => ({ ready: null }))
+vi.mock('../../../src/utils/cellml', () => ({ whenLibCellMLReady: () => libcellml.ready ?? Promise.resolve({}) }))
 
 const { cancelSimulation, forgetSimulationSession, useSimulation } = await import('../../../src/composables/useSimulation.js')
 const { useSimulationResultsStore } = await import('../../../src/stores/simulationResultsStore.js')
@@ -77,6 +83,7 @@ describe('useSimulation', () => {
     engine.runs = []
     built.scopes = []
     Object.assign(loader, { module: simulator, reason: null, ready: null })
+    libcellml.ready = null
     forgetSimulationSession()
   })
 
@@ -97,6 +104,111 @@ describe('useSimulation', () => {
     expect(store.scopeNodeIds).toEqual(['a'])
     expect(store.results).toBe(RESULTS)
     expect(store.mapping.get('a::x')).toBe('a/x')
+  })
+
+  it('sweeps a model without ODEs once a first solve names the parameter, then sweeps a rerun at once', async () => {
+    nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, { name: 'k', type: 'constant', value: '2' }])]
+    const sweep = { key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', from: 1, to: 3, points: 3 }
+    useSimulationSettingsStore().setSimulationSettings({ ...useSimulationSettingsStore().simulationSettings, sweep })
+    const variables = new Map([['a/x', { kind: 'computedConstant' }], ['instance_parameters/k', { kind: 'constant' }]])
+    const solved = { voi: { name: '', unit: '', values: new Float64Array() }, variables, isStopped: false, isSteadyState: true }
+    const swept = { ...solved, voi: { name: 'instance_parameters/k', unit: '', values: new Float64Array([1, 2, 3]) }, isSweep: true }
+    const { run } = useSimulation()
+
+    const done = run(['a'])
+    await settle()
+    engine.runs[0].finish(solved)
+    await settle()
+    expect(engine.runs[1].options.cellml).toBeUndefined()
+    expect(engine.runs[1].options.key).toBe(engine.runs[0].options.key)
+    expect(engine.runs[1].options.sweep).toEqual({ component: 'instance_parameters', variable: 'k', values: [1, 2, 3] })
+    engine.runs[1].finish(swept)
+    await done
+    expect(store.status).toBe('done')
+    expect(store.results).toMatchObject({ isSweep: true, sweepLabel: 'a/k' })
+
+    const rerun = run(['a'])
+    await settle()
+    expect(engine.runs[2].options.cellml).toBeUndefined()
+    expect(engine.runs[2].options.sweep).toEqual({ component: 'instance_parameters', variable: 'k', values: [1, 2, 3] })
+    engine.runs[2].finish(swept)
+    await rerun
+    expect(engine.runs).toHaveLength(3)
+  })
+
+  describe('a first sweep of a model without ODEs', () => {
+    const solved = {
+      voi: { name: '', unit: '', values: new Float64Array() },
+      variables: new Map([['a/x', { kind: 'computedConstant' }], ['instance_parameters/k', { kind: 'constant' }]]),
+      isStopped: false,
+      isSteadyState: true,
+    }
+
+    beforeEach(() => {
+      nodes.value = [createNode('a', [{ name: 'x', type: 'variable' }, { name: 'k', type: 'constant', value: '2' }])]
+      const sweep = { key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', from: 1, to: 3, points: 3 }
+      useSimulationSettingsStore().setSimulationSettings({ ...useSimulationSettingsStore().simulationSettings, sweep })
+    })
+
+    it('doesn’t show the solve that maps the model as the whole run done', async () => {
+      const { run } = useSimulation()
+
+      run(['a'])
+      await settle()
+      engine.runs[0].options.onProgress(0.5)
+      engine.runs[0].options.onProgress(1)
+
+      expect(store.progress).toBe(0.5)
+    })
+
+    it('abandons the sweep when stopped while the first solve is mapped', async () => {
+      let mapLibCellML
+      libcellml.ready = new Promise((resolve) => (mapLibCellML = resolve))
+      const { run, stop } = useSimulation()
+
+      const done = run(['a'])
+      await settle()
+      engine.runs[0].finish(solved)
+      await settle()
+      stop()
+      mapLibCellML({})
+      await done
+
+      expect(store.status).toBe('idle')
+      expect(engine.runs).toHaveLength(1)
+    })
+
+    it('names the swept parameter in what a failed sweep solved', async () => {
+      const { run } = useSimulation()
+
+      const done = run(['a'])
+      await settle()
+      engine.runs[0].finish(solved)
+      await settle()
+      const partialResults = { ...solved, voi: { name: 'instance_parameters/k', unit: '', values: new Float64Array([1, 2]) }, isSweep: true }
+      engine.runs[1].fail(Object.assign(new Error('The model could not be solved at instance_parameters/k = 3.'), { partialResults }))
+      await done
+
+      expect(store.status).toBe('error')
+      expect(store.results).toMatchObject({ isSweep: true, sweepLabel: 'a/k' })
+    })
+  })
+
+  it('explains a sweep of something the model computes', async () => {
+    useSimulationSettingsStore().setSimulationSettings({
+      ...useSimulationSettingsStore().simulationSettings,
+      sweep: { key: 'a::x', nodeId: 'a', nodeName: 'a', parameterName: 'x', type: 'constant', from: 1, to: 3, points: 3 },
+    })
+    const { run } = useSimulation()
+
+    const done = run(['a'])
+    await settle()
+    engine.runs[0].finish({ ...RESULTS, voi: { name: '', unit: '', values: new Float64Array() }, variables: new Map([['a/x', { kind: 'algebraic' }]]), isSteadyState: true })
+    await done
+
+    expect(store.status).toBe('error')
+    expect(store.error.message).toMatch(/a\/x is computed by the model/)
+    expect(engine.runs).toHaveLength(1)
   })
 
   it('stops before running when the pre-flight finds errors', async () => {

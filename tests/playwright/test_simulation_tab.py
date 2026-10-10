@@ -252,7 +252,8 @@ class TestSimulationTab(unittest.TestCase):
                 dialog.get_by_role("button", name="Download the results as CSV").click()
             with open(download.value.path()) as f:
                 lines = f.read().splitlines()
-            self.assertEqual(lines[0], "time (second),soma_SN/V (milliV),soma_SN/m (dimensionless)")
+            # The first column is the variable of integration, named after the model's first ODE's: t.
+            self.assertEqual(lines[0], "t (second),soma_SN/V (milliV),soma_SN/m (dimensionless)")
             self.assertEqual(len(lines), 1 + 101)
             self.assertEqual(lines[1].split(",")[0], "0")
 
