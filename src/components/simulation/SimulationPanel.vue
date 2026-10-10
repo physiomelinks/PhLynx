@@ -121,10 +121,13 @@ const selectedNodeIds = computed(() => getSelectedNodes.value.map((node) => node
 const scopeNodes = computed(() =>
   store.scopeNodeIds ? nodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : nodes.value
 )
+// Without ODEs there is no time course: the model is solved once.
+const isSteadyState = computed(() => !!store.results?.isSteadyState)
 const scopeSummary = computed(() => {
-  if (!store.scopeNodeIds) return 'Simulated the whole model'
+  const verb = isSteadyState.value ? 'Solved' : 'Simulated'
+  if (!store.scopeNodeIds) return `${verb} the whole model`
   const count = store.scopeNodeIds.length
-  return `Simulated ${count} ${count === 1 ? 'instance' : 'instances'} on their own`
+  return `${verb} ${count} ${count === 1 ? 'instance' : 'instances'} on their own`
 })
 const stoppedAt = computed(() => {
   const voi = store.results?.voi
@@ -137,6 +140,7 @@ const settleNote = computed(() => {
   return initialPoint < startingPoint ? ` from ${initialPoint} s, plotted from ${startingPoint} s` : ''
 })
 const resultsSummary = computed(() => {
+  if (isSteadyState.value && store.status === 'done') return `${scopeSummary.value}, once: without differential equations, nothing changes over time.`
   if (store.status === 'stopped') return `${scopeSummary.value}${settleNote.value}, stopped at ${stoppedAt.value}.`
   if (store.status === 'error') return `${scopeSummary.value}${settleNote.value}, up to ${stoppedAt.value} before the solver failed.`
   return `${scopeSummary.value}${settleNote.value}.`
@@ -214,6 +218,7 @@ onBeforeUnmount(() => {
 
 const figuresHint = computed(() => {
   if (!store.results) return 'Plots appear here after a run.'
+  if (isSteadyState.value) return 'Add variables to a plot to see their values here.'
   return 'Add variables to a plot to see them here.'
 })
 

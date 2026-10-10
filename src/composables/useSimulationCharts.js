@@ -38,6 +38,8 @@ export function useSimulationCharts(scopeNodes) {
       values: isSettled ? values.map((time) => time - startingPoint) : values,
       // Where t = 0 is in the run's own time, when it isn't the same.
       offset: isSettled ? startingPoint : 0,
+      // A model without ODEs is solved once: one value per variable, and no time to plot them against.
+      isSteadyState: !!store.results?.isSteadyState,
     }
   })
 

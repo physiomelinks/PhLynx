@@ -135,13 +135,13 @@ export function countComputedPoints(voi, { outputStartTime, outputEndTime, numbe
  *
  * @param {Object} task - A SedInstanceTask.
  * @param {Object|null} stoppedTimeCourse - The time course of a stopped run, whose computed points alone are kept.
- * @param {number} [pointCount] - How many points to keep, when already known.
+ * @param {number} [pointCount] - How many points to keep, when already known; a steady state has one.
  * @returns {{voi: {name: string, unit: string, values: Float64Array}, variables: Map<string, Object>}}
  */
 function readResults(task, stoppedTimeCourse, pointCount) {
   const voi = task.voi
   const length = pointCount ?? (stoppedTimeCourse ? countComputedPoints(voi, stoppedTimeCourse) : voi.length)
-  const copy = (values) => Float64Array.from(values.subarray(0, length))
+  const copy = (values) => Float64Array.from(values.subarray(0, Math.min(length, values.length)))
   const variables = new Map()
   for (const { kind, count, name, unit, values } of VARIABLE_KINDS) {
     for (let i = 0; i < task[count]; i++) {
@@ -205,6 +205,8 @@ export function createSimulationSession({ module: loc, cellml }) {
   let document = null
   let simulation = null
   let model = null
+  // A model without ODEs is algebraic: libOpenCOR solves it once, as a steady state, with no time course.
+  let isSteadyState = false
   // The changes the last run applied, freed once replaced.
   let changeHandles = []
 
@@ -229,6 +231,7 @@ export function createSimulationSession({ module: loc, cellml }) {
     throwOnErrors(document, 'The model could not be simulated.')
     simulation = keep(document.simulation(0))
     model = keep(document.model(0))
+    isSteadyState = !!loc.SedSteadyState && simulation instanceof loc.SedSteadyState
   } catch (error) {
     dispose()
     throw error
@@ -257,11 +260,33 @@ export function createSimulationSession({ module: loc, cellml }) {
    *   with in place of the model's, by the names libOpenCOR reports; each must be a constant or a state.
    * @param {Function} [options.onProgress] - Called with the progress, from 0 to 1.
    * @returns {{promise: Promise<Object>, stop: Function}} `promise` resolves with `{ voi, variables, issues,
-   *   elapsedMs, isStopped }` or rejects with a SimulationError; `stop` ends the run early, keeping what it has.
+   *   elapsedMs, isStopped, isSteadyState }` (a steady state has one value per variable and an empty VOI) or
+   *   rejects with a SimulationError; `stop` ends the run early, keeping what it has.
    */
   function run({ settings, changes = [], onProgress = () => {} }) {
     let instance = null
     let isStopped = false
+
+    /**
+     * Solves an algebraic model once: each variable gets one value, and there is no VOI.
+     *
+     * @param {Array} runChanges
+     * @param {Function} keepForRun
+     * @returns {Promise<Object>} As a run's results, with `isSteadyState` set.
+     */
+    async function solveSteadyState(runChanges, keepForRun) {
+      applyChanges(runChanges)
+      instance = document.instantiate()
+      throwOnErrors(instance, 'The model could not be solved.')
+      const task = keepForRun(instance.task(0))
+      if (isStopped) return { ...readResults(task, null, 0), issues: [], elapsedMs: 0, isStopped, isSteadyState }
+      if (!instance.startRun()) throw new SimulationError('The model could not be solved.', readIssues(instance))
+      while (instance.status.value === RUNNING) await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+      const elapsedMs = instance.waitForRun()
+      if (instance.hasErrors) throw new SimulationError('The model could not be solved.', readIssues(instance))
+      onProgress(1)
+      return { ...readResults(task, null, 1), issues: readIssues(instance), elapsedMs, isStopped, isSteadyState }
+    }
 
     const promise = (async () => {
       // Start after returning, so the caller has `stop` before the first progress report.
@@ -270,6 +295,8 @@ export function createSimulationSession({ module: loc, cellml }) {
       const runHandles = []
       const keepForRun = (handle) => (handle && runHandles.push(handle), handle)
       try {
+        if (isSteadyState) return await solveSteadyState(changes, keepForRun)
+
         checkSettings(settings)
         const timeCourse = buildUniformTimeCourse(settings)
         Object.assign(simulation, timeCourse)
@@ -291,7 +318,7 @@ export function createSimulationSession({ module: loc, cellml }) {
           throw new SimulationError(`The results would need ${gigabytes} GB of memory. Use fewer points (a larger point interval).`)
         }
 
-        if (isStopped) return { ...readResults(task, timeCourse, 0), issues: [], elapsedMs: 0, isStopped }
+        if (isStopped) return { ...readResults(task, timeCourse, 0), issues: [], elapsedMs: 0, isStopped, isSteadyState }
         if (!instance.startRun()) throw new SimulationError('The simulation could not start.', readIssues(instance))
         while (instance.status.value === RUNNING) {
           onProgress(instance.progress)
@@ -305,7 +332,7 @@ export function createSimulationSession({ module: loc, cellml }) {
         }
         onProgress(1)
 
-        return { ...readResults(task, isStopped ? timeCourse : null), issues: readIssues(instance), elapsedMs, isStopped }
+        return { ...readResults(task, isStopped ? timeCourse : null), issues: readIssues(instance), elapsedMs, isStopped, isSteadyState }
       } finally {
         // A run still going (a throwing onProgress, say) is stopped first: freeing it mid-run blocks the page.
         if (instance?.status.value === RUNNING) {

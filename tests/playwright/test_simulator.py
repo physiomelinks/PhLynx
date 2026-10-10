@@ -193,7 +193,8 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(result["mapped"], result["rows"])
             self.assertGreater(result["underAnotherName"], 0)
             self.assertEqual(result["somaCurrentOut"], "axon_SN/I")
-            self.assertEqual(result["somaTime"], "environment/time")
+            # The environment's variable is named after the first ODE's variable of integration.
+            self.assertRegex(result["somaTime"], r"^environment/[^/]+$")
             # ----------- END ------------
 
             context.close()

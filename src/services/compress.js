@@ -8,6 +8,9 @@ import { PHLYNX_PROJECT_VERSION } from '../utils/constants'
 
 import { useOmexStore } from '../stores/omexStore.js'
 
+// A MathML derivative, as every ODE has.
+const DERIVATIVE = /<(?:[\w-]+:)?diff\s*\/>/
+
 // Helper: Converts a Blob to a pure Base64 string (strips the "data:..." prefix)
 const blobToBase64 = (blob) => {
   return new Promise((resolve, reject) => {
@@ -89,7 +92,10 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   const omexStore = useOmexStore()
 
   const cellmlFileName = addInfo.cellmlFileName
-  const sedmlText = generateSedmlData(simData.simulationSettings, cellmlFileName)
+  // A model without ODEs is solved once rather than over time. Only when neither the analysis found a VOI
+  // nor the model has a derivative, so a caller that doesn't know the VOI never loses a time course.
+  const isSteadyState = !addInfo.extractedData?.voi && !DERIVATIVE.test(await cellmlData.blob.text())
+  const sedmlText = generateSedmlData(simData.simulationSettings, cellmlFileName, { isSteadyState })
   const simulationJson = buildSimulationJson(simData.plotConfig, simData.parameterScanConfig, addInfo.extractedData)
 
   const reservedLocations = new Set(['manifest.xml', 'document.sedml', cellmlFileName, 'flow-snapshot.json', 'changes.json'])

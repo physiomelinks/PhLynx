@@ -26,6 +26,31 @@ describe('reconcileRows (simple mode)', () => {
     expect(rows.k.type).toBe('constant')
   })
 
+  it('decides time by the variable of integration, not by name (#614)', () => {
+    const rows = byName(
+      reconcileRows(analysis({ referenced: ['time', 'V', 't'], stateVariables: ['V'], voi: ['time'] }), [
+        { name: 't', units: 'metre', value: '0.2', type: 'constant' },
+      ])
+    )
+    expect(rows.time.type).toBe('variable')
+    expect(rows.t).toMatchObject({ type: 'constant', value: '0.2' })
+
+    const tau = byName(reconcileRows(analysis({ referenced: ['tau', 'V'], stateVariables: ['V'], voi: ['tau'] })))
+    expect(tau.tau.type).toBe('variable')
+  })
+
+  it('takes a time-named variable in time units as time in a module without ODEs', () => {
+    const declared = [
+      { name: 't', units: 'second', interface: 'public', initialValue: '' },
+      { name: 'thickness', units: 'metre', interface: 'public', initialValue: '' },
+    ]
+    const stimulus = byName(reconcileRows(analysis({ declared, referenced: ['I', 't'], assigned: ['I'] })))
+    expect(stimulus.t.type).toBe('variable')
+
+    const algebraic = byName(reconcileRows(analysis({ referenced: ['y', 't'], assigned: ['y'] }), [{ name: 't', units: 'metre', type: 'constant' }]))
+    expect(algebraic.t.type).toBe('constant')
+  })
+
   it('keeps what the person entered over what the XML says', () => {
     const previous = [{ name: 'k', units: 'metre', value: '3', type: 'global_constant', access: 'no_access' }]
     const rows = byName(

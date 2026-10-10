@@ -15,12 +15,20 @@
       <span class="plot-unit">{{ unit }}</span>
     </figcaption>
     <!-- A key only when the title names the plot rather than its lines, which it colours itself. -->
-    <ul v-if="series.length > 1 && !titleParts" class="plot-key">
+    <ul v-if="series.length > 1 && !titleParts && !x.isSteadyState" class="plot-key">
       <li v-for="item in series" :key="item.key">
         <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
       </li>
     </ul>
-    <div class="plot-area">
+    <!-- A steady state has one value per variable and no time to plot them against. -->
+    <ul v-if="x.isSteadyState" class="plot-values">
+      <li v-for="item in series" :key="item.key">
+        <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>
+        <span class="plot-values-label">{{ item.label }}</span>
+        <span class="plot-values-value">{{ formatValue(item.values[0]) }}</span>
+      </li>
+    </ul>
+    <div v-else class="plot-area">
       <div ref="chartEl" class="plot-chart"></div>
       <!-- The values under the cursor, beside it, as plotly's hover does, in place of a legend line. -->
       <div v-if="readout" class="plot-readout" :style="{ left: `${readout.left}px`, top: `${readout.top}px` }" aria-hidden="true">
@@ -38,6 +46,7 @@
 <script setup>
 /**
  * One simulation chart: a uPlot line chart of series that share a unit, against the variable of integration.
+ * A steady state (a model without ODEs) has no variable of integration, so its values are listed instead.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import uPlot from 'uplot'
@@ -56,7 +65,7 @@ const props = defineProps({
   // The title as instance/variable paths, to show each instance muted, or null to show `title`.
   titleParts: { type: Array, default: null },
   unit: { type: String, required: true },
-  x: { type: Object, required: true }, // { label, unit, values }
+  x: { type: Object, required: true }, // { label, unit, values, isSteadyState }
   series: { type: Array, required: true }, // [{ key, label, slot, values }]
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
@@ -235,6 +244,7 @@ const buildData = () => [props.x.values, ...props.series.map((series) => series.
 /** Draws the chart afresh, as a change of series or theme needs. */
 function draw() {
   plot?.destroy()
+  plot = null
   if (!chartEl.value) return
   isUpdatingData = true
   plot = new uPlot(buildOptions(chartEl.value.clientWidth || 300), buildData(), chartEl.value)
@@ -256,7 +266,7 @@ onMounted(() => {
     const width = Math.floor(entry.contentRect.width)
     if (plot && width > 0 && width !== plot.width) plot.setSize({ width, height: props.height })
   })
-  resizeObserver.observe(chartEl.value)
+  if (chartEl.value) resizeObserver.observe(chartEl.value)
 })
 
 onBeforeUnmount(() => {
@@ -268,6 +278,15 @@ onBeforeUnmount(() => {
 watch(
   () => [props.series.map((series) => `${series.key}:${series.slot}`).join('|'), isDarkMode.value, props.x.unit, props.unit, props.syncKey],
   draw
+)
+// The chart's element comes and goes as the results switch between a time course and a steady state.
+watch(
+  () => props.x.isSteadyState,
+  () => {
+    draw()
+    if (chartEl.value) resizeObserver?.observe(chartEl.value)
+  },
+  { flush: 'post' }
 )
 watch(
   () => props.height,
@@ -361,6 +380,34 @@ watch(
   display: inline-block;
   margin-right: 4px;
   vertical-align: middle;
+}
+
+.plot-values {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8125rem;
+}
+
+.plot-values li {
+  display: contents;
+}
+
+.plot-values-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--p-text-muted-color);
+}
+
+.plot-values-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .plot-key-swatch {
