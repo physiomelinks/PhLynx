@@ -199,13 +199,13 @@ describe('checkScope', () => {
     expect(report.canBuild).toBe(false)
   })
 
-  it('stops a selection whose math has no differential equation', () => {
+  it('lets a selection whose math has no differential equation build, as an algebraic system', () => {
     const report = checkScope(resolveScope(null, [createNode('a', { vType: 'variable' })], []), {
       ...library(),
       getMathAnalysis: () => ({ stateVariables: [] }),
     })
-    expect(report.errors).toEqual([expect.stringMatching(/no instance in this selection has a differential equation/i)])
-    expect(report.canBuild).toBe(false)
+    expect(report.errors).toEqual([])
+    expect(report.canBuild).toBe(true)
   })
 
   it('ignores a broken port outside the scope', () => {

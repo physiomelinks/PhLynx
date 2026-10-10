@@ -93,6 +93,30 @@ describe('generateOmexArchive', () => {
     ])
   })
 
+  describe('the SED-ML simulation', () => {
+    const MATHML = 'xmlns="http://www.w3.org/1998/Math/MathML"'
+    const model = (math) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="m"><component name="c"><math ${MATHML}>${math}</math></component></model>`
+    const ODE = model('<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply><cn>1</cn></apply>')
+    const ALGEBRAIC = model('<apply><eq/><ci>y</ci><cn>1</cn></apply>')
+    const settings = { startingPoint: 0, endingPoint: 1, initialPoint: 0, pointInterval: 0.1 }
+    const sedmlOf = async (cellml, voi) => {
+      const archive = await readArchive(
+        await generateOmexArchive({ blob: new Blob([cellml]) }, '{}', { simulationSettings: settings }, { extractedData: { voi, mappedParameters: {} }, cellmlFileName: 'model.cellml' })
+      )
+      return archive.file('document.sedml').async('string')
+    }
+
+    it('is a steady state for a model without ODEs', async () => {
+      const sedml = await sedmlOf(ALGEBRAIC, null)
+      expect(sedml).toContain('<steadyState id="simulation1"/>')
+      expect(sedml).not.toContain('uniformTimeCourse')
+    })
+
+    it('stays a time course for a model with ODEs, even when the caller doesn’t know its VOI', async () => {
+      expect(await sedmlOf(ODE, null)).toContain('<uniformTimeCourse id="simulation1"')
+    })
+  })
+
   it('uses the imported CellML filename when one is supplied in addInfo', async () => {
     const cellmlSource = `<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="http://www.cellml.org/cellml/2.0#" name="imported_model">

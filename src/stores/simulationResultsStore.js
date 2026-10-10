@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
-import { markRaw, ref, shallowRef } from 'vue'
+import { computed, markRaw, ref, shallowRef } from 'vue'
+
+import { MAX_TRACKED_RUNS, nextRunNumber } from '../services/simulation/trackedRuns'
 
 /**
  * The latest in-app simulation: its scope, status and results. Never saved with the workspace.
@@ -24,6 +26,16 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
   let seriesSlots = markRaw(new Map())
   const getSeriesSlots = () => seriesSlots
   const setSeriesSlots = (slots) => (seriesSlots = markRaw(slots))
+  /** What the shown results were computed with: `{ settings, overrides }`, for tracking them. */
+  const runInputs = shallowRef(null)
+  /**
+   * Earlier results kept on the charts beside the live run's: `[{ id, number, isVisible, results, mapping,
+   * inspectionOutputs, settings, inputs }]`, at most MAX_TRACKED_RUNS. Kept while the scope stays the same.
+   */
+  const trackedRuns = shallowRef([])
+  /** Whether the charts show the live run, which can be hidden to compare tracked runs alone. */
+  const isLiveRunVisible = ref(true)
+  let trackedRunCount = 0
   /** Slider values by parameter key, tried out in runs without changing the model. Kept across runs. */
   const sliderValues = ref(new Map())
 
@@ -61,13 +73,17 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
       mapping.value = null
       seriesSlots = markRaw(new Map())
       inspectionOutputs.value = []
+      runInputs.value = null
+      // Another scope plots other variables: the tracked runs have nothing to compare.
+      removeAllTrackedRuns()
     }
   }
 
   /**
    * Records a finished run.
    *
-   * @param {Object} run - `{ results, mapping, signature, inspectionOutputs }`.
+   * @param {Object} run - `{ results, mapping, signature, inspectionOutputs, inputs }`, inputs being the run's
+   *   `{ settings, overrides }`.
    */
   function finishRun(run) {
     status.value = run.results.isStopped ? 'stopped' : 'done'
@@ -76,6 +92,68 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     mapping.value = markRaw(run.mapping)
     inspectionOutputs.value = run.inspectionOutputs ?? []
     signature.value = run.signature
+    runInputs.value = run.inputs ? markRaw(run.inputs) : null
+    // A steady state's values and a time course's lines can't share a chart.
+    if (trackedRuns.value.some((tracked) => !!tracked.results.isSteadyState !== !!run.results.isSteadyState)) removeAllTrackedRuns()
+  }
+
+  /** Why the shown results can't be tracked, or null when they can: a run finished or stopped, with room for another. */
+  const trackBlocker = computed(() => {
+    if (status.value === 'running') return 'Wait for the run to finish'
+    if (!results.value) return 'Run the simulation first'
+    if (!['done', 'stopped'].includes(status.value)) return 'The last run didn’t finish'
+    if (trackedRuns.value.length >= MAX_TRACKED_RUNS) return `Up to ${MAX_TRACKED_RUNS} runs can be tracked: stop tracking one to track another`
+    return null
+  })
+  const canTrackRun = () => !trackBlocker.value
+
+  /**
+   * Keeps the shown results on the charts as a tracked run.
+   *
+   * @param {Array<{key: string, label: string, value: number, units: string}>} [inputs] - The slider values
+   *   it tried out, described for the runs list.
+   * @returns {Object|null} The tracked run, or null when it couldn't be tracked.
+   */
+  function trackRun(inputs = []) {
+    if (!canTrackRun()) return null
+    const run = markRaw({
+      id: `run_${++trackedRunCount}`,
+      number: nextRunNumber(trackedRuns.value),
+      isVisible: true,
+      results: results.value,
+      mapping: mapping.value,
+      inspectionOutputs: inspectionOutputs.value,
+      settings: runInputs.value?.settings ?? null,
+      inputs,
+    })
+    trackedRuns.value = [...trackedRuns.value, run]
+    return run
+  }
+
+  /**
+   * Stops tracking a run.
+   *
+   * @param {string} id
+   */
+  function removeTrackedRun(id) {
+    trackedRuns.value = trackedRuns.value.filter((run) => run.id !== id)
+    // With nothing else to show, the live run shows again.
+    if (!trackedRuns.value.length) isLiveRunVisible.value = true
+  }
+
+  /** Stops tracking every run. */
+  function removeAllTrackedRuns() {
+    if (trackedRuns.value.length) trackedRuns.value = []
+    isLiveRunVisible.value = true
+  }
+
+  /**
+   * Shows or hides a tracked run's lines.
+   *
+   * @param {string} id
+   */
+  function toggleTrackedRun(id) {
+    trackedRuns.value = trackedRuns.value.map((run) => (run.id === id ? markRaw({ ...run, isVisible: !run.isVisible }) : run))
   }
 
   /**
@@ -107,6 +185,9 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     sliderValues.value = new Map()
     inspectionOutputs.value = []
     scopeMode.value = 'model'
+    runInputs.value = null
+    trackedRuns.value = []
+    isLiveRunVisible.value = true
   }
 
   return {
@@ -124,6 +205,15 @@ export const useSimulationResultsStore = defineStore('simulationResults', () => 
     sliderValues,
     setSliderValue,
     scopeMode,
+    runInputs,
+    trackedRuns,
+    isLiveRunVisible,
+    trackBlocker,
+    canTrackRun,
+    trackRun,
+    removeTrackedRun,
+    removeAllTrackedRuns,
+    toggleTrackedRun,
     startRun,
     finishRun,
     failRun,

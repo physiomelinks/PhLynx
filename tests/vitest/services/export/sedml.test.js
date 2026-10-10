@@ -24,6 +24,15 @@ describe('generateSedmlData', () => {
     expect(generateSedmlData({ ...settings, ...defaults })).toBe(golden('baseline.sedml'))
   })
 
+  it('writes a model without ODEs as a steady state, as libOpenCOR does, with no time course or solver', () => {
+    const settings = { pointInterval: 0.01, startingPoint: 0, endingPoint: 10, initialPoint: 0 }
+    const sedml = generateSedmlData(settings, 'model.cellml', { isSteadyState: true })
+    expect(sedml).toContain('<steadyState id="simulation1"/>')
+    expect(sedml).not.toContain('uniformTimeCourse')
+    expect(sedml).not.toContain('<algorithm')
+    expect(sedml).toContain('<task id="task1" modelReference="model1" simulationReference="simulation1"/>')
+  })
+
   it('writes the CVODE settings it is given', () => {
     const sedml = generateSedmlData({ pointInterval: 0.01, startingPoint: 0, endingPoint: 1, initialPoint: 0, tolerance: 1e-9, maxSteps: 5000, timeStep: 0.5 })
     expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000209" value="1e-09"/>')

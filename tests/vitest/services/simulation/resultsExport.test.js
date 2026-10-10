@@ -26,9 +26,24 @@ describe('buildResultsCsv', () => {
     expect(csv).toBe('t (second),V (mV),"b.V, ""fast"" (mV)"\r\n0,-65,1\r\n0.5,-60.25,2\r\n1,1e-7,3\r\n')
   })
 
+  it('writes a steady state as one row of values, with no time column', () => {
+    const steady = { label: '', unit: '', values: new Float64Array(), isSteadyState: true }
+    const y = { key: 'c::y', label: 'y', values: new Float64Array([6]) }
+    expect(buildResultsCsv(collectResultColumns(steady, [{ unit: 'metre', series: [y] }]))).toBe('y (metre)\r\n6\r\n')
+    expect(buildResultsCsv(collectResultColumns(steady, []))).toBe('\r\n')
+  })
+
   it('stops at the shortest column', () => {
     const short = { ...W, values: new Float64Array([1]) }
     expect(buildResultsCsv(collectResultColumns(X, [{ unit: '', series: [short] }])).trim().split('\r\n')).toHaveLength(2)
+  })
+})
+
+describe('tracked runs', () => {
+  it('lists a chart’s live run before its tracked runs, leaving a gap where a run has no value', () => {
+    const tracked = { key: 'run_1::a::V', label: 'V [#1]', values: [-70, null, -68], run: { number: 1, dash: [8, 4] } }
+    const csv = buildResultsCsv(collectResultColumns(X, [{ unit: 'mV', series: [tracked, { ...V, run: null }] }]))
+    expect(csv).toBe('t (second),V (mV),V [#1] (mV)\r\n0,-65,-70\r\n0.5,-60.25,\r\n1,1e-7,-68\r\n')
   })
 })
 

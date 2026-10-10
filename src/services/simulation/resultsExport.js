@@ -4,17 +4,19 @@
 
 /**
  * Gets the columns of the plotted results: the variable of integration, then each plotted series once,
- * in chart order, even when it is on more than one chart.
+ * in chart order, even when it is on more than one chart, with each chart's tracked runs after its live run.
+ * A steady state has no variable of integration.
  *
- * @param {{label: string, unit: string, values: Float64Array}} xAxis
+ * @param {{label: string, unit: string, values: Float64Array, isSteadyState?: boolean}} xAxis
  * @param {Array<{unit: string, series: Array<{key: string, label: string, values: Float64Array}>}>} charts
  * @returns {Array<{key: string, label: string, unit: string, values: Float64Array}>}
  */
 export function collectResultColumns(xAxis, charts) {
-  const columns = [{ key: '__voi__', label: xAxis.label, unit: xAxis.unit, values: xAxis.values }]
+  const columns = xAxis.isSteadyState ? [] : [{ key: '__voi__', label: xAxis.label, unit: xAxis.unit, values: xAxis.values }]
   const seen = new Set()
   for (const chart of charts) {
-    for (const series of chart.series) {
+    // The live run's series, then each tracked run's, though the charts draw the tracked runs' first.
+    for (const series of [...chart.series].sort((a, b) => (a.run?.number ?? 0) - (b.run?.number ?? 0))) {
       if (seen.has(series.key)) continue
       seen.add(series.key)
       columns.push({ key: series.key, label: series.label, unit: chart.unit, values: series.values })
@@ -41,15 +43,16 @@ export const columnHeader = ({ label, unit }) => (unit ? `${label} (${unit})` : 
 
 /**
  * Writes the columns as CSV: a header of names and units, then one row per output point, with every value
- * at full precision.
+ * at full precision. A tracked run with other output points than the live run's has no value at theirs, so
+ * leaves its cell empty.
  *
- * @param {Array<{label: string, unit: string, values: Float64Array}>} columns
+ * @param {Array<{label: string, unit: string, values: ArrayLike<number|null>}>} columns
  * @returns {string}
  */
 export function buildResultsCsv(columns) {
-  const pointCount = Math.min(...columns.map((column) => column.values.length))
+  const pointCount = columns.length ? Math.min(...columns.map((column) => column.values.length)) : 0
   const lines = [columns.map((column) => csvField(columnHeader(column))).join(',')]
-  for (let i = 0; i < pointCount; i++) lines.push(columns.map((column) => String(column.values[i])).join(','))
+  for (let i = 0; i < pointCount; i++) lines.push(columns.map((column) => (column.values[i] == null ? '' : String(column.values[i]))).join(','))
   return `${lines.join('\r\n')}\r\n`
 }
 
@@ -63,9 +66,9 @@ const GAP = 12
  * Splits a legend into lines that fit a width.
  *
  * @param {CanvasRenderingContext2D} context - Set to the legend's font.
- * @param {Array<{label: string, colour: string}>} legend
+ * @param {Array<{label: string, colour: string, dash?: number[]|null}>} legend
  * @param {number} width
- * @returns {Array<Array<{label: string, colour: string, left: number}>>}
+ * @returns {Array<Array<{label: string, colour: string, dash?: number[]|null, left: number}>>}
  */
 function layOutLegend(context, legend, width) {
   const lines = [[]]
@@ -84,9 +87,10 @@ function layOutLegend(context, legend, width) {
 
 /**
  * Draws charts one under another on one canvas, each with its title above and a legend of its series
- * below, since uPlot draws its legend as HTML rather than on its canvas.
+ * below, since uPlot draws its legend as HTML rather than on its canvas. A tracked run's series shows as a
+ * dashed line, as on the chart.
  *
- * @param {Array<{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string}>}>} charts
+ * @param {Array<{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string, dash?: number[]|null}>}>} charts
  * @param {{background: string, text: string, font?: string}} theme
  * @returns {HTMLCanvasElement}
  */
@@ -129,9 +133,20 @@ export function composeChartsImage(charts, { background, text, font = 'system-ui
 
     context.font = legendFont
     for (const line of legends[index]) {
-      for (const { label, colour, left } of line) {
-        context.fillStyle = colour
-        context.fillRect(PADDING + left, top + (LEGEND_HEIGHT - SWATCH) / 2, SWATCH, SWATCH)
+      for (const { label, colour, dash, left } of line) {
+        if (dash) {
+          context.strokeStyle = colour
+          context.lineWidth = 2
+          context.setLineDash(dash.map((length) => length / 2))
+          context.beginPath()
+          context.moveTo(PADDING + left, top + LEGEND_HEIGHT / 2)
+          context.lineTo(PADDING + left + SWATCH, top + LEGEND_HEIGHT / 2)
+          context.stroke()
+          context.setLineDash([])
+        } else {
+          context.fillStyle = colour
+          context.fillRect(PADDING + left, top + (LEGEND_HEIGHT - SWATCH) / 2, SWATCH, SWATCH)
+        }
         context.fillStyle = text
         context.fillText(label, PADDING + left + SWATCH + 4, top + LEGEND_HEIGHT / 2)
       }

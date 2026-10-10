@@ -44,6 +44,8 @@
       />
     </template>
 
+    <RunList v-else-if="view === 'runs'" />
+
     <SliderList
       v-else
       with-picker
@@ -58,7 +60,7 @@
 <script setup>
 /**
  * What gets plotted and tried out, across the whole model: plots and the variables on them, or parameter
- * sliders, each added from one search over every `instance/variable` path.
+ * sliders, each added from one search over every `instance/variable` path, or the runs kept to compare.
  */
 import { computed, ref, watch } from 'vue'
 
@@ -66,6 +68,7 @@ import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 
 import PlotListEditor from './PlotListEditor.vue'
+import RunList from './RunList.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { sliderValueKey } from '../../services/simulation/parameterSliders'
@@ -110,6 +113,7 @@ const sliderKeys = computed(() => new Set(sliderDefinitions.value.map((definitio
 const views = computed(() => [
   { label: `Plots (${plottedCount.value})`, value: 'plots' },
   { label: `Sliders (${sliderKeys.value.size})`, value: 'sliders' },
+  { label: `Runs (${resultsStore.trackedRuns.length})`, value: 'runs' },
 ])
 
 // The target is the plot chosen last, or the first while that one is gone.

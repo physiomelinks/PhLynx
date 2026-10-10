@@ -1,7 +1,7 @@
 /**
  * Maps the variables of a scope's instances to the names libOpenCOR reports their values under. It reports
  * each set of equivalent variables once, under one member: a coupled port variable can appear under the
- * module that computes it, a constant under instance_parameters, and time under environment.
+ * module that computes it, a constant under instance_parameters, and the variable of integration under environment.
  */
 
 import { sanitiseCellMLIdentifier } from '../../utils/cellml'

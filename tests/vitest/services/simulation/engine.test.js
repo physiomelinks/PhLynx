@@ -17,7 +17,7 @@ const SETTINGS = { initialPoint: 0, startingPoint: 0, endingPoint: 2, pointInter
  * @param {Object} [options]
  * @returns {{loc: Object, freed: string[], solver: Object, simulation: Object, unmanaged: Array}}
  */
-function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 'c/t', pollsToFinish = 2, stateCount = 1 } = {}) {
+function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 'c/t', pollsToFinish = 2, stateCount = 1, steadyState = false } = {}) {
   const freed = []
   const unmanaged = []
   const logger = (name, errors) => ({
@@ -28,7 +28,8 @@ function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 
   })
   class SolverCvode {}
   const solver = Object.assign(new SolverCvode(), { delete: () => freed.push('solver') })
-  const simulation = { odeSolver: solver, delete: () => freed.push('simulation') }
+  class SedSteadyState {}
+  const simulation = Object.assign(steadyState ? new SedSteadyState() : {}, { odeSolver: solver, delete: () => freed.push('simulation') })
   const model = {
     changes: [],
     addChange(change) {
@@ -71,6 +72,7 @@ function createFakeLibOpenCOR({ fileErrors = [], instanceErrors = [], voiName = 
     task: () => task,
   }
   const loc = {
+    SedSteadyState,
     File: class {
       constructor(name) {
         Object.assign(this, logger('file', fileErrors), { name })
@@ -249,6 +251,42 @@ describe('startSimulation', () => {
 
     expect(error.message).toMatch(/no differential equation/)
     expect(fake.instance.startRun).not.toHaveBeenCalled()
+  })
+
+  it('solves a model without ODEs once, as a steady state, whatever the time settings', async () => {
+    const fake = createFakeLibOpenCOR({ voiName: '', steadyState: true, stateCount: 0 })
+    fake.task.voi = new Float64Array()
+    Object.assign(fake.task, {
+      computedConstantCount: 1,
+      computedConstantName: () => 'c/y',
+      computedConstantUnit: () => 'metre',
+      computedConstant: () => new Float64Array([6]),
+    })
+
+    const settings = { ...SETTINGS, endingPoint: 0 }
+    const result = await startSimulation({ module: fake.loc, cellml: '<model/>', settings }).promise
+
+    expect(result.isSteadyState).toBe(true)
+    expect(result.voi.values).toHaveLength(0)
+    expect(result.variables.get('c/y')).toEqual({ kind: 'computedConstant', unit: 'metre', values: new Float64Array([6]) })
+    expect(fake.simulation.numberOfSteps).toBeUndefined()
+  })
+
+  it('reports a steady state stopped while it solves as stopped', async () => {
+    const fake = createFakeLibOpenCOR({ voiName: '', steadyState: true, stateCount: 0, pollsToFinish: 3 })
+    fake.task.voi = new Float64Array()
+    const start = fake.instance.startRun.getMockImplementation()
+    fake.instance.startRun.mockImplementation(() => {
+      const started = start()
+      run.stop()
+      return started
+    })
+
+    const run = startSimulation({ module: fake.loc, cellml: '<model/>', settings: SETTINGS })
+    const result = await run.promise
+
+    expect(fake.instance.stopRun).toHaveBeenCalled()
+    expect(result).toMatchObject({ isSteadyState: true, isStopped: true })
   })
 
   it('rejects a run whose results wouldn’t fit in memory, before starting it', async () => {

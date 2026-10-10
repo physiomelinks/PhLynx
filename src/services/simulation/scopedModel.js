@@ -154,7 +154,7 @@ function resolveWholeBoundaryValues(scope) {
  * boundary conditions set to 0 for want of one are warnings, since the scope still builds.
  *
  * @param {ReturnType<typeof resolveScope>} scope
- * @param {Object} libraryStore - Provides availableMath, getMathAnalysis(mathRef) and getGlobalConstant(name).
+ * @param {Object} libraryStore - Provides availableMath and getGlobalConstant(name).
  * @returns {{canBuild: boolean, errors: string[], incompleteNodes: Array, missingValues: Array, conflicts: string[],
  *   lostSumTerms: Array, trimmedModules: Array, usesOwnValue: Array, zeroedBoundaries: Array, usesCelsius: Array}}
  */
@@ -176,12 +176,8 @@ export function checkScope(scope, libraryStore) {
     }
   }
 
-  // Without a state the generated time variable is left unused, which the analyser rejects.
-  const analyses = scope.nodes.map((node) => libraryStore.getMathAnalysis?.(node.data?.mathRef))
+  // A selection without a differential equation is an algebraic system, solved once rather than over time.
   if (!scope.nodes.length) errors.push('Select at least one instance to simulate.')
-  else if (analyses.every(Boolean) && !analyses.some((analysis) => analysis.stateVariables?.length)) {
-    errors.push('No instance in this selection has a differential equation, so there is nothing to simulate over time.')
-  }
 
   try {
     const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges)
@@ -285,6 +281,7 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
  * @throws {Error} When the scope can't be flattened; run checkScope first for a readable report.
  */
 export function buildScopedModel(scope, libraryStore, options = {}) {
+  if (!scope.nodes.length) throw new Error('Select at least one instance to simulate.')
   const nodes = zeroUnsuppliedBoundaries(scope.nodes, scope.internalEdges)
   return generateFlattenedModel(nodes, scope.internalEdges, libraryStore, scope.inspectionModules, options)
 }

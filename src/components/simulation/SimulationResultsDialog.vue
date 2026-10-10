@@ -29,6 +29,7 @@
       />
       <Button label="CSV" icon="pi pi-download" size="small" outlined aria-label="Download the results as CSV" @click="downloadCsv" />
       <Button
+        v-if="!x.isSteadyState"
         label="PNG"
         icon="pi pi-image"
         size="small"

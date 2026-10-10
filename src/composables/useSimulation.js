@@ -183,7 +183,7 @@ export function useSimulation() {
         // A run stopped early may not have read its model, so only a finished one is kept.
         if (!results.isStopped) session = mapped
       }
-      store.finishRun({ results, mapping: mapped.mapping, signature, inspectionOutputs: mapped.inspectionOutputs })
+      store.finishRun({ results, mapping: mapped.mapping, signature, inspectionOutputs: mapped.inspectionOutputs, inputs: { settings, overrides } })
     } catch (error) {
       if (token === runToken) {
         const source = changes ? kept : built

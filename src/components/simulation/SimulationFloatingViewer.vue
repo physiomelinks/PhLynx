@@ -93,6 +93,19 @@
           @mousedown.stop
           @click="showSliders = !showSliders"
         />
+        <!-- Keeps the shown run's lines on the plot, as the Runs list in the Simulation tab does. -->
+        <Button
+          icon="pi pi-bookmark"
+          text
+          rounded
+          size="small"
+          severity="secondary"
+          :disabled="!!trackBlocker"
+          :aria-label="`Track this run (${store.trackedRuns.length} of ${MAX_TRACKED_RUNS} tracked)`"
+          v-tooltip.top="trackBlocker ?? `Track this run (${store.trackedRuns.length} of ${MAX_TRACKED_RUNS} tracked)`"
+          @mousedown.stop
+          @click="track"
+        />
         <Button
           icon="pi pi-sign-in"
           text
@@ -205,7 +218,7 @@
  * One plot of the results in a small window that floats over the canvas, as picture-in-picture does: pick
  * the plot in its header, drag it by the header, resize it from its corner (the plot follows), and keep it in
  * view while editing the model. It can show the sliders too, which rerun the shown scope as in the
- * Simulation tab.
+ * Simulation tab, and track the shown run to keep its lines on the plot.
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
@@ -226,8 +239,10 @@ import { useSimulation } from '../../composables/useSimulation'
 import { INSPECTION_PLOT, useSimulationCharts } from '../../composables/useSimulationCharts'
 import { useSelectionAutoRun } from '../../composables/useSelectionAutoRun'
 import { useSliderReruns } from '../../composables/useSliderReruns'
+import { useTrackRun } from '../../composables/useTrackRun'
 import { libopencor } from '../../services/simulation/libopencorLoader'
 import { addPlot, plotVariable, removePlotSelection, resolveGroups } from '../../services/simulation/plotSelections'
+import { MAX_TRACKED_RUNS } from '../../services/simulation/trackedRuns'
 import { INSPECTION_COMPONENT, buildVariableIndex, isInspectionNodeId, resolvePlotTarget } from '../../services/simulation/variableIndex'
 import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -241,6 +256,7 @@ const props = defineProps({
 const { state, returnToTab } = useFloatingViewer()
 const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const store = useSimulationResultsStore()
+const { trackBlocker, track } = useTrackRun()
 const settingsStore = useSimulationSettingsStore()
 const inspectionStore = useInspectionModuleStore()
 const { run, stop, keepCurrent } = useSimulation()
