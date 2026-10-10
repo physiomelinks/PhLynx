@@ -10,7 +10,9 @@ import { isSettable, searchVariables } from '@physiomelinks/protocol-kit/editor'
 import ProtocolDialog from '../../../src/components/ProtocolDialog.vue'
 import { SERIES_COLOURS } from '../../../src/services/simulation/seriesSlots.js'
 import { buildVariableIndex, searchVariableIndex } from '../../../src/services/simulation/variableIndex.js'
+import { defaultAppSettings } from '../../../src/utils/appSettings.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useAppSettings } from '../../../src/composables/useAppSettings.js'
 import { useOmexStore } from '../../../src/stores/omexStore.js'
 import { useProtocolStore } from '../../../src/stores/protocolStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
@@ -30,9 +32,14 @@ const NODES = [
   { id: 'n2', data: { name: 'pump', variables: [{ name: 'g_NaK', type: 'constant', units: 'mS', value: '' }, { name: 'R', type: 'global_constant', value: '1' }] } },
 ]
 
+const { saveAppSettings } = useAppSettings()
+
 let wrapper
 afterEach(() => wrapper?.unmount())
-beforeEach(() => setActivePinia(createPinia()))
+beforeEach(() => {
+  setActivePinia(createPinia())
+  saveAppSettings(defaultAppSettings())
+})
 
 /**
  * Mounts the dialog open, its editor stubbed to show what PhLynx gives it.
@@ -82,6 +89,47 @@ describe('ProtocolDialog', () => {
     const { confirm, palette } = mountEditor()
     expect(confirm).toBeTypeOf('function')
     expect(palette).toEqual(SERIES_COLOURS.light)
+  })
+
+  it('lists the data items read-only, by name, variable, experiment and sub-experiment', () => {
+    expect(mountEditor()).toMatchObject({ showDataItems: true, dataItemColumns: 'summary', dataItemsReadOnly: true })
+  })
+
+  it("hides the data items when the settings say, and shows them again when they're turned back on", async () => {
+    saveAppSettings({ showDataItems: false })
+    expect(mountEditor().showDataItems).toBe(false)
+    saveAppSettings({ showDataItems: true })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent({ name: 'ProtocolEditor' }).props('showDataItems')).toBe(true)
+  })
+
+  it("lists a protocol's data items in the editor without a way to change them, and none once the settings hide them", async () => {
+    const document = {
+      protocol_info: { pre_times: [0], sim_times: [[1, 1]], params_to_change: { 'cell/g_Na': [[120, 240]] } },
+      data_items: [{ variable: 'V_peak', data_type: 'constant', unit: 'mV', operation: 'max', operands: ['cell/V'], value: 30, std: 2, experiment_idx: 0, subexperiment_idx: 1 }],
+    }
+    useProtocolStore().saveDocument(document)
+    /** Opens the dialog with the real editor. */
+    const open = async () => {
+      wrapper?.unmount()
+      wrapper = mount(ProtocolDialog, {
+        props: { modelValue: false, nodes: NODES },
+        global: { plugins: [PrimeVue, ConfirmationService], stubs: { Dialog: { template: '<div><slot /><slot name="footer" /></div>' } }, directives: { tooltip: {} } },
+      })
+      await wrapper.setProps({ modelValue: true })
+    }
+
+    await open()
+    const section = wrapper.find('section[aria-label="Data items"]')
+    expect(section.find('.data-item-name').text()).toBe('V_peak')
+    expect(section.find('.data-item-path').text()).toBe('cell/V')
+    expect(section.text()).toContain('sub-experiment 2')
+    expect(section.text()).not.toContain('max')
+    expect(section.findAll('button')).toHaveLength(0)
+
+    saveAppSettings({ showDataItems: false })
+    await open()
+    expect(wrapper.find('section[aria-label="Data items"]').exists()).toBe(false)
   })
 
   it("checks outputs' ranges against the run's point interval", () => {

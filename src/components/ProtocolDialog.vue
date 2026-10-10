@@ -18,6 +18,9 @@
         :palette="SERIES_COLOURS.light"
         :warn="findIgnoredSettings"
         :dt="simulationSettingsStore.simulationSettings.pointInterval"
+        :show-data-items="settings.showDataItems"
+        data-item-columns="summary"
+        :data-items-read-only="true"
         @update:document="changeDraft"
       />
     </div>
@@ -50,6 +53,7 @@ import Dialog from 'primevue/dialog'
 import { readObsDataParts, validateProtocolInfo } from '@physiomelinks/protocol-kit'
 import { ProtocolEditor } from '@physiomelinks/protocol-kit/editor'
 
+import { useAppSettings } from '../composables/useAppSettings'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { SERIES_COLOURS } from '../services/simulation/seriesSlots'
 import { buildVariableIndex } from '../services/simulation/variableIndex'
@@ -63,6 +67,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 const { confirm } = useConfirmDialog()
+// Data items are listed, not edited: their calibration fields belong to CUFLynx, and the user can hide them.
+const { settings } = useAppSettings()
 const libraryStore = useLibraryStore()
 const protocolStore = useProtocolStore()
 // Its point interval is the dt a run records at, which an output's range must take a sample of.

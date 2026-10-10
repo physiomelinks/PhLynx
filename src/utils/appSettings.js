@@ -41,6 +41,19 @@ export const SETTING_SECTIONS = [
     ],
   },
   {
+    title: 'Protocols',
+    settings: [
+      {
+        key: 'showDataItems',
+        type: 'toggle',
+        label: 'Show data items',
+        description:
+          "List a protocol's data items, the measurements a calibration fits the model to, in the Protocol dialog. They are shown read-only: edit them in CUFLynx.",
+        default: true,
+      },
+    ],
+  },
+  {
     title: 'Image export',
     settings: [
       {

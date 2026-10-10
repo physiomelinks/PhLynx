@@ -95,4 +95,16 @@ describe('SettingsDialog', () => {
       imageExportWarnings: true,
     })
   })
+
+  it('turns the data items off', async () => {
+    await mountDialog()
+    const row = wrapper.findAll('.setting-row').find((row) => row.text().includes('Show data items'))
+    const toggle = row.findComponent(ToggleSwitch)
+    expect(toggle.props('modelValue')).toBe(true)
+    await toggle.setValue(false)
+    await button('Save Changes').trigger('click')
+
+    expect(settings.showDataItems).toBe(false)
+    expect(JSON.parse(window.localStorage.getItem('phlynx-settings'))).toMatchObject({ showDataItems: false })
+  })
 })

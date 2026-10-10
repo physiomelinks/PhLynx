@@ -118,6 +118,17 @@ ADD_FEATURES_PROTOCOL = ADD_PROTOCOL.replace(
     + json.dumps([FEATURE_PLOT])
     + " })",
 )
+# ADD_PROTOCOL's obs_data with data items as CUFLynx writes them: the soma's peak voltage in the second sub-experiment
+# of each experiment, with what a calibration fits it with.
+ADD_DATA_ITEMS_PROTOCOL = ADD_PROTOCOL.replace(
+    "data_items: []",
+    "data_items: "
+    + json.dumps([
+        {"data_item_name": f"V_peak_{label}", "operands": ["soma_SN/V"], "unit": "milliV", "operation": "max",
+         "data_type": "constant", "value": 30, "std": 2, "weight": 1, "experiment_idx": e, "subexperiment_idx": 1}
+        for e, label in enumerate(["SHR", "SHR_M_activation"])
+    ]),
+)
 # The workspace's obs_data, as saved.
 SAVED_OBS_DATA = (
     "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
@@ -639,6 +650,57 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389, 0.00778]})
+            # ----------- END ------------
+
+            context.close()
+            browser.close()
+
+    def test_lists_a_protocols_data_items_unless_the_settings_hide_them(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+
+            context = browser.new_context(viewport={"width": 1600, "height": 1000})
+            context.add_init_script(OPT_IN_TO_ISOLATION)
+            page = context.new_page()
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+
+            # ---------- START -----------
+            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
+            page.evaluate(ADD_DATA_ITEMS_PROTOCOL)
+            saved = page.evaluate(SAVED_OBS_DATA)
+
+            # Listed by name, variable, experiment and sub-experiment, without what a calibration needs or a way to edit.
+            page.get_by_role("button", name="Edit the protocol", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Protocol")
+            section = dialog.get_by_role("region", name="Data items")
+            items = section.locator(".data-item")
+            expect(items).to_have_count(2)
+            expect(items.locator(".data-item-name")).to_have_text(["V_peak_SHR", "V_peak_SHR_M_activation"])
+            expect(items.first.locator(".data-item-meta")).to_contain_text("soma_SN/V")
+            expect(items.first.locator(".data-item-meta")).to_contain_text("SHR")
+            expect(items.first.locator(".data-item-meta")).to_contain_text("sub-experiment 2")
+            expect(section).not_to_contain_text("max")
+            expect(section.get_by_role("button")).to_have_count(0)
+            # Listing them changes nothing to save.
+            expect(dialog.get_by_role("button", name="Save")).to_be_disabled()
+            dialog.get_by_role("button", name="Cancel").click()
+            expect(dialog).to_be_hidden()
+
+            # Turned off in Settings, the section goes; the obs_data is as it was.
+            page.get_by_role("button", name="Settings", exact=True).click()
+            show_data_items = page.get_by_role("switch", name="Show data items")
+            expect(show_data_items).to_be_checked()
+            show_data_items.uncheck()
+            page.get_by_role("button", name="Save Changes").click()
+            page.get_by_role("button", name="Edit the protocol", exact=True).click()
+            expect(dialog.get_by_role("button", name="Add parameter to set")).to_be_visible()
+            expect(dialog.get_by_role("region", name="Data items")).to_have_count(0)
+            dialog.get_by_role("button", name="Cancel").click()
+            self.assertEqual(page.evaluate(SAVED_OBS_DATA), saved)
             # ----------- END ------------
 
             context.close()

@@ -22,6 +22,12 @@ describe('app settings registry', () => {
     expect(defaultAppSettings().showFeaturePlots).toBe(false)
   })
 
+  it('shows data items unless the user chooses otherwise', () => {
+    expect(defaultAppSettings().showDataItems).toBe(true)
+    expect(isValidAppSetting('showDataItems', false)).toBe(true)
+    expect(isValidAppSetting('showDataItems', 'no')).toBe(false)
+  })
+
   it('accepts only true or false for an on/off setting', () => {
     expect(isValidAppSetting('plotInspectionModules', true)).toBe(true)
     expect(isValidAppSetting('plotInspectionModules', 'yes')).toBe(false)
