@@ -572,15 +572,13 @@ describe('useSimulation', () => {
       // Earlier tests leave runs going.
       beforeEach(() => cancelSimulation())
 
-      it('flattens the model as a protocol run does, kept plain, and with its drivers and clock to plan the run on', async () => {
+      it('flattens the model as a protocol run does, with its drivers and clock, to plan the run on', async () => {
         useProtocol({ ...PROTOCOL, params_to_change: { 'a/k': [['up'], [3]] }, protocol_shapes: { up: { type: 'ramp', from: 0, to: 1 } } })
         const { prepareProtocolExport } = useSimulation()
 
         const prepared = await prepareProtocolExport({ nodeIds: null })
 
         expect(prepared.errors).toEqual([])
-        expect(prepared.sedmlProblem).toBeNull()
-        expect(prepared.cellml).toBe('<model/>')
         expect(prepared.sedml.cellml).toBe('<model/><!-- drivers --><!-- clock -->')
         expect(engine.described).toEqual([{ cellml: prepared.sedml.cellml, key: expect.any(Number) }])
         expect(engine.protocolRuns).toEqual([])
@@ -590,13 +588,10 @@ describe('useSimulation', () => {
             ['protocol_drivers/driver_1_value', 'protocol_drivers/driver_1_value'],
           ])
         )
-        expect(prepared.sedml.drivers).toBe(drivenModels.at(-1))
-        expect(prepared.sedml.drivers).toHaveLength(1)
         expect(prepared.sedml.plan.experiments).toHaveLength(2)
         expect(prepared.variables.get('a/x')).toEqual({ kind: 'state', unit: 'dimensionless' })
         expect(prepared.voi).toEqual({ name: 'm/t', unit: 'second' })
         expect(prepared.mapping.get('a::x')).toBe('a/x')
-        expect(prepared.scopeNodeIds).toBeNull()
         expect(prepared.settings).toMatchObject({ pointInterval: expect.any(Number) })
       })
 
@@ -609,9 +604,8 @@ describe('useSimulation', () => {
         engine.protocolRuns[0].finish(PROTOCOL_RESULTS)
         await done
 
-        const prepared = await prepareProtocolExport()
+        await prepareProtocolExport()
 
-        expect(prepared.scopeNodeIds).toEqual(['a'])
         expect(built.scopes.at(-1).nodes.map(({ id }) => id)).toEqual(['a'])
       })
 
@@ -652,12 +646,11 @@ describe('useSimulation', () => {
 
         const prepared = await prepareProtocolExport()
 
-        expect(prepared.errors).toEqual(["Unknown protocol_info keys not in schema: ['unknown']"])
-        expect(prepared.cellml).toBeUndefined()
+        expect(prepared).toEqual({ errors: ["Unknown protocol_info keys not in schema: ['unknown']"] })
         expect(engine.described).toEqual([])
       })
 
-      it("reads the plain model, leaving the run's plan out with why, when the clock can't be written in", async () => {
+      it("can't plan the run, saying why, when the clock can't be written in", async () => {
         useProtocol(PROTOCOL)
         clocking.errors = ['The model has a protocol_clock already.']
         const { prepareProtocolExport } = useSimulation()
@@ -665,40 +658,17 @@ describe('useSimulation', () => {
         const prepared = await prepareProtocolExport()
         clocking.errors = []
 
-        expect(prepared.errors).toEqual([])
-        expect(prepared.sedml).toBeNull()
-        expect(prepared.sedmlProblem).toBe('The model has a protocol_clock already.')
-        expect(engine.described.at(-1).cellml).toBe('<model/>')
-        expect(prepared.variables.has('instance_parameters/k')).toBe(true)
+        expect(prepared).toEqual({ errors: ['The model has a protocol_clock already.'] })
+        expect(engine.described).toEqual([])
       })
 
-      it("still warns of CUFLynx's limits when the run's plan is left out", async () => {
-        useProtocol({ ...PROTOCOL, params_to_change: { 'a/k': [['up'], [3]], 'a/x': [['up'], [3]] }, protocol_shapes: { up: { type: 'ramp', from: 0, to: 1 } } })
-        clocking.errors = ['The model has a protocol_clock already.']
-        const { prepareProtocolExport } = useSimulation()
-
-        const prepared = await prepareProtocolExport()
-        clocking.errors = []
-
-        expect(prepared.sedml).toBeNull()
-        expect(prepared.warnings).toEqual(
-          expect.arrayContaining([
-            "CUFLynx can't run experiment 1, sub-experiment 1: a/k and a/x all change over time, and it follows only one at once.",
-            "CUFLynx can't run a/x changing over time, as it is a state.",
-          ])
-        )
-      })
-
-      it("leaves the run's plan out, with why, when the model lacks a parameter the protocol sets", async () => {
+      it("can't plan the run, saying why, when the model lacks a parameter the protocol sets", async () => {
         useProtocol({ ...PROTOCOL, params_to_change: { 'b/q': [[2], [3]] } })
         const { prepareProtocolExport } = useSimulation()
 
         const prepared = await prepareProtocolExport()
 
-        expect(prepared.errors).toEqual([])
-        expect(prepared.cellml).toBe('<model/>')
-        expect(prepared.sedml).toBeNull()
-        expect(prepared.sedmlProblem).toBe("The protocol sets b/q, which isn't in the model being simulated.")
+        expect(prepared).toEqual({ errors: ["The protocol sets b/q, which isn't in the model being simulated."] })
       })
     })
 

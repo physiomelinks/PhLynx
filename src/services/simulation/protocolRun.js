@@ -24,22 +24,6 @@ export function clampSolverSettings(settings, drivers) {
 }
 
 /**
- * Lists what CUFLynx couldn't run of a protocol on a model without drivers, as prepareProtocolRun warns of it, for when
- * the run can't be prepared.
- *
- * @param {Object} options
- * @param {Object} options.view - The protocol, from readProtocolInfo.
- * @param {Array<Object>} options.nodes - The scope's nodes.
- * @param {Map<string, string>} options.mapping - `nodeId::name` to the name libOpenCOR reports.
- * @param {Map<string, {kind: string}>} options.variables - The plain model's variables, as the simulator lists them.
- * @returns {string[]}
- */
-export function findProtocolLimits({ view, nodes, mapping, variables }) {
-  const { kinds } = resolveProtocolTargets({ parameters: view.controls.map(({ parameter }) => parameter), nodes, mapping, variables })
-  return findCircAutogenLimits(view, { kinds })
-}
-
-/**
  * Prepares a protocol's run.
  *
  * @param {Object} options
