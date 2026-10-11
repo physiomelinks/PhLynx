@@ -96,9 +96,10 @@ describe('useSimulationCharts: the obs_data plots', () => {
     // The data item is the first experiment's.
     expect(shown().references.map(({ label, value }) => [label, value])).toEqual([['peak (calc max)', 6]])
     useProtocolStore().activeExperiment = ALL_EXPERIMENTS
+    // Each named for its variable too, so the CSV's columns say which.
     expect(shown().series.map(({ label, slot }) => [label, slot])).toEqual([
-      ['Control', 0],
-      ['Raised', 1],
+      ['soma/V · Control', 0],
+      ['soma/V · Raised', 1],
     ])
     expect(shown().references.map(({ role, slot }) => [role, slot])).toEqual([
       ['obs', 0],

@@ -87,7 +87,7 @@ function layOutLegend(context, legend, width) {
  * Draws charts one under another on one canvas, each with its title above and a legend of its series
  * below, since uPlot draws its legend as HTML rather than on its canvas.
  *
- * @param {Array<{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string, isDashed?: boolean}>}>} charts
+ * @param {Array<{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string, isDashed?: boolean, isPoint?: boolean}>}>} charts
  * @param {{background: string, text: string, font?: string}} theme
  * @returns {HTMLCanvasElement}
  */
@@ -130,11 +130,15 @@ export function composeChartsImage(charts, { background, text, font = 'system-ui
 
     context.font = legendFont
     for (const line of legends[index]) {
-      for (const { label, colour, left, isDashed } of line) {
+      for (const { label, colour, left, isDashed, isPoint } of line) {
         context.fillStyle = colour
-        // A measurement's reference line, dashed as the chart draws it.
+        // A measurement's reference line, dashed as the chart draws it; a recorded series, a point.
         if (isDashed) for (const offset of [0, 6]) context.fillRect(PADDING + left + offset, top + LEGEND_HEIGHT / 2 - 1, 4, 2)
-        else context.fillRect(PADDING + left, top + (LEGEND_HEIGHT - SWATCH) / 2, SWATCH, SWATCH)
+        else if (isPoint) {
+          context.beginPath()
+          context.arc(PADDING + left + SWATCH / 2, top + LEGEND_HEIGHT / 2, 3, 0, 2 * Math.PI)
+          context.fill()
+        } else context.fillRect(PADDING + left, top + (LEGEND_HEIGHT - SWATCH) / 2, SWATCH, SWATCH)
         context.fillStyle = text
         context.fillText(label, PADDING + left + SWATCH + 4, top + LEGEND_HEIGHT / 2)
       }

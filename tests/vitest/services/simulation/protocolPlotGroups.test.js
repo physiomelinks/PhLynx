@@ -50,14 +50,21 @@ function experimentOf(time, outputs, subs) {
 }
 
 /**
- * Gives an experiment's own series as the kit's features take them, each variable under every name in `aliases`.
+ * Gives an experiment's own series as the kit's features take them, each variable under every name in `aliases`, and
+ * the time, as buildFeatureSegments gives it with no pre_time.
  *
  * @param {Object} experiment
  * @param {Object<string, string>} [aliases] - Another name, to the variable's.
  * @returns {Array<{values: Object}>}
  */
 const segmentsOf = (experiment, aliases = {}) =>
-  experiment.subSeries.map((own) => ({ values: { ...own, ...Object.fromEntries(Object.entries(aliases).map(([alias, name]) => [alias, own[name]])) } }))
+  experiment.subSeries.map((own, s) => ({
+    values: {
+      ...own,
+      ...Object.fromEntries(Object.entries(aliases).map(([alias, name]) => [alias, own[name]])),
+      time: experiment.voi.values.slice(experiment.subs[s].startIndex, experiment.subs[s].endIndex + 1),
+    },
+  }))
 
 /**
  * Builds an obs_data's plots for one experiment shown, its features computed as the store computes them.
@@ -89,13 +96,15 @@ describe('obs plot helpers', () => {
     expect(obsModelVar({ variable: 'var_SN/Cai' })).toBe('var_SN/Cai')
   })
 
-  it('isPlottableOverlay skips frequency, series and plot_type None', () => {
+  it('isPlottableOverlay skips frequency and plot_type None, and takes a series', () => {
     expect(isPlottableOverlay({ plot_type: 'horizontal' })).toBe(true)
     expect(isPlottableOverlay({ plot_type: 'horizontal_from_min' })).toBe(true)
     expect(isPlottableOverlay({ plot_type: 'vertical' })).toBe(true)
     expect(isPlottableOverlay({ plot_type: 'None' })).toBe(false)
     expect(isPlottableOverlay({ plot_type: 'horizontal', data_type: 'frequency' })).toBe(false)
-    expect(isPlottableOverlay({ plot_type: 'horizontal', data_type: 'series' })).toBe(false)
+    expect(isPlottableOverlay({ plot_type: 'horizontal', data_type: 'series' })).toBe(true)
+    // A zero weight doesn't hide it: weight is about the cost, not the plot.
+    expect(isPlottableOverlay({ data_type: 'series', weight: 0 })).toBe(true)
   })
 
   it('derivePlotVariables unions predictions + plottable data items', () => {
@@ -206,10 +215,52 @@ describe('constant reference lines are confined to the window they describe (#34
   })
 
   it('leaves a vertical line alone -- it marks a time, not a window', () => {
-    const [chart] = chartsFor({ data_items: [item({ operation: 'first_peak_time', plot_type: 'vertical', value: 0.5 })] }, EXPERIMENT)
-    // An operation the kit doesn't compute draws only the measurement.
+    // u_AR peaks at 0.5 s in the second sub-experiment.
+    const peaked = experimentOf([0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2], { 'ar/u': [0, 3, 1, 2, 4, 10, 12, 11, 13] }, [
+      [0, 4],
+      [4, 8],
+    ])
+    const [chart] = chartsFor({ data_items: [item({ operands: ['time', 'ar/u'], operation: 'first_peak_time', plot_type: 'vertical', value: 0.4 })] }, peaked)
+    // The calc is CA's first_peak_time over the item's sub-experiment: its first peak, not the whole trace's highest.
     expect(chart.references).toEqual([
-      { key: 'data:0:e0#obs', label: 'u_{AR} (obs first_peak_time)', role: 'obs', slot: 1, orientation: 'vertical', from: null, to: null, value: 0.5 },
+      { key: 'data:0:e0#obs', label: 'u_{AR} (obs first_peak_time)', role: 'obs', slot: 1, orientation: 'vertical', from: null, to: null, value: 0.4 },
+      { key: 'data:0:e0#calc', label: 'u_{AR} (calc first_peak_time)', role: 'calc', slot: 1, orientation: 'vertical', from: null, to: null, value: 0.25 },
+    ])
+    const [second] = chartsFor({ data_items: [item({ operands: ['time', 'ar/u'], operation: 'first_peak_time', plot_type: 'vertical', subexperiment_idx: 1 })] }, peaked)
+    expect(linesOf(second, 'calc')[0].value).toBe(1.5)
+  })
+
+  it('draws a recorded series as points, obs_dt apart from its sub-experiment start, against the model line', () => {
+    const trace = item({
+      data_item_name: 'recorded',
+      data_type: 'series',
+      trace_name_for_plotting: 'u_{AR} recorded',
+      operation: null,
+      plot_type: 'series',
+      weight: 0,
+      obs_dt: 0.5,
+      value: [10, 11, null, 12],
+      subexperiment_idx: 1,
+    })
+    expect(derivePlotVariables({ data_items: [trace] })).toEqual([{ qname: 'ar/u', label: 'u_{AR} recorded', qnames: ['ar/u'] }])
+    const [chart] = chartsFor({ data_items: [trace] }, EXPERIMENT)
+    expect(chart.series).toHaveLength(1)
+    expect(chart.references).toEqual([
+      {
+        key: 'data:0:e0#obs',
+        label: 'u_{AR} recorded (obs)',
+        role: 'obs',
+        slot: 1,
+        orientation: 'points',
+        from: null,
+        to: null,
+        value: null,
+        points: [
+          { x: 1, y: 10 },
+          { x: 1.5, y: 11 },
+          { x: 2.5, y: 12 },
+        ],
+      },
     ])
   })
 
@@ -274,9 +325,10 @@ describe('prediction items', () => {
       features: computeFeatures(document, segments),
       dataItemFeatures: computeDataItemFeatures(document, segments),
     })
+    // Each named for its variable and experiment, as the plotted variables' are, so their CSV columns say which.
     expect(chart.series.map(({ key, label, slot }) => [key, label, slot])).toEqual([
-      ['obs-data::soma/V#e0', 'Control', 0],
-      ['obs-data::soma/V#e1', 'Blocked', 1],
+      ['obs-data::soma/V#e0', 'soma/V · Control', 0],
+      ['obs-data::soma/V#e1', 'soma/V · Blocked', 1],
     ])
     expect(chart.references.map(({ role, slot, value }) => [role, slot, value])).toEqual([
       ['obs', 0, 8],

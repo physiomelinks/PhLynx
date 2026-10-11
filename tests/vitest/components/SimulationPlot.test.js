@@ -16,7 +16,7 @@ vi.mock('uplot', () => {
       const calls = []
       this.calls = calls
       const record = (name) => (...args) => calls.push([name, ...args])
-      this.ctx = { canvas: null, save() {}, restore() {}, clip() {}, rect() {}, beginPath: record('begin'), moveTo: record('move'), lineTo: record('line'), stroke: record('stroke'), setLineDash: record('dash') }
+      this.ctx = { canvas: null, save() {}, restore() {}, clip() {}, rect() {}, beginPath: record('begin'), moveTo: record('move'), lineTo: record('line'), stroke: record('stroke'), setLineDash: record('dash'), arc: record('arc'), fill: record('fill') }
       target.appendChild(this.root)
       charts.push(this)
     }
@@ -119,5 +119,36 @@ describe('SimulationPlot: reference lines', () => {
       ['V (calc max)', false],
       ['V (obs first_peak_time)', true],
     ])
+  })
+
+  it('draws a recorded series as points, keyed by a point, fitting the values to them', () => {
+    const points = {
+      key: 'trace#obs',
+      label: 'V recorded (obs)',
+      role: 'obs',
+      slot: 3,
+      orientation: 'points',
+      from: null,
+      to: null,
+      value: null,
+      points: [
+        { x: 0, y: -2 },
+        { x: 2, y: 5 },
+      ],
+    }
+    wrapper = mount(SimulationPlot, { props: { title: 'V', unit: 'mV', x: X, series: SERIES, references: [points] }, attachTo: document.body })
+    const item = wrapper.findAll('.plot-key .plot-key-toggle')[1]
+    expect(item.find('.plot-key-swatch').classes()).toEqual(expect.arrayContaining(['is-point']))
+    expect(item.find('.plot-key-swatch').classes()).not.toContain('is-dashed')
+    expect(item.attributes('title')).toBe('Hide V recorded (obs)')
+    const [chart] = charts
+    chart.options.hooks.draw[0](chart)
+    expect(chart.calls.filter(([name]) => name === 'arc').map(([, x, y, radius]) => [x, y, radius])).toEqual([
+      [0, -2, 3],
+      [2, 5, 3],
+    ])
+    expect(chart.calls.some(([name]) => name === 'stroke')).toBe(false)
+    expect(chart.options.scales.y.range(chart, 1, 4)).toEqual([-2, 5])
+    expect(wrapper.vm.snapshot().legend.at(-1)).toMatchObject({ label: 'V recorded (obs)', isDashed: false, isPoint: true })
   })
 })

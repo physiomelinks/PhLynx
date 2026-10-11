@@ -29,7 +29,7 @@
       <span class="plot-unit">{{ unit }}</span>
     </figcaption>
     <!-- A key of the lines when the title names the plot rather than them, which it colours itself, and of the
-      reference lines: a measurement dashed, the run's solid. -->
+      reference lines: a measurement dashed (or points, for a recorded series), the run's solid. -->
     <ul v-if="keyed.length" class="plot-key">
       <li v-for="item in keyed" :key="item.key">
         <button
@@ -41,7 +41,12 @@
           :data-value="item.role ? item.value : undefined"
           @click="toggleSeries(item)"
         >
-          <span class="plot-key-swatch" :class="{ 'is-dashed': item.role === 'obs' }" :style="swatchStyle(item)" aria-hidden="true"></span
+          <span
+            class="plot-key-swatch"
+            :class="{ 'is-dashed': item.role === 'obs' && !item.points, 'is-point': !!item.points }"
+            :style="swatchStyle(item)"
+            aria-hidden="true"
+          ></span
           >{{ item.label }}
         </button>
       </li>
@@ -82,7 +87,8 @@ const props = defineProps({
   x: { type: Object, required: true }, // { label, unit, values, segments? }, segments [{ from, to, number }]
   series: { type: Array, required: true }, // [{ key, label, slot, values, isStepped? }]
   // Lines across a window or up the chart, in values, as protocolPlotGroups builds them: [{ key, label, role, slot,
-  // orientation, from, to, value }], `role` 'obs' (dashed) or 'calc' (solid).
+  // orientation, from, to, value }], `role` 'obs' (dashed) or 'calc' (solid); or a recorded series' `points`
+  // ([{ x, y }]), orientation 'points'.
   references: { type: Array, default: () => [] },
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
@@ -142,7 +148,7 @@ const keyed = computed(() => [
  * @param {{label: string, role?: string, value?: number}} item
  * @returns {string}
  */
-const toggleHint = (item) => `${isHidden(item) ? 'Show' : 'Hide'} ${item.label}${item.role ? `: ${formatValue(item.value)}` : ''}`
+const toggleHint = (item) => `${isHidden(item) ? 'Show' : 'Hide'} ${item.label}${item.role && !item.points ? `: ${formatValue(item.value)}` : ''}`
 
 /**
  * Shows or hides a series' line, or a reference line, refitting the values to the lines left; the time range stays.
@@ -178,13 +184,14 @@ const colourOf = (item) => SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][i
 /**
  * Colours a key swatch: filled, or a dashed line's colour for a measurement.
  *
- * @param {{slot: number, role?: string}} item
+ * @param {{slot: number, role?: string, points?: Array}} item
  * @returns {Object}
  */
-const swatchStyle = (item) => (item.role === 'obs' ? { color: colourOf(item) } : { background: colourOf(item) })
+const swatchStyle = (item) => (item.role === 'obs' && !item.points ? { color: colourOf(item) } : { background: colourOf(item) })
 
 /**
- * Draws the reference lines shown, in values: a measurement dashed, the run's solid, across its window or up the chart.
+ * Draws the reference lines shown, in values: a measurement dashed, the run's solid, across its window or up the chart;
+ * a recorded series as points.
  *
  * @param {Object} chart - The uPlot chart.
  */
@@ -199,6 +206,15 @@ function drawReferences(chart) {
   ctx.clip()
   ctx.lineWidth = 1.5 * ratio
   for (const item of shown) {
+    if (item.points) {
+      ctx.fillStyle = colourOf(item)
+      for (const { x, y } of item.points) {
+        ctx.beginPath()
+        ctx.arc(chart.valToPos(x, 'x', true), chart.valToPos(y, 'y', true), 3 * ratio, 0, 2 * Math.PI)
+        ctx.fill()
+      }
+      continue
+    }
     ctx.strokeStyle = colourOf(item)
     ctx.setLineDash(item.role === 'obs' ? [6 * ratio, 4 * ratio] : [])
     ctx.beginPath()
@@ -228,7 +244,12 @@ function rangeY(_, min, max) {
   let low = min ?? Infinity
   let high = max ?? -Infinity
   for (const item of props.references) {
-    if (item.orientation === 'vertical' || isHidden(item) || !Number.isFinite(item.value)) continue
+    if (isHidden(item)) continue
+    for (const { y } of item.points ?? []) {
+      low = Math.min(low, y)
+      high = Math.max(high, y)
+    }
+    if (item.orientation === 'vertical' || !Number.isFinite(item.value)) continue
     low = Math.min(low, item.value)
     high = Math.max(high, item.value)
   }
@@ -433,7 +454,7 @@ onBeforeUnmount(() => {
 watch(
   () => [
     props.series.map((series) => `${series.key}:${series.slot}`).join('|'),
-    props.references.map((item) => `${item.key}:${item.slot}:${item.from}:${item.to}:${item.value}`).join('|'),
+    props.references.map((item) => `${item.key}:${item.slot}:${item.from}:${item.to}:${item.value}:${item.points?.length}`).join('|'),
     isDarkMode.value,
     props.x.unit,
     props.unit,
@@ -451,7 +472,7 @@ defineExpose({
    * Gets the chart as drawn, with the colours of its series, for an image of it.
    *
    * @returns {{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string, isDashed?: boolean}>}|null}
-   *   A measurement's reference line `isDashed`.
+   *   A measurement's reference line `isDashed`, a recorded series' `isPoint`.
    */
   snapshot() {
     if (!plot) return null
@@ -467,7 +488,7 @@ defineExpose({
       canvas: plot.ctx.canvas,
       legend: [
         ...shown.map((series) => ({ label: series.label, colour: colours[series.slot] })),
-        ...references.map((item) => ({ label: item.label, colour: colours[item.slot], isDashed: item.role === 'obs' })),
+        ...references.map((item) => ({ label: item.label, colour: colours[item.slot], isDashed: item.role === 'obs' && !item.points, isPoint: !!item.points })),
       ],
     }
   },
@@ -599,6 +620,13 @@ watch(
   height: 0;
   border-radius: 0;
   border-top: 2px dashed currentColor;
+}
+
+/* A recorded series, a point as it's drawn. */
+.plot-key-swatch.is-point {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
 }
 
 .plot-area {

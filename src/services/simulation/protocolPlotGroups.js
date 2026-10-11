@@ -1,8 +1,8 @@
 /**
  * The plots a protocol run's obs_data asks for, as CUFLynx draws them (its lib/plot.js): each prediction item's
  * variable as a trace, one plot per trace label, and on it each data item's measured value as a dashed obs line and
- * the run's as a solid calc line, over the window its operation reduces; and a prediction item's feature as a calc
- * line, with an obs line when it holds a value.
+ * the run's as a solid calc line, over the window its operation reduces, or a recorded series as points; and a
+ * prediction item's feature as a calc line, with an obs line when it holds a value.
  */
 import { isRangeOperation, readObsDataParts, readOperation, sliceRangeBounds } from '@physiomelinks/protocol-kit'
 
@@ -29,14 +29,15 @@ export function obsModelVar(item) {
 }
 
 /**
- * Whether a data item is drawn as a line across its plot or up it: a horizontal plot_type (horizontal,
- * horizontal_from_min…) or vertical. A frequency, or a series, isn't drawn here.
+ * Whether a data item is drawn on its variable's plot: a series, as points, or a line across the plot or up it, for a
+ * horizontal plot_type (horizontal, horizontal_from_min…) or vertical. A frequency isn't drawn here.
  *
  * @param {Object} item
  * @returns {boolean}
  */
 export function isPlottableOverlay(item) {
-  if (item.data_type === 'frequency' || item.data_type === 'series') return false
+  if (item.data_type === 'frequency') return false
+  if (item.data_type === 'series') return true
   const plotType = item.plot_type
   return (typeof plotType === 'string' && plotType.startsWith('horizontal')) || plotType === 'vertical'
 }
@@ -168,6 +169,27 @@ function buildItemLines({ key, name, operation, isVertical, obs, calc, window, b
 }
 
 /**
+ * Builds the points of a recorded series, as CUFLynx draws them: its values, obs_dt apart from its sub-experiment's
+ * start, not joined, as a measurement isn't known between them.
+ *
+ * @param {Object} options
+ * @param {string} options.key
+ * @param {string} options.name
+ * @param {Object} options.item
+ * @param {number} options.start - Its sub-experiment's start, on the experiment's time axis.
+ * @param {number} options.slot
+ * @returns {Array<Object>} As SimulationPlot takes them, its `points` `{x, y}`; none for no values.
+ */
+function buildSeriesPoints({ key, name, item, start, slot }) {
+  const values = item.value ?? item.values
+  const step = Number(item.obs_dt ?? 1)
+  if (!Array.isArray(values) || !Number.isFinite(step)) return []
+  const points = values.flatMap((y, i) => (Number.isFinite(y) ? [{ x: start + i * step, y }] : []))
+  if (!points.length) return []
+  return [{ key: `${key}#obs`, label: `${name} (obs)`, role: 'obs', slot, orientation: 'points', from: null, to: null, value: null, points }]
+}
+
+/**
  * Builds the plots of a protocol run's obs_data, for the experiments shown: one per trace label (derivePlotVariables),
  * its variable's trace in each, with its data items' obs and calc lines and its prediction items' features. One whose
  * variable the model lacks is left out.
@@ -193,7 +215,7 @@ export function buildObsDataCharts({ document, shown, resolve, features = [], da
     const wanted = new Set(qnames)
     const series = shown.map(({ experiment, name, results, place }) => ({
       key: `obs-data::${reported}${isOverlay ? `#e${experiment}` : ''}`,
-      label: isOverlay ? name : label,
+      label: isOverlay ? `${label} · ${name}` : label,
       values: place(results.variables.get(reported)?.values ?? []),
       slot: isOverlay ? experiment % SLOT_COUNT : 0,
       isStepped: false,
@@ -212,14 +234,19 @@ export function buildObsDataCharts({ document, shown, resolve, features = [], da
       }
       for (const item of overlayItemsFor(document, experiment, qnames)) {
         const index = dataItems.indexOf(item)
+        const sub = Number(item.subexperiment_idx ?? 0)
+        const name = item.trace_name_for_plotting ?? item.name_for_plotting ?? item.data_item_name ?? item.variable ?? 'obs'
+        if (item.data_type === 'series') {
+          const start = times[results.subs?.[sub]?.startIndex] ?? 0
+          references.push(...buildSeriesPoints({ key: `data:${index}:e${experiment}`, name, item, start, slot: slotFor() }))
+          continue
+        }
         const feature = dataFeatureOf.get(index)
         const operation = readOperation(item.operation)
-        const sub = Number(item.subexperiment_idx ?? 0)
         const window = findItemWindow(times, results.subs, sub, operation, feature?.kwargs ?? item.operation_kwargs)
         const isVertical = item.plot_type === 'vertical'
         if (!window && !isVertical) continue
         const base = !isVertical && SPAN_OPERATIONS.has(operation) ? leastOf(window, sub) : 0
-        const name = item.trace_name_for_plotting ?? item.name_for_plotting ?? item.data_item_name ?? item.variable ?? 'obs'
         references.push(
           ...buildItemLines({ key: `data:${index}:e${experiment}`, name, operation, isVertical, obs: item.value, calc: feature?.value, window, base, slot: slotFor() })
         )
