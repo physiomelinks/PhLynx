@@ -18,7 +18,3 @@ jobs:
       - run: corepack enable && yarn install --frozen-lockfile
 
       - run: yarn test
-
-      # run_sedml.py, which protocol exports ship: it compiles and imports only its requirements. The tests that run
-      # it need libsedml, Myokit and SUNDIALS, and skip themselves without them.
-      - run: python3 -m unittest discover -s tests/python -v

@@ -1141,9 +1141,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@physiomelinks/protocol-kit@npm:^0.1.0":
-  version: 0.1.0
-  resolution: "@physiomelinks/protocol-kit@npm:0.1.0"
+"@physiomelinks/protocol-kit@npm:^0.5.0":
+  version: 0.5.0
+  resolution: "@physiomelinks/protocol-kit@npm:0.5.0"
   peerDependencies:
     papaparse: ^5.5
     primevue: ^4
@@ -1155,7 +1155,7 @@ __metadata:
       optional: true
     vue:
       optional: true
-  checksum: 10c0/6725abb1e10108f117ca2280f2b374b8042b71de2fd4301ae96cfae678e0b132a4837476b69318c6dc8ec4b88fd25282987dc1b7765371135cb6d939f89e5c80
+  checksum: 10c0/5ca34e4ebc811960f46d6700d62272d2db141249517eef8848c58d83e3c5ee7b655c8dc3eb9f2d3a2ecead141f0d883b690abe0dc976caa058cc2e92bb4336de
   languageName: node
   linkType: hard
 
@@ -5771,7 +5771,7 @@ __metadata:
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
     "@opencor/libopencor": "npm:^1.20261006.1"
-    "@physiomelinks/protocol-kit": "npm:^0.1.0"
+    "@physiomelinks/protocol-kit": "npm:^0.5.0"
     "@primeuix/utils": "npm:0.6.2"
     "@primevue/themes": "npm:4"
     "@tailwindcss/vite": "npm:^4.3.3"

@@ -28,18 +28,26 @@
       <!-- The values' unit, here rather than as a rotated axis title, which takes a column of the chart. -->
       <span class="plot-unit">{{ unit }}</span>
     </figcaption>
-    <!-- A key only when the title names the plot rather than its lines, which it colours itself. -->
-    <ul v-if="series.length > 1 && !titleNamesLines" class="plot-key">
-      <li v-for="item in series" :key="item.key">
+    <!-- A key of the lines when the title names the plot rather than them, which it colours itself, and of the
+      reference lines: a measurement dashed (or points, for a recorded series), the run's solid. -->
+    <ul v-if="keyed.length" class="plot-key">
+      <li v-for="item in keyed" :key="item.key">
         <button
           type="button"
           class="plot-key-toggle"
           :class="{ 'is-hidden': isHidden(item) }"
           :aria-pressed="!isHidden(item)"
           :title="toggleHint(item)"
+          :data-value="item.role ? item.value : undefined"
           @click="toggleSeries(item)"
         >
-          <span class="plot-key-swatch" :style="{ background: colourOf(item) }" aria-hidden="true"></span>{{ item.label }}
+          <span
+            class="plot-key-swatch"
+            :class="{ 'is-dashed': item.role === 'obs' && !item.points, 'is-point': !!item.points }"
+            :style="swatchStyle(item)"
+            aria-hidden="true"
+          ></span
+          >{{ item.label }}
         </button>
       </li>
     </ul>
@@ -67,13 +75,10 @@ import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 
 import { useColorScheme } from '../../composables/useColorScheme'
+import { AXIS_FONT, CHROME, formatTicks, formatValue, measureLabel, sizeValueAxis } from '../../services/simulation/chartStyle'
 import { getChartZoom, setChartZoom } from '../../services/simulation/chartZoom'
 import { SERIES_COLOURS } from '../../services/simulation/seriesSlots'
 
-const CHROME = {
-  light: { text: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7', band: 'rgba(82, 81, 78, 0.06)' },
-  dark: { text: '#c3c2b7', grid: '#2c2c2a', axis: '#383835', band: 'rgba(195, 194, 183, 0.07)' },
-}
 const props = defineProps({
   title: { type: String, required: true },
   // The title as instance/variable paths, to show each instance muted, or null to show `title`.
@@ -81,6 +86,10 @@ const props = defineProps({
   unit: { type: String, required: true },
   x: { type: Object, required: true }, // { label, unit, values, segments? }, segments [{ from, to, number }]
   series: { type: Array, required: true }, // [{ key, label, slot, values, isStepped? }]
+  // Lines across a window or up the chart, in values, as protocolPlotGroups builds them: [{ key, label, role, slot,
+  // orientation, from, to, value }], `role` 'obs' (dashed) or 'calc' (solid); or a recorded series' `points`
+  // ([{ x, y }]), orientation 'points'.
+  references: { type: Array, default: () => [] },
   height: { type: Number, default: 220 },
   // Charts with the same key show their cursors at the same time.
   syncKey: { type: String, default: null },
@@ -89,63 +98,12 @@ const props = defineProps({
 })
 
 /**
- * Formats axis ticks to as many decimals as their spacing needs, or in exponent form when very small or
- * large, so ticks a thousandth apart don't all read 0.
- *
- * @param {Object} _ - The chart.
- * @param {number[]} splits - The tick values.
- * @returns {string[]}
- */
-function formatTicks(_, splits) {
-  const step = splits.length > 1 ? Math.abs(splits[1] - splits[0]) : Math.abs(splits[0]) || 1
-  const largest = Math.max(...splits.map(Math.abs))
-  if (largest >= 1e6 || (largest > 0 && step < 1e-4)) return splits.map((value) => (value === 0 ? '0' : value.toExponential(2)))
-  const decimals = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9))
-  return splits.map((value) => value.toFixed(decimals))
-}
-
-const AXIS_FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif'
-// What an axis takes beside its labels: uPlot's ticks (10px) and the gap after them (5px), and a little to spare.
-const AXIS_CHROME_PX = 18
-let measuringContext = null
-
-/**
- * Measures a tick label as the axis draws it.
- *
- * @param {string} text
- * @returns {number} Pixels.
- */
-function measureLabel(text) {
-  measuringContext ??= document.createElement('canvas').getContext('2d')
-  if (!measuringContext) return text.length * 7
-  measuringContext.font = AXIS_FONT
-  return measuringContext.measureText(text).width
-}
-
-/**
- * Sizes the value axis to fit its widest tick label; its unit is in the chart's heading.
- *
- * @param {Object} _ - The chart.
- * @param {string[]|null} values - The tick labels, once known.
- * @returns {number} Pixels.
- */
-const sizeValueAxis = (_, values) => Math.max(32, Math.ceil(Math.max(0, ...(values ?? []).map(measureLabel))) + AXIS_CHROME_PX)
-
-/**
  * Pads the chart's right side by half its last time label, which is centred on the right edge, so it isn't cut off.
  *
  * @param {Object} chart
  * @returns {number} Pixels.
  */
 const padRight = (chart) => Math.max(12, Math.ceil(measureLabel(chart.axes[0]?._values?.at(-1) ?? '') / 2) + 2)
-
-/**
- * Formats a value for the readout, to 5 significant figures.
- *
- * @param {number|null|undefined} value
- * @returns {string}
- */
-const formatValue = (value) => (Number.isFinite(value) ? String(Number(value.toPrecision(5))) : '–')
 
 // The readout's width, about, to keep it inside the chart.
 const READOUT_WIDTH_PX = 150
@@ -177,25 +135,40 @@ const isHidden = (item) => hiddenKeys.value.has(item.key)
 
 // Whether the title names each line, and so carries their toggles; otherwise the key under it does.
 const titleNamesLines = computed(() => props.series.length > 1 && props.titleParts?.length === props.series.length)
+// What the key lists: the lines, unless the title names them or there's one with nothing beside it, then the
+// reference lines.
+const keyed = computed(() => [
+  ...(!titleNamesLines.value && (props.series.length > 1 || props.references.length) ? props.series : []),
+  ...props.references,
+])
 
 /**
- * Describes what clicking a series' name does.
+ * Describes what clicking a series' name does, with a reference line's value.
  *
- * @param {{label: string}} item
+ * @param {{label: string, role?: string, value?: number}} item
  * @returns {string}
  */
-const toggleHint = (item) => `${isHidden(item) ? 'Show' : 'Hide'} ${item.label}`
+const toggleHint = (item) => `${isHidden(item) ? 'Show' : 'Hide'} ${item.label}${item.role && !item.points ? `: ${formatValue(item.value)}` : ''}`
 
 /**
- * Shows or hides a series' line, refitting the values to the lines left; the time range stays.
+ * Shows or hides a series' line, or a reference line, refitting the values to the lines left; the time range stays.
  *
- * @param {{key: string}} item
+ * @param {{key: string, role?: string}} item
  */
 function toggleSeries(item) {
   const hidden = new Set(hiddenKeys.value)
   if (hidden.has(item.key)) hidden.delete(item.key)
   else hidden.add(item.key)
   hiddenKeys.value = hidden
+  if (item.role) {
+    // The values' range takes in the reference lines shown, the zoom kept.
+    if (!plot) return
+    isUpdatingData = true
+    plot.setData(buildData())
+    restoreZoom()
+    isUpdatingData = false
+    return
+  }
   const index = props.series.findIndex((series) => series.key === item.key)
   if (plot && index >= 0) plot.setSeries(index + 1, { show: !hidden.has(item.key) })
 }
@@ -207,6 +180,81 @@ function toggleSeries(item) {
  * @returns {string}
  */
 const colourOf = (item) => SERIES_COLOURS[isDarkMode.value ? 'dark' : 'light'][item.slot]
+
+/**
+ * Colours a key swatch: filled, or a dashed line's colour for a measurement.
+ *
+ * @param {{slot: number, role?: string, points?: Array}} item
+ * @returns {Object}
+ */
+const swatchStyle = (item) => (item.role === 'obs' && !item.points ? { color: colourOf(item) } : { background: colourOf(item) })
+
+/**
+ * Draws the reference lines shown, in values: a measurement dashed, the run's solid, across its window or up the chart;
+ * a recorded series as points.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function drawReferences(chart) {
+  const shown = props.references.filter((item) => !isHidden(item))
+  if (!shown.length) return
+  const { ctx, bbox } = chart
+  const ratio = uPlot.pxRatio
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(bbox.left, bbox.top, bbox.width, bbox.height)
+  ctx.clip()
+  ctx.lineWidth = 1.5 * ratio
+  for (const item of shown) {
+    if (item.points) {
+      ctx.fillStyle = colourOf(item)
+      for (const { x, y } of item.points) {
+        ctx.beginPath()
+        ctx.arc(chart.valToPos(x, 'x', true), chart.valToPos(y, 'y', true), 3 * ratio, 0, 2 * Math.PI)
+        ctx.fill()
+      }
+      continue
+    }
+    ctx.strokeStyle = colourOf(item)
+    ctx.setLineDash(item.role === 'obs' ? [6 * ratio, 4 * ratio] : [])
+    ctx.beginPath()
+    if (item.orientation === 'vertical') {
+      const x = chart.valToPos(item.value, 'x', true)
+      ctx.moveTo(x, bbox.top)
+      ctx.lineTo(x, bbox.top + bbox.height)
+    } else {
+      const y = chart.valToPos(item.value, 'y', true)
+      ctx.moveTo(chart.valToPos(item.from, 'x', true), y)
+      ctx.lineTo(chart.valToPos(item.to, 'x', true), y)
+    }
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+/**
+ * Pads the values' range as uPlot does, taking in the reference lines shown across the chart.
+ *
+ * @param {Object} _ - The chart.
+ * @param {number|null} min
+ * @param {number|null} max
+ * @returns {number[]}
+ */
+function rangeY(_, min, max) {
+  let low = min ?? Infinity
+  let high = max ?? -Infinity
+  for (const item of props.references) {
+    if (isHidden(item)) continue
+    for (const { y } of item.points ?? []) {
+      low = Math.min(low, y)
+      high = Math.max(high, y)
+    }
+    if (item.orientation === 'vertical' || !Number.isFinite(item.value)) continue
+    low = Math.min(low, item.value)
+    high = Math.max(high, item.value)
+  }
+  return low <= high ? uPlot.rangeNum(low, high, 0.1, true) : [0, 1]
+}
 
 /**
  * Shows the values under the cursor beside it, flipping to its left near the chart's right edge, or hides
@@ -331,10 +379,11 @@ function buildOptions(width) {
   return {
     width,
     height: props.height,
-    scales: { x: { time: false } },
+    // A chart with reference lines fits them in too.
+    scales: { x: { time: false }, ...(props.references.length && { y: { range: rangeY } }) },
     // Synced charts plot different series, so hiding one mustn't hide its namesake by position elsewhere.
     cursor: { y: false, points: { size: 8 }, ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false } }) },
-    hooks: { setScale: [recordZoom], setCursor: [updateReadout], drawClear: [drawSegments] },
+    hooks: { setScale: [recordZoom], setCursor: [updateReadout], drawClear: [drawSegments], draw: [drawReferences] },
     legend: { show: false },
     padding: [8, padRight, 0, 0],
     axes: [{ ...axis(timeTicks), size: 28 }, { ...axis(), size: sizeValueAxis }],
@@ -363,7 +412,7 @@ const buildData = () => [props.x.values, ...props.series.map((series) => series.
  */
 function pruneHidden() {
   if (!hiddenKeys.value.size) return
-  const keys = new Set(props.series.length > 1 ? props.series.map((series) => series.key) : [])
+  const keys = new Set([...(props.series.length > 1 ? props.series.map((series) => series.key) : []), ...props.references.map((item) => item.key)])
   const hidden = new Set([...hiddenKeys.value].filter((key) => keys.has(key)))
   if (hidden.size !== hiddenKeys.value.size) hiddenKeys.value = hidden
 }
@@ -403,7 +452,14 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.series.map((series) => `${series.key}:${series.slot}`).join('|'), isDarkMode.value, props.x.unit, props.unit, props.syncKey],
+  () => [
+    props.series.map((series) => `${series.key}:${series.slot}`).join('|'),
+    props.references.map((item) => `${item.key}:${item.slot}:${item.from}:${item.to}:${item.value}:${item.points?.length}`).join('|'),
+    isDarkMode.value,
+    props.x.unit,
+    props.unit,
+    props.syncKey,
+  ],
   draw
 )
 watch(
@@ -415,7 +471,8 @@ defineExpose({
   /**
    * Gets the chart as drawn, with the colours of its series, for an image of it.
    *
-   * @returns {{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string}>}|null}
+   * @returns {{title: string, canvas: HTMLCanvasElement, legend: Array<{label: string, colour: string, isDashed?: boolean}>}|null}
+   *   A measurement's reference line `isDashed`, a recorded series' `isPoint`.
    */
   snapshot() {
     if (!plot) return null
@@ -425,7 +482,15 @@ defineExpose({
     const name = titleNamesLines.value && shown.length ? shown.map((series) => series.label).join(', ') : props.title
     // The unit is in the heading, not on the canvas, so the image's title carries it.
     const title = props.unit ? `${name} (${props.unit})` : name
-    return { title, canvas: plot.ctx.canvas, legend: shown.map((series) => ({ label: series.label, colour: colours[series.slot] })) }
+    const references = props.references.filter((item) => !isHidden(item))
+    return {
+      title,
+      canvas: plot.ctx.canvas,
+      legend: [
+        ...shown.map((series) => ({ label: series.label, colour: colours[series.slot] })),
+        ...references.map((item) => ({ label: item.label, colour: colours[item.slot], isDashed: item.role === 'obs' && !item.points, isPoint: !!item.points })),
+      ],
+    }
   },
 })
 // New values, as a slider moving gives, keep a zoomed chart on its time range, with the values refitted to it.
@@ -547,6 +612,21 @@ watch(
   width: 10px;
   height: 3px;
   border-radius: 2px;
+}
+
+/* A measurement's reference line, dashed as it's drawn. */
+.plot-key-swatch.is-dashed {
+  width: 12px;
+  height: 0;
+  border-radius: 0;
+  border-top: 2px dashed currentColor;
+}
+
+/* A recorded series, a point as it's drawn. */
+.plot-key-swatch.is-point {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
 }
 
 .plot-area {

@@ -13,7 +13,8 @@ import {
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
 import { addProtocolClock, addProtocolDrivers } from '../services/simulation/protocolDriverModel'
-import { prepareProtocolRun } from '../services/simulation/protocolRun'
+import { listFeatureOperands, resolveFeatureOperands } from '../services/simulation/protocolFeatures'
+import { clampSolverSettings, prepareProtocolRun } from '../services/simulation/protocolRun'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -133,6 +134,7 @@ export function useSimulation() {
     // once too, so a protocol saved while the model flattens can't mix into this run.
     const drivers = isProtocolRun ? protocolStore.drivers : []
     const view = isProtocolRun ? protocolStore.view : null
+    const featureOperandNames = isProtocolRun ? listFeatureOperands(protocolStore.source?.document) : []
     const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')
     const overrides = selectRunOverrides(isProtocolRun)
     const settings = { ...simulationSettingsStore.simulationSettings }
@@ -173,7 +175,22 @@ export function useSimulation() {
 
       const onProgress = (progress) => token === runToken && (store.progress = progress)
       if (isProtocolRun) {
-        await runProtocolOn({ simulator, token, nodeIds, scope, structure, view, drivers, overrides, settings, signature, kept: changes ? kept : null, changes, onProgress })
+        await runProtocolOn({
+          simulator,
+          token,
+          nodeIds,
+          scope,
+          structure,
+          view,
+          drivers,
+          featureOperandNames,
+          overrides,
+          settings,
+          signature,
+          kept: changes ? kept : null,
+          changes,
+          onProgress,
+        })
         return
       }
       let results
@@ -231,11 +248,27 @@ export function useSimulation() {
    * simulator reads it and lists its variables, so the protocol's parameters can be found in it before anything runs.
    *
    * @param {Object} options - What run worked out: `{ simulator, token, nodeIds, scope, structure, view, drivers,
-   *   overrides, settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when the model needs
-   *   flattening, and `view` and `drivers` the protocol's as the run started.
+   *   featureOperandNames, overrides, settings, signature, kept, changes, onProgress }`, `kept` and `changes` null when
+   *   the model needs flattening, and `view`, `drivers` and `featureOperandNames` (see listFeatureOperands) the
+   *   protocol's as the run started.
    * @returns {Promise<void>}
    */
-  async function runProtocolOn({ simulator, token, nodeIds, scope, structure, view, drivers, overrides, settings: givenSettings, signature, kept, changes, onProgress }) {
+  async function runProtocolOn({
+    simulator,
+    token,
+    nodeIds,
+    scope,
+    structure,
+    view,
+    drivers,
+    featureOperandNames,
+    overrides,
+    settings: givenSettings,
+    signature,
+    kept,
+    changes,
+    onProgress,
+  }) {
     let settings = givenSettings
     let source = kept
     if (!source) {
@@ -283,14 +316,18 @@ export function useSimulation() {
       return
     }
 
+    // Each sub-experiment's own series of what the features reduce, as circulatory_autogen records them.
+    const featureOperands = resolveFeatureOperands({ operands: featureOperandNames, nodes: scope.nodes, mapping: source.mapping, variables: source.variables })
+    const recorded = [...new Set(featureOperands.values())]
     isCurrentRunKept = !!kept
-    currentRun = simulator.startProtocol({ key: source.key, settings, plan, targets, baseChanges: changes ?? [], onProgress })
+    currentRun = simulator.startProtocol({ key: source.key, settings, plan, targets, baseChanges: changes ?? [], recorded, onProgress })
     try {
       const protocolResults = await currentRun.promise
       if (token !== runToken) return
       store.finishProtocolRun({
         protocolResults,
         inputs,
+        featureOperands,
         experiment: protocolStore.activeExperiment,
         mapping: source.mapping,
         signature,
@@ -300,50 +337,50 @@ export function useSimulation() {
       if (error.code === 'no-session') session = null
       if (token !== runToken) return
       const partial = error.partialResults && { experiments: error.partialResults.experiments, issues: [], elapsedMs: 0, isStopped: false }
-      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, inputs, mapping: source.mapping }
+      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, inputs, featureOperands, mapping: source.mapping }
       store.failRun('error', { message: error.message, issues: error.issues ?? [] }, shown)
     }
   }
 
   /**
-   * Prepares the protocol's export: the scope flattened as runProtocolOn flattens it, with its drivers and the
-   * protocol's clock (see addProtocolClock) written in, then read by the simulator to find the protocol's parameters in
-   * it and plan its run. Refused while a run is going, as the simulator reads one model at a time.
+   * Prepares the protocol's run for its SED-ML: the scope flattened as runProtocolOn flattens it, with its drivers and
+   * the protocol's clock (see addProtocolClock) written in, which the simulator reads to find the protocol's parameters
+   * in it and plan the run. Refused while a run is going, as the simulator reads one model at a time.
    *
    * @param {Object} [options]
    * @param {string[]|null} [options.nodeIds] - The nodes to export, or null for every node; by default the last run's.
-   * @returns {Promise<{errors: string[], warnings: string[], cellml?: string, scope?: Object, scopeNodeIds?: string[]|null, plan?: Object,
-   *   targets?: Map<string, string>, inputs?: Map<string, Object>, drivers?: Array<Object>, settings?: Object, mapping?: Map<string, string>,
-   *   variables?: Map<string, {kind: string, unit: string}>, inspectionOutputs?: Array<Object>,
-   *   voi?: {name: string, unit: string}}>} Only `errors` and `warnings` when it can't be prepared.
+   * @returns {Promise<{errors: string[], settings?: Object, mapping?: Map<string, string>,
+   *   variables?: Map<string, {kind: string, unit: string}>, voi?: {name: string, unit: string}, sedml?: {cellml: string,
+   *   plan: Object, targets: Map<string, string>, inputs: Map<string, Object>}}>} Only `errors`, saying why, when
+   *   PhLynx can't plan the run. `settings` are the run's, with CVODE's step clamped for the drivers.
    */
   async function prepareProtocolExport({ nodeIds = store.scopeNodeIds } = {}) {
     // A run still flattening its model hasn't started yet, but will read it with the simulator.
     const busy = () => !!currentRun || store.status === 'running'
-    const refusal = { errors: ['Wait for the run to finish, or stop it, before exporting the protocol.'], warnings: [] }
+    const refusal = { errors: ['Wait for the run to finish, or stop it, before exporting the protocol.'] }
     if (busy()) return refusal
     const scope = resolveCurrentScope(nodeIds)
     const report = summariseScopeReport(checkScope(scope, libraryStore))
     const errors = [...report.errors, ...protocolStore.validation.errors]
-    const warnings = [...report.warnings, ...protocolStore.validation.warnings]
-    if (errors.length || !protocolStore.view) return { errors: errors.length ? errors : ['The workspace has no protocol to export.'], warnings }
+    if (errors.length || !protocolStore.view) return { errors: errors.length ? errors : ['The workspace has no protocol to export.'] }
 
     const simulator = await whenLibOpenCORReady()
-    if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'], warnings }
+    if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'] }
     // As runProtocolOn flattens it: the model as it is, without the sliders' values.
     const withOverrides = applyParameterOverrides(scope, libraryStore, selectRunOverrides(true))
     let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
     const libcellml = await whenLibCellMLReady()
-    if (protocolStore.drivers.length) {
-      const added = addProtocolDrivers({ libcellml, cellml, drivers: protocolStore.drivers })
-      if (added.errors.length) return { errors: added.errors, warnings }
+    const { drivers } = protocolStore
+    if (drivers.length) {
+      const added = addProtocolDrivers({ libcellml, cellml, drivers })
+      if (added.errors.length) return { errors: added.errors }
       cellml = added.cellml
     }
-    // Each experiment's own time, from the end of its warm-up, for the exported plots' time axes.
+    // Each experiment's own time, from the end of its warm-up, for the SED-ML's time axes.
     const clocked = addProtocolClock({ libcellml, cellml })
-    if (clocked.errors.length) return { errors: clocked.errors, warnings }
+    if (clocked.errors.length) return { errors: clocked.errors }
     cellml = clocked.cellml
-    if (busy()) return { ...refusal, warnings }
+    if (busy()) return refusal
 
     const built = { key: ++sessionCount, cellml }
     // The worker keeps one model, and reading this one replaces the one kept, so the next run flattens afresh. Forgotten
@@ -353,34 +390,21 @@ export function useSimulation() {
     try {
       described = await simulator.describeModel({ cellml, key: built.key })
     } catch (error) {
-      return { errors: [error.message], warnings }
+      return { errors: [error.message] }
     }
     const mapped = await mapResults(built, scope, described)
-    const prepared = prepareProtocolRun({
-      view: protocolStore.view,
-      drivers: protocolStore.drivers,
-      nodes: scope.nodes,
-      mapping: mapped.mapping,
-      variables: described.variables,
-      settings: { ...simulationSettingsStore.simulationSettings },
-    })
+    const settings = clampSolverSettings({ ...simulationSettingsStore.simulationSettings }, drivers)
+    const prepared = prepareProtocolRun({ view: protocolStore.view, drivers, nodes: scope.nodes, mapping: mapped.mapping, variables: described.variables, settings })
+    if (prepared.errors.length) return { errors: prepared.errors }
     return {
-      errors: prepared.errors,
-      warnings: [...warnings, ...prepared.warnings.filter((message) => !warnings.includes(message))],
-      cellml,
-      scope,
-      scopeNodeIds: nodeIds,
-      plan: prepared.plan,
-      targets: prepared.targets,
-      inputs: prepared.inputs,
-      // The drivers written into the model, which the SED-ML reads a driven input's number from.
-      drivers: protocolStore.drivers,
-      settings: prepared.settings,
+      errors: [],
+      settings,
       mapping: mapped.mapping,
-      // With their units, unlike the kept model's, for the export's axes.
+      // With their units, unlike the kept model's, for the SED-ML's axes.
       variables: new Map([...described.variables].map(([name, { kind, unit }]) => [name, { kind, unit }])),
-      inspectionOutputs: mapped.inspectionOutputs,
       voi: { name: described.voi?.name ?? '', unit: described.voi?.unit ?? '' },
+      // What the SED-ML runs: PhLynx's plan, on the model with its drivers and clock written in.
+      sedml: { cellml, plan: prepared.plan, targets: prepared.targets, inputs: prepared.inputs },
     }
   }
 

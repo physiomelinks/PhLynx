@@ -1,6 +1,0 @@
-python-libsedml>=2.0.34
-myokit>=1.39
-numpy
-pandas
-matplotlib>=3.8
-seaborn>=0.13

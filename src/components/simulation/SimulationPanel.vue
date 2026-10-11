@@ -10,7 +10,7 @@
         :blocked-reason="blockedReason"
         :selected-count="selectedNodeIds.length"
         :is-outdated="isOutdated"
-        :can-expand="charts.length > 0"
+        :can-expand="charts.length > 0 || predictionPlotCharts.length > 0"
         @play="play"
         @stop="stop"
         @expand="isResultsDialogOpen = true"
@@ -34,7 +34,7 @@
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
     <Splitter layout="vertical" class="panel-split" @resizeend="saveSizes">
       <SplitterPanel ref="figuresPanel" :size="sizes[0]" :min-size="20" class="panel-region panel-figures">
-        <template v-if="charts.length">
+        <template v-if="charts.length || predictionPlotCharts.length">
           <SimulationPlot
             v-for="chart in charts"
             :key="chart.key"
@@ -44,9 +44,23 @@
             :unit="chart.unit"
             :x="xAxis"
             :series="chart.series"
+            :references="chart.references"
             :height="chartHeight"
             sync-key="simulation-panel"
           />
+          <section v-if="predictionPlotCharts.length" class="panel-prediction-plots" aria-labelledby="panel-prediction-plots-title">
+            <h3 id="panel-prediction-plots-title" class="panel-prediction-plots-title">Prediction plots</h3>
+            <FeaturePlot
+              v-for="chart in predictionPlotCharts"
+              :key="chart.key"
+              :title="chart.title"
+              :unit="chart.unit"
+              :x="chart.x"
+              :y-label="chart.yLabel"
+              :series="chart.series"
+              :height="chartHeight"
+            />
+          </section>
         </template>
         <p v-else class="panel-empty">{{ figuresHint }}</p>
       </SplitterPanel>
@@ -68,6 +82,7 @@
       :summary="resultsSummary"
       :x="xAxis"
       :charts="charts"
+      :prediction-plot-charts="predictionPlotCharts"
       :nodes="nodes"
       :scope-node-ids="store.scopeNodeIds"
       :keep-current="keepCurrent"
@@ -90,6 +105,7 @@ import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import Select from 'primevue/select'
 
+import FeaturePlot from './FeaturePlot.vue'
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import SimulationControls from './SimulationControls.vue'
 import SimulationPlot from './SimulationPlot.vue'
@@ -309,7 +325,7 @@ if (!props.instanceId) useSelectionAutoRun()
 // Slider moves rerun the scope through one shared, lossy queue (see useSliderReruns).
 const { rerunForSliders } = useSliderReruns()
 
-const { xAxis, charts } = useSimulationCharts(scopeNodes)
+const { xAxis, charts, predictionPlotCharts } = useSimulationCharts(scopeNodes)
 </script>
 
 <style scoped>
@@ -354,6 +370,22 @@ const { xAxis, charts } = useSimulationCharts(scopeNodes)
   gap: 12px;
   /* A little room on the left too, for slider handles and focus rings the sidebar would crop. */
   padding: 8px 4px 8px 4px;
+}
+
+.panel-prediction-plots {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* After the traces, a group of its own. */
+.panel-prediction-plots-title {
+  margin: 4px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--p-content-border-color);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--p-text-muted-color);
 }
 
 .panel-empty {

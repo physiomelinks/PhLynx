@@ -38,21 +38,26 @@ async function load(base) {
  * @param {Object} results - `{ voi, variables }`, variables as a Map.
  * @returns {{results: Object, buffers: ArrayBuffer[]}}
  */
-function forPosting(results) {
+export function forPosting(results) {
   const variables = [...results.variables]
   const buffers = [results.voi.values.buffer, ...variables.map(([, series]) => series.values.buffer)]
   return { results: { ...results, variables }, buffers }
 }
 
 /**
- * Lists a protocol's results for posting, each experiment's as forPosting lists a run's.
+ * Lists a protocol's results for posting, each experiment's as forPosting lists a run's, with its sub-experiments'
+ * own series.
  *
  * @param {{experiments: Array}} results
  * @returns {{results: Object, buffers: ArrayBuffer[]}}
  */
-function forPostingProtocol(results) {
+export function forPostingProtocol(results) {
   const postings = results.experiments.map(forPosting)
-  return { results: { ...results, experiments: postings.map(({ results: experiment }) => experiment) }, buffers: postings.flatMap(({ buffers }) => buffers) }
+  const ownBuffers = results.experiments.flatMap(({ subSeries }) => (subSeries ?? []).flatMap((series) => Object.values(series ?? {}).map(({ buffer }) => buffer)))
+  return {
+    results: { ...results, experiments: postings.map(({ results: experiment }) => experiment) },
+    buffers: [...postings.flatMap(({ buffers }) => buffers), ...ownBuffers],
+  }
 }
 
 /**
@@ -80,7 +85,7 @@ function findSession({ id, cellml, key }) {
  * brings one.
  *
  * @param {Object} message - `{ type, id, cellml, key, settings, changes }`, and for a protocol `{ plan, targets,
- *   baseChanges }`; without `cellml`, `key` must name the session to reuse.
+ *   baseChanges, recorded }`; without `cellml`, `key` must name the session to reuse.
  */
 async function run(message) {
   const { type, id, cellml, settings } = message
@@ -101,7 +106,15 @@ async function run(message) {
     const onProgress = (value) => self.postMessage({ type: 'progress', id, value })
     const simulation =
       type === 'runProtocol'
-        ? runProtocol({ session: current, plan: message.plan, settings, targets: new Map(message.targets), baseChanges: message.baseChanges, onProgress })
+        ? runProtocol({
+            session: current,
+            plan: message.plan,
+            settings,
+            targets: new Map(message.targets),
+            baseChanges: message.baseChanges,
+            recorded: message.recorded,
+            onProgress,
+          })
         : current.run({ settings, changes: message.changes, onProgress })
     // Asked to stop while waiting its turn, it stops at once, with no points.
     const waiting = runs.get(id)

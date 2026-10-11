@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { nextTick, ref } from 'vue'
+import JSZip from 'jszip'
+import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -10,14 +11,11 @@ const simulation = vi.hoisted(() => ({ prepareProtocolExport: null }))
 vi.mock('../../../src/composables/useSimulation', () => ({
   useSimulation: () => ({ prepareProtocolExport: (...args) => simulation.prepareProtocolExport(...args) }),
 }))
-const builder = vi.hoisted(() => ({
-  validateExportFeatures: vi.fn(() => ({ errors: [] })),
-  buildProtocolSedml: vi.fn(() => '<sedML/>'),
-  buildBundleReadme: vi.fn(() => '# README'),
-  generateProtocolSedmlZip: vi.fn(async () => new Blob(['zip'])),
+const builder = vi.hoisted(() => ({ buildProtocolSedml: null }))
+vi.mock('../../../src/services/export/protocolSedml', async (importOriginal) => ({
+  ...(await importOriginal()),
+  buildProtocolSedml: (...args) => builder.buildProtocolSedml(...args),
 }))
-vi.mock('../../../src/services/export/protocolSedml', () => ({ FEATURE_OPERATIONS: ['mean', 'min', 'max', 'max_minus_min'], ...builder }))
-vi.mock('../../../src/services/export/templates/run_sedml.py?raw', () => ({ default: '# run_sedml.py' }))
 const saving = vi.hoisted(() => ({ order: [], getFileHandle: null, saveWithDialog: null }))
 vi.mock('../../../src/utils/save', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -29,84 +27,72 @@ vi.mock('../../../src/utils/notify', () => ({ notify: notified }))
 
 const { useProtocolSedmlExport } = await import('../../../src/composables/useProtocolSedmlExport.js')
 const { ALL_EXPERIMENTS, useProtocolStore } = await import('../../../src/stores/protocolStore.js')
-const { useOmexStore } = await import('../../../src/stores/omexStore.js')
 const { useSessionMetadataStore } = await import('../../../src/stores/sessionMetadataStore.js')
+const { useSimulationResultsStore } = await import('../../../src/stores/simulationResultsStore.js')
 const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
 
-const PROTOCOL = { pre_times: [0, 0], sim_times: [[1, 1], [1, 1]], params_to_change: { 'a/k': [[2, 0], [3, 0]] }, experiment_labels: ['low', 'high'] }
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
-
-/**
- * Gives the workspace an obs_data file with a protocol.
- *
- * @param {Object} protocolInfo
- * @returns {ArrayBuffer} The file, as the workspace has it.
- */
-function useProtocol(protocolInfo) {
-  const payload = new TextEncoder().encode(JSON.stringify({ protocol_info: protocolInfo, data_items: [] })).buffer
-  useOmexStore().setArchive({ extras: [{ location: 'model_obs_data.json', format: 'application/json', payload }] })
-  return payload
+const OBS_DATA = {
+  protocol_info: {
+    pre_times: [0, 0],
+    sim_times: [
+      [1, 1],
+      [1, 1],
+    ],
+    params_to_change: { 'a/k': [[2, 0], [3, 0]] },
+    experiment_labels: ['low', 'high'],
+  },
 }
 
 /**
- * Gives what prepareProtocolExport gives for nodes `a` and `b`.
+ * Gives what prepareProtocolExport gives for node `a`, its k kept in instance_parameters.
  *
  * @param {Object} [overrides]
  * @returns {Object}
  */
 const createPrepared = (overrides = {}) => ({
   errors: [],
-  warnings: ['A warning from the plan.'],
-  cellml: '<model/>',
-  scope: { nodes: nodes.value },
-  scopeNodeIds: null,
-  plan: { experiments: [{}, {}] },
-  targets: new Map([['a/k', 'a/k']]),
-  inputs: new Map([['a/k', { name: 'a/k', isStepped: true }]]),
-  drivers: [],
-  settings: { solver: 'CVODE', pointInterval: 0.1 },
+  settings: { solver: 'CVODE', tolerance: 1e-7, maxSteps: 500, timeStep: 0.01, pointInterval: 0.1 },
   mapping: new Map([
     ['a::x', 'a/x'],
     ['a::t', 'm/t'],
-    ['a::k', 'a/k'],
+    ['a::k', 'instance_parameters/a_k'],
   ]),
   variables: new Map([
     ['a/x', { kind: 'state', unit: 'mV' }],
-    ['a/k', { kind: 'constant', unit: 'dimensionless' }],
+    ['instance_parameters/a_k', { kind: 'constant', unit: 'dimensionless' }],
     ['protocol_clock/experiment_time', { kind: 'algebraic', unit: 'second' }],
   ]),
-  inspectionOutputs: [],
   voi: { name: 'm/t', unit: 'second' },
+  sedml: {
+    cellml: '<model clocked/>',
+    plan: { experiments: [{}, {}] },
+    targets: new Map([['a/k', 'instance_parameters/a_k']]),
+    inputs: new Map([['a/k', { name: 'instance_parameters/a_k', isStepped: true }]]),
+  },
   ...overrides,
 })
 
 const node = (id, variables) => ({ id, data: { name: id, variables } })
 
 describe('useProtocolSedmlExport', () => {
-  let payload
-  // Features are remembered by protocol for the session, so each test has a protocol of its own.
-  let testCount = 0
-
   beforeEach(() => {
     setActivePinia(createPinia())
-    testCount++
-    payload = useProtocol({ ...PROTOCOL, pre_times: [testCount, testCount] })
+    useProtocolStore().saveDocument(OBS_DATA)
     nodes.value = [
       node('a', [
         { name: 'x', type: 'variable', units: 'mV' },
         { name: 't', type: 'variable', units: 'second' },
         { name: 'k', type: 'constant', units: 'dimensionless' },
       ]),
-      node('b', [{ name: 'y', type: 'variable' }]),
     ]
     useSimulationSettingsStore().setPlotConfig({
       groups: [{ id: 'plot-1', name: 'Voltage' }],
       selections: [
         { key: 'a::x', nodeId: 'a', nodeName: 'a', variableName: 'x', groupId: 'plot-1' },
         { key: 'a::t', nodeId: 'a', nodeName: 'a', variableName: 't', groupId: 'plot-1' },
-        { key: 'b::y', nodeId: 'b', nodeName: 'b', variableName: 'y', groupId: null },
       ],
     })
+    vi.clearAllMocks()
     simulation.prepareProtocolExport = vi.fn(async () => createPrepared())
     saving.order = []
     saving.getFileHandle = vi.fn(async (baseName) => {
@@ -114,97 +100,19 @@ describe('useProtocolSedmlExport', () => {
       return { success: true, handle: { name: `${baseName}.zip` }, cleanName: baseName, method: 'system' }
     })
     saving.saveWithDialog = vi.fn(async () => ({ success: true }))
-    vi.clearAllMocks()
-    builder.validateExportFeatures.mockImplementation(() => ({ errors: [] }))
-    builder.buildProtocolSedml.mockImplementation(() => {
+    builder.buildProtocolSedml = vi.fn(() => {
       saving.order.push('build')
       return '<sedML/>'
     })
   })
 
-  it('prefills from the results view: all experiments overlaid, and the inputs shown', async () => {
+  it('asks where to save first, then saves the SED-ML of the results view with the model it runs', async () => {
+    useSessionMetadataStore().setLastSaveName('heart.json')
     const protocolStore = useProtocolStore()
     protocolStore.setActiveExperiment(ALL_EXPERIMENTS)
     protocolStore.isShowingInputs = true
     const exporter = useProtocolSedmlExport()
-
-    const opening = exporter.open()
-    expect(exporter.visible.value).toBe(true)
-    expect(exporter.isPreparing.value).toBe(true)
-    await opening
-
-    expect(exporter.isPreparing.value).toBe(false)
-    expect(exporter.overlay.value).toBe(true)
-    expect(exporter.includeInputs.value).toBe(true)
-    expect(exporter.inputs.value).toEqual([{ name: 'a/k', label: 'a/k', unit: 'dimensionless' }])
-
-    protocolStore.setActiveExperiment(1)
-    protocolStore.isShowingInputs = false
-    await exporter.open()
-    expect(exporter.overlay.value).toBe(false)
-    expect(exporter.inputs.value).toBeNull()
-  })
-
-  it('exports the plotted variables by their reported names, leaving out time and what the model lacks', async () => {
-    const exporter = useProtocolSedmlExport()
-    await exporter.open()
-
-    expect(exporter.groups.value).toEqual([{ id: 'plot-1', name: 'Voltage' }])
-    expect(exporter.traces.value).toEqual([{ name: 'a/x', label: 'a/x', unit: 'mV', groupId: 'plot-1' }])
-    expect(exporter.warnings.value).toEqual([
-      'A warning from the plan.',
-      "a/t is time, which every plot has along its x axis, so it isn't plotted.",
-      "b/y isn't in the exported model, so it isn't plotted.",
-    ])
-  })
-
-  it('offers every variable but time to reduce, and validates the features against them', async () => {
-    const exporter = useProtocolSedmlExport()
-    await exporter.open()
-
-    expect(exporter.operands.value.map(({ name }) => name)).toEqual(['a/x', 'a/k'])
-    exporter.features.value.push({ name: 'peak', operation: 'max', operand: 'a/x', subexperiment: 0 })
-    builder.validateExportFeatures.mockImplementation(({ features }) => ({ errors: features.length ? [{ path: 'features[0]', message: 'Bad.' }] : [] }))
-    expect(exporter.featureErrors.value).toEqual([{ path: 'features[0]', message: 'Bad.' }])
-    expect(exporter.canExport.value).toBe(false)
-    const [[options]] = builder.validateExportFeatures.mock.calls.slice(-1)
-    expect(options.view).toBe(useProtocolStore().view)
-    expect([...options.operandNames]).toEqual(['a/x', 'a/k'])
-  })
-
-  it('remembers the features for the protocol, for the session', async () => {
-    const first = useProtocolSedmlExport()
-    await first.open()
-    first.features.value.push({ name: 'peak', operation: 'max', operand: 'a/x', subexperiment: 1 })
-    first.featurePlots.value.push({ title: 'Peaks', y: 'peak', x: { kind: 'experiment' }, series: null })
-    await nextTick()
-
-    const second = useProtocolSedmlExport()
-    await second.open()
-    expect(second.features.value).toEqual([{ name: 'peak', operation: 'max', operand: 'a/x', subexperiment: 1 }])
-    expect(second.featurePlots.value).toHaveLength(1)
-
-    useProtocol({ ...PROTOCOL, pre_times: [testCount, testCount], experiment_labels: ['one', 'two'] })
-    await second.open()
-    expect(second.features.value).toEqual([])
-  })
-
-  it("can't export what couldn't be prepared", async () => {
-    simulation.prepareProtocolExport = vi.fn(async () => ({ errors: ['The protocol sets b/k, which isn’t in the model.'], warnings: [] }))
-    const exporter = useProtocolSedmlExport()
-    await exporter.open()
-
-    expect(exporter.errors.value).toEqual(['The protocol sets b/k, which isn’t in the model.'])
-    expect(exporter.canExport.value).toBe(false)
-    await exporter.exportZip()
-    expect(saving.getFileHandle).not.toHaveBeenCalled()
-  })
-
-  it('asks where to save before building, then saves the zip with the obs_data file as it is', async () => {
-    useSessionMetadataStore().setLastSaveName('heart.json')
-    const exporter = useProtocolSedmlExport()
-    await exporter.open()
-    exporter.overlay.value = true
+    expect(exporter.reason.value).toBeNull()
 
     const exporting = exporter.exportZip()
     // Asked at once, while the click still counts.
@@ -220,34 +128,72 @@ describe('useProtocolSedmlExport', () => {
       ],
       time: { unit: 'second' },
       groups: [{ id: 'plot-1', name: 'Voltage' }],
-      traces: [{ name: 'a/x' }],
-      inputs: null,
-      features: [],
-      featurePlots: [],
+      // Time is the axis, not a trace.
+      traces: [{ name: 'a/x', label: 'a/x', unit: 'mV', groupId: 'plot-1' }],
+      inputs: [{ name: 'instance_parameters/a_k', label: 'a/k', unit: 'dimensionless' }],
       overlay: true,
-      drivers: [],
     })
-    expect(builder.buildBundleReadme).toHaveBeenCalledWith(expect.objectContaining({ stem: 'heart_protocol', hasDrivers: false }))
-    const [[zip]] = builder.generateProtocolSedmlZip.mock.calls
-    expect(zip).toEqual({ sedml: '<sedML/>', cellml: '<model/>', script: '# run_sedml.py', obsDataPayload: payload, readme: '# README' })
-    expect(saving.saveWithDialog).toHaveBeenCalledWith(expect.any(Blob), { name: 'heart_protocol.zip' }, 'heart_protocol', '.zip')
+    const [[blob, handle, stem, extension]] = saving.saveWithDialog.mock.calls
+    expect([handle, stem, extension]).toEqual([{ name: 'heart_protocol.zip' }, 'heart_protocol', '.zip'])
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer())
+    expect(Object.keys(zip.files).sort()).toEqual(['manifest.xml', 'protocol.sedml', 'protocol_model.cellml'])
+    expect(await zip.file('protocol_model.cellml').async('string')).toBe('<model clocked/>')
     expect(notified.success).toHaveBeenCalled()
-    expect(exporter.visible.value).toBe(false)
+  })
+
+  it("saves nothing when PhLynx can't plan the run, says why, and stays disabled until the protocol changes", async () => {
+    simulation.prepareProtocolExport = vi.fn(async () => createPrepared({ errors: ["The protocol sets b/q, which isn't in the model being simulated."] }))
+    const exporter = useProtocolSedmlExport()
+    await exporter.exportZip()
+
+    expect(saving.saveWithDialog).not.toHaveBeenCalled()
+    const reason = "PhLynx can’t plan the run: The protocol sets b/q, which isn't in the model being simulated."
+    expect(notified.error).toHaveBeenCalledWith({ title: 'Export failed', message: reason })
+    expect(exporter.reason.value).toBe(reason)
+    expect(exporter.canExport.value).toBe(false)
+
+    useProtocolStore().saveDocument({ ...OBS_DATA, protocol_info: { ...OBS_DATA.protocol_info, experiment_labels: ['a', 'b'] } })
+    await Promise.resolve()
+    expect(exporter.reason.value).toBeNull()
+  })
+
+  it("says why the builder refused, as a run PhLynx can't plan", async () => {
+    builder.buildProtocolSedml = vi.fn(() => {
+      throw new Error('No variable.')
+    })
+    const exporter = useProtocolSedmlExport()
+    await exporter.exportZip()
+    expect(saving.saveWithDialog).not.toHaveBeenCalled()
+    expect(exporter.reason.value).toBe('PhLynx can’t plan the run: No variable.')
+  })
+
+  it("is disabled, with why, mid-run, while the protocol has errors, and when the last run couldn't be planned", () => {
+    const exporter = useProtocolSedmlExport()
+    const resultsStore = useSimulationResultsStore()
+    resultsStore.startRun(null)
+    expect(exporter.reason.value).toBe('Export the run as SED-ML once it finishes')
+    expect(exporter.canExport.value).toBe(false)
+
+    resultsStore.report = { errors: ['The plan has 2001 segments.'], warnings: [] }
+    resultsStore.failRun('blocked')
+    expect(exporter.reason.value).toBe('PhLynx can’t plan the run: The plan has 2001 segments.')
+
+    useProtocolStore().saveDocument({ protocol_info: { ...OBS_DATA.protocol_info, unknown: 1 } })
+    expect(exporter.reason.value).toBe('Fix the protocol’s errors to export its run as SED-ML')
   })
 
   it('does nothing more when the save is cancelled, and reports a failure', async () => {
     const exporter = useProtocolSedmlExport()
-    await exporter.open()
     saving.getFileHandle = vi.fn(async () => ({ success: false, cancelled: true }))
     await exporter.exportZip()
-    expect(builder.buildProtocolSedml).not.toHaveBeenCalled()
-    expect(exporter.visible.value).toBe(true)
+    expect(simulation.prepareProtocolExport).not.toHaveBeenCalled()
 
     saving.getFileHandle = vi.fn(async () => ({ success: false, needsLegacyDialog: true, method: 'legacy' }))
-    builder.generateProtocolSedmlZip.mockRejectedValueOnce(new Error('No room.'))
+    saving.saveWithDialog = vi.fn(async () => {
+      throw new Error('No room.')
+    })
     await exporter.exportZip()
     expect(notified.error).toHaveBeenCalledWith({ title: 'Export failed', message: 'No room.' })
     expect(exporter.isExporting.value).toBe(false)
-    await settle()
   })
 })

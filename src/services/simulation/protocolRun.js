@@ -10,6 +10,20 @@ import { findShortestFeature } from '../protocol/libopencorEngine/protocolDriver
 import { compileProtocolPlan } from '../protocol/libopencorEngine/protocolPlan'
 
 /**
+ * Gives the solver settings a protocol's drivers need: CVODE mustn't step past any point of their traces, so its
+ * largest step is at most the shortest gap between them.
+ *
+ * @param {Object} settings - Simulation settings.
+ * @param {Array<Object>} drivers - From planDrivers.
+ * @returns {Object} The settings, with timeStep lowered when it needs to be.
+ */
+export function clampSolverSettings(settings, drivers) {
+  const shortest = findShortestFeature(drivers)
+  const isCvode = (settings.solver ?? 'CVODE') === 'CVODE'
+  return isCvode && Number.isFinite(shortest) ? { ...settings, timeStep: settings.timeStep > 0 ? Math.min(settings.timeStep, shortest) : shortest } : settings
+}
+
+/**
  * Prepares a protocol's run.
  *
  * @param {Object} options
@@ -51,15 +65,11 @@ export function prepareProtocolRun({ view, drivers, nodes, mapping, variables, s
       return variables.has(output) ? [[parameter, { name: output, isStepped: false }]] : []
     })
   )
-  // CVODE mustn't step past any point of a driver's traces.
-  const shortest = findShortestFeature(drivers)
-  const isCvode = (settings.solver ?? 'CVODE') === 'CVODE'
-  const runSettings = isCvode && Number.isFinite(shortest) ? { ...settings, timeStep: settings.timeStep > 0 ? Math.min(settings.timeStep, shortest) : shortest } : settings
   return {
     plan,
     targets,
     inputs,
-    settings: runSettings,
+    settings: clampSolverSettings(settings, drivers),
     errors: [...targetErrors, ...plan.errors],
     // Now that each parameter's kind is known: what CUFLynx couldn't run, a state it couldn't drive included.
     warnings: [...plan.warnings, ...findCircAutogenLimits(view, { kinds })],

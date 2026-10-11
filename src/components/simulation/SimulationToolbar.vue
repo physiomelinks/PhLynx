@@ -85,8 +85,8 @@
       size="small"
       severity="secondary"
       :disabled="isRunning"
-      :aria-label="protocolStore.hasProtocol ? 'Edit the protocol' : 'Create a protocol'"
-      v-tooltip.bottom="protocolStore.hasProtocol ? 'Edit the protocol' : 'Create a protocol: experiments that set parameters'"
+      aria-label="Edit obs_data"
+      v-tooltip.bottom="protocolStore.hasProtocol ? 'Edit obs_data' : 'Edit obs_data: add a protocol of experiments that set parameters'"
       @click="openProtocolDialog"
     />
     <Button

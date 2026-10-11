@@ -1,6 +1,7 @@
 /**
  * Runs a protocol's planned segments (see services/protocol/libopencorEngine/protocolPlan.js) on a simulation session, one after
  * another, each later one starting from the states the one before ended with, and joins each experiment's results.
+ * Some variables also keep each sub-experiment's own series, as circulatory_autogen records it for its features.
  */
 import { MAX_RESULT_BYTES, SimulationError } from './engine'
 import { buildExperimentTime, joinSegmentValues } from '../protocol/libopencorEngine/protocolPlan.js'
@@ -52,25 +53,33 @@ function buildCarriedStates(variables) {
 }
 
 /**
- * Sets up an experiment's joined results from its first segment's: every variable, at every point it will have.
+ * Sets up an experiment's joined results from its first segment's: every variable, at every point it will have, and
+ * each sub-experiment's own series of the variables recorded.
  *
  * @param {Object} experimentPlan
  * @param {Object} results - The first segment's results.
- * @returns {Object} `{voi, variables, subs, filledCount}`.
+ * @param {string[]} recorded - Reported names.
+ * @returns {Object} `{voi, variables, preTime, subs, filledCount, subSeries, subFilledCounts}`.
  */
-function createExperimentResults(experimentPlan, results) {
+function createExperimentResults(experimentPlan, results, recorded) {
   const variables = new Map()
   for (const [name, { kind, unit }] of results.variables) variables.set(name, { kind, unit, values: new Float64Array(experimentPlan.pointCount) })
+  const names = recorded.filter((name) => results.variables.has(name))
   return {
     voi: { name: results.voi.name, unit: results.voi.unit, values: buildExperimentTime(experimentPlan) },
     variables,
+    preTime: experimentPlan.preTime,
     subs: experimentPlan.subs,
     filledCount: 0,
+    subSeries: experimentPlan.subs.map(({ numberOfSteps }) => Object.fromEntries(names.map((name) => [name, new Float64Array(numberOfSteps + 1)]))),
+    subFilledCounts: experimentPlan.subs.map(() => 0),
   }
 }
 
 /**
- * Adds a segment's results to its experiment's.
+ * Adds a segment's results to its experiment's. Its sub-experiment's own series start with the segment that starts
+ * it, its first point included: CA records it once the sub-experiment's values are set, where the joined series keep
+ * the last point of the one before.
  *
  * @param {Object} experiment - From createExperimentResults.
  * @param {Object} results - The segment's.
@@ -84,18 +93,27 @@ function joinSegment(experiment, results, segment) {
     if (values) joinSegmentValues(series.values, values, segment.startIndex, segment.dropsFirstPoint)
   }
   experiment.filledCount = segment.startIndex + computed
+  const offset = segment.startIndex - experiment.subs[segment.sub].startIndex
+  for (const [name, own] of Object.entries(experiment.subSeries[segment.sub])) {
+    const values = results.variables.get(name)?.values
+    if (values) joinSegmentValues(own, values, offset, offset > 0 && segment.dropsFirstPoint)
+  }
+  experiment.subFilledCounts[segment.sub] = offset + computed
 }
 
 /**
- * Gives an experiment's results as a run's: only its computed points, without the bookkeeping.
+ * Gives an experiment's results as a run's: only its computed points, without the bookkeeping, and the own series of
+ * each sub-experiment run to its end.
  *
  * @param {Object} experiment
- * @returns {{voi: Object, variables: Map<string, Object>, subs: Array}}
+ * @returns {{voi: Object, variables: Map<string, Object>, preTime: number, subs: Array, subSeries: Array<Object<string,
+ *   Float64Array>|null>}}
  */
-function finishExperiment({ voi, variables, subs, filledCount }) {
+function finishExperiment({ voi, variables, preTime, subs, filledCount, subSeries, subFilledCounts }) {
   const trim = (values) => (filledCount === values.length ? values : values.slice(0, filledCount))
   const trimmed = new Map([...variables].map(([name, series]) => [name, { ...series, values: trim(series.values) }]))
-  return { voi: { ...voi, values: trim(voi.values) }, variables: trimmed, subs }
+  const finished = subSeries.map((series, s) => (subFilledCounts[s] === subs[s].numberOfSteps + 1 ? series : null))
+  return { voi: { ...voi, values: trim(voi.values) }, variables: trimmed, preTime, subs, subSeries: finished }
 }
 
 /**
@@ -108,12 +126,15 @@ function finishExperiment({ voi, variables, subs, filledCount }) {
  * @param {Map<string, string>} options.targets - Each protocol parameter's reported name.
  * @param {Array<{component: string, variable: string, value: number}>} [options.baseChanges] - Changes applied to
  *   every segment, such as putting back the model's values; the protocol's own values win over them.
+ * @param {string[]} [options.recorded] - The reported names whose own series each sub-experiment keeps, as a
+ *   feature reduces them; only these, to keep memory down.
  * @param {Function} [options.onProgress] - Called with the progress, from 0 to 1, by model time.
  * @returns {{promise: Promise<Object>, stop: Function}} `promise` resolves with `{experiments: [{voi, variables,
- *   subs}], issues, elapsedMs, isStopped}`, or rejects with a SimulationError whose partial results are
- *   `{experiments}` so far; `stop` ends the run after keeping what the segment running has computed.
+ *   preTime, subs, subSeries}], issues, elapsedMs, isStopped}`, `subSeries` by sub-experiment, `{name: values}` or null for
+ *   one not run to its end; or rejects with a SimulationError whose partial results are `{experiments}` so far;
+ *   `stop` ends the run after keeping what the segment running has computed.
  */
-export function runProtocol({ session, plan, settings, targets, baseChanges = [], onProgress = () => {} }) {
+export function runProtocol({ session, plan, settings, targets, baseChanges = [], recorded = [], onProgress = () => {} }) {
   let current = null
   let isStopped = false
 
@@ -150,7 +171,7 @@ export function runProtocol({ session, plan, settings, targets, baseChanges = []
           throw new SimulationError(message, error.issues ?? [], experiments.length ? { experiments } : null, error.code ?? null)
         }
         if (!experiment) {
-          experiment = createExperimentResults(experimentPlan, results)
+          experiment = createExperimentResults(experimentPlan, results, recorded)
           const variableCount = experiment.variables.size + 1
           const pointCount = plan.experiments.reduce((total, { pointCount: count }) => total + count, 0)
           const bytes = variableCount * pointCount * Float64Array.BYTES_PER_ELEMENT
