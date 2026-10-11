@@ -544,6 +544,8 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 
 import { importOmexFile, extractOmexArchive } from '../services/import/omex'
+import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
+import { putSlider } from '../services/simulation/parameterSliders'
 
 import useDragAndDrop from '../composables/useDnD'
 import { useHandleManagement } from '../composables/useHandleManagement'
@@ -2035,6 +2037,27 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   await nextTick(fitView(fitViewParams.value))
 
   const preservedExtras = archiveEntries.filter(({ location }) => !criticalLocations.includes(location))
+
+  const paramsForIdExtra = findParamsForIdExtra(preservedExtras)
+  if (paramsForIdExtra) {
+    try {
+      const rows = parseParamsForId(paramsForIdExtra.entry.payload)
+      const { selections, warnings } = resolveParamsForIdRows(rows, nodes.value, libraryStore.getGlobalConstant)
+      if (selections.length) {
+        let scanConfig = simulationSettingsStore.parameterScanConfig
+        for (const selection of selections) scanConfig = putSlider(scanConfig, selection)
+        simulationSettingsStore.setParameterScanConfig(scanConfig)
+      }
+      if (warnings.length) {
+        notify.warning({
+          title: 'params_for_id.csv',
+          message: `${selections.length} slider(s) imported. ${warnings.join(' ')}`,
+        })
+      }
+    } catch (error) {
+      notify.warning({ title: 'params_for_id.csv', message: error.message })
+    }
+  }
 
   omexStore.setHash(cyrb53(snapshotFlowState()))
   omexStore.setArchive({
