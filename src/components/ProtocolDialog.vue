@@ -51,7 +51,7 @@ import { computed, ref, watch } from 'vue'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
-import { readObsDataParts, validateProtocolInfo } from '@physiomelinks/protocol-kit'
+import { isRowDataItem, listDataItems, readObsDataParts, validateProtocolInfo } from '@physiomelinks/protocol-kit'
 import { ObsDataEditor } from '@physiomelinks/protocol-kit/editor'
 
 import { useAppSettings } from '../composables/useAppSettings'
@@ -89,7 +89,8 @@ const hasChanges = computed(() => JSON.stringify(draft.value) !== initialSignatu
 // The drafts before and after the one shown, for undo and redo.
 const past = ref([])
 const future = ref([])
-const dataItemCount = computed(() => (draft.value ? readObsDataParts(draft.value).dataItems.length : 0))
+// The data items listed as rows, as CUFLynx counts them; the kit notes those kept as they are.
+const dataItemCount = computed(() => (draft.value ? listDataItems(draft.value).filter((row) => isRowDataItem(row)).length : 0))
 const errorCount = computed(() => {
   const protocolInfo = draft.value ? readObsDataParts(draft.value).protocolInfo : null
   return protocolInfo ? validateProtocolInfo(protocolInfo).errors.length : 0

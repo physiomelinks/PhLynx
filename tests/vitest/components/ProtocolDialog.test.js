@@ -106,7 +106,11 @@ describe('ProtocolDialog', () => {
   it("lists the obs_data's data items in the editor without a way to change them, counts them, and lists none once the settings hide them", async () => {
     const document = {
       protocol_info: { pre_times: [0], sim_times: [[1, 1]], params_to_change: { 'cell/g_Na': [[120, 240]] } },
-      data_items: [{ variable: 'V_peak', data_type: 'constant', unit: 'mV', operation: 'max', operands: ['cell/V'], value: 30, std: 2, experiment_idx: 0, subexperiment_idx: 1 }],
+      data_items: [
+        { variable: 'V_peak', data_type: 'constant', unit: 'mV', operation: 'max', operands: ['cell/V'], value: 30, std: 2, experiment_idx: 0, subexperiment_idx: 1 },
+        // A series is kept as it is, and counted by the kit's note, not as a row.
+        { variable: 'V_trace', data_type: 'series', unit: 'mV', operands: ['cell/V'], value: [1, 2], std: 1, obs_dt: 0.5, experiment_idx: 0, subexperiment_idx: 1 },
+      ],
     }
     useProtocolStore().saveDocument(document)
     /** Opens the dialog with the real editor. */
@@ -127,6 +131,7 @@ describe('ProtocolDialog', () => {
     expect(row.findAll('input, select')).toHaveLength(0)
     expect(row.find('button[aria-label="remove"]').exists()).toBe(false)
     expect(wrapper.find('.footer-count').text()).toBe('1 data item(s)')
+    expect(section.find('[data-testid="od-preserved"]').text()).toContain('1 non-editable item(s)')
 
     saveAppSettings({ showDataItems: false })
     await open()
