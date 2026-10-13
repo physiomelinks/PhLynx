@@ -1,4 +1,4 @@
-import { computed, h, markRaw, ref } from 'vue'
+import { computed, h, markRaw, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 
 import {
@@ -20,9 +20,14 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { generateExportZip } from '../services/export/ca'
+import { resolvePlotConfig } from '../services/simulation/plotSelections'
+import { buildScopedModel, checkScope, resolveScope, summariseScopeReport } from '../services/simulation/scopedModel'
+import { useConfirmDialog } from './useConfirmDialog'
+import { notify } from '../utils/notify'
 import { generateFlattenedModel, extractVoiAndParametersFromModel } from '../utils/cellml'
 import { readFileAsText } from '../utils/misc'
 import { getFileHandle } from '../utils/save'
@@ -38,12 +43,15 @@ export function useImportExportSend({
   onExportConfirm,
   hasModelChanged,
   snapshotFlowState,
+  selectedNodeIds,
 }) {
   const simulationSettingsStore = useSimulationSettingsStore()
   const libraryStore = useLibraryStore()
   const inspectionModuleStore = useInspectionModuleStore()
   const sessionMetadataStore = useSessionMetadataStore()
   const omexStore = useOmexStore()
+  const protocolStore = useProtocolStore()
+  const { confirm } = useConfirmDialog()
 
   const currentImportKey = ref(IMPORT_KEYS.INSTANCE_ARRAY)
   const currentExportKey = ref(EXPORT_KEYS.CELLML)
@@ -88,11 +96,47 @@ export function useImportExportSend({
     () => importOptions.value.find((option) => option.key === currentImportKey.value) ?? importOptions.value[0] ?? null
   )
 
-  const generateOmexArchiveAction = async (finalName) => {
-    const blob = await generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules)
+  /** Resolves the selected nodes into a scope, to export on their own. */
+  const resolveSelectionScope = () => resolveScope(selectedNodeIds.value, nodes.value, edges.value, inspectionModuleStore.modules)
+
+  /**
+   * Checks the selection before it is exported: errors stop the export, and warnings ask to go on.
+   *
+   * @returns {Promise<boolean>} Whether to export.
+   */
+  const confirmSelectionExport = async () => {
+    const { errors, warnings } = summariseScopeReport(checkScope(resolveSelectionScope(), libraryStore))
+    if (errors.length) {
+      notify.error({ title: 'Selection can’t be exported', message: errors.join('\n') })
+      return false
+    }
+    if (!warnings.length) return true
+    return confirm({
+      header: 'Export Selection',
+      message: warnings.map((warning) => `• ${warning}`).join('\n'),
+      severity: 'warning',
+      acceptLabel: 'Export',
+      rejectLabel: 'Cancel',
+    })
+  }
+
+  /**
+   * Builds the OMEX archive of the whole model, or of a scope on its own: its model, its instances'
+   * plotted variables and parameter scans, and a snapshot of just its nodes.
+   *
+   * @param {string} finalName
+   * @param {ReturnType<typeof resolveScope>|null} [scope]
+   * @returns {Promise<Blob>}
+   */
+  const generateOmexArchiveAction = async (finalName, scope = null) => {
+    const blob = scope
+      ? await buildScopedModel(scope, libraryStore)
+      : await generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules)
+    const inScope = (selection) => !scope || scope.nodeIds.includes(selection.nodeId)
+    const scanConfig = { ...parameterScanConfig.value, selections: (parameterScanConfig.value?.selections ?? []).filter(inScope) }
     const rehydratedModel = await readFileAsText(blob)
-    const extractedData = extractVoiAndParametersFromModel(rehydratedModel, parameterScanConfig.value)
-    const snapshot = snapshotFlowState()
+    const extractedData = extractVoiAndParametersFromModel(rehydratedModel, scanConfig)
+    const snapshot = snapshotFlowState(scope?.nodeIds ?? null)
     const cellmlFileName = omexStore.cellmlFileName
 
     return generateOmexArchive(
@@ -100,12 +144,28 @@ export function useImportExportSend({
       snapshot,
       {
         simulationSettings: simulationSettings.value,
-        plotConfig: plotConfig.value,
-        parameterScanConfig: parameterScanConfig.value,
+        plotConfig: resolvePlotConfig(plotConfig.value, scope?.nodes ?? nodes.value),
+        parameterScanConfig: scanConfig,
       },
-      { extractedData, modified: hasModelChanged.value, cellmlFileName }
+      // A selection is never the model as imported.
+      { extractedData, modified: scope ? true : hasModelChanged.value, cellmlFileName }
     )
   }
+
+  const hasSelection = computed(() => (selectedNodeIds.value?.length ?? 0) > 0)
+
+  const selectionOmexOption = (key) => ({
+    key,
+    label: 'OpenCOR (selection)',
+    icon: OpenCORIcon,
+    disabled: libcellml.status !== 'ready' || !hasSelection.value,
+    isSelection: true,
+    suffix: '.omex',
+    fileTypes: OMEX_FILE_TYPES,
+    message: 'Generating OMEX archive of the selection for Web OpenCOR.',
+    preflight: confirmSelectionExport,
+    action: (finalName) => generateOmexArchiveAction(finalName, resolveSelectionScope()),
+  })
 
   const exportOptions = computed(() => [
     {
@@ -138,11 +198,11 @@ export function useImportExportSend({
       key: EXPORT_KEYS.CA,
       label: 'Circulatory Autogen',
       icon: 'pi pi-box',
-      disabled: false,
+      disabled: libcellml.status !== 'ready',
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating and zipping CA files.',
-      action: (finalName) => generateExportZip(finalName, nodes.value, edges.value, libraryStore),
+      action: (finalName) => generateExportZip(finalName, nodes.value, edges.value, libraryStore, protocolStore.source?.entry.payload ?? null),
       successMessage: () => 'Circulatory Autogen export zip generated.',
     },
     {
@@ -199,6 +259,20 @@ export function useImportExportSend({
       //   ])
       // },
     },
+    {
+      key: EXPORT_KEYS.CELLML_SELECTION,
+      label: 'CellML (selection)',
+      icon: CellMLIcon,
+      disabled: libcellml.status !== 'ready' || !hasSelection.value,
+      isSelection: true,
+      suffix: '.cellml',
+      fileTypes: CELLML_FILE_TYPES,
+      message: 'Generating flattened CellML model of the selection.',
+      preflight: confirmSelectionExport,
+      action: () => buildScopedModel(resolveSelectionScope(), libraryStore),
+      successMessage: () => 'Selection exported to CellML.',
+    },
+    selectionOmexOption(EXPORT_KEYS.OMEX_SELECTION),
   ])
 
   const currentExportMode = computed(
@@ -216,6 +290,7 @@ export function useImportExportSend({
       message: 'Generating OMEX archive for Web OpenCOR.',
       action: generateOmexArchiveAction,
     },
+    selectionOmexOption(SEND_KEYS.OPENCOR_SELECTION),
   ])
 
   const currentSendMode = computed(
@@ -231,29 +306,49 @@ export function useImportExportSend({
     }))
   )
 
-  const exportMenuItems = computed(() =>
-    exportOptions.value.map((opt) => ({
-      label: opt.label,
-      icon: opt.icon,
-      disabled: opt.disabled || !opt.action,
-      command: () => {
-        currentExportKey.value = opt.key
-        performExport(opt)
+  /**
+   * Builds menu items for options, with a separator before the selection-only ones.
+   *
+   * @param {Array<Object>} options
+   * @param {Function} onSelect - Called with the chosen option.
+   * @returns {Array<Object>}
+   */
+  const buildMenuItems = (options, onSelect) =>
+    options.flatMap((opt, index) => [
+      ...(opt.isSelection && !options[index - 1]?.isSelection ? [{ separator: true }] : []),
+      {
+        label: opt.label,
+        icon: opt.icon,
+        disabled: opt.disabled || !opt.action,
+        command: () => onSelect(opt),
       },
-    }))
+    ])
+
+  // The whole-model modes to fall back to when a remembered selection mode has nothing selected.
+  let wholeModelExportKey = currentExportKey.value
+  let wholeModelSendKey = currentSendKey.value
+
+  const exportMenuItems = computed(() =>
+    buildMenuItems(exportOptions.value, (opt) => {
+      currentExportKey.value = opt.key
+      if (!opt.isSelection) wholeModelExportKey = opt.key
+      return performExport(opt)
+    })
   )
 
   const sendMenuItems = computed(() =>
-    sendOptions.value.map((opt) => ({
-      label: opt.label,
-      icon: opt.icon,
-      disabled: opt.disabled || !opt.action,
-      command: () => {
-        currentSendKey.value = opt.key
-        performSend(opt)
-      },
-    }))
+    buildMenuItems(sendOptions.value, (opt) => {
+      currentSendKey.value = opt.key
+      if (!opt.isSelection) wholeModelSendKey = opt.key
+      return performSend(opt)
+    })
   )
+
+  watch(hasSelection, (isSelected) => {
+    if (isSelected) return
+    if (currentExportMode.value?.isSelection) currentExportKey.value = wholeModelExportKey
+    if (currentSendMode.value?.isSelection) currentSendKey.value = wholeModelSendKey
+  })
 
   const currentExportDisabled = computed(() => !currentExportMode.value || currentExportMode.value.disabled)
 
@@ -279,6 +374,7 @@ export function useImportExportSend({
   }
 
   const performExport = async (mode) => {
+    if (mode.preflight && !(await mode.preflight())) return
     const baseName = sessionMetadataStore.lastSaveName
     const fileTypes = mode.fileTypes || ZIP_FILE_TYPES
 
@@ -291,14 +387,22 @@ export function useImportExportSend({
   }
 
   const performSend = async (mode) => {
+    if (mode.preflight && !(await mode.preflight())) return
     const baseName = sessionMetadataStore.lastSaveName
 
-    const blob = await mode.action(baseName)
-    const dataUri = await createOmexDataFragment(blob)
-    // Open the generated OMEX archive in Web OpenCOR
-    // This needs to change to support other send modes in the future, but for now we only have OpenCOR.
-    const url = `https://opencor.ws/app/?opencor://openFile/#${dataUri}`
-    window.open(url, '_blank', 'noreferrer')
+    const notification = notify.info({ title: 'Sending...', message: mode.message, duration: 0 })
+    try {
+      const blob = await mode.action(baseName)
+      const dataUri = await createOmexDataFragment(blob)
+      // Open the generated OMEX archive in Web OpenCOR
+      // This needs to change to support other send modes in the future, but for now we only have OpenCOR.
+      const url = `https://opencor.ws/app/?opencor://openFile/#${dataUri}`
+      window.open(url, '_blank', 'noreferrer')
+    } catch (error) {
+      notify.error({ title: 'Send failed', message: error.message })
+    } finally {
+      notification?.close?.()
+    }
   }
 
   const triggerCurrentExport = () => {

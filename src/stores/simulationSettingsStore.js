@@ -3,10 +3,15 @@ import { ref } from 'vue'
 
 import { BASELINE_SIMULATION_SETTINGS } from '../utils/constants'
 
-function cloneSimulationSettings(settings = {}) {
+export function cloneSimulationSettings(settings = {}) {
   return {
     ...BASELINE_SIMULATION_SETTINGS,
     ...settings,
+    // A sweep of one parameter, and perhaps its curves' (see services/simulation/sweep.js), copied so a draft of it is
+    // its own.
+    ...(settings?.sweep && {
+      sweep: { ...settings.sweep, ...(settings.sweep.family && { family: { ...settings.sweep.family, values: [...settings.sweep.family.values] } }) },
+    }),
   }
 }
 

@@ -102,8 +102,10 @@
             @update:simple="onSimpleToggle"
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
+            :keep-variables="keptVariables"
             @update:component-name="onEditorComponentName"
             @change="handleEditorChange"
+            @variable-click="plotClickedVariable"
             @save="handleSave"
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
@@ -114,7 +116,9 @@
             :model-value="currentModel"
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
+            :keep-variables="keptVariables"
             @change="handleEditorChange"
+            @variable-click="plotClickedVariable"
             @save="handleSave"
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
@@ -169,11 +173,7 @@
               {{ chip.count }}
             </span>
           </span>
-          <span class="collapsed-rail-label">
-            {{
-              activeTab === 'parameters' ? `Parameters (${parameterRows.length})` : `Ports (${editablePorts.length})`
-            }}
-          </span>
+          <span class="collapsed-rail-label">{{ rightTabLabel }}</span>
         </button>
 
         <Tabs v-else v-model:value="activeTab" class="right-pane-tabs">
@@ -185,6 +185,10 @@
             <Tab value="ports">
               <i class="pi pi-link tab-icon"></i>
               Ports ({{ editablePorts.length }})
+            </Tab>
+            <Tab value="plot">
+              <i class="pi pi-chart-line tab-icon"></i>
+              Plot ({{ plottedCount }})
             </Tab>
           </TabList>
 
@@ -201,6 +205,8 @@
                 :issue-filter="issueFilter"
                 :variable-kinds="variableKinds"
                 :connection-supplied="connectionSupplied"
+                :ignored-notices="ignoredNotices"
+                :connection-status="connectionStatus"
                 :math-references="mathReferences"
                 :suggest-units="suggestUnitsFor"
               />
@@ -375,6 +381,38 @@
                 </div>
               </div>
             </TabPanel>
+
+            <!-- TAB 3: SIMULATE AND PLOT, as the Simulation tab does -->
+            <TabPanel value="plot" class="tab-panel-flex plot-tab">
+              <Message v-if="hasUnsavedEdits" severity="info" size="small" class="plot-tab-note">
+                Runs use the saved instance.
+                <Button label="Save to include your edits" link size="small" class="plot-tab-save" @click="handleSave({ keepOpen: true })" />
+              </Message>
+              <!-- Kept mounted through an Apply's reload, so its choices, such as the whole model, last. -->
+              <SimulationPanel
+                v-if="activeTab === 'plot'"
+                ref="simulationPanelRef"
+                v-model:plot-config="editorPlotConfig"
+                :instance-id="id"
+                :is-unit-filtered="!isAutoUpdate"
+                class="plot-tab-workbench"
+              >
+                <template #toolbar>
+                  <label
+                    class="plot-tab-auto-label"
+                    v-tooltip.bottom="'Click a variable in the math to plot it alone. Off, adding offers only the plot\'s units.'"
+                  >
+                    <ToggleSwitch
+                      v-model="isAutoUpdate"
+                      class="plot-tab-auto-switch"
+                      aria-label="Auto-update: plot a variable clicked in the math"
+                    />
+                    <span class="plot-tab-auto-text">Auto-update</span>
+                  </label>
+                  <span v-if="plotNotice" class="plot-tab-auto-notice" role="status" :title="plotNotice">{{ plotNotice }}</span>
+                </template>
+              </SimulationPanel>
+            </TabPanel>
           </TabPanels>
         </Tabs>
       </div>
@@ -440,6 +478,13 @@
 
         <div class="footer-buttons">
           <Button label="Cancel" severity="secondary" text @click="handleCancel" />
+          <Button
+            label="Apply"
+            severity="secondary"
+            outlined
+            v-tooltip.top="'Save and keep editing'"
+            @click="handleSave({ keepOpen: true })"
+          />
           <Button label="Save" severity="primary" @click="handleSave" />
         </div>
       </div>
@@ -466,10 +511,12 @@ import TabList from 'primevue/tablist'
 import TabPanel from 'primevue/tabpanel'
 import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
+import ToggleSwitch from 'primevue/toggleswitch'
 
 import CellMLTextEditor from './CellMLTextEditor.vue'
 import MathWorkbenchEditor from './MathWorkbenchEditor.vue'
 import ParameterTable from './ParameterTable.vue'
+import SimulationPanel from './simulation/SimulationPanel.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
@@ -479,6 +526,7 @@ import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
 import { useLibraryStore } from '../stores/libraryStore'
+import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useIssueFilter } from '../composables/useIssueFilter'
 import { createHistory } from '../stores/historyStore'
 import { useGtm } from '../composables/useGtm'
@@ -487,6 +535,15 @@ import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
 
 import { isInitialisable } from '../services/math/variableKinds'
+import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import {
+  createSinglePlotConfig,
+  getNodePlotEntries,
+  isPlottableRow,
+  renamePlotVariables,
+  replacePlotSelections,
+  resolvePlotConfig,
+} from '../services/simulation/plotSelections'
 
 import { isEmpty, syncInitialiserUnits } from '../utils/variables'
 import { getUnknownUnitsNotice, isValueMissing } from '../utils/parameterRows'
@@ -497,6 +554,7 @@ import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { findPort } from '../utils/ports'
+import { previewCouplings } from '../utils/edges'
 import {
   isMultiport,
   multiplyVariables,
@@ -515,12 +573,13 @@ const props = defineProps({
   variables: { type: Array, default: () => [] },
   initialPorts: { type: Array, default: () => [] },
   existingNames: { type: Array, default: () => [] },
-  defaultTab: { type: String, default: 'parameters' }, // 'parameters' or 'ports'
+  defaultTab: { type: String, default: 'parameters' }, // 'parameters', 'ports' or 'plot'
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const store = useLibraryStore()
+const simulationSettingsStore = useSimulationSettingsStore()
 const history = reactive(createHistory())
 
 const { trackEvent } = useGtm()
@@ -568,6 +627,8 @@ const DIALOG_PT = {
 // Port & Instance State
 const editableName = ref('')
 const editablePorts = ref([])
+// The plotted variables' names as the math session renames them, so a save can rename the plots.
+const trackedNames = ref([])
 const instanceNameRef = ref(null)
 // Why the last save rejected the instance name; cleared once the name changes.
 const nameError = ref('')
@@ -600,13 +661,21 @@ const mathEditorRef = ref(null)
 const parameterTableRef = ref(null)
 
 // The math, its analysis and the parameter rows.
-const session = useMathSession({ history, editorRef: mathEditorRef, ports: editablePorts })
+const session = useMathSession({
+  history,
+  editorRef: mathEditorRef,
+  ports: editablePorts,
+  plotVariables: trackedNames,
+  beforeInit: () => signEditorState() === savedEditorState.value,
+  onInit: rebaselineEditorState,
+})
 const {
   isManaged,
   currentModel,
   currentLayout,
   parameterRows,
   editorDefinitions,
+  keptVariables,
   variableKinds,
   connectionSupplied,
   mathReferences,
@@ -848,11 +917,55 @@ function hasTimeVaryingInitialiser(row) {
   return !!initialiserRow && !isInitialisable(initialiserRow, variableKinds.value)
 }
 
+/**
+ * Where this instance's rows get their values, from resolveBoundaryValues, using the rows and complete ports as
+ * edited here against the rest of the canvas. Couplings are previewed as save would recompute them.
+ */
+const connection = computed(() => {
+  const rows = parameterRows.value
+  const ports = editablePorts.value.filter((port) => !isBlankPort(port) && !isIncompletePort(port))
+  const canvasNodes = (nodes.value ?? []).map((node) =>
+    node.id === props.id ? { ...node, data: { ...node.data, variables: rows, ports } } : node
+  )
+  const couplings = previewCouplings(props.id, ports, canvasNodes, edges.value ?? [])
+  const canvasEdges = (edges.value ?? []).map((edge) =>
+    couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
+  )
+  let resolved
+  try {
+    resolved = resolveBoundaryValues(canvasNodes, canvasEdges)
+  } catch {
+    return { status: new Map(), ignored: new Set(), emptySums: new Set() } // a malformed multiport, which export reports
+  }
+  return {
+    status: resolved.status.get(props.id) ?? new Map(),
+    ignored: resolved.ignored.get(props.id) ?? new Set(),
+    emptySums: resolved.emptySums.get(props.id) ?? new Set(),
+  }
+})
+
+/** Each row name to where its value comes from (see resolveBoundaryValues' `status`). */
+const connectionStatus = computed(() => connection.value.status)
+
+/** Each row whose value export ignores, as something else supplies its variable, with why. */
+const ignoredNotices = computed(() => {
+  const { ignored, emptySums, status } = connection.value
+  return new Map(
+    [...ignored].map((name) => {
+      if (emptySums.has(name)) return [name, 'Sums its connections, and none are connected: it is 0, and this value is ignored on export']
+      const from = status.get(name)?.from ?? []
+      return [name, `Set by ${from.length ? from.join(', ') : 'a connection'}: this value is ignored on export`]
+    })
+  )
+})
+
 const ISSUE_MATCHERS = {
   units: (row) => isMissingUnits(row),
   values: (row) => isValueMissing(row),
   unknown: (row) => !!getUnitsNotice(row),
   initialiser: hasTimeVaryingInitialiser,
+  ignored: (row) => ignoredNotices.value.has(row.name),
+  unconnected: (row) => connectionStatus.value.get(row.name)?.state === 'missing',
 }
 
 const issueChips = computed(() => {
@@ -864,6 +977,8 @@ const issueChips = computed(() => {
   const missingValues = count(ISSUE_MATCHERS.values)
   const unknownUnits = count(ISSUE_MATCHERS.unknown)
   const timeVaryingInitialisers = count(ISSUE_MATCHERS.initialiser)
+  const ignoredValues = count(ISSUE_MATCHERS.ignored)
+  const unconnected = count(ISSUE_MATCHERS.unconnected)
 
   const chips = []
   if (missingUnits) {
@@ -884,6 +999,15 @@ const issueChips = computed(() => {
       label: `${plural(missingValues, 'value')} required`,
     })
   }
+  if (unconnected) {
+    chips.push({
+      key: 'unconnected',
+      kind: 'units',
+      icon: 'pi-exclamation-triangle',
+      count: unconnected,
+      label: `${plural(unconnected, 'boundary condition')} not connected`,
+    })
+  }
   if (timeVaryingInitialisers) {
     chips.push({
       key: 'initialiser',
@@ -891,6 +1015,15 @@ const issueChips = computed(() => {
       icon: 'pi-exclamation-triangle',
       count: timeVaryingInitialisers,
       label: `${plural(timeVaryingInitialisers, 'state')} with time-varying initialiser`,
+    })
+  }
+  if (ignoredValues) {
+    chips.push({
+      key: 'ignored',
+      kind: 'unknown',
+      icon: 'pi-link',
+      count: ignoredValues,
+      label: `${plural(ignoredValues, 'value')} ignored on export`,
     })
   }
   if (unknownUnits) {
@@ -912,14 +1045,127 @@ const issueFilter = useIssueFilter({
   availableKeys: computed(() => issueChips.value.map((chip) => chip.key)),
 })
 
+// The Plot tab's own single plot, made afresh on each open and never saved.
+const editorPlotConfig = ref(createSinglePlotConfig())
+// Whether clicking a variable in the math plots it.
+const isAutoUpdate = ref(true)
+const simulationPanelRef = ref(null)
+// Says why a clicked variable wasn't plotted.
+const plotNotice = ref('')
+let plotNoticeTimer = null
+
+/** How many variables the Plot tab's plot shows. */
+const plottedCount = computed(() => editorPlotConfig.value.selections?.length ?? 0)
+
+/**
+ * Gets the names of the instance's variables the Plot tab's plot shows or plots against.
+ *
+ * @returns {Array<string>}
+ */
+function getEditorPlotNames() {
+  const axisNames = (editorPlotConfig.value.groups ?? [])
+    .map((group) => group.xAxis)
+    .filter((xAxis) => xAxis?.nodeId === props.id)
+    .map((xAxis) => xAxis.variableName)
+  return [...getNodePlotEntries(editorPlotConfig.value, props.id).map(({ name }) => name), ...axisNames]
+}
+
+// Variables joining the Plot tab's plot are followed through the math's renames too, so an Apply keeps them.
+watch(getEditorPlotNames, (names) => {
+  const tracked = new Set(trackedNames.value.map(({ savedName }) => savedName))
+  const added = [...new Set(names)].filter((name) => !tracked.has(name))
+  if (added.length) trackedNames.value = [...trackedNames.value, ...added.map((name) => ({ name, savedName: name }))]
+})
+
+/**
+ * Gives a plot under the names a save gave the instance's variables, without those it no longer has.
+ *
+ * @param {Object} plotConfig
+ * @returns {Object}
+ */
+function followSavedNames(plotConfig) {
+  const renamed = new Map(trackedNames.value.map(({ savedName, name }) => [savedName, name]))
+  return resolvePlotConfig(renamePlotVariables(plotConfig, props.id, renamed), nodes.value)
+}
+
+/**
+ * Shows a note beside the Auto-update switch for a few seconds.
+ *
+ * @param {string} text
+ */
+function showPlotNotice(text) {
+  plotNotice.value = text
+  clearTimeout(plotNoticeTimer)
+  plotNoticeTimer = setTimeout(() => (plotNotice.value = ''), 5000)
+}
+
+/**
+ * Plots a variable clicked in the math alone, while the Plot tab shows and auto-updates, running the model when
+ * no results of its scope are shown. Runs use the saved instance, so only its variables can be plotted.
+ *
+ * @param {string} name
+ */
+function plotClickedVariable(name) {
+  if (activeTab.value !== 'plot' || rightCollapsed.value || !isAutoUpdate.value) return
+  const node = nodes.value.find((candidate) => candidate.id === props.id)
+  const row = node?.data?.variables?.find((candidate) => candidate.name === name)
+  if (!row) {
+    if (parameterRows.value.some((candidate) => candidate.name === name)) showPlotNotice(`Save to plot ${name}`)
+    return
+  }
+  if (!isPlottableRow(row)) {
+    showPlotNotice(`${name} is set, not computed, so it isn’t plotted`)
+    return
+  }
+  plotNotice.value = ''
+  editorPlotConfig.value = replacePlotSelections(editorPlotConfig.value, node, row)
+  simulationPanelRef.value?.ensureResults()
+}
+
+/**
+ * Signs what a run reads from the instance besides its math: its name, rows and ports.
+ *
+ * @returns {string}
+ */
+const signEditorState = () =>
+  JSON.stringify({
+    name: editableName.value,
+    rows: parameterRows.value.map(({ name, value, type, units, initialiser }) => ({ name, value, type, units, initialiser })),
+    ports: editablePorts.value,
+  })
+// The signature as loaded, so edits to values, the name or the ports count as unsaved.
+const savedEditorState = ref('')
+
+/**
+ * Moves the baseline to the state once the editor's first view of the math is applied, so anything
+ * that view changes in the rows or ports (e.g. a variable it no longer declares) never shows as an
+ * unsaved edit on open. The load sets the baseline first, in case no editor mounts. An edit made before the
+ * editor mounted keeps the old baseline, so it still counts as unsaved.
+ *
+ * @param {boolean} [wasUnchanged=true] - Whether the state still matched the baseline just before that view.
+ */
+function rebaselineEditorState(wasUnchanged = true) {
+  if (!loading.value && wasUnchanged) savedEditorState.value = signEditorState()
+}
+
+// Edits a run wouldn't see, since runs use the saved instance.
+const hasUnsavedEdits = computed(
+  () =>
+    !loading.value &&
+    (session.isDirty() || session.isLayoutDirty() || session.hasUnsavedInvalidEdit() || signEditorState() !== savedEditorState.value)
+)
+
+/** The active right-hand tab's name and count, shown on the collapsed rail. */
+const rightTabLabel = computed(() => {
+  if (activeTab.value === 'ports') return `Ports (${editablePorts.value.length})`
+  if (activeTab.value === 'plot') return `Plot (${plottedCount.value})`
+  return `Parameters (${parameterRows.value.length})`
+})
+
 // Screen readers get the same information the badges show.
 const railAriaLabel = computed(() => {
   const summary = activeTab.value === 'parameters' ? issueChips.value.map((chip) => chip.label).join(', ') : ''
-  const label =
-    activeTab.value === 'parameters'
-      ? `Parameters (${parameterRows.value.length})`
-      : `Ports (${editablePorts.value.length})`
-  return summary ? `Expand panel. ${label}. ${summary}` : `Expand panel. ${label}`
+  return summary ? `Expand panel. ${rightTabLabel.value}. ${summary}` : `Expand panel. ${rightTabLabel.value}`
 })
 
 // ── Computed ─────────────────────────────────────────────────────────────────
@@ -949,65 +1195,95 @@ watch(
   () => props.modelValue,
   async (isOpen) => {
     if (!isOpen) {
+      clearTimeout(plotNoticeTimer)
+      plotNotice.value = ''
       isEditorReady.value = false
       isDialogShown.value = false
       history.clear()
+      reloadAfterSave = false
       return
     }
-
-    const requestId = ++openRequestId
-    history.clear()
-    loading.value = true
-    isEditorReady.value = false
-    applyToAll.value = false
-    nameError.value = ''
-    rejectedName = ''
-    flaggedPorts.value = new Set()
-    activeTab.value = props.defaultTab
-    issueFilter.reset()
-
-    editableName.value = props.initialName
-    editableComponentName.value = componentName.value
-    componentNameForEditor.value = componentName.value
-    editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
-      ...port,
-      variables: Array.isArray(port.variables)
-        ? port.variables.map((v) => (typeof v === 'object' && v !== null ? v.name : v))
-        : [],
-    }))
-    indexPortConnections()
-
-    // Saved stateRole/initialiser keep pairings the math alone can't reveal, such as shared initialisers.
-    const savedRows = props.variables.map((row) => ({
-      name: row.name,
-      value: row.type === 'global_constant' ? store.getGlobalConstant(row.name)?.value : row.value,
-      units: row.units,
-      type: row.type,
-      access: row.access,
-      data_reference: row.data_reference ?? null,
-      ...(row.stateRole === 'state' ? { stateRole: 'state', initialiser: row.initialiser } : {}),
-    }))
-
-    try {
-      await session.load({
-        mathRef: props.mathRef,
-        rows: savedRows,
-        managed: loadStoredManaged() || editorKind.value === 'math',
-      })
-    } catch (e) {
-      console.error('Failed to load CellML source', e)
-    }
-    if (requestId !== openRequestId) return
-
-    loading.value = false
-    await nextTick()
-    // rAF runs before the next paint; the timeout lands after it, so the table is on screen first.
-    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
-    // The editor measures its glyphs when it mounts, so it waits out the dialog's opening scale.
-    await waitUntilStable(editorWrapperRef.value, 400)
-    if (requestId === openRequestId && props.modelValue) isEditorReady.value = true
+    editorPlotConfig.value = createSinglePlotConfig()
+    isAutoUpdate.value = true
+    await loadEditor()
   }
 )
+
+// A save that keeps the editor open reloads it from the saved instance, once the workspace has it.
+let reloadAfterSave = false
+watch(
+  () => [props.mathRef, props.variables, props.initialName, props.initialPorts],
+  () => {
+    if (!reloadAfterSave || !props.modelValue) return
+    reloadAfterSave = false
+    loadEditor({ keepTab: true })
+  }
+)
+
+/**
+ * Loads the instance into the editor, as it opens or after a save that keeps it open.
+ *
+ * @param {{keepTab?: boolean}} [options] - Stay on the tab shown, rather than the one it opens on.
+ */
+async function loadEditor({ keepTab = false } = {}) {
+  const requestId = ++openRequestId
+  history.clear()
+  loading.value = true
+  isEditorReady.value = false
+  applyToAll.value = false
+  nameError.value = ''
+  rejectedName = ''
+  flaggedPorts.value = new Set()
+  if (!keepTab) activeTab.value = props.defaultTab
+  issueFilter.reset()
+
+  editableName.value = props.initialName
+  editableComponentName.value = componentName.value
+  componentNameForEditor.value = componentName.value
+  editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
+    ...port,
+    variables: Array.isArray(port.variables)
+      ? port.variables.map((v) => (typeof v === 'object' && v !== null ? v.name : v))
+      : [],
+  }))
+  indexPortConnections()
+  if (keepTab) editorPlotConfig.value = followSavedNames(editorPlotConfig.value)
+  // What the instance plots, so a rename in the math reaches its plots. Only these: tracking every name could
+  // see a rename onto a removed variable's name merged away (see useMathSession).
+  const plottedNames = [...getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).map(({ name }) => name), ...getEditorPlotNames()]
+  trackedNames.value = [...new Set(plottedNames)].map((name) => ({ name, savedName: name }))
+
+  // Saved stateRole/initialiser keep pairings the math alone can't reveal, such as shared initialisers.
+  const savedRows = props.variables.map((row) => ({
+    name: row.name,
+    value: row.type === 'global_constant' ? store.getGlobalConstant(row.name)?.value : row.value,
+    units: row.units,
+    type: row.type,
+    access: row.access,
+    data_reference: row.data_reference ?? null,
+    ...(row.stateRole === 'state' ? { stateRole: 'state', initialiser: row.initialiser } : {}),
+  }))
+
+  try {
+    await session.load({
+      mathRef: props.mathRef,
+      rows: savedRows,
+      managed: loadStoredManaged() || editorKind.value === 'math',
+    })
+  } catch (e) {
+    console.error('Failed to load CellML source', e)
+  }
+  if (requestId !== openRequestId) return
+
+  savedEditorState.value = signEditorState()
+  loading.value = false
+  await nextTick()
+  // rAF runs before the next paint; the timeout lands after it, so the table is on screen first.
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+  // The editor measures its glyphs when it mounts, so it waits out the dialog's opening scale.
+  await waitUntilStable(editorWrapperRef.value, 400)
+  if (requestId === openRequestId && props.modelValue) isEditorReady.value = true
+}
 
 // Pending editor changes are recorded first, so undo steps back from the latest edit.
 async function handleEditorUndo() {
@@ -1137,6 +1413,7 @@ async function handleCancel() {
   parameterTableRef.value?.flushPendingRenames()
   await session.flushPendingChanges()
 
+  // Plots and sliders apply as they change, so only the instance's own edits count.
   if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty()) {
     const confirmed = await confirm({
       header: 'Unsaved Changes',
@@ -1221,7 +1498,23 @@ function showTab(tab) {
   rightCollapsed.value = false
 }
 
-async function handleSave() {
+/**
+ * Gets the instance's plotted variables under the names this save gives them, following the math's renames.
+ *
+ * @returns {Array<{name: string, groupId: string|null}>}
+ */
+function renamedPlotEntries() {
+  const renamed = new Map(trackedNames.value.map(({ savedName, name }) => [savedName, name]))
+  return getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).map((entry) => ({ ...entry, name: renamed.get(entry.name) ?? entry.name }))
+}
+
+/**
+ * Validates and saves the instance, then closes the editor, or keeps it open on the saved instance.
+ *
+ * @param {{keepOpen?: boolean}|Event} [options] - A button's click event passes as no options.
+ */
+async function handleSave(options) {
+  const keepOpen = options?.keepOpen === true
   // Commit any rename and editor change still in flight before reading state.
   parameterTableRef.value?.flushPendingRenames()
   await session.flushPendingChanges()
@@ -1365,12 +1658,16 @@ async function handleSave() {
         })),
       variables: parameterRows.value,
       ports: finalPorts,
+      // The instance's plotted variables, under the names this save gives them.
+      plotVariables: renamedPlotEntries(),
       updateAll,
       siblings: updateAll ? siblings.value : [],
+      keepOpen,
     })
   )
 
-  emit('update:modelValue', false)
+  if (keepOpen) reloadAfterSave = true
+  else emit('update:modelValue', false)
 }
 </script>
 
@@ -1775,6 +2072,55 @@ async function handleSave() {
   --p-checkbox-width: 1rem;
   --p-checkbox-height: 1rem;
   --p-checkbox-icon-size: 0.625rem;
+}
+
+/* Plot Tab: the workbench fills the pane, with a note above it while edits are unsaved */
+.plot-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* In the run's toolbar, beside the whole model switch. */
+.plot-tab-auto-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  color: var(--p-text-color);
+  cursor: pointer;
+}
+
+/* Measured against the toolbar: too narrow for the label, the switch stands alone, its meaning in the tooltip. */
+@container (max-width: 360px) {
+  .plot-tab-auto-text {
+    display: none;
+  }
+}
+
+/* Shrinks to an ellipsis, its full text in the title, so it never pushes the toolbar's buttons off. */
+.plot-tab-auto-notice {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--p-text-muted-color);
+}
+
+.plot-tab-note {
+  flex-shrink: 0;
+}
+
+.plot-tab-save {
+  padding: 0 0 0 4px;
+}
+
+.plot-tab-workbench {
+  flex: 1;
+  min-height: 0;
 }
 
 /* Ports Tab Styles */

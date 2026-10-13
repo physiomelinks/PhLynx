@@ -21,6 +21,26 @@ export const SETTING_SECTIONS = [
     ],
   },
   {
+    title: 'Simulation',
+    settings: [
+      {
+        key: 'plotInspectionModules',
+        type: 'toggle',
+        label: 'Plot inspection modules',
+        description: 'After a run, show the outputs of the inspection modules it covered as a plot of their own.',
+        default: false,
+      },
+      {
+        key: 'showDataItems',
+        type: 'toggle',
+        label: 'Show data items',
+        description:
+          "List the obs_data's data items, the measurements a calibration fits the model to, in Edit obs_data. They are shown read-only: edit them in CUFLynx.",
+        default: true,
+      },
+    ],
+  },
+  {
     title: 'Image export',
     settings: [
       {

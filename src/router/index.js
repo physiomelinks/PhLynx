@@ -4,6 +4,8 @@ import { useGtm } from '../composables/useGtm'
 import WorkspaceArea from '../views/WorkspaceArea.vue'
 import AboutView from '../views/AboutView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
+import SimulationView from '../views/SimulationView.vue'
+import { ensureWorkspaceMounted } from './workspaceMount'
 
 const { trackPageView } = useGtm()
 
@@ -15,6 +17,14 @@ const router = createRouter({
       name: 'workspace',
       component: WorkspaceArea,
       meta: { title: 'Workflow Builder' },
+    },
+    {
+      path: '/simulation',
+      name: 'simulation',
+      component: SimulationView,
+      meta: { title: 'Simulation' },
+      // The page shows the workspace's model, so the workspace loads first.
+      beforeEnter: ensureWorkspaceMounted,
     },
     {
       path: '/about',

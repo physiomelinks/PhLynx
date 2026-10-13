@@ -98,19 +98,19 @@ class TestLoadViaUrl(unittest.TestCase):
             expect(page.get_by_role("main")).to_contain_text("var_SN")
             expect(page.get_by_role("main")).to_contain_text("axon_SN")
             expect(page.get_by_role("main")).to_contain_text("soma_SN")
-            page.locator("button:nth-child(17)").click()
-            page.get_by_label("axon_SN5 vars1 plotted").get_by_role("cell", name="V", exact=True).click()
-            expect(page.get_by_label("Plot 1")).to_contain_text("Plot 1")
-            page.get_by_role("tab", name="Parameter Scan Setup").click()
-            page.get_by_role("cell", name="C", exact=True).click()
+            page.get_by_role("button", name="Configure simulation settings").click()
+            dialog = page.get_by_role("dialog", name="Simulation Settings")
+            # The archive's plot, slider and time course come in, each on its own tab.
+            expect(dialog.get_by_role("region", name="Plot 1", exact=True)).to_contain_text("axon_SN/V")
+            dialog.get_by_role("tab", name="Sliders & sweep").click()
             expect(page.get_by_test_id("param-min-C")).to_have_value("9");
             expect(page.get_by_test_id("param-default-C")).to_have_value("10");
             expect(page.get_by_test_id("param-max-C")).to_have_value("11");
-            page.get_by_role("tab", name="Simulation Parameters").click()
-            expect(page.get_by_test_id("sim-initial-point")).to_have_value("0");
-            expect(page.get_by_test_id("sim-starting-point")).to_have_value("0");
-            expect(page.get_by_test_id("sim-ending-point")).to_have_value("20");
-            expect(page.get_by_test_id("sim-point-interval")).to_have_value("0.001");
+            dialog.get_by_role("tab", name="Solver").click()
+            expect(page.get_by_test_id("sim-initial-point")).to_have_value("0 s");
+            expect(page.get_by_test_id("sim-starting-point")).to_have_value("0 s");
+            expect(page.get_by_test_id("sim-ending-point")).to_have_value("20 s");
+            expect(page.get_by_test_id("sim-point-interval")).to_have_value("0.001 s");
             page.get_by_role("button", name="Save").click()
             page.locator(".vue-flow__pane").click()
             # ----------- END ------------

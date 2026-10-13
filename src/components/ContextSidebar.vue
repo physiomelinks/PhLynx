@@ -17,13 +17,21 @@
     </div>
 
     <aside
-      :style="{ width: isCollapsed ? '0px' : width + 'px' }"
+      :style="{ width: effectiveWidth + 'px' }"
       class="context-aside"
       :class="{ 'context-aside--collapsed': isCollapsed }"
     >
-      <Tabs v-model:value="activeTabId" class="context-tabs">
+      <!-- One-way value: tab clicks go through onTabClick, and no tab is selected while collapsed. -->
+      <Tabs :value="isCollapsed ? null : activeTabId" class="context-tabs">
         <TabList>
-          <Tab v-for="tab in tabs" :key="tab.id" :value="tab.id" v-tooltip.right="tab.label">
+          <Tab
+            v-for="tab in tabs"
+            :key="tab.id"
+            :value="tab.id"
+            :tabindex="tab.id === activeTabId ? 0 : -1"
+            v-tooltip.left="tab.label"
+            @click="onTabClick(tab.id)"
+          >
             <i :class="['pi', tab.icon]"></i>
           </Tab>
         </TabList>
@@ -182,6 +190,10 @@
             </section>
           </TabPanel>
 
+          <TabPanel value="sim">
+            <SimulationPanel v-if="isSimulationVisible" />
+          </TabPanel>
+
           <TabPanel value="sysmod">
             <section class="context-section context-section--modules">
               <div class="modules-header">
@@ -266,6 +278,8 @@ import TabPanel from 'primevue/tabpanel'
 import InputIcon from 'primevue/inputicon'
 import IconField from 'primevue/iconfield'
 
+import SimulationPanel from './simulation/SimulationPanel.vue'
+
 import { FLOW_IDS } from '../utils/constants'
 import { isTypeFixed, typeOptionsFor } from '../utils/parameterRows'
 import { detachReactivity } from '../utils/reactivity'
@@ -295,10 +309,13 @@ const props = defineProps({
 
 const emit = defineEmits(['resize', 'open-inspection-module-dialog'])
 
+/** Width of the collapsed icon rail: 1px border + 8px padding either side of a 34px tab. */
+const COLLAPSED_WIDTH = 51
+
 const { width, startResize } = useResizableAside(props.initialWidth, props.minWidth, props.maxWidth, 'right')
 const isCollapsed = ref(true)
 
-const effectiveWidth = computed(() => (isCollapsed.value ? 0 : width.value))
+const effectiveWidth = computed(() => (isCollapsed.value ? COLLAPSED_WIDTH : width.value))
 watch(effectiveWidth, (newWidth) => emit('resize', newWidth), { immediate: true })
 
 function toggleCollapsed() {
@@ -316,6 +333,7 @@ const tabs = [
   { id: 'params', label: 'Instance parameters', icon: 'pi-sliders-h' },
   { id: 'sysmod', label: 'Inspection modules', icon: 'pi-question-circle' },
   { id: 'props', label: 'Properties', icon: 'pi-wrench' },
+  { id: 'sim', label: 'Simulation', icon: 'pi-chart-line' },
 ]
 const activeTabId = ref('global')
 
@@ -330,6 +348,34 @@ const selectedNode = computed(() => getSelectedNodes.value[0] || null)
 const isMultipleSelected = computed(() => getSelectedNodes.value.length > 1)
 
 const isParamsVisible = computed(() => !isCollapsed.value && activeTabId.value === 'params')
+const isSimulationVisible = computed(() => !isCollapsed.value && activeTabId.value === 'sim')
+
+/**
+ * Opens the panel on a tab.
+ *
+ * @param {string} tabId
+ */
+function showTab(tabId) {
+  activeTabId.value = tabId
+  isCollapsed.value = false
+}
+
+/**
+ * Opens the panel on a rail icon's tab, or collapses it when that tab is already open.
+ *
+ * @param {string} tabId
+ */
+function onTabClick(tabId) {
+  if (!isCollapsed.value && activeTabId.value === tabId) collapse()
+  else showTab(tabId)
+}
+
+/** Hides the panel down to its icon rail. */
+function collapse() {
+  isCollapsed.value = true
+}
+
+defineExpose({ showTab, collapse })
 
 // Leaving this for future settings configuration to enable auto-popout / switch to instance parameters
 // watch(selectedNode, (node) => {
@@ -598,14 +644,28 @@ function handleParameterTypeChange(row) {
 }
 
 .context-aside--collapsed {
-  padding: 0;
-  border-left: none;
+  padding: 1rem 8px;
+}
+
+.context-aside--collapsed :deep(.context-tabs.p-tabs) {
+  min-width: 0;
+  gap: 0;
+}
+
+.context-aside--collapsed :deep(.context-tabs .p-tablist-tab-list) {
+  border-right: none;
+  padding-right: 0;
+}
+
+.context-aside--collapsed :deep(.context-tabs .p-tabpanels) {
+  display: none;
 }
 
 :deep(.context-tabs.p-tabs) {
   flex: 1 1 auto;
   flex-direction: row;
-  min-width: v-bind('props.minWidth + "px"');
+  /* The aside's width less its padding and border, so the content fits at the minimum width */
+  min-width: calc(v-bind('props.minWidth + "px"') - 2rem - 1px);
   min-height: 0;
   gap: 0.75rem;
 }

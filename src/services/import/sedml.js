@@ -1,3 +1,23 @@
+import { readSolverSettings } from '../simulation/sedParameters'
+
+/**
+ * Reads the solver settings of a time course's algorithm.
+ *
+ * @param {Element} timeCourse - A uniformTimeCourse element.
+ * @returns {Object} Some of `{ solver, timeStep, tolerance, maxSteps }`.
+ */
+function readAlgorithm(timeCourse) {
+  const algorithm = [...timeCourse.children].find((child) => child.localName === 'algorithm')
+  if (!algorithm) return {}
+  const parameters = new Map(
+    [...algorithm.getElementsByTagNameNS(algorithm.namespaceURI, 'algorithmParameter')].map((parameter) => [
+      parameter.getAttribute('kisaoID'),
+      parameter.getAttribute('value'),
+    ])
+  )
+  return readSolverSettings(algorithm.getAttribute('kisaoID'), parameters)
+}
+
 export function extractSimData(sedmlData, filename, options = {}) {
   let simData = {
     startingPoint: null,
@@ -28,6 +48,7 @@ export function extractSimData(sedmlData, filename, options = {}) {
         startingPoint: parseFloat(simulationSettingsElement.getAttribute('outputStartTime')),
         endingPoint: parseFloat(simulationSettingsElement.getAttribute('outputEndTime')),
         pointInterval: (parseFloat(simulationSettingsElement.getAttribute('outputEndTime')) - parseFloat(simulationSettingsElement.getAttribute('outputStartTime'))) / parseInt(simulationSettingsElement.getAttribute('numberOfSteps'), 10),
+        ...readAlgorithm(simulationSettingsElement),
       }
     }
   }

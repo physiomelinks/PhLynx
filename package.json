@@ -18,7 +18,7 @@
     }
   ],
   "private": true,
-  "version": "0.4.2",
+  "version": "0.5.0",
   "type": "module",
   "main": "src/electron/main.js",
   "scripts": {
@@ -30,6 +30,7 @@
     "build:glossary": "node src/services/generate/generateGlossaryIndex.js",
     "preview": "yarn build:glossary && vite preview",
     "update:docs:changelog": "node scripts/build-changelog.js",
+    "docs:screenshots": "python3 tests/playwright/docs_screenshots.py",
     "test": "vitest",
     "test:ui": "python3 tests/run_playwright_tests.py",
     "test:unit": "vitest run --dir tests/vitest/",
@@ -53,13 +54,16 @@
     "@dagrejs/dagre": "^1.1.8",
     "@lezer/highlight": "^1.2.3",
     "@lezer/lr": "^1.4.8",
+    "@opencor/libopencor": "^1.20261006.1",
+    "@physiomelinks/protocol-kit": "^0.5.0",
+    "@primeuix/utils": "^0.6.2",
     "@primevue/themes": "4",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",
     "@vue-flow/core": "^1.47.0",
     "@vue-flow/minimap": "^1.5.4",
     "@vue-flow/node-resizer": "^1.5.0",
-    "cellml-text-editor": "^0.7.0",
+    "cellml-text-editor": "^0.7.1",
     "codemirror": "^6.0.2",
     "cytoscape": "^3.33.1",
     "cytoscape-fcose": "^2.2.0",
@@ -75,11 +79,12 @@
     "primevue": "4",
     "sass-embedded": "^1.97.1",
     "semver": "^7.7.3",
+    "uplot": "1.6.32",
     "vue": "^3.5.22",
     "vue-codemirror": "^6.1.1",
     "vue-router": "^4.6.4",
     "vue3-libcellml.js": "^0.7.1",
-    "vue3-math-editor": "^0.3.3"
+    "vue3-math-editor": "^0.3.5"
   },
   "devDependencies": {
     "@hsorby/changelog": "^3.0.3",

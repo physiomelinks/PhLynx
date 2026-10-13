@@ -105,6 +105,11 @@
                 :value="`x${initialiserUsage.get(slotProps.data.name)}`"
                 :title="`Initial value for: ${statesUsingInitialiser(slotProps.data.name).join(', ')}`"
               />
+              <i
+                v-if="connectionIcon(slotProps.data)"
+                :class="['pi', connectionIcon(slotProps.data).icon, 'connection-flag']"
+                :title="connectionIcon(slotProps.data).title"
+              ></i>
             </span>
           </template>
         </Column>
@@ -133,8 +138,9 @@
               v-else-if="hasValueCell(slotProps.data.type)"
               v-model="slotProps.data.value"
               size="small"
-              :placeholder="isValueMissing(slotProps.data) ? 'Value required' : valuePlaceholder(slotProps.data.type)"
-              class="w-full"
+              :placeholder="valueCellPlaceholder(slotProps.data)"
+              :class="['w-full', { 'value-input--ignored': ignoredNotices.has(slotProps.data.name) }]"
+              :title="ignoredNotices.get(slotProps.data.name) ?? connectionTitle(slotProps.data)"
             />
             <span v-else class="cell-static text-muted" title="Computed elsewhere in the math">-</span>
           </template>
@@ -218,6 +224,10 @@ const props = defineProps({
   variableKinds: { type: Map, default: null },
   /** Names constant only because a connection supplies them, from useMathSession, or null. */
   connectionSupplied: { type: Set, default: null },
+  /** Names whose value export ignores, as something else supplies them, to why. */
+  ignoredNotices: { type: Map, default: () => new Map() },
+  /** Row names to where each gets its value, `{state, from}`, from resolveBoundaryValues' `status`. */
+  connectionStatus: { type: Map, default: () => new Map() },
   /** Names the equations use. */
   mathReferences: { type: Set, default: () => new Set() },
   /** (typed) => units suggestions for the Units field, as SanitisedInput's `suggest`; null for none. */
@@ -337,7 +347,10 @@ const initialisersByUnits = computed(() => {
  */
 function initialiserLabel(row) {
   if (!isInitialisable(row, props.variableKinds)) return `${row.name} (time-varying)`
-  if (props.connectionSupplied?.has(row.name)) return `${row.name} (set by connection)`
+  const status = props.connectionStatus.get(row.name)
+  if (status?.state === 'connected') return `${row.name} (from ${status.from.join(', ')})`
+  if (status?.state === 'missing') return `${row.name} (not connected)`
+  if (status?.state !== 'own' && props.connectionSupplied?.has(row.name)) return `${row.name} (set by connection)`
   return row.type === 'variable' ? `${row.name} (computed)` : row.name
 }
 
@@ -528,9 +541,65 @@ function duplicateNameNotice(row) {
  */
 function parameterRowClass(row) {
   return {
-    'parameter-row--unresolved': props.isMissingUnits(row) || isValueMissing(row),
+    'parameter-row--unresolved': props.isMissingUnits(row) || isValueMissing(row) || isUnconnected(row),
     'parameter-row--state': row.stateRole === 'state',
     'parameter-row--initialiser': isInitialiserRow(row),
+    'parameter-row--ignored': props.ignoredNotices.has(row.name),
+  }
+}
+
+// ── Connections ──────────────────────────────────────────────────────────────
+
+/** Checks whether a row is a blank boundary condition nothing is connected to. */
+const isUnconnected = (row) => props.connectionStatus.get(row.name)?.state === 'missing'
+
+/**
+ * Gets the value field's placeholder: where a connection supplies the value from, or that one is needed.
+ *
+ * @param {Object} row
+ * @returns {string}
+ */
+function valueCellPlaceholder(row) {
+  const status = props.connectionStatus.get(row.name)
+  if (status?.state === 'connected' && status.from.length) return `from ${status.from.join(', ')}`
+  if (status?.state === 'missing') return 'Not connected: value required'
+  return isValueMissing(row) ? 'Value required' : valuePlaceholder(row.type)
+}
+
+/**
+ * Describes where a boundary condition's value comes from, for the value field's tooltip.
+ *
+ * @param {Object} row
+ * @returns {string|undefined}
+ */
+function connectionTitle(row) {
+  const status = props.connectionStatus.get(row.name)
+  if (status?.state === 'connected') return `Set by ${status.from.join(', ') || 'a connection'}`
+  if (status?.state === 'own') return 'Not connected: this value is used'
+  if (status?.state === 'missing') return 'Not connected: enter a value, or connect a module that supplies it'
+  return undefined
+}
+
+/**
+ * Gets the icon beside a row's name showing how it's connected, or null when it isn't flagged.
+ *
+ * @param {Object} row
+ * @returns {{icon: string, title: string}|null}
+ */
+function connectionIcon(row) {
+  const status = props.connectionStatus.get(row.name)
+  const list = status?.from.join(', ')
+  switch (status?.state) {
+    case 'shares':
+      return { icon: 'pi-link', title: `Shared with ${list}` }
+    case 'connected':
+      return { icon: 'pi-link', title: list ? `From ${list}` : 'Set by a connection' }
+    case 'bcOnly':
+      return { icon: 'pi-exclamation-triangle', title: `Coupled only to other boundary conditions (${list}): connect a module that supplies it` }
+    case 'conflict':
+      return { icon: 'pi-exclamation-triangle', title: `Given a different value by ${list}` }
+    default:
+      return null
   }
 }
 
@@ -690,6 +759,17 @@ defineExpose({ flushPendingRenames })
   min-width: 0;
 }
 
+.connection-flag {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color, #64748b);
+  cursor: help;
+}
+
+.connection-flag.pi-exclamation-triangle {
+  color: var(--p-yellow-600, #ca8a04);
+}
+
 .shared-initialiser-badge {
   flex: 0 0 auto;
   font-size: var(--dlg-fs-tiny);
@@ -769,6 +849,12 @@ defineExpose({ flushPendingRenames })
 
 .issue-chip--unknown {
   --chip-color: var(--p-primary-color, #3b82f6);
+}
+
+/* A value export ignores, as something else supplies its variable: kept, but shown struck through */
+.value-input--ignored {
+  color: var(--p-text-muted-color, #64748b);
+  text-decoration: line-through;
 }
 
 .search-group {

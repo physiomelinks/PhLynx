@@ -8,6 +8,11 @@
   height: 100%;
 }
 
+.instance-node--simulated {
+  outline: 2px dashed var(--p-primary-color);
+  outline-offset: 4px;
+}
+
 .instance-node.selected {
   /* Use the Element Plus primary color for the border */
   border-color: #409eff;

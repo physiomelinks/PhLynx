@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { parseLayout } from 'cellml-text-editor'
 import { ref, computed, markRaw } from 'vue'
-import { normaliseConfig, buildModule, parseMathRef } from '../utils/config'
+import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
 import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
@@ -177,13 +177,18 @@ export const useLibraryStore = defineStore('library', () => {
         return totalAdded
       }
 
-      const module = normaliseConfig(config)
-      addModule(module)
-      totalAdded++
+      if (addModule(normaliseConfig(config))) totalAdded++
     })
     return totalAdded
   }
 
+  /**
+   * Adds a module unless its ref is taken, and lists it under its math unless the ref is another
+   * math's.
+   *
+   * @param {Object} module
+   * @returns {boolean} Whether the module was stored.
+   */
   function addModule(module) {
     // Recomputed every time, since a module put back by undo may carry a stale flag.
     if (!availableMath.value.has(module.mathRef) && module.mathRef !== GHOST_MATH_REF) {
@@ -192,12 +197,12 @@ export const useLibraryStore = defineStore('library', () => {
       delete module.isStub
     }
 
-    if (!availableModules.value.has(module.moduleRef)) {
-      availableModules.value.set(module.moduleRef, module)
-    }
+    const existing = availableModules.value.get(module.moduleRef)
+    if (!existing) availableModules.value.set(module.moduleRef, module)
 
     // SMELL - still only really using cellml file origin, but now extensible if we include other metadata
-    updateCollections(module.mathRef, module.moduleRef)
+    if (!existing || existing.mathRef === module.mathRef) updateCollections(module.mathRef, module.moduleRef)
+    return !existing
   }
 
   function ensureSet(key) {
@@ -410,14 +415,26 @@ export const useLibraryStore = defineStore('library', () => {
     scheduleMathAnalysis(mathRef, entry.math)
   }
 
-  function createModuleForMath(mathRef) {
-    if (PROTECTED_MATH_REFS.has(mathRef)) return
+  /**
+   * Adds a module for math, named `<component>:default` unless a module on other math has that ref.
+   *
+   * @param {string} mathRef
+   * @param {Object} [options]
+   * @param {Array} [options.ports] - The module's ports, else none.
+   * @param {Array} [options.variables] - The module's rows, else the math's variables.
+   * @returns {string|null} The module's ref, or null for protected math.
+   */
+  function createModuleForMath(mathRef, { ports, variables } = {}) {
+    if (PROTECTED_MATH_REFS.has(mathRef)) return null
 
     const { componentName } = parseMathRef(mathRef)
-    const moduleRef = `${componentName}:default`
-    const math = availableMath.value.get(mathRef)
-    const module = buildModule(moduleRef, mathRef, math)
+    const moduleRef = uniqueModuleRef(`${componentName}:default`, mathRef, (ref) => availableModules.value.get(ref))
+    const module = variables
+      ? { moduleRef, mathRef, ports: [], variables }
+      : buildModule(moduleRef, mathRef, availableMath.value.get(mathRef))
+    if (ports) module.ports = ports
     addModule(module)
+    return moduleRef
   }
 
   // Move one moduleRef from one mathRef's Set to another
@@ -610,6 +627,7 @@ export const useLibraryStore = defineStore('library', () => {
     addConfigFile,
     addModule,
     addMathFile,
+    createModuleForMath,
     addMath,
     addUnitsFile,
     addGeneratedUnits,

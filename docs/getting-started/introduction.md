@@ -1,27 +1,27 @@
 # Welcome to PhLynx
 
-Physiome Links (**PhLynx** — pronounced "flinks") is a web-based graphical interface designed to couple existing <GlossaryLink term="CellML"/> components into unified system models. It is commonly used to generate coupled biophysical cell models and blood or lymph flow networks.
+Physiome Links (**PhLynx**, pronounced "flinks") is a web app for coupling existing <GlossaryLink term="CellML"/> components into system models, such as coupled cell models and blood or lymph flow networks.
+
+New here? Start with the [Quick Start Guide](./quick-start-guide.md).
+
+## Before you start {#before-you-start}
+
+- PhLynx runs in the browser at [https://phlynx.com/](https://phlynx.com/), with nothing to install.
+- Use a current Chrome, Edge, Firefox or Safari. Chrome and Edge also let you choose where files are saved.
+- The simulator needs cross-origin isolation, which PhLynx sets up with a service worker. The page may reload once on your first visit, and simulation may not work in a private window.
+- PhLynx doesn't save automatically. Save your workspace often (see [Save and Export](./quick-start-guide.md#save-and-export)).
 
 ## Why PhLynx?
 
-PhLynx streamlines the model-building workflow by offering the following key advantages:
+- **Visual assembly:** connect modules on a canvas instead of writing variable mappings by hand.
+- **Reusable modules:** combine open library modules with your own.
+- **Standard output:** models are valid CellML, so units are checked and CellML tools can turn them into code (e.g. C, Python).
+- **Open source:** free to use, audit and extend ([GitHub](https://github.com/physiomelinks/phlynx)).
 
-- **Visual Model Assembly:** Replace manual variable mapping with a graphical interface. PhLynx allows you to visually connect modules, define shared variables, and inspect your system architecture at a glance.
+## Workflow
 
-- **Module Reusability:** Avoid creating monolithic, single-use models. PhLynx encourages the integration of modular, reusable components. You can access a wide library of open modules and easily couple them with your own custom developments, creating systems that others can build upon.
-
-- **The Power of CellML:** Models generated in PhLynx are fully compatible with the <GlossaryLink term="CellML"/> standard. This ensures unit consistency and allows you to regenerate your model in various languages (C++, Python, MATLAB) for integration with other model types (e.g., PDEs) or embedded systems.
-
-- **Open Source:** PhLynx is completely open source. This promotes reproducible science by allowing the community to freely use, audit, and verify the modules and models created within the platform.
-
-## Workflow Integration
-
-PhLynx fits seamlessly into the <GlossaryLink term="CellML"/> ecosystem to facilitate model composition:
-
-1.  **Create or Acquire:** Develop <GlossaryLink term="CellML"/> components in your preferred IDE or download existing components.
-2.  **Import:** Load your <GlossaryLink term="CellML"/> files into the PhLynx Workbench.
-3.  **Assemble:** Visually connect modules and define their interactions.
-4.  **Export:** Generate a flattened <GlossaryLink term="CellML"/> model.
-5.  **Next Steps:**
-    * **Simulate:** Run your model in [OpenCOR](https://opencor.ws/).
-    * **Analyze:** Perform calibration, parameter identifiability, and sensitivity analysis using [Circulatory Autogen](https://physiomelinks.github.io/circulatory_autogen/).
+1. **Start** from the built-in library (e.g. heart and vessel modules), write your own in PhLynx's Instance Editor from the **new_module** template, or bring CellML from elsewhere.
+2. **Import** any outside modules into PhLynx (CellML files, [COMBINE archives](../reference/file-types.md#combine-archive) or Circulatory Autogen models).
+3. **Assemble** the model by connecting modules and defining their ports.
+4. **Simulate** in the app: plot results, adjust parameters with sliders, compare runs, and run protocols and sweeps.
+5. **Export or send** the model as <GlossaryLink term="flattened-cellml">flattened CellML</GlossaryLink>, an OMEX archive for [OpenCOR](https://opencor.ws/) or <GlossaryLink term="cuflynx">CUFLynx</GlossaryLink>, or [Circulatory Autogen](https://physiomelinks.github.io/circulatory_autogen/) files for calibration and sensitivity analysis.

@@ -3,10 +3,10 @@
     class="instance-node"
     :id="id"
     ref="instanceNode"
-    :class="{ selected: selected }"
+    :class="{ selected: selected, 'instance-node--simulated': isSimulated }"
     @contextmenu.stop.prevent="openContextMenu"
     @mousedown.capture="StopDrag"
-    @dblclick="openInstanceEditor('parameters')"
+    @dblclick="onNodeDoubleClick"
   >
     <NodeResizer min-width="200" min-height="120" :is-visible="selected" />
 
@@ -38,21 +38,32 @@
           class="instance-button"
           icon="pi pi-pencil"
           @click="openInstanceEditor('parameters')"
+          @dblclick.stop
           v-tooltip.bottom="{ value: 'Edit instance', showDelay: 300 }"
         />
       </div>
 
       <!-- Node Title Block -->
-      <div class="instance-name" @dblclick="startEditing">
-        <span v-if="!isEditing" class="name-text">
-          {{ data.name }}
-        </span>
+      <div class="instance-name">
+        <!-- Not a <button>: the SVG export leaves buttons out, and the name must be drawn. -->
+        <span
+          v-if="!isEditing"
+          role="button"
+          tabindex="0"
+          class="name-text"
+          :aria-label="`Rename ${data.name}`"
+          @click="onNameClick"
+          @keydown.enter.prevent="startEditing"
+          @keydown.space.prevent="startEditing"
+        >{{ data.name }}</span>
         <SanitisedInput
           v-else
           ref="nameInputRef"
           v-model="editingName"
           :sanitise="sanitiseName"
           floating
+          class="nodrag"
+          @dblclick.stop="onNameInputDoubleClick"
           @commit="saveEdit"
           @revert="cancelEdit"
         />
@@ -85,6 +96,7 @@
           @mouseenter="onHandleEnter(handle.uid)"
           @mouseleave="onHandleLeave"
           @mousedown.stop
+          @dblclick.stop
           @click.stop="removeHandle(handle.uid)"
         />
       </Handle>
@@ -93,7 +105,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import Button from 'primevue/button'
@@ -101,6 +113,7 @@ import Button from 'primevue/button'
 import SanitisedInput from './SanitisedInput.vue'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
 import { sanitiseName } from '../utils/identifiers'
@@ -135,6 +148,10 @@ const props = defineProps({
     required: true,
   }, // { handles, variables, mathRef, moduleRef, ports, name }
 })
+
+const simulationResultsStore = useSimulationResultsStore()
+// Outlined while the Simulation tab shows results of a selection that includes it.
+const isSimulated = computed(() => !!simulationResultsStore.results && !!simulationResultsStore.scopeNodeIds?.includes(props.id))
 
 const emit = defineEmits([
   'open-instance-editor',
@@ -271,9 +288,55 @@ watch(viewport, () => {
   if (isEditing.value) nameInputRef.value?.updatePosition()
 })
 
-async function startEditing(event) {
-  event.stopPropagation()
+// Short enough to feel immediate; a slower double-click is caught by DOUBLE_CLICK_WINDOW_MS instead.
+const RENAME_CLICK_DELAY_MS = 250
+// Covers the default OS double-click interval (500ms on Windows and macOS).
+const DOUBLE_CLICK_WINDOW_MS = 500
+let renameClickTimeout = null
+let renameClickedAt = 0
 
+/**
+ * Starts renaming a moment after a single click, so a double-click opens the instance editor instead.
+ *
+ * @param {MouseEvent} event
+ */
+function onNameClick(event) {
+  clearTimeout(renameClickTimeout)
+  renameClickTimeout = null
+  // A keyboard activation has no click count.
+  if (event.detail === 0) {
+    startEditing()
+  } else if (event.detail === 1) {
+    renameClickedAt = Date.now()
+    renameClickTimeout = setTimeout(() => {
+      renameClickTimeout = null
+      startEditing()
+    }, RENAME_CLICK_DELAY_MS)
+  }
+}
+
+/** Opens the instance editor, dropping any rename a first click had scheduled. */
+function onNodeDoubleClick() {
+  clearTimeout(renameClickTimeout)
+  renameClickTimeout = null
+  openInstanceEditor('parameters')
+}
+
+/**
+ * Treats a double-click that lands on a field a click just opened as a double-click on the name, so a
+ * double-click slower than the rename delay still opens the instance editor.
+ */
+function onNameInputDoubleClick() {
+  if (Date.now() - renameClickedAt >= DOUBLE_CLICK_WINDOW_MS) return
+  renameClickedAt = 0
+  cancelEdit()
+  openInstanceEditor('parameters')
+}
+
+onBeforeUnmount(() => clearTimeout(renameClickTimeout))
+
+/** Swaps the name for a field holding it, with the cursor in it. */
+async function startEditing() {
   isEditing.value = true
   editingName.value = props.data.name
 
@@ -375,6 +438,7 @@ function openContextMenu(event) {
   align-items: center;
   justify-content: center;
   width: 100%; 
+  cursor: inherit;
   font-weight: 600;
   font-size: 1.2rem;
   padding-bottom: 0.25rem;
@@ -389,9 +453,29 @@ function openContextMenu(event) {
 }
 
 .name-text {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: text;
+}
+
+.name-text:hover {
+  border-color: var(--p-content-border-color);
+  background: var(--p-content-background);
+}
+
+.name-text:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: 1px;
 }
 
 .instance-node {

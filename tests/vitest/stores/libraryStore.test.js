@@ -244,6 +244,52 @@ describe('libraryStore removing modules', () => {
   })
 })
 
+describe('libraryStore module refs', () => {
+  const config = (componentFile, subtype = 'default') => ({
+    module_type: 'decay',
+    module_subtype: subtype,
+    component_file: componentFile,
+    component_type: 'decay',
+  })
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady() // extractVariablesFromMath parses with libcellml
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('gives components of the same name in two files a module each, in its own collection', () => {
+    const store = useLibraryStore()
+    store.addMathFile('a.cellml', [{ name: 'decay', math: XML }])
+    store.addMathFile('b.cellml', [{ name: 'decay', math: XML }])
+
+    expect([...store.availableCollections.get('a.cellml:decay')]).toEqual(['decay:default'])
+    expect([...store.availableCollections.get('b.cellml:decay')]).toEqual(['decay:default_2'])
+    expect(store.availableModules.get('decay:default_2').mathRef).toBe('b.cellml:decay')
+  })
+
+  it('reuses the module when the same file is imported again', () => {
+    const store = useLibraryStore()
+    store.addMathFile('a.cellml', [{ name: 'decay', math: XML }])
+    store.addMathFile('a.cellml', [{ name: 'decay', math: XML }])
+
+    expect([...store.availableModules.keys()]).toEqual(['decay:default'])
+  })
+
+  it('counts only the configs it stores, and lists none under math whose ref another math holds', () => {
+    const store = useLibraryStore()
+    expect(store.addConfigFile('a.json', [config('a.cellml')])).toBe(1)
+    expect(store.addConfigFile('a.json', [config('a.cellml')])).toBe(0)
+    expect(store.addConfigFile('b.json', [config('b.cellml'), config('b.cellml', 'fast')])).toBe(1)
+
+    expect(store.availableCollections.has('b.cellml:decay')).toBe(true)
+    expect([...store.availableCollections.get('b.cellml:decay')]).toEqual(['decay:fast'])
+    expect(store.availableModules.get('decay:default').mathRef).toBe('a.cellml:decay')
+  })
+})
+
 describe('instances of a module built from a CellML file', () => {
   beforeAll(async () => {
     await ensureLibCellmlReady() // extractVariablesFromMath parses with libcellml

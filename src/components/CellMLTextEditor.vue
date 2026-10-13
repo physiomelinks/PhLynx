@@ -114,7 +114,7 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Codemirror } from 'vue-codemirror'
 import { basicSetup } from 'codemirror'
-import { keymap } from '@codemirror/view'
+import { EditorView, keymap } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { oneDark } from '@codemirror/theme-one-dark'
 import 'katex/dist/katex.min.css'
@@ -128,6 +128,9 @@ import {
   mergeSimpleLayout,
   renameIdentifier,
 } from 'cellml-text-editor'
+
+import { findVariableAt } from '../utils/cellmlTextVariables'
+import { MATH_EDIT_DEBOUNCE_MS } from '../utils/constants'
 
 const katexPromise = import('katex')
 
@@ -148,6 +151,11 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  // Simple Mode: names to keep declared though no equation uses them, so their rows aren't dropped.
+  keepVariables: {
+    type: Array,
+    default: () => []
+  },
   // The text layout saved with the math (comments, blank lines, statements as typed). Read on mount.
   layout: {
     type: Object,
@@ -160,11 +168,10 @@ const FORMAT = 'cellml-text'
 
 /**
  * Emits `change` with `{ source, format, text, valid, xml, layout }`, the contract useMathSession expects.
- * `source` is 'init' on mount, 'edit' for typing, or 'external' after a prop change.
+ * `source` is 'init' on mount, 'edit' for typing, or 'external' after a prop change. Emits `variable-click` with a
+ * variable's name when a plain click lands on it.
  */
-const emit = defineEmits(['update:simple', 'update:componentName', 'change', 'save', 'undo', 'redo'])
-
-const DEBOUNCE_MS = 500
+const emit = defineEmits(['update:simple', 'update:componentName', 'change', 'save', 'undo', 'redo', 'variable-click'])
 
 const isSimple = computed({
   get: () => props.simple,
@@ -396,8 +403,47 @@ const handleKeyDown = (event) => {
   }
 }
 
+/**
+ * Finds the variable a click landed on: a plain click, placing the cursor rather than selecting, on the name itself
+ * rather than the space beside it.
+ *
+ * @param {MouseEvent} event
+ * @param {EditorView} view
+ * @returns {string|null}
+ */
+function findClickedVariable(event, view) {
+  if (event.button !== 0 || event.detail > 1 || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null
+  if (!view.state.selection.main.empty) return null
+  const position = view.posAtCoords({ x: event.clientX, y: event.clientY })
+  if (position == null) return null
+  const variable = findVariableAt(view.state, position)
+  if (!variable) return null
+  const start = view.coordsAtPos(variable.from, 1)
+  const end = view.coordsAtPos(variable.to, -1)
+  if (!start || !end || event.clientX < start.left || event.clientX > end.right) return null
+  return variable.name
+}
+
+// A click waits this long for a second, so double-clicking a name to select it doesn't report it.
+const VARIABLE_CLICK_DELAY_MS = 300
+let variableClickTimer = null
+
+const variableClickHandler = EditorView.domEventHandlers({
+  click: (event, view) => {
+    clearTimeout(variableClickTimer)
+    variableClickTimer = null
+    const name = findClickedVariable(event, view)
+    if (!name) return false
+    variableClickTimer = setTimeout(() => {
+      variableClickTimer = null
+      if (view.state.selection.main.empty) emit('variable-click', name)
+    }, VARIABLE_CLICK_DELAY_MS)
+    return false
+  },
+})
+
 const extensions = computed(() => {
-  const base = [basicSetup, cellml(), shiftSpaceKeymap, appHistoryKeymap]
+  const base = [basicSetup, cellml(), shiftSpaceKeymap, appHistoryKeymap, variableClickHandler]
   return isDarkMode.value ? [...base, oneDark] : base
 })
 
@@ -468,7 +514,8 @@ const updatePreview = async () => {
 }
 
 // ── Parse -> declare variables -> report ──────────────────────────────────────
-const definitionsKey = () => (parser.simplified ? JSON.stringify(props.variableDefinitions) : '')
+const definitionsKey = () =>
+  parser.simplified ? JSON.stringify([props.variableDefinitions, props.keepVariables]) : ''
 
 /**
  * Parses the text into CellML and reports the result.
@@ -489,7 +536,9 @@ function run(source, { text = cellmlText.value, silent = false } = {}) {
   const result = parser.parse(text, {
     baseXml: lastXml,
     componentName: props.componentName || undefined,
-    finalise: simple ? (doc) => applyVariableDefinitions(doc, props.variableDefinitions) : undefined,
+    finalise: simple
+      ? (doc) => applyVariableDefinitions(doc, props.variableDefinitions, { keep: props.keepVariables })
+      : undefined,
   })
 
   errors.value = result.errors
@@ -527,7 +576,7 @@ function schedule(source) {
   if (debouncer && pendingSource === 'edit') source = 'edit'
   if (debouncer) clearTimeout(debouncer)
   pendingSource = source
-  debouncer = setTimeout(() => run(pendingSource), DEBOUNCE_MS)
+  debouncer = setTimeout(() => run(pendingSource), MATH_EDIT_DEBOUNCE_MS)
 }
 
 function flush() {
@@ -539,7 +588,7 @@ watch(cellmlText, () => {
 })
 
 watch(
-  () => props.variableDefinitions,
+  () => [props.variableDefinitions, props.keepVariables],
   () => {
     if (parser.simplified && definitionsKey() !== lastDefinitionsKey) schedule('external')
   }
@@ -655,6 +704,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (debouncer) clearTimeout(debouncer)
+  clearTimeout(variableClickTimer)
   if (observer) observer.disconnect()
   if (resizeObserver) resizeObserver.disconnect()
   if (resizeRaf) cancelAnimationFrame(resizeRaf)

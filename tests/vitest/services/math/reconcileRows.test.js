@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyPortTypes, getPortVariables, reconcileRows } from '../../../../src/services/math/reconcileRows'
+import { applyPortTypes, findUnusedDeclared, getPortVariables, reconcileRows } from '../../../../src/services/math/reconcileRows'
 
 const analysis = (overrides = {}) => ({
   componentName: 'c',
@@ -24,6 +24,31 @@ describe('reconcileRows (simple mode)', () => {
     expect(rows.I.type).toBe('variable')
     expect(rows.t.type).toBe('variable')
     expect(rows.k.type).toBe('constant')
+  })
+
+  it('decides time by the variable of integration, not by name (#614)', () => {
+    const rows = byName(
+      reconcileRows(analysis({ referenced: ['time', 'V', 't'], stateVariables: ['V'], voi: ['time'] }), [
+        { name: 't', units: 'metre', value: '0.2', type: 'constant' },
+      ])
+    )
+    expect(rows.time.type).toBe('variable')
+    expect(rows.t).toMatchObject({ type: 'constant', value: '0.2' })
+
+    const tau = byName(reconcileRows(analysis({ referenced: ['tau', 'V'], stateVariables: ['V'], voi: ['tau'] })))
+    expect(tau.tau.type).toBe('variable')
+  })
+
+  it('takes a time-named variable in time units as time in a module without ODEs', () => {
+    const declared = [
+      { name: 't', units: 'second', interface: 'public', initialValue: '' },
+      { name: 'thickness', units: 'metre', interface: 'public', initialValue: '' },
+    ]
+    const stimulus = byName(reconcileRows(analysis({ declared, referenced: ['I', 't'], assigned: ['I'] })))
+    expect(stimulus.t.type).toBe('variable')
+
+    const algebraic = byName(reconcileRows(analysis({ referenced: ['y', 't'], assigned: ['y'] }), [{ name: 't', units: 'metre', type: 'constant' }]))
+    expect(algebraic.t.type).toBe('constant')
   })
 
   it('keeps what the person entered over what the XML says', () => {
@@ -260,5 +285,34 @@ describe('reconcileRows (defaults)', () => {
     const rows = byName(reconcileRows(math, previous, { defaults }))
     expect(rows.k.value).toBe('9')
     expect(rows.g.value).toBe('')
+  })
+})
+
+describe('findUnusedDeclared', () => {
+  const declare = (name, initialValue = '') => ({ name, units: 'metre', interface: '', initialValue })
+
+  it('lists declared names no equation uses, in declaration order', () => {
+    const math = analysis({
+      declared: [declare('x', 'x0'), declare('cAMP'), declare('k', '0.5'), declare('N_avo')],
+      referenced: ['x', 'k'],
+      stateVariables: ['x'],
+    })
+    expect(findUnusedDeclared(math)).toEqual(['cAMP', 'N_avo'])
+  })
+
+  it('leaves out initialisers, which their state brings', () => {
+    const math = analysis({ declared: [declare('x', 'x0'), declare('x0', '1')], referenced: ['x'], stateVariables: ['x'] })
+    expect(findUnusedDeclared(math)).toEqual([])
+  })
+
+  it('gives nothing without an analysis', () => {
+    expect(findUnusedDeclared(null)).toEqual([])
+  })
+
+  it('keeps a row reconciled from math that still declares it', () => {
+    const math = analysis({ declared: [declare('cAMP')], referenced: [] })
+    const previous = [{ name: 'cAMP', units: 'dimensionless', value: '0.01', type: 'constant', data_reference: 'user_defined' }]
+    expect(byName(reconcileRows(math, previous)).cAMP).toMatchObject({ value: '0.01', data_reference: 'user_defined' })
+    expect(reconcileRows(analysis(), previous)).toEqual([])
   })
 })

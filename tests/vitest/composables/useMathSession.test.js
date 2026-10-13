@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import fs from 'node:fs'
+import path from 'node:path'
 import { reactive, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,12 +59,15 @@ function fakeEditor(session) {
     text: '',
     lastXml: XML,
     lastLayout: null,
+    componentName: 'decay',
     report(source, text, simple) {
       const parser = new CellMLTextParser({ simplified: simple })
       const result = parser.parse(text, {
         baseXml: editor.lastXml,
-        componentName: 'decay',
-        finalise: simple ? (doc) => applyVariableDefinitions(doc, session.editorDefinitions.value) : undefined,
+        componentName: editor.componentName,
+        finalise: simple
+          ? (doc) => applyVariableDefinitions(doc, session.editorDefinitions.value, { keep: session.keptVariables.value })
+          : undefined,
       })
       const valid = result.errors.length === 0 && !!result.xml
       editor.text = text
@@ -91,7 +96,7 @@ function fakeEditor(session) {
 }
 
 describe('useMathSession', () => {
-  let session, editorRef, history, ports
+  let session, editorRef, history, ports, plotVariables
 
   beforeAll(async () => {
     await ensureLibCellmlReady() // isDirty compares models with libcellml
@@ -103,7 +108,8 @@ describe('useMathSession', () => {
     history = useFlowHistoryStore()
     editorRef = ref(null)
     ports = ref([{ label: 'p', variables: ['x', 'k'] }])
-    session = useMathSession({ history, editorRef, ports })
+    plotVariables = ref([{ name: 'x', groupId: 'plot-2' }])
+    session = useMathSession({ history, editorRef, ports, plotVariables })
     editorRef.value = fakeEditor(session)
     await session.load({ mathRef: MATH_REF, rows: [], managed: true })
   })
@@ -330,6 +336,33 @@ describe('useMathSession', () => {
 
       await history.undo()
       expect(ports.value[0]).toMatchObject({ variables: ['x', 'k'], multiportType: ['sum', 'True'] })
+    })
+
+    it('renames it in the plotted variables, keeping its group, until undone', async () => {
+      await editorRef.value.report('edit', 'ode(y, t) = -k * y;\n', true)
+      expect(plotVariables.value).toEqual([{ name: 'y', groupId: 'plot-2' }])
+
+      await history.undo()
+      expect(plotVariables.value).toEqual([{ name: 'x', groupId: 'plot-2' }])
+    })
+
+    it('keeps a variable plotted after a rename when the rename is undone', async () => {
+      await editorRef.value.report('edit', 'ode(y, t) = -k * y;\n', true)
+      plotVariables.value = [...plotVariables.value, { name: 'k' }]
+
+      await history.undo()
+      expect(plotVariables.value).toEqual([{ name: 'x', groupId: 'plot-2' }, { name: 'k' }])
+    })
+
+    it('keeps a tick on the new name when a partial rename is finished, and undo restores both', async () => {
+      await editorRef.value.report('edit', 'ode(x, t) = -k * y;\n', true)
+      plotVariables.value = [...plotVariables.value, { name: 'y', groupId: 'g2' }]
+
+      await session.renameEverywhere()
+      expect(plotVariables.value).toEqual([{ name: 'y', groupId: 'plot-2' }])
+
+      await history.undo()
+      expect(plotVariables.value).toEqual([{ name: 'x', groupId: 'plot-2' }, { name: 'y', groupId: 'g2' }])
     })
 
     it('keeps both names when the offer is dismissed', async () => {
@@ -563,6 +596,125 @@ describe('useMathSession', () => {
       expect(result.layoutRejected).toBeUndefined()
       expect(result.text).toMatch(/var k: [^\n]*; \/\/ decay rate/)
       expect(result.text).not.toContain('init: 0.5')
+    })
+  })
+
+  describe('with a declared variable no equation uses', () => {
+    const UNUSED_REF = 'file:unused'
+    const UNUSED_XML = XML.replace(
+      '<variable name="k"',
+      '<variable name="cAMP" units="dimensionless" interface="public"/>\n    <variable name="k"'
+    )
+    const CAMP = { name: 'cAMP', units: 'dimensionless', value: '0.01', type: 'constant', data_reference: 'user_defined' }
+    const simpleText = new CellMLTextGenerator({ simplified: true }).generate(UNUSED_XML)
+    const declares = (name) => session.currentModel.value.includes(`name="${name}"`)
+    let onInit
+
+    beforeEach(async () => {
+      onInit = vi.fn()
+      session = useMathSession({ history, editorRef, ports, plotVariables, onInit })
+      editorRef.value = fakeEditor(session)
+      editorRef.value.lastXml = UNUSED_XML
+      useLibraryStore().addMath(UNUSED_REF, UNUSED_XML)
+      await session.load({ mathRef: UNUSED_REF, rows: [{ ...CAMP }], managed: true })
+    })
+
+    it('keeps it declared, with its row and value, through init and edits in Simple Mode', async () => {
+      expect(session.keptVariables.value).toEqual(['cAMP'])
+      const rowsBefore = JSON.stringify(session.parameterRows.value)
+
+      await editorRef.value.report('init', simpleText, true)
+      expect(declares('cAMP')).toBe(true)
+      expect(JSON.stringify(session.parameterRows.value)).toBe(rowsBefore)
+
+      await editorRef.value.report('edit', simpleText.replace('-k', '-2 * k'), true)
+      expect(declares('cAMP')).toBe(true)
+      expect(byName(session.parameterRows.value).cAMP).toMatchObject(CAMP)
+    })
+
+    it('keeps it once an equation has used it and stops again', async () => {
+      await editorRef.value.report('init', simpleText, true)
+      await editorRef.value.report('edit', 'ode(x, t) = -k * cAMP * x;\n', true)
+      await editorRef.value.report('edit', simpleText, true)
+      expect(byName(session.parameterRows.value).cAMP).toMatchObject(CAMP)
+    })
+
+    it('follows Advanced Mode, where the text owns declarations', async () => {
+      await editorRef.value.report('init', simpleText, true)
+      session.isManaged.value = false
+      const advancedText = new CellMLTextGenerator({ simplified: false }).generate(session.currentModel.value)
+      const withoutCamp = advancedText.replace(/ *var cAMP[^\n]*\n/, '')
+      expect(withoutCamp).not.toBe(advancedText)
+      await editorRef.value.report('edit', withoutCamp.replace(/( *var k)/, '    var extra: metre;\n$1'), false)
+      expect(session.keptVariables.value).toEqual(['extra'])
+
+      session.isManaged.value = true
+      await editorRef.value.report('external', simpleText, true)
+      const names = session.parameterRows.value.map((row) => row.name)
+      expect(names).toContain('extra')
+      expect(names).not.toContain('cAMP')
+    })
+
+    it('tells onInit once, after the first init since the load', async () => {
+      await editorRef.value.report('init', simpleText, true)
+      expect(onInit).toHaveBeenCalledTimes(1)
+      await editorRef.value.report('init', simpleText, true) // another editor mounted
+      expect(onInit).toHaveBeenCalledTimes(1)
+
+      await session.load({ mathRef: UNUSED_REF, rows: [{ ...CAMP }], managed: true })
+      await editorRef.value.report('init', 'not cellml', true)
+      expect(onInit).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('SN_varicosity in sn_simple.json', () => {
+    const FIXTURE = path.resolve(process.cwd(), 'tests/resources/migration-versioning/v1-2-0/sn_simple.json')
+    const UNUSED = ['N_avo', 'cAMP', 'Ca_ER_RyR_tau_mid', 'Ca_ER_RyR_tau_den']
+    const workspace = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))
+    const node = workspace.flow.nodes.find((n) => n.data.name === 'var_SN').data
+    const MATH = new Map(workspace.store.availableMath).get(node.mathRef)
+    const generator = new CellMLTextGenerator({ simplified: true })
+    const pick = (rows) =>
+      rows.map(({ name, value, type, units, initialiser, data_reference }) => ({ name, value, type, units, initialiser, data_reference }))
+
+    /** Opens the instance from saved rows and math, as the dialog does, and reports the editor's init. */
+    async function openAndInit(rows, math) {
+      useLibraryStore().addMath(node.mathRef, math)
+      editorRef.value.lastXml = math
+      editorRef.value.componentName = 'SN_varicosity'
+      await session.load({ mathRef: node.mathRef, rows: structuredClone(rows), managed: true })
+      const loaded = pick(session.parameterRows.value)
+      await editorRef.value.report('init', generator.generate(math), true)
+      return loaded
+    }
+
+    /** What Save writes: the rows and the math. */
+    const save = () => ({ rows: structuredClone(pick(session.parameterRows.value)), math: session.currentModel.value })
+
+    it('keeps the unused parameters and their values through edit, save, reopen and save', async () => {
+      const expected = node.variables.filter((row) => UNUSED.includes(row.name)).map(({ name, value }) => ({ name, value }))
+      const unusedRows = (rows) => rows.filter((row) => UNUSED.includes(row.name)).map(({ name, value }) => ({ name, value }))
+
+      const loaded = await openAndInit(node.variables, MATH)
+      expect(session.keptVariables.value).toEqual(expect.arrayContaining(UNUSED))
+      // Nothing changes on open, so no save note shows.
+      expect(pick(session.parameterRows.value)).toEqual(loaded)
+      expect(session.isDirty()).toBe(false)
+
+      const text = editorRef.value.text
+      const edited = text.replace(/\bk_NET\b/, '(2 * k_NET)')
+      expect(edited).not.toBe(text)
+      await editorRef.value.report('edit', edited, true)
+      expect(session.isDirty()).toBe(true)
+
+      const first = save()
+      expect(unusedRows(first.rows)).toEqual(expected)
+      for (const name of UNUSED) expect(first.math).toContain(`name="${name}"`)
+
+      const reloaded = await openAndInit(first.rows, first.math)
+      expect(pick(session.parameterRows.value)).toEqual(reloaded)
+      expect(session.isDirty()).toBe(false)
+      expect(unusedRows(save().rows)).toEqual(expected)
     })
   })
 })

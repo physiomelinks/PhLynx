@@ -1,27 +1,71 @@
 # Keyboard Shortcuts
 
-A reference list of keyboard shortcuts available in the PhLynx Workbench to speed up your workflow.
+On Mac, use Cmd wherever Ctrl appears. Workspace shortcuts are ignored while you type in a field or have a dialog open.
 
-## General Operations
+## Workspace {#workspace}
 
-| Action | Windows / Linux | Mac |
-| :--- | :--- | :--- |
-| **Undo** | `Ctrl` + `Z` | `Cmd` + `Z` |
-| **Redo** | `Ctrl` + `Shift` + `Z` | `Cmd` + `Shift` + `Z` |
-| **Delete Module** | `Delete` or `Backspace` | `Delete` or `Backspace` |
+| Action | Shortcut |
+| :--- | :--- |
+| Save workspace | Ctrl/Cmd+S |
+| Undo | Ctrl/Cmd+Z |
+| Redo | Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y |
+| Copy / paste (at the pointer) | Ctrl/Cmd+C / Ctrl/Cmd+V |
+| Duplicate selection | Ctrl/Cmd+D |
+| Delete selection | Delete or Backspace |
+| Select all instances | Ctrl/Cmd+A |
+| Add to selection | Ctrl+click (Cmd+click on Mac) |
+| Box select | Shift+drag |
+| Pan / zoom | Drag empty canvas / scroll wheel or pinch |
+| Run the current import / export | Ctrl/Cmd+I / Ctrl/Cmd+E |
+| Rename an instance | Click its name; Enter saves, Esc cancels |
+| Open the Instance Editor | Double-click an instance |
+| Open the Connections dialog | Double-click an arrow |
 
-## Selection Controls
+## Search {#search}
 
-| Action | Shortcut | Description |
-| :--- | :--- | :--- |
-| **Multi-Select** | `Ctrl` + Click | Add individual modules to the current selection. |
-| **Box Select** | `Shift` + Drag | Click and drag on the canvas to select all modules within the area. |
-| **Select All** | `Ctrl` + `A` | Selects all nodes in the current view. |
+| Action | Shortcut |
+| :--- | :--- |
+| Focus search | / or Ctrl/Cmd+F |
+| Choose a mode (box empty) | ↑ / ↓, then Enter |
+| Next / previous match | Enter / Shift+Enter (or ↓ / ↑) |
+| Search by variable | Start with `var:` (`var: inst/var` limits it to matching instances) |
+| Clear search / leave the empty box | Esc |
 
-## Navigation
+For what each mode matches, see [Searching the workspace](./ui-overview.md#search).
 
-| Action | Shortcut | Description |
-| :--- | :--- | :--- |
-| **Pan** | Space + Drag | Hold spacebar and click-drag to move the canvas (alternative to mouse wheel). |
-| **Zoom In** | `+` | Zooms into the center of the viewport. |
-| **Zoom Out** | `-` | Zooms out from the center of the viewport. |
+## Instance Editor {#instance-editor}
+
+| Action | Shortcut |
+| :--- | :--- |
+| Save and close | Ctrl/Cmd+Enter |
+| Undo / redo (shared by CellML Text and the Math Editor) | Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y |
+| Close (asks first if there are unsaved changes) | Esc |
+| Units field: choose / take / close a suggestion | ↑ ↓ / Enter or Tab / Esc |
+
+### Math Editor {#math-editor}
+
+| Action | Shortcut |
+| :--- | :--- |
+| Leave a fraction, power or bracket | Space, or → at the end of the slot |
+| Move through the equation | ← / → |
+| Next / previous empty slot | Tab / Shift+Tab |
+| Move between numerator and denominator, or lines | ↑ / ↓ |
+| Start / end of the equation | Home / End |
+| New equation line (a new case inside a piecewise) | Enter |
+| Move the line up / down | Alt+↑ / Alt+↓ (Option on Mac), or drag the line's number |
+| Select | Shift+← / →, Shift+Home / End, or drag |
+| Wrap the selection | `(`, `\|`, `/`, `^` or a `\` command |
+| Copy / cut / paste | Ctrl/Cmd+C / X / V |
+| Open the command list | `\` (then ↑ ↓ to choose, Tab to insert, Esc to close) |
+
+For what to type for fractions, powers, derivatives and the rest, see [Using the Math Editor](../guides/writing-cellml.md#math-editor-input).
+
+## Simulation {#simulation}
+
+| Action | Shortcut |
+| :--- | :--- |
+| Run (Play) | F9 (with the Simulation panel or page focused) |
+| Zoom the VoI range on all linked plots | Drag across a plot |
+| Zoom one plot alone | Shift+drag |
+| Reset zoom | Double-click the plot |
+| Undo / redo in the protocol dialog | Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z |

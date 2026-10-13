@@ -1,4 +1,4 @@
-import { inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
 import { couplingConflicts, multiplyFactor, sharedSumConflicts, variableTypes } from './multiport.js'
@@ -242,7 +242,7 @@ function nextAvailableComponentName(model, baseName) {
   return candidateName
 }
 
-function sanitiseCellMLIdentifier(name) {
+export function sanitiseCellMLIdentifier(name) {
   let sanitised = (name ?? '').trim().replace(/[^a-zA-Z0-9_]/g, '_')
   if (!/^[a-zA-Z_]/.test(sanitised)) {
     sanitised = `_${sanitised}`
@@ -683,40 +683,55 @@ function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
   }
 }
 
-function addEnvironmentComponent(model) {
+/**
+ * Adds the `environment` component, holding the model's variable of integration (VoI), and connects each
+ * component's VoI to it. The environment's VoI takes the name and units of the first ODE's, so a model that
+ * integrates over a distance in metres gets `environment/x` in metres. A model without ODEs is algebraic: it
+ * has no VoI, and so no environment.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {Array<{component: Object, voiNames: Set<string>, hasOde: boolean}>} voiVariables - Each component's
+ *   VoI names, and whether it has an ODE.
+ */
+function addEnvironmentComponent(model, voiVariables) {
+  const odeVoi = voiVariables
+    .filter(({ hasOde }) => hasOde)
+    .flatMap(({ component, voiNames }) => [...voiNames].map((name) => ({ component, name })))
+    .find(({ component, name }) => component.hasVariableByName(name))
+  if (!odeVoi) return
+
   const environmentComp = new _libcellml.Component()
   environmentComp.setName('environment')
   model.addComponent(environmentComp)
 
-  const timeVar = new _libcellml.Variable()
-  timeVar.setName('time')
-  timeVar.setUnitsByName('second')
-  timeVar.setInterfaceTypeByString('public')
-  environmentComp.addVariable(timeVar)
+  const odeVoiVar = odeVoi.component.variableByName(odeVoi.name)
+  const odeVoiUnits = odeVoiVar.units()
+  const voiVar = new _libcellml.Variable()
+  voiVar.setName(odeVoi.name)
+  voiVar.setUnitsByName(odeVoiUnits.name())
+  voiVar.setInterfaceTypeByString('public')
+  environmentComp.addVariable(voiVar)
+  odeVoiUnits.delete()
+  odeVoiVar.delete()
 
-  for (let i = 0; i < model.componentCount(); i++) {
-    const component = model.componentByIndex(i)
-
-    if (component.name() === 'environment') {
-      component.delete()
-      continue
-    }
-    const timeVarInComp = component.variableByName('t') || component.variableByName('time')
-    if (timeVarInComp) {
-      const timeUnits = timeVar.units()
-      const timeVarInCompUnits = timeVarInComp.units()
-      if (_libcellml.Units.compatible(timeUnits, timeVarInCompUnits)) {
-        _libcellml.Variable.addEquivalence(timeVar, timeVarInComp)
+  const voiUnits = voiVar.units()
+  for (const { component, voiNames } of voiVariables) {
+    for (const name of voiNames) {
+      const voiVarInComp = component.variableByName(name)
+      if (!voiVarInComp) continue
+      const voiVarInCompUnits = voiVarInComp.units()
+      if (_libcellml.Units.compatible(voiUnits, voiVarInCompUnits)) {
+        ensurePublicInterface(voiVarInComp)
+        _libcellml.Variable.addEquivalence(voiVar, voiVarInComp)
       }
-      timeUnits.delete()
-      timeVarInCompUnits.delete()
-      timeVarInComp.delete()
+      voiVarInCompUnits.delete()
+      voiVarInComp.delete()
     }
-    component.delete()
   }
 
+  voiUnits.delete()
   environmentComp.delete()
-  timeVar.delete()
+  voiVar.delete()
 }
 
 function prioritizeEnvironmentComponent(xmlString) {
@@ -896,8 +911,19 @@ function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariabl
  * @param {Array} inspectionModules - Records from useInspectionModuleStore().modules, each
  *   { name, units, variables: [{ nodeId, variableName, ... }] }. Each becomes its own generated
  *   component summing the selected variables — see createInspectionModuleComponent.
+ * @param {object} [options]
+ * @param {boolean} [options.check=true] - Validates and analyses the result, throwing on errors. Most of the
+ *   time on large models; a simulator that checks the model itself can skip it.
+ * @param {boolean} [options.allowBcOnly=false] - Builds boundary conditions coupled only to each other from their own
+ *   values, for a scope that cut them off from what computes them, rather than throwing.
  */
-export function generateFlattenedModel(nodes, edges, libraryStore, inspectionModules = []) {
+export function generateFlattenedModel(
+  nodes,
+  edges,
+  libraryStore,
+  inspectionModules = [],
+  { check = true, allowBcOnly = false } = {}
+) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
   // Initialize core objects
@@ -996,12 +1022,21 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
     const boundaryValues = resolveBoundaryValues(nodes, edges)
+    // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
+    // falls back to their own values (see checkScope).
+    if (boundaryValues.bcOnly.length && !allowBcOnly) {
+      const groups = boundaryValues.bcOnly.map(({ label }) => label).join('; ')
+      throw new Error(`Boundary conditions connected only to each other, so nothing computes them: ${groups}.`)
+    }
     if (boundaryValues.conflicts.length) {
       throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
     }
-    // Such a boundary condition is set like a constant.
+    // A value something else supplies is dropped (see resolveBoundaryValues).
+    const isIgnored = (nodeId, v) => !!boundaryValues.ignored.get(nodeId)?.has(v.name)
+    // A supplied boundary condition is set like a constant.
     const isSetAsConstant = (nodeId, v) =>
-      v.type === 'constant' || (v.type === 'boundary_condition' && !!boundaryValues.supplied.get(nodeId)?.has(v.name))
+      (v.type === 'constant' && !isIgnored(nodeId, v)) ||
+      (v.type === 'boundary_condition' && !!boundaryValues.supplied.get(nodeId)?.has(v.name))
 
     // Count how many nodes use each constant variable name
     const constantNameRefCount = new Map()
@@ -1015,6 +1050,9 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
 
     // Values live only in the parameter rows, so one left blank leaves its variable uninitialised.
     const missingValues = []
+
+    // Each component's VoI, connected to the environment's once the model has an ODE.
+    const voiVariables = []
 
     // ---------------------------------
     // Process Nodes (Create Components)
@@ -1037,6 +1075,14 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
 
       nodeComponentMap.set(node.id, originalComponent)
 
+      // The VoI is what the math integrates over, not a name; a value set in the parameter rows makes it a parameter.
+      const analysis = libraryStore.getMathAnalysis?.(mathRef) ?? analyzeMathXml(modelString)
+      const voiNames = findVoiNames(analysis)
+      for (const v of node.data.variables ?? []) {
+        if (v.type === 'global_constant' || isSetAsConstant(node.id, v)) voiNames.delete(v.name)
+      }
+      voiVariables.push({ component: originalComponent, voiNames, hasOde: analysis?.voi?.length > 0 })
+
       // Add Units found in MathML.
       const mathUnits = extractUnitsFromMath(originalComponent.math())
       for (const unitsName of mathUnits) {
@@ -1051,7 +1097,15 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
         const unitsName = units.name()
 
         const nodeVariable = node.data.variables.find((v) => v.name === variable.name())
-        if (nodeVariable) {
+        if (nodeVariable && isIgnored(node.id, nodeVariable)) {
+          const value =
+            nodeVariable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name())?.value : nodeVariable.value
+          // A connected boundary condition's value is a fallback, and an empty Sum warns below.
+          const isEmptySum = !!boundaryValues.emptySums.get(node.id)?.has(nodeVariable.name)
+          if (nodeVariable.type !== 'boundary_condition' && !isEmptySum) {
+            console.warn(`"${node.data.name}" variable "${variable.name()}" is set by a connection; ignoring its parameter value ${value}.`)
+          }
+        } else if (nodeVariable) {
           if (nodeVariable.type === 'global_constant') {
             const v = libraryStore.getGlobalConstant(variable.name())
             if (!isEmpty(v?.value)) {
@@ -1168,11 +1222,14 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       }
     }
 
-    // A Sum variable with nothing connected and no value of its own sums over nothing: it is 0.
+    // A Sum variable with nothing connected sums over nothing: it is 0, whatever its value (as in circulatory_autogen).
     for (const [nodeId, varNames] of boundaryValues.emptySums) {
       const component = nodeComponentMap.get(nodeId)
+      const rows = nodes.find((node) => node.id === nodeId)?.data.variables ?? []
       for (const varName of varNames) {
-        console.warn(`"${component.name()}" variable "${varName}" sums over its connections, but none are connected; setting it to 0.`)
+        const value = rows.find((row) => row.name === varName)?.value
+        const ignoring = isEmpty(value) ? '' : ` ignoring its value ${value} and`
+        console.warn(`"${component.name()}" variable "${varName}" sums over its connections, but none are connected;${ignoring} setting it to 0.`)
         addSumTerm(component, varName)
       }
     }
@@ -1196,7 +1253,7 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
 
     model.linkUnits()
 
-    addEnvironmentComponent(model)
+    addEnvironmentComponent(model, voiVariables)
 
     if (globalParameterComponent.variableCount() === 0) {
       model.removeComponentByName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME, true)
@@ -1223,15 +1280,17 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
       handleLoggerErrors(importer, `Importer error count: ${importer.errorCount()}`)
     }
 
-    validator.validateModel(flattenedModel)
-    if (validator.errorCount()) {
-      handleLoggerErrors(validator, `Validator error count: ${validator.errorCount()}`)
-    }
+    if (check) {
+      validator.validateModel(flattenedModel)
+      if (validator.errorCount()) {
+        handleLoggerErrors(validator, `Validator error count: ${validator.errorCount()}`)
+      }
 
-    analyser.analyseModel(flattenedModel)
-    if (analyser.errorCount()) {
-      flattenedModel.delete()
-      handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
+      analyser.analyseModel(flattenedModel)
+      if (analyser.errorCount()) {
+        flattenedModel.delete()
+        handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
+      }
     }
 
     let flattenedModelString = printer.printModel(flattenedModel, false)
@@ -1271,9 +1330,8 @@ export function generateFlattenedModel(nodes, edges, libraryStore, inspectionMod
   }
 }
 
-function isPossibleParameter(variable, includeInitialised = false) {
-  const varName = variable.name()
-  if (varName === 't' || varName === 'time') return false
+function isPossibleParameter(variable, voiNames, includeInitialised = false) {
+  if (voiNames.has(variable.name())) return false
   if (!includeInitialised && variable.initialValue() !== '') return false
   return true
 }
@@ -1291,7 +1349,7 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
       const roles = {
         states: new Set(analysis?.stateVariables),
         assigned: new Set(analysis?.assigned),
-        voi: new Set(analysis?.voi),
+        voi: findVoiNames(analysis),
       }
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)
@@ -1306,7 +1364,7 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
         garbageCollector.add(variable)
         const units = variable.units()
         garbageCollector.add(units)
-        if (isPossibleParameter(variable, includeInitialisedVariables)) {
+        if (isPossibleParameter(variable, roles.voi, includeInitialisedVariables)) {
           const initialValue = variable.initialValue()
           variables.push({
             name: variable.name(),
@@ -1419,6 +1477,36 @@ export function doesComponentExistInModel(cellmlString, componentName) {
     return hasComponent
   }
   return false
+}
+
+/**
+ * Puts the components of several one-component models (as the library stores math) into one model.
+ *
+ * @param {string} modelName - The combined model's name.
+ * @param {string[]} componentModels - CellML models, each holding one component.
+ * @returns {string} The combined model's CellML, one element per line.
+ */
+export function combineComponentModels(modelName, componentModels) {
+  const parser = new _libcellml.Parser(false)
+  const printer = new _libcellml.Printer()
+  const model = new _libcellml.Model()
+  model.setName(modelName)
+  try {
+    for (const componentModel of componentModels) {
+      const source = parser.parseModel(componentModel)
+      const component = source.componentByIndex(0)
+      const clone = component.clone()
+      model.addComponent(clone)
+      clone.delete()
+      component.delete()
+      source.delete()
+    }
+    return printer.printModel(model, false)
+  } finally {
+    model.delete()
+    printer.delete()
+    parser.delete()
+  }
 }
 
 export function mergeModelComponents(targetModelString, sourceModelString, newComponentName, oldComponentName) {

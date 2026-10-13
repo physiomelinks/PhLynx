@@ -1,27 +1,17 @@
 # Macro Builder Guide
 
-The **Macro Builder** is a specialized environment for constructing reusable sub-systems and defining repeating structures outside the main workspace.
+The **Macro Builder** builds one segment of a model, then places a chain of copies of it (for example, a segmented vessel) in your workspace.
 
-## Interface Overview
+![Macro Builder dialog with a segment and a ghost node](../assets/images/macro-builder.png){.align-center width="800px"}
 
-The Macro Builder runs in a dedicated full-screen dialog containing:
-1.  **Module List (Left):** A library of available components.
-2.  **Canvas (Center):** An independent workspace for assembling your macro.
-3.  **Configuration (Bottom):** Controls for repetition and generation.
+The dialog has the **Module Library** on the left, the canvas in the centre and **Repeat Count** at the bottom. The canvas toolbar has **Clear Macro Builder** (eraser icon) and **Add left/top/right/bottom handle**, which work on the selected instance.
 
-## How to Build a Macro
+## Build a macro
 
-1.  **Open Builder:** Click the **Macro Build** button in the main toolbar.
-2.  **Assemble:** Drag modules from the left sidebar onto the canvas.
-3.  **Connect:** Link the modules to define the internal flow.
-4.  **Refine:** Use **Ghost Nodes** to clean up complex connections if wires become cluttered.
+1. Click **Open macro builder** (hammer icon) in the [toolbar](../reference/ui-overview.md#toolbar).
+2. Drag modules from the Module Library onto the canvas and connect them to make one segment.
+3. *(Optional)* To link each copy to the next one, add a [ghost node](../reference/ghost-nodes.md) for the instance the next copy should connect into, then connect the segment's outlet to it.
+4. Set **Repeat Count**. The default is 1.
+5. Click **Generate Macro Node**.
 
-## Creating Repeating Structures
-
-You can automatically generate arrayed structures (e.g., segmented vessels) using the **Repeat Count** feature.
-
-1.  **Design Unit:** Build a *single* segment of your structure in the canvas.
-2.  **Set Multiplier:** Enter the number of repetitions in the **Repeat Count** field at the bottom of the screen.
-3.  **Generate:** Click **Generate Macro Node**.
-
-PhLynx will compile the design and generate the specified number of sequential copies in your main workspace.
+The dialog closes. The copies are placed side by side at the centre of your view and left selected. Each instance gets a unique name. Without a ghost node, the copies are not connected to each other. **Cancel** closes the dialog without generating anything.
