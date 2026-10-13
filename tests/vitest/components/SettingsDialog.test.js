@@ -83,7 +83,8 @@ describe('SettingsDialog', () => {
     await mountDialog()
     const formatRow = wrapper.findAll('.setting-row').find((row) => row.text().includes('Image format'))
     await formatRow.findComponent(Select).setValue('svg')
-    const toggle = wrapper.findComponent(ToggleSwitch)
+    const warningsRow = wrapper.findAll('.setting-row').find((row) => row.text().includes('Include warning symbols'))
+    const toggle = warningsRow.findComponent(ToggleSwitch)
     expect(toggle.props('modelValue')).toBe(false)
     await toggle.setValue(true)
     await button('Save Changes').trigger('click')
@@ -93,5 +94,17 @@ describe('SettingsDialog', () => {
       imageExportFormat: 'svg',
       imageExportWarnings: true,
     })
+  })
+
+  it('turns the data items off', async () => {
+    await mountDialog()
+    const row = wrapper.findAll('.setting-row').find((row) => row.text().includes('Show data items'))
+    const toggle = row.findComponent(ToggleSwitch)
+    expect(toggle.props('modelValue')).toBe(true)
+    await toggle.setValue(false)
+    await button('Save Changes').trigger('click')
+
+    expect(settings.showDataItems).toBe(false)
+    expect(JSON.parse(window.localStorage.getItem('phlynx-settings'))).toMatchObject({ showDataItems: false })
   })
 })

@@ -135,6 +135,7 @@ function saveChanges() {
 }
 .setting-control--toggle {
   align-items: flex-end;
+  justify-content: center;
 }
 .setting-option {
   display: flex;

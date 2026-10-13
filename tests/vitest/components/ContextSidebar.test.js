@@ -175,3 +175,81 @@ describe('ContextSidebar global constant parameters', () => {
     expect(wrapper.vm.activeTabId).toBe('params')
   })
 })
+
+describe('ContextSidebar collapsing', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    nodes.value = []
+  })
+
+  it('collapses when asked, and opens again on a tab', async () => {
+    await mountOnParams()
+    const widths = () => wrapper.emitted('resize').map(([width]) => width)
+
+    wrapper.vm.collapse()
+    await flushPromises()
+    expect(wrapper.vm.isCollapsed).toBe(true)
+    expect(widths().at(-1)).toBe(51)
+
+    wrapper.vm.showTab('global')
+    await flushPromises()
+    expect(wrapper.vm.isCollapsed).toBe(false)
+    expect(wrapper.vm.activeTabId).toBe('global')
+    expect(widths().at(-1)).toBeGreaterThan(0)
+  })
+
+  /** Mounts the sidebar collapsed, as it starts. */
+  async function mountCollapsed() {
+    wrapper = mount(ContextSidebar, { global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true, SimulationPanel: true }, directives: { tooltip: {} } } })
+    await flushPromises()
+  }
+
+  const railTab = (icon) => wrapper.findAll('[role=tab]').find((tab) => tab.find(`.${icon}`).exists())
+
+  it('collapses to the icon rail, with no tab selected', async () => {
+    await mountCollapsed()
+
+    expect(wrapper.find('.context-aside--collapsed').exists()).toBe(true)
+    expect(wrapper.find('.context-aside').attributes('style')).toContain('width: 51px')
+    expect(wrapper.emitted('resize').at(-1)).toEqual([51])
+    expect(wrapper.findAll('[role=tab]')).toHaveLength(5)
+    expect(wrapper.findAll('[role=tab][aria-selected=true]')).toHaveLength(0)
+    // The last-used tab stays keyboard-reachable while collapsed.
+    expect(railTab('pi-globe').attributes('tabindex')).toBe('0')
+  })
+
+  it('opens on the clicked rail icon’s tab', async () => {
+    await mountCollapsed()
+
+    await railTab('pi-chart-line').trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(false)
+    expect(wrapper.vm.activeTabId).toBe('sim')
+    expect(railTab('pi-chart-line').attributes('aria-selected')).toBe('true')
+    expect(wrapper.emitted('resize').at(-1)).toEqual([320])
+  })
+
+  it('collapses when the open tab’s icon is clicked again', async () => {
+    await mountCollapsed()
+
+    await railTab('pi-globe').trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(false)
+
+    await railTab('pi-globe').trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(true)
+    expect(wrapper.findAll('[role=tab][aria-selected=true]')).toHaveLength(0)
+
+    await railTab('pi-globe').trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(false)
+    expect(railTab('pi-globe').attributes('aria-selected')).toBe('true')
+  })
+
+  it('switches tab without collapsing when another icon is clicked while open', async () => {
+    await mountCollapsed()
+
+    await railTab('pi-globe').trigger('click')
+    await railTab('pi-wrench').trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(false)
+    expect(wrapper.vm.activeTabId).toBe('props')
+    expect(railTab('pi-wrench').attributes('aria-selected')).toBe('true')
+  })
+})

@@ -1,23 +1,8 @@
 # Ghost Nodes
 
-**Ghost Nodes** are visual reference tools used to manage connections in complex diagrams without creating functional duplication.
+A **ghost node** is a [Macro Builder](../guides/macro-build-guide.md) placeholder for an instance in the *next* copy of a macro. When copies are generated, a connection into the ghost becomes a connection from each copy into that instance in the following copy. The ghost itself is not generated.
 
-## Functionality
+1. Drag the **ghost** module from the Macro Builder's Module Library onto the canvas.
+2. In **Configure Ghost Node**, pick the instance to mimic and click **Create Ghost**. If the canvas has only one instance, it is picked for you.
 
-A Ghost Node acts as a proxy for an existing "target" node. It mimics the target's:
-- **Name:** Displayed as "Next: [Target Name]".
-- **Ports:** Automatically mirrors the input/output ports of the target.
-
-## Behavior
-
-* **Synchronization:** Changes to the target node (renaming, adding ports) are automatically reflected on the Ghost Node.
-* **Read-Only:** You cannot edit a Ghost Node directly; you must edit the target node to change properties.
-* **Deletion:** Deleting a Ghost Node removes the visual proxy and its immediate connections but does **not** delete the original module.
-
-## Usage
-
-**Creating a Ghost Node**
-Select **Add Ghost Node** from the tool menu and choose a target module from the dialog list.
-
-> [!NOTE]
-> To prevent circular references, you cannot create a Ghost Node of another Ghost Node.
+The ghost is titled **Next: *name*** and mirrors the target's handles as you edit it.

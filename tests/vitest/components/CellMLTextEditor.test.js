@@ -2,7 +2,8 @@
 import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EditorView } from '@codemirror/view'
 import { CellMLTextParser } from 'cellml-text-editor'
 
 import CellMLTextEditor from '../../../src/components/CellMLTextEditor.vue'
@@ -23,7 +24,27 @@ const DEFINITIONS = [
 ]
 
 let wrapper
-afterEach(() => wrapper?.unmount())
+afterEach(() => {
+  wrapper?.unmount()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
+
+/** Lays the text out without a layout engine: each character 10px wide, at the position a click's x names. */
+function mockLayout() {
+  vi.spyOn(EditorView.prototype, 'posAtCoords').mockImplementation(({ x }) => Math.floor(x / 10))
+  vi.spyOn(EditorView.prototype, 'coordsAtPos').mockImplementation((position) => ({ left: position * 10, right: position * 10, top: 0, bottom: 10 }))
+}
+
+/**
+ * Clicks just inside the character at a position.
+ *
+ * @param {number} position
+ * @param {Object} [init] - The click's event options beyond a plain click.
+ */
+function clickAt(position, init = {}) {
+  wrapper.find('.cm-content').element.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, detail: 1, clientX: position * 10 + 2, ...init }))
+}
 
 /** Mounts the editor (Simple Mode unless told otherwise) and waits for its `init` report. */
 async function mountEditor(xml, props = {}) {
@@ -60,6 +81,17 @@ describe('CellMLTextEditor', () => {
 
     // The marked text doesn't parse, so nothing is reported as a valid model or as an edit.
     expect(changes().map(({ source, valid }) => ({ source, valid }))).toEqual([{ source: 'init', valid: false }])
+  })
+
+  it('declares kept names no equation uses in Simple Mode, and rebuilds when they change', async () => {
+    const definitions = [...DEFINITIONS, { name: 'cAMP', units: 'dimensionless' }]
+    await mountEditor(modelWith('<ci>x</ci>'), { variableDefinitions: definitions, keepVariables: ['cAMP'] })
+    expect(changes()[0].xml).toContain('<variable name="cAMP" units="dimensionless"')
+
+    await wrapper.setProps({ keepVariables: [] })
+    wrapper.vm.flush()
+    expect(changes().at(-1)).toMatchObject({ source: 'external', valid: true })
+    expect(changes().at(-1).xml).not.toContain('cAMP')
   })
 
   it('renames every use of a variable and reports it as an edit', async () => {
@@ -101,5 +133,38 @@ describe('CellMLTextEditor', () => {
     await nextTick()
     expect(changes().at(-1).text).toMatch(/var x: [^\n]*; \/\/ length/)
     expect(changes().at(-1).text).toContain('// Copy')
+  })
+
+  it('reports a variable clicked in the text, and nothing for a function, a modified click or the space beside a name', async () => {
+    await mountEditor(modelWith('<apply><plus/><ci>x</ci><apply><sin/><ci>x</ci></apply></apply>'))
+    const text = changes()[0].text
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    mockLayout()
+    const x = text.indexOf('x')
+
+    clickAt(text.indexOf('sin'))
+    clickAt(x, { ctrlKey: true })
+    clickAt(x, { shiftKey: true })
+    // Just past the name's end, where the word still resolves to it.
+    wrapper.find('.cm-content').element.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0, detail: 1, clientX: (x + 1) * 10 + 5 }))
+    vi.runAllTimers()
+    expect(wrapper.emitted('variable-click')).toBeUndefined()
+
+    clickAt(x)
+    expect(wrapper.emitted('variable-click')).toBeUndefined()
+    vi.runAllTimers()
+    expect(wrapper.emitted('variable-click')).toEqual([['x']])
+  })
+
+  it('reports nothing for a name double-clicked to select it', async () => {
+    await mountEditor(modelWith('<apply><plus/><ci>x</ci><ci>x</ci></apply>'))
+    const text = changes()[0].text
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    mockLayout()
+
+    clickAt(text.indexOf('x'))
+    clickAt(text.indexOf('x'), { detail: 2 })
+    vi.runAllTimers()
+    expect(wrapper.emitted('variable-click')).toBeUndefined()
   })
 })

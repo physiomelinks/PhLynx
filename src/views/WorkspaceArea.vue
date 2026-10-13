@@ -85,7 +85,7 @@
             iconOnly
             variant="text"
             severity="secondary"
-            v-tooltip.bottom="{ value: 'Add top handle', showDelay: 300 }"
+            v-tooltip.bottom="{ value: 'Add left handle', showDelay: 300 }"
             :disabled="!somethingSelected"
             @click="addHandle('left')"
           >
@@ -143,14 +143,16 @@
           <Button
             iconOnly
             style="margin-left: 10px"
-            icon="pi pi-chart-line"
             size="small"
             variant="text"
             severity="info"
             :disabled="!somethingAvailable"
+            aria-label="Configure simulation settings"
             v-tooltip.bottom="{ value: 'Configure simulation settings', showDelay: 300 }"
             @click="onOpenSimSettingsDialog"
-          />
+          >
+            <SimulationSettingsIcon />
+          </Button>
 
           <Button
             iconOnly
@@ -159,6 +161,7 @@
             size="small"
             variant="text"
             severity="info"
+            aria-label="Settings"
             v-tooltip.bottom="{ value: 'Settings', showDelay: 300 }"
             @click="onOpenSettingsDialog"
           />
@@ -169,7 +172,6 @@
           <SplitButton
             text
             size="small"
-            icon="pi pi-upload"
             :model="importMenuItems"
             severity="primary"
             @click="triggerCurrentImport"
@@ -181,6 +183,9 @@
               showDelay: 300,
             }"
           >
+            <template #icon>
+              <ImportIcon />
+            </template>
             <!-- Dropdown Menu Item Icons -->
             <template #item="{ item, props }">
               <a class="p-menuitem-link" v-ripple v-bind="props.action">
@@ -198,7 +203,6 @@
           <SplitButton
             text
             size="small"
-            icon="pi pi-download"
             :model="exportMenuItems"
             severity="primary"
             style="margin-left: 10px"
@@ -212,6 +216,9 @@
               showDelay: 300,
             }"
           >
+            <template #icon>
+              <ExportIcon />
+            </template>
             <!-- Dropdown Menu Item Icons -->
             <template #item="{ item, props }">
               <a class="p-menuitem-link" v-ripple v-bind="props.action">
@@ -237,7 +244,9 @@
             v-tooltip.bottom="{
               value:
                 !somethingAvailable || currentSendDisabled
-                  ? 'The Send option is disabled because CellML library is not ready yet.'
+                  ? currentSendMode.isSelection && libcellml.status === 'ready'
+                    ? 'Select instances to send them on their own.'
+                    : 'The Send option is disabled because CellML library is not ready yet.'
                   : `Send to ${currentSendMode.label}`,
               showDelay: 300,
             }"
@@ -288,28 +297,47 @@
         }"
       >
         <div
-          ref="searchBarEl"
           class="workspace-search-container"
-          :class="{ 'search-inactive': !searchBarFocused && !searchQuery }"
+          :class="{ 'search-inactive': !isSearchFocused && !searchQuery, 'search-mode-var': parsedQuery.mode === 'var' }"
         >
           <div class="workspace-search-input-wrapper">
             <IconField>
               <InputIcon class="pi pi-search" />
               <InputText
+                ref="searchInputRef"
                 v-model="searchQuery"
-                class="w-62"
-                placeholder="Search Workspace..."
-                @input="handleSearchInput"
-                @focus="searchBarFocused = true"
-                @blur="searchBarFocused = false"
+                class="w-full"
+                placeholder="Type / to search"
+                @input="runSearch()"
+                @keydown="onSearchKeydown"
+                @focus="onSearchFocus"
+                @blur="onSearchBlur"
               />
               <InputIcon v-if="searchQuery" class="search-clear-input pi pi-times-circle" @click="clearSearch" />
             </IconField>
           </div>
-          <div v-if="searchQuery" class="search-suffix-content">
+          <div v-if="showModePicker" class="search-suffix-content">
+            <ul class="search-match-list search-mode-picker">
+              <li
+                v-for="(mode, index) in SEARCH_MODES"
+                :key="mode.label"
+                class="search-match-item"
+                :class="{ active: index === pickerIndex }"
+                @mousedown.prevent="pickMode(index)"
+              >
+                {{ mode.label }}
+                <span class="search-match-vars">{{ mode.hint }}</span>
+              </li>
+            </ul>
+          </div>
+          <div v-else-if="searchQuery" class="search-suffix-content">
             <div class="search-suffix-header">
+              <Tag v-if="parsedQuery.mode === 'var'" value="var" severity="secondary" rounded />
               <span v-if="matchCount !== null" class="search-match-count">
-                {{ matchCount }} match{{ matchCount !== 1 ? 'es' : '' }}
+                <template v-if="parsedQuery.mode === 'var'">
+                  {{ matchCount }} instance{{ matchCount !== 1 ? 's' : '' }}
+                </template>
+                <template v-else>{{ matchCount }} match{{ matchCount !== 1 ? 'es' : '' }}</template>
               </span>
               <div v-if="matchCount >= 1" class="search-nav-buttons">
                 <Button
@@ -329,17 +357,29 @@
                 />
               </div>
             </div>
-            <ul v-if="matchCount >= 1" class="search-match-list">
+            <ul v-if="matchCount >= 1" ref="matchListRef" class="search-match-list">
               <li
-                v-for="(node, index) in matchingNodesList"
-                :key="node.id"
+                v-for="(match, index) in matchingNodesList"
+                :key="match.node.id"
                 class="search-match-item"
                 :class="{ active: index === currentMatchIndex }"
                 @click="selectMatch(index)"
               >
-                {{ node.data?.name || node.data?.moduleRef || node.id }}
+                {{ match.node.data?.name || match.node.data?.moduleRef || match.node.id }}
+                <span
+                  v-if="match.variables.length"
+                  class="search-match-vars"
+                  :title="match.variables.map(describeMatchedVariable).join(', ')"
+                >
+                  {{ match.variables.slice(0, 3).map(describeMatchedVariable).join(', ')
+                  }}{{ match.variables.length > 3 ? ` +${match.variables.length - 3} more` : '' }}
+                </span>
               </li>
             </ul>
+            <p v-else-if="matchCount === 0" class="search-empty">
+              <template v-if="parsedQuery.mode === 'var'">No instance has a variable matching '{{ parsedQuery.term }}'</template>
+              <template v-else>No instances match '{{ parsedQuery.term }}'</template>
+            </p>
           </div>
         </div>
 
@@ -419,6 +459,7 @@
         </div>
       </main>
       <ContextSidebar
+        ref="contextSidebarRef"
         :initial-width="480"
         :min-width="260"
         :max-width="1200"
@@ -443,11 +484,7 @@
     @confirm="onInstanceEditConfirm"
   />
 
-  <SaveDialog
-    v-model="saveDialogVisible"
-    :default-name="sessionMetadataStore.lastSaveName"
-    @confirm="onSaveConfirm"
-  />
+  <SaveDialog v-model="saveDialogVisible" :default-name="sessionMetadataStore.lastSaveName" @confirm="onSaveConfirm" />
 
   <SaveDialog
     v-model="exportDialogVisible"
@@ -471,12 +508,12 @@
     @confirm="handleCreateInspectionModule"
   />
 
-  <MacroBuilderDialog
-    v-model="macroBuilderDialogVisible"
-    @generate="onMacroBuilderGenerate"
-  />
+  <MacroBuilderDialog v-model="macroBuilderDialogVisible" @generate="onMacroBuilderGenerate" />
 
-  <SimSettingsDialog v-model="simSettingsDialogVisible" :nodes="nodes" />
+  <SimulationFloatingViewer :nodes="nodes" :is-canvas-shown="route.name === 'workspace'" />
+  <SimSettingsDialog v-model="simSettingsDialog.visible" :section="simSettingsDialog.section" :nodes="nodes" />
+
+  <ProtocolDialog v-model="protocolDialog.visible" :nodes="nodes" />
 
   <SettingsDialog v-model="settingsDialogVisible" />
 
@@ -513,11 +550,11 @@ import { useRoute } from 'vue-router'
 import Button from 'primevue/button'
 import SplitButton from 'primevue/splitbutton'
 import JSZip from 'jszip'
-import { parseLayout } from 'cellml-text-editor'
 import Divider from 'primevue/divider'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
+import Tag from 'primevue/tag'
 import ConfirmDialog from 'primevue/confirmdialog'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { Toast } from 'primevue'
@@ -529,11 +566,17 @@ import { MiniMap } from '@vue-flow/minimap'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
+import { useConnect } from '../composables/useConnect'
+import { useCellmlDrop } from '../composables/useCellmlDrop'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 
 import { importOmexFile, extractOmexArchive } from '../services/import/omex'
+import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
+import { putSlider } from '../services/simulation/parameterSliders'
 
 import useDragAndDrop from '../composables/useDnD'
 import { useHandleManagement } from '../composables/useHandleManagement'
@@ -558,6 +601,9 @@ import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
 import SimSettingsDialog from '../components/SimSettingsDialog.vue'
+import ProtocolDialog from '../components/ProtocolDialog.vue'
+import SimulationFloatingViewer from '../components/simulation/SimulationFloatingViewer.vue'
+import { setWorkspaceMounted } from '../router/workspaceMount'
 import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
@@ -571,11 +617,23 @@ import AddHandleLeft from '../components/icons/AddHandles/AddHandleLeft.vue'
 import AddHandleTop from '../components/icons/AddHandles/AddHandleTop.vue'
 import AddHandleRight from '../components/icons/AddHandles/AddHandleRight.vue'
 import DustpanBrush from '../components/icons/DustpanBrush.vue'
+import SimulationSettingsIcon from '../components/icons/SimulationSettingsIcon.vue'
+import ImportIcon from '../components/icons/ImportIcon.vue'
+import ExportIcon from '../components/icons/ExportIcon.vue'
 
 import { useScreenshot } from '../services/useScreenshot'
 import { useMacroGenerator } from '../services/generate/generateWorkflow'
-import { migrateWorkspace, separateNodeParameters } from '../services/workspaceMigrator'
-import { buildWorkspaceFile } from '../services/workspaceFile'
+import { separateNodeParameters } from '../services/workspaceMigrator'
+import { loadWorkspaceFile } from '../services/workspaceFile'
+import { useWorkspaceSaveLoad } from '../composables/useWorkspaceSaveLoad'
+import { useSimulation } from '../composables/useSimulation'
+import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
+import { useProtocolDialog } from '../composables/useProtocolDialog'
+import { useFloatingViewer } from '../composables/useFloatingViewer'
+import { useActiveDocumentListeners } from '../composables/useActiveDocumentListeners'
+import { useWorkspaceSearch } from '../composables/useWorkspaceSearch'
+import { SEARCH_MODES, variableKindLabel } from '../utils/workspaceSearch'
+import { scopeFlowObject } from '../services/simulation/scopedModel'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
 import { extractSimData as extractSimDataFromSimulationJson } from '../services/import/simulation'
@@ -585,36 +643,28 @@ import { notify } from '../utils/notify'
 import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
+import { shouldIgnoreShortcut, useWorkspaceClipboard } from '../composables/useWorkspaceClipboard'
 import { useColorScheme } from '../composables/useColorScheme'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { categoryColour } from '../utils/nodeThemes'
-import { readFileAsText, cyrb53 } from '../utils/misc'
+import { cyrb53, takeInputFile } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
 import {
   edgeLineOptions,
   FLOW_IDS,
   IMPORT_KEYS,
-  JSON_FILE_TYPES,
   NEW_INSTANCE_MODULE_REF,
   NUM_GHOST_HANDLES_TOP_BOT,
   NUM_GHOST_HANDLES_LEFT_RIGHT,
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
-import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
-import { getId as getNextEdgeId, resolvePortCouplings } from '../utils/edges'
-import { getHandleUidFromHandleId } from '../utils/handles'
+import { resolvePortCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
+import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
-import {
-  ensureExtension,
-  legacyDownload,
-  saveFileHandle,
-  saveWithDialog,
-  stripExtension,
-  writeFileHandle,
-} from '../utils/save'
+import { saveWithDialog, stripExtension } from '../utils/save'
 
 const workspaceFileInput = ref(null)
 
@@ -644,8 +694,7 @@ const toastTop = computed(() => SEARCH_BAR_TOP + TOAST_GAP_BELOW_SEARCH_BAR)
 const {
   addEdges,
   addNodes,
-  applyNodeChanges,
-  applyEdgeChanges,
+  addSelectedNodes,
   dimensions,
   edges,
   findEdge,
@@ -655,10 +704,9 @@ const {
   getSelectedNodes,
   getSelectedEdges,
   nodes,
-  onConnect,
   onConnectEnd,
   removeEdges,
-  removeNodes,
+  removeSelectedNodes,
   screenToFlowCoordinate,
   setViewport,
   toObject,
@@ -700,7 +748,8 @@ const dialogVisible = computed(() => {
     exportDialogVisible.value ||
     replacementDialogVisible.value ||
     macroBuilderDialogVisible.value ||
-    simSettingsDialogVisible.value ||
+    simSettingsDialog.visible ||
+    protocolDialog.visible ||
     settingsDialogVisible.value ||
     edgeConnectionDialogVisible.value ||
     instanceEditorDialogVisible.value ||
@@ -728,205 +777,6 @@ const notifyMultiFileResults = (
   }
 }
 
-/**
- * Load an array of CellML entries, each being either a browser File object or a
- * plain `{ name, content }` object (used when content is already in memory).
- *
- * If a single file contains inter-component connections it is treated as a
- * connection graph and loaded into the workspace via loadFromCellML.
- * Otherwise (or for multiple files) the files are registered as module/unit
- * libraries via loadCellMLData as usual.
- *
- * Shows per-file notifications for a single file; a combined summary for multiple.
- */
-const loadCellMLFiles = async (entries) => {
-  // Single-file fast path: check for connections and load as a graph if present
-  if (entries.length === 1) {
-    const entry = entries[0]
-    const content = entry instanceof File ? await readFileAsText(entry) : entry.content
-    const parsedCellmlPayload = parseCellMLConnections(content, entry.name)
-
-    if (parsedCellmlPayload.edges.length > 0) {
-      if (nodes.value.length > 0) {
-        const overwrite = await confirm({
-          header: 'Workspace Not Empty',
-          message: 'The workspace already contains nodes. What would you like to do?',
-          severity: 'warning',
-          acceptLabel: 'Overwrite',
-          rejectLabel: 'Add to Workspace',
-        })
-
-        if (!overwrite) {
-          // Snapshot current workspace before wiping it
-          const snapshot = toObject()
-
-          // Load new graph into clean workspace using the normal path
-          const result = await loadCellMLData(content, entry.name, { notify: false })
-          const parameters = loadParametersFromCellML(content)
-          await loadFromCellML(parsedCellmlPayload, entry.name, parameters)
-
-          // Remap snapshotted node IDs to avoid clashes with newly loaded nodes
-          const existingIds = new Set(nodes.value.map((n) => n.id))
-          const idRemap = new Map()
-
-          const restoredNodes = snapshot.nodes.map((n) => {
-            let newId = n.id
-            let counter = 1
-            while (existingIds.has(newId)) {
-              newId = `${n.id}_${counter++}`
-            }
-            existingIds.add(newId)
-            idRemap.set(n.id, newId)
-
-            return {
-              ...n,
-              id: newId,
-              position: { x: n.position.x + 1500, y: n.position.y },
-              data: { ...n.data },
-            }
-          })
-
-          // Remap edge source/target to use new IDs
-          const restoredEdges = snapshot.edges.map((e) => ({
-            ...e,
-            id: `${e.id}_restored_${crypto.randomUUID()}`,
-            source: idRemap.get(e.source) ?? e.source,
-            target: idRemap.get(e.target) ?? e.target,
-          }))
-
-          addNodes(restoredNodes)
-          addEdges(restoredEdges)
-
-          return [result]
-        }
-      }
-
-      // Register modules/units in the store first, then build the graph.
-      const result = await loadCellMLData(content, entry.name, { notify: false })
-      const parameters = loadParametersFromCellML(content)
-      await loadFromCellML(parsedCellmlPayload, entry.name, parameters)
-
-      rebuildNodeEdgeIndex()
-
-      return [result]
-    }
-    // No connections — fall through to the standard module-registration path - TODO - might be nice to still drop single modules into workspace
-    try {
-      const result = await loadCellMLData(content, entry.name)
-      return [result]
-    } catch {
-      return [{ ok: false, moduleCount: 0, unitsCount: 0 }]
-    }
-  }
-
-  // Multi-file path: always register as module/unit libraries
-  const multiFile = entries.length > 1
-  const results = await Promise.all(
-    entries.map(async (entry) => {
-      try {
-        const content = entry instanceof File ? await readFileAsText(entry) : entry.content
-        return loadCellMLData(content, entry.name, { notify: !multiFile })
-      } catch {
-        return { ok: false, moduleCount: 0, unitsCount: 0 }
-      }
-    })
-  )
-
-  if (multiFile) {
-    const succeeded = results.filter((r) => r.ok)
-    const failed = results.length - succeeded.length
-    const totalModules = succeeded.reduce((sum, r) => sum + r.moduleCount, 0)
-    const totalUnits = succeeded.reduce((sum, r) => sum + r.unitsCount, 0)
-    const fileWord = (n) => `${n} file${n !== 1 ? 's' : ''}`
-    const summary = [
-      totalModules > 0 ? `${totalModules} module${totalModules !== 1 ? 's' : ''}` : '',
-      totalUnits > 0 ? `${totalUnits} unit${totalUnits !== 1 ? 's' : ''}` : '',
-    ]
-      .filter(Boolean)
-      .join(' and ')
-    if (succeeded.length > 0 && failed === 0) {
-      notify.success({ title: 'CellML Files Loaded', message: `Loaded ${summary} from ${fileWord(succeeded.length)}.` })
-    } else if (succeeded.length > 0) {
-      notify.warning({
-        title: 'Partial Import',
-        message: `Loaded ${summary} from ${fileWord(succeeded.length)}. ${fileWord(failed)} failed.`,
-      })
-    } else {
-      notify.error({ title: 'Import Failed', message: `Failed to load all ${fileWord(failed)}.` })
-    }
-  }
-
-  return results
-}
-
-/**
- * Unified dragover handler — accepts both module drags (internal) and file drops (.cellml from OS).
- */
-const onDragOver = (event) => {
-  const hasFiles = event.dataTransfer?.types?.includes('Files')
-  if (hasFiles) {
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-  } else {
-    onDragOverModule(event)
-  }
-}
-
-/**
- * Unified drop handler — routes OS file drops to CellML import, internal drags to the module DnD handler.
- */
-const onDrop = async (event) => {
-  const files = event.dataTransfer?.files
-  if (files && files.length > 0) {
-    event.preventDefault()
-
-    const cellmlFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.cellml'))
-
-    const omexFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.omex'))
-
-    if (cellmlFiles.length === 0 && omexFiles.length === 0) {
-      notify.warning({
-        title: 'Unsupported File Type',
-        message: 'Only .cellml and .omex files can be dropped onto the workspace.',
-      })
-      return
-    }
-
-    if (libcellml.status !== 'ready') {
-      notify.warning({
-        title: 'CellML Library Not Ready',
-        message: 'Please wait for the CellML library to finish loading and try again.',
-      })
-      return
-    }
-
-    if (cellmlFiles.length > 0) {
-      await loadCellMLFiles(cellmlFiles)
-    }
-
-    if (omexFiles.length > 0) {
-      for (const file of omexFiles) {
-        try {
-          const arrayBuffer = await file.arrayBuffer()
-          const result = await importOmexFile(arrayBuffer)
-          await processImportedOmexArchive(arrayBuffer, result, file.name)
-          notify.success({
-            title: 'OMEX Import Complete',
-            message: `${file.name} imported successfully!`,
-          })
-        } catch (error) {
-          notify.error({
-            title: 'OMEX Import Failed',
-            message: error.message,
-          })
-        }
-      }
-    }
-  } else {
-    onDropModule(event)
-  }
-}
-
 const libraryStore = useLibraryStore()
 const sessionMetadataStore = useSessionMetadataStore()
 const inspectionModuleStore = useInspectionModuleStore()
@@ -939,7 +789,10 @@ const { settings: appSettings } = useAppSettings()
 
 /** MiniMap nodes follow the active node colour theme; uncategorised nodes keep the MiniMap default grey. */
 function miniMapNodeColour(node) {
-  return categoryColour(nodeThemeStore.activeTheme, node.data?.domainType, isDarkMode.value) ?? (isDarkMode.value ? '#3f3f46' : '#e2e2e2')
+  return (
+    categoryColour(nodeThemeStore.activeTheme, node.data?.domainType, isDarkMode.value) ??
+    (isDarkMode.value ? '#3f3f46' : '#e2e2e2')
+  )
 }
 const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
 const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
@@ -960,7 +813,8 @@ const importDialogVisible = ref(false)
 const exportDialogVisible = ref(false)
 const replacementDialogVisible = ref(false)
 const macroBuilderDialogVisible = ref(false)
-const simSettingsDialogVisible = ref(false)
+const { state: simSettingsDialog, open: openSimSettingsDialog } = useSimSettingsDialog()
+const { state: protocolDialog } = useProtocolDialog()
 const settingsDialogVisible = ref(false)
 const edgeConnectionDialogVisible = ref(false)
 const inspectionModuleDialogVisible = ref(false)
@@ -983,19 +837,47 @@ const currentImportConfig = ref({})
 
 const activeExportNotification = ref(null)
 
-const activeInteractionBuffer = new Map()
-const undoRedoSelection = false
-
-const clipboard = ref({ nodes: [], edges: [] })
 const mousePosition = ref({ x: 0, y: 0 })
 
-// Search functionality
-const searchQuery = ref('')
-const matchCount = ref(null)
-const matchingNodeIds = ref(new Set())
-const searchBarFocused = ref(false)
+const searchInputRef = ref(null)
+const matchListRef = ref(null)
+const {
+  searchQuery,
+  parsedQuery,
+  matchCount,
+  matchingNodesList,
+  currentMatchIndex,
+  isSearchFocused,
+  showModePicker,
+  pickerIndex,
+  runSearch,
+  clearSearch,
+  selectMatch,
+  cycleToNextMatch,
+  cycleToPreviousMatch,
+  pickMode,
+  onSearchFocus,
+  onSearchBlur,
+  onSearchKeydown,
+  getNodeClass,
+} = useWorkspaceSearch({ nodes, findNode, zoomToNode })
 
-const currentMatchIndex = ref(0)
+/**
+ * Names a matched variable with its kind, such as `R (global)`.
+ *
+ * @param {Object} row
+ * @returns {string}
+ */
+const describeMatchedVariable = (row) => {
+  const kind = variableKindLabel(row)
+  return kind ? `${row.name} (${kind})` : row.name
+}
+
+// Keep the current match in view as the arrows step through a long list.
+watch(currentMatchIndex, async () => {
+  await nextTick()
+  matchListRef.value?.querySelector('.search-match-item.active')?.scrollIntoView?.({ block: 'nearest' })
+})
 
 const allNodeNames = computed(() => nodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
@@ -1025,6 +907,7 @@ const {
   onExportConfirm,
   hasModelChanged,
   snapshotFlowState,
+  selectedNodeIds: computed(() => getSelectedNodes.value.map((node) => node.id)),
 })
 
 const cellMlExportTooltip = computed(() => {
@@ -1035,6 +918,7 @@ const cellMlExportTooltip = computed(() => {
   if (!somethingAvailable.value) {
     return prefix + 'there is nothing to export. Please add some modules to the workspace first.'
   }
+  if (currentExportMode.value?.isSelection) return 'Select instances to export them on their own.'
   return 'This should not be shown when CellML export is enabled.'
 })
 
@@ -1042,149 +926,7 @@ onConnectEnd(() => {
   revertPendingGhostIfUnused()
 })
 
-onConnect(async (connection) => {
-  const sourceNode = findNode(connection.source)
-  const targetNode = findNode(connection.target)
-
-  if (!sourceNode || !targetNode) return
-  if (sourceNode === targetNode) return
-
-  const isExistingConnection = edges.value.find((e) => e.sourceHandle === connection.sourceHandle && e.targetHandle === connection.targetHandle)
-  if (isExistingConnection) return
-
-  const duplicate = edges.value.find((e) => e.source === connection.source && e.target === connection.target)
-
-  
-  const duplicateSnapshot = duplicate ? detachReactivity(duplicate) : null
-
-  const sourceHandleUid = connection.sourceHandle ? getHandleUidFromHandleId(connection.sourceHandle) : null
-  const targetHandleUid = connection.targetHandle ? getHandleUidFromHandleId(connection.targetHandle) : null
-
-  confirmActivation()
-
-  if (sourceHandleUid) {
-    activateHandle(connection.source, sourceHandleUid, { trackHistory: false })
-  }
-  if (targetHandleUid) {
-    activateHandle(connection.target, targetHandleUid, { trackHistory: false })
-  }
-
-  if (duplicate) {
-    const pendingEdge = {
-      ...connection,
-      id: `pending--${connection.source}--${connection.target}`,
-      style: { strokeDasharray: '8 8', opacity: 0.4 }, // visually mark "unconfirmed"
-    }
-
-    suppressedEdgeIds.add(pendingEdge.id)
-    addEdges(pendingEdge)
-
-    const shouldReplace = await confirm({
-      header: 'Connection already exists',
-      message:
-        'A connection already exists between these instances. Do you wish to replace it?\n\n' +
-        'If you select Cancel, the new connection will be discarded and the existing connection will remain.',
-      severity: 'warning',
-      acceptLabel: 'Replace',
-      rejectLabel: 'Cancel',
-    })
-
-    if (!shouldReplace) {
-      removeEdges(pendingEdge.id)
-      suppressedEdgeIds.delete(pendingEdge.id)
-      if (sourceHandleUid) revertHandleIfUnused(connection.source, sourceHandleUid, { trackHistory: false })
-      if (targetHandleUid) revertHandleIfUnused(connection.target, targetHandleUid, { trackHistory: false })
-      return
-    }
-
-    suppressedEdgeIds.add(duplicateSnapshot.id)
-    await revertHandlesForEdge(duplicateSnapshot, [duplicateSnapshot.id], { trackHistory: false })
-    removeEdges(duplicateSnapshot.id)
-    removeEdges(pendingEdge.id)
-    suppressedEdgeIds.delete(pendingEdge.id)
-  }
-
-  // Derive ordinal indices from the existing edge graph:
-  //   sourceIndex = how many edges already leave from this source node
-  //                 (i.e. this is the Nth output being connected)
-  //   targetIndex = how many edges already arrive at this target node
-  //                 (i.e. this is the Nth input being connected)
-  // These mirror the positional semantics of out_modules / inp_modules.
-  const sourceIndex = edges.value.filter((e) => e.source === connection.source).length
-  const targetIndex = edges.value.filter((e) => e.target === connection.target).length
-
-  // Resolve which port labels are coupled across this conduit, using ordinal
-  // indices to select the correct slot when a label appears multiple times.
-  const couplings = resolvePortCouplings(
-    sourceNode.data.ports ?? [],
-    targetNode.data.ports ?? [],
-    sourceIndex,
-    targetIndex
-  )
-
-  const newEdge = {
-    ...connection,
-    ...edgeLineOptions,
-    id: `${connection.source}--${connection.target}`,
-    data: {
-      couplings,
-    },
-  }
-
-  if (duplicate) {
-    suppressedEdgeIds.add(newEdge.id)
-    addEdges(newEdge)
-    suppressedEdgeIds.delete(duplicateSnapshot.id)
-    suppressedEdgeIds.delete(newEdge.id)
-
-    historyStore.addCommand({
-      type: 'replace-edge',
-      async undo() {
-        await revertHandlesForEdge(newEdge, [newEdge.id], { trackHistory: false })
-        removeEdges(newEdge.id)
-        addEdges(duplicateSnapshot)
-        await reactivateEdgeHandles(duplicateSnapshot, { trackHistory: false })
-      },
-      async redo() {
-        await revertHandlesForEdge(duplicateSnapshot, [duplicateSnapshot.id], { trackHistory: false })
-        removeEdges(duplicateSnapshot.id)
-        addEdges(newEdge)
-        await reactivateEdgeHandles(newEdge, { trackHistory: false })
-      },
-    })
-  } else {
-    addEdges(newEdge)
-  }
-})
-
-const createSelectCommand = (changes, findFn) => {
-  return {
-    type: 'select',
-    undo: () => {
-      changes.forEach((s) => {
-        const item = findFn(s.id)
-        if (item) item.selected = s.from
-      })
-    },
-    redo: () => {
-      changes.forEach((s) => {
-        const item = findFn(s.id)
-        if (item) item.selected = s.to
-      })
-    },
-  }
-}
-
-function selectAllNodes() {
-  nodes.value.forEach((node) => {
-    node.selected = true
-  })
-}
-
-const clearSearch = () => {
-  searchQuery.value = ''
-  handleSearchInput()
-}
+const { copySelection, pasteSelection, selectAllNodes } = useWorkspaceClipboard({ mousePosition, allNodeNames })
 
 const onPaneClick = () => {
   if (searchQuery.value) {
@@ -1192,71 +934,19 @@ const onPaneClick = () => {
   }
 }
 
-const handleSearchInput = () => {
-  if (!searchQuery.value.trim()) {
-    matchingNodeIds.value.clear()
-    matchCount.value = null
-    currentMatchIndex.value = 0
-    return
-  }
-
-  const query = searchQuery.value.toLowerCase()
-  const matches = new Set()
-
-  nodes.value.forEach((node) => {
-    // Search in all relevant name fields
-    const moduleRef = node.data?.moduleRef?.toLowerCase() || ''
-    const name = node.data?.name?.toLowerCase() || ''
-    const mathRef = node.data?.mathRef?.toLowerCase() || ''
-
-    if (moduleRef.includes(query) || name.includes(query) || mathRef.includes(query)) {
-      matches.add(node.id)
-    }
-  })
-
-  matchingNodeIds.value = matches
-  matchCount.value = matches.size
-  currentMatchIndex.value = 0
+/** Focuses the search box and selects its text, so typing replaces the last query. */
+const focusSearch = () => {
+  const input = searchInputRef.value?.$el
+  input?.focus()
+  input?.select()
 }
 
-const matchingNodesList = computed(() =>
-  Array.from(matchingNodeIds.value)
-    .map((id) => findNode(id))
-    .filter(Boolean)
-)
-
-const selectMatch = (index) => {
-  const matchArray = Array.from(matchingNodeIds.value)
-  if (index < 0 || index >= matchArray.length) return
-
-  currentMatchIndex.value = index
-  zoomToNode(matchArray[index])
-}
-
-const cycleToNextMatch = () => {
-  if (matchCount.value === 0) return
-
-  const matchArray = Array.from(matchingNodeIds.value)
-
-  if (matchCount.value === 1) {
-    // If only one match, just zoom to it
-    zoomToNode(matchArray[0])
-  } else {
-    // Multiple matches, cycle through them
-    currentMatchIndex.value = (currentMatchIndex.value + 1) % matchArray.length
-    zoomToNode(matchArray[currentMatchIndex.value])
-  }
-}
-
-const cycleToPreviousMatch = () => {
-  if (matchCount.value <= 1) return
-
-  const matchArray = Array.from(matchingNodeIds.value)
-  currentMatchIndex.value = (currentMatchIndex.value - 1 + matchArray.length) % matchArray.length
-  zoomToNode(matchArray[currentMatchIndex.value])
-}
-
-const zoomToNode = (nodeId) => {
+/**
+ * Centres the view on a node.
+ *
+ * @param {string} nodeId
+ */
+function zoomToNode(nodeId) {
   const node = findNode(nodeId)
   if (!node) return
 
@@ -1272,13 +962,6 @@ const zoomToNode = (nodeId) => {
     },
     { duration: 300 }
   )
-}
-
-const getNodeClass = (props) => {
-  if (!searchQuery.value.trim()) {
-    return ''
-  }
-  return matchingNodeIds.value.has(props.id) ? 'node-search-match' : 'node-search-dimmed'
 }
 
 function handleClearWorkspace() {
@@ -1310,270 +993,27 @@ const addHandle = async (side) => {
   }
 }
 
-const snapshotEdge = (change) => {
-  if (change.type === 'add') {
-    return detachReactivity(change.item)
-  }
-
-  const edge = findEdge(change.id)
-  if (!edge) return null
-
-  // Create a deep copy to break reactivity references
-  return detachReactivity(edge)
-}
-
-const snapshotNode = (change) => {
-  if (change.type === 'add') {
-    // For added nodes, snapshot is the node itself
-    return detachReactivity(change.item)
-  }
-
-  const node = findNode(change.id)
-  if (!node) return null
-
-  // Create a deep copy to break reactivity references
-  return detachReactivity(node)
-}
-
-const processPositionChange = (c, buffer, moveChanges) => {
-  if (c.position === undefined && c.from && buffer.has(c.id)) {
-    // Drag End
-    const start = buffer.get(c.id)
-    const end = snapshotNode({ id: c.id })
-
-    if (end && (start.position.x !== end.position.x || start.position.y !== end.position.y)) {
-      moveChanges.push({ start, end })
-    }
-    buffer.delete(c.id)
-  } else if (c.position && !buffer.has(c.id)) {
-    // Drag Start
-    const snap = snapshotNode({ id: c.id })
-    if (snap) buffer.set(c.id, snap)
-  }
-}
-
-const processDimensionChange = (c, buffer) => {
-  if (historyStore.lastChangeWasAdd) {
-    historyStore.lastChangeWasAddSetter(false)
-    if (!historyStore.lastCommandHadOffsetApplied) {
-      const node = snapshotNode(c)
-      node.position = {
-        x: node.position.x - node.dimensions.width / 2,
-        y: node.position.y - node.dimensions.height / 2,
-      }
-      historyStore.replaceLastCommand({
-        type: 'add',
-        offset: 'applied',
-        undo: () => removeNodes(node.id),
-        redo: () => addNodes(node),
-      })
-    }
-  } else if (c.dimensions === undefined && buffer.has(c.id)) {
-    const startSnapshot = buffer.get(c.id)
-    const endSnapshot = snapshotNode({ id: c.id })
-
-    // Only add command if dimensions actually changed
-    if (
-      endSnapshot &&
-      (startSnapshot.dimensions.width !== endSnapshot.dimensions.width ||
-        startSnapshot.dimensions.height !== endSnapshot.dimensions.height)
-    ) {
-      historyStore.addCommand({
-        type: 'resize',
-        undo: () => {
-          const n = findNode(startSnapshot.id)
-          if (n) {
-            n.dimensions = startSnapshot.dimensions
-            n.position = startSnapshot.position
-            n.style = { ...startSnapshot.style }
-          }
-        },
-        redo: () => {
-          const n = findNode(endSnapshot.id)
-          if (n) {
-            n.dimensions = endSnapshot.dimensions
-            n.position = endSnapshot.position
-            n.style = { ...endSnapshot.style }
-          }
-        },
-      })
-    }
-    buffer.delete(c.id)
-  } else if (c.dimensions) {
-    if (!buffer.has(c.id)) {
-      const snap = snapshotNode({ id: c.id })
-      if (snap) {
-        buffer.set(c.id, snap)
-      }
-    }
-  }
-}
-
-const onNodeChange = (changes) => {
-  if (historyStore.isUndoRedoing) {
-    // If we are currently undoing/redoing, bypass history tracking
-    return applyNodeChanges(changes)
-  }
-
-  // Add node and dimension changes are single node events.
-  // All other changes can be performed on multiple nodes in a change set.
-
-  const addChanges = []
-  const removeChanges = []
-  const moveChanges = []
-  const selectChanges = []
-  changes.forEach((c) => {
-    // Deal with the changes that we need to buffer first, which are the posiiton and dimension type changes.
-    if (c.type === 'position') {
-      processPositionChange(c, activeInteractionBuffer, moveChanges)
-    } else if (c.type === 'dimensions') {
-      processDimensionChange(c, activeInteractionBuffer)
-    } else {
-      // Non-active interaction buffer changes.
-      activeInteractionBuffer.delete(c.id)
-      if (c.type === 'add') {
-        addChanges.push({ node: snapshotNode(c) })
-      } else if (c.type === 'remove') {
-        removeChanges.push({ node: snapshotNode(c) })
-      } else if (c.type === 'select' && undoRedoSelection) {
-        const node = findNode(c.id)
-        if (node) {
-          selectChanges.push({ id: c.id, from: node.selected, to: c.selected })
-        }
-      }
-    }
-  })
-
-  if (moveChanges.length) {
-    historyStore.addCommand({
-      type: 'move',
-      undo: () => {
-        moveChanges.forEach((m) => {
-          const n = findNode(m.start.id)
-          if (n) n.position = m.start.position
-        })
-      },
-      redo: () => {
-        moveChanges.forEach((m) => {
-          const n = findNode(m.end.id)
-          if (n) n.position = m.end.position
-        })
-      },
-    })
-  }
-  if (addChanges.length) {
-    const nodesToAdd = addChanges.map((c) => c.node)
-    const idsToRemove = addChanges.map((c) => c.node.id)
-
-    historyStore.lastChangeWasAddSetter(true)
-    historyStore.addCommand({
-      type: 'add',
-      offset: 'not-applied',
-      undo: () => removeNodes(idsToRemove),
-      redo: () => addNodes(nodesToAdd),
-    })
-  }
-  if (removeChanges.length) {
-    const nodesToRestore = removeChanges.map((change) => change.node)
-    const idsToRemove = new Set(removeChanges.map((change) => change.node.id))
-    const remainingNodes = nodes.value.filter((n) => !idsToRemove.has(n.id))
-    const removedConstants = libraryStore.cleanupUnusedGlobalConstants(remainingNodes)
-    historyStore.addCommand({
-      type: 'remove',
-      undo: () => {
-        addNodes(nodesToRestore)
-        removedConstants.forEach((c) => {
-          libraryStore.assignGlobalConstant(c.name, c.value, c.units, c.data_reference)
-        })
-      },
-      redo: () => {
-        removeNodes(Array.from(idsToRemove))
-        removedConstants.forEach((c) => {
-          libraryStore.removeGlobalConstant(c.name)
-        })
-      },
-    })
-  }
-  if (selectChanges.length) {
-    historyStore.addCommand(createSelectCommand(selectChanges, findNode))
-  }
-
-  updateHelperLines(changes, nodes.value)
-
-  // Have Vue Flow update the graph
-  applyNodeChanges(changes)
-}
-
 const suppressedEdgeIds = new Set()
 
-const onEdgeChange = (changes) => {
-  if (historyStore.isUndoRedoing) {
-    // If we are currently undoing/redoing, bypass history tracking
-    return applyEdgeChanges(changes)
-  }
+const { onNodeChange, onEdgeChange } = useFlowHistory({
+  suppressedEdgeIds,
+  indexAddEdge,
+  indexRemoveEdge,
+  updateHelperLines,
+  revertHandlesForEdge,
+  reactivateEdgeHandles,
+})
 
-  const removeChanges = []
-  const addChanges = []
-  const selectChanges = []
-  changes.forEach((c) => {
-    if (c.type === 'remove') {
-      indexRemoveEdge(c)
-      if (!suppressedEdgeIds.has(c.id)) {
-        removeChanges.push({ edge: snapshotEdge(c) })
-      }
-    } else if (c.type === 'add') {
-      indexAddEdge(c.item)
-      if (!suppressedEdgeIds.has(c.item.id)) {
-        addChanges.push({ edge: snapshotEdge(c) })
-      }
-    } else if (c.type === 'select' && undoRedoSelection) {
-      const edge = findEdge(c.id)
-      selectChanges.push({ id: c.id, from: edge.selected, to: c.selected })
-    }
-  })
-
-  if (addChanges.length) {
-    const edgesToRestore = addChanges.map((change) => change.edge)
-    const idsToRemove = addChanges.map((change) => change.edge.id)
-    historyStore.addCommand({
-      undo: () => {
-        removeEdges(idsToRemove)
-        edgesToRestore.forEach((edge) => revertHandlesForEdge(edge, idsToRemove, { trackHistory: false }))
-      },
-      redo: () => {
-        addEdges(edgesToRestore)
-        edgesToRestore.forEach((edge) => reactivateEdgeHandles(edge, { trackHistory: false }))
-      },
-    })
-  }
-
-  if (removeChanges.length) {
-    const edgesToRestore = removeChanges.map((change) => change.edge)
-    const idsToRemove = removeChanges.map((change) => change.edge.id)
-
-    // Ghost out any handle that no longer has an edge attached to it.
-    // excludeEdgeIds is passed because edges.value hasn't actually
-    // dropped these ids yet at this point.
-    edgesToRestore.forEach((edge) => revertHandlesForEdge(edge, idsToRemove))
-
-    historyStore.addCommand({
-      undo: () => {
-        addEdges(edgesToRestore)
-        edgesToRestore.forEach((edge) => reactivateEdgeHandles(edge, { trackHistory: false }))
-      },
-      redo: () => {
-        removeEdges(idsToRemove)
-        edgesToRestore.forEach((edge) => revertHandlesForEdge(edge, idsToRemove, { trackHistory: false }))
-      },
-    })
-  }
-
-  if (selectChanges.length) {
-    historyStore.addCommand(createSelectCommand(selectChanges, findEdge))
-  }
-
-  applyEdgeChanges(changes)
-}
+useConnect({
+  suppressedEdgeIds,
+  confirm,
+  edgeLineOptions,
+  confirmActivation,
+  activateHandle,
+  revertHandleIfUnused,
+  revertHandlesForEdge,
+  reactivateEdgeHandles,
+})
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
 
@@ -1655,48 +1095,25 @@ const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackE
   })
 }
 
+const { loadCellMLFiles, onDragOver, onDrop } = useCellmlDrop({
+  loadCellMLData,
+  loadFromCellML,
+  rebuildNodeEdgeIndex,
+  confirm,
+  libcellml,
+  processImportedOmexArchive,
+  onDragOverModule,
+  onDropModule,
+})
+
 const loadParametersData = async (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
   try {
-    const variableCatalogue = new Set()
-    const nodeMap = new Map(nodes.value.map((n) => [n.data.name, n]))
-    let totalLocal = 0
+    const variableCatalogue = new Set(nodes.value.flatMap((node) => node.data.variables.map((v) => v.name.trim())))
 
-    for (const [instance, node] of nodeMap) {
-      for (const variable of node.data.variables) {
-        variableCatalogue.add(variable.name.trim())
-      }
-
-      const instanceParameters = Array.from(content)
-        .filter((entry) => entry.variable_name.trimEnd().endsWith(instance))
-        .map((entry) => ({
-          ...entry,
-          name: entry.variable_name.trimEnd().slice(0, -instance.length).replace(/_+$/, ''),
-        }))
-
-      const paramsByName = new Map(instanceParameters.map((p) => [p.name.trim(), p]))
-      let updatedCount = 0
-      node.data.variables = node.data.variables.map((variable) => {
-        const match = paramsByName.get(variable.name.trim())
-        if (!match) return variable
-        updatedCount++
-
-        const matchedUnit = match.units.trim()
-        const currentUnit = variable.units.trim()
-
-        if (matchedUnit !== currentUnit) {
-          console.warn(
-            `Unit mismatch for "${variable.name}": node has "${currentUnit}", parameter has "${matchedUnit}"`
-          )
-        }
-
-        return {
-          ...variable,
-          value: match.value.trim(),
-          data_reference: match.data_reference.trim(),
-          type: 'constant',
-        }
-      })
-      totalLocal += updatedCount
+    // A loaded value never changes a row's type; a computed row's value isn't applied.
+    const { variablesById, updated: totalLocal, skipped } = applyParametersToNodes(nodes.value, Array.from(content))
+    for (const node of nodes.value) {
+      if (variablesById.has(node.id)) node.data.variables = variablesById.get(node.id)
     }
 
     const globalConstants = Array.from(content)
@@ -1713,6 +1130,11 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
     const totalGlobal = globalConstants.length
 
     const totalUpdated = totalLocal + totalGlobal
+
+    // Told even when a batch load quiets its other messages, as these values are dropped.
+    if (skipped.length) {
+      notify.warning({ title: 'Some Parameters Not Applied', message: skippedParametersMessage(skipped) })
+    }
 
     if (shouldNotify && totalUpdated > 0) {
       if (trackEvents) {
@@ -1759,7 +1181,7 @@ const loadConfigData = async (content, filename, { notify: shouldNotify = true }
     if (shouldNotify && added > 0) {
       notify.success({
         title: 'Configurations Loaded',
-        message: `Loaded ${content.length} configurations from ${filename}.`,
+        message: `Loaded ${added} configurations from ${filename}.`,
       })
     } else if (shouldNotify && added === 0) {
       notify.info({
@@ -1793,24 +1215,18 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
 
   let nodeNameToIdMap = new Map()
   const globalValues = new Map()
+  const skippedParameters = []
   // Convert nodeData to nodes format expected by the workspace.
   const nodes = flowSnapshot.nodeData.map((snapshotNode) => {
     let node = snapshotNode
     // Update variables with parameter data if available.
     if (parameterData[node.data.name]) {
       const paramVars = parameterData[node.data.name]
-      node.data.variables = node.data.variables.map((variable) => {
-        const paramVar = paramVars.find((p) => p.name.trimEnd() === variable.name.trim())
-        if (paramVar) {
-          return {
-            ...variable,
-            value: paramVar.value?.trim(),
-            data_reference: paramVar.data_reference?.trim(),
-            type: 'constant',
-          }
-        }
-        return variable
-      })
+      const result = applyParameterValues(node.data.variables, (name) =>
+        paramVars.find((p) => p.name.trimEnd() === name)
+      )
+      node.data.variables = result.variables
+      skippedParameters.push(...result.skipped.map((name) => ({ nodeName: node.data.name, name })))
     }
     // Resolve math from the snapshot math library. Older snapshots keep values in the math, which
     // move into the node's rows here.
@@ -1882,6 +1298,9 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
     title: 'Flow Snapshot Loaded',
     message: 'The flow snapshot has been successfully loaded into the workspace.',
   })
+  if (skippedParameters.length) {
+    notify.warning({ title: 'Some Parameters Not Applied', message: skippedParametersMessage(skippedParameters) })
+  }
 
   // globalValues: global constant values taken out of older math, for the caller to seed.
   return { nodeNameToIdMap, globalValues }
@@ -1953,7 +1372,9 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     // Second best scenario: if we don't have a flow snapshot, we can still load the CellML file and module configuration to build the workspace.
     const moduleConfigFile = archive.file(result.files.moduleConfig)
     console.warn('------------------------------------------')
-    console.warn('This case is not fully implemented yet, but we will load the CellML file but the module configuration is not currently used to build the workspace.')
+    console.warn(
+      'This case is not fully implemented yet, but we will load the CellML file but the module configuration is not currently used to build the workspace.'
+    )
     console.warn('moduleConfigFile', moduleConfigFile)
     const cellmlPayload = parseCellMLConnections(cellmlContent, result.files.cellml)
     await loadCellMLData(cellmlContent, result.files.cellml, { notify: false })
@@ -2011,6 +1432,27 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   await nextTick(fitView(fitViewParams.value))
 
   const preservedExtras = archiveEntries.filter(({ location }) => !criticalLocations.includes(location))
+
+  const paramsForIdExtra = findParamsForIdExtra(preservedExtras)
+  if (paramsForIdExtra) {
+    try {
+      const rows = parseParamsForId(paramsForIdExtra.entry.payload)
+      const { selections, warnings } = resolveParamsForIdRows(rows, nodes.value, libraryStore.getGlobalConstant)
+      if (selections.length) {
+        let scanConfig = simulationSettingsStore.parameterScanConfig
+        for (const selection of selections) scanConfig = putSlider(scanConfig, selection)
+        simulationSettingsStore.setParameterScanConfig(scanConfig)
+      }
+      if (warnings.length) {
+        notify.warning({
+          title: 'params_for_id.csv',
+          message: `${selections.length} slider(s) imported. ${warnings.join(' ')}`,
+        })
+      }
+    } catch (error) {
+      notify.warning({ title: 'params_for_id.csv', message: error.message })
+    }
+  }
 
   omexStore.setHash(cyrb53(snapshotFlowState()))
   omexStore.setArchive({
@@ -2111,7 +1553,7 @@ async function onImportConfirm(importPayload, updateProgress) {
   }
 }
 
-function onOpenInstanceEditorDialog(eventPayload, tab = 'parameters') {
+function onOpenInstanceEditorDialog(eventPayload, tab = eventPayload.defaultTab ?? 'parameters') {
   currentEditingNode.value = {
     ...eventPayload,
   }
@@ -2124,7 +1566,7 @@ function onOpenMacroBuilderDialog() {
 }
 
 function onOpenSimSettingsDialog() {
-  simSettingsDialogVisible.value = true
+  openSimSettingsDialog()
 }
 
 function onOpenSettingsDialog() {
@@ -2133,6 +1575,20 @@ function onOpenSettingsDialog() {
 
 async function onInstanceEditConfirm(save) {
   const updatedCount = await saveInstanceEdit(save)
+  // Applied with the editor kept open: it reloads from the instance as saved.
+  if (save.keepOpen) {
+    const node = findNode(save.id)
+    if (node) {
+      currentEditingNode.value = {
+        ...currentEditingNode.value,
+        name: node.data.name,
+        mathRef: node.data.mathRef,
+        variables: node.data.variables,
+        ports: node.data.ports,
+        handles: node.data.handles,
+      }
+    }
+  }
   notify.success({
     title: 'CellML Updated',
     message: `Updated ${updatedCount} node${updatedCount !== 1 ? 's' : ''} to ${save.mathRef.split(':').pop()}.`,
@@ -2303,6 +1759,13 @@ function handleCreateInspectionModule(payload) {
 }
 
 const contextMenuRef = ref(null)
+const contextSidebarRef = ref(null)
+// The floating viewer's way back to the Simulation tab, and out of the canvas's way.
+const floatingViewer = useFloatingViewer()
+floatingViewer.setTabOpener(() => contextSidebarRef.value?.showTab('sim'))
+floatingViewer.setSidebarCollapser(() => contextSidebarRef.value?.collapse())
+const { run: runSimulation } = useSimulation()
+const simulationResultsStore = useSimulationResultsStore()
 
 const paneContextMenuItems = [
   {
@@ -2341,8 +1804,51 @@ function onNodeContextMenu({ clientX, clientY, id }) {
         onOpenReplacementDialog(node)
       },
     },
+    {
+      label: simulateLabelFor(id),
+      action: () => simulateFromNode(id),
+    },
   ]
   contextMenuRef.value.open(clientX, clientY)
+}
+
+/**
+ * Gets the nodes a node's Simulate menu item runs: its selection, or the node alone when it isn't selected.
+ *
+ * @param {string} id
+ * @returns {string[]}
+ */
+function simulationScopeFor(id) {
+  const selectedIds = getSelectedNodes.value.map((node) => node.id)
+  return selectedIds.includes(id) ? selectedIds : [id]
+}
+
+/**
+ * Names a node's Simulate menu item by what it will run.
+ *
+ * @param {string} id
+ * @returns {string}
+ */
+function simulateLabelFor(id) {
+  const count = simulationScopeFor(id).length
+  return count > 1 ? `Simulate Selection (${count})` : 'Simulate Instance'
+}
+
+/**
+ * Simulates a node's selection, or the node alone, and shows the Simulation tab.
+ *
+ * @param {string} id
+ */
+function simulateFromNode(id) {
+  const scope = [...simulationScopeFor(id)].sort()
+  // The canvas selection becomes what runs, so the Simulation tab doesn't see it as changed.
+  if (!getSelectedNodes.value.some((node) => node.id === id)) {
+    removeSelectedNodes(getSelectedNodes.value)
+    addSelectedNodes([findNode(id)].filter(Boolean))
+  }
+  contextSidebarRef.value?.showTab('sim')
+  simulationResultsStore.scopeMode = 'selection'
+  runSimulation(scope)
 }
 
 function createNewInstanceAtPosition(clientX, clientY) {
@@ -2354,40 +1860,6 @@ function createNewInstanceAtPosition(clientX, clientY) {
 
 function handleAutoLayout() {
   relayoutNodes(nodes.value, edges.value)
-}
-
-async function handleSaveWorkspace() {
-  const safeName = ensureExtension(sessionMetadataStore.lastSaveName, '.json')
-  const result = await saveFileHandle(safeName, JSON_FILE_TYPES)
-  if (result.status) {
-    if (result.handle) {
-      const blob = createSaveBlob()
-      try {
-        writeFileHandle(result.handle, blob)
-        sessionMetadataStore.setLastSaveName(result.handle.name)
-        trackEvent('save_action', {
-          category: 'Save',
-          action: 'save_workflow',
-          label: `File: ${result.handle.name}`,
-          file_type: 'json',
-        })
-        notify.success({ title: 'Workflow saved!' })
-      } catch (err) {
-        trackEvent('save_action', {
-          category: 'Save',
-          action: 'save_workflow',
-          label: `Error: ${err.message}`,
-          file_type: 'json',
-        })
-        notify.error({
-          title: 'Error Saving Workflow',
-          message: err.message,
-        })
-      }
-    }
-  } else {
-    saveDialogVisible.value = true
-  }
 }
 
 /**
@@ -2498,12 +1970,14 @@ function recomputeMissingCouplings() {
 }
 
 /**
- * Creates a snapshot of the current flow state, including nodes and edges, and returns it as a JSON string.
- * This is used to determine if the workspace has been modified that would change the Math or Port configurations.
- * Leading us to set the CUFLynx modified state to true, which will let CUFLynx know that existing analysis is now invalid.
+ * Snapshots the flow (nodes, edges, math and global parameters) as JSON, for OMEX archives and for
+ * detecting changes since one was imported.
+ *
+ * @param {string[]|null} [nodeIds] - Only these nodes and the edges between them, or every node.
+ * @returns {string} The snapshot JSON.
  */
-function snapshotFlowState() {
-  const flowState = toObject()
+function snapshotFlowState(nodeIds = null) {
+  const flowState = scopeFlowObject(toObject(), nodeIds)
   const mathLibrary = new Map()
 
   const nodeData = flowState.nodes.map((node) => {
@@ -2551,108 +2025,28 @@ function snapshotFlowState() {
   })
 }
 
-/**
- * Collects all state and creates blob from it.
- */
-function createSaveBlob() {
-  const saveState = buildWorkspaceFile({
-    flow: toObject(),
-    library: libraryStore,
-    simulation: simulationSettingsStore,
-    inspectionModules: inspectionModuleStore,
-    omex: omexStore,
-  })
-
-  const jsonString = JSON.stringify(saveState, null, 2)
-  return new Blob([jsonString], { type: 'application/json' })
-}
+const { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState } = useWorkspaceSaveLoad({
+  saveDialogVisible,
+  nodes,
+  edges,
+  toObject,
+  fromObject,
+  setViewport,
+  rebuildNodeEdgeIndex,
+  recomputeMissingCouplings,
+})
 
 /**
- * Collects all state and downloads it as a JSON file.
+ * Reads a JSON file and restores the application state. Clears the file input, so re-picking the
+ * same file loads it again.
  */
-const onSaveConfirm = async (fileName) => {
-  const baseName = fileName || sessionMetadataStore.lastSaveName
-  const finalName = ensureExtension(baseName, '.json')
-  const blob = createSaveBlob()
-
-  legacyDownload(finalName, blob)
-
-  sessionMetadataStore.setLastSaveName(fileName)
-  notify.success({ title: 'Workflow saved!' })
-}
-
-/**
- * Restores the application state from a loaded workspace. Errors are rethrown for the caller to report.
- */
-async function applyWorkspaceState(loadedState, { source = 'json' } = {}) {
-  const { clearWorkspace } = useClearWorkspace()
-
-  try {
-    // Validate the loaded file
-    if (!loadedState.flow || !loadedState.store) {
-      throw new Error('Invalid workflow file format.')
-    }
-
-    // Handles legacy formats if needed
-    const migratedState = migrateWorkspace(loadedState)
-
-    // Clear the current Vue Flow state without creating a history step for this load action.
-    await clearWorkspace({ recordHistory: false })
-
-    setViewport(migratedState.flow.viewport)
-    fromObject(migratedState.flow)
-
-    // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
-    rebuildNodeEdgeIndex()
-    recomputeMissingCouplings()
-
-    // Restore Pinia store state.
-    libraryStore.loadState(migratedState.store)
-    simulationSettingsStore.loadState(migratedState.simulation)
-    inspectionModuleStore.loadState(migratedState.inspectionModules)
-    omexStore.loadState(migratedState.workspace)
-
-    trackEvent('workflow_load_action', {
-      category: 'Workflow',
-      action: 'load_workflow',
-      label: `Nodes: ${nodes.value.length}, Edges: ${edges.value.length}`,
-      file_type: source,
-    })
-    notify.success({
-      title: 'Workflow loaded successfully!',
-    })
-  } catch (error) {
-    trackEvent('workflow_load_action', {
-      category: 'Workflow',
-      action: 'load_workflow',
-      label: `Error: ${error.message}`,
-      file_type: source,
-    })
-    throw error
-  }
-}
-
-/**
- * Reads a JSON file and restores the application state.
- */
-function handleLoadWorkspace(event) {
-  const file = event.target?.files?.[0] || event.raw || event
+async function handleLoadWorkspace(event) {
+  const file = event?.target ? takeInputFile(event) : event?.raw || event
   if (!file) return
 
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    let loadedState
-    try {
-      loadedState = JSON.parse(e.target.result)
-    } catch (error) {
-      notify.error({ title: 'Failed to read workflow', message: `${error.message}` })
-      return
-    }
-    applyWorkspaceState(loadedState, { source: 'json' })
-      .then(() => sessionMetadataStore.setLastSaveName(stripExtension(file.name)))
-      .catch((error) => notify.error({ title: 'Failed to load workflow', message: `${error.message}` }))
+  if (await loadWorkspaceFile(file, (state) => applyWorkspaceState(state, { source: 'json' }))) {
+    sessionMetadataStore.setLastSaveName(stripExtension(file.name))
   }
-  reader.readAsText(file)
 }
 
 const urlLoaders = createUrlLoaders({ applyWorkspaceState, importOmexFile, processImportedOmexArchive })
@@ -2694,18 +2088,21 @@ const imageExportTitle = computed(
  * Exports the canvas in the format chosen in Settings. Edit buttons are always hidden, warning badges
  * unless Settings asks for them; hiding (rather than removing) keeps the rest of each card in place.
  */
-function doImageExport() {
+async function doImageExport() {
   const root = vueFlowRef.value
   const format = appSettings.imageExportFormat
   const includeWarnings = appSettings.imageExportWarnings
   return withoutSelection(async () => {
     root.classList.add('image-export')
     root.classList.toggle('image-export--no-warnings', !includeWarnings)
-    
+
     try {
       await capture(root, { format: format, viewport: viewport.value, includeWarnings, shouldDownload: true })
       if (captureError.value) {
-        notify.error({ title: 'Screenshot error', message: 'Something went wrong while taking the screenshot.\n - ' + captureError.value.message })
+        notify.error({
+          title: 'Screenshot error',
+          message: 'Something went wrong while taking the screenshot.\n - ' + captureError.value.message,
+        })
       }
     } finally {
       root.classList.remove('image-export', 'image-export--no-warnings')
@@ -2713,210 +2110,8 @@ function doImageExport() {
   }).catch((err) => notify.error({ title: 'Image export failed', message: err?.message ?? String(err) }))
 }
 
-const getBoundingCenter = (nodes) => {
-  if (nodes.length === 0) return { x: 0, y: 0 }
-
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity
-
-  nodes.forEach((n) => {
-    const pos = {
-      x: n.position.x + n.dimensions.width / 2,
-      y: n.position.y + n.dimensions.height / 2,
-    }
-    if (pos.x < minX) minX = pos.x
-    if (pos.y < minY) minY = pos.y
-    if (pos.x > maxX) maxX = pos.x
-    if (pos.y > maxY) maxY = pos.y
-  })
-
-  return {
-    x: minX + (maxX - minX) / 2,
-    y: minY + (maxY - minY) / 2,
-  }
-}
-
-const copySelection = async () => {
-  const nodes = getSelectedNodes.value
-  const edges = getSelectedEdges.value
-
-  if (nodes.length === 0) return
-
-  const storeSnapshot = {}
-  for (const node of nodes) {
-    const { moduleRef, mathRef } = node.data
-    if (!moduleRef || !mathRef) continue
-
-    if (!libraryStore.availableMath.has(mathRef) || !libraryStore.availableModules.has(moduleRef)) continue
-    const math = libraryStore.availableMath.get(mathRef)
-    const module = libraryStore.availableModules.get(moduleRef)
-    if (!math || !module) continue
-
-    const key = `${moduleRef}::${mathRef}`
-    if (storeSnapshot[key]) {
-      continue
-    }
-
-    storeSnapshot[key] = {
-      mathRef,
-      math,
-      layout: libraryStore.getMathLayout(mathRef),
-      moduleRef,
-      module,
-    }
-  }
-
-  const payload = {
-    nodes: detachReactivity(nodes),
-    edges: detachReactivity(edges),
-    storeSnapshot,
-  }
-
-  clipboard.value = payload
-
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(payload))
-  } catch (err) {
-    console.warn('Clipboard write failed', err)
-  }
-}
-
-const pasteSelection = async (atMouse = false) => {
-  let sourceClipboard = clipboard.value
-
-  // Try reading from system clipboard (for cross-window paste)
-  try {
-    const text = await navigator.clipboard.readText()
-    const parsed = JSON.parse(text)
-    if (parsed?.nodes && parsed?.edges) {
-      sourceClipboard = parsed
-    }
-  } catch (err) {
-    // Ignore clipboard read errors
-  }
-
-  if (!sourceClipboard.nodes || sourceClipboard.nodes.length === 0) return
-
-  // Nodes copied from an older version keep values in their math; they move into the rows here.
-  const clipboardMath = Object.values(sourceClipboard.storeSnapshot ?? {}).map((entry) => [entry.mathRef, entry.math])
-  const clipboardNodes = separateNodeParameters(sourceClipboard.nodes, clipboardMath).nodes
-
-  if (sourceClipboard.storeSnapshot) {
-    for (const entry of Object.values(sourceClipboard.storeSnapshot)) {
-      if (!libraryStore.availableModules.has(entry.moduleRef)) {
-        libraryStore.addModule(entry.module)
-      }
-      if (!libraryStore.availableMath.has(entry.mathRef)) {
-        // Clipboard text can come from anywhere, so the layout is checked like a saved one.
-        const layout = entry.layout ? parseLayout(JSON.stringify(entry.layout)) : null
-        libraryStore.addMath(entry.mathRef, entry.math, true, layout)
-      }
-    }
-  }
-
-  const newNodes = []
-  const newEdges = []
-
-  let dx = 50
-  let dy = 50
-
-  if (atMouse) {
-    // Convert screen mouse pixels to graph coordinates (handling zoom/pan)
-    const mouseFlowPos = screenToFlowCoordinate(mousePosition.value)
-    const clipboardCenter = getBoundingCenter(sourceClipboard.nodes)
-
-    // Calculate difference to move center -> mouse
-    dx = mouseFlowPos.x - clipboardCenter.x
-    dy = mouseFlowPos.y - clipboardCenter.y
-  }
-
-  const idMap = {}
-  const nodeIdSet = nodes.value.map((n) => n.id)
-  const edgeIdSet = edges.value.map((e) => e.id)
-
-  const namesSet = new Set()
-  allNodeNames.value.forEach((name) => namesSet.add(name))
-
-  clipboardNodes.forEach((node) => {
-    const newId = getNextNodeId(nodeIdSet)
-    idMap[node.id] = newId
-    nodeIdSet.push(newId)
-
-    const finalName = generateUniqueInstanceName(node.data.name, namesSet)
-    namesSet.add(finalName)
-
-    // Create the new node with offset position.
-    newNodes.push({
-      id: newId,
-      type: node.type,
-      data: {
-        ...node.data,
-        name: finalName,
-      },
-      position: {
-        x: node.position.x + dx,
-        y: node.position.y + dy,
-      },
-      // Reset selection state so we focus on the new copy.
-      selected: true,
-    })
-  })
-
-  sourceClipboard.edges.forEach((edge) => {
-    const newSource = idMap[edge.source]
-    const newTarget = idMap[edge.target]
-
-    // If both endpoints exist in our new set, recreate the connection.
-    if (newSource && newTarget) {
-      const newEdgeId = getNextEdgeId(edgeIdSet)
-      edgeIdSet.push(newEdgeId)
-
-      newEdges.push({
-        ...edge,
-        id: newEdgeId,
-        source: newSource,
-        target: newTarget,
-        selected: true,
-      })
-    }
-  })
-
-  getSelectedNodes.value.forEach((n) => (n.selected = false))
-  getSelectedEdges.value.forEach((e) => (e.selected = false))
-
-  addNodes(newNodes)
-  addEdges(newEdges)
-}
-
 const handleKeyDown = (event) => {
-  // Check if user is typing in an input field (don't trigger copy/paste then)
-  if (['INPUT', 'TEXTAREA'].includes(event.target.tagName)) {
-    // Allow Enter/Shift+Enter/Escape in search input for navigation
-    if (event.target.closest('.workspace-search-input')) {
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        if (event.shiftKey) {
-          cycleToPreviousMatch()
-        } else {
-          cycleToNextMatch()
-        }
-      } else if (event.key === 'Escape' && searchQuery.value) {
-        event.preventDefault()
-        clearSearch()
-        event.target.blur?.()
-      }
-    }
-    return
-  }
-
-  // Don't intercept shortcuts while any dialog is open: they would act on the workspace behind it.
-  // CodeMirror and the math workbench edit in focusable divs rather than
-  // INPUT/TEXTAREA, so the check above doesn't catch them. We guard on both the
-  // dialog-open state and on whether focus is inside any CodeMirror editor element.
-  if (dialogVisible.value) return
-  if (event.target.closest('.cm-editor')) return
+  if (shouldIgnoreShortcut(event, dialogVisible.value)) return
 
   const isCtrl = event.ctrlKey || event.metaKey
   const isShift = event.shiftKey
@@ -2942,20 +2137,17 @@ const handleKeyDown = (event) => {
     selectAllNodes()
   }
 
-  if (isCtrl && event.key.toLowerCase() === 's' && !somethingAvailable) {
+  if (isCtrl && event.key.toLowerCase() === 's') {
     event.preventDefault()
-    handleSaveWorkspace()
+    if (somethingAvailable.value) handleSaveWorkspace()
   }
 
-  if (isCtrl && !isShift && event.key === 'z' && historyStore.canUndo) {
+  const undoRedoAction = getUndoRedoAction(event)
+  if (undoRedoAction === 'undo' && historyStore.canUndo) {
     event.preventDefault()
     handleUndo()
   }
-  if (isCtrl && isShift && event.key === 'z' && historyStore.canRedo) {
-    event.preventDefault()
-    handleRedo()
-  }
-  if (isCtrl && event.key.toLowerCase() === 'y' && historyStore.canRedo) {
+  if (undoRedoAction === 'redo' && historyStore.canRedo) {
     event.preventDefault()
     handleRedo()
   }
@@ -2971,9 +2163,9 @@ const handleKeyDown = (event) => {
   }
 
   // Search shortcuts
-  if ((isCtrl && event.key === 'f') || event.key === '/') {
+  if ((isCtrl && event.key.toLowerCase() === 'f') || (event.key === '/' && !isCtrl && !event.altKey)) {
     event.preventDefault()
-    document.querySelector('.workspace-search-input input')?.focus()
+    focusSearch()
   }
 
   if (event.key === 'Escape' && searchQuery.value) {
@@ -3106,8 +2298,7 @@ const hydrateCellmlAndDependents = async () => {
 }
 
 onMounted(async () => {
-  document.addEventListener('keydown', handleKeyDown)
-  document.addEventListener('mousemove', onMouseMove)
+  setWorkspaceMounted(true)
 
   void hydrateCellmlAndDependents().catch((error) => {
     console.error('Failed to initialize libCellML resources in background:', error)
@@ -3122,10 +2313,10 @@ const onMouseMove = (event) => {
   mousePosition.value = { x: event.clientX, y: event.clientY }
 }
 
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown)
-  document.removeEventListener('mousemove', onMouseMove)
-})
+// Canvas shortcuts act only while the canvas shows, not from another page.
+useActiveDocumentListeners({ keydown: handleKeyDown, mousemove: onMouseMove })
+
+onUnmounted(() => setWorkspaceMounted(false))
 
 watch(
   () => route.path,
@@ -3145,18 +2336,6 @@ watch(
   { immediate: true }
 )
 
-// Track only the fields the search reads; a deep watch walked every node on each drag frame and selection change.
-watch(
-  () =>
-    searchQuery.value.trim()
-      ? nodes.value.map((n) => `${n.id}|${n.data?.name}|${n.data?.moduleRef}|${n.data?.mathRef}`).join('\n')
-      : '',
-  () => {
-    if (searchQuery.value.trim()) {
-      handleSearchInput()
-    }
-  }
-)
 </script>
 
 <style>
@@ -3177,6 +2356,8 @@ watch(
   justify-content: space-between;
   align-items: center;
   height: var(--view-header-height);
+  /* Its height whatever the sidebar holds, rather than squeezed by a tall Simulation tab. */
+  flex-shrink: 0;
   box-sizing: border-box;
   padding: 0 var(--view-header-padding-x);
   border-bottom: 1px solid var(--p-content-border-color);
@@ -3346,10 +2527,18 @@ watch(
   top: 16px;
   right: 16px;
   z-index: 10;
-  transition: opacity 0.3s ease;
+  width: 15.5rem;
+  max-width: calc(100% - 32px);
+  transition:
+    opacity 0.3s ease,
+    width 0.2s ease;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.workspace-search-container.search-mode-var {
+  width: 24rem;
 }
 
 .workspace-search-container.search-inactive {
@@ -3424,6 +2613,22 @@ watch(
   background: color-mix(in srgb, var(--p-primary-color) 15%, transparent);
   color: var(--p-primary-color);
   font-weight: 600;
+}
+
+.search-match-vars {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--p-text-muted-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-empty {
+  margin: 0;
+  padding: 4px 2px;
+  font-size: 12px;
+  color: var(--p-text-muted-color);
 }
 
 .cursor-pointer {

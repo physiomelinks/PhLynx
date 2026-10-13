@@ -89,6 +89,17 @@ describe('mathmlModel', () => {
     expect(Array.from(doc.getElementsByTagName('variable')).map((v) => v.getAttribute('name'))).toEqual(['a'])
   })
 
+  it('declares kept names that no equation uses', () => {
+    const equation = '<math xmlns="http://www.w3.org/1998/Math/MathML"><apply><eq/><ci>a</ci><ci>b</ci></apply></math>'
+    const definitions = ['a', 'b', 'cAMP', 'dropped'].map((name) => ({ name, units: 'metre' }))
+    const declaredNames = (keep) => {
+      const { xml } = buildModelFromEquations({ baseXml: XML, mathml: [equation], definitions, keep })
+      return analyzeModelXml(xml).declared.map((variable) => variable.name)
+    }
+    expect(declaredNames(undefined)).toEqual(['a', 'b'])
+    expect(declaredNames(['cAMP', 'missing'])).toEqual(['a', 'b', 'cAMP'])
+  })
+
   it('reports a line that is not an equation, counting blank lines', () => {
     const expression = '<math xmlns="http://www.w3.org/1998/Math/MathML"><apply><plus/><ci>a</ci><ci>b</ci></apply></math>'
     const { xml, errors } = buildModelFromEquations({ baseXml: XML, mathml: ['', expression] })

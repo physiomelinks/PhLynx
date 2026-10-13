@@ -990,6 +990,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@opencor/libopencor@npm:^1.20261006.1":
+  version: 1.20261006.1
+  resolution: "@opencor/libopencor@npm:1.20261006.1"
+  checksum: 10c0/bd2fdeff0cd8da4fb59e066efbcadd91871393935f3297508acf98fc65810d1d03bca2c84229ad54626d330a089fa18fe287d67d8ebd9ae7a6bccdcb35ac1729
+  languageName: node
+  linkType: hard
+
 "@parcel/watcher-android-arm64@npm:2.5.1":
   version: 2.5.1
   resolution: "@parcel/watcher-android-arm64@npm:2.5.1"
@@ -1131,6 +1138,24 @@ __metadata:
     "@parcel/watcher-win32-x64":
       optional: true
   checksum: 10c0/8f35073d0c0b34a63d4c8d2213482f0ebc6a25de7b2cdd415d19cb929964a793cb285b68d1d50bfb732b070b3c82a2fdb4eb9c250eab709a1cd9d63345455a82
+  languageName: node
+  linkType: hard
+
+"@physiomelinks/protocol-kit@npm:^0.5.0":
+  version: 0.5.0
+  resolution: "@physiomelinks/protocol-kit@npm:0.5.0"
+  peerDependencies:
+    papaparse: ^5.5
+    primevue: ^4
+    vue: ^3.5
+  peerDependenciesMeta:
+    papaparse:
+      optional: true
+    primevue:
+      optional: true
+    vue:
+      optional: true
+  checksum: 10c0/5ca34e4ebc811960f46d6700d62272d2db141249517eef8848c58d83e3c5ee7b655c8dc3eb9f2d3a2ecead141f0d883b690abe0dc976caa058cc2e92bb4336de
   languageName: node
   linkType: hard
 
@@ -2593,10 +2618,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cellml-text-editor@npm:^0.7.0":
-  version: 0.7.0
-  resolution: "cellml-text-editor@npm:0.7.0"
-  checksum: 10c0/0c890665fe350dc891c801329ea673e8e2413869a9382c29054b4ef2cf29888b4dc3e160ca8c6f4236bfc58b0adc1e34560a33275da6673f219c53ba228bb30f
+"cellml-text-editor@npm:^0.7.1":
+  version: 0.7.1
+  resolution: "cellml-text-editor@npm:0.7.1"
+  checksum: 10c0/331e3ea94ec7c3b4831e32dbb4053ec20a610efacc7494769b8d92d87a4fd317760027caae7b1d2481056eaa7725c9516afdd6a304d110c454f68f0e58faa034
   languageName: node
   linkType: hard
 
@@ -5738,6 +5763,9 @@ __metadata:
     "@hsorby/changelog": "npm:^3.0.3"
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
+    "@opencor/libopencor": "npm:^1.20261006.1"
+    "@physiomelinks/protocol-kit": "npm:^0.5.0"
+    "@primeuix/utils": "npm:^0.6.2"
     "@primevue/themes": "npm:4"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@vitejs/plugin-vue": "npm:^6.0.1"
@@ -5748,7 +5776,7 @@ __metadata:
     "@vue-flow/minimap": "npm:^1.5.4"
     "@vue-flow/node-resizer": "npm:^1.5.0"
     "@vue/test-utils": "npm:^2.4.6"
-    cellml-text-editor: "npm:^0.7.0"
+    cellml-text-editor: "npm:^0.7.1"
     codemirror: "npm:^6.0.2"
     cytoscape: "npm:^3.33.1"
     cytoscape-fcose: "npm:^2.2.0"
@@ -5775,6 +5803,7 @@ __metadata:
     tailwindcss: "npm:^4.3.3"
     tailwindcss-primeui: "npm:^0.6.1"
     unplugin-vue-markdown: "npm:^29.2.0"
+    uplot: "npm:1.6.32"
     vite: "npm:^7.1.7"
     vite-plugin-electron: "npm:^0.29.0"
     vitest: "npm:^4.0.18"
@@ -5782,7 +5811,7 @@ __metadata:
     vue-codemirror: "npm:^6.1.1"
     vue-router: "npm:^4.6.4"
     vue3-libcellml.js: "npm:^0.7.1"
-    vue3-math-editor: "npm:^0.3.3"
+    vue3-math-editor: "npm:^0.3.5"
   languageName: unknown
   linkType: soft
 
@@ -7143,6 +7172,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"uplot@npm:1.6.32":
+  version: 1.6.32
+  resolution: "uplot@npm:1.6.32"
+  checksum: 10c0/4d9cdd5f53371656cfc178ea4ae0d8c9bdbe4c98c99df847926d7e5f5a5bcb8043561219da2979fee7616aabe3619d80fee093befdfe39aae65e6621284c39b1
+  languageName: node
+  linkType: hard
+
 "uri-js@npm:^4.2.2":
   version: 4.4.1
   resolution: "uri-js@npm:4.4.1"
@@ -7425,16 +7461,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"vue3-math-editor@npm:^0.3.3":
-  version: 0.3.3
-  resolution: "vue3-math-editor@npm:0.3.3"
+"vue3-math-editor@npm:^0.3.5":
+  version: 0.3.5
+  resolution: "vue3-math-editor@npm:0.3.5"
   peerDependencies:
     "@primeuix/utils": ^0.6.2
     katex: ^0.16.0 || ^0.17.0
     primeicons: ^7.0.0
     primevue: ^4.5.5
     vue: ^3.5.0
-  checksum: 10c0/390a79b5cc4392016848d56de6119cfef14e11c0f18e32d02594c9f4f3807a0945b60a5554721bceb67ba9db5f37e06463e7232421d14a4986ededac0f1d1fb6
+  checksum: 10c0/c1b43edae72f6cd60fd4aa2ff83d99582eaf965744d19e17ea86280453a83b9565c5da5e0179ccc85906f2788964f1a7f87871da3e28f97de626a6072f96a92d
   languageName: node
   linkType: hard
 

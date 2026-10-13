@@ -63,9 +63,10 @@ function declareCellmlPrefix(math) {
  * @param {string[]} options.mathml - Content MathML per line, each a `<math>` element; blank lines are skipped
  *   but still counted, so error line numbers match the editor's.
  * @param {Array} [options.definitions] - Variable declarations from buildVariableDeclarations.
+ * @param {string[]} [options.keep] - Names to declare even when no equation uses them.
  * @returns {{ xml: string|null, errors: Array<{ line: number, message: string }> }}
  */
-export function buildModelFromEquations({ baseXml, componentName, mathml, definitions = [] }) {
+export function buildModelFromEquations({ baseXml, componentName, mathml, definitions = [], keep = [] }) {
   // Parsed rather than created: happy-dom's createDocument returns an HTML document.
   const doc = parseXml(`<model xmlns="${CELLML_NS}"/>`)
   const model = doc.documentElement
@@ -103,7 +104,7 @@ export function buildModelFromEquations({ baseXml, componentName, mathml, defini
   if (errors.length) return { xml: null, errors }
 
   if (math.children.length) component.appendChild(declareCellmlPrefix(math))
-  applyVariableDefinitions(doc, definitions)
+  applyVariableDefinitions(doc, definitions, { keep })
 
   return { xml: XML_HEADER + serializer.serialize(model), errors }
 }

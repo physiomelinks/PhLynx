@@ -152,6 +152,17 @@ export const useOmexStore = defineStore('omex', () => {
     }
   }
 
+  /**
+   * Writes a file the archive carries, replacing the one at its location or adding it.
+   *
+   * @param {{location: string, format: string, payload: ArrayBuffer}} entry
+   */
+  function writeExtra(entry) {
+    const written = normaliseArchiveEntry(entry)
+    const index = preservedExtras.value.findIndex(({ location }) => location === written.location)
+    preservedExtras.value = index < 0 ? [...preservedExtras.value, written] : preservedExtras.value.map((extra, i) => (i === index ? written : extra))
+  }
+
   return {
     archiveHash,
     archiveName,
@@ -161,6 +172,7 @@ export const useOmexStore = defineStore('omex', () => {
     preservedExtras,
     resetState,
     setArchive,
+    writeExtra,
     setHash,
     loadState,
     getState,

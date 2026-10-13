@@ -1,8 +1,11 @@
 /**
- * Builds the saved workspace file. This is the one definition of what a save writes, so any change
- * to its shape needs a new format version and a migration step in workspaceMigrator.js.
+ * Builds and reads the saved workspace file. buildWorkspaceFile is the one definition of what a
+ * save writes, so any change to its shape needs a new format version and a migration step in
+ * workspaceMigrator.js.
  */
 import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../utils/constants'
+import { readFileAsText } from '../utils/misc'
+import { notify } from '../utils/notify'
 
 /**
  * Builds the workspace file from the flow and the saved stores.
@@ -25,4 +28,29 @@ export function buildWorkspaceFile({ flow, library, simulation, inspectionModule
     inspectionModules: inspectionModules.getState(),
     workspace: omex.getState(),
   }
+}
+
+/**
+ * Reads a workspace JSON file and hands the parsed workspace to `apply`. Read, parse and apply
+ * failures each show an error notification.
+ *
+ * @param {File} file - The chosen workspace file.
+ * @param {(state: Object) => (Promise|void)} apply - Restores the parsed workspace.
+ * @returns {Promise<boolean>} Whether the workspace loaded.
+ */
+export async function loadWorkspaceFile(file, apply) {
+  let state
+  try {
+    state = JSON.parse(await readFileAsText(file))
+  } catch (error) {
+    notify.error({ title: 'Failed to read workflow', message: error.message })
+    return false
+  }
+  try {
+    await apply(state)
+  } catch (error) {
+    notify.error({ title: 'Failed to load workflow', message: error.message })
+    return false
+  }
+  return true
 }

@@ -29,7 +29,7 @@ export function buildSimulationJson(plotConfig, parameterScan, supplementalData)
   const timeVariable = { id: formVoiVariableId(voiInformation), name: formVoiVariableName(voiInformation), units: voiInformation.units }
 
   const input = buildInput(scanSelections)
-  const data = buildOutputData(selections, timeVariable)
+  const data = buildOutputData(selections, timeVariable, plotConfig?.groups)
   const plots = buildOutputPlots(plotConfig, selections, timeVariable)
   const parameters = buildParameters(scanSelections, supplementalData.mappedParameters)
 
@@ -71,13 +71,19 @@ function formDataVariableId(nodeName, variableName) {
 }
 
 // output.data: one entry per plotted variable ("instance name/variable name"),
-// plus the shared time axis — unless a plotted variable is already literally
+// and per variable a plot plots against, plus the shared time axis — unless a plotted variable is already literally
 // named "time", in which case that one is used instead of adding a duplicate.
-function buildOutputData(selections, timeVariable) {
+function buildOutputData(selections, timeVariable, groups = []) {
   const data = selections.map((sel) => ({
     id: formDataVariableId(sel.nodeName, sel.variableName),
     name: `${sel.nodeName}/${sel.variableName}`,
   }))
+
+  // A plot against another variable, as a phase plot is, needs that variable's data too.
+  for (const { xAxis } of groups ?? []) {
+    const id = xAxis && formDataVariableId(xAxis.nodeName, xAxis.variableName)
+    if (id && !data.some((entry) => entry.id === id)) data.push({ id, name: `${xAxis.nodeName}/${xAxis.variableName}` })
+  }
 
   data.push({id: timeVariable.id, name: timeVariable.name})
 
@@ -92,6 +98,11 @@ function buildOutputData(selections, timeVariable) {
 function buildOutputPlots(plotConfig, selections, timeVariable) {
   const groupOrder = (plotConfig?.groups || []).map((group) => group.id)
   const groupNameMap = new Map((plotConfig?.groups || []).map((group) => [group.id, group.name]))
+  // Each plot's x-axis: time, or the variable it plots against.
+  const xValueOf = (groupKey) => {
+    const xAxis = (plotConfig?.groups || []).find((group) => group.id === groupKey)?.xAxis
+    return xAxis ? formDataVariableId(xAxis.nodeName, xAxis.variableName) : timeVariable.id
+  }
   const UNGROUPED = '__ungrouped__'
 
   const byGroup = new Map()
@@ -110,11 +121,11 @@ function buildOutputPlots(plotConfig, selections, timeVariable) {
     .map((groupKey) => byGroup.get(groupKey))
     .filter((groupSelections) => groupSelections.length > 0)
     .map(([first, ...rest]) => ({
-      xValue: timeVariable.id,
+      xValue: xValueOf(first.groupId || UNGROUPED),
       yValue: formDataVariableId(first.nodeName, first.variableName),
       name: `${first.nodeName}/${first.variableName}`,
       additionalTraces: rest.map((sel) => ({
-        xValue: timeVariable.id,
+        xValue: xValueOf(first.groupId || UNGROUPED),
         yValue: formDataVariableId(sel.nodeName, sel.variableName),
         name: `${sel.nodeName}/${sel.variableName}`,
       })),

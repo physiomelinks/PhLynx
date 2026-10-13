@@ -136,6 +136,36 @@ export function resolvePortCouplings(
 }
 
 /**
+ * Recomputes the couplings of every edge touching a node, as they would be with the given ports for that node.
+ * Each edge picks its slots by its position among the edges sharing its source and its target (see
+ * resolvePortCouplings). Pure: neither the edges nor the nodes are changed.
+ *
+ * @param {string} nodeId
+ * @param {Array} ports - The node's ports.
+ * @param {Array} nodes - Workspace nodes, for the other end's ports.
+ * @param {Array} edges - Workspace edges.
+ * @returns {Map<string, Array>} Each touching edge's id to its couplings; an edge whose other node is missing is left out.
+ */
+export function previewCouplings(nodeId, ports, nodes, edges) {
+  const portsOf = (id) => {
+    if (id === nodeId) return ports
+    const node = nodes.find((candidate) => candidate.id === id)
+    return node && (node.data?.ports ?? [])
+  }
+  const couplings = new Map()
+  for (const edge of edges) {
+    if (edge.source !== nodeId && edge.target !== nodeId) continue
+    const sourcePorts = portsOf(edge.source)
+    const targetPorts = portsOf(edge.target)
+    if (!sourcePorts || !targetPorts) continue
+    const sourceIndex = edges.filter((e) => e.source === edge.source).indexOf(edge)
+    const targetIndex = edges.filter((e) => e.target === edge.target).indexOf(edge)
+    couplings.set(edge.id, resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex))
+  }
+  return couplings
+}
+
+/**
  * Checks whether adding a new conduit (with the given resolved couplings) would
  * violate the non-multiport single-connection constraint, and if not, marks those
  * port labels as consumed.

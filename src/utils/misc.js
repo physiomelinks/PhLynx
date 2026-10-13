@@ -11,6 +11,17 @@ export const readFileAsText = (file) =>
     reader.readAsText(file)
   })
 
+/**
+ * Takes the chosen file from a file input's `change` event and clears the input, so picking the
+ * same file again still fires `change`.
+ */
+export function takeInputFile(event) {
+  const target = event?.target
+  const file = target?.files?.[0]
+  if (target && 'value' in target) target.value = ''
+  return file
+}
+
 export function sanitiseNameOnBlur(name) {
   if (name && name?.trim()) {
     const sanitised = sanitiseName(name)

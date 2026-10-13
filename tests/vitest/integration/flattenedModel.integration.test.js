@@ -14,6 +14,8 @@ import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { multiportSummary } from '../../../src/utils/multiport.js'
 import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
+import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
+import { buildVariableMapping, mapInspectionModules, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const MATH_REF = 'file:decay'
@@ -169,6 +171,21 @@ const HUB_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="hub">
     </math>
   </component>
 </model>`
+// A tank filled through v_in: dq/dt = v_in - q.
+const TANK_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="tank">
+  <component name="tank">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="q" units="dimensionless" initial_value="q_init" interface="public"/>
+    <variable name="q_init" units="dimensionless" initial_value="0" interface="public"/>
+    <variable name="v_in" units="per_second" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>q</ci></apply>
+        <apply><minus/><ci>v_in</ci><apply><times/><cn cellml:units="per_second" xmlns:cellml="http://www.cellml.org/cellml/2.0#">1</cn><ci>q</ci></apply></apply>
+      </apply>
+    </math>
+  </component>
+</model>`
 const LEAF_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="leaf">
   <component name="leaf">
     <variable name="u" units="dimensionless" interface="public"/>
@@ -269,13 +286,13 @@ describe('generateFlattenedModel multiport couplings', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/"hub" variable "v_sum" sums over its connections/))
   })
 
-  it('uses the value of a Sum variable nothing is connected to', async () => {
+  it('sets a Sum variable nothing is connected to to 0, ignoring its value', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const hub = buildNode('hub', 'file:hub', [vesselPort('exit_ports', ['v_sum', 'u'], ['sum', 'True'])], { v_sum: '0.25' })
     const text = await flatten([hub], [])
-    expect(componentOf(text, 'generated_summations')).toBe('')
-    expect(text).toMatch(/<variable name="v_sum"[^>]*initial_value="0\.25"/)
-    expect(warn).not.toHaveBeenCalled()
+    expect(componentOf(text, 'generated_summations')).toMatch(/<cn cellml:units="per_second">0<\/cn>/)
+    expect(text).not.toMatch(/initial_value="0\.25"/)
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/"hub" variable "v_sum" .* ignoring its value 0\.25 and setting it to 0/))
   })
 
   it('multiplies a variable on either end of the edge by its own factor', async () => {
@@ -343,5 +360,324 @@ describe('generateFlattenedModel multiport couplings', () => {
     expect(() => generateFlattenedModel([hub, ...leaves], edges, store)).toThrow(
       '"hub" sums "v_sum" through ports "flow" and "drain"; a variable can be summed through one port only.'
     )
+  })
+})
+
+describe('scoped models', () => {
+  let store
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    store.addMath('file:hub', HUB_XML)
+    store.addMath('file:leaf', LEAF_XML)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  /** A node built from the stored math, its port inputs typed as boundary conditions. */
+  function buildNode(id, mathRef, ports, values = {}) {
+    const portVariables = new Set(ports.flatMap((port) => port.variables))
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], {
+      defaults: store.getMathDefaults(mathRef),
+    }).map((row) => ({
+      ...row,
+      type: row.type === 'constant' && portVariables.has(row.name) ? 'boundary_condition' : row.type,
+      ...(row.name in values && { value: values[row.name] }),
+    }))
+    return { id, type: 'instanceNode', data: { name: id, mathRef, variables: rows, ports } }
+  }
+
+  /** A hub summing the flows of two leaves, each given the hub's pressure. */
+  function buildNetwork(leafValues = {}) {
+    const hub = buildNode('hub', 'file:hub', [
+      { portType: 'exit_ports', label: 'vessel', variables: ['v_sum', 'u'], multiportType: ['sum', 'True'] },
+    ])
+    const leaves = ['leaf_1', 'leaf_2'].map((id) =>
+      buildNode(id, 'file:leaf', [{ portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' }], leafValues)
+    )
+    const edges = leaves.map((leaf) => ({
+      id: `hub_${leaf.id}`,
+      source: hub.id,
+      target: leaf.id,
+      data: { couplings: resolvePortCouplings(hub.data.ports, leaf.data.ports) },
+    }))
+    return { nodes: [hub, ...leaves], edges }
+  }
+
+  const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
+
+  it('builds a selection with nothing to integrate as an algebraic system, with no clock', async () => {
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(['leaf_1'], nodes, edges)
+    const report = checkScope(scope, store)
+
+    expect(report.errors).toEqual([])
+    expect(report.zeroedBoundaries).toEqual([{ nodeId: 'leaf_1', nodeName: 'leaf_1', variableName: 'u' }])
+    expect(report.canBuild).toBe(true)
+    const text = await buildScopedModel(scope, store).text()
+    expect(text).not.toMatch(/<component name="environment"/)
+  })
+
+  it('sets a boundary condition the cut leaves without a value to 0', async () => {
+    store.addMath('file:tank', TANK_XML)
+    const tank = buildNode('tank', 'file:tank', [{ portType: 'entrance_ports', label: 'inflow', variables: ['v_in'], multiportType: 'None' }])
+    const source = buildNode('source', 'file:hub', [{ portType: 'exit_ports', label: 'inflow', variables: ['u'], multiportType: 'None' }])
+    const edges = [{ id: 'e', source: 'source', target: 'tank', data: { couplings: resolvePortCouplings(source.data.ports, tank.data.ports) } }]
+    const scope = resolveScope(['tank'], [source, tank], edges)
+
+    const report = checkScope(scope, store)
+    expect(report.canBuild).toBe(true)
+    expect(report.zeroedBoundaries).toEqual([{ nodeId: 'tank', nodeName: 'tank', variableName: 'v_in' }])
+
+    const text = await buildScopedModel(scope, store).text()
+    expect(text).toMatch(/<variable name="v_in"[^>]*initial_value="0"/)
+    expect(tank.data.variables.find((row) => row.name === 'v_in').value).toBeFalsy()
+  })
+
+  /** Two leaves sharing u through a link, the first fed u by the hub when `fed`. */
+  function linkedLeaves({ fed }) {
+    const leaf = (id, portType) =>
+      buildNode(id, 'file:leaf', [
+        { portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' },
+        { portType, label: 'link', variables: ['u'], multiportType: 'None' },
+      ])
+    const leaves = [leaf('leaf_1', 'exit_ports'), leaf('leaf_2', 'entrance_ports')]
+    const link = (source, target) => ({
+      id: `${source.id}_${target.id}`,
+      source: source.id,
+      target: target.id,
+      data: { couplings: resolvePortCouplings([source.data.ports[1]], [target.data.ports[1]]) },
+    })
+    const edges = [link(...leaves)]
+    if (!fed) return { nodes: leaves, edges }
+    const { nodes, edges: hubEdges } = buildNetwork()
+    return { nodes: [nodes[0], ...leaves], edges: [...edges, { ...hubEdges[0], target: 'leaf_1' }] }
+  }
+
+  it('builds boundary conditions the cut leaves coupled only to each other', async () => {
+    const { nodes, edges } = linkedLeaves({ fed: true })
+    const scope = resolveScope(['leaf_1', 'leaf_2'], nodes, edges)
+
+    const report = checkScope(scope, store)
+    expect(report.errors).toEqual([])
+    expect(report.canBuild).toBe(true)
+    await expect(buildScopedModel(scope, store).text()).resolves.toMatch(/initial_value="0"/)
+  })
+
+  it('stops boundary conditions coupled only to each other in the whole model', () => {
+    const { nodes, edges } = linkedLeaves({ fed: false })
+    const report = checkScope(resolveScope(['leaf_1', 'leaf_2'], nodes, edges), store)
+    expect(report.errors).toEqual(['Boundary conditions connected only to each other, so nothing computes them: leaf_1.u, leaf_2.u.'])
+    expect(report.canBuild).toBe(false)
+  })
+
+  it('flattens a single instance on its own', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(['hub'], nodes, edges)
+    expect(checkScope(scope, store).canBuild).toBe(true)
+
+    const text = await buildScopedModel(scope, store).text()
+    expect(text).toMatch(/<component name="hub">/)
+    expect(text).not.toMatch(/<component name="leaf_/)
+  })
+
+  it('sums only the terms inside the scope, and warns about the one left out', async () => {
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(['hub', 'leaf_1'], nodes, edges)
+
+    const report = checkScope(scope, store)
+    expect(report.canBuild).toBe(true)
+    expect(report.lostSumTerms).toEqual([{ nodeId: 'hub', nodeName: 'hub', variableName: 'v_sum', lost: 1 }])
+
+    const math = componentOf(await buildScopedModel(scope, store).text(), 'generated_summations')
+    expect(math.match(/<ci>op_v[^<]*<\/ci>/g)).toHaveLength(1)
+  })
+
+  it('keeps an inspection module’s variables inside the scope', async () => {
+    const { nodes, edges } = buildNetwork()
+    const total = {
+      name: 'total_flow',
+      units: 'per_second',
+      variables: ['leaf_1', 'leaf_2'].map((nodeId) => ({ nodeId, variableName: 'v', units: 'per_second', sign: 1 })),
+    }
+    const scope = resolveScope(['hub', 'leaf_1'], nodes, edges, [total])
+    expect(scope.trimmedModules).toEqual([{ name: 'total_flow', removed: 1, isLeftOut: false }])
+
+    const math = componentOf(await buildScopedModel(scope, store).text(), 'inspection_modules')
+    expect(math.match(/<variable name="op_v[^"]*"/g)).toHaveLength(1)
+  })
+
+  it('stops an empty selection, which the build would reject', () => {
+    const scope = resolveScope([], [], [])
+    expect(checkScope(scope, store).canBuild).toBe(false)
+    expect(() => buildScopedModel(scope, store)).toThrow()
+  })
+
+  it('flattens the whole model as the scope of every node', async () => {
+    const { nodes, edges } = buildNetwork()
+    const scope = resolveScope(null, nodes, edges)
+    expect(checkScope(scope, store).lostSumTerms).toEqual([])
+
+    const math = componentOf(await buildScopedModel(scope, store).text(), 'generated_summations')
+    expect(math.match(/<ci>op_v[^<]*<\/ci>/g)).toHaveLength(2)
+  })
+})
+
+describe('mapping a scoped run’s results back to instances', () => {
+  let store, libcellml
+
+  beforeAll(async () => {
+    ;({ instance: libcellml } = await ensureLibCellmlReady())
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    store.addMath('file:hub', HUB_XML)
+    store.addMath('file:leaf', LEAF_XML)
+  })
+
+  /** A hub summing the flows of two leaves, each given the hub's pressure, flattened as a scope. */
+  async function buildFlattenedNetwork() {
+    const node = (id, mathRef, ports) => ({
+      id,
+      type: 'instanceNode',
+      data: {
+        name: id,
+        mathRef,
+        // Port inputs are boundary conditions, as the editor types them.
+        variables: reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], { defaults: store.getMathDefaults(mathRef) }).map((row) =>
+          row.type === 'constant' && ports.some((port) => port.variables.includes(row.name)) ? { ...row, type: 'boundary_condition' } : row
+        ),
+        ports,
+      },
+    })
+    const hub = node('hub', 'file:hub', [{ portType: 'exit_ports', label: 'vessel', variables: ['v_sum', 'u'], multiportType: ['sum', 'True'] }])
+    const leaves = ['leaf_1', 'leaf_2'].map((id) => node(id, 'file:leaf', [{ portType: 'entrance_ports', label: 'vessel', variables: ['v', 'u'], multiportType: 'None' }]))
+    const edges = leaves.map((leaf) => ({ id: `hub_${leaf.id}`, source: 'hub', target: leaf.id, data: { couplings: resolvePortCouplings(hub.data.ports, leaf.data.ports) } }))
+    const scope = resolveScope(null, [hub, ...leaves], edges)
+    return { scope, cellml: await buildScopedModel(scope, store).text() }
+  }
+
+  /** Results reporting values under the given names, as the engine returns them, over the hub's VoI t. */
+  const resultsFor = (names) => ({
+    voi: { name: 'environment/t', unit: 'second', values: new Float64Array([0, 1]) },
+    variables: new Map(names.map((name, i) => [name, { kind: 'algebraic', unit: '', values: new Float64Array([i, i]) }])),
+  })
+
+  it('maps each row to whichever member of its equivalent variables the run reported', async () => {
+    const { scope, cellml } = await buildFlattenedNetwork()
+    const results = resultsFor(['hub/q', 'hub/u', 'leaf_1/v', 'leaf_2/v', 'instance_parameters/leaf_1_k', 'instance_parameters/leaf_2_k'])
+
+    const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
+
+    expect(mapping.get(mappingKey('hub', 't'))).toBe('environment/t')
+    expect(mapping.get(mappingKey('hub', 'u'))).toBe('hub/u')
+    expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('hub/u')
+    expect(mapping.get(mappingKey('leaf_2', 'u'))).toBe('hub/u')
+    expect(mapping.get(mappingKey('leaf_1', 'v'))).toBe('leaf_1/v')
+    expect(mapping.get(mappingKey('leaf_2', 'k'))).toBe('instance_parameters/leaf_2_k')
+    expect(readNodeSeries(results, mapping, 'leaf_2', 'u')).toMatchObject({ name: 'hub/u', kind: 'algebraic' })
+    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/t', kind: 'voi' })
+  })
+
+  it('follows the run when it reports another member of the same variables', async () => {
+    const { scope, cellml } = await buildFlattenedNetwork()
+    const results = resultsFor(['hub/q', 'leaf_2/u'])
+
+    const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
+
+    expect(mapping.get(mappingKey('hub', 'u'))).toBe('leaf_2/u')
+    expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('leaf_2/u')
+  })
+
+  it('finds each inspection module’s output under the name the flatten gave it', async () => {
+    const { scope } = await buildFlattenedNetwork()
+    const sumOfLeaves = (name) => ({
+      id: name,
+      name,
+      units: 'per_second',
+      variables: ['leaf_1', 'leaf_2'].map((nodeId) => ({ nodeId, variableName: 'v', units: 'per_second', sign: 1 })),
+    })
+    // The second module's name collides with the first's terms, op_v and op_v_1.
+    const modules = [sumOfLeaves('total flow'), sumOfLeaves('op_v')]
+    const scoped = resolveScope(null, scope.nodes, scope.internalEdges, modules)
+    const text = await buildScopedModel(scoped, store).text()
+    const inspection = text.match(/<component name="inspection_modules">[\s\S]*?<\/component>/)[0]
+    const declared = [...inspection.matchAll(/<variable name="([^"]+)"/g)].map(([, name]) => `inspection_modules/${name}`)
+    const results = resultsFor(declared)
+
+    const outputs = mapInspectionModules(scoped.inspectionModules, scoped.nodes, results)
+
+    expect(outputs).toEqual([
+      { id: 'total flow', name: 'total flow', units: 'per_second', reportedName: 'inspection_modules/total_flow' },
+      { id: 'op_v', name: 'op_v', units: 'per_second', reportedName: 'inspection_modules/op_v_2' },
+    ])
+    expect(mapInspectionModules(scoped.inspectionModules, scoped.nodes, resultsFor([]))).toEqual([])
+  })
+
+  it('leaves out rows whose values the run didn’t report', async () => {
+    const { scope, cellml } = await buildFlattenedNetwork()
+    const results = resultsFor(['hub/q'])
+
+    const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
+
+    expect(mapping.has(mappingKey('leaf_1', 'v'))).toBe(false)
+    expect(readNodeSeries(results, mapping, 'leaf_1', 'v')).toBeNull()
+    expect(readNodeSeries(results, mapping, 'missing', 'v')).toBeNull()
+  })
+})
+
+describe('trying out parameter values', () => {
+  let store
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    store.addMath(MATH_REF, XML)
+    store.assignGlobalConstant('g', '0.1', 'per_second')
+  })
+
+  /** A decay node with its rows from the math, as a new instance has. */
+  function buildNode() {
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(MATH_REF)), [{ name: 'g', type: 'global_constant' }], {
+      defaults: store.getMathDefaults(MATH_REF),
+    })
+    return { id: 'n1', type: 'instanceNode', data: { name: 'decay_1', mathRef: MATH_REF, variables: rows, ports: [] } }
+  }
+
+  it('flattens with overridden constants, initial values and global constants, changing neither', async () => {
+    const node = buildNode()
+    const scope = resolveScope(null, [node], [])
+    const overrides = { rows: new Map([['n1::k', 0.9], ['n1::x_init', 4]]), globals: new Map([['g', 0.3]]) }
+
+    const applied = applyParameterOverrides(scope, store, overrides)
+    const text = await buildScopedModel(applied.scope, applied.libraryStore).text()
+
+    expect(text).toMatch(/<variable name="k"[^>]*initial_value="0\.9"/)
+    expect(text).toMatch(/<variable name="x_init"[^>]*initial_value="4"/)
+    expect(text).toMatch(/<variable name="g"[^>]*initial_value="0\.3"/)
+    expect(node.data.variables.find((row) => row.name === 'k').value).toBe('0.5')
+    expect(store.getGlobalConstant('g').value).toBe('0.1')
+  })
+
+  it('leaves the scope and library as they are without overrides', () => {
+    const scope = resolveScope(null, [buildNode()], [])
+    const applied = applyParameterOverrides(scope, store)
+    expect(applied.scope.nodes[0]).toBe(scope.nodes[0])
+    expect(applied.libraryStore).toBe(store)
   })
 })

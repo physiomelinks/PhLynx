@@ -1,150 +1,114 @@
 # Quick Start Guide
 
-This guide demonstrates some of PhLynx's core capabilities by walking through the creation of a basic system model.
+Build, simulate and export a small three-module nerve model.
 
-## Overview
+## Layout
 
-By the end of this tutorial, you will be able to:
-- Navigate the PhLynx interface.
-- Place, configure, and connect modules.
-- Export a combined system model for simulation.
+| Area | Where | Use |
+| :--- | :--- | :--- |
+| [Toolbar](../reference/ui-overview.md#toolbar) | Top | Load, save, import, export and edit tools |
+| [Available Modules](../reference/ui-overview.md#module-library) | Left | Search and drag <GlossaryLink term="modules"/> |
+| [Workspace](../reference/ui-overview.md#workspace) | Centre | Assemble the model |
+| [Context Sidebar](../reference/ui-overview.md#context-sidebar) | Right (icon rail) | Parameters, properties and simulation |
 
-## Workbench Layout
+![PhLynx Workspace view with toolbar, Available Modules, Workspace and Context Sidebar](../assets/images/phlynx_ui.png){.align-center width="800px"}
 
-Before building, familiarize yourself with the three main interaction areas of the <GlossaryLink term="Workspace"/>:
+## Step 1: Place and Rename {#step-1}
 
-- **[Toolbar](../reference/ui-overview#toolbar) (Top):** Controls for file management and workspace operations.
-- **[Library](../reference/ui-overview#module-list) (Left):** Library of imported <GlossaryLink term="modules"/>.
-- **[Workspace](../reference/ui-overview#workbench) (Centre):** The area for assembling your model.
+1. Download <a href="/examples/cell_modules.cellml" download>cell_modules.cellml</a>.
+2. Import it with **Import ▸ CellML File**, or drop the file onto the canvas. A **CELL MODULES** group appears in Available Modules.
+3. Expand the group (or search for `SN_`) and drag **SN_soma**, **SN_axon** and **SN_varicosity** onto the Workspace. Each placed copy is an *instance*.
 
-![PhLynx Workbench view with Workspace, toolbar, and Library labelled](../assets/images/phlynx_ui.png){.align-center min-width="600px"}
+   ![Three SN instances placed on the Workspace](../assets/images/quick-start-step-one-placed.png){.align-center width="800px"}
 
-> [!NOTE]
-> See the [UI Overview](../reference/ui-overview) for a comprehensive description of all interface components.
+4. Click each instance's name and rename it: **SN_soma** to **soma_SN**, **SN_axon** to **axon_SN**, **SN_varicosity** to **var_SN**. (Double-clicking the node opens the Instance Editor instead.)
 
-## Building a Model
+To use your own modules, see [Using Custom Modules](../guides/build-custom-module.md).
 
-PhLynx includes a library of modules describing various physiological processes. We will use a selection of these modules to assemble a simple system.
+## Step 2: Connect {#step-2}
 
-> [!NOTE]
-> To learn how to import custom modules, see [Making Your Own Modules](../guides/build-custom-module.md).
+Hover over a node's edge until a green handle appears, then drag it to another node's edge. This creates the handles on both nodes and the connection. To remove a handle, hover over it and click the trash icon. A handle only marks where an arrow attaches; the ports you add in Step 3 decide which variables the connection shares.
 
-### Placing Modules
+![Dragging from a green handle to connect two instances](../assets/images/connect-port-nodes.png){.align-center width="550px"}
 
-The **Library** features a search bar to locate specific components. To add a module to the <GlossaryLink term="Workspace"/>, drag and drop it from the list onto the canvas. Once a module is placed on the Workspace, it becomes an instance (i.e., an instance of a module).
+Drag from **soma_SN** to **axon_SN**, then from **axon_SN** to **var_SN**. The node you drag from becomes the arrow's tail, the *source* in Step 3.
 
-#### Step 1: Place and Rename
-1.  Search for and drag the following modules onto your Workspace: **SN_soma**, **SN_axon**, and **SN_varicosity**.
-    
-    ![PhLynx Workspace with modules in position](../assets/images/quick-start-step-one-placed.png){.align-center width="800px"}
+![soma_SN, axon_SN and var_SN connected](../assets/images/quick-start-step-two.png){.align-center width="800px"}
 
-2.  Double-click each instance node to rename them as follows:
-    * Rename **SN_soma** to **soma_SN**
-    * Rename **SN_axon** to **axon_SN**
-    * Rename **SN_varicosity** to **var_SN**
+## Step 3: Configure Ports {#step-3}
 
-    ![PhLynx Workspace with renamed modules in position](../assets/images/quick-start-step-one-renamed.png){.align-center width="800px"}
+<GlossaryLink term="ports"/> say which variables a connection shares. Set them up from each connection:
 
-    *Note: The original component name and source file remain visible beneath the custom name.*
+1. Double-click the **soma_SN → axon_SN** arrow to open the [Connections dialog](../reference/valid-port-configurations.md#connections-dialog). The source instance (soma_SN) is on the left, the target (axon_SN) on the right.
+2. Add one port per table row below, on that instance's side. For soma_SN's VI_port: under **SOURCE: soma_SN** (left), click **Add Port**. Set **Type** to **O** (G = general, I = input, O = output), type `VI_port` in **Label**, open **Select variables** and tick **V**, then **I_out**. Leave **Mode** on Basicport (one connection per port).
+3. Add axon_SN's ports under **TARGET: axon_SN** (right) the same way.
+4. Ports with the same label and compatible types join automatically with a line, and turn green (**Connected**). If two ports don't join, drag from one port's handle to the other. Click **Done**.
+5. Repeat for the **axon_SN → var_SN** arrow. axon_SN's ports are already there, now on the left; add var_SN's on the right.
 
-### Connecting Instances
+![Connections dialog with soma_SN's and axon_SN's VI_port linked](../assets/images/connections-dialog.png){.align-center width="800px"}
 
-Intances interact via specific tools located on the instance node itself.
+**soma_SN**
 
-![Labelled instance node](../assets/images/labelled-module.png){.align-center width="600px"}
+| Type | Label | Variables |
+| :--- | :--- | :--- |
+| I | i_stim | I_in |
+| O | VI_port | V, I_out |
 
-* **[Key](../reference/ui-overview#key) (Left):** Assigns a color for visual identification.
-* **[Add Handle](../reference/ui-overview#add-port-node) (Centre-left):** adds a connection point.
-* **[Edit Instance Configuration](../reference/ui-overview#edit-module) (Centre-right):** Opens the configuration dialog.
-* **[Edit CellML](../guides/writing-cellml) (Right):** Opens the CellML text editor. 
+**axon_SN**
 
-**Managing Connections**
-To connect two instances, both must have at least one handle (connection point).
+| Type | Label | Variables |
+| :--- | :--- | :--- |
+| I | VI_port | V_in, I |
+| O | membrane_voltage | V |
 
-1.  **Add Handle:** Click the central pin icon and select a position (Top, Bottom, Left, Right).
-    ![Adding a handle to the left of a module](../assets/images/add-port-node.png){.align-center width="800px"}
+**var_SN**
 
-2.  **Connect Handles:** Click and drag from one handle to another to create a connection.
-    ![Connecting two instances](../assets/images/connect-port-nodes.png){.align-center width="550px"}
+| Type | Label | Variables |
+| :--- | :--- | :--- |
+| I | membrane_voltage | V |
+| O | synaptic_NE | NE |
 
-3.  **Remove Handle:** Hover over an existing handle and click the trash icon.
-    ![Removing a handle from an instance](../assets/images/remove-port-node.png){.align-center width="550px"}
+Coupled ports join their variables in order: first with first, second with second. Names don't have to match but the order does, so soma_SN's V joins axon_SN's V_in, and I_out joins I. Tick variables in the order shown; the chips in **Variables** show the order.
 
-#### Step 2: Connect
-Connect the instances placed in [Step 1](#step-1-place-and-rename) as shown below.
+If you drag onto a port that is already connected, PhLynx asks whether to **Replace** that connection (or **Swap** the two, when it can).
 
-![PhLynx Workspace with connected instances in position](../assets/images/quick-start-step-two.png){.align-center width="800px"}
+You can also edit an instance's ports on the **Ports** tab of the [Instance Editor](../reference/ui-overview.md#instance-editor). See [Port Logic](../reference/valid-port-configurations.md#port-types) for the type rules.
 
-> [!NOTE]
-> While this example uses unique ports for each connection, multiple arrows can share a single port node.
+## Simulate {#simulate}
 
-### Editing Instances
+1. Click **Simulation** (chart-line icon) on the right-hand rail. The scope switch should read **Whole model**.
+2. Click **Simulate the whole model** (play icon), or press F9 while the panel has focus.
+3. Check the line under the toolbar. It shows **Loading the simulator…** or **Running…**, then a summary such as *Simulated the whole model.* If it reads **Can’t simulate yet: N problems**, or mentions warnings, click it to list them (e.g. a parameter that needs a value; see [Set parameter values and types](../guides/build-custom-module.md#set-parameters)), fix them, and press Play again.
+4. Click **Add a variable here** (plus icon) beside **Plot 1**. This puts the cursor in the **Add a variable…** search box above. Type `soma V` and pick **soma_SN/V**. The line appears at once from the run you just did.
 
-Before exporting, the model requires specific data configuration. Click the **Edit Instance** (pencil) icon to open the configuration dialog.
+The soma starts firing at about 6 s, so keep the default run of 0–10 s.
 
-![Labelled Edit Instance dialog](../assets/images/edit-module-detail.png){.align-center width="800px"}
+![Simulation tab after a run](../assets/images/simulation-sidebar.png){.align-center width="550px"}
 
-Use this dialog to define <GlossaryLink term="ports"/>—collections of variables shared between connected instances. A port definition consists of:
+Sliders, tracked runs, protocols and sweeps are covered in [Simulating Your Model](../guides/simulating-your-model.md).
 
-* **Type:** Directionality of the port. Input (I), Output (O), or General (G). See [Valid Port Configurations](../reference/valid-port-configurations.md).
-* **Label:** The shared name for the variable. This label must match the connected port's label on the target instance.
-* **Variable(s):** The internal CellML variable(s) associated with this port.
-* **Sum?:** Toggles whether this port sums values from multiple connections (e.g., summing transmembrane flux from multiple channels).
+## Save and Export {#save-and-export}
 
-#### Step 3: Configure Ports
-Configure the ports for each instance using the tables below:
+- **Save:** click **Save workspace** (floppy-disk icon) or press Ctrl/Cmd+S. This saves a JSON file with the whole workspace, including simulation settings. Reopen it with **Load workspace** (folder icon).
+- **Export:** open the arrow menu of **Export** (to the right of Import) and choose **CellML** for a flattened CellML 2.0 model. Other formats are listed in the [Interface Overview](../reference/ui-overview.md#export).
+- **Open in OpenCOR:** click **Send to OpenCOR** (paper-plane icon) to open the model in Web OpenCOR.
 
-**1. var_SN**
-| Type | Label | Variable(s) | Sum? |
-| :--- | :--- | :--- | :--- |
-| Input | membrane_voltage | V | No |
-| Output | synaptic_NE | NE | No |
+> [!WARNING]
+> PhLynx doesn't save automatically, and reloading or closing the tab loses unsaved changes, so save often. **Load workspace** replaces everything on the canvas without asking, so save first if you want to keep it.
 
-**2. axon_SN**
-| Type | Label | Variable(s) | Sum? |
-| :--- | :--- | :--- | :--- |
-| Input | VI_port | V_in, I | No |
-| Output | membrane_voltage | V | No |
+Which file to keep:
 
-**3. soma_SN**
-| Type | Label | Variable(s) | Sum? |
-| :--- | :--- | :--- | :--- |
-| Input | i_stim | I_in | No |
-| Output | VI_port | V, I_out | No |
+| File | Use |
+| :--- | :--- |
+| Workspace (`.json`) | Your working copy. Reopens exactly, including imported modules you haven't placed. |
+| OpenCOR export (`.omex`) | A runnable model to share. Opens in OpenCOR, and back in PhLynx with **Import ▸ COMBINE Archive** (graph, plots and sliders included). |
+| CellML (`.cellml`) | One flattened model for other CellML tools. |
 
-## Saving and Restoring
+See [Supported File Formats](../reference/file-types.md) for what each holds.
 
-**Save Workspace**
-Click the **Save Workspace** button in the Toolbar (top-left) to download a JSON file of your current state. This preserves instance positions, configurations, connections, as well as the Library state.
+## Next steps {#next-steps}
 
-**Test Restore**
-To verify your save file:
-1.  Select all modules (Hold `Shift` + Drag to box-select).
-2.  Press `Delete` to clear the workspace.
-3.  Click **Load Workspace** and select your downloaded JSON file.
-4.  The model will be restored to its previous state.
-
-## Exporting
-
-Once the model is built and configured, export the final system. Click the arrow on the **Export** button (Toolbar right).
-
-**Export Options:**
-* **CellML:** Generates a flattened CellML 2.0 model file.
-* **Configuration Files:** Generates a ZIP archive containing `instance_array.csv` and `module_config.json` for Circulatory Autogen.
-
-Select **CellML** to save the model to your Downloads folder.
-
-> [!NOTE]
-> Chrome users will be prompted to select a save location. Other browsers may default to the Downloads folder.
-
-## Simulating
-
-To verify your new model:
-
-1.  Navigate to [Web OpenCOR](https://opencor.ws/app).
-2.  Drag and drop your exported CellML file into the window.
-3.  Press the **Play** button (top-left) to run the simulation.
-
-You have now successfully created, exported, and simulated a PhLynx model. 
-
-For more advanced topics, refer to the **Guides** and **Reference** sections of this documentation.
+- Your own modules: [Using Custom Modules](../guides/build-custom-module.md) and [Writing CellML](../guides/writing-cellml.md).
+- Results: [Simulating Your Model](../guides/simulating-your-model.md) for sliders, tracked runs, sweeps and protocols.
+- Port rules: [Port Logic](../reference/valid-port-configurations.md).
+- Circulatory Autogen models: [Using PhLynx with Circulatory Autogen](../guides/use-with-circulatory-autogen.md).

@@ -10,6 +10,7 @@ import MarkdownItAttrs from 'markdown-it-attrs'
 import MarkdownItGitHubAlerts from 'markdown-it-github-alerts'
 import packageJson from './package.json'
 import { execSync } from 'child_process'
+import { libopencorAssets } from './scripts/libopencorAssets.js'
 
 const latestChangelogPath = path.resolve(__dirname, 'changelogs/latest.md')
 
@@ -31,6 +32,10 @@ export default defineConfig({
     __BRANCH__: JSON.stringify(execSync('git rev-parse --abbrev-ref HEAD').toString().trim()),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
   },
+  worker: {
+    // The simulator's worker imports libOpenCOR's glue, an ES module, at run time.
+    format: 'es',
+  },
   optimizeDeps: {
     // Exclude the wasm-based library from pre-bundling
     exclude: ['vue3-libcellml.js'],
@@ -43,6 +48,7 @@ export default defineConfig({
       include: [/\.vue$/, /\.md$/],
     }),
     tailwindcss(),
+    libopencorAssets(),
     Markdown({
       headEnabled: false, // Set true to manage <head> tags
       markdownItSetup(md) {
@@ -69,6 +75,8 @@ export default defineConfig({
     alias: {
       '@docs': path.resolve(__dirname, './docs'),
     },
+    // One copy of protocol-kit's peers, PhLynx's, even when the package is linked from a checkout with its own.
+    dedupe: ['vue', 'primevue', 'papaparse', '@primeuix/utils'],
   },
   server: {
     watch: {

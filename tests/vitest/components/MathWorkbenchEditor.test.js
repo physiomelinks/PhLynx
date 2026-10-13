@@ -2,10 +2,11 @@
 import { defineComponent, h, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EquationWorkbench } from 'vue3-math-editor'
 
 import MathWorkbenchEditor from '../../../src/components/MathWorkbenchEditor.vue'
+import { MATH_EDIT_DEBOUNCE_MS } from '../../../src/utils/constants'
 
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
   <component name="decay">
@@ -44,7 +45,7 @@ const WorkbenchStub = defineComponent({
     validate: { type: String, default: 'input' },
     autofocus: Boolean,
   },
-  emits: ['equations-change', 'line-commit'],
+  emits: ['equations-change', 'line-commit', 'variable-click'],
   setup(_, { emit, expose }) {
     expose({
       setMathML: (xml) => {
@@ -98,22 +99,112 @@ describe('MathWorkbenchEditor', () => {
     expect(workbench().props()).toMatchObject({ validate: 'commit', autofocus: true, readonly: false, issues: [] })
   })
 
-  it('reports an edit only when the workbench commits the line', async () => {
-    vi.useFakeTimers()
-    try {
+  describe('reporting edits once typing pauses', () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    it('reports an edit once, after the pause, and not again on commit', async () => {
       await mountEditor()
       const reported = changes().length
       // The workbench keeps a line's id while it is edited.
       edit([line(EQUATION, { id: 'loaded' })])
+      vi.advanceTimersByTime(MATH_EDIT_DEBOUNCE_MS - 1)
+      expect(changes()).toHaveLength(reported)
+
+      vi.advanceTimersByTime(1)
+      expect(changes()).toHaveLength(reported + 1)
+      expect(changes().at(-1)).toMatchObject({ source: 'edit', valid: true })
+      expect(changes().at(-1).xml).toContain('<ci>a</ci>')
+
+      commit(line(EQUATION, { id: 'loaded' }), 'blur')
+      vi.advanceTimersByTime(2000)
+      expect(changes()).toHaveLength(reported + 1)
+    })
+
+    it('reports a commit at once, without a second report after the pause', async () => {
+      await mountEditor()
+      const reported = changes().length
+      edit([line(EQUATION, { id: 'loaded' })])
+      commit(line(EQUATION, { id: 'loaded' }))
+      expect(changes()).toHaveLength(reported + 1)
+
+      vi.advanceTimersByTime(2000)
+      expect(changes()).toHaveLength(reported + 1)
+    })
+
+    it('does not report incomplete lines', async () => {
+      await mountEditor()
+      const reported = changes().length
+      edit([line(EQUATION, { id: 'loaded' }), line(EQUATION, { complete: false, id: 'second' })])
+      vi.advanceTimersByTime(2000)
+      expect(changes()).toHaveLength(reported)
+    })
+
+    it('waits for typing to stop', async () => {
+      await mountEditor()
+      const reported = changes().length
+      edit([line(EQUATION, { id: 'loaded' })])
+      vi.advanceTimersByTime(MATH_EDIT_DEBOUNCE_MS - 100)
+      edit([line(OTHER_EQUATION, { id: 'loaded' })])
+      vi.advanceTimersByTime(MATH_EDIT_DEBOUNCE_MS - 100)
+      expect(changes()).toHaveLength(reported)
+
+      vi.advanceTimersByTime(100)
+      expect(changes()).toHaveLength(reported + 1)
+      expect(changes().at(-1).xml).toContain('<ci>b</ci>')
+    })
+
+    it('cancels the pause on flush, load and unmount', async () => {
+      await mountEditor()
+      const reported = changes().length
+      edit([line(EQUATION, { id: 'loaded' })])
+      wrapper.vm.flush()
+      vi.advanceTimersByTime(2000)
+      expect(changes()).toHaveLength(reported + 1)
+
+      edit([line(OTHER_EQUATION, { id: 'loaded' })])
+      await wrapper.vm.setModel(XML)
+      vi.advanceTimersByTime(2000)
+      expect(changes()).toHaveLength(reported + 1)
+
+      edit([line(EQUATION, { id: 'loaded' })])
+      const emitted = wrapper.emitted('change')
+      wrapper.unmount()
+      wrapper = null
+      vi.advanceTimersByTime(2000)
+      expect(emitted).toHaveLength(reported + 1)
+    })
+
+    it('reports nothing while the component is locked', async () => {
+      nextImportProblems = ["<foo> isn't supported"]
+      nextLineProblems = [["<foo> isn't supported"]]
+      await mountEditor()
+      const reported = changes().length
+      edit([line(EQUATION, { id: 'loaded' })])
+      vi.advanceTimersByTime(2000)
+      expect(changes()).toHaveLength(reported)
+    })
+
+    it('does not report a half-typed line when new definitions arrive mid-edit', async () => {
+      await mountEditor()
+      // A new name is reported once typing pauses; the session then declares it.
+      edit([line(EQUATION, { id: 'loaded' })])
+      vi.advanceTimersByTime(MATH_EDIT_DEBOUNCE_MS)
+      const reported = changes().length
+
+      // Typing carries on, so the line is incomplete when the new definitions arrive.
+      edit([line(EQUATION, { complete: false, id: 'loaded' })])
+      await wrapper.setProps({ variableDefinitions: [...DEFINITIONS, { name: 'a', units: 'metre' }] })
       vi.advanceTimersByTime(2000)
       expect(changes()).toHaveLength(reported)
 
-      commit(line(EQUATION, { id: 'loaded' }), 'blur')
+      // Once the line is complete, the edit is reported with the new definitions.
+      edit([line(EQUATION, { id: 'loaded' })])
+      vi.advanceTimersByTime(MATH_EDIT_DEBOUNCE_MS)
+      expect(changes()).toHaveLength(reported + 1)
       expect(changes().at(-1)).toMatchObject({ source: 'edit', valid: true })
-      expect(changes().at(-1).xml).toContain('<ci>a</ci>')
-    } finally {
-      vi.useRealTimers()
-    }
+      expect(changes().at(-1).xml).toContain('<variable name="a" units="metre"/>')
+    })
   })
 
   it('reports an uncommitted edit when flushed', async () => {
@@ -183,6 +274,17 @@ describe('MathWorkbenchEditor', () => {
     expect(change.xml).toContain('<variable name="a" units="metre"/>')
   })
 
+  it('declares kept names no equation uses, and rebuilds when they change', async () => {
+    const definitions = [...DEFINITIONS, { name: 'cAMP', units: 'dimensionless' }]
+    await mountEditor({ props: { variableDefinitions: definitions, keepVariables: ['cAMP'] } })
+    expect(changes()[0].xml).toContain('<variable name="cAMP" units="dimensionless"/>')
+
+    await wrapper.setProps({ keepVariables: [] })
+    wrapper.vm.flush()
+    expect(changes().at(-1)).toMatchObject({ source: 'external', valid: true })
+    expect(changes().at(-1).xml).not.toContain('cAMP')
+  })
+
   it('keeps its lines when the session replays the edit it just reported', async () => {
     await mountEditor()
     edit([line(EQUATION), line('', { complete: false, id: 'empty' })])
@@ -212,6 +314,13 @@ describe('MathWorkbenchEditor', () => {
     expect(wrapper.emitted('undo')).toHaveLength(1)
     expect(wrapper.emitted('redo')).toHaveLength(1)
     expect(wrapper.emitted('save')).toHaveLength(1)
+  })
+
+  it('passes on the name of a variable clicked in the math', async () => {
+    await mountEditor()
+    workbench().vm.$emit('variable-click', { name: 'x', lineId: 'loaded' })
+
+    expect(wrapper.emitted('variable-click')).toEqual([['x']])
   })
 
   it('round-trips a model through the real workbench', async () => {

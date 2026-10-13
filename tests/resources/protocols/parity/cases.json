@@ -1,0 +1,346 @@
+{
+ "solver": {
+  "tolerance": 1e-10
+ },
+ "cases": [
+  {
+   "name": "numbers with a warm-up",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 1e-06,
+   "protocol_info": {
+    "pre_times": [
+     1
+    ],
+    "sim_times": [
+     [
+      2,
+      2,
+      2
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/k": [
+      [
+       0.5,
+       2,
+       0.5
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "two experiments",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 1e-06,
+   "protocol_info": {
+    "pre_times": [
+     0,
+     0.5
+    ],
+    "sim_times": [
+     [
+      2
+     ],
+     [
+      1,
+      2
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/k": [
+      [
+       1
+      ],
+      [
+       0.25,
+       2
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "a state set before the first sub-experiment",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 1e-06,
+   "protocol_info": {
+    "pre_times": [
+     0.5
+    ],
+    "sim_times": [
+     [
+      2
+     ]
+    ],
+    "params_to_change": {
+     "decay/x": [
+      [
+       0.3
+      ]
+     ],
+     "instance_parameters/k": [
+      [
+       1
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "a pulse",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 0.001,
+   "note": "CA ramps each edge over 1e-3 of the shortest feature; PhLynx steps exactly, so they differ by about that much.",
+   "protocol_info": {
+    "pre_times": [
+     0
+    ],
+    "sim_times": [
+     [
+      4
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/u": [
+      [
+       "pulse"
+      ]
+     ]
+    },
+    "protocol_shapes": {
+     "pulse": {
+      "events": [
+       {
+        "level": 1,
+        "start": 1,
+        "length": 1
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "pacing",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 0.001,
+   "protocol_info": {
+    "pre_times": [
+     0
+    ],
+    "sim_times": [
+     [
+      4
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/u": [
+      [
+       "beats"
+      ]
+     ]
+    },
+    "protocol_shapes": {
+     "beats": {
+      "events": [
+       {
+        "level": 2,
+        "start": 0.5,
+        "length": 0.25,
+        "period": 1
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a ramp",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 1e-06,
+   "protocol_info": {
+    "pre_times": [
+     0
+    ],
+    "sim_times": [
+     [
+      3
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/u": [
+      [
+       "up"
+      ]
+     ]
+    },
+    "protocol_shapes": {
+     "up": {
+      "type": "ramp",
+      "from": 0,
+      "to": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "a recorded trace",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 1e-06,
+   "protocol_info": {
+    "pre_times": [
+     0
+    ],
+    "sim_times": [
+     [
+      3
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/u": [
+      [
+       "recorded"
+      ]
+     ]
+    },
+    "protocol_traces": {
+     "recorded": {
+      "t": [
+       0,
+       1,
+       2,
+       3
+      ],
+      "values": [
+       0,
+       1,
+       0.5,
+       0
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "a pulse in the first sub-experiment after a warm-up",
+   "model": "decay.cellml",
+   "pointInterval": 0.05,
+   "maximumStep": 0.01,
+   "variables": [
+    "decay/x"
+   ],
+   "tolerance": 0.001,
+   "note": "CA starts the pulse with the warm-up, so it is over before the logged run begins; PhLynx runs it the same way.",
+   "protocol_info": {
+    "pre_times": [
+     2
+    ],
+    "sim_times": [
+     [
+      4
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/u": [
+      [
+       "pulse"
+      ]
+     ]
+    },
+    "protocol_shapes": {
+     "pulse": {
+      "events": [
+       {
+        "level": 1,
+        "start": 1,
+        "length": 1
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "the SN neuron: a conductance step and a current pulse",
+   "model": "sn.cellml",
+   "pointInterval": 0.001,
+   "maximumStep": 0.001,
+   "tolerance": 0.001,
+   "variables": [
+    "soma_SN/V"
+   ],
+   "protocol_info": {
+    "pre_times": [
+     0.05
+    ],
+    "sim_times": [
+     [
+      0.1,
+      0.1
+     ]
+    ],
+    "params_to_change": {
+     "instance_parameters/g_M": [
+      [
+       0.00389,
+       0.00778
+      ]
+     ],
+     "instance_parameters/I_in": [
+      [
+       0,
+       "kick"
+      ]
+     ]
+    },
+    "protocol_shapes": {
+     "kick": {
+      "events": [
+       {
+        "level": 0.02,
+        "start": 0.03,
+        "length": 0.04
+       }
+      ]
+     }
+    }
+   }
+  }
+ ]
+}

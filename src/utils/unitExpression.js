@@ -388,11 +388,12 @@ function unitXml({ units, prefix = 0, exponent = 1, multiplier = 1 }) {
  * Writes a CellML 2.0 units file.
  *
  * @param {Map<string, Array<{ units: string, prefix?: number, exponent?: number, multiplier?: number }>>} definitions
+ * @param {string} [modelName] - The model's name.
  * @returns {string}
  */
-export function unitsModelXml(definitions) {
+export function unitsModelXml(definitions, modelName = 'generated_units') {
   const units = [...definitions].map(
     ([name, parts]) => `  <units name="${name}">\n${parts.map((part) => `    ${unitXml(part)}`).join('\n')}\n  </units>`
   )
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<model xmlns="${CELLML_NS}" name="generated_units">\n${units.join('\n')}\n</model>\n`
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<model xmlns="${CELLML_NS}" name="${modelName}">\n${units.join('\n')}\n</model>\n`
 }

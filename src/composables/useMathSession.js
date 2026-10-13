@@ -3,12 +3,19 @@
  * analysis linking them. Math editors report changes, and this is the one place they become rows
  * and undo history.
  */
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, ref, shallowRef, toRaw, watch } from 'vue'
 import { serializeLayout } from 'cellml-text-editor'
 
 import { useLibraryStore } from '../stores/libraryStore'
 import { analyzeMathXml } from '../services/math/analyzeMath'
-import { SIMPLE_MODE, applyPortTypes, getPortVariables, modeFor, reconcileRows } from '../services/math/reconcileRows'
+import {
+  SIMPLE_MODE,
+  applyPortTypes,
+  findUnusedDeclared,
+  getPortVariables,
+  modeFor,
+  reconcileRows,
+} from '../services/math/reconcileRows'
 import { carryRenames, followPendingRename } from '../services/math/carryRenames'
 import { classifyRows, findConnectionSupplied } from '../services/math/variableKinds'
 import { separateParameters } from '../services/math/separateParameters'
@@ -53,9 +60,13 @@ function isSameLayout(layout, otherLayout) {
  * @param {Object} options.history - The undo history edits are recorded in.
  * @param {import('vue').Ref} options.editorRef - The mounted math editor.
  * @param {import('vue').Ref<Array>} options.ports - Editable ports; variables removed from the math are removed from them, and renamed ones renamed.
+ * @param {import('vue').Ref<Array<{name: string}>>} [options.plotVariables] - Variables chosen for plotting; renamed ones are renamed.
+ * @param {Function} [options.beforeInit] - Called just before the first editor's `init` after a load is applied;
+ *   its result is passed to onInit.
+ * @param {Function} [options.onInit] - Called once the first editor's `init` after a load has been applied.
  * @returns {Object} Session state, queries and actions.
  */
-export function useMathSession({ history, editorRef, ports }) {
+export function useMathSession({ history, editorRef, ports, plotVariables = null, beforeInit = null, onInit = null }) {
   const store = useLibraryStore()
 
   const isManaged = ref(true) // Simple Mode: the table owns the declarations
@@ -134,6 +145,27 @@ export function useMathSession({ history, editorRef, ports }) {
 
   /** Declarations Simple Mode writes into the model. */
   const editorDefinitions = computed(() => buildVariableDeclarations(parameterRows.value))
+
+  // Names the math declares but no equation uses (e.g. a parameter kept for later), as of the load or
+  // the latest Advanced Mode analysis, where the text owns declarations. In Simple Mode the table owns
+  // them, so edits there leave this alone: a name an equation stops using is dropped as before.
+  const unusedDeclared = shallowRef([])
+  watch(
+    analysis,
+    (nextAnalysis) => {
+      if (!isManaged.value && nextAnalysis) unusedDeclared.value = findUnusedDeclared(nextAnalysis)
+    },
+    { flush: 'sync' }
+  )
+
+  /**
+   * Names Simple Mode keeps declared though no equation uses them, so their rows survive its rebuilt
+   * XML. Only names that still have a row, so a row removed since stops being kept.
+   */
+  const keptVariables = computed(() => {
+    const names = new Set(parameterRows.value.map((row) => row.name))
+    return unusedDeclared.value.filter((name) => names.has(name))
+  })
 
   /** Each variable's kind (constant, computed constant, ...), or null before the first analysis. */
   const variableKinds = computed(() => classifyRows(analysis.value, parameterRows.value))
@@ -214,6 +246,7 @@ export function useMathSession({ history, editorRef, ports }) {
     const nextAnalysis = mathRef ? await store.ensureMathAnalysis(mathRef) : null
     if (requestId !== loadRequestId) return
     analysis.value = nextAnalysis
+    unusedDeclared.value = findUnusedDeclared(nextAnalysis)
     setRows(reconcileRows(nextAnalysis, rows, reconcileOptions()))
   }
 
@@ -254,12 +287,26 @@ export function useMathSession({ history, editorRef, ports }) {
   }
 
   /**
+   * Applies one editor change, then tells onInit if it was the first `init` since the load (with what beforeInit
+   * gave just before it).
+   *
+   * @param {Object} change - The editor's `change` payload.
+   * @returns {Promise<void>}
+   */
+  async function processEditorChange(change) {
+    const isFirstInit = change.source === 'init' && !hasInitialised
+    const before = isFirstInit ? beforeInit?.() : undefined
+    await applyEditorChange(change)
+    if (isFirstInit) onInit?.(before)
+  }
+
+  /**
    * Applies one editor change to the text, the analysis and the rows.
    *
    * @param {Object} change - The editor's `change` payload.
    * @returns {Promise<void>}
    */
-  async function processEditorChange({ source, format, text, valid, xml, layout }) {
+  async function applyEditorChange({ source, format, text, valid, xml, layout }) {
     const isEditorSwitch = source === 'init' && hasInitialised
     if (isEditorSwitch) source = 'external'
     if (source === 'init') hasInitialised = true
@@ -415,6 +462,37 @@ export function useMathSession({ history, editorRef, ports }) {
           },
         })
       }
+
+      if (plotVariables?.value.some(({ name }) => renamedTo.has(name))) {
+        // Renamed entries by their copies, so an undo restores them and keeps entries added since.
+        let originals = new Map()
+        let merged = []
+
+        await history.executeAndAddCommand({
+          type: 'rename-variable-in-plot',
+          undo: async () => {
+            const restored = plotVariables.value.map((entry) => originals.get(toRaw(entry)) ?? entry)
+            plotVariables.value = [...restored, ...merged]
+          },
+          redo: async () => {
+            originals = new Map()
+            merged = []
+            const next = []
+            for (const entry of plotVariables.value.map(toRaw)) {
+              const name = renamedTo.get(entry.name) ?? entry.name
+              // Two entries renamed alike: the first wins, and an undo brings the other back.
+              if (next.some((other) => other.name === name)) {
+                merged.push(entry)
+                continue
+              }
+              const copy = name === entry.name ? entry : { ...entry, name }
+              if (copy !== entry) originals.set(copy, entry)
+              next.push(copy)
+            }
+            plotVariables.value = next
+          },
+        })
+      }
     } finally {
       history.endBatch()
     }
@@ -490,6 +568,7 @@ export function useMathSession({ history, editorRef, ports }) {
     currentLayout,
     parameterRows,
     editorDefinitions,
+    keptVariables,
     variableKinds,
     connectionSupplied,
     mathReferences,

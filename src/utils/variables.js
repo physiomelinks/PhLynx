@@ -1,5 +1,5 @@
 import { cleanName } from './identifiers'
-import { TIME_NAMES, ACCESS, NO_ACCESS } from './constants'
+import { TIME_NAMES, TIME_UNITS, ACCESS, NO_ACCESS } from './constants'
 
 export function isEditableVariableType(variableType) {
   return variableType !== 'variable' && variableType !== 'boundary_condition'
@@ -33,15 +33,38 @@ export const accessFromInterface = (cellmlInterface) =>
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * Infers a row's type from its role in the math. States, equation LHS names, the variable of
- * integration and time are computed ('variable'); being an initialiser doesn't count.
+ * Finds the variables a component's math uses as the variable of integration (VoI): with an ODE, what it
+ * integrates over, whatever that is called or measured in. A module without an ODE that only reads a clock
+ * (a stimulus, say) has no VoI of its own, so a variable named like time (`t`, `time`) in time units that
+ * its math doesn't compute is guessed to be the model's VoI.
+ *
+ * @param {{voi?: Iterable<string>, stateVariables?: Iterable<string>, assigned?: Iterable<string>,
+ *   referenced?: Iterable<string>, declared?: Array<{name: string, units?: string}>}} analysis - A math analysis.
+ * @param {(name: string) => (string|undefined)} [unitsOf] - Units of a variable the math doesn't declare.
+ * @returns {Set<string>}
+ */
+export function findVoiNames(analysis, unitsOf = () => undefined) {
+  const voi = new Set(analysis?.voi ?? [])
+  if (voi.size) return voi
+
+  const declared = analysis?.declared ?? []
+  const declaredUnits = new Map(declared.map((variable) => [variable.name, variable.units]))
+  const computed = new Set([...(analysis?.stateVariables ?? []), ...(analysis?.assigned ?? [])])
+  const names = new Set([...declared.map((variable) => variable.name), ...(analysis?.referenced ?? [])])
+  const readsClock = (name) => TIME_NAMES.has(name) && !computed.has(name) && TIME_UNITS.has(declaredUnits.get(name) || unitsOf(name))
+  return new Set([...names].filter(readsClock))
+}
+
+/**
+ * Infers a row's type from its role in the math. States, equation LHS names and the VoI (see
+ * findVoiNames) are computed ('variable'); being an initialiser doesn't count.
  *
  * @param {string} name
  * @param {{states: Set, assigned: Set, voi: Set}} roles
  * @returns {'variable'|'constant'}
  */
 export function inferType(name, { states, assigned, voi }) {
-  if (states.has(name) || assigned.has(name) || voi.has(name) || TIME_NAMES.has(name)) return 'variable'
+  if (states.has(name) || assigned.has(name) || voi.has(name)) return 'variable'
   return 'constant'
 }
 

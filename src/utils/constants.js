@@ -2,7 +2,7 @@ import { MarkerType } from '@vue-flow/core'
 
 export const DEFAULT_PROJECT_NAME = 'phlynx-project'
 export const PHLYNX_PROJECT_IDENTIFIER = 'phlynx-project'
-export const PHLYNX_PROJECT_VERSION = '1.1.0'
+export const PHLYNX_PROJECT_VERSION = '1.2.0'
 
 export const SOURCE_HANDLE_TYPE = 'source'
 export const TARGET_HANDLE_TYPE = 'target'
@@ -19,6 +19,8 @@ export const NEW_INSTANCE_MODULE_REF = 'new_module:phlynx'
 export const DEFAULT_CELLML_FILE_NAME = 'model.cellml'
 
 export const TOOLTIP_AUTO_CLOSE = 1200
+// How long the math editors wait after typing stops before reporting the edit.
+export const MATH_EDIT_DEBOUNCE_MS = 500
 export const RESCALE_ASPECT_RATIO = 3
 export const RESCALE_TARGET_SPACING = 1000
 
@@ -180,6 +182,7 @@ export const IMPORT_KEYS = {
 
 export const SEND_KEYS = {
   OPENCOR: 'OpenCOR',
+  OPENCOR_SELECTION: 'OpenCORSelection',
   CUFLYNX: 'CUFLynx',
 }
 
@@ -197,6 +200,8 @@ export const EXPORT_KEYS = {
   CELLML: 'cellml',
   OMEX: 'omex',
   CUFLYNX: 'cufLynx',
+  CELLML_SELECTION: 'cellmlSelection',
+  OMEX_SELECTION: 'omexSelection',
 }
 
 export const TTL_FILE_TYPES = [
@@ -245,12 +250,13 @@ export const SOURCE_HANDLE_PRIORITY = ["right", "bottom", "top", "left"]
 export const TARGET_HANDLE_PRIORITY = ["left", "top", "bottom", "right"]
 
 export const BASELINE_SIMULATION_SETTINGS = {
-  pointInterval: 0.01,
+  pointInterval: 0.001,
   startingPoint: 0.0,
   endingPoint: 10.0,
   initialPoint: 0.0,
   solver: 'CVODE',
+  // The solver settings, as sedParameters.js's DEFAULT_SOLVER_SETTINGS.
   timeStep: 0.0,
-  tolerance: 1e-6,
-  maxSteps: 10000,
+  tolerance: 1e-7,
+  maxSteps: 500,
 }

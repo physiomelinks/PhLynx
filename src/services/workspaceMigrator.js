@@ -2,11 +2,10 @@ import { extractComponentsFromCellmlString } from '../utils/cellml'
 import {
   MAIN_NODE_TYPE,
   HANDLE_VARIANT,
-  BASELINE_SIMULATION_SETTINGS,
   PHLYNX_PROJECT_VERSION,
   PHLYNX_PROJECT_IDENTIFIER,
 } from '../utils/constants'
-import { normalisePorts, normaliseVariables } from '../utils/config'
+import { normalisePorts, normaliseVariables, uniqueModuleRef } from '../utils/config'
 import { buildGhostHandles, findMostCentralGhostHandle } from '../utils/handles'
 import { isBlank, isNumericLiteral } from '../utils/variables'
 import { analyzeMathXml } from './math/analyzeMath'
@@ -64,13 +63,16 @@ function convertPorts(oldData) {
   }))
 }
 
-function convertHandles(oldData, uidMap) {
+// Legacy port uids are only unique within a node: a copied node keeps its original's.
+const portKey = (nodeId, uid) => `${nodeId}:${uid}`
+
+function convertHandles(oldNodeId, oldData, uidMap) {
   const migratedHandles = buildGhostHandles()
   for (const port of oldData.ports) {
     const oldUid = port.uid
     const centralGhost = findMostCentralGhostHandle(port.side, migratedHandles)
     if (!centralGhost) return
-    uidMap[oldUid] = centralGhost.uid
+    uidMap[portKey(oldNodeId, oldUid)] = centralGhost.uid
     const handle = migratedHandles.find((h) => h.uid === centralGhost.uid)
     if (handle) {
       handle.variant = HANDLE_VARIANT.DEFAULT
@@ -80,7 +82,7 @@ function convertHandles(oldData, uidMap) {
   return migratedHandles
 }
 
-function convertNode(node, newId, globalConstantNames, paramLookup, uidMap) {
+function convertNode(node, newId, globalConstantNames, paramLookup, uidMap, moduleRefByConfig) {
   const oldData = node.data || {}
   const nodeName = oldData.name
 
@@ -92,10 +94,12 @@ function convertNode(node, newId, globalConstantNames, paramLookup, uidMap) {
   const newData = {
     name: nodeName,
     mathRef: `${sourceFile}:${componentName}`,
-    moduleRef: `${moduleType}:${bcType}`,
+    // Legacy nodes don't keep their module's type, so it is found from the config they were made from.
+    moduleRef:
+      moduleRefByConfig.get(legacyConfigKey(sourceFile, componentName, oldData.configIndex)) ?? `${moduleType}:${bcType}`,
     variables: mergeVariables(oldData, nodeName, globalConstantNames, paramLookup),
     ports: convertPorts(oldData),
-    handles: convertHandles(oldData, uidMap),
+    handles: convertHandles(node.id, oldData, uidMap),
   }
   // The MVP's node colour category; the colour theme now maps it to a colour.
   if (oldData.domainType) newData.domainType = oldData.domainType
@@ -135,7 +139,7 @@ function convertEdge(edge, idMap, uidMap) {
     newTarget = newTarget || oldTarget
   }
 
-  function remapHandle(h, label) {
+  function remapHandle(h, label, oldNodeId) {
     if (!h) return null
     let oldUid = h
     if (!h.startsWith('port_')) {
@@ -144,7 +148,7 @@ function convertEdge(edge, idMap, uidMap) {
       oldUid = h.slice(5)
     }
 
-    let newUid = uidMap[oldUid]
+    let newUid = uidMap[portKey(oldNodeId, oldUid)]
     if (!newUid) {
       console.warn(
         `Edge '${edge.id}': ${label} uid '${oldUid}' not found among converted node handles; keeping original uid.`
@@ -165,8 +169,8 @@ function convertEdge(edge, idMap, uidMap) {
     type: edge.type,
     source: newSource,
     target: newTarget,
-    sourceHandle: remapHandle(edge.sourceHandle, 'sourceHandle'),
-    targetHandle: remapHandle(edge.targetHandle, 'targetHandle'),
+    sourceHandle: remapHandle(edge.sourceHandle, 'sourceHandle', oldSource),
+    targetHandle: remapHandle(edge.targetHandle, 'targetHandle', oldTarget),
     data: { couplings: newCouplings },
     label: edge.label || '',
     markerEnd: edge.markerEnd,
@@ -251,22 +255,35 @@ function extractComponentsToMathRefs(availableModules) {
   return newAvailableMath
 }
 
+// Names a legacy module's config by the module it belongs to and its place among that module's configs.
+const legacyConfigKey = (sourceFile, componentName, configIndex) => `${sourceFile}:${componentName}#${configIndex}`
+
+/**
+ * Turns the configs of legacy modules into library modules.
+ *
+ * @param {Array} availableModules - The legacy store's module collections.
+ * @returns {{ modules: Object, moduleRefByConfig: Map<string, string> }} The modules by moduleRef,
+ *   and the moduleRef made for each config, keyed `<sourceFile>:<componentName>#<configIndex>`.
+ */
 function extractModulesToModuleRefs(availableModules) {
   const newAvailableModules = {}
-  if (!availableModules) return newAvailableModules
+  const moduleRefByConfig = new Map()
+  if (!availableModules) return { modules: newAvailableModules, moduleRefByConfig }
 
   for (const collection of availableModules) {
     const modulesList = collection.modules
     for (const modules of modulesList) {
       if (!modules.configs) continue
-      modules.configs.forEach((config) => {
+      modules.configs.forEach((config, configIndex) => {
         const moduleType = config.vessel_type
         const moduleSubtype = config.BC_type
         const componentFile = config.module_file
         const componentName = config.module_type
 
-        const moduleRef = `${moduleType}:${moduleSubtype}`
         const mathRef = `${componentFile}:${componentName}`
+        const moduleRef = uniqueModuleRef(`${moduleType}:${moduleSubtype}`, mathRef, (ref) => newAvailableModules[ref])
+        moduleRefByConfig.set(legacyConfigKey(modules.sourceFile, modules.componentName, configIndex), moduleRef)
+        if (newAvailableModules[moduleRef]) return
 
         newAvailableModules[moduleRef] = {
           moduleRef,
@@ -277,10 +294,10 @@ function extractModulesToModuleRefs(availableModules) {
       })
     }
   }
-  return newAvailableModules
+  return { modules: newAvailableModules, moduleRefByConfig }
 }
 
-function convertStore(oldStore, globalConstantNames) {
+function convertStore(oldStore, globalConstantNames, newAvailableModules) {
   const availableParameters = oldStore.availableParameters || []
 
   const newUnits = oldStore.availableUnits.map((u) => ({
@@ -289,7 +306,6 @@ function convertStore(oldStore, globalConstantNames) {
   }))
 
   const newAvailableMath = extractComponentsToMathRefs(oldStore.availableModules)
-  const newAvailableModules = extractModulesToModuleRefs(oldStore.availableModules)
 
   const newAvailableCollections = {}
   Object.values(newAvailableModules).forEach((mod) => {
@@ -327,12 +343,31 @@ function convertStore(oldStore, globalConstantNames) {
  *   A port's multiportType and multiplyFactor may be lists, one entry per variable, when its
  *   variables differ (see utils/multiport.js); a whole-port value still means every variable, so
  *   1.0.0 ports need no migration.
+ * - 1.2.0: simulation.simulationSettings' solver, timeStep, tolerance and maxSteps are applied, where
+ *   before they were placeholders. `solver` is a key of SOLVERS (services/simulation/sedParameters.js).
+ *   For CVODE, `tolerance` is its relative and absolute tolerance, `maxSteps` its maximum number of
+ *   steps between output points, and `timeStep` its maximum step (0 for none); for a fixed-step solver,
+ *   `timeStep` is its step. Older files get the settings every run used: CVODE, 1e-7, 500 and 0.
+ *   A plotConfig selection's nodeId may be `inspection:<module id>`, an inspection module's output put on
+ *   a plot, with variableName the module's name; older files have none.
+ *   A parameterScanConfig selection may have a `label` (a CUFLynx params_for_id `name_for_plotting`,
+ *   round-tripped through it); older files have none, and the UI falls back to `nodeName/parameterName`.
+ *   simulation.simulationSettings may have a `sweep` (services/simulation/sweep.js): the parameter
+ *   `{key, nodeId, nodeName, parameterName, units, type}` is solved, or with ODEs run, at `points` values
+ *   from `from` to `to`, and for a model with ODEs each time course is read as `readout` ('end', 'min',
+ *   'max' or 'peak'; missing means 'end'). Its `family`, when it has one, is a second parameter
+ *   `{key, nodeId, nodeName, parameterName, units, type}` and the `values` it takes, a curve each.
+ *   Older files have none. Whether play sweeps is the session's choice, not saved.
  */
 const LEGACY_VERSION = 'legacy'
+
+// The solver settings every simulation and export used before 1.2.0, whatever the file held.
+const SOLVER_SETTINGS_BEFORE_1_2_0 = Object.freeze({ solver: 'CVODE', timeStep: 0, tolerance: 1e-7, maxSteps: 500 })
 
 const MIGRATIONS = [
   { from: LEGACY_VERSION, to: '1.0.0', migrate: migrateLegacyTo1_0_0 },
   { from: '1.0.0', to: '1.1.0', migrate: migrate1_0_0To1_1_0 },
+  { from: '1.1.0', to: '1.2.0', migrate: migrate1_1_0To1_2_0 },
 ]
 
 /**
@@ -420,13 +455,26 @@ export function detectVersion(doc) {
   return doc?.version ?? doc?.info?.format_version ?? LEGACY_VERSION
 }
 
+// The settings files saved without any were given when 1.0.0 came in. Kept as they were, so those files
+// load the same however the app's defaults change.
+const SETTINGS_FOR_FILES_WITHOUT_ANY = Object.freeze({
+  pointInterval: 0.01,
+  startingPoint: 0.0,
+  endingPoint: 10.0,
+  initialPoint: 0.0,
+  solver: 'CVODE',
+  timeStep: 0.0,
+  tolerance: 1e-6,
+  maxSteps: 10000,
+})
+
 /**
  * Gets the simulation block 1.0.0 requires, for files saved before it was always written.
  *
  * @returns {Object}
  */
 function defaultSimulation() {
-  return { simulationSettings: { ...BASELINE_SIMULATION_SETTINGS }, plotConfig: {}, parameterScanConfig: {} }
+  return { simulationSettings: { ...SETTINGS_FOR_FILES_WITHOUT_ANY }, plotConfig: {}, parameterScanConfig: {} }
 }
 
 /**
@@ -465,6 +513,24 @@ export function migrateWorkspace(doc) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
   return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated), version: step.to }), current)
+}
+
+/**
+ * 1.1.0 -> 1.2.0: gives the simulation settings the solver settings that were used, since the solver,
+ * time step, tolerance and maximum steps the file held were never applied before 1.2.0.
+ *
+ * @param {Object} doc - A 1.1.0 workspace.
+ * @returns {Object}
+ */
+function migrate1_1_0To1_2_0(doc) {
+  if (!doc.simulation) return doc
+  return {
+    ...doc,
+    simulation: {
+      ...doc.simulation,
+      simulationSettings: { ...doc.simulation.simulationSettings, ...SOLVER_SETTINGS_BEFORE_1_2_0 },
+    },
+  }
 }
 
 /**
@@ -523,7 +589,10 @@ function migrateLegacyTo1_0_0(doc) {
 
   const uidMap = {}
 
-  const newNodes = oldNodes.map((n) => convertNode(n, idMap[n.id], globalConstantNames, paramLookup, uidMap))
+  const { modules, moduleRefByConfig } = extractModulesToModuleRefs(oldStore.availableModules)
+  const newNodes = oldNodes.map((n) =>
+    convertNode(n, idMap[n.id], globalConstantNames, paramLookup, uidMap, moduleRefByConfig)
+  )
 
   const newEdges = oldEdges.map((e) => convertEdge(e, idMap, uidMap))
 
@@ -539,9 +608,9 @@ function migrateLegacyTo1_0_0(doc) {
     id: PHLYNX_PROJECT_IDENTIFIER,
     version: '1.0.0',
     flow: newFlow,
-    store: convertStore(oldStore, globalConstantNames),
+    store: convertStore(oldStore, globalConstantNames, modules),
     simulation: {
-      simulationSettings: { ...BASELINE_SIMULATION_SETTINGS },
+      simulationSettings: { ...SETTINGS_FOR_FILES_WITHOUT_ANY },
       plotConfig: {},
       parameterScanConfig: {},
     },

@@ -6,6 +6,7 @@ import { analyzeMathXml } from '../../../src/services/math/analyzeMath'
 import { detectVersion, migrateWorkspace, separateNodeParameters } from '../../../src/services/workspaceMigrator'
 import { PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
+import { legacyWorkspace } from '../helpers/legacyWorkspace.js'
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -193,6 +194,65 @@ describe('migrateWorkspace', () => {
     expect(migrated.simulation.simulationSettings).toBeDefined()
   })
 
+  it('gives a 1.1.0 file the solver settings its runs used, keeping its other settings', () => {
+    const migrated = migrateWorkspace({
+      id: 'phlynx-project',
+      version: '1.1.0',
+      flow: { nodes: [], edges: [] },
+      store: { availableMath: [] },
+      simulation: {
+        simulationSettings: { pointInterval: 0.25, endingPoint: 3, solver: 'RungeKutta4', timeStep: 0.2, tolerance: 1e-6, maxSteps: 10000, extra: 'kept' },
+        plotConfig: { groups: [] },
+        parameterScanConfig: {},
+      },
+      inspectionModules: [],
+    })
+    expect(migrated.simulation.simulationSettings).toEqual({
+      pointInterval: 0.25,
+      endingPoint: 3,
+      solver: 'CVODE',
+      timeStep: 0,
+      tolerance: 1e-7,
+      maxSteps: 500,
+      extra: 'kept',
+    })
+    expect(migrated.simulation.plotConfig).toEqual({ groups: [] })
+  })
+
+  it("connects each legacy edge to its own node's handle when a copied node shares its original's port uids", () => {
+    const legacyNode = (id, ports) => ({
+      id,
+      position: { x: 0, y: 0 },
+      data: { name: id, sourceFile: 'm.cellml', componentName: 'c', portLabels: [], portOptions: [], variables: [], ports },
+    })
+    const shared = [
+      { uid: 'shared-top', side: 'top' },
+      { uid: 'shared-bottom', side: 'bottom' },
+    ]
+    const legacyEdge = (source, target) => ({
+      id: `${source}--${target}`,
+      type: 'smoothstep',
+      source,
+      target,
+      sourceHandle: 'port_shared-bottom',
+      targetHandle: 'port_shared-top',
+      data: { couplings: [] },
+    })
+    const migrated = migrateWorkspace({
+      flow: {
+        nodes: [legacyNode('original', shared), legacyNode('copy', shared), legacyNode('other', shared)],
+        edges: [legacyEdge('original', 'other'), legacyEdge('other', 'copy')],
+      },
+      store: { availableModules: [], availableUnits: [], globalConstants: [] },
+    })
+
+    const handlesOf = new Map(migrated.flow.nodes.map(({ id, data }) => [id, data.handles.map((h) => `handle_${h.uid}`)]))
+    for (const edge of migrated.flow.edges) {
+      expect(handlesOf.get(edge.source)).toContain(edge.sourceHandle)
+      expect(handlesOf.get(edge.target)).toContain(edge.targetHandle)
+    }
+  })
+
   it('refuses a version it does not know', () => {
     expect(() => migrateWorkspace({ version: '99.0.0', flow: { nodes: [] }, store: {} })).toThrow(/99\.0\.0/)
   })
@@ -203,6 +263,49 @@ describe('detectVersion', () => {
     expect(detectVersion({ version: '1.1.0' })).toBe('1.1.0')
     expect(detectVersion({ info: { format_version: '1.0.0', project: 'Phlynx-Project' } })).toBe('1.0.0')
     expect(detectVersion({ flow: {}, store: {} })).toBe('legacy')
+  })
+})
+
+describe('migrateWorkspace over legacy modules', () => {
+  let store
+  let nodes
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+    ;({ store, flow: { nodes } } = migrateWorkspace(legacyWorkspace()))
+  })
+  const mathRefOf = (moduleRef) => new Map(store.availableModules).get(moduleRef)?.mathRef
+
+  it('gives each legacy module its own library module', () => {
+    expect(Object.fromEntries(store.availableModules.map(([moduleRef, module]) => [moduleRef, module.mathRef]))).toEqual({
+      'new_module:phlynx': 'template_modules.cellml:new_module',
+      'artery:pp': 'vessel_modules.cellml:vessel',
+      'artery:vp': 'vessel_modules.cellml:vessel',
+      'GLUT2:default': 'User_Modules.cellml:GLUT2',
+      'NKA:default': 'User_Modules.cellml:NKA',
+      'vessel:default': 'User_Modules.cellml:vessel',
+    })
+  })
+
+  it('lists every module in its math\'s collection', () => {
+    expect(new Map(store.availableCollections)).toEqual(
+      new Map([
+        ['template_modules.cellml:new_module', ['new_module:phlynx']],
+        ['vessel_modules.cellml:vessel', ['artery:pp', 'artery:vp']],
+        ['User_Modules.cellml:GLUT2', ['GLUT2:default']],
+        ['User_Modules.cellml:NKA', ['NKA:default']],
+        ['User_Modules.cellml:vessel', ['vessel:default']],
+      ])
+    )
+  })
+
+  it('points each node at the module made from its config', () => {
+    expect(nodes.map(({ data }) => [data.name, data.moduleRef])).toEqual([
+      ['GLUT2_1', 'GLUT2:default'],
+      ['NKA_1', 'NKA:default'],
+      ['vessel_user', 'vessel:default'],
+      ['vessel_library', 'artery:vp'],
+    ])
+    for (const { data } of nodes) expect(mathRefOf(data.moduleRef)).toBe(data.mathRef)
   })
 })
 
