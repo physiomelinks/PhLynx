@@ -1,0 +1,14 @@
+diff --git a/lib/github-api.js b/lib/github-api.js
+index 32c985f3945d42fba88db9eb406034cf6607edc5..8c5ee6f7d1bcba2116886c1801e77961386f67ae 100644
+--- a/lib/github-api.js
++++ b/lib/github-api.js
+@@ -69,7 +69,8 @@ export default class GithubAPI {
+     }`,
+         };
+         const response = await this._post(GRAPHQL_URL, query);
+-        return response.data.repository.pullRequest.closingIssuesReferences.nodes;
++        // "(#N)" may cite an issue, not a PR; GraphQL then returns a null pullRequest.
++        return response.data.repository.pullRequest?.closingIssuesReferences.nodes ?? [];
+     }
+     async getIssueData(repo, issue) {
+         return this._fetch(`https://api.github.com/repos/${repo}/issues/${issue}`);

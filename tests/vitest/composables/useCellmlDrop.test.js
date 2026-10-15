@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCellmlDrop } from '../../../src/composables/useCellmlDrop.js'
 import { importOmexFile } from '../../../src/services/import/omex'
 import { parseCellMLConnections } from '../../../src/services/import/parseCellmlConnections'
+import { prepareCellmlImport, prepareCellmlImports } from '../../../src/services/import/prepareCellml'
 import { loadParametersFromCellML } from '../../../src/utils/cellml'
 import { readFileAsText } from '../../../src/utils/misc'
 import { notify } from '../../../src/utils/notify'
@@ -33,6 +34,10 @@ vi.mock('../../../src/utils/notify', () => ({
 }))
 vi.mock('../../../src/services/import/parseCellmlConnections', () => ({ parseCellMLConnections: vi.fn() }))
 vi.mock('../../../src/services/import/omex', () => ({ importOmexFile: vi.fn() }))
+vi.mock('../../../src/services/import/prepareCellml', () => ({
+  prepareCellmlImport: vi.fn((content) => content),
+  prepareCellmlImports: vi.fn((files) => files.map((file) => file.content)),
+}))
 vi.mock('../../../src/utils/cellml', () => ({ loadParametersFromCellML: vi.fn(() => ({ params: true })) }))
 vi.mock('../../../src/utils/misc', () => ({ readFileAsText: vi.fn() }))
 
@@ -83,6 +88,18 @@ describe('useCellmlDrop', () => {
       expect(deps.rebuildNodeEdgeIndex).toHaveBeenCalledTimes(1)
       expect(results).toEqual([{ ok: true, moduleCount: 1, unitsCount: 0 }])
       expect(nodes.value.map((n) => n.id)).toEqual(['a', 'new-only'])
+    })
+
+    it('reads the prepared CellML in every step, preparing it once', async () => {
+      prepareCellmlImport.mockReturnValueOnce('<hoisted/>')
+
+      await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+
+      expect(prepareCellmlImport).toHaveBeenCalledTimes(1)
+      expect(prepareCellmlImport).toHaveBeenCalledWith('<model/>', 'm.cellml')
+      expect(parseCellMLConnections).toHaveBeenCalledWith('<hoisted/>', 'm.cellml')
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<hoisted/>', 'm.cellml', { notify: false })
+      expect(loadParametersFromCellML).toHaveBeenCalledWith('<hoisted/>')
     })
 
     it('waits for the graph to load before rebuilding the edge index', async () => {
@@ -271,6 +288,29 @@ describe('useCellmlDrop', () => {
         title: 'CellML Files Loaded',
         message: 'Loaded 4 modules and 6 units from 2 files.',
       })
+    })
+
+    it('prepares the files together, so the batch gets one notice of each kind, and registers the prepared CellML', async () => {
+      prepareCellmlImports.mockReturnValueOnce(['<a hoisted="true"/>', '<b hoisted="true"/>'])
+
+      await drop.loadCellMLFiles(entries)
+
+      expect(prepareCellmlImports).toHaveBeenCalledTimes(1)
+      expect(prepareCellmlImports).toHaveBeenCalledWith(entries)
+      expect(prepareCellmlImport).not.toHaveBeenCalled()
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<a hoisted="true"/>', 'a.cellml', { notify: false })
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<b hoisted="true"/>', 'b.cellml', { notify: false })
+    })
+
+    it('fails only the file that cannot be read', async () => {
+      readFileAsText.mockRejectedValueOnce(new Error('unreadable'))
+      const file = new File(['<a/>'], 'a.cellml')
+
+      const results = await drop.loadCellMLFiles([file, entries[1]])
+
+      expect(deps.loadCellMLData).toHaveBeenCalledTimes(1)
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<b/>', 'b.cellml', { notify: false })
+      expect(results).toEqual([{ ok: false, moduleCount: 0, unitsCount: 0 }, { ok: true, moduleCount: 1, unitsCount: 0 }])
     })
 
     it('omits the module count when results carry no moduleCount (loadCellMLData returns componentCount)', async () => {

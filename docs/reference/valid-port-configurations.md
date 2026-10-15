@@ -38,7 +38,7 @@ Use a Multiport where one port meets several neighbours, such as a vessel juncti
 | **Sum** | Summed | This variable equals the sum, over every connection, of the neighbour's paired variable. With nothing connected it is 0, whatever its value. | Total flow into a junction |
 | **Multiply** | Multiplied | The neighbour's paired variable receives this variable times the factor. | Scaling a flow, e.g. by the number of parallel vessels |
 
-Export refuses a pair that is Sum on both ends or Multiply on both ends, and a variable summed through more than one of its instance's ports.
+Export refuses a pair that is Sum on both ends or Multiply on both ends. A variable can sum through more than one of its instance's ports: every connected Sum port contributes to the same total.
 
 ## Connections dialog {#connections-dialog}
 

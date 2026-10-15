@@ -592,12 +592,16 @@ const unitExpansions = computed(() =>
   appSettings.unitDisplay === 'base' ? store.unitExpansions : store.builtInUnitExpansions
 )
 
-/** Library units that could complete the typed units; a units expression (e.g. `mV/ms`) also offers a new units. */
+/**
+ * Library units that could complete the typed units; a units expression (e.g. `mV/ms`) also offers a new units, and a
+ * new name (e.g. `number_of_sharks`) a new base units.
+ */
 function suggestUnitsFor(typed) {
   const library = {
     names: store.availableUnitNames,
     definitions: store.unitDefinitions,
     expansions: store.unitExpansions,
+    baseUnits: store.generatedBaseUnits,
   }
   const options = { details: unitExpansions.value, builtIn: appSettings.unitDisplay !== 'base' }
   return suggestUnits(typed, library, options).map(({ create, ...item }) =>

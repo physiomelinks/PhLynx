@@ -1,7 +1,7 @@
 import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
-import { couplingConflicts, multiplyFactor, sharedSumConflicts, variableTypes } from './multiport.js'
+import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -118,6 +118,74 @@ export function inferComponentNameFromConnections(cellmlString, paramsComponentN
   }
 
   return null
+}
+
+const ENCAPSULATION_OR_GROUP_PATTERN = /<(?:\w+:)?(?:encapsulation|relationship_ref)\b/
+const ENCAPSULATION_PATTERN = /<(?:\w+:)?encapsulation\b|<(?:\w+:)?relationship_ref\b[^>]*\brelationship\s*=\s*["']encapsulation["']/
+const CONTAINMENT_PATTERN = /<(?:\w+:)?relationship_ref\b[^>]*\brelationship\s*=\s*["']containment["']/
+
+/**
+ * Moves every encapsulated component to the top level, deepest first, so each one imports as its
+ * own module and its parent keeps only its own math. Connections are kept, so parent-child
+ * connections become ordinary ones. A model with no encapsulation comes back unchanged. So does
+ * one libCellML can't hoist (it throws, or the model parses with errors, which the import then
+ * reports), flagged `hoistFailed` when it has encapsulation.
+ *
+ * @param {string} cellmlString - Raw CellML XML string.
+ * @returns {{cellml: string, hoisted: string[], ignoredContainment: boolean, hoistFailed: boolean}}
+ *   The CellML to import, the components moved, whether it has CellML 1.x containment groups
+ *   (ignored), and whether its encapsulation was left in place.
+ */
+export function hoistEncapsulatedComponents(cellmlString) {
+  if (!cellmlString || !ENCAPSULATION_OR_GROUP_PATTERN.test(cellmlString)) {
+    return { cellml: cellmlString, hoisted: [], ignoredContainment: false, hoistFailed: false }
+  }
+  const ignoredContainment = CONTAINMENT_PATTERN.test(cellmlString)
+  const failed = (reason) => {
+    const hoistFailed = ENCAPSULATION_PATTERN.test(cellmlString)
+    if (hoistFailed) console.warn(`[hoistEncapsulatedComponents] Encapsulation left in place: ${reason}`)
+    return { cellml: cellmlString, hoisted: [], ignoredContainment, hoistFailed }
+  }
+
+  const parser = new _libcellml.Parser(false)
+  let model = null
+  // Every component, each child before its parent.
+  const components = []
+  try {
+    model = parser.parseModel(cellmlString)
+    if (parser.errorCount() > 0) return failed(`${parser.errorCount()} libCellML parser issue(s).`)
+
+    const collect = (component) => {
+      for (let i = 0; i < component.componentCount(); i++) collect(component.componentByIndex(i))
+      components.push(component)
+    }
+    for (let i = 0; i < model.componentCount(); i++) collect(model.componentByIndex(i))
+
+    const hoisted = []
+    for (const parent of components) {
+      while (parent.componentCount() > 0) {
+        const child = parent.takeComponentByIndex(0)
+        hoisted.push(child.name())
+        model.addComponent(child)
+        child.delete()
+      }
+    }
+    if (hoisted.length === 0) return { cellml: cellmlString, hoisted, ignoredContainment, hoistFailed: false }
+    if (!model.fixVariableInterfaces()) return failed('the variable interfaces could not be fixed.')
+
+    const printer = new _libcellml.Printer()
+    try {
+      return { cellml: printer.printModel(model, false), hoisted, ignoredContainment, hoistFailed: false }
+    } finally {
+      printer.delete()
+    }
+  } catch (error) {
+    return failed(error?.message ?? String(error))
+  } finally {
+    components.forEach((component) => component.delete())
+    model?.delete()
+    parser.delete()
+  }
 }
 
 /**
@@ -634,6 +702,23 @@ function createInspectionModuleComponent(model, module, nodeComponentMap) {
   inspectionComp.delete()
 }
 
+/**
+ * Finds an element's attribute in the CellML namespace, such as a <cn>'s `cellml:units`. happy-dom
+ * leaves prefixed attributes un-namespaced, so there it falls back to the `cellml:`-prefixed name;
+ * a browser always namespaces them, so the fallback never applies.
+ *
+ * @param {Element} element
+ * @param {string} localName - E.g. `units`.
+ * @returns {Attr|null} Read or set its `value`.
+ */
+export function getCellmlAttributeNode(element, localName) {
+  return (
+    element.getAttributeNodeNS(CELLML_NS, localName) ??
+    [...element.attributes].find((attr) => attr.namespaceURI === null && attr.name === `cellml:${localName}`) ??
+    null
+  )
+}
+
 function extractUnitsFromMath(multiBlockMathString) {
   const wrappedString = `<root>${multiBlockMathString}</root>`
 
@@ -657,7 +742,7 @@ function extractUnitsFromMath(multiBlockMathString) {
   const foundUnits = new Set()
 
   for (const cn of cnElements) {
-    const unitName = cn.getAttributeNS(CELLML_NS, 'units')
+    const unitName = getCellmlAttributeNode(cn, 'units')?.value
 
     if (unitName) {
       foundUnits.add(unitName)
@@ -870,9 +955,8 @@ function stripCelsiusToArbitraryUnit(xmlString) {
   // Replace cellml:units="celsius" on <cn> MathML literals with "dimensionless".
   const cnElements = Array.from(doc.getElementsByTagNameNS(MATHML_NS, 'cn'))
   for (const el of cnElements) {
-    if (el.getAttributeNS(CELLML_NS, 'units') === CELSIUS_UNIT_NAME) {
-      el.setAttributeNS(CELLML_NS, 'cellml:units', 'dimensionless')
-    }
+    const units = getCellmlAttributeNode(el, 'units')
+    if (units?.value === CELSIUS_UNIT_NAME) units.value = 'dimensionless'
   }
 
   const serializer = new XMLSerializer()
@@ -1150,12 +1234,9 @@ export function generateFlattenedModel(
     // Process Edges (Create Connections)
     // ----------------------------------
 
-    const [[sharedSum] = []] = sharedSumConflicts(edges, (id) => nodeComponentMap.get(id)?.name() ?? id).values()
-    if (sharedSum) throw new Error(`Cannot connect: ${sharedSum}`)
-
     const componentTrashCan = new Set()
-    // The terms of each Sum variable, keyed `component::variable`: a variable sums through one port
-    // (checked above), so this is one equation per Sum port variable.
+    // The terms of each Sum variable, keyed `component::variable`: every connected Sum port on the
+    // node contributes its terms here, so this is one equation per Sum variable, however many ports.
     const multiPortSums = new Map()
     const addSumTerm = (component, varName, term) => {
       const key = `${component.name()}::${varName}`

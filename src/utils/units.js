@@ -311,15 +311,16 @@ export function mergeUnitDefinitions(models) {
 }
 
 /**
- * Expands one definition whose parts are all CellML built-in units, as expandUnits would.
+ * Expands one definition, as expandUnits would.
  *
  * @param {Array<{ units: string, prefix: number, exponent: number, multiplier: number }>} parts
- * @param {{ builtIn?: boolean }} [options] - builtIn: stop at CellML's built-in units.
- * @returns {string} The formatted expansion, or '' when a part isn't a built-in units.
+ * @param {{ builtIn?: boolean, definitions?: Map<string, Array<Object>> }} [options] - builtIn: stop at CellML's
+ *   built-in units; definitions: the library's, for parts that aren't built-in units (e.g. a base units).
+ * @returns {string} The formatted expansion, or '' when a part can't be resolved.
  */
-export function expandDefinition(parts, { builtIn = false } = {}) {
+export function expandDefinition(parts, { builtIn = false, definitions = new Map() } = {}) {
   if (!parts.length) return ''
-  const expansion = combineParts('', parts, new Map(), new Map(), builtIn ? BUILT_IN_UNITS : SI_UNITS)
+  const expansion = combineParts('', parts, definitions, new Map(), builtIn ? BUILT_IN_UNITS : SI_UNITS)
   return expansion ? formatUnitExpansion(expansion, { builtIn }) : ''
 }
 

@@ -307,13 +307,24 @@
                 ref="searchInputRef"
                 v-model="searchQuery"
                 class="w-full"
-                placeholder="Type / to search"
                 @input="runSearch()"
                 @keydown="onSearchKeydown"
                 @focus="onSearchFocus"
                 @blur="onSearchBlur"
               />
-              <InputIcon v-if="searchQuery" class="search-clear-input pi pi-times-circle" @click="clearSearch" />
+              <div
+                v-if="!searchQuery && !isSearchFocused"
+                class="search-placeholder"
+              >
+                <span>Type</span>
+                <kbd>/</kbd>
+                <span>to search</span>
+              </div>
+              <InputIcon
+                v-if="searchQuery"
+                class="search-clear-input pi pi-times-circle"
+                @click="clearSearch"
+              />
             </IconField>
           </div>
           <div v-if="showModePicker" class="search-suffix-content">
@@ -587,6 +598,7 @@ import { useLoadFromCellML } from '../composables/useLoadFromCellml'
 import { useLoadFromUrl } from '../composables/useLoadFromUrl'
 import { createUrlLoaders } from '../services/urlLoaders'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
+import { prepareCellmlImport } from '../services/import/prepareCellml'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useImportExportSend } from '../composables/useImportExportSend'
@@ -1376,15 +1388,17 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
       'This case is not fully implemented yet, but we will load the CellML file but the module configuration is not currently used to build the workspace.'
     )
     console.warn('moduleConfigFile', moduleConfigFile)
-    const cellmlPayload = parseCellMLConnections(cellmlContent, result.files.cellml)
-    await loadCellMLData(cellmlContent, result.files.cellml, { notify: false })
-    const parameters = loadParametersFromCellML(cellmlContent)
+    const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
+    const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
+    await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
+    const parameters = loadParametersFromCellML(importedCellml)
     await loadFromCellML(cellmlPayload, result.files.cellml)
   } else {
     // Last, and not great, scenario: if we don't have a flow snapshot or module configuration, we can still load the CellML file to build the workspace.
-    const cellmlPayload = parseCellMLConnections(cellmlContent, result.files.cellml)
-    await loadCellMLData(cellmlContent, result.files.cellml, { notify: false })
-    const parameters = loadParametersFromCellML(cellmlContent)
+    const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
+    const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
+    await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
+    const parameters = loadParametersFromCellML(importedCellml)
     await loadFromCellML(cellmlPayload, result.files.cellml, parameters)
   }
 
@@ -2551,6 +2565,37 @@ watch(
 
 .workspace-search-input-wrapper {
   position: relative;
+}
+
+.search-placeholder {
+  position: absolute;
+  left: 2.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #8b949e;
+  font-size: 0.875rem;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.search-placeholder kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.2rem;
+  height: 1.25rem;
+  padding: 0 0.25rem;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  background: #f6f8fa;
+  color: #57606a;
+  font-family: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
 }
 
 .search-clear-input:hover {

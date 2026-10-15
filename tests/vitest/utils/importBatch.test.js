@@ -1,8 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 
-const { processCellMLData } = vi.hoisted(() => ({ processCellMLData: vi.fn() }))
-vi.mock('../../../src/utils/cellml', async (importActual) => ({ ...(await importActual()), processCellMLData }))
+const { hoistEncapsulatedComponents, processCellMLData } = vi.hoisted(() => ({
+  hoistEncapsulatedComponents: vi.fn((cellml) => ({ cellml, hoisted: [], ignoredContainment: false })),
+  processCellMLData: vi.fn(),
+}))
+vi.mock('../../../src/utils/cellml', async (importActual) => ({ ...(await importActual()), hoistEncapsulatedComponents, processCellMLData }))
 
 import { IMPORT_KEYS } from '../../../src/utils/constants.js'
 import { getImportConfig } from '../../../src/utils/import.js'
@@ -109,6 +112,21 @@ describe('parseForRole', () => {
     const result = await parseForRole(entry('heart.cellml').file, [cellmlField])
 
     expect(result.error).toBe('Invalid CellML: Bad units.')
+  })
+
+  it('reads CellML with its encapsulated components hoisted, keeping the file as given', async () => {
+    const cellmlField = {
+      key: IMPORT_KEYS.CELLML_FILE,
+      accept: '.cellml, .xml',
+      parser: async () => '<model/>',
+      processUpload: 'cellml',
+    }
+    hoistEncapsulatedComponents.mockReturnValueOnce({ cellml: '<hoisted/>', hoisted: ['child'], ignoredContainment: false })
+    processCellMLData.mockReturnValue({ type: 'success', components: [{ name: 'child' }] })
+    const result = await parseForRole(entry('heart.cellml').file, [cellmlField])
+
+    expect(processCellMLData).toHaveBeenCalledWith('<hoisted/>')
+    expect(result).toMatchObject({ key: IMPORT_KEYS.CELLML_FILE, data: '<model/>', components: [{ name: 'child' }] })
   })
 
   it('rejects configs that cannot be normalised', async () => {

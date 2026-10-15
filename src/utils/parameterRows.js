@@ -7,10 +7,14 @@ export function isValueMissing(row) {
   return !row.textInit && VALUE_REQUIRED_TYPES.has(row.type) && isBlank(row.value)
 }
 
-export function getUnknownUnitsNotice(row, unitNames) {
+export function isUnitKnown(row, unitNames) {
   const cleaned = cleanName(row.units)
-  if (!cleaned || unitNames.has(cleaned)) return ''
-  return `"${cleaned}" isn't defined in the units library`
+  return !!cleaned && unitNames.has(cleaned)
+}
+
+export function getUnknownUnitsNotice(row, unitNames) {
+  if (isUnitKnown(row, unitNames)) return ''
+  return `"${cleanName(row.units)}" isn't defined in the units library`
 }
 
 /** Kinds of variable the math itself computes, whose type is always `variable`. */

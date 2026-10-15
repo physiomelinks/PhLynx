@@ -5,7 +5,7 @@
 import { resolveBoundaryValues } from '../export/boundaryValues'
 import { generateFlattenedModel } from '../../utils/cellml'
 import { cyrb53 } from '../../utils/misc'
-import { couplingConflicts, sharedSumConflicts, variableTypes } from '../../utils/multiport'
+import { couplingConflicts, variableTypes } from '../../utils/multiport'
 import { getHandleId } from '../../utils/handles'
 import { HANDLE_VARIANT } from '../../utils/constants'
 import { isEmpty } from '../../utils/variables'
@@ -114,15 +114,14 @@ function findLostSumTerms(scope) {
 }
 
 /**
- * Lists the coupling problems the build rejects inside a scope: ports whose variables can't pair, and a
- * variable summed through more than one port.
+ * Lists the coupling problems the build rejects inside a scope: ports whose variables can't pair.
  *
  * @param {ReturnType<typeof resolveScope>} scope
  * @returns {string[]}
  */
 function findCouplingConflicts(scope) {
   const nameOf = (id) => scope.nodes.find((node) => node.id === id)?.data?.name ?? id
-  const conflicts = [...sharedSumConflicts(scope.internalEdges, nameOf).values()].flat()
+  const conflicts = []
   for (const edge of scope.internalEdges) {
     for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
       for (const conflict of couplingConflicts(sourcePort, targetPort)) {

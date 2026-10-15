@@ -8,9 +8,17 @@
  */
 
 import { EXCLUDED_COMPONENTS, MAIN_NODE_TYPE, TIME_NAMES, TIME_UNITS } from '../../utils/constants'
+import { isNumericLiteral } from '../../utils/variables'
 
-function getOwnedVariables(compElement) {
-  const owned = new Set()
+/**
+ * Lists the variables a component's math computes: each equation's left-hand side, or the variable
+ * it differentiates.
+ *
+ * @param {Element} compElement
+ * @returns {Set<string>}
+ */
+function getComputedVariables(compElement) {
+  const computed = new Set()
 
   for (const mathEl of compElement.querySelectorAll('math')) {
     for (const apply of mathEl.children) {
@@ -20,13 +28,27 @@ function getOwnedVariables(compElement) {
 
       const lhs = children[1]
       if (lhs?.tagName === 'ci') {
-        owned.add(lhs.textContent.trim())
+        computed.add(lhs.textContent.trim())
       } else if (lhs?.tagName === 'apply') {
-        const diffCi = lhs.querySelector('ci')
-        if (diffCi) owned.add(diffCi.textContent.trim())
+        // The differentiated variable, not the <bvar>'s.
+        const diffCi = Array.from(lhs.children).find((child) => child.tagName === 'ci')
+        if (diffCi) computed.add(diffCi.textContent.trim())
       }
     }
   }
+
+  return computed
+}
+
+/**
+ * Lists the variables a component owns: those its math computes, and those with an initial value.
+ *
+ * @param {Element} compElement
+ * @param {Set<string>} computed - From getComputedVariables.
+ * @returns {Set<string>}
+ */
+function getOwnedVariables(compElement, computed) {
+  const owned = new Set(computed)
 
   for (const variable of compElement.querySelectorAll('variable')) {
     if (variable.getAttribute('initial_value') !== null) {
@@ -36,6 +58,67 @@ function getOwnedVariables(compElement) {
   }
 
   return owned
+}
+
+/**
+ * Builds a module row; a shared constant's value types it `constant`, otherwise `variable` for
+ * reconcileRows to type (readers become boundary conditions).
+ *
+ * @param {string} name
+ * @param {string} units
+ * @param {string|null} sharedValue - A shared constant's value, else null.
+ * @returns {Object}
+ */
+function buildVariableRow(name, units, sharedValue) {
+  return {
+    name,
+    value: sharedValue,
+    units,
+    access: 'access',
+    type: sharedValue === null ? 'variable' : 'constant',
+    data_reference: null,
+  }
+}
+
+/**
+ * Finds the shared constants: per connected set of variables, its only owner when that owner has a
+ * numeric initial value nothing computes. A set with several owners has none, so the conflict still
+ * reaches checkScope.
+ *
+ * @param {Array<{comp1: string, var1: string, comp2: string, var2: string}>} mappings
+ * @param {Map<string, Set<string>>} ownedVars - By component.
+ * @param {Map<string, Map<string, string>>} constantValues - Candidate values, by component.
+ * @returns {Map<string, Map<string, string>>} Each constant's value, by component.
+ */
+function findSharedConstants(mappings, ownedVars, constantValues) {
+  const parent = new Map()
+  const root = (key) => {
+    while (parent.get(key) !== key) key = parent.get(key)
+    return key
+  }
+  const add = (comp, name) => {
+    const key = JSON.stringify([comp, name])
+    if (!parent.has(key)) parent.set(key, key)
+    return key
+  }
+  for (const { comp1, var1, comp2, var2 } of mappings) parent.set(root(add(comp1, var1)), root(add(comp2, var2)))
+
+  const owners = new Map()
+  for (const key of parent.keys()) {
+    const [comp, name] = JSON.parse(key)
+    if (!ownedVars.get(comp)?.has(name)) continue
+    const set = root(key)
+    owners.set(set, [...(owners.get(set) ?? []), { comp, name }])
+  }
+
+  const shared = new Map()
+  for (const [owner, ...others] of owners.values()) {
+    const value = constantValues.get(owner.comp)?.get(owner.name)
+    if (others.length > 0 || value === undefined) continue
+    if (!shared.has(owner.comp)) shared.set(owner.comp, new Map())
+    shared.get(owner.comp).set(owner.name, value)
+  }
+  return shared
 }
 
 export function parseCellMLConnections(cellmlContent, componentFile) {
@@ -64,29 +147,37 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
     }
   }
 
-  // --- 2. Build component info and owned-variable sets ---
+  // --- 2. Build component info, owned-variable sets and constant candidates ---
   const componentVariableInfo = new Map()
   const componentOwnedVars = new Map()
+  // Numeric initial values nothing computes, by component: constants if they turn out to be shared.
+  const componentConstantValues = new Map()
 
   for (const comp of doc.querySelectorAll('component')) {
     const compName = comp.getAttribute('name')
     if (!compName) continue
 
+    const computed = getComputedVariables(comp)
     const varMap = new Map()
+    const constantValues = new Map()
     for (const variable of comp.querySelectorAll('variable')) {
       const varName = variable.getAttribute('name')
       if (!varName) continue
       varMap.set(varName, {
         units: variable.getAttribute('units') ?? 'dimensionless',
       })
+      const initialValue = variable.getAttribute('initial_value')?.trim()
+      if (isNumericLiteral(initialValue) && !computed.has(varName)) constantValues.set(varName, initialValue)
     }
     componentVariableInfo.set(compName, varMap)
-    componentOwnedVars.set(compName, getOwnedVariables(comp))
+    componentOwnedVars.set(compName, getOwnedVariables(comp, computed))
+    componentConstantValues.set(compName, constantValues)
   }
 
   // --- 3. Parse all <connection> blocks ---
   const pairInfoMap = new Map()
   const edgeSet = new Map()
+  const allMappings = []
 
   for (const connection of doc.querySelectorAll('connection')) {
     let comp1, comp2
@@ -114,6 +205,7 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
     }
 
     if (validMappings.length === 0) continue
+    allMappings.push(...validMappings.map(({ var1, var2 }) => ({ comp1, var1, comp2, var2 })))
 
     if (!pairInfoMap.has(pairKey)) {
       let chosen = validMappings.find(({ var1, var2 }) => {
@@ -142,6 +234,8 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
       edgeSet.set(pairKey, { source: comp1, target: comp2 })
     }
   }
+
+  const sharedConstants = findSharedConstants(allMappings, componentOwnedVars, componentConstantValues)
 
   // --- 4. Build Component Roster ---
   const validComponentNames = [...componentVariableInfo.keys()].filter(
@@ -196,16 +290,10 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
       }, [])
 
     // B. Parse Normalized Variables
+    const constants = sharedConstants.get(compName)
     const variables = []
     for (const [varName, { units }] of componentVariableInfo.get(compName)) {
-      variables.push({
-        name: varName,
-        value: null,
-        units: units,
-        access: 'access',
-        type: 'variable',
-        data_reference: null
-      })
+      variables.push(buildVariableRow(varName, units, constants?.get(varName) ?? null))
     }
     
     const moduleRef = `${compName}:${cellmlModuleSubtype}`

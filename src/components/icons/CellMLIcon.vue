@@ -8,13 +8,12 @@ export default {
 </script>
 
 <template>
-  <svg
+  <svg v-bind="pti()" 
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 30.49 30.56"
     aria-hidden="true"
     width="1em"
     height="1em"
-    v-bind="$attrs"
   >
     <g fill="currentColor">
       <circle cx="8.23" cy="8.26" r="2.6" />
