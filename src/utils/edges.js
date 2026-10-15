@@ -3,7 +3,8 @@
  * edges.js
  *
  * Utilities for resolving which port labels are coupled across a conduit edge,
- * and for enforcing the non-multiport single-connection constraint.
+ * for enforcing the non-multiport single-connection constraint, and for reading a
+ * connection's appearance (`edge.data.appearance`).
  *
  * Core concepts
  * -------------
