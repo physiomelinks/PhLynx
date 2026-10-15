@@ -14,7 +14,6 @@ import {
   setMultiport,
   setPortVariables,
   setVariableFactor,
-  sharedSumConflicts,
   variableTypes,
 } from '../../../src/utils/multiport.js'
 
@@ -102,35 +101,6 @@ describe('couplingConflicts', () => {
     expect(couplingConflicts(port(['x'], ['sum', 'True']), port(['p'], 'None'))).toEqual([
       'Port "p" has 2 multiport entries for 1 variables.',
     ])
-  })
-})
-
-describe('sharedSumConflicts', () => {
-  const sumPort = (label, variable) => ({ label, variables: [variable], multiportType: 'Sum' })
-  const edge = (id, hubPort, leafPort = { label: 'in', variables: ['v'], multiportType: 'None' }) => ({
-    id,
-    source: 'hub',
-    target: id,
-    data: { couplings: [{ sourcePort: hubPort, targetPort: leafPort }] },
-  })
-
-  it('flags every edge into two ports that sum the same variable', () => {
-    const conflicts = sharedSumConflicts([edge('e1', sumPort('a', 'v_sum')), edge('e2', sumPort('b', 'v_sum'))], () => 'Hub')
-    const message = '"Hub" sums "v_sum" through ports "a" and "b"; a variable can be summed through one port only.'
-    expect([...conflicts]).toEqual([
-      ['e1', [message]],
-      ['e2', [message]],
-    ])
-  })
-
-  it('accepts several edges into one Sum port, or ports summing different variables', () => {
-    expect(sharedSumConflicts([edge('e1', sumPort('a', 'v_sum')), edge('e2', sumPort('a', 'v_sum'))]).size).toBe(0)
-    expect(sharedSumConflicts([edge('e1', sumPort('a', 'v_sum')), edge('e2', sumPort('b', 'w_sum'))]).size).toBe(0)
-  })
-
-  it('leaves a malformed port to couplingConflicts', () => {
-    const malformed = { label: 'b', variables: ['v_sum'], multiportType: ['sum', 'True'] }
-    expect(sharedSumConflicts([edge('e1', sumPort('a', 'v_sum')), edge('e2', malformed)]).size).toBe(0)
   })
 })
 
@@ -377,17 +347,16 @@ describe('multiportSummary', () => {
     ])
   })
 
-  it('reports a variable summed through two connected ports', () => {
+  it('accepts a variable summed through two connected ports, one entry per port', () => {
     const first = own(['v_sum'], 'Sum', undefined, 'in')
     const second = own(['v_sum'], 'Sum', undefined, 'out')
     const entries = summarise(
       [first, second],
       [edge('e1', 'hub', 'a', first, other(['v'], 'None')), edge('e2', 'hub', 'b', second, other(['w'], 'None'))]
     )
-    expect(entries.map((entry) => entry.issues)).toEqual([
-      ['"v_sum" sums through ports "in" and "out"; a variable can be summed through one port only.'],
-      ['"v_sum" sums through ports "in" and "out"; a variable can be summed through one port only.'],
-    ])
+    expect(entries.map((entry) => entry.issues)).toEqual([[], []])
+    expect(brief(entries[0])).toEqual([{ nodeId: 'a', variable: 'v', factor: 1, role: 'term' }])
+    expect(brief(entries[1])).toEqual([{ nodeId: 'b', variable: 'w', factor: 1, role: 'term' }])
   })
 
   it('does not change its inputs', () => {

@@ -1,5 +1,14 @@
+<script>
+import BaseIcon from '@primevue/icons/baseicon'
+
+export default {
+  name: 'DustpanBrushIcon',
+  extends: BaseIcon,
+}
+</script>
+
 <template>
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 536 541" width="1em" height="1em">
+  <svg v-bind="pti()" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 536 541">
     <g fill="none" stroke="currentColor" stroke-width="30" stroke-miterlimit="10">
       <path
         d="M293.65,514.7H25.01c-9.05,0-16.04-7.96-14.87-16.94l29.09-223.3c.97-7.47,7.34-13.06,14.87-13.06h207.81c7.47,0,13.8,5.49,14.85,12.89l31.74,223.3c1.28,9.03-5.73,17.11-14.85,17.11Z"

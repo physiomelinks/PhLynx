@@ -554,10 +554,12 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
-   * Adds a units made from a typed expression to the generated units file, creating the file if needed.
+   * Adds a units made from a typed expression, or a new base units, to the generated units file, creating the file
+   * if needed.
    *
    * @param {{ name: string, parts: Array<{ units: string, prefix: number, exponent: number, multiplier: number }> }} units
-   *   From interpretUnitExpression; every part is a CellML built-in units.
+   *   From interpretUnitExpression, every part a CellML built-in units or a base units in the generated file; or no
+   *   parts for a new base units.
    */
   function addGeneratedUnits({ name, parts }) {
     const file = availableUnits.value.find((f) => f.componentFile === GENERATED_UNITS_FILE)
@@ -604,6 +606,13 @@ export const useLibraryStore = defineStore('library', () => {
     expandUnits(availableUnits.value.map((file) => file.model), { builtIn: true })
   )
 
+  /** Base units in the generated units file, e.g. `number_of_sharks`, which new generated units can build on. */
+  const generatedBaseUnits = computed(() => {
+    const file = availableUnits.value.find((f) => f.componentFile === GENERATED_UNITS_FILE)
+    const definitions = extractUnitDefinitions(file?.model)
+    return new Set([...definitions].filter(([, parts]) => !parts.length).map(([name]) => name))
+  })
+
   function hasUnits(name) {
     return availableUnitNames.value.has(name)
   }
@@ -622,6 +631,7 @@ export const useLibraryStore = defineStore('library', () => {
     unitExpansions,
     builtInUnitExpansions,
     unitDefinitions,
+    generatedBaseUnits,
 
     // Actions
     addConfigFile,

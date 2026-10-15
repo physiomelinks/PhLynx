@@ -9,7 +9,7 @@ import {
   NUM_GHOST_HANDLES_TOP_BOT
 } from '../utils/constants'
 import { getId as getNextNodeId } from '../utils/nodes'
-import { generateUniqueInstanceName, findAnyNode } from '../utils/nodes'
+import { attachNewNodeToFrame, findAnyNode, generateUniqueInstanceName } from '../utils/nodes'
 import { buildInstance } from '../services/import/buildWorkflow'
 import { buildGhostHandles } from '../utils/handles'
 import { useLibraryStore } from '../stores/libraryStore'

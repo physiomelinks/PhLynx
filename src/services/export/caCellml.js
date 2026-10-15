@@ -4,7 +4,7 @@
  * files by the `units.cellml` ending, beside the config.
  */
 import { CELLML_NS, MATHML_NS, STANDARD_UNITS } from '../../utils/constants'
-import { combineComponentModels, whenLibCellMLReady } from '../../utils/cellml'
+import { combineComponentModels, getCellmlAttributeNode, whenLibCellMLReady } from '../../utils/cellml'
 import { parseMathRef } from '../../utils/config'
 import { unitsModelXml } from '../../utils/unitExpression'
 
@@ -59,7 +59,7 @@ function unitsUsedBy(math) {
   const doc = new DOMParser().parseFromString(math, 'application/xml')
   const used = new Set()
   for (const variable of doc.getElementsByTagNameNS(CELLML_NS, 'variable')) used.add(variable.getAttribute('units'))
-  for (const cn of doc.getElementsByTagNameNS(MATHML_NS, 'cn')) used.add(cn.getAttributeNS(CELLML_NS, 'units'))
+  for (const cn of doc.getElementsByTagNameNS(MATHML_NS, 'cn')) used.add(getCellmlAttributeNode(cn, 'units')?.value)
   return new Set([...used].filter((name) => name && !STANDARD.has(name)))
 }
 

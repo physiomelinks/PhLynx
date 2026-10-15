@@ -236,15 +236,51 @@ describe('suggestUnits', () => {
     expect(values('kg')).toEqual(['kilogram', 'kg'])
   })
 
-  it('offers only library matches when the text is not an expression', () => {
-    expect(values('wid')).toEqual(['widget', 'per_widget'])
+  it('offers only library matches when the text is neither an expression nor a new name', () => {
     expect(values('mV/')).toEqual([])
     expect(values('')).toEqual([])
+  })
+
+  it('offers a new name as a base units, after the library matches', () => {
+    expect(values('wid')).toEqual(['widget', 'per_widget', 'wid'])
+    const items = suggestUnits('number_of_sharks', SMALL)
+    expect(items).toEqual([{ value: 'number_of_sharks', detail: 'new base units', create: { name: 'number_of_sharks', parts: [] } }])
+    expect(values('widget')).toEqual(['widget', 'per_widget'])
+    expect(values('2sharks')).toEqual([])
   })
 
   it('offers the existing units an expression names', () => {
     expect(values('Cel')).toEqual(['celsius'])
     expect(values('mM')).toEqual([])
+  })
+})
+
+describe('base units in the generated file', () => {
+  const GENERATED = model('<units name="number_of_sharks"/><units name="per_shark"><unit units="number_of_sharks" exponent="-1"/></units>')
+  const library = { ...libraryOf([GENERATED]), baseUnits: new Set(['number_of_sharks']) }
+
+  it('builds new units on them', () => {
+    const result = interpret('1/number_of_sharks/d', library)
+    expect(result.name).toBe('per_number_of_sharks_per_d')
+    expect(result.parts).toEqual([
+      { units: 'number_of_sharks', prefix: 0, exponent: -1, multiplier: expect.closeTo(1 / 86400, 15) },
+      { units: 'second', prefix: 0, exponent: -1, multiplier: 1 },
+    ])
+    expect(result.expansion).toBe('1.15741×10⁻⁵ s⁻¹·number_of_sharks⁻¹')
+  })
+
+  it('follows library units built on them', () => {
+    expect(interpret('per_shark/s', library).parts.map((part) => part.units)).toEqual(['number_of_sharks', 'second'])
+    expect(interpret('per_shark.number_of_sharks', library)).toEqual({ name: 'dimensionless', existing: true })
+  })
+
+  it('shows them in a new units\' detail', () => {
+    const create = suggestUnits('number_of_sharks/d', library).find((item) => item.create)
+    expect(create.detail).toBe('new · 1.15741×10⁻⁵ s⁻¹·number_of_sharks')
+  })
+
+  it('refuses base units from other files, which the generated file cannot import', () => {
+    expect(interpret('number_of_sharks/s', { ...library, baseUnits: new Set() }).error).toMatch(/built-in/)
   })
 })
 
@@ -257,6 +293,13 @@ describe('unitsModelXml', () => {
     const xml = unitsModelXml(definitions)
     expect(xml).toContain('<unit units="volt" prefix="milli"/>')
     expect(xml).toContain('<unit units="second" prefix="milli" exponent="-1"/>')
+    expect(extractUnitDefinitions(xml)).toEqual(definitions)
+  })
+
+  it('writes a base units as an empty units, reading back the same', () => {
+    const definitions = new Map([['number_of_sharks', []]])
+    const xml = unitsModelXml(definitions)
+    expect(xml).toContain('<units name="number_of_sharks"/>')
     expect(extractUnitDefinitions(xml)).toEqual(definitions)
   })
 })
@@ -305,6 +348,22 @@ describe('generated units on the bundled library, checked by libcellml', () => {
       if (!result.existing) definitions.set(result.name, result.parts)
     }
     expect(definitions.size).toBeGreaterThan(EXPRESSIONS.length / 2)
+    expect(issuesIn(unitsModelXml(definitions))).toEqual([])
+  })
+
+  it('writes base units, and units built on them, that libcellml accepts', () => {
+    const definitions = new Map([['number_of_sharks', []]])
+    const library = {
+      ...bundled,
+      names: new Set([...bundled.names, 'number_of_sharks']),
+      definitions: new Map([...bundled.definitions, ['number_of_sharks', []]]),
+      baseUnits: new Set(['number_of_sharks']),
+    }
+    for (const text of ['1/number_of_sharks/d', 'number_of_sharks/mL', 'number_of_sharks2.s-1']) {
+      const result = interpretUnitExpression(text, library)
+      expect(result.error, text).toBeUndefined()
+      definitions.set(result.name, result.parts)
+    }
     expect(issuesIn(unitsModelXml(definitions))).toEqual([])
   })
 

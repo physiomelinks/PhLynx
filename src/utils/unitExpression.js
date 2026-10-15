@@ -180,14 +180,18 @@ export function resolveSymbol(text, names) {
 const builtInPart = (units, prefix, exponent) => ({ units, prefix, exponent })
 
 /**
- * Writes a library units in CellML's built-in units, as `factor × parts`.
+ * Writes a library units in CellML's built-in units and the generated file's base units, as `factor × parts`.
  *
+ * @param {string} name
+ * @param {Map<string, Array<Object>>} definitions
+ * @param {Set<string>} baseUnits - Base units in the generated units file, which a new definition can use as they are.
  * @returns {{ factor: number, parts: Array<{ units: string, prefix: number, exponent: number }> } | null}
- *   Null when it is unknown, cyclic, affine, or built on a base units of its own.
+ *   Null when it is unknown, cyclic, affine, or built on a base units outside the generated file.
  */
-function flattenUnits(name, definitions, visiting = new Set()) {
+function flattenUnits(name, definitions, baseUnits, visiting = new Set()) {
   if (BUILT_IN_NAMES.has(name)) return { factor: 1, parts: [builtInPart(name, 0, 1)] }
   const definition = definitions.get(name)
+  if (baseUnits.has(name) && definition?.length === 0) return { factor: 1, parts: [builtInPart(name, 0, 1)] }
   if (!definition?.length || visiting.has(name)) return null
 
   visiting.add(name)
@@ -200,7 +204,7 @@ function flattenUnits(name, definitions, visiting = new Set()) {
       result.parts.push(builtInPart(units, prefix, exponent))
       continue
     }
-    const child = flattenUnits(units, definitions, visiting)
+    const child = flattenUnits(units, definitions, baseUnits, visiting)
     if (!child) return null
     result.factor *= multiplier * (10 ** prefix * child.factor) ** exponent
     result.parts.push(...child.parts.map((part) => ({ ...part, exponent: part.exponent * exponent })))
@@ -209,14 +213,14 @@ function flattenUnits(name, definitions, visiting = new Set()) {
   return result
 }
 
-/** Writes one resolved symbol, raised to its exponent, in CellML's built-in units. */
-function symbolToParts(symbol, definitions) {
+/** Writes one resolved symbol, raised to its exponent, in CellML's built-in units and the generated base units. */
+function symbolToParts(symbol, definitions, baseUnits) {
   const { exponent } = symbol
   if (symbol.atom) {
     const { units, factor } = symbol.atom
     return { factor: factor ** exponent, parts: [builtInPart(units, symbol.prefix, exponent)] }
   }
-  const flat = flattenUnits(symbol.library, definitions)
+  const flat = flattenUnits(symbol.library, definitions, baseUnits)
   if (!flat) return null
   return { factor: flat.factor ** exponent, parts: flat.parts.map((part) => ({ ...part, exponent: part.exponent * exponent })) }
 }
@@ -276,15 +280,17 @@ export function nameUnits(symbols, factor) {
  * Reads a units expression against the library.
  *
  * @param {string} text
- * @param {{ names: Set<string>, definitions: Map<string, Array<Object>>, expansions: Map<string, string> }} library
- *   Every units name, the library's definitions (mergeUnitDefinitions), and each name's SI expansion (expandUnits).
+ * @param {{ names: Set<string>, definitions: Map<string, Array<Object>>, expansions: Map<string, string>,
+ *   baseUnits?: Set<string> }} library
+ *   Every units name, the library's definitions (mergeUnitDefinitions), each name's SI expansion (expandUnits), and
+ *   the base units defined in the generated units file.
  * @returns {{ error: string }
  *   | { name: string, existing: true }
  *   | { name: string, parts: Array<Object>, expansion: string, equivalents: string[] }}
  *   An existing name when the expression is one, e.g. a library name or `Cel`; otherwise a new definition, made only
- *   of CellML built-in units, and the library names that expand to the same thing.
+ *   of CellML built-in units and the generated file's base units, and the library names that expand to the same thing.
  */
-export function interpretUnitExpression(text, { names, definitions, expansions }) {
+export function interpretUnitExpression(text, { names, definitions, expansions, baseUnits = new Set() }) {
   const parsed = parseUnitExpression(text)
   if (parsed.error) return parsed
 
@@ -304,7 +310,7 @@ export function interpretUnitExpression(text, { names, definitions, expansions }
   let factor = parsed.factor
   const allParts = []
   for (const symbol of symbols) {
-    const written = symbolToParts(symbol, definitions)
+    const written = symbolToParts(symbol, definitions, baseUnits)
     if (!written) return { error: `"${symbol.label}" can't be written in CellML's built-in units` }
     factor *= written.factor
     allParts.push(...written.parts)
@@ -319,7 +325,7 @@ export function interpretUnitExpression(text, { names, definitions, expansions }
     multiplier: index === 0 ? factor : 1,
   }))
 
-  const expansion = expandDefinition(parts)
+  const expansion = expandDefinition(parts, { definitions })
   const equivalents = [...expansions]
     .filter(([, other]) => other === expansion)
     .map(([name]) => name)
@@ -333,8 +339,20 @@ export function interpretUnitExpression(text, { names, definitions, expansions }
 // ── Suggestions ─────────────────────────────────────────────────────────────
 
 /**
+ * Gets the base units a name not in the library could become, e.g. `number_of_sharks`: a dimension of its own.
+ *
+ * @param {string} text - As typed.
+ * @param {Set<string>} names - Every library and built-in units name.
+ * @returns {string} The name, or '' when the text isn't a valid name or is already taken.
+ */
+export function newBaseUnitsName(text, names) {
+  return text && sanitiseName(text) === text && !names.has(text) ? text : ''
+}
+
+/**
  * Suggestions for a units field: library names matching the text, then, when the text is a units expression, the
- * library units equal to it and a new units for it.
+ * library units equal to it and a new units for it. A name that is neither a library name nor an expression is
+ * offered last as a new base units.
  *
  * @param {string} typed
  * @param {{ names: Set<string>, definitions: Map<string, Array<Object>>, expansions: Map<string, string> }} library
@@ -352,7 +370,13 @@ export function suggestUnits(typed, library, { details = library.expansions, bui
   if (!text) return items
 
   const result = interpretUnitExpression(text, library)
-  if (result.error || (result.existing && result.name === text)) return items
+  if (result.error) {
+    const baseName = newBaseUnitsName(text, library.names)
+    if (!baseName) return items
+    const create = { value: baseName, detail: 'new base units', create: { name: baseName, parts: [] } }
+    return [...items.slice(0, limit - 1), create]
+  }
+  if (result.existing && result.name === text) return items
 
   if (result.existing) {
     if (!listed.has(result.name)) items.unshift({ value: result.name, detail: detailFor(result.name) })
@@ -365,7 +389,7 @@ export function suggestUnits(typed, library, { details = library.expansions, bui
     .map((name) => ({ value: name, detail: `same as ${text} · ${detailFor(name)}` }))
   const create = {
     value: result.name,
-    detail: `new · ${expandDefinition(result.parts, { builtIn })}`,
+    detail: `new · ${expandDefinition(result.parts, { builtIn, definitions: library.definitions })}`,
     create: { name: result.name, parts: result.parts },
   }
   return [...extra, create, ...items].slice(0, limit)
@@ -388,12 +412,15 @@ function unitXml({ units, prefix = 0, exponent = 1, multiplier = 1 }) {
  * Writes a CellML 2.0 units file.
  *
  * @param {Map<string, Array<{ units: string, prefix?: number, exponent?: number, multiplier?: number }>>} definitions
+ *   An empty parts list writes a base units.
  * @param {string} [modelName] - The model's name.
  * @returns {string}
  */
 export function unitsModelXml(definitions, modelName = 'generated_units') {
-  const units = [...definitions].map(
-    ([name, parts]) => `  <units name="${name}">\n${parts.map((part) => `    ${unitXml(part)}`).join('\n')}\n  </units>`
+  const units = [...definitions].map(([name, parts]) =>
+    parts.length
+      ? `  <units name="${name}">\n${parts.map((part) => `    ${unitXml(part)}`).join('\n')}\n  </units>`
+      : `  <units name="${name}"/>`
   )
   return `<?xml version="1.0" encoding="UTF-8"?>\n<model xmlns="${CELLML_NS}" name="${modelName}">\n${units.join('\n')}\n</model>\n`
 }

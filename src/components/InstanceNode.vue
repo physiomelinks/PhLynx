@@ -24,12 +24,13 @@
           </div>
         </div>
         <div style="flex-grow: 1; min-width: 1.5em;"></div> <!-- Spacer to push buttons to the right -->
-        <div v-if="isMissingParameters" class="status-indicator">
+        <div v-if="isMissingParameters || isMissingUnits" class="status-indicator">
           <i
             class="pi pi-exclamation-triangle warning-icon"
-            v-tooltip.top="'At least one parameter has not been assigned a value'"
+            v-tooltip.top="`At least one ${isMissingParameters ? 'parameter' : 'unit'} has not been ${isMissingParameters ? 'assigned a value' : 'given a valid definition'}`"
           ></i>
         </div>
+
         <Button
           rounded
           iconOnly
@@ -121,6 +122,7 @@ import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
 import { detachReactivity } from '../utils/reactivity'
 import { HANDLE_VARIANT } from '../utils/constants'
+import { isUnitKnown } from '../utils/parameterRows'
 import { categoryStyle as themeCategoryStyle } from '../utils/nodeThemes'
 import { useHandleManagement } from '../composables/useHandleManagement'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
@@ -187,6 +189,19 @@ const isMissingParameters = computed(() => {
           return true
         }
       } else if (isEmpty(variable.value)) {
+        return true
+      }
+    }
+  }
+  return false
+})
+
+const isMissingUnits = computed(() => {
+  for (const variable of props.data.variables || []) {
+    if (isEditableVariableType(variable.type)) {
+      if (isEmpty(variable.units)) {
+        return true
+      } else if (!isUnitKnown(variable, libraryStore.availableUnitNames)) {
         return true
       }
     }
@@ -572,6 +587,7 @@ function openContextMenu(event) {
 .status-indicator {
   background-color: color-mix(in srgb, var(--p-orange-500) 20%, var(--p-content-background));
   border-radius: 50%;
+  flex-shrink: 0;
   width: 1.6rem;
   height: 1.6rem;
   display: flex;

@@ -1,4 +1,4 @@
-import { processCellMLData } from './cellml'
+import { hoistEncapsulatedComponents, processCellMLData } from './cellml'
 import { normaliseConfig, parseMathRef } from './config'
 import { extensionOf } from './import'
 
@@ -85,7 +85,9 @@ export async function parseForRole(file, candidates, store = null) {
         data.forEach(normaliseConfig)
       }
       if (field.processUpload === 'cellml') {
-        const result = processCellMLData(data)
+        // Hoisted as the workspace import does: the dialog commits these components to the library
+        // and checks readiness against them. In CellML mode the notices come when the file is loaded.
+        const result = processCellMLData(hoistEncapsulatedComponents(data).cellml)
         if (result?.type !== 'success') {
           throw new Error(`Invalid CellML: ${result?.issues?.[0]?.description ?? 'the model could not be read.'}`)
         }

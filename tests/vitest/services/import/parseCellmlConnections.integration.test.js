@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { parseCellMLConnections } from '../../../../src/services/import/parseCellmlConnections.js'
+import { patchUnderscoreTagSelectors } from '../../helpers/happyDom.js'
 import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -71,37 +72,6 @@ const CELLML1_NO_CONNECTIONS = `<?xml version="1.0"?>
 <model xmlns="http://www.cellml.org/cellml/1.1#" name="m">
   <component name="a"><variable name="x" units="dimensionless"/></component>
 </model>`
-
-/**
- * happy-dom's selector engine never matches tag names containing an underscore
- * (`querySelectorAll('map_variables')` is always empty), unlike browsers. Route
- * plain underscore tag selectors to getElementsByTagName so the parser sees what
- * it would in a real browser.
- */
-function patchUnderscoreTagSelectors() {
-  const sample = new DOMParser().parseFromString('<a><b/></a>', 'application/xml')
-  const protos = [Object.getPrototypeOf(sample), Object.getPrototypeOf(sample.documentElement)]
-  const isUnderscoreTag = (sel) => /^[A-Za-z]\w*$/.test(sel) && sel.includes('_')
-  const originals = protos.map((proto) => ({
-    proto,
-    all: proto.querySelectorAll,
-    one: proto.querySelector,
-  }))
-  for (const { proto, all, one } of originals) {
-    proto.querySelectorAll = function (sel) {
-      return isUnderscoreTag(sel) ? Array.from(this.getElementsByTagName(sel)) : all.call(this, sel)
-    }
-    proto.querySelector = function (sel) {
-      return isUnderscoreTag(sel) ? (this.getElementsByTagName(sel)[0] ?? null) : one.call(this, sel)
-    }
-  }
-  return () => {
-    for (const { proto, all, one } of originals) {
-      proto.querySelectorAll = all
-      proto.querySelector = one
-    }
-  }
-}
 
 describe('parseCellMLConnections (real libCellML-validated models)', () => {
   let libcellml
@@ -213,6 +183,77 @@ describe('parseCellMLConnections (real libCellML-validated models)', () => {
         label: 'out__src',
         variables: ['inp'],
       })
+    })
+  })
+
+  describe('constants shared through connections', () => {
+    // `holder` exports k to two readers. It also has a state, s, a constant nothing reads, c, and q,
+    // which `rival` gives an initial value too.
+    const SHARED = `<model xmlns="http://www.cellml.org/cellml/1.0#" name="m">
+  <component name="holder">
+    <variable name="k" units="dimensionless" initial_value=" 0.5 " public_interface="out"/>
+    <variable name="s" units="dimensionless" initial_value="1" public_interface="out"/>
+    <variable name="c" units="dimensionless" initial_value="3"/>
+    <variable name="q" units="dimensionless" initial_value="2" public_interface="out"/>
+    <math ${MATHML}><apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>s</ci></apply><ci>c</ci></apply></math>
+  </component>
+  <component name="r1">
+    <variable name="k" units="dimensionless" public_interface="in"/>
+    <variable name="s_in" units="dimensionless" public_interface="in"/>
+  </component>
+  <component name="r2"><variable name="kk" units="dimensionless" public_interface="in"/></component>
+  <component name="rival"><variable name="q" units="dimensionless" initial_value="2" public_interface="in"/></component>
+  <connection><map_components component_1="holder" component_2="r1"/>
+    <map_variables variable_1="k" variable_2="k"/><map_variables variable_1="s" variable_2="s_in"/></connection>
+  <connection><map_components component_1="r2" component_2="holder"/><map_variables variable_1="kk" variable_2="k"/></connection>
+  <connection><map_components component_1="holder" component_2="rival"/><map_variables variable_1="q" variable_2="q"/></connection>
+</model>`
+
+    const rowsOf = (result, name) =>
+      Object.fromEntries(result.modules.find((mod) => mod.name === name).variables.map((row) => [row.name, `${row.type}=${row.value}`]))
+
+    it('types the holder of a shared numeric initial value as a constant, keeping its value', () => {
+      const result = parseCellMLConnections(SHARED, 'm.cellml')
+
+      expect(rowsOf(result, 'holder')).toEqual({
+        k: 'constant=0.5',
+        // A state, a constant nothing reads, and a value two components give stay for reconcileRows to type.
+        s: 'variable=null',
+        c: 'variable=null',
+        q: 'variable=null',
+      })
+      const nodeRows = result.nodes.find((node) => node.id === 'holder').data.variables
+      expect(nodeRows.find((row) => row.name === 'k')).toMatchObject({ type: 'constant', value: '0.5' })
+    })
+
+    it('leaves the readers untyped, so reconcileRows makes them boundary conditions the constant supplies', () => {
+      const result = parseCellMLConnections(SHARED, 'm.cellml')
+
+      expect(rowsOf(result, 'r1')).toEqual({ k: 'variable=null', s_in: 'variable=null' })
+      expect(rowsOf(result, 'r2')).toEqual({ kk: 'variable=null' })
+      expect(rowsOf(result, 'rival')).toEqual({ q: 'variable=null' })
+    })
+
+    it('types no holder when its connected set has another, directly or through a relay', () => {
+      // h1.c and h2.c each own a value and a reader; h3.d and h4.d are joined through `relay`.
+      const xml = `<model xmlns="http://www.cellml.org/cellml/1.0#" name="m">
+  <component name="h1"><variable name="c" units="dimensionless" initial_value="1" public_interface="out"/></component>
+  <component name="h2"><variable name="c" units="dimensionless" initial_value="2" public_interface="out"/></component>
+  <component name="ra"><variable name="c" units="dimensionless" public_interface="in"/></component>
+  <component name="rb"><variable name="c" units="dimensionless" public_interface="in"/></component>
+  <component name="h3"><variable name="d" units="dimensionless" initial_value="1" public_interface="out"/></component>
+  <component name="h4"><variable name="d" units="dimensionless" initial_value="1" public_interface="out"/></component>
+  <component name="relay"><variable name="d" units="dimensionless" public_interface="in"/></component>
+  <connection><map_components component_1="h1" component_2="h2"/><map_variables variable_1="c" variable_2="c"/></connection>
+  <connection><map_components component_1="h1" component_2="ra"/><map_variables variable_1="c" variable_2="c"/></connection>
+  <connection><map_components component_1="h2" component_2="rb"/><map_variables variable_1="c" variable_2="c"/></connection>
+  <connection><map_components component_1="h3" component_2="relay"/><map_variables variable_1="d" variable_2="d"/></connection>
+  <connection><map_components component_1="relay" component_2="h4"/><map_variables variable_1="d" variable_2="d"/></connection>
+</model>`
+      const result = parseCellMLConnections(xml, 'm.cellml')
+
+      for (const name of ['h1', 'h2', 'ra', 'rb']) expect(rowsOf(result, name)).toEqual({ c: 'variable=null' })
+      for (const name of ['h3', 'h4', 'relay']) expect(rowsOf(result, name)).toEqual({ d: 'variable=null' })
     })
   })
 

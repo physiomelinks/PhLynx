@@ -8,8 +8,8 @@
  * - None: a plain link, on a port that takes one connection. A port never mixes None with the other
  *   types: beside them, None reads as True.
  * - True: a plain link shared with every connected module.
- * - Sum: the sum, over every connection, of the neighbour's paired variable. A variable sums through
- *   one port only (see sharedSumConflicts).
+ * - Sum: the sum, over every connection, of the neighbour's paired variable. A variable can sum through
+ *   more than one port: every connected Sum port on the instance contributes terms to the same total.
  * - Multiply: reaches the neighbour's paired variable times its factor.
  *
  * Imports nothing, so config.js, cellml.js and boundaryValues.js can all use it.
@@ -93,46 +93,6 @@ export function couplingConflicts(sourcePort, targetPort) {
   )
 }
 
-/**
- * Why edges can't be exported because a node's variable sums through more than one port, by edge id.
- * Only connected ports count; a coupling whose ports are malformed is left to couplingConflicts.
- *
- * @param {Object[]} edges - Edges with source, target and data.couplings.
- * @param {(nodeId: string) => string} [nameOf] - A node's name for the messages.
- * @returns {Map<string, string[]>}
- */
-export function sharedSumConflicts(edges, nameOf = (id) => id) {
-  const sums = new Map() // `nodeId::variable` → { nodeId, varName, labels, edgeIds }
-  for (const edge of edges) {
-    for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
-      for (const [nodeId, port] of [[edge.source, sourcePort], [edge.target, targetPort]]) {
-        let types
-        try {
-          types = variableTypes(port)
-        } catch {
-          continue
-        }
-        types.forEach((type, i) => {
-          const varName = port.variables[i]
-          if (type !== 'Sum' || !varName) return
-          const key = `${nodeId}::${varName}`
-          if (!sums.has(key)) sums.set(key, { nodeId, varName, labels: new Set(), edgeIds: new Set() })
-          sums.get(key).labels.add(port.label)
-          sums.get(key).edgeIds.add(edge.id)
-        })
-      }
-    }
-  }
-  const conflicts = new Map()
-  for (const { nodeId, varName, labels, edgeIds } of sums.values()) {
-    if (labels.size < 2) continue
-    const ports = [...labels].map((label) => `"${label}"`).join(' and ')
-    const message = `"${nameOf(nodeId)}" sums "${varName}" through ports ${ports}; a variable can be summed through one port only.`
-    for (const id of edgeIds) conflicts.set(id, [...(conflicts.get(id) ?? []), message])
-  }
-  return conflicts
-}
-
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 const samePort = (a, b) =>
@@ -168,7 +128,6 @@ function attempt(read, issues, fallback) {
  */
 export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id }) {
   const entries = []
-  const connectedSums = new Map() // variable → labels of the connected ports summing it
   const coupledPorts = edges.flatMap((edge) =>
     (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => [
       ...(edge.source === nodeId ? [sourcePort] : []),
@@ -196,7 +155,6 @@ export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id 
     })
     if (pending || !portEntries.size) continue
 
-    let connected = false
     for (const edge of edges) {
       for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
         const ends = [
@@ -204,7 +162,6 @@ export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id 
           edge.target === nodeId && samePort(original, targetPort) && [sourcePort, edge.source],
         ].filter(Boolean)
         for (const [neighbourPort, neighbourId] of ends) {
-          connected = true
           const neighbourIssues = []
           const neighbourTypes = attempt(() => variableTypes(neighbourPort), neighbourIssues, [])
           if (neighbourTypes.length && neighbourTypes.length !== types.length) {
@@ -232,20 +189,8 @@ export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id 
         }
       }
     }
-    if (!connected) continue
-    for (const entry of portEntries.values()) {
-      if (entry.type !== 'Sum') continue
-      if (!connectedSums.has(entry.variable)) connectedSums.set(entry.variable, new Set())
-      connectedSums.get(entry.variable).add(entry.portLabel)
-    }
   }
 
-  for (const entry of entries) {
-    const labels = entry.type === 'Sum' ? connectedSums.get(entry.variable) : null
-    if (!labels || labels.size < 2) continue
-    const ports = [...labels].map((label) => `"${label}"`).join(' and ')
-    entry.issues.push(`"${entry.variable}" sums through ports ${ports}; a variable can be summed through one port only.`)
-  }
   return entries
 }
 

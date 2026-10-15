@@ -130,7 +130,6 @@ import {
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { getHandleUidFromHandleId } from '../utils/handles'
-import { useConfirm } from 'primevue'
 import { useClearWorkspace } from '../composables/useClearWorkspace.js'
 
 const { addEdges, removeEdges, edges,  onEdgeChange,
@@ -139,14 +138,21 @@ const { addEdges, removeEdges, edges,  onEdgeChange,
   onDragLeave, updateNodeInternals, getSelectedNodes } =
   useVueFlow(FLOW_IDS.MACRO)
 
-const confirm = useConfirmDialog()
+const { confirm } = useConfirmDialog()
 const { clearWorkspace } = useClearWorkspace(FLOW_IDS.MACRO)
 
 const previousNodes = new Set()
 const { onDrop, isGhostSetupOpen, pendingGhostNodeId } = useDragAndDrop(previousNodes, FLOW_IDS.MACRO)
 const { trackEvent } = useGtm()
 
-const { revertPendingGhostIfUnused, confirmActivation, activateHandle, addHandle: addHandleToNode } = useHandleManagement()
+const {
+  revertPendingGhostIfUnused,
+  revertHandleIfUnused,
+  revertHandlesForEdge,
+  confirmActivation,
+  activateHandle,
+  addHandle: addHandleToNode,
+} = useHandleManagement()
 
 const libraryStore = useLibraryStore()
 

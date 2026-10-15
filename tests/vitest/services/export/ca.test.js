@@ -262,6 +262,15 @@ describe('generateExportZip', () => {
     expect(notified.warning).not.toHaveBeenCalled()
   })
 
+  it('writes a unit only a number uses', async () => {
+    library.addMath('my_math.cellml:rate_type', RATE_MATH.replace('name="r" units="per_min"', 'name="r" units="dimensionless"'))
+    library.addGeneratedUnits({ name: 'per_min', parts: [{ units: 'second', prefix: 0, exponent: -1, multiplier: 60 }] })
+    library.addModule({ moduleRef: 'rate:default', mathRef: 'my_math.cellml:rate_type', ports: [], variables: [] })
+    const node = { id: 'r', data: { name: 'r', moduleRef: 'rate:default', mathRef: 'my_math.cellml:rate_type', ports: [], variables: [] } }
+    const files = await readZip(await generateExportZip('heart', [node], [], library))
+    expect(files['modules/heart_units.cellml']).toContain('<units name="per_min">')
+  })
+
   it('warns about units no library units file defines', async () => {
     library.addMath(BG_MATH_REF, VP_MATH.replace('units="J_per_m3"', 'units="mystery"'))
     const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))

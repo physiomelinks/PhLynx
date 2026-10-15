@@ -1,32 +1,56 @@
 # Changelog
 
 
+## v0.5.1
+###### Released on 2026-10-15
+
+#### New Features
+* Allow a variable to sum through more than one port on an instance by [@jmdowrick](https://github.com/jmdowrick) in [#806](https://github.com/physiomelinks/PhLynx/pull/806)
+* Add warning to instance nodes when units are missing or invalid by [@jmdowrick](https://github.com/jmdowrick) in [#796](https://github.com/physiomelinks/PhLynx/pull/796)
+* Allow creation of user defined units by [@hsorby](https://github.com/hsorby) in [#797](https://github.com/physiomelinks/PhLynx/pull/797)
+
+
+#### Fixed Bugs
+* Stop gen-changelog crashing on issue references by [@jmdowrick](https://github.com/jmdowrick) in [#812](https://github.com/physiomelinks/PhLynx/pull/812)
+* Fix the macro builder's prompt for an existing connection by [@jmdowrick](https://github.com/jmdowrick) in [#799](https://github.com/physiomelinks/PhLynx/pull/799)
+* Import attachNewNodeToFrame where drops use it by [@jmdowrick](https://github.com/jmdowrick) in [#808](https://github.com/physiomelinks/PhLynx/pull/808)
+* Import CellML constants shared through connections as constants by [@jmdowrick](https://github.com/jmdowrick) in [#788](https://github.com/physiomelinks/PhLynx/pull/788)
+
+
+#### Maintenance Work
+* Give the search bar slash some clothes by [@jmdowrick](https://github.com/jmdowrick) in [#811](https://github.com/physiomelinks/PhLynx/pull/811)
+* Hoist encapsulated CellML components on import by [@jmdowrick](https://github.com/jmdowrick) in [#789](https://github.com/physiomelinks/PhLynx/pull/789)
+
+
+#### Contributors
+
+<kbd>
+  <a href="https://github.com/jmdowrick">
+    <img src="https://avatars.githubusercontent.com/u/146781982?u=94c7295b017c61161e81ba34c929524b31a423c2&v=4&s=100" width="50" height="50"><br>
+    <sub>@jmdowrick</sub>
+  </a>
+</kbd> <kbd>
+  <a href="https://github.com/hsorby">
+    <img src="https://avatars.githubusercontent.com/u/778048?u=31d6ee5b17c95630c61a61e7cfe0c008b138b769&v=4&s=100" width="50" height="50"><br>
+    <sub>@hsorby</sub>
+  </a>
+</kbd>
+
+
+
+---
+
 ## v0.5.0
 ###### Released on 2026-10-14
 
 #### Not Specified
-* Make the sweep editor compact, scope-aware and ODE-aware by [@jmdowrick](https://github.com/jmdowrick) in [#771](https://github.com/physiomelinks/PhLynx/pull/771)
 * Show a boundary condition's own-value fallback as a note, not a warning by [@jmdowrick](https://github.com/jmdowrick) in [#770](https://github.com/physiomelinks/PhLynx/pull/770)
-* Save the workspace with Ctrl/Cmd+S when it has instances by [@jmdowrick](https://github.com/jmdowrick) in [#768](https://github.com/physiomelinks/PhLynx/pull/768)
-* Add Playwright tests for workspace canvas interactions by [@jmdowrick](https://github.com/jmdowrick) in [#767](https://github.com/physiomelinks/PhLynx/pull/767)
-* Extract CellML drop handling into useCellmlDrop and test it by [@jmdowrick](https://github.com/jmdowrick) in [#760](https://github.com/physiomelinks/PhLynx/pull/760)
-* Extract copy/paste/select-all into useWorkspaceClipboard and test it by [@jmdowrick](https://github.com/jmdowrick) in [#759](https://github.com/physiomelinks/PhLynx/pull/759)
-* Extract workspace save and apply into useWorkspaceSaveLoad and test it by [@jmdowrick](https://github.com/jmdowrick) in [#764](https://github.com/physiomelinks/PhLynx/pull/764)
-* Make the workspace sidebars easier to find by [@jmdowrick](https://github.com/jmdowrick) in [#763](https://github.com/physiomelinks/PhLynx/pull/763)
 * Keep variable names visible; controls on the left with a settings section by [@jmdowrick](https://github.com/jmdowrick) in [#757](https://github.com/physiomelinks/PhLynx/pull/757)
-* Document simulation, protocols, and the CellML/Math editors by [@jmdowrick](https://github.com/jmdowrick) in [#746](https://github.com/physiomelinks/PhLynx/pull/746)
-* Extract onConnect into useConnect and test it by [@jmdowrick](https://github.com/jmdowrick) in [#758](https://github.com/physiomelinks/PhLynx/pull/758)
-* Extract node/edge history handling into useFlowHistory by [@jmdowrick](https://github.com/jmdowrick) in [#749](https://github.com/physiomelinks/PhLynx/pull/749)
-* Add unit tests for navigation, CellML import, handles, screenshot and save helpers by [@jmdowrick](https://github.com/jmdowrick) in [#745](https://github.com/physiomelinks/PhLynx/pull/745)
-* Keep parameter types on load, and drop values a connection supplies by [@jmdowrick](https://github.com/jmdowrick) in [#686](https://github.com/physiomelinks/PhLynx/pull/686)
-* Install one copy of @primeuix/utils so the math editor list stacks above dialogs by [@jmdowrick](https://github.com/jmdowrick) in [#721](https://github.com/physiomelinks/PhLynx/pull/721)
-* Sweep models with ODEs, choose the reading, and draw curves of a second parameter by [@jmdowrick](https://github.com/jmdowrick) in [#685](https://github.com/physiomelinks/PhLynx/pull/685)
-* Bring protocols into main beside the sweep by [@jmdowrick](https://github.com/jmdowrick) in [#684](https://github.com/physiomelinks/PhLynx/pull/684)
-* Sweep a parameter of an algebraic system, and plot one variable against another by [@jmdowrick](https://github.com/jmdowrick) in [#677](https://github.com/physiomelinks/PhLynx/pull/677)
-* Track runs on the simulation charts, as web OpenCOR does by [@jmdowrick](https://github.com/jmdowrick) in [#678](https://github.com/physiomelinks/PhLynx/pull/678)
 
 
 #### New Features
+* Make the sweep editor compact, scope-aware and ODE-aware by [@jmdowrick](https://github.com/jmdowrick) in [#771](https://github.com/physiomelinks/PhLynx/pull/771)
+* Make the workspace sidebars easier to find by [@jmdowrick](https://github.com/jmdowrick) in [#763](https://github.com/physiomelinks/PhLynx/pull/763)
 * Add a var: workspace search mode and a / mode picker by [@jmdowrick](https://github.com/jmdowrick) in [#740](https://github.com/physiomelinks/PhLynx/pull/740)
 * Give the instance editor its own plot and plot variables clicked in the math by [@jmdowrick](https://github.com/jmdowrick) in [#736](https://github.com/physiomelinks/PhLynx/pull/736)
 * Open the results on a simulation page instead of a larger view by [@jmdowrick](https://github.com/jmdowrick) in [#735](https://github.com/physiomelinks/PhLynx/pull/735)
@@ -35,6 +59,10 @@
 * Show each parameter's connection status in the instance editor by [@jmdowrick](https://github.com/jmdowrick) in [#724](https://github.com/physiomelinks/PhLynx/pull/724)
 * Report Math Editor edits once typing pauses by [@jmdowrick](https://github.com/jmdowrick) in [#723](https://github.com/physiomelinks/PhLynx/pull/723)
 * Simulate and plot models in PhLynx with libOpenCOR by [@jmdowrick](https://github.com/jmdowrick) in [#656](https://github.com/physiomelinks/PhLynx/pull/656)
+* Sweep models with ODEs, choose the reading, and draw curves of a second parameter by [@jmdowrick](https://github.com/jmdowrick) in [#685](https://github.com/physiomelinks/PhLynx/pull/685)
+* Bring protocols into main beside the sweep by [@jmdowrick](https://github.com/jmdowrick) in [#684](https://github.com/physiomelinks/PhLynx/pull/684)
+* Sweep a parameter of an algebraic system, and plot one variable against another by [@jmdowrick](https://github.com/jmdowrick) in [#677](https://github.com/physiomelinks/PhLynx/pull/677)
+* Track runs on the simulation charts, as web OpenCOR does by [@jmdowrick](https://github.com/jmdowrick) in [#678](https://github.com/physiomelinks/PhLynx/pull/678)
 
 
 #### Fixed Bugs
@@ -46,16 +74,26 @@
 * Keep declared variables no equation uses in Simple Mode by [@jmdowrick](https://github.com/jmdowrick) in [#725](https://github.com/physiomelinks/PhLynx/pull/725)
 * Reload a workspace when the same file is picked again by [@jmdowrick](https://github.com/jmdowrick) in [#722](https://github.com/physiomelinks/PhLynx/pull/722)
 * Add a library module when an instance is saved as a new component by [@jmdowrick](https://github.com/jmdowrick) in [#720](https://github.com/physiomelinks/PhLynx/pull/720)
+* Install one copy of @primeuix/utils so the math editor list stacks above dialogs by [@jmdowrick](https://github.com/jmdowrick) in [#721](https://github.com/physiomelinks/PhLynx/pull/721)
+* Save the workspace with Ctrl/Cmd+S when it has instances by [@jmdowrick](https://github.com/jmdowrick) in [#768](https://github.com/physiomelinks/PhLynx/pull/768)
+* Keep parameter types on load, and drop values a connection supplies by [@jmdowrick](https://github.com/jmdowrick) in [#686](https://github.com/physiomelinks/PhLynx/pull/686)
 * Fix legacy migration of copied nodes' edges and of user modules by [@jmdowrick](https://github.com/jmdowrick) in [#682](https://github.com/physiomelinks/PhLynx/pull/682)
 
 
 #### Documentation Updates
 * Bring the user guide in line with v0.5.0 by [@jmdowrick](https://github.com/jmdowrick) in [#769](https://github.com/physiomelinks/PhLynx/pull/769)
+* Document simulation, protocols, and the CellML/Math editors by [@jmdowrick](https://github.com/jmdowrick) in [#746](https://github.com/physiomelinks/PhLynx/pull/746)
 
 
 #### Maintenance Work
 * Change import and export icons in workspace area. by [@hsorby](https://github.com/hsorby) in [#741](https://github.com/physiomelinks/PhLynx/pull/741)
-
+* Add Playwright tests for workspace canvas interactions by [@jmdowrick](https://github.com/jmdowrick) in [#767](https://github.com/physiomelinks/PhLynx/pull/767)
+* Add unit tests for navigation, CellML import, handles, screenshot and save helpers by [@jmdowrick](https://github.com/jmdowrick) in [#745](https://github.com/physiomelinks/PhLynx/pull/745)
+* Extract CellML drop handling into useCellmlDrop and test it by [@jmdowrick](https://github.com/jmdowrick) in [#760](https://github.com/physiomelinks/PhLynx/pull/760)
+* Extract copy/paste/select-all into useWorkspaceClipboard and test it by [@jmdowrick](https://github.com/jmdowrick) in [#759](https://github.com/physiomelinks/PhLynx/pull/759)
+* Extract workspace save and apply into useWorkspaceSaveLoad and test it by [@jmdowrick](https://github.com/jmdowrick) in [#764](https://github.com/physiomelinks/PhLynx/pull/764)
+* Extract onConnect into useConnect and test it by [@jmdowrick](https://github.com/jmdowrick) in [#758](https://github.com/physiomelinks/PhLynx/pull/758)
+* Extract node/edge history handling into useFlowHistory by [@jmdowrick](https://github.com/jmdowrick) in [#749](https://github.com/physiomelinks/PhLynx/pull/749)
 
 #### Contributors
 

@@ -1,5 +1,6 @@
 import { useVueFlow } from '@vue-flow/core'
 import { importOmexFile } from '../services/import/omex'
+import { prepareCellmlImport, prepareCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { loadParametersFromCellML } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
@@ -50,7 +51,7 @@ export function useCellmlDrop({
     // Single-file fast path: check for connections and load as a graph if present
     if (entries.length === 1) {
       const entry = entries[0]
-      const content = entry instanceof File ? await readFileAsText(entry) : entry.content
+      const content = prepareCellmlImport(entry instanceof File ? await readFileAsText(entry) : entry.content, entry.name)
       const parsedCellmlPayload = parseCellMLConnections(content, entry.name)
 
       if (parsedCellmlPayload.edges.length > 0) {
@@ -128,13 +129,27 @@ export function useCellmlDrop({
 
     // Multi-file path: always register as module/unit libraries
     const multiFile = entries.length > 1
-    const results = await Promise.all(
-      entries.map(async (entry) => {
+    const failed = { ok: false, moduleCount: 0, unitsCount: 0 }
+    const unreadable = new Set()
+    const texts = await Promise.all(
+      entries.map(async (entry, index) => {
         try {
-          const content = entry instanceof File ? await readFileAsText(entry) : entry.content
-          return loadCellMLData(content, entry.name, { notify: !multiFile })
+          return entry instanceof File ? await readFileAsText(entry) : entry.content
         } catch {
-          return { ok: false, moduleCount: 0, unitsCount: 0 }
+          unreadable.add(index)
+          return null
+        }
+      })
+    )
+    // Prepared together, so the batch gets one notice of each kind.
+    const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: texts[index] })))
+    const results = await Promise.all(
+      entries.map(async (entry, index) => {
+        if (unreadable.has(index)) return failed
+        try {
+          return await loadCellMLData(contents[index], entry.name, { notify: !multiFile })
+        } catch {
+          return failed
         }
       })
     )

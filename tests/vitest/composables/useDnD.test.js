@@ -225,6 +225,19 @@ describe('useDragAndDrop', () => {
       expect(update.data).toBe(node.data)
       expect(flow.off).toHaveBeenCalledTimes(1)
     })
+
+    it('puts the centred node in the layout frame of a node already laid out', () => {
+      const layoutFrame = { xScale: 2, yScale: 4, xCentre: 10, yCentre: 20 }
+      flow.nodes.value = [{ id: 'dndnode_0', data: { name: 'laid_out', layoutFrame } }]
+      dnd.createInstanceNode(moduleData(), { x: 100, y: 200 })
+
+      flow.initCallbacks[0]()
+
+      const node = { position: { x: 100, y: 200 }, dimensions: { width: 40, height: 20 }, data: { name: 'm' } }
+      const update = flow.updateNode.mock.calls[0][1](node)
+      expect(update.position).toEqual({ x: 80, y: 190 })
+      expect(update.data).toEqual({ name: 'm', layoutFrame, layoutRef: { refX: 50, refY: 67.5 } })
+    })
   })
 
   describe('onDrop', () => {
