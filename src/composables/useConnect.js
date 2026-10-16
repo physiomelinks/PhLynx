@@ -1,14 +1,16 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 import { FLOW_IDS } from '../utils/constants'
-import { resolvePortCouplings } from '../utils/edges'
+import { resolvePortCouplings, withEdgeAppearance } from '../utils/edges'
 import { getHandleUidFromHandleId } from '../utils/handles'
 import { detachReactivity } from '../utils/reactivity'
 
 /**
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
  * asks before replacing an existing connection between the same instances, and adds the edge
- * with its resolved port couplings.
+ * with its resolved port couplings. The edge takes the appearance of the one it replaces, or else
+ * the workspace's default for new connections.
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -34,6 +36,7 @@ export function useConnect({
 }) {
   const { addEdges, edges, findNode, onConnect, removeEdges } = useVueFlow(flowId)
   const historyStore = useFlowHistoryStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
 
   onConnect(async (connection) => {
     const sourceNode = findNode(connection.source)
@@ -132,9 +135,10 @@ export function useConnect({
       ...connection,
       ...edgeLineOptions,
       id: `${connection.source}--${connection.target}`,
-      data: {
-        couplings,
-      },
+      data: withEdgeAppearance(
+        { couplings },
+        duplicateSnapshot ? duplicateSnapshot.data?.appearance : appearanceStore.newConnectionAppearance()
+      ),
     }
 
     if (duplicate) {

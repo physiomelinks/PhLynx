@@ -16,6 +16,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     nodes,
     edges: ref([]),
     getSelectedNodes: computed(() => nodes.value),
+    getSelectedEdges: computed(() => []),
     userSelectionActive: ref(false),
     findNode: (id) => nodes.value.find((node) => node.id === id),
     findEdge: () => undefined,

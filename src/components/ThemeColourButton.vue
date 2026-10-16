@@ -30,6 +30,7 @@
           @keydown.enter.prevent="apply"
         />
         <span
+          v-if="textColour"
           class="sample"
           :style="{ background: shownColour, color: textColour }"
           v-tooltip.top="'Contrast with node text (WCAG AA needs 4.5:1)'"
@@ -97,20 +98,25 @@ const props = defineProps({
     type: String,
     default: 'Colour',
   },
-  /** Node text colour this fill sits behind, for the contrast sample. */
+  /** Node text colour this fill sits behind, for the contrast sample; none hides the sample. */
   textColour: {
     type: String,
-    required: true,
+    default: undefined,
   },
   /** Other colours in the theme, offered as presets. */
   themeColours: {
     type: Array,
     default: () => [],
   },
+  /** Colours always offered after the theme's own; defaults to light node fills. */
+  palette: {
+    type: Array,
+    default: undefined,
+  },
 })
 
 // The value updates live so the canvas previews it; Apply keeps it, anything else puts the original back.
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'apply', 'cancel'])
 
 const popover = ref(null)
 const isOpen = ref(false)
@@ -129,10 +135,10 @@ const shownColour = computed(() => {
 
 const pickerValue = computed(() => shownColour.value.slice(1))
 
-const ratio = computed(() => contrastRatio(shownColour.value, props.textColour))
+const ratio = computed(() => (props.textColour ? contrastRatio(shownColour.value, props.textColour) : 0))
 
 const presetColours = computed(() => [
-  ...new Set([...props.themeColours.filter(isValidColour).map(normaliseColour), ...PALETTE]),
+  ...new Set([...props.themeColours.filter(isValidColour).map(normaliseColour), ...(props.palette ?? PALETTE)]),
 ])
 
 watch(shownColour, (value) => {
@@ -181,6 +187,7 @@ function toggle(event) {
 
 function revert() {
   if (props.modelValue !== original) emit('update:modelValue', original)
+  emit('cancel')
 }
 
 /** Closing any other way (outside click, Escape) counts as Cancel. */
@@ -190,6 +197,7 @@ function onHide() {
 }
 
 function apply() {
+  if (isOpen.value) emit('apply', props.modelValue)
   applied = true
   isOpen.value = false
   popover.value?.hide()

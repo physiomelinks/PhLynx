@@ -59,4 +59,27 @@ describe('ThemeColourButton', () => {
     expect(wrapper.find('button.colour-chip').classes()).toContain('colour-chip--auto')
     expect(wrapper.find('button.colour-chip').attributes('aria-label')).toContain('automatic')
   })
+
+  it('says when the colour is applied or cancelled', async () => {
+    mountButton()
+    await open()
+    document.body.querySelector('.colour-popover button.preset[aria-label="#dbeafe"]').click()
+    await flushPromises()
+    popoverButton('Apply').click()
+    await flushPromises()
+    expect(wrapper.emitted('apply')).toEqual([['#dbeafe']])
+
+    await open()
+    popoverButton('Cancel').click()
+    await flushPromises()
+    expect(wrapper.emitted('cancel')).toHaveLength(1)
+  })
+
+  it('leaves out the contrast sample without a text colour, and offers the given palette', async () => {
+    mountButton({ textColour: undefined, palette: ['#ef4444'] })
+    await open()
+    expect(document.body.querySelector('.colour-popover .sample')).toBeNull()
+    const presets = [...document.body.querySelectorAll('.colour-popover button.preset')].map((b) => b.getAttribute('aria-label'))
+    expect(presets).toEqual(['#ef4444'])
+  })
 })

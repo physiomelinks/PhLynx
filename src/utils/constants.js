@@ -32,6 +32,15 @@ export const edgeLineOptions = {
     strokeWidth: 5,
   },
 }
+
+/** Stroke widths of a connection, by its `width` appearance. */
+export const EDGE_WIDTHS = Object.freeze({ thin: 2.5, normal: 5, thick: 8 })
+/** Arrowhead sizes of a connection in flow units, by its `arrow` appearance; medium is the original size. */
+export const ARROW_SIZES = Object.freeze({ small: 45, medium: 62.5, large: 85 })
+export const EDGE_PATHS = Object.freeze(['smoothstep', 'bezier', 'straight', 'step'])
+/** A connection's appearance where its `edge.data.appearance` has no value; a null colour is automatic. */
+export const BUILT_IN_EDGE_APPEARANCE = Object.freeze({ colour: null, path: 'smoothstep', arrow: 'medium', width: 'normal' })
+
 export const FLOW_IDS = {
   MAIN: 'main-flow-editor',
   MACRO: 'macro-builder-editor',

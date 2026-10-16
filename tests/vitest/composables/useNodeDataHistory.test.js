@@ -112,6 +112,26 @@ describe('useNodeDataHistory', () => {
     expect(findNode('a').data.name).toBe('loaded')
   })
 
+  it('records the edge fields given by edgeKeys, removing an added one on undo', async () => {
+    const restyle = () => {
+      const edge = edges.value[0]
+      edge.data = { ...edge.data, appearance: { width: 'thick' } }
+    }
+    expect(await recordEdit({ type: 'edit-appearance', nodeIds: [], keys: [], edgeIds: ['e'], edgeKeys: ['appearance'], apply: restyle })).toBe(true)
+
+    await history.undo()
+    expect(edges.value[0].data).toEqual({ couplings: [{ from: 'k', to: 'k' }] })
+
+    await history.redo()
+    expect(edges.value[0].data.appearance).toEqual({ width: 'thick' })
+    expect(edges.value[0].data.couplings).toEqual([{ from: 'k', to: 'k' }])
+  })
+
+  it('records only couplings by default, so an appearance change alone is no step', async () => {
+    const restyle = () => (edges.value[0].data = { ...edges.value[0].data, appearance: { arrow: 'none' } })
+    expect(await recordEdit({ type: 'edit-connection', nodeIds: [], keys: [], edgeIds: ['e'], apply: restyle })).toBe(false)
+  })
+
   it('applies nothing when one of the step’s nodes has changed since', async () => {
     const renameBoth = () => {
       findNode('a').data = { ...findNode('a').data, name: 'a2' }

@@ -1,3 +1,4 @@
+import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -40,11 +41,13 @@ vi.mock('../../../src/composables/useWorkflowLayout', () => ({
 vi.mock('../../../src/services/import/buildWorkflow', () => ({ buildWorkflowGraph: mocks.buildWorkflowGraph }))
 
 import { useLoadFromCellML } from '../../../src/composables/useLoadFromCellml.js'
+import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore.js'
 
 const mod = (name, vars = []) => ({ name, variables: vars })
 
 describe('useLoadFromCellML', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     vi.clearAllMocks()
     mocks.order.length = 0
     mocks.clearWorkspace.mockResolvedValue(undefined)
@@ -120,7 +123,7 @@ describe('useLoadFromCellML', () => {
       null,
       'defaults'
     )
-    expect(mocks.prepareLayout).toHaveBeenCalledWith([{ id: 'e1' }])
+    expect(mocks.prepareLayout).toHaveBeenCalledWith([{ id: 'e1', data: {} }])
     expect(mocks.addNodes).toHaveBeenCalledWith([{ id: 'n1' }])
     expect(mocks.order).toEqual(['layout-start', 'start', 'addNodes', 'end'])
     expect(mocks.trackEvent).toHaveBeenCalledWith('cellml_connection_load', {
@@ -129,6 +132,15 @@ describe('useLoadFromCellML', () => {
       label: 'Components: 3, Edges: 2',
       file_type: 'cellml',
     })
+  })
+
+  it('gives the new edges the default appearance for new connections', async () => {
+    useWorkspaceAppearanceStore().setConnectionDefaults({ width: 'thick' })
+    const { loadFromCellML } = useLoadFromCellML()
+
+    await loadFromCellML({ components: ['a', 'b'], modules: [mod('a'), mod('b')], edges: [{ source: 'a', target: 'b' }] }, 'f')
+
+    expect(mocks.prepareLayout).toHaveBeenCalledWith([{ id: 'e1', data: { appearance: { width: 'thick' } } }])
   })
 
   it('awaits the layout before tracking the load event', async () => {

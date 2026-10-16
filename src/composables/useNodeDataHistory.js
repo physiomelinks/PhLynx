@@ -7,7 +7,7 @@ import { detachReactivity } from '../utils/reactivity'
 const isSame = (value, otherValue) => JSON.stringify(value) === JSON.stringify(otherValue)
 
 /**
- * Records edits to node data, edge couplings and global constants as canvas undo steps. Nodes and
+ * Records edits to node data, edge data and global constants as canvas undo steps. Nodes and
  * edges are found by id on every undo and redo, so a step still applies after they are re-created.
  *
  * @param {string} [flowId=FLOW_IDS.MAIN] - Only the main flow records history.
@@ -57,27 +57,36 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Copies the couplings of each edge.
+   * Copies some data fields of each edge.
    *
    * @param {Array<string>} edgeIds
-   * @returns {Array<{ id: string, couplings: Array|undefined }>} Missing edges are left out.
+   * @param {Array<string>} [keys=['couplings']]
+   * @returns {Array<{ id: string, fields: Object }>} Missing edges are left out.
    */
-  function captureEdgeCouplings(edgeIds) {
+  function captureEdgeFields(edgeIds, keys = ['couplings']) {
     return edgeIds.flatMap((id) => {
       const edge = findEdge(id)
-      return edge ? [{ id, couplings: edge.data?.couplings && detachReactivity(edge.data.couplings) }] : []
+      if (!edge) return []
+      const data = edge.data ?? {}
+      const fields = Object.fromEntries(keys.filter((key) => data[key] !== undefined).map((key) => [key, data[key]]))
+      return [{ id, fields: detachReactivity(fields) }]
     })
   }
 
   /**
-   * Writes copied couplings back, skipping edges that no longer exist.
+   * Writes copied fields back as new data, removing those the copy lacks and skipping edges that
+   * no longer exist.
    *
-   * @param {ReturnType<typeof captureEdgeCouplings>} snapshot
+   * @param {ReturnType<typeof captureEdgeFields>} snapshot
+   * @param {Array<string>} [keys=['couplings']] - The fields the snapshot was taken of.
    */
-  function restoreEdgeCouplings(snapshot) {
-    snapshot.forEach(({ id, couplings }) => {
+  function restoreEdgeFields(snapshot, keys = ['couplings']) {
+    snapshot.forEach(({ id, fields }) => {
       const edge = findEdge(id)
-      if (edge) edge.data = { ...edge.data, couplings: couplings && detachReactivity(couplings) }
+      if (!edge) return
+      const data = { ...edge.data }
+      keys.forEach((key) => delete data[key])
+      edge.data = { ...data, ...detachReactivity(fields) }
     })
   }
 
@@ -136,7 +145,7 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
 
   /**
    * Runs an edit, then records it as one undo step if it changed the given node fields, the
-   * couplings of the given edges, or the global constants. Off the main flow, or during undo and
+   * given fields of the given edges, or the global constants. Off the main flow, or during undo and
    * redo, the edit just runs. Undo and redo apply only while everything the step changed is as the
    * step left it, so they never overwrite a later change or leave the step half applied.
    *
@@ -144,24 +153,25 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
    * @param {string} options.type - The command type.
    * @param {Array<string>} options.nodeIds
    * @param {Array<string>} options.keys - The node data fields the edit may change.
-   * @param {Array<string>} [options.edgeIds=[]] - Edges whose couplings the edit may change.
+   * @param {Array<string>} [options.edgeIds=[]] - Edges whose data the edit may change.
+   * @param {Array<string>} [options.edgeKeys=['couplings']] - The edge data fields the edit may change.
    * @param {Function} options.apply - Makes the edit.
    * @param {Object} [options.library] - Other library state the edit changes: `isAt(side)` checks
    *   it is as it was 'before' or 'after' the edit, and `restore(side)` puts it back, after the nodes.
    * @returns {Promise<boolean>} Whether a step was recorded, once it is on the stack.
    */
-  async function recordEdit({ type, nodeIds, keys, edgeIds = [], apply, library }) {
+  async function recordEdit({ type, nodeIds, keys, edgeIds = [], edgeKeys = ['couplings'], apply, library }) {
     if (flowId !== FLOW_IDS.MAIN || history.isUndoRedoing) {
       apply()
       return false
     }
 
     const nodesBefore = captureNodeFields(nodeIds, keys)
-    const edgesBefore = captureEdgeCouplings(edgeIds)
+    const edgesBefore = captureEdgeFields(edgeIds, edgeKeys)
     const constantsBefore = captureConstants()
     apply()
     const nodesAfter = captureNodeFields(nodeIds, keys)
-    const edgesAfter = captureEdgeCouplings(edgeIds)
+    const edgesAfter = captureEdgeFields(edgeIds, edgeKeys)
     const constants = diffConstants(constantsBefore, captureConstants())
 
     const isUnchanged = !library && !constants.length && isSame(nodesBefore, nodesAfter) && isSame(edgesBefore, edgesAfter)
@@ -194,7 +204,7 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
      */
     const isAt = (side) =>
       isSame(captureNodeFields(nodeIds, keys), states[side].nodes) &&
-      isSame(captureEdgeCouplings(edgeIds), states[side].edges) &&
+      isSame(captureEdgeFields(edgeIds, edgeKeys), states[side].edges) &&
       constants.every((change) => isConstantAt(change, side)) &&
       (library?.isAt(side) ?? true)
 
@@ -205,7 +215,7 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
      */
     const restore = (side) => {
       restoreNodeFields(states[side].nodes)
-      restoreEdgeCouplings(states[side].edges)
+      restoreEdgeFields(states[side].edges, edgeKeys)
       library?.restore(side)
       applyConstants(constants, side)
     }
@@ -231,8 +241,8 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
     captureNodeFields,
     restoreNodeFields,
     findIncidentEdgeIds,
-    captureEdgeCouplings,
-    restoreEdgeCouplings,
+    captureEdgeFields,
+    restoreEdgeFields,
     recordEdit,
   }
 }

@@ -186,7 +186,10 @@
           <TabPanel value="props">
             <section class="context-section context-section--global">
               <h4 class="context-section-title">Properties</h4>
-              <NodeColourPanel />
+              <div class="properties-panels">
+                <NodeColourPanel />
+                <EdgeAppearancePanel />
+              </div>
             </section>
           </TabPanel>
 
@@ -290,6 +293,7 @@ import { useResizableAside } from '../composables/useResizableAside'
 import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import EdgeAppearancePanel from './EdgeAppearancePanel.vue'
 import NodeColourPanel from './NodeColourPanel.vue'
 
 const props = defineProps({
@@ -730,6 +734,18 @@ function handleParameterTypeChange(row) {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.properties-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.properties-panels > * {
+  flex-shrink: 0;
 }
 
 .context-section-title {

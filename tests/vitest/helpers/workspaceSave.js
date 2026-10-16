@@ -6,6 +6,7 @@ import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleSt
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useOmexStore } from '../../../src/stores/omexStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
+import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore.js'
 
 /**
  * Loads a workspace file into fresh stores and saves it again, as the app does on load then save.
@@ -19,12 +20,14 @@ export function loadAndSave(doc) {
   const simulation = useSimulationSettingsStore()
   const inspectionModules = useInspectionModuleStore()
   const omex = useOmexStore()
+  const appearance = useWorkspaceAppearanceStore()
 
   const migrated = migrateWorkspace(doc)
   library.loadState(migrated.store)
   simulation.loadState(migrated.simulation)
   inspectionModules.loadState(migrated.inspectionModules)
   omex.loadState(migrated.workspace)
+  appearance.loadState(migrated.appearance)
 
-  return JSON.parse(JSON.stringify(buildWorkspaceFile({ flow: migrated.flow, library, simulation, inspectionModules, omex })))
+  return JSON.parse(JSON.stringify(buildWorkspaceFile({ flow: migrated.flow, library, simulation, inspectionModules, omex, appearance })))
 }

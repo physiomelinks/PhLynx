@@ -358,6 +358,10 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   'max' or 'peak'; missing means 'end'). Its `family`, when it has one, is a second parameter
  *   `{key, nodeId, nodeName, parameterName, units, type}` and the `values` it takes, a curve each.
  *   Older files have none. Whether play sweeps is the session's choice, not saved.
+ *   An edge's data may have an `appearance` `{colour, path, arrow, width}` (see BUILT_IN_EDGE_APPEARANCE
+ *   in utils/constants.js): only the values that differ from the built-in ones, which a missing key means.
+ *   The file may have an `appearance` block `{connections}`, the appearance new connections start with,
+ *   left out while it is the built-in one. Older files have neither, and load with the built-in ones.
  */
 const LEGACY_VERSION = 'legacy'
 
