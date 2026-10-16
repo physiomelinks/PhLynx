@@ -70,6 +70,7 @@
 
     <div class="table-flex-wrapper">
       <DataTable
+        ref="tableRef"
         :key="tableKey"
         v-model:selection="selectedRows"
         :value="filteredParameterRows"
@@ -253,8 +254,6 @@ const searchColumnOptions = [
   { label: 'Type', value: 'type' },
 ]
 const bulkTypeValue = ref('')
-
-const { virtualScrollerOptions, tableKey } = useVirtualScrollerOptions(computed(() => props.rows))
 
 const activeIssueKeys = computed(() => props.issueFilter.activeKeys.value)
 const toggleIssueFilter = (key) => props.issueFilter.toggle(key)
@@ -612,6 +611,12 @@ const filteredParameterRows = computed(() => {
   const columnKey = searchColumn.value
   return rows.filter((row) => String(row[columnKey] || '').toLowerCase().includes(query))
 })
+
+const tableRef = ref(null)
+const { virtualScrollerOptions, tableKey } = useVirtualScrollerOptions(
+  computed(() => props.rows),
+  { shownRows: filteredParameterRows, tableRef }
+)
 
 // ── Row types ────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import fs from 'node:fs'
 import path from 'node:path'
-import { reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -13,6 +13,7 @@ import {
 } from 'cellml-text-editor'
 
 import { useMathSession } from '../../../src/composables/useMathSession.js'
+import { useIssueFilter } from '../../../src/composables/useIssueFilter.js'
 import { createHistory, useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { reconcileRows } from '../../../src/services/math/reconcileRows.js'
@@ -137,6 +138,29 @@ describe('useMathSession', () => {
   it('flags a row whose units are cleared', () => {
     byName(session.parameterRows.value).k.units = ''
     expect(session.parameterRows.value.filter(session.isMissingUnits).map((r) => r.name)).toEqual(['k'])
+  })
+
+  it('shows a variable new to the math under the missing-units filter until it has units (#791)', async () => {
+    await editorRef.value.report('init', 'ode(x, t) = -k * x;\n', true)
+    await editorRef.value.report('edit', 'ode(x, t) = -k * x * gain;\n', true)
+    const rows = session.parameterRows
+    const filter = useIssueFilter({
+      rows,
+      matchers: { units: session.isMissingUnits },
+      availableKeys: computed(() => (rows.value.some(session.isMissingUnits) ? ['units'] : [])),
+    })
+    const shownNames = () => rows.value.filter(filter.isShown).map((row) => row.name)
+
+    filter.toggle('units')
+    await nextTick()
+    expect(shownNames()).toEqual(['gain'])
+
+    byName(rows.value).gain.units = 'dimensionless'
+    await editorRef.value.report('edit', 'ode(x, t) = -k * x * gain;\n', true)
+    await nextTick()
+    expect(byName(rows.value).gain.units).toBe('dimensionless')
+    expect(filter.activeKeys.value).toEqual([])
+    expect(shownNames()).toEqual(rows.value.map((row) => row.name))
   })
 
   it('keeps a state and its initialiser on the same units when an edit lands mid-typing', async () => {
