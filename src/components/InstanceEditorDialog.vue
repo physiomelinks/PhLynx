@@ -293,45 +293,12 @@
 
                     <Column header="Variables" style="min-width: 200px">
                       <template #body="slotProps">
-                        <MultiSelect
-                          :modelValue="slotProps.data.variables"
-                          @update:modelValue="setPortVariables(slotProps.data, $event)"
-                          :invalid="isPortFlagged(slotProps.data) && !slotProps.data.variables?.length"
+                        <PortVariableSelect
+                          :port="slotProps.data"
                           :options="parameterRows"
-                          optionLabel="name"
-                          optionValue="name"
-                          size="small"
-                          placeholder="Select variables"
+                          :flagged="isPortFlagged(slotProps.data)"
                           class="w-full"
-                          filter
-                          autoFilterFocus
-                          resetFilterOnHide
-                          filterPlaceholder="Search variables..."
-                          emptyFilterMessage="No matching variables"
-                          :pt="{ overlay: { class: 'ports-variable-overlay' } }"
-                        >
-                          <template #value="{ value, placeholder }">
-                            <PortVariableChips
-                              v-if="value?.length"
-                              :port="slotProps.data"
-                              :limit="3"
-                              :invalid="isPortFlagged(slotProps.data)"
-                            />
-                            <template v-else>{{ placeholder }}</template>
-                          </template>
-                          <template #filtericon>
-                            <span class="ports-variable-filter-icons">
-                              <i class="pi pi-search"></i>
-                              <i
-                                class="search-clear-input pi pi-times-circle"
-                                role="button"
-                                aria-label="Clear search"
-                                @mousedown.prevent
-                                @click.stop="clearPortVariableSearch"
-                              ></i>
-                            </span>
-                          </template>
-                        </MultiSelect>
+                        />
                       </template>
                     </Column>
 
@@ -505,7 +472,6 @@ import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import Select from 'primevue/select'
-import MultiSelect from 'primevue/multiselect'
 import Tab from 'primevue/tab'
 import TabList from 'primevue/tablist'
 import TabPanel from 'primevue/tabpanel'
@@ -520,7 +486,7 @@ import SimulationPanel from './simulation/SimulationPanel.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
-import PortVariableChips from './PortVariableChips.vue'
+import PortVariableSelect from './PortVariableSelect.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
@@ -560,7 +526,6 @@ import {
   multiplyVariables,
   multiportSummary,
   setMultiport,
-  setPortVariables,
   variableFactor,
 } from '../utils/multiport'
 import { suggestUnits } from '../utils/unitExpression'
@@ -1300,14 +1265,6 @@ async function handleEditorRedo() {
   await session.flushPendingChanges()
   if (!history.canRedo) return
   await history.redo()
-}
-
-function clearPortVariableSearch(event) {
-  const input = event.currentTarget.closest('.p-iconfield')?.querySelector('input')
-  if (!input) return
-  input.value = ''
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.focus()
 }
 
 /**
@@ -2423,68 +2380,5 @@ async function handleSave(options) {
   .right-pane--collapsed {
     display: none;
   }
-}
-</style>
-
-<!-- The variable picker's panel is teleported to <body>, so the scoped styles above can't reach it. -->
-<style>
-.ports-variable-overlay {
-  /* Sized to sit with the ports table (14px text), not the form-sized defaults. */
-  --p-multiselect-option-font-size: 0.875rem;
-  --p-multiselect-option-padding: 0.3125rem 0.625rem;
-  --p-multiselect-option-gap: 0.5rem;
-  --p-multiselect-list-padding: 0.25rem;
-  --p-multiselect-list-gap: 1px;
-  --p-checkbox-width: 1rem;
-  --p-checkbox-height: 1rem;
-  --p-checkbox-icon-size: 0.625rem;
-}
-
-.ports-variable-overlay .p-multiselect-header {
-  gap: 0.5rem;
-  padding: 0.5rem 0.625rem;
-}
-
-.ports-variable-overlay .p-multiselect-header .p-inputtext {
-  font-size: 0.875rem;
-}
-
-/* Search field: search icon left, clear button right (only once there's text), like the other search bars. */
-.ports-variable-overlay .p-multiselect-header .p-iconfield .p-inputtext {
-  padding-inline: 2rem;
-}
-
-.ports-variable-overlay .p-multiselect-header .p-iconfield .p-inputicon {
-  /* One container spanning the field, so the two icons can sit at opposite ends. */
-  inset-inline: 0.625rem;
-  top: 50%;
-  margin-top: 0;
-  width: auto;
-  height: auto;
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-
-.ports-variable-overlay .ports-variable-filter-icons {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  font-size: 0.875rem;
-}
-
-.ports-variable-overlay .search-clear-input {
-  pointer-events: auto;
-  cursor: pointer;
-}
-
-.ports-variable-overlay .search-clear-input:hover {
-  color: var(--p-text-color);
-}
-
-/* Empty field (its placeholder is showing): nothing to clear. Hidden rather than removed, so nothing shifts. */
-.ports-variable-overlay .p-multiselect-header .p-inputtext:placeholder-shown + .p-inputicon .search-clear-input {
-  visibility: hidden;
-  pointer-events: none;
 }
 </style>
