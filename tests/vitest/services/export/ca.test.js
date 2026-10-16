@@ -170,6 +170,13 @@ describe('generateExportZip', () => {
     library = makeLibrary()
   })
 
+  it('makes public a constant its component sets inside, as CA sets it from the parameters file', async () => {
+    library.addMath(BG_MATH_REF, VP_MATH.replace('<variable name="C" units="m3_per_J" interface="public"/>', '<variable name="C" units="m3_per_J"/>'))
+    const node = nodeWith('vp', [{ name: 'C', units: 'm3_per_J', access: 'no_access', type: 'constant', value: '2' }])
+    const files = await readZip(await generateExportZip('heart', [node], [], library))
+    expect(files['modules/BG_modules.cellml']).toMatch(/<variable name="C" units="m3_per_J" interface="public"\/>/)
+  })
+
   it("writes the workspace's obs_data beside the module array, as CA names it", async () => {
     const obsData = new TextEncoder().encode('{"protocol_info": {"pre_times": [0], "sim_times": [[1]]}}\n').buffer
     const files = await readZip(await generateExportZip('heart', [], [], library, obsData))
