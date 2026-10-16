@@ -1,19 +1,23 @@
 <template>
-  <!-- vue-flow's closed arrow, in the line's colour when it is selected or warns -->
-  <defs v-if="ownMarker">
+  <!-- vue-flow's closed arrow, sized in flow units so selecting or widening the line keeps its size -->
+  <defs v-if="arrowSize">
     <marker
       :id="markerId"
       class="vue-flow__arrowhead"
       viewBox="-10 -10 20 20"
       refX="0"
       refY="0"
-      markerWidth="12.5"
-      markerHeight="12.5"
-      markerUnits="strokeWidth"
+      :markerWidth="arrowSize"
+      :markerHeight="arrowSize"
+      markerUnits="userSpaceOnUse"
       orient="auto-start-reverse"
     >
       <polyline
-        :class="['coupling-edge-arrow', { 'coupling-edge-arrow--conflict': conflicts.length }]"
+        :class="[
+          'coupling-edge-arrow',
+          { 'coupling-edge-arrow--selected': selected, 'coupling-edge-arrow--conflict': conflicts.length },
+        ]"
+        :style="customColour && { stroke: customColour, fill: customColour }"
         stroke-linecap="round"
         stroke-linejoin="round"
         points="-5,-4 0,0 -5,4 -5,-4"
@@ -23,8 +27,8 @@
   <BaseEdge
     :id="id"
     :path="path[0]"
-    :marker-end="ownMarker ? `url(#${markerId})` : markerEnd"
-    :style="style"
+    :marker-end="arrowSize ? `url(#${markerId})` : undefined"
+    :style="lineStyle"
     :class="{ 'coupling-edge--conflict': conflicts.length }"
   />
   <!-- Like an instance's missing-parameter warning: these couplings can't be exported -->
@@ -40,7 +44,9 @@
 
 <script setup>
 import { computed } from 'vue'
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from '@vue-flow/core'
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, getStraightPath } from '@vue-flow/core'
+import { ARROW_SIZES, EDGE_WIDTHS } from '../utils/constants'
+import { resolveEdgeAppearance } from '../utils/edges'
 import { couplingConflicts } from '../utils/multiport'
 
 defineOptions({ inheritAttrs: false })
@@ -56,20 +62,44 @@ const props = defineProps({
   sourcePosition: { type: String, required: true },
   targetPosition: { type: String, required: true },
   data: { type: Object, default: () => ({}) },
-  markerEnd: { type: String, default: undefined },
   style: { type: Object, default: undefined },
   selected: { type: Boolean, default: false },
 })
 
+const SELECTED_EXTRA_WIDTH = 2
 
-// [path, labelX, labelY, ...], drawn as the default smoothstep edge is.
-const path = computed(() => getSmoothStepPath(props))
+const appearance = computed(() => resolveEdgeAppearance(props.data?.appearance))
+
+// [path, labelX, labelY, ...]
+const path = computed(() => {
+  switch (appearance.value.path) {
+    case 'bezier':
+      return getBezierPath(props)
+    case 'straight':
+      return getStraightPath(props)
+    case 'step':
+      return getSmoothStepPath({ ...props, borderRadius: 0 })
+    default:
+      return getSmoothStepPath(props)
+  }
+})
 
 const conflicts = computed(() =>
   (props.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => couplingConflicts(sourcePort, targetPort))
 )
 
-const ownMarker = computed(() => props.selected || conflicts.value.length > 0)
+// The selected and conflict colours come from CSS, which an inline colour would beat.
+const customColour = computed(() =>
+  props.selected || conflicts.value.length ? null : appearance.value.colour
+)
+
+const lineStyle = computed(() => ({
+  ...props.style,
+  strokeWidth: EDGE_WIDTHS[appearance.value.width] + (props.selected ? SELECTED_EXTRA_WIDTH : 0),
+  ...(customColour.value && { stroke: customColour.value }),
+}))
+
+const arrowSize = computed(() => ARROW_SIZES[appearance.value.arrow])
 const markerId = `coupling-edge-arrow-${props.id}`
 </script>
 
@@ -80,11 +110,17 @@ const markerId = `coupling-edge-arrow-${props.id}`
   stroke: var(--p-orange-500);
 }
 
-/* Matches the selected line (WorkspaceArea.vue) */
+/* Matches vue-flow's line */
 .coupling-edge-arrow {
+  stroke: #b1b1b7;
+  fill: #b1b1b7;
+  stroke-width: 1;
+}
+
+/* Matches the selected line (WorkspaceArea.vue) */
+.coupling-edge-arrow--selected {
   stroke: var(--p-primary-color);
   fill: var(--p-primary-color);
-  stroke-width: 1;
 }
 
 .coupling-edge-arrow--conflict {

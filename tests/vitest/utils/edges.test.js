@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { previewCouplings, resolvePortCouplings } from '../../../src/utils/edges.js'
+import { BUILT_IN_EDGE_APPEARANCE } from '../../../src/utils/constants.js'
+import {
+  previewCouplings,
+  pruneAppearance,
+  resolveEdgeAppearance,
+  resolvePortCouplings,
+  withEdgeAppearance,
+} from '../../../src/utils/edges.js'
 
 const port = (label, portType, variables) => ({ label, portType, variables, multiportType: 'None' })
 const node = (id, ports) => ({ id, data: { name: id, ports } })
@@ -33,5 +40,45 @@ describe('previewCouplings', () => {
     const couplings = previewCouplings('hub', hubPorts, nodes, edges)
     expect(couplings.get('e0')).toEqual(resolvePortCouplings(hubPorts, leafPorts, 0, 0))
     expect(couplings.get('e1')[0].sourcePort.variables).toEqual(['q1'])
+  })
+})
+
+describe('resolveEdgeAppearance', () => {
+  it('gives an edge with no appearance the built-in one', () => {
+    expect(resolveEdgeAppearance(undefined)).toEqual(BUILT_IN_EDGE_APPEARANCE)
+    expect(resolveEdgeAppearance({})).toEqual(BUILT_IN_EDGE_APPEARANCE)
+  })
+
+  it('keeps the values it knows and replaces the others with the built-in ones', () => {
+    expect(resolveEdgeAppearance({ colour: '#123456', path: 'step', arrow: 'none', width: 'thick' })).toEqual({
+      colour: '#123456',
+      path: 'step',
+      arrow: 'none',
+      width: 'thick',
+    })
+    expect(resolveEdgeAppearance({ colour: '', path: 'zigzag', arrow: 'toString', width: 9 })).toEqual(BUILT_IN_EDGE_APPEARANCE)
+  })
+})
+
+describe('pruneAppearance', () => {
+  it('keeps only the values that differ from the built-in ones', () => {
+    expect(pruneAppearance({ colour: null, path: 'bezier', arrow: 'medium', width: 'thin' })).toEqual({ path: 'bezier', width: 'thin' })
+    expect(pruneAppearance({ ...BUILT_IN_EDGE_APPEARANCE })).toEqual({})
+    expect(pruneAppearance(undefined)).toEqual({})
+  })
+})
+
+describe('withEdgeAppearance', () => {
+  it('sets the appearance on new data, leaving the old data alone', () => {
+    const data = { couplings: [], appearance: { width: 'thin' } }
+    const next = withEdgeAppearance(data, { arrow: 'large' })
+    expect(next).toEqual({ couplings: [], appearance: { arrow: 'large' } })
+    expect(next).not.toBe(data)
+    expect(data.appearance).toEqual({ width: 'thin' })
+  })
+
+  it('leaves the key out for the built-in appearance', () => {
+    expect(withEdgeAppearance({ couplings: [], appearance: { width: 'thin' } }, { width: 'normal' })).toEqual({ couplings: [] })
+    expect(withEdgeAppearance(undefined, {})).toEqual({})
   })
 })

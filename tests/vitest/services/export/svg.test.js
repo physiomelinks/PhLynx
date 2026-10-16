@@ -12,6 +12,7 @@ import {
   parseRgb,
   resolveRadius,
 } from '../../../../src/services/export/svg'
+import { ARROW_SIZES, EDGE_WIDTHS } from '../../../../src/utils/constants'
 
 // A fixed-pitch font: every character is 10 units wide.
 const measure = (text) => text.length * 10
@@ -111,6 +112,14 @@ describe('arrowheads without <marker>', () => {
     expect(markerPlacement(path, true, 'auto').angle).toBeCloseTo(0)
     expect(markerPlacement(path, false, '45').angle).toBe(45)
     expect(markerPlacement(line([3, 3], [3, 3]), false, 'auto')).toBeNull()
+  })
+
+  it("keeps a connection's arrow the size its option sets, however thick the line", () => {
+    const large = { ...ARROW, markerWidth: ARROW_SIZES.large, markerHeight: ARROW_SIZES.large, markerUnits: 'userSpaceOnUse' }
+    for (const strokeWidth of [EDGE_WIDTHS.thin, EDGE_WIDTHS.thick + 2]) {
+      const [x] = apply(markerTransform(large, { x: 0, y: 0 }, 0, strokeWidth), [-10, 0])
+      expect(x).toBeCloseTo(-ARROW_SIZES.large / 2)
+    }
   })
 
   it('scales by stroke width unless the marker uses user space', () => {

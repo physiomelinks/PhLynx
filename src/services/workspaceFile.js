@@ -1,7 +1,7 @@
 /**
  * Builds and reads the saved workspace file. buildWorkspaceFile is the one definition of what a
  * save writes, so any change to its shape needs a new format version and a migration step in
- * workspaceMigrator.js.
+ * workspaceMigrator.js. An optional field, whose absence loads as before, only needs noting there.
  */
 import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../utils/constants'
 import { readFileAsText } from '../utils/misc'
@@ -16,9 +16,10 @@ import { notify } from '../utils/notify'
  * @param {Object} sources.simulation - simulationSettingsStore.
  * @param {Object} sources.inspectionModules - inspectionModuleStore.
  * @param {Object} sources.omex - omexStore.
+ * @param {Object} sources.appearance - workspaceAppearanceStore; its block is left out while it is the default.
  * @returns {Object} The workspace, at PHLYNX_PROJECT_VERSION.
  */
-export function buildWorkspaceFile({ flow, library, simulation, inspectionModules, omex }) {
+export function buildWorkspaceFile({ flow, library, simulation, inspectionModules, omex, appearance }) {
   return {
     id: PHLYNX_PROJECT_IDENTIFIER,
     version: PHLYNX_PROJECT_VERSION,
@@ -27,6 +28,7 @@ export function buildWorkspaceFile({ flow, library, simulation, inspectionModule
     simulation: simulation.getState(),
     inspectionModules: inspectionModules.getState(),
     workspace: omex.getState(),
+    ...(!appearance.isDefault && { appearance: appearance.getState() }),
   }
 }
 

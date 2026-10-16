@@ -11,6 +11,7 @@ import { useProtocolStore } from '../stores/protocolStore'
 import { cancelSimulation, forgetSimulationSession } from './useSimulation'
 import { resetSliderReruns } from './useSliderReruns'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 
 import { FLOW_IDS } from '../utils/constants'
 
@@ -23,6 +24,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
   const sessionMetadataStore = useSessionMetadataStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
 
   const clearWorkspace = async ({ recordHistory = true } = {}) => {
     const oldNodes = nodes.value
@@ -33,6 +35,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
     const oldSessionMetadata = sessionMetadataStore.getState()
+    const oldAppearance = appearanceStore.getState()
 
     const undoState = () => {
       nodes.value = oldNodes
@@ -42,6 +45,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         inspectionStore.loadState(oldInspectStore)
         sessionMetadataStore.loadState(oldSessionMetadata)
         simStore.loadState(oldSimStore)
+        appearanceStore.loadState(oldAppearance)
         for (const [name, data] of oldGlobalConstants) {
           libraryStore.assignGlobalConstant(name, data.value, data.units, data.data_reference)
         }
@@ -62,6 +66,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         inspectionStore.resetState()
         omexStore.resetState()
         sessionMetadataStore.resetState()
+        appearanceStore.resetState()
         libraryStore.resetGlobalConstants()
       }
       setViewport({ x: 0, y: 0, zoom: 1 })

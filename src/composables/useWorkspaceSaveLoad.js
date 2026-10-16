@@ -5,6 +5,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { migrateWorkspace } from '../services/workspaceMigrator'
 import { JSON_FILE_TYPES } from '../utils/constants'
@@ -44,6 +45,7 @@ export function useWorkspaceSaveLoad({
   const inspectionModuleStore = useInspectionModuleStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
   const { trackEvent } = useGtm()
 
   /**
@@ -93,6 +95,7 @@ export function useWorkspaceSaveLoad({
       simulation: simulationSettingsStore,
       inspectionModules: inspectionModuleStore,
       omex: omexStore,
+      appearance: appearanceStore,
     })
 
     const jsonString = JSON.stringify(saveState, null, 2)
@@ -143,6 +146,7 @@ export function useWorkspaceSaveLoad({
       simulationSettingsStore.loadState(migratedState.simulation)
       inspectionModuleStore.loadState(migratedState.inspectionModules)
       omexStore.loadState(migratedState.workspace)
+      appearanceStore.loadState(migratedState.appearance)
 
       trackEvent('workflow_load_action', {
         category: 'Workflow',

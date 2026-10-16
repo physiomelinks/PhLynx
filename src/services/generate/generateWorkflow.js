@@ -1,4 +1,5 @@
 import { useVueFlow } from '@vue-flow/core'
+import { useWorkspaceAppearanceStore } from '../../stores/workspaceAppearanceStore'
 import { FLOW_IDS, GHOST_NODE_TYPE } from '../../utils/constants'
 import { generateUniqueInstanceName } from '../../utils/nodes'
 
@@ -34,6 +35,7 @@ function getId(i, idSet) {
 
 export function useMacroGenerator() {
   const { addNodes, addEdges, getNodes } = useVueFlow(FLOW_IDS.MAIN)
+  const appearanceStore = useWorkspaceAppearanceStore()
 
   /**
    * @param {Object} macroData - { flow: { nodes, edges, ... }, repeatCount: Number }
@@ -156,7 +158,7 @@ export function useMacroGenerator() {
 
     // Batch add nodes and edges to the Main Flow.
     addNodes(newNodes)
-    addEdges(newEdges)
+    addEdges(appearanceStore.withConnectionDefaults(newEdges))
   }
 
   return { processMacroGeneration }

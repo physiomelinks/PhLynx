@@ -218,6 +218,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
 
         newEdges.push({
           ...edge,
+          ...(edge.data && { data: detachReactivity(edge.data) }),
           id: newEdgeId,
           source: newSource,
           target: newTarget,

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useConnect } from '../../../src/composables/useConnect.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore.js'
 
 const nodes = ref([])
 const edges = ref([])
@@ -131,6 +132,22 @@ describe('useConnect', () => {
 
       expect(edges.value).toHaveLength(1)
       expect(deps.activateHandle).not.toHaveBeenCalled()
+    })
+
+    it('leaves the appearance out while the default is the built-in one', async () => {
+      await connect(connection)
+
+      expect(edges.value[0].data).not.toHaveProperty('appearance')
+    })
+
+    it('copies the default for new connections, so changing it later leaves the edge alone', async () => {
+      const appearance = useWorkspaceAppearanceStore()
+      appearance.setConnectionDefaults({ colour: '#ff0000', width: 'thick' })
+
+      await connect(connection)
+      appearance.setConnectionDefaults({ arrow: 'none' })
+
+      expect(edges.value[0].data.appearance).toEqual({ colour: '#ff0000', width: 'thick' })
     })
 
     it('picks the next port slot for later edges from the same source', async () => {
@@ -312,6 +329,15 @@ describe('useConnect', () => {
 
       expect(during.confirm).toEqual(['pending--a--b'])
       expect(during.revert).toEqual(['a--b', 'pending--a--b'])
+    })
+
+    it("keeps the replaced edge's appearance rather than the default", async () => {
+      edges.value[0].data = { ...edges.value[0].data, appearance: { path: 'straight' } }
+      useWorkspaceAppearanceStore().setConnectionDefaults({ width: 'thin' })
+
+      await connect(second)
+
+      expect(edges.value[0].data.appearance).toEqual({ path: 'straight' })
     })
 
     it('records a replace-edge command that undo and redo swap', async () => {

@@ -184,6 +184,31 @@ describe('migrateWorkspace', () => {
     expect(migrateWorkspace(doc)).toEqual(doc)
   })
 
+  it('keeps the optional appearance of the edges and new connections as saved', () => {
+    const doc = {
+      id: 'phlynx-project',
+      version: PHLYNX_PROJECT_VERSION,
+      flow: { nodes: [], edges: [{ id: 'e', source: 'a', target: 'b', data: { couplings: [], appearance: { path: 'bezier' } } }] },
+      store: { availableMath: [] },
+      simulation: { simulationSettings: {}, plotConfig: {}, parameterScanConfig: {} },
+      inspectionModules: [],
+      appearance: { connections: { width: 'thick' } },
+    }
+    expect(migrateWorkspace(doc)).toEqual(doc)
+  })
+
+  it('adds no appearance to an older file, which loads with the built-in one', () => {
+    const migrated = migrateWorkspace({
+      id: 'phlynx-project',
+      version: '1.1.0',
+      flow: { nodes: [], edges: [] },
+      store: { availableMath: [] },
+      simulation: { simulationSettings: {}, plotConfig: {}, parameterScanConfig: {} },
+      inspectionModules: [],
+    })
+    expect(migrated).not.toHaveProperty('appearance')
+  })
+
   it('gives an early 1.0.0 file the simulation block 1.0.0 requires', () => {
     const migrated = migrateWorkspace({
       info: { format_version: '1.0.0', project: 'Phlynx-Project' },
