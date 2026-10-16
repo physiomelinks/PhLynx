@@ -106,3 +106,33 @@ describe('SimulationControls sweep', () => {
     expect(editor().props('playScopeNodeIds')).toBeNull()
   })
 })
+
+describe('SimulationControls constants', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  const withConstants = [
+    { id: 'a', data: { name: 'a', variables: [...variables, { name: 'R', units: 'J', type: 'global_constant' }] } },
+    { id: 'b', data: { name: 'b', variables: [{ name: 'k', units: 'per_s', type: 'constant' }, { name: 'R', units: 'J', type: 'global_constant' }] } },
+  ]
+
+  it('plots a global constant as the plot’s own instance’s, and notes it once plotted', async () => {
+    mountControls({ nodes: withConstants, plotNodeId: 'b', plotConfig: createSinglePlotConfig() })
+    expect(getOffered(findPicker().props('filter'))).toEqual(['b/k', 'global_parameters/R'])
+
+    const global = findPicker().props('index').find((entry) => entry.key === 'global::R')
+    findPicker().vm.$emit('pick', global)
+    const [[plotConfig]] = wrapper.emitted('update:plotConfig')
+    expect(plotConfig.selections.map((selection) => selection.key)).toEqual(['b::R'])
+
+    await wrapper.setProps({ plotConfig })
+    expect(findPicker().props('describe')(global)).toBe('On Plot 1')
+  })
+
+  it('sets a plot against a global constant as the plot’s own instance’s', () => {
+    mountControls({ nodes: withConstants, plotNodeId: 'b', plotConfig: createSinglePlotConfig() })
+    const list = wrapper.findComponent({ name: 'PlotListEditor' })
+    const global = findPicker().props('index').find((entry) => entry.key === 'global::R')
+    expect(list.props('isPlottable')(global)).toBe(true)
+    expect(list.props('resolveEntry')(global).node.id).toBe('b')
+  })
+})

@@ -51,6 +51,15 @@ export function inspectionPlotTarget(module) {
 }
 
 /**
+ * Gets the index key a plotted selection is listed under: a global constant's is its one entry's, whichever
+ * instance plots it.
+ *
+ * @param {Object} selection - A plotConfig selection.
+ * @returns {string}
+ */
+export const indexKeyOf = (selection) => (selection.type === 'global_constant' ? `global::${selection.variableName}` : selection.key)
+
+/**
  * Gets the node and row an index entry plots: an instance's, or an inspection module's stand-in.
  *
  * @param {Object} entry - From buildVariableIndex.
@@ -105,7 +114,7 @@ export function buildVariableIndex(nodes, { scopeNodeIds = null, mapping = null,
             rowName: row.name,
             kind: row.type,
             units: row.units || '',
-            plottable: false,
+            plottable: true,
             slidable: isSlidableRow(row),
             inScope: inScope(node.id),
             reportedName: mapping?.get(key) ?? null,

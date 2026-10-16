@@ -419,17 +419,28 @@ describe('InstanceEditorDialog Plot tab', () => {
       expect(panel.findComponent({ name: 'SimulationControls' }).props('isUnitFiltered')).toBe(true)
     })
 
-    it('asks for a save to plot a variable the saved instance doesn’t have, and plots no constant', async () => {
+    it('asks for a save to plot a variable the saved instance doesn’t have', async () => {
       flowNodes.value = [{ id: 'a', data: { name: 'a', variables: variables.filter((row) => row.name !== 'x') } }]
       await openPlotTab()
       await clickVariable('x')
       expect(plottedKeys()).toEqual([])
       expect(wrapper.find('.plot-tab-auto-notice').text()).toBe('Save to plot x')
-
-      await clickVariable('k')
-      expect(plottedKeys()).toEqual([])
-      expect(wrapper.find('.plot-tab-auto-notice').text()).toContain('isn’t plotted')
       expect(ensureResults).not.toHaveBeenCalled()
+    })
+
+    it('plots a clicked constant or boundary condition as this instance’s own', async () => {
+      flowNodes.value = [
+        { id: 'a', data: { name: 'a', variables: [...variables, { name: 'p', units: 'metre', type: 'boundary_condition' }] } },
+        { id: 'b', data: { name: 'b', variables } },
+      ]
+      await openPlotTab()
+      await clickVariable('k')
+      expect(plottedKeys()).toEqual(['a::k'])
+      expect(wrapper.find('.plot-tab-auto-notice').exists()).toBe(false)
+      expect(ensureResults).toHaveBeenCalledTimes(1)
+
+      await clickVariable('p')
+      expect(plottedKeys()).toEqual(['a::p'])
     })
 
     it('runs the whole model, offers only the instance’s variables to plot, and has no float or page buttons', async () => {
@@ -456,7 +467,7 @@ describe('InstanceEditorDialog Plot tab', () => {
       expect(panel.findAll('button').some((button) => button.text() === 'Add plot')).toBe(false)
       const picker = panel.findComponent({ name: 'VariablePathPicker' })
       const offered = picker.props('index').filter(picker.props('filter')).map((entry) => entry.path)
-      expect(offered).toEqual(['a/t', 'a/x'])
+      expect(offered).toEqual(['a/k', 'a/t', 'a/x'])
 
       const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
       const before = JSON.stringify(useSimulationSettingsStore().plotConfig)

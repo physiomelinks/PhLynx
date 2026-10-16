@@ -84,13 +84,14 @@ export function buildPlotConfig(groups, selections) {
 }
 
 /**
- * Checks whether a node's row can be plotted: only variables the simulation computes.
+ * Checks whether a node's row can be plotted: any named row. A boundary condition or connected constant plots its
+ * owner's series, and an unconnected constant a flat line.
  *
  * @param {Object} row
  * @returns {boolean}
  */
 export function isPlottableRow(row) {
-  return Boolean(row?.name) && (row.type || 'variable') === 'variable'
+  return Boolean(row?.name)
 }
 
 /**

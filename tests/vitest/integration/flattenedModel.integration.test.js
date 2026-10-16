@@ -16,6 +16,7 @@ import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
 import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
 import { buildVariableMapping, mapInspectionModules, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
+import { setNodePlotVariables } from '../../../src/services/simulation/plotSelections.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const MATH_REF = 'file:decay'
@@ -622,6 +623,19 @@ describe('mapping a scoped run’s results back to instances', () => {
     expect(mapping.get(mappingKey('leaf_2', 'k'))).toBe('instance_parameters/leaf_2_k')
     expect(readNodeSeries(results, mapping, 'leaf_2', 'u')).toMatchObject({ name: 'hub/u', kind: 'algebraic' })
     expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/t', kind: 'voi' })
+  })
+
+  it('plots a boundary condition as the series of the instance that supplies it', async () => {
+    const { scope, cellml } = await buildFlattenedNetwork()
+    const results = resultsFor(['hub/q', 'hub/u', 'leaf_1/v', 'leaf_2/v'])
+    const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
+    const leaf = scope.nodes.find((node) => node.id === 'leaf_1')
+    expect(leaf.data.variables.find((row) => row.name === 'u').type).toBe('boundary_condition')
+
+    const { selections } = setNodePlotVariables({}, leaf, [{ name: 'u' }])
+
+    expect(selections.map((selection) => [selection.key, selection.type])).toEqual([['leaf_1::u', 'boundary_condition']])
+    expect(readNodeSeries(results, mapping, 'leaf_1', 'u')).toMatchObject({ name: 'hub/u' })
   })
 
   it('follows the run when it reports another member of the same variables', async () => {
