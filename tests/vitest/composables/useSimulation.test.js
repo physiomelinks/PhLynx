@@ -144,6 +144,13 @@ describe('useSimulation', () => {
     expect(store.mapping.get('a::x')).toBe('a/x')
   })
 
+  it('fails a run that throws before it starts, rather than leaving it running', async () => {
+    // Scoping reads the edges, so the run throws before it starts.
+    edges.value = null
+    await useSimulation().run(['a'])
+    expect(store.status).toBe('error')
+  })
+
   describe('a sweep', () => {
     const SWEEP = { key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', from: 1, to: 3, points: 3 }
     const TARGET = { component: 'instance_parameters', variable: 'k', values: [1, 2, 3] }

@@ -154,78 +154,84 @@ export function useSimulation() {
     const token = runToken
     store.startRun(nodeIds)
 
-    const scope = resolveCurrentScope(nodeIds)
-    // Read once, so a mode switched while the simulator loads can't mix the time course's inputs into a protocol run.
-    const isProtocolRun = protocolStore.isActive
-    // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from. Read
-    // once too, so a protocol saved while the model flattens can't mix into this run.
-    const drivers = isProtocolRun ? protocolStore.drivers : []
-    const view = isProtocolRun ? protocolStore.view : null
-    const featureOperandNames = isProtocolRun ? listFeatureOperands(protocolStore.source?.document) : []
-    const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')
-    const overrides = selectRunOverrides(isProtocolRun)
-    const settings = { ...simulationSettingsStore.simulationSettings }
-    const isSweepRun = isSweeping(isProtocolRun)
-    const signature = signRun(scope, overrides)
-
-    /**
-     * Gets the sweep a kept model runs: none outside sweep mode.
-     *
-     * @param {Object} source - The kept model (see mapResults).
-     * @returns {{component: string, variable: string, values: number[]}|null}
-     * @throws {SimulationError} When the sweep can't run.
-     */
-    const sweepFor = (source) => {
-      if (!isSweepRun) return null
-      const problem = findSweepProblem(settings.sweep)
-      if (problem) throw new SimulationError(problem)
-      // A boundary condition a connection in the scope supplies would sweep what supplies it instead.
-      const { status } = resolveBoundaryValues(scope.nodes, scope.internalEdges)
-      const boundaryProblem = findBoundarySweepProblem(settings.sweep, { nodes: scope.nodes, status })
-      if (boundaryProblem) throw new SimulationError(boundaryProblem)
-      const found = { nodes: scope.nodes, mapping: source.mapping, variables: source.variables }
-      const target = resolveSweepTarget({ sweep: settings.sweep, ...found })
-      if (target.problem) throw new SimulationError(target.problem)
-      const { family } = settings.sweep
-      const familyTarget = family && resolveSweepTarget({ sweep: family, role: 'varied across curves', ...found })
-      if (familyTarget?.problem) throw new SimulationError(familyTarget.problem)
-      return {
-        ...target,
-        values: sweepValues(settings.sweep),
-        // A model without ODEs has no time course to read.
-        ...(!source.isSteadyState && { readout: sweepReadout(settings.sweep) }),
-        ...(familyTarget && { family: { ...familyTarget, values: familyValues(family) } }),
-      }
-    }
-
-    // Reusing the kept model, if its scope and everything it was flattened from are unchanged.
-    const kept = session?.scopeKey === JSON.stringify(nodeIds) && session.structure === structure ? session : null
-    const changes =
-      kept &&
-      buildParameterChanges({
-        nodes: scope.nodes,
-        overrides,
-        flattenedWith: kept.flattenedWith,
-        mapping: kept.mapping,
-        variables: kept.variables,
-        getGlobalConstant: libraryStore.getGlobalConstant,
-      })
-
+    // Declared before the try, for its catch to map what a failed run computed. A throw before the run starts fails it
+    // too, rather than leaving it running.
+    let scope = null
+    let settings = null
+    let kept = null
+    let changes = null
     let built = null
-    // Checked every run, since cut connections and inspection modules outside the scope change its warnings. A swept
-    // boundary condition takes the sweep's values, so it isn't left at 0.
-    const suppliedKeys = isSweepRun ? listSweptBoundaries(settings.sweep) : new Set()
-    store.report = summariseScopeReport(checkScope(scope, libraryStore, { suppliedKeys }))
-    if (isProtocolRun) {
-      const { errors, warnings } = protocolStore.validation
-      store.report = { ...store.report, errors: [...store.report.errors, ...errors], warnings: [...store.report.warnings, ...warnings] }
-    }
-    if (store.report.errors.length) {
-      store.failRun('blocked')
-      return
-    }
-
     try {
+      scope = resolveCurrentScope(nodeIds)
+      // Read once, so a mode switched while the simulator loads can't mix the time course's inputs into a protocol run.
+      const isProtocolRun = protocolStore.isActive
+      // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from. Read
+      // once too, so a protocol saved while the model flattens can't mix into this run.
+      const drivers = isProtocolRun ? protocolStore.drivers : []
+      const view = isProtocolRun ? protocolStore.view : null
+      const featureOperandNames = isProtocolRun ? listFeatureOperands(protocolStore.source?.document) : []
+      const structure = [buildScopeSignature(scope, libraryStore), ...(drivers.length ? [protocolStore.driverSignature] : [])].join(':')
+      const overrides = selectRunOverrides(isProtocolRun)
+      settings = { ...simulationSettingsStore.simulationSettings }
+      const isSweepRun = isSweeping(isProtocolRun)
+      const signature = signRun(scope, overrides)
+
+      /**
+       * Gets the sweep a kept model runs: none outside sweep mode.
+       *
+       * @param {Object} source - The kept model (see mapResults).
+       * @returns {{component: string, variable: string, values: number[]}|null}
+       * @throws {SimulationError} When the sweep can't run.
+       */
+      const sweepFor = (source) => {
+        if (!isSweepRun) return null
+        const problem = findSweepProblem(settings.sweep)
+        if (problem) throw new SimulationError(problem)
+        // A boundary condition a connection in the scope supplies would sweep what supplies it instead.
+        const { status } = resolveBoundaryValues(scope.nodes, scope.internalEdges)
+        const boundaryProblem = findBoundarySweepProblem(settings.sweep, { nodes: scope.nodes, status })
+        if (boundaryProblem) throw new SimulationError(boundaryProblem)
+        const found = { nodes: scope.nodes, mapping: source.mapping, variables: source.variables }
+        const target = resolveSweepTarget({ sweep: settings.sweep, ...found })
+        if (target.problem) throw new SimulationError(target.problem)
+        const { family } = settings.sweep
+        const familyTarget = family && resolveSweepTarget({ sweep: family, role: 'varied across curves', ...found })
+        if (familyTarget?.problem) throw new SimulationError(familyTarget.problem)
+        return {
+          ...target,
+          values: sweepValues(settings.sweep),
+          // A model without ODEs has no time course to read.
+          ...(!source.isSteadyState && { readout: sweepReadout(settings.sweep) }),
+          ...(familyTarget && { family: { ...familyTarget, values: familyValues(family) } }),
+        }
+      }
+
+      // Reusing the kept model, if its scope and everything it was flattened from are unchanged.
+      kept = session?.scopeKey === JSON.stringify(nodeIds) && session.structure === structure ? session : null
+      changes =
+        kept &&
+        buildParameterChanges({
+          nodes: scope.nodes,
+          overrides,
+          flattenedWith: kept.flattenedWith,
+          mapping: kept.mapping,
+          variables: kept.variables,
+          getGlobalConstant: libraryStore.getGlobalConstant,
+        })
+
+      // Checked every run, since cut connections and inspection modules outside the scope change its warnings. A swept
+      // boundary condition takes the sweep's values, so it isn't left at 0.
+      const suppliedKeys = isSweepRun ? listSweptBoundaries(settings.sweep) : new Set()
+      store.report = summariseScopeReport(checkScope(scope, libraryStore, { suppliedKeys }))
+      if (isProtocolRun) {
+        const { errors, warnings } = protocolStore.validation
+        store.report = { ...store.report, errors: [...store.report.errors, ...errors], warnings: [...store.report.warnings, ...warnings] }
+      }
+      if (store.report.errors.length) {
+        store.failRun('blocked')
+        return
+      }
+
       const simulator = await whenLibOpenCORReady()
       if (token !== runToken) return
       if (!simulator) {
@@ -308,8 +314,14 @@ export function useSimulation() {
     } catch (error) {
       if (token === runToken) {
         const source = changes ? kept : built
-        const partialResults = error.partialResults?.isSweep ? labelSweepResults(error.partialResults, settings.sweep) : error.partialResults
-        const partial = partialResults && source && (await mapPartialResults(source, scope, partialResults))
+        let partial = null
+        try {
+          const partialResults = error.partialResults?.isSweep ? labelSweepResults(error.partialResults, settings.sweep) : error.partialResults
+          partial = partialResults && source && (await mapPartialResults(source, scope, partialResults))
+        } catch (mapError) {
+          // The failure is still reported, without the points it computed.
+          console.error(mapError)
+        }
         if (token === runToken) store.failRun('error', { message: error.message, issues: error.issues ?? [] }, partial)
       }
     } finally {
@@ -417,8 +429,14 @@ export function useSimulation() {
     } catch (error) {
       if (error.code === 'no-session') session = null
       if (token !== runToken) return
-      const partial = error.partialResults && { experiments: error.partialResults.experiments, issues: [], elapsedMs: 0, isStopped: false }
-      const shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, inputs, featureOperands, mapping: source.mapping }
+      let shown = null
+      try {
+        const partial = error.partialResults && { experiments: error.partialResults.experiments, issues: [], elapsedMs: 0, isStopped: false }
+        shown = partial && { results: selectExperiment(partial, protocolStore.activeExperiment), protocolResults: partial, inputs, featureOperands, mapping: source.mapping }
+      } catch (mapError) {
+        // The failure is still reported, without the experiments it computed.
+        console.error(mapError)
+      }
       store.failRun('error', { message: error.message, issues: error.issues ?? [] }, shown)
     }
   }

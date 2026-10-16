@@ -13,7 +13,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
     useVueFlow: () => ({ nodes, getSelectedNodes: computed(() => selected.value.map((id) => ({ id }))) }),
   }
 })
-const run = vi.hoisted(() => vi.fn())
+const run = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../../../src/composables/useSimulation', async () => {
   const { ref } = await import('vue')
   return { useSimulation: () => ({ run, stop: vi.fn(), keepCurrent: vi.fn(), isStale: ref(false) }) }

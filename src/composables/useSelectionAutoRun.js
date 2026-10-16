@@ -53,7 +53,7 @@ export function useSelectionAutoRun({ isActive = () => true } = {}) {
     if (!ids.length || JSON.stringify(ids) === JSON.stringify(shown)) return
     // A sweep of a model with ODEs runs a time course per point, too slow to follow the selection: play runs it.
     if (store.results?.isSweep && !store.results.isSteadyState) return
-    run(ids)
+    run(ids).catch(console.error)
   }
 
   /** Runs shortly, once the events of this change are over. */
