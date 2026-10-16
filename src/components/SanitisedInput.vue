@@ -32,6 +32,7 @@
       <Transition name="sanitised-pop">
         <div
           v-if="showRenamePopover"
+          v-overlay-z-index="floating"
           class="sanitised-input__popover"
           :class="{ 'sanitised-input__popover--floating': floating }"
           :style="floating ? floatingStyle : undefined"
@@ -54,6 +55,7 @@
       <div
         v-if="showSuggestions"
         ref="suggestionsRef"
+        v-overlay-z-index="floating"
         class="sanitised-input__suggestions"
         :class="{
           'sanitised-input__suggestions--floating': floating,
@@ -93,6 +95,7 @@ import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 
 import { useSuggestions } from '../composables/useSuggestions'
+import { vOverlayZIndex } from '../directives/overlayZIndex'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -281,10 +284,9 @@ defineExpose({ focus, updatePosition })
   pointer-events: none;
 }
 
-/* Positioned by script from the field's bounding box; sits above the modal dialog. */
+/* Positioned by script from the field's bounding box; v-overlay-z-index lifts it above the modal dialog. */
 .sanitised-input__popover--floating {
   position: fixed;
-  z-index: 4000;
 }
 
 .sanitised-input__arrow {
@@ -325,7 +327,6 @@ defineExpose({ focus, updatePosition })
 
 .sanitised-input__suggestions--floating {
   position: fixed;
-  z-index: 4000;
 }
 
 .sanitised-input__options {
