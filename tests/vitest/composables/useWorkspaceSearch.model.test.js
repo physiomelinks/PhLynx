@@ -35,8 +35,9 @@ describe('useWorkspaceSearch over the model', () => {
   it('highlights the canvas node holding a match, and dims the rest', () => {
     const { search, type } = setup()
     type('lv')
-    expect(search.getNodeClass({ id: 'heart' })).toBe('node-search-match')
-    expect(search.getNodeClass({ id: 'a' })).toBe('node-search-dimmed')
+    expect(search.highlightCss.value).toContain('.vue-flow__node[data-id="heart"] > .instance-node')
+    expect(search.highlightCss.value).not.toContain('data-id="a"')
+    expect(search.highlightCss.value).toContain('opacity: 0.25')
   })
 
   it('zooms to the canvas node holding a match, unless told how to reveal it', () => {

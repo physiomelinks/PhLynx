@@ -425,6 +425,35 @@ describe('useCellmlDrop', () => {
 
       expect(deps.onDragOverModule).toHaveBeenCalledWith(event)
     })
+
+    it('shows the file drag-over cue for OS file drags only', () => {
+      drop.onDragOver(makeEvent({ types: ['application/x-module'] }))
+      expect(drop.isFileDragOver.value).toBe(false)
+
+      drop.onDragOver(makeEvent({ types: ['Files'] }))
+      expect(drop.isFileDragOver.value).toBe(true)
+    })
+  })
+
+  describe('onFileDragLeave', () => {
+    const area = { contains: (target) => target === 'child' }
+
+    beforeEach(() => drop.onDragOver(makeEvent({ types: ['Files'] })))
+
+    it('keeps the cue while the drag moves between children of the drop area', () => {
+      drop.onFileDragLeave({ currentTarget: area, relatedTarget: 'child' })
+
+      expect(drop.isFileDragOver.value).toBe(true)
+    })
+
+    it('clears the cue when the drag leaves the drop area or the window', () => {
+      drop.onFileDragLeave({ currentTarget: area, relatedTarget: 'sidebar' })
+      expect(drop.isFileDragOver.value).toBe(false)
+
+      drop.onDragOver(makeEvent({ types: ['Files'] }))
+      drop.onFileDragLeave({ currentTarget: area, relatedTarget: null })
+      expect(drop.isFileDragOver.value).toBe(false)
+    })
   })
 
   describe('onDrop', () => {
@@ -535,6 +564,123 @@ describe('useCellmlDrop', () => {
       await drop.onDrop(makeEvent({ files: [omex, file('a.cellml')] }))
 
       expect(order).toEqual(['cellml', 'omex'])
+    })
+
+    it('clears the file drag-over cue on drop', async () => {
+      drop.onDragOver(makeEvent({ types: ['Files'] }))
+
+      await drop.onDrop(makeEvent({ files: [file('notes.txt')] }))
+
+      expect(drop.isFileDragOver.value).toBe(false)
+    })
+  })
+
+  describe('loading indicator', () => {
+    const file = (name) => new File(['x'], name)
+
+    beforeEach(() => readFileAsText.mockResolvedValue('<model/>'))
+
+    it('names a single dropped .cellml file while it loads, then clears', async () => {
+      let seen
+      deps.loadFromCellML.mockImplementation(async () => {
+        seen = drop.dropLoadingMessage.value
+      })
+
+      await drop.onDrop(makeEvent({ files: [file('big.cellml')] }))
+
+      expect(seen).toBe('Loading big.cellml...')
+      expect(drop.dropLoadingMessage.value).toBe('')
+    })
+
+    it('counts several dropped .cellml files', async () => {
+      let seen
+      deps.loadCellMLData.mockImplementation(async () => {
+        seen = drop.dropLoadingMessage.value
+        return { ok: true, moduleCount: 1, unitsCount: 0 }
+      })
+
+      await drop.onDrop(makeEvent({ files: [file('a.cellml'), file('b.cellml')] }))
+
+      expect(seen).toBe('Loading 2 CellML files...')
+    })
+
+    it('shows the indicator before the CellML is read and parsed', async () => {
+      let seen
+      readFileAsText.mockImplementation(async () => {
+        seen = drop.dropLoadingMessage.value
+        return '<model/>'
+      })
+
+      await drop.onDrop(makeEvent({ files: [file('big.cellml')] }))
+
+      expect(seen).toBe('Loading big.cellml...')
+    })
+
+    it('names each .omex archive while it imports', async () => {
+      const omex = file('arch.omex')
+      omex.arrayBuffer = vi.fn(async () => 'buffer')
+      let seen
+      deps.processImportedOmexArchive.mockImplementation(async () => {
+        seen = drop.dropLoadingMessage.value
+      })
+
+      await drop.onDrop(makeEvent({ files: [omex] }))
+
+      expect(seen).toBe('Importing arch.omex...')
+      expect(drop.dropLoadingMessage.value).toBe('')
+    })
+
+    it('hides the indicator while asking whether to overwrite, then shows it again', async () => {
+      nodes.value = [createNode('existing')]
+      let whileAsking, afterAsking
+      deps.confirm.mockImplementation(async () => {
+        whileAsking = drop.dropLoadingMessage.value
+        return true
+      })
+      deps.loadFromCellML.mockImplementation(async () => {
+        afterAsking = drop.dropLoadingMessage.value
+      })
+
+      await drop.onDrop(makeEvent({ files: [file('big.cellml')] }))
+
+      expect(whileAsking).toBe('')
+      expect(afterAsking).toBe('Loading big.cellml...')
+    })
+
+    it('clears the indicator when the load throws', async () => {
+      deps.loadFromCellML.mockRejectedValue(new Error('boom'))
+
+      await expect(drop.onDrop(makeEvent({ files: [file('big.cellml')] }))).rejects.toThrow('boom')
+
+      expect(drop.dropLoadingMessage.value).toBe('')
+    })
+
+    it('turns away another file drop while one is loading', async () => {
+      let release
+      deps.loadFromCellML.mockImplementation(() => new Promise((resolve) => (release = resolve)))
+      const first = drop.onDrop(makeEvent({ files: [file('big.cellml')] }))
+      await vi.waitFor(() => expect(release).toBeDefined())
+
+      const second = makeEvent({ files: [file('other.cellml')] })
+      await drop.onDrop(second)
+
+      expect(second.preventDefault).toHaveBeenCalled()
+      expect(notify.info).toHaveBeenCalledWith({
+        title: 'Still Loading',
+        message: 'Please wait for the current files to finish loading.',
+      })
+      expect(readFileAsText).toHaveBeenCalledTimes(1)
+
+      release()
+      await first
+    })
+
+    it('does not show the indicator for module drops or turned-away files', async () => {
+      await drop.onDrop(makeEvent({ files: [] }))
+      await drop.onDrop(makeEvent({ files: [file('notes.txt')] }))
+
+      expect(drop.dropLoadingMessage.value).toBe('')
+      expect(readFileAsText).not.toHaveBeenCalled()
     })
   })
 })

@@ -1,4 +1,6 @@
 import { useVueFlow } from '@vue-flow/core'
+import { computed, ref } from 'vue'
+
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
@@ -22,7 +24,8 @@ import { notify } from '../utils/notify'
  * @param {Function} options.onDragOverModule - Internal module-drag dragover handler (from useDnD).
  * @param {Function} options.onDropModule - Internal module-drag drop handler (from useDnD).
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
- * @returns {{ loadCellMLFiles: Function, onDragOver: Function, onDrop: Function }}
+ * @returns {{ loadCellMLFiles: Function, onDragOver: Function, onFileDragLeave: Function, onDrop: Function,
+ *   isFileDragOver: Ref<boolean>, dropLoadingMessage: ComputedRef<string> }}
  */
 export function useCellmlDrop({
   loadCellMLData,
@@ -36,6 +39,37 @@ export function useCellmlDrop({
   flowId = FLOW_IDS.MAIN,
 }) {
   const { addEdges, addNodes, nodes, toObject } = useVueFlow(flowId)
+
+  /** True while files from the OS are dragged over the workspace. */
+  const isFileDragOver = ref(false)
+  /** What a dropped load is doing; empty when idle. */
+  const loadingMessage = ref('')
+  /** True while the overwrite question is open, so the indicator steps aside for it. */
+  const isAsking = ref(false)
+  /** The indicator's message, hidden while the user is being asked something. */
+  const dropLoadingMessage = computed(() => (isAsking.value ? '' : loadingMessage.value))
+
+  /**
+   * Resolves once the browser has painted, so the indicator is on screen before blocking work.
+   * rAF runs before the next paint; the timeout lands after it.
+   */
+  const nextPaint = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+
+  /**
+   * Asks whether to overwrite the workspace, with the indicator hidden until it's answered.
+   *
+   * @param {Object} options - Confirm dialog options.
+   * @returns {Promise<boolean>}
+   */
+  const confirmOverwrite = async (options) => {
+    isAsking.value = true
+    try {
+      return await confirm(options)
+    } finally {
+      isAsking.value = false
+      if (loadingMessage.value) await nextPaint()
+    }
+  }
 
   /**
    * Load an array of CellML entries, each being either a browser File object or a
@@ -57,7 +91,7 @@ export function useCellmlDrop({
 
       if (parsedCellmlPayload.edges.length > 0) {
         if (nodes.value.length > 0) {
-          const overwrite = await confirm({
+          const overwrite = await confirmOverwrite({
             header: 'Workspace Not Empty',
             message: 'The workspace already contains nodes. What would you like to do?',
             severity: 'warning',
@@ -198,8 +232,35 @@ export function useCellmlDrop({
     if (hasFiles) {
       event.preventDefault()
       event.dataTransfer.dropEffect = 'copy'
+      isFileDragOver.value = true
     } else {
       onDragOverModule(event)
+    }
+  }
+
+  /**
+   * Clears the file drag-over cue once the drag leaves the drop area, not when it moves between its children.
+   *
+   * @param {DragEvent} event
+   */
+  const onFileDragLeave = (event) => {
+    if (event.currentTarget?.contains?.(event.relatedTarget)) return
+    isFileDragOver.value = false
+  }
+
+  /**
+   * Shows `message` over the workspace while `taskFn` runs, painting it before the work starts.
+   *
+   * @param {string} message - Indicator text.
+   * @param {Function} taskFn - Async task to run.
+   */
+  const withLoadingIndicator = async (message, taskFn) => {
+    loadingMessage.value = message
+    try {
+      await nextPaint()
+      return await taskFn()
+    } finally {
+      loadingMessage.value = ''
     }
   }
 
@@ -207,9 +268,18 @@ export function useCellmlDrop({
    * Unified drop handler — routes OS file drops to CellML import, internal drags to the module DnD handler.
    */
   const onDrop = async (event) => {
+    isFileDragOver.value = false
     const files = event.dataTransfer?.files
     if (files && files.length > 0) {
       event.preventDefault()
+
+      if (loadingMessage.value) {
+        notify.info({
+          title: 'Still Loading',
+          message: 'Please wait for the current files to finish loading.',
+        })
+        return
+      }
 
       const cellmlFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.cellml'))
 
@@ -232,15 +302,18 @@ export function useCellmlDrop({
       }
 
       if (cellmlFiles.length > 0) {
-        await loadCellMLFiles(cellmlFiles)
+        const label = cellmlFiles.length === 1 ? cellmlFiles[0].name : `${cellmlFiles.length} CellML files`
+        await withLoadingIndicator(`Loading ${label}...`, () => loadCellMLFiles(cellmlFiles))
       }
 
       if (omexFiles.length > 0) {
         for (const file of omexFiles) {
           try {
-            const arrayBuffer = await file.arrayBuffer()
-            const result = await importOmexFile(arrayBuffer)
-            await processImportedOmexArchive(arrayBuffer, result, file.name)
+            await withLoadingIndicator(`Importing ${file.name}...`, async () => {
+              const arrayBuffer = await file.arrayBuffer()
+              const result = await importOmexFile(arrayBuffer)
+              await processImportedOmexArchive(arrayBuffer, result, file.name)
+            })
             notify.success({
               title: 'OMEX Import Complete',
               message: `${file.name} imported successfully!`,
@@ -258,5 +331,5 @@ export function useCellmlDrop({
     }
   }
 
-  return { loadCellMLFiles, onDragOver, onDrop }
+  return { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dropLoadingMessage }
 }

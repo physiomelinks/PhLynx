@@ -6,16 +6,17 @@
       :class="[
         'handle',
         `handle--${handle.variant || 'default'}`,
-        { 'handle--inert': handle.variant === HANDLE_VARIANT.GHOST && selected && isCornerHandle(handle, handles) },
+        { 'handle--inert': handle.variant === HANDLE_VARIANT.GHOST && selected && handleLayout.get(handle.uid).isCorner },
       ]"
-      :style="getHandleStyle(handle, handles)"
-      v-tooltip.bottom="{ value: handle.name, showDelay: 1000 }"
+      :style="handleLayout.get(handle.uid).style"
+      :title="handle.name"
       @mouseenter="onHandleEnter(handle.uid)"
       @mouseleave="onHandleLeave"
       @pointerdown="onPointerDown(handle)"
     >
+      <!-- v-if, not v-show: a large workspace has thousands of handles, and a hidden Button per handle made loading and re-rendering slow. -->
       <Button
-        v-show="hoveredHandleUid === handle.uid && handle.variant !== HANDLE_VARIANT.GHOST"
+        v-if="hoveredHandleUid === handle.uid && handle.variant !== HANDLE_VARIANT.GHOST"
         :class="['delete-handle-popover-btn', 'popover-' + handle.side]"
         icon="pi pi-trash"
         severity="danger"
@@ -39,12 +40,13 @@
  * (not a corner ghost while the node is selected, where the resizer is); a used handle offers, on hover, to turn back
  * into a ghost, removing its edges.
  */
+import { computed } from 'vue'
 import { Handle } from '@vue-flow/core'
 import Button from 'primevue/button'
 
 import { useNodeHandles } from '../composables/useNodeHandles'
 import { HANDLE_VARIANT } from '../utils/constants'
-import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
+import { getHandleId, getHandleLayout, handlePosition } from '../utils/handles'
 
 const props = defineProps({
   id: {
@@ -67,11 +69,13 @@ const props = defineProps({
 })
 
 const { hoveredHandleUid, onHandleEnter, onHandleLeave, removeHandle, beginGhostActivation } = useNodeHandles(props)
+// One pass over the handles, instead of one filter per handle on every render.
+const handleLayout = computed(() => getHandleLayout(props.handles))
 
 /** Activates a ghost handle a connection starts from. */
 function onPointerDown(handle) {
   if (props.disabled || handle.variant !== HANDLE_VARIANT.GHOST) return
-  if (props.selected && isCornerHandle(handle, props.handles)) return
+  if (props.selected && handleLayout.value.get(handle.uid).isCorner) return
   beginGhostActivation(props.id, handle.uid)
 }
 </script>
