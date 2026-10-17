@@ -277,15 +277,15 @@ export function isCellML(content) {
   return isValid
 }
 
-function isStandardUnit(name) {
+export function isStandardUnit(name) {
   return STANDARD_UNITS.includes(name)
 }
 
-function isAffineUnit(name) {
+export function isAffineUnit(name) {
   return name in AFFINE_UNIT_CONVERSIONS
 }
 
-function nextAvailableVarName(component, baseName) {
+export function nextAvailableVarName(component, baseName) {
   let candidateName = baseName
   let index = 1
   let currentCandidate = component.variableByName(candidateName)
@@ -298,7 +298,7 @@ function nextAvailableVarName(component, baseName) {
   return candidateName
 }
 
-function nextAvailableComponentName(model, baseName) {
+export function nextAvailableComponentName(model, baseName) {
   let candidateName = baseName
   let index = 1
   let currentCandidate = model.componentByName(candidateName, true)
@@ -319,7 +319,7 @@ export function sanitiseCellMLIdentifier(name) {
   return sanitised || 'inspection_module'
 }
 
-function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) {
+function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName, parent = model) {
   const garbageCollector = new Set()
   try {
     const units1 = v1.units()
@@ -427,7 +427,7 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
 
     // Only add to model if newly created
     if (isNew) {
-      model.addComponent(convComp)
+      parent.addComponent(convComp)
     }
 
     // Look up fresh references for equivalence wiring
@@ -480,16 +480,17 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
  * @param {libcellml.Component} sourceComp      - Component owning the variable to scale.
  * @param {string}              sourceVarName   - Name of the variable in sourceComp.
  * @param {number}              factor          - Numeric scaling factor (e.g. 2).
+ * @param {libcellml.ComponentEntity} [parent]  - Where a new component goes: the model, or a component encapsulating it.
  * @returns {{ outputVarName: string }}         - Name of the scaled output variable
  *                                                inside 'generated_multiplications'.
  */
-function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
+export function createMultiplyComponent(model, sourceComp, sourceVarName, factor, parent = model) {
   // Get or create the shared multiplications component
   let mulComp = model.componentByName('generated_multiplications', true)
   if (mulComp === null) {
     mulComp = new _libcellml.Component()
     mulComp.setName('generated_multiplications')
-    model.addComponent(mulComp)
+    parent.addComponent(mulComp)
   }
 
   // Determine units from the source variable
@@ -537,13 +538,22 @@ function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
   return { outputVarName }
 }
 
-function createSummationComponent(model, sourceComp, sourceVarName, targetComponentVarNameMap) {
+/**
+ * Sets a Sum variable to the sum of its terms, in the shared 'generated_summations' component; 0 with none.
+ *
+ * @param {libcellml.Model} model
+ * @param {libcellml.Component} sourceComp - Component owning the Sum variable.
+ * @param {string} sourceVarName
+ * @param {Array<{component: libcellml.Component, varName: string}>} targetComponentVarNameMap - The terms.
+ * @param {libcellml.ComponentEntity} [parent] - Where a new component goes: the model, or a component encapsulating it.
+ */
+export function createSummationComponent(model, sourceComp, sourceVarName, targetComponentVarNameMap, parent = model) {
   // Create the Component
   let sumComp = model.componentByName('generated_summations', true)
   if (sumComp === null) {
     sumComp = new _libcellml.Component()
     sumComp.setName('generated_summations')
-    model.addComponent(sumComp)
+    parent.addComponent(sumComp)
   }
 
   // Setup Variables
@@ -720,7 +730,7 @@ export function getCellmlAttributeNode(element, localName) {
   )
 }
 
-function extractUnitsFromMath(multiBlockMathString) {
+export function extractUnitsFromMath(multiBlockMathString) {
   const wrappedString = `<root>${multiBlockMathString}</root>`
 
   // Parse the XML String
@@ -753,7 +763,7 @@ function extractUnitsFromMath(multiBlockMathString) {
   return Array.from(foundUnits)
 }
 
-function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
+export function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
   const errMessages = [headerMessage]
   console.log(headerMessage)
   for (let i = 0; i < logger.errorCount(); i++) {
@@ -871,7 +881,7 @@ function prioritizeEnvironmentComponent(xmlString) {
  *
  * @param {Object} variable - A libcellml Variable.
  */
-function ensurePublicInterface(variable) {
+export function ensurePublicInterface(variable) {
   const interfaceType = variable.interfaceType()
   if (interfaceType === 'public' || interfaceType === 'public_and_private') return
   variable.setInterfaceTypeByString('public')
@@ -966,19 +976,101 @@ function stripCelsiusToArbitraryUnit(xmlString) {
 
 /**
  * Equivalences two variables, through a generated conversion component when
- * their units are affine (e.g. celsius and kelvin).
+ * their units are affine (e.g. celsius and kelvin), which goes in `parent`.
  */
-function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable) {
+export function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable, parent = model) {
   const v1 = sourceComp.variableByName(srcVariable)
   const v2 = targetComp.variableByName(tgtVariable)
   if (v1 && v2) {
-    const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
+    const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name(), parent)
     if (!handled) {
       _libcellml.Variable.addEquivalence(v1, v2)
     }
   }
   v1?.delete()
   v2?.delete()
+}
+
+/**
+ * Decides where each module variable's value comes from on export, as circulatory_autogen does (see
+ * resolveBoundaryValues): a global constant's from the library, a local constant's from its super instance, and a
+ * constant's, or a supplied boundary condition's, from its row.
+ *
+ * @param {Array} nodes - The model's nodes.
+ * @param {Array} edges - The model's edges.
+ * @param {Object} libraryStore - Gives getGlobalConstant(name).
+ * @param {Object} [options]
+ * @param {boolean} [options.allowBcOnly=false] - As generateFlattenedModel's.
+ * @returns {{boundaryValues: Object, isSetAsConstant: Function, parameterOf: Function}} parameterOf(node, name) gives
+ *   null when nothing sets the variable, `{kind: 'ignored'|'missing', row}` for a value a connection overrides or one
+ *   left blank, else `{kind: 'global'|'local'|'instance', row, parameter: {name, value, units}}`, the parameter named as
+ *   the flat export names it.
+ * @throws {Error} For boundary conditions coupled only to each other (unless allowed), or given conflicting values.
+ */
+export function planParameterValues(nodes, edges, libraryStore, { allowBcOnly = false } = {}) {
+  // A boundary condition's value is used only when nothing in its coupled group supplies one.
+  const boundaryValues = resolveBoundaryValues(nodes, edges)
+  // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
+  // falls back to their own values (see checkScope).
+  if (boundaryValues.bcOnly.length && !allowBcOnly) {
+    const groups = boundaryValues.bcOnly.map(({ label }) => label).join('; ')
+    throw new Error(`Boundary conditions connected only to each other, so nothing computes them: ${groups}.`)
+  }
+  if (boundaryValues.conflicts.length) {
+    throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
+  }
+  // A value something else supplies is dropped (see resolveBoundaryValues).
+  const isIgnored = (nodeId, v) => !!boundaryValues.ignored.get(nodeId)?.has(v.name)
+  // A supplied boundary condition is set like a constant.
+  const isSetAsConstant = (nodeId, v) =>
+    (v.type === 'constant' && !isIgnored(nodeId, v)) ||
+    (v.type === 'boundary_condition' && !!boundaryValues.supplied.get(nodeId)?.has(v.name))
+
+  // Count how many nodes use each constant variable name
+  const constantNameRefCount = new Map()
+  for (const node of nodes) {
+    for (const v of node.data.variables ?? []) {
+      if (isSetAsConstant(node.id, v) && !isEmpty(v.value)) {
+        constantNameRefCount.set(v.name, (constantNameRefCount.get(v.name) ?? 0) + 1)
+      }
+    }
+  }
+
+  const parameterOf = (node, name) => {
+    const row = (node.data.variables ?? []).find((v) => v.name === name)
+    if (!row) return null
+    if (isIgnored(node.id, row)) return { kind: 'ignored', row }
+    if (row.type === 'global_constant') {
+      const v = libraryStore.getGlobalConstant(name)
+      return isEmpty(v?.value) ? { kind: 'missing', row } : { kind: 'global', row, parameter: { ...v, name } }
+    }
+    if (row.type === 'local_constant') {
+      // One constant per super instance, which every row bound to it is connected to.
+      if (!row.localConstant || isEmpty(row.value)) return { kind: 'missing', row }
+      const parameter = { name: emittedLocalConstantName(row.name, row.localConstant.owner), value: row.value, units: row.localConstant.units || row.units }
+      return { kind: 'local', row, parameter }
+    }
+    if (boundaryValues.missing.get(node.id)?.has(row.name)) return { kind: 'missing', row }
+    if (!isSetAsConstant(node.id, row)) return null
+    if (isEmpty(row.value)) return { kind: 'missing', row }
+    const isShared = (constantNameRefCount.get(row.name) ?? 0) > 1
+    return { kind: 'instance', row, parameter: { ...row, name: isShared ? `${node.data.name}_${row.name}` : row.name } }
+  }
+
+  return { boundaryValues, isSetAsConstant, parameterOf }
+}
+
+/**
+ * Throws for the values export needs but the rows leave blank.
+ *
+ * @param {string[]} missingValues - Each as `module.variable`.
+ * @throws {Error} When there are any.
+ */
+export function throwMissingValues(missingValues) {
+  if (!missingValues.length) return
+  const shown = missingValues.slice(0, 10).join(', ')
+  const more = missingValues.length > 10 ? ` and ${missingValues.length - 10} more` : ''
+  throw new Error(`Missing parameter values: ${shown}${more}.`)
 }
 
 /**
@@ -1105,33 +1197,7 @@ export function generateFlattenedModel(
     parameterComponent.setName(PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME)
     model.addComponent(parameterComponent)
 
-    // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges)
-    // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
-    // falls back to their own values (see checkScope).
-    if (boundaryValues.bcOnly.length && !allowBcOnly) {
-      const groups = boundaryValues.bcOnly.map(({ label }) => label).join('; ')
-      throw new Error(`Boundary conditions connected only to each other, so nothing computes them: ${groups}.`)
-    }
-    if (boundaryValues.conflicts.length) {
-      throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
-    }
-    // A value something else supplies is dropped (see resolveBoundaryValues).
-    const isIgnored = (nodeId, v) => !!boundaryValues.ignored.get(nodeId)?.has(v.name)
-    // A supplied boundary condition is set like a constant.
-    const isSetAsConstant = (nodeId, v) =>
-      (v.type === 'constant' && !isIgnored(nodeId, v)) ||
-      (v.type === 'boundary_condition' && !!boundaryValues.supplied.get(nodeId)?.has(v.name))
-
-    // Count how many nodes use each constant variable name
-    const constantNameRefCount = new Map()
-    for (const node of nodes) {
-      for (const v of node.data.variables ?? []) {
-        if (isSetAsConstant(node.id, v) && !isEmpty(v.value)) {
-          constantNameRefCount.set(v.name, (constantNameRefCount.get(v.name) ?? 0) + 1)
-        }
-      }
-    }
+    const { boundaryValues, isSetAsConstant, parameterOf } = planParameterValues(nodes, edges, libraryStore, { allowBcOnly })
 
     // Values live only in the parameter rows, so one left blank leaves its variable uninitialised.
     const missingValues = []
@@ -1181,8 +1247,9 @@ export function generateFlattenedModel(
         const units = variable.units()
         const unitsName = units.name()
 
-        const nodeVariable = node.data.variables.find((v) => v.name === variable.name())
-        if (nodeVariable && isIgnored(node.id, nodeVariable)) {
+        const parameter = parameterOf(node, variable.name())
+        if (parameter?.kind === 'ignored') {
+          const nodeVariable = parameter.row
           const value =
             nodeVariable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name())?.value : nodeVariable.value
           // A connected boundary condition's value is a fallback, and an empty Sum warns below.
@@ -1190,42 +1257,11 @@ export function generateFlattenedModel(
           if (nodeVariable.type !== 'boundary_condition' && !isEmptySum) {
             console.warn(`"${node.data.name}" variable "${variable.name()}" is set by a connection; ignoring its parameter value ${value}.`)
           }
-        } else if (nodeVariable) {
-          if (nodeVariable.type === 'global_constant') {
-            const v = libraryStore.getGlobalConstant(variable.name())
-            if (!isEmpty(v?.value)) {
-              addVariableToParameterComponent(model, variable, globalParameterComponent, {
-                ...v,
-                name: variable.name(),
-              })
-            } else {
-              missingValues.push(`${node.data.name}.${variable.name()}`)
-            }
-          } else if (nodeVariable.type === 'local_constant') {
-            // One constant per super instance, which every row bound to it is connected to.
-            if (nodeVariable.localConstant && !isEmpty(nodeVariable.value)) {
-              addVariableToParameterComponent(model, variable, parameterComponent, {
-                name: emittedLocalConstantName(nodeVariable.name, nodeVariable.localConstant.owner),
-                value: nodeVariable.value,
-                units: nodeVariable.localConstant.units || nodeVariable.units,
-              })
-            } else {
-              missingValues.push(`${node.data.name}.${variable.name()}`)
-            }
-          } else if (boundaryValues.missing.get(node.id)?.has(nodeVariable.name)) {
-            missingValues.push(`${node.data.name}.${variable.name()}`)
-          } else if (isSetAsConstant(node.id, nodeVariable)) {
-            const v = node.data.variables.find((cv) => cv.name === nodeVariable.name)
-            if (!isEmpty(v?.value)) {
-              const isShared = (constantNameRefCount.get(v.name) ?? 0) > 1
-              addVariableToParameterComponent(model, variable, parameterComponent, {
-                ...v,
-                name: isShared ? `${node.data.name}_${v.name}` : v.name,
-              })
-            } else {
-              missingValues.push(`${node.data.name}.${variable.name()}`)
-            }
-          }
+        } else if (parameter?.kind === 'missing') {
+          missingValues.push(`${node.data.name}.${variable.name()}`)
+        } else if (parameter) {
+          const component = parameter.kind === 'global' ? globalParameterComponent : parameterComponent
+          addVariableToParameterComponent(model, variable, component, parameter.parameter)
         }
 
         // Use our helper
@@ -1236,11 +1272,7 @@ export function generateFlattenedModel(
       }
     }
 
-    if (missingValues.length) {
-      const shown = missingValues.slice(0, 10).join(', ')
-      const more = missingValues.length > 10 ? ` and ${missingValues.length - 10} more` : ''
-      throw new Error(`Missing parameter values: ${shown}${more}.`)
-    }
+    throwMissingValues(missingValues)
 
     // ----------------------------------
     // Process Edges (Create Connections)

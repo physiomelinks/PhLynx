@@ -95,12 +95,13 @@ const childrenNamed = (element, localName) => childElements(element).filter((chi
  * @param {Element} element
  * @param {Function} renameVariable - Variable name to canonical name.
  * @param {boolean} sortCommutative
+ * @param {Function} [renameUnits] - Units name to canonical name.
  * @returns {string}
  */
-function mathToString(element, renameVariable, sortCommutative) {
+function mathToString(element, renameVariable, sortCommutative, renameUnits = (units) => units) {
   const name = element.localName
   const children = childElements(element).filter((child) => !IGNORED_MATH.has(child.localName))
-  const write = (child) => mathToString(child, renameVariable, sortCommutative)
+  const write = (child) => mathToString(child, renameVariable, sortCommutative, renameUnits)
 
   if (name === 'ci') return renameVariable(element.textContent.trim())
   if (name === 'cn') {
@@ -113,7 +114,7 @@ function mathToString(element, renameVariable, sortCommutative) {
     if (type === 'e-notation' && parts.length === 2) value = String(Number(`${parts[0]}e${parts[1]}`))
     if (type === 'rational' && parts.length === 2) value = String(Number(parts[0]) / Number(parts[1]))
     const units = attributeOf(element, 'units')
-    return units ? `${value}[${units}]` : value
+    return units ? `${value}[${renameUnits(units)}]` : value
   }
   if (name === 'semantics') return children.length ? write(children[0]) : ''
   if (name === 'apply' && children.length) {
@@ -135,14 +136,15 @@ function mathToString(element, renameVariable, sortCommutative) {
  * @param {Element} reset
  * @param {Function} renameVariable - Variable name to canonical name.
  * @param {boolean} sortCommutative
+ * @param {Function} [renameUnits]
  * @returns {string}
  */
-function resetToString(reset, renameVariable, sortCommutative) {
+function resetToString(reset, renameVariable, sortCommutative, renameUnits) {
   const valueOf = (localName) =>
     childrenNamed(reset, localName)
       .flatMap((child) => childrenNamed(child, 'math'))
       .flatMap((math) => childElements(math).filter((element) => !IGNORED_MATH.has(element.localName)))
-      .map((element) => mathToString(element, renameVariable, sortCommutative))
+      .map((element) => mathToString(element, renameVariable, sortCommutative, renameUnits))
       .join('; ')
   const variable = renameVariable(reset.getAttribute('variable') ?? '')
   const testVariable = renameVariable(reset.getAttribute('test_variable') ?? '')
@@ -219,9 +221,11 @@ function flattenToCellML2(cellmlString, importSources = {}) {
  *
  * @param {Element} root - The model element.
  * @param {Function} keyOf - (componentName, variableName), as the model gives them, to a set member's key.
+ * @param {Function} [isRelay] - Whether a component (by its own name) only relays: its variables join sets but are left
+ *   out of them.
  * @returns {string[][]} Each set's keys sorted, the sets sorted by their first key.
  */
-function equivalenceSets(root, keyOf) {
+function equivalenceSets(root, keyOf, isRelay = () => false) {
   const parent = new Map()
   const find = (key) => {
     while (parent.get(key) !== key) {
@@ -230,12 +234,15 @@ function equivalenceSets(root, keyOf) {
     }
     return key
   }
+  const relayed = new Set()
   for (const connection of childrenNamed(root, 'connection')) {
     const c1 = connection.getAttribute('component_1')
     const c2 = connection.getAttribute('component_2')
     for (const map of childrenNamed(connection, 'map_variables')) {
       const a = keyOf(c1, map.getAttribute('variable_1'))
       const b = keyOf(c2, map.getAttribute('variable_2'))
+      if (isRelay(c1)) relayed.add(a)
+      if (isRelay(c2)) relayed.add(b)
       for (const key of [a, b]) if (!parent.has(key)) parent.set(key, key)
       const rootA = find(a)
       const rootB = find(b)
@@ -244,11 +251,16 @@ function equivalenceSets(root, keyOf) {
   }
   const sets = new Map()
   for (const key of parent.keys()) {
+    if (relayed.has(key)) continue
     const representative = find(key)
     if (!sets.has(representative)) sets.set(representative, [])
     sets.get(representative).push(key)
   }
-  return [...sets.values()].map((set) => set.sort()).sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
+  // A relay's variable joined to one other only leaves that one.
+  return [...sets.values()]
+    .filter((set) => set.length > 1)
+    .map((set) => set.sort())
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0))
 }
 
 /**
@@ -265,12 +277,20 @@ function equivalenceSets(root, keyOf) {
  * @param {Object<string, string>} [options.importSources] - CellML of imported files, keyed by href.
  * @param {boolean} [options.sortCommutative=true] - Sorts the operands of plus, times, eq and the like, so a + b reads
  *   as b + a.
+ * @param {string[]|Function} [options.relays=[]] - Components (by either name, or a predicate on the model's own) that
+ *   only pass values on, such as a hierarchical model's wrappers: left out, the variables they join joined directly.
+ * @param {boolean} [options.mergeRenamed=false] - Merges components renamed alike, rather than throwing; their variables
+ *   must still compare by distinct names (see renameVariable).
+ * @param {Function} [options.renameUnits] - Units name to the name to compare it by, in definitions, variables and maths.
  * @returns {{name: string, units: Object<string, string[]>, components: Object<string, Object>, equivalences: string[][],
  *   encapsulation: string[]}} Components keyed and sorted by (renamed) name, each with its variables
  *   ({units, initialValue, interface}), and its equations and resets as sorted canonical strings; equivalences as the sorted sets
  *   of `component/variable` that connections join; encapsulation as sorted `parent > child`.
  */
-export function canonicalModel(cellmlString, { rename, renameVariable, nameByConnection = [], importSources, sortCommutative = true } = {}) {
+export function canonicalModel(
+  cellmlString,
+  { rename, renameVariable, nameByConnection = [], importSources, sortCommutative = true, relays = [], mergeRenamed = false, renameUnits = (units) => units } = {}
+) {
   const renameComponent = toRenamer(rename)
   const givenName = renameVariable ? (component, variable) => renameVariable(component, variable) ?? variable : (_, variable) => variable
 
@@ -280,12 +300,16 @@ export function canonicalModel(cellmlString, { rename, renameVariable, nameByCon
 
   const units = {}
   for (const element of childrenNamed(root, 'units')) {
-    units[element.getAttribute('name')] = childrenNamed(element, 'unit')
+    const own = element.getAttribute('name')
+    const name = renameUnits(own)
+    // Of units renamed alike, the one already of that name is compared.
+    if (units[name] && own !== name) continue
+    units[name] = childrenNamed(element, 'unit')
       .map((unit) => {
         const prefix = unit.getAttribute('prefix') ?? '0'
         const exponent = normaliseNumber(unit.getAttribute('exponent') ?? '1')
         const multiplier = normaliseNumber(unit.getAttribute('multiplier') ?? '1')
-        return `${unit.getAttribute('units')} prefix=${PREFIXES[prefix] ?? normaliseNumber(prefix)} exponent=${exponent} multiplier=${multiplier}`
+        return `${renameUnits(unit.getAttribute('units'))} prefix=${PREFIXES[prefix] ?? normaliseNumber(prefix)} exponent=${exponent} multiplier=${multiplier}`
       })
       .sort()
   }
@@ -295,6 +319,9 @@ export function canonicalModel(cellmlString, { rename, renameVariable, nameByCon
     if (!componentNames.has(original)) componentNames.set(original, renameComponent(original))
     return componentNames.get(original)
   }
+
+  const relaySet = new Set(typeof relays === 'function' ? [] : relays)
+  const isRelay = typeof relays === 'function' ? relays : (component) => relaySet.has(component) || relaySet.has(nameOf(component))
 
   // Variables of the components named by connection take the names of what they connect to.
   const byConnection = new Map()
@@ -307,7 +334,7 @@ export function canonicalModel(cellmlString, { rename, renameVariable, nameByCon
       if (isListed(component)) listedKeys.add(key)
       return key
     }
-    for (const set of equivalenceSets(root, keyOf)) {
+    for (const set of equivalenceSets(root, keyOf, isRelay)) {
       const outside = set.filter((key) => !listedKeys.has(key))
       if (!outside.length) continue
       for (const key of set) if (listedKeys.has(key)) byConnection.set(key, `<${outside.join('|')}>`)
@@ -318,41 +345,71 @@ export function canonicalModel(cellmlString, { rename, renameVariable, nameByCon
     return byConnection.get(`${nameOf(component)}/${given}`) ?? given
   }
 
+  // Each component's variables as entries, so variables named alike by connection can be told apart once all are in.
   const components = {}
   for (const element of childrenNamed(root, 'component')) {
     const original = element.getAttribute('name')
+    if (isRelay(original)) continue
     const name = nameOf(original)
-    if (components[name]) throw new Error(`Components "${components[name].originalName}" and "${original}" both compare as "${name}".`)
-    const variables = {}
+    const merging = !!components[name] && mergeRenamed
+    if (components[name] && !merging) throw new Error(`Components "${components[name].originalName}" and "${original}" both compare as "${name}".`)
+    const rename = (v) => renameVar(original, v)
+    const equationElements = childElements(element)
+      .filter((child) => child.localName === 'math' && child.namespaceURI === MATHML_NS)
+      .flatMap((math) => childElements(math).filter((equation) => !IGNORED_MATH.has(equation.localName)))
+    // The equations a variable is in, itself written $: what tells apart two variables named alike by connection.
+    const usesOf = (variable) =>
+      equationElements
+        .filter((equation) => Array.from(equation.getElementsByTagNameNS(MATHML_NS, 'ci')).some((ci) => ci.textContent.trim() === variable))
+        .map((equation) => mathToString(equation, (v) => (v === variable ? '$' : rename(v)), sortCommutative, renameUnits))
+        .sort()
+        .join(' | ')
+    const entries = merging ? components[name].entries : []
     for (const variable of childrenNamed(element, 'variable')) {
-      const variableName = renameVar(original, variable.getAttribute('name'))
-      if (variables[variableName]) throw new Error(`Two variables of component "${original}" both compare as "${variableName}".`)
+      const own = variable.getAttribute('name')
       const initial = variable.getAttribute('initial_value')
       const number = initial === null ? null : normaliseNumber(initial)
-      variables[variableName] = {
-        units: variable.getAttribute('units'),
-        initialValue: initial === null ? null : Number.isNaN(Number(number)) ? renameVar(original, initial.trim()) : number,
-        interface: variable.getAttribute('interface') ?? 'none',
-      }
+      entries.push({
+        name: rename(own),
+        uses: () => usesOf(own),
+        original,
+        value: {
+          units: renameUnits(variable.getAttribute('units')),
+          initialValue: initial === null ? null : Number.isNaN(Number(number)) ? rename(initial.trim()) : number,
+          interface: variable.getAttribute('interface') ?? 'none',
+        },
+      })
     }
-    const rename = (v) => renameVar(original, v)
-    const equations = []
-    for (const math of childElements(element).filter((child) => child.localName === 'math' && child.namespaceURI === MATHML_NS)) {
-      for (const equation of childElements(math)) {
-        if (!IGNORED_MATH.has(equation.localName)) equations.push(mathToString(equation, rename, sortCommutative))
-      }
+    const equations = equationElements.map((equation) => mathToString(equation, rename, sortCommutative, renameUnits))
+    const resets = childrenNamed(element, 'reset').map((reset) => resetToString(reset, rename, sortCommutative, renameUnits))
+    if (merging) {
+      equations.push(...components[name].equations)
+      resets.push(...components[name].resets)
     }
-    const resets = childrenNamed(element, 'reset').map((reset) => resetToString(reset, rename, sortCommutative))
-    components[name] = { originalName: original, variables: sortKeys(variables), equations: equations.sort(), resets: resets.sort() }
+    const originalName = merging ? components[name].originalName : original
+    components[name] = { originalName, entries, equations: equations.sort(), resets: resets.sort() }
+  }
+  for (const component of Object.values(components)) {
+    const counts = new Map()
+    for (const { name } of component.entries) counts.set(name, (counts.get(name) ?? 0) + 1)
+    const variables = {}
+    for (const entry of component.entries) {
+      const variableName = counts.get(entry.name) > 1 && byConnection.size ? `${entry.name} in ${entry.uses()}` : entry.name
+      if (variables[variableName]) throw new Error(`Two variables of component "${entry.original}" both compare as "${variableName}".`)
+      variables[variableName] = entry.value
+    }
+    component.variables = sortKeys(variables)
+    delete component.entries
   }
 
-  const equivalences = equivalenceSets(root, (component, variable) => `${nameOf(component)}/${renameVar(component, variable)}`)
+  const equivalences = equivalenceSets(root, (component, variable) => `${nameOf(component)}/${renameVar(component, variable)}`, isRelay)
 
   const encapsulation = []
   const walk = (element, parentName) => {
     for (const ref of childrenNamed(element, 'component_ref')) {
-      const name = nameOf(ref.getAttribute('component'))
-      if (parentName) encapsulation.push(`${parentName} > ${name}`)
+      const original = ref.getAttribute('component')
+      const name = isRelay(original) ? parentName : nameOf(original)
+      if (parentName && name !== parentName) encapsulation.push(`${parentName} > ${name}`)
       walk(ref, name)
     }
   }
@@ -399,16 +456,24 @@ function unmatched(from, other) {
  * @param {string[]} [options.nameByConnection] - As canonicalModel's, for both.
  * @param {Object<string, string>} [options.importSources] - CellML of imported files, keyed by href, for both.
  * @param {boolean} [options.sortCommutative=true] - As canonicalModel's.
+ * @param {string[]|Function} [options.relays] - As canonicalModel's, for both.
+ * @param {boolean} [options.mergeRenamed] - As canonicalModel's, for both.
+ * @param {boolean} [options.equivalentUnits=false] - Compares units libcellml finds equivalent (milliV_per_V and
+ *   millis_per_s) as one, named as the first of them by name: flattening an imported component takes the importing
+ *   model's equivalent units for its own. Both models must be CellML.
  * @param {string[]} [options.ignore=[]] - Aspects not to compare: 'interface', 'encapsulation', 'units' (the units
  *   definitions; variables' units are always compared).
  * @param {boolean} [options.compareModelName=false] - Compares the models' names too.
  * @returns {{equal: boolean, differences: string[]}} Each difference worded for a test failure.
  */
 export function compareCanonical(a, b, options = {}) {
-  const { renameA, renameB, renameVariableA, renameVariableB, nameByConnection, importSources, sortCommutative = true, ignore = [], compareModelName = false } = options
+  const { renameA, renameB, renameVariableA, renameVariableB, nameByConnection, importSources, sortCommutative = true, relays, mergeRenamed } = options
+  const { ignore = [], compareModelName = false, equivalentUnits = false } = options
   const ignored = new Set(ignore)
-  const canonA = typeof a === 'string' ? canonicalModel(a, { rename: renameA, renameVariable: renameVariableA, nameByConnection, importSources, sortCommutative }) : a
-  const canonB = typeof b === 'string' ? canonicalModel(b, { rename: renameB, renameVariable: renameVariableB, nameByConnection, importSources, sortCommutative }) : b
+  const renameUnits = equivalentUnits ? equivalentUnitsNames([a, b], importSources) : undefined
+  const shared = { nameByConnection, importSources, sortCommutative, relays, mergeRenamed, renameUnits }
+  const canonA = typeof a === 'string' ? canonicalModel(a, { rename: renameA, renameVariable: renameVariableA, ...shared }) : a
+  const canonB = typeof b === 'string' ? canonicalModel(b, { rename: renameB, renameVariable: renameVariableB, ...shared }) : b
   const differences = []
   const label = (component, side) => {
     const original = side.components[component]?.originalName
@@ -421,6 +486,8 @@ export function compareCanonical(a, b, options = {}) {
     for (const name of Object.keys(canonA.units)) if (!(name in canonB.units)) differences.push(`units ${name}: only in A`)
     for (const name of Object.keys(canonB.units)) if (!(name in canonA.units)) differences.push(`units ${name}: only in B`)
     for (const name of Object.keys(canonA.units)) {
+      // Equivalent units merged under one name may be defined either way.
+      if (renameUnits?.merged.has(name)) continue
       if (name in canonB.units && canonA.units[name].join('; ') !== canonB.units[name].join('; ')) {
         differences.push(`units ${name}: [${canonA.units[name].join('; ')}] in A, [${canonB.units[name].join('; ')}] in B`)
       }
@@ -468,6 +535,45 @@ export function compareCanonical(a, b, options = {}) {
   }
 
   return { equal: differences.length === 0, differences }
+}
+
+/**
+ * Names units alike that libcellml finds equivalent, across models: each set after the first of its names.
+ *
+ * @param {string[]} models - CellML.
+ * @param {Object<string, string>} [importSources]
+ * @returns {Function} Units name to its set's name; its `merged` the set names standing for more than one units.
+ */
+function equivalentUnitsNames(models, importSources) {
+  const lib = requireLibCellML()
+  const garbage = []
+  const keep = (object) => (object && garbage.push(object), object)
+  try {
+    const parser = keep(new lib.Parser(false))
+    const all = models.flatMap((cellml) => {
+      const model = keep(parser.parseModel(flattenToCellML2(cellml, importSources)))
+      return Array.from({ length: model.unitsCount() }, (_, i) => keep(model.unitsByIndex(i)))
+    })
+    const names = new Map()
+    for (const units of all) {
+      if (names.has(units.name())) continue
+      const match = all.find((other) => other.name() !== units.name() && names.has(other.name()) && lib.Units.equivalent(units, other))
+      names.set(units.name(), match ? names.get(match.name()) : units.name())
+    }
+    // Each set after the first of its names.
+    const first = new Map()
+    const sizes = new Map()
+    for (const [name, set] of names) {
+      if (!first.has(set) || name < first.get(set)) first.set(set, name)
+      sizes.set(set, (sizes.get(set) ?? 0) + 1)
+    }
+    const rename = (name) => (names.has(name) ? first.get(names.get(name)) : name)
+    // The names standing for more than one units.
+    rename.merged = new Set([...sizes].filter(([, size]) => size > 1).map(([set]) => first.get(set)))
+    return rename
+  } finally {
+    garbage.reverse().forEach((object) => object.delete())
+  }
 }
 
 /**

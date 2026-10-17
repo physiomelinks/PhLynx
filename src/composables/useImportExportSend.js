@@ -24,6 +24,7 @@ import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { CA_ARRAY_FORMATS, generateExportZip } from '../services/export/ca'
+import { generateHierarchicalCellMLZip } from '../services/export/cellmlHierarchical'
 import { caIdentityProblem, caIdentityRequests, takenIdentities } from '../services/export/caNative'
 import { summariseExpansionErrors } from '../services/hierarchy/errors'
 import { isNestedModelId } from '../services/hierarchy/expand'
@@ -306,6 +307,23 @@ export function useImportExportSend({
           ),
         ])
       },
+    },
+    {
+      key: EXPORT_KEYS.CELLML_HIERARCHICAL,
+      label: 'CellML (with imports)',
+      icon: CellMLIcon,
+      disabled: libcellml.status !== 'ready',
+      suffix: '.zip',
+      fileTypes: ZIP_FILE_TYPES,
+      message: 'Generating CellML files with imports.',
+      // Written from the store: the model, a file per super-module and per module, and one of units; the model's checks run
+      // first, as for the flat export.
+      action: (finalName) => {
+        buildWholeModel()
+        const { nodes, edges } = storeGraph()
+        return generateHierarchicalCellMLZip(finalName, nodes, edges, libraryStore)
+      },
+      successMessage: () => 'Model exported to CellML with imports: the model, a file per super-module, a file per module and a units file.',
     },
     caExportOption(EXPORT_KEYS.CA, 'Circulatory Autogen', CA_ARRAY_FORMATS.JSON, { native: true }),
     caExportOption(EXPORT_KEYS.CA_FLAT, 'Circulatory Autogen (flat)', CA_ARRAY_FORMATS.JSON),
