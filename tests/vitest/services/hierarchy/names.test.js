@@ -109,6 +109,29 @@ describe('resolveName', () => {
     expect(expansions[0].pathOf('dndnode_1/bed/cap')).toBe('leg_l/bed_1/cap_x')
   })
 
+  it('gives a prefixed self leaf its super instance\'s flat name, its path still its own', () => {
+    const self = module('self', 'self', { scope: 'sm_1', data: { originalName: 'fast_sodium_current', role: 'self' } })
+    const gate = module('gate', 'm_gate', { scope: 'sm_1' })
+    const sm = supermodule('sm_1', 'wrap', { submoduleOrder: ['self', 'gate'] })
+    const cell = superInstance([sm, self, gate], 'cell_1', 'cell', 'sm_1', { scope: 'sm_2' })
+    const outer = supermodule('sm_2', 'tissue', { submoduleOrder: ['cell_1'] })
+    const graph = [superInstance([outer, cell, sm, self, gate], 'dndnode_1', 'heart', 'sm_2'), outer, cell, sm, self, gate]
+    const expansion = expandHierarchy(graph, [])
+    const id = 'dndnode_1/cell_1/self'
+    expect(expansion.nameOf(id)).toBe('heart__cell')
+    expect(expansion.pathOf(id)).toBe('heart/cell/self')
+    expect(expansion.nameOf('dndnode_1/cell_1/gate')).toBe('heart__cell__m_gate')
+    for (const name of ['heart__cell', 'heart/cell/self']) expect(resolveName(name, expansion)).toEqual({ id, path: 'heart/cell/self' })
+    expect(toPath('heart__cell', expansion)).toBe('heart/cell/self')
+    expect(expansion.errors.filter((error) => error.kind === 'flatNameClash')).toEqual([])
+
+    // A root module named so still clashes with it.
+    const clashing = expandHierarchy([...graph, module('dndnode_2', 'heart__cell')], [])
+    const clash = clashing.errors.filter((error) => error.kind === 'flatNameClash')
+    expect(clash.map((error) => error.ids.sort())).toEqual([[id, 'dndnode_2'].sort()])
+    expect(clash[0].message).toContain('"heart/cell/self"')
+  })
+
   it('reads a path as a path', () => {
     expect(toPath('heart/ra')).toBe('heart/ra')
     expect(toPath('heart__ra')).toBe('heart/ra')

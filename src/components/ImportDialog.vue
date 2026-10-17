@@ -165,6 +165,17 @@
         </div>
         </TransitionGroup>
 
+        <div v-if="hasEncapsulatedCellML" class="import-option">
+          <Checkbox v-model="importFlat" binary input-id="import-cellml-flat" />
+          <label for="import-cellml-flat">
+            Import flat (hoisted)
+            <span class="import-option-hint">
+              Moves encapsulated components to the top level. Otherwise each encapsulating component becomes a
+              super-module.
+            </span>
+          </label>
+        </div>
+
         <div v-if="importReadiness && formState[IMPORT_KEYS.INSTANCE_ARRAY]?.readiness" class="validation-status">
           <Message v-if="importReadiness.errors?.length" severity="error" :closable="false">
             <div class="message-title">Cannot Import This Module Array</div>
@@ -238,6 +249,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch, toRaw } from 'vue'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
@@ -251,6 +263,7 @@ import { notify } from '../utils/notify'
 import { newConfigEntries, warnLegacyConfigs } from '../services/caRules'
 import { IMPORT_KEYS, MAX_VISIBLE_TAGS } from '../utils/constants'
 import { createDynamicFields, checkResourcesAreLoaded, getImportConfig, parseParametersFile } from '../utils/import'
+import { hasEncapsulation } from '../utils/cellml'
 import {
   buildBatchSummary,
   escapeHtml,
@@ -402,6 +415,16 @@ const isInstanceArrayImport = computed(() =>
   (props.config.fields || []).some((f) => f.key === IMPORT_KEYS.INSTANCE_ARRAY)
 )
 
+// A CellML file imported as a connection graph whose encapsulation could import flat instead (see useCellmlDrop).
+const importFlat = ref(false)
+const hasEncapsulatedCellML = computed(
+  () =>
+    !isInstanceArrayImport.value &&
+    [...(formState[IMPORT_KEYS.CELLML_FILE]?.files?.values() ?? [])].some(
+      (file) => typeof file?.payload === 'string' && hasEncapsulation(file.payload)
+    )
+)
+
 async function handleConnectFolder() {
   try {
     await pickFolder()
@@ -505,6 +528,7 @@ const unstageFiles = () => {
 
 const resetForm = (keepInstanceArray = false) => {
   resetFormState(keepInstanceArray)
+  importFlat.value = false
   unstageFiles()
 
   Object.entries(fileInputRefs.value).forEach(([, input]) => {
@@ -1164,9 +1188,14 @@ const handleConfirm = async () => {
     file_type: 'various',
   })
 
-  emit('confirm', importPayload, (progressText) => {
-    loadingText.value = progressText
-  })
+  emit(
+    'confirm',
+    importPayload,
+    (progressText) => {
+      loadingText.value = progressText
+    },
+    { flat: hasEncapsulatedCellML.value && importFlat.value }
+  )
 }
 
 const closeDialog = () => {
@@ -1474,6 +1503,25 @@ defineExpose({
 
 .required-asterisk {
   color: var(--p-red-500, #dc2626);
+}
+
+.import-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.import-option label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  cursor: pointer;
+}
+
+.import-option-hint {
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color);
 }
 
 .validation-status {

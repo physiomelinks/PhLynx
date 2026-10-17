@@ -41,7 +41,7 @@ import {
 import { resolveBoundaryValues } from '../export/boundaryValues'
 import { indexExposures } from './exposure'
 import { declarationProblems, emittedLocalConstantName, isLocalConstantRow, localConstantsOf, localConstantValue } from './localConstants'
-import { LEVEL_SEPARATOR, pathOfNames } from './names'
+import { LEVEL_SEPARATOR, pathOfNames, SELF_ROLE } from './names'
 
 export { superInstancePorts } from './exposure'
 
@@ -143,6 +143,7 @@ export function expandHierarchy(nodes, edges) {
   const flatNameIn = (context, node) => {
     if (!context.supermodule) return node.data?.name
     if (context.supermodule.data.supermodule.naming === 'preserve') return node.data?.originalName ?? node.data?.name
+    if (node.data?.role === SELF_ROLE) return context.flatName
     return `${context.flatName}${LEVEL_SEPARATOR}${node.data?.name}`
   }
   const chainIds = (context) => context.chain.map((instance) => instance.id)

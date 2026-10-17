@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { parseLayout } from 'cellml-text-editor'
 import { useActiveCanvas } from './useActiveCanvas'
+import { usePreservedNaming } from './usePreservedNaming'
 import { useSupermodules } from './useSupermodules'
 import { useLibraryStore } from '../stores/libraryStore'
 import { planSupermodulePaste, supermoduleClosure } from '../services/hierarchy/operations'
@@ -78,19 +79,22 @@ const getBoundingCenter = (nodes) => {
  * also works in another window. Each acts on the canvas: paste puts nodes in the scope shown, with that scope's ids.
  * A super-module's interface node is never copied on its own. A super-module copied is reused where the workspace has
  * the same one, else pasted with fresh ids; a super instance pastes only where its super-module would not then contain
- * itself.
+ * itself, and only after asking when it would change a super-module's preserved flat names (see usePreservedNaming).
+ * A pasted module never keeps its original's preserved name.
  *
  * @param {Object} options
  * @param {import('vue').Ref<{x: number, y: number}>} options.mousePosition - Mouse position in screen pixels.
  * @param {import('vue').ComputedRef<string[]>} options.allNodeNames - Names of the nodes on the workspace.
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
+ * @param {Function} [options.confirm] - The confirm dialog.
  * @returns {{ copySelection: Function, pasteSelection: Function, selectAllNodes: Function }}
  */
-export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FLOW_IDS.MAIN }) {
+export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FLOW_IDS.MAIN, confirm = null }) {
   const { addEdges, addNodes, edges: storeEdges, nodes: storeNodes, getSelectedEdges, getSelectedNodes, screenToFlowCoordinate } = useVueFlow(flowId)
   const { scope, nodes: canvasNodes, selectedNodes, selectedEdges, nextNodeId } = useActiveCanvas(flowId)
   const { canPlace } = useSupermodules(flowId)
   const libraryStore = useLibraryStore()
+  const preservedNaming = usePreservedNaming({ flowId, confirm })
 
   const clipboard = ref({ nodes: [], edges: [] })
 
@@ -195,6 +199,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       })
       return
     }
+    if (placed.length && !(await preservedNaming.allow([...storeNodes.value, ...supermodules.nodes, ...placed]))) return
 
     // Nodes copied from an older version keep values in their math; they move into the rows here.
     const clipboardMath = Object.values(sourceClipboard.storeSnapshot ?? {}).map((entry) => [
@@ -250,12 +255,13 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       const finalName = generateUniqueInstanceName(name, namesSet)
       namesSet.add(finalName)
 
-      // Create the new node with offset position.
+      // Create the new node with offset position. A copy is no self leaf, and its own name is its new one.
+      const { originalName: _originalName, role: _role, ...data } = node.data
       newNodes.push({
         id: newId,
         type: node.type,
         data: {
-          ...node.data,
+          ...data,
           name: finalName,
           scope: into,
           localId: into ? splitNodeId(newId).localId : newId,

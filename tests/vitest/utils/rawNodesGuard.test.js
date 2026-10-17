@@ -73,6 +73,12 @@ const ALLOWED = [
     reason: 'Nests, un-nests and makes unique across every scope, each store node and edge once, keeping the model it expands to.',
   },
   {
+    file: 'src/composables/usePreservedNaming.js',
+    line: 'useVueFlow(flowId)',
+    use: 'model-safe',
+    reason: 'Counts each super-module’s occurrences, and compares the flat names it expands to, each store node once.',
+  },
+  {
     file: 'src/composables/useLocalConstants.js',
     use: 'model-safe',
     reason: 'Reads and writes a super-module’s local constants, the rows bound to them and the overrides of them, each store node once.',

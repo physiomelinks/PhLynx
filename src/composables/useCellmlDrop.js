@@ -2,7 +2,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
-import { loadParametersFromCellML } from '../utils/cellml'
+import { loadParametersFromCellML, readEncapsulation } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
 import { isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 import { readFileAsText } from '../utils/misc'
@@ -47,13 +47,21 @@ export function useCellmlDrop({
    * libraries via loadCellMLData as usual.
    *
    * Shows per-file notifications for a single file; a combined summary for multiple.
+   *
+   * A connection graph's encapsulating components become super-modules (see cellmlFold.js), unless `flat`.
+   *
+   * @param {Array<File|{name: string, content: string}>} entries
+   * @param {Object} [options]
+   * @param {boolean} [options.flat=false] - Imports a graph's encapsulated components at the top level instead.
    */
-  const loadCellMLFiles = async (entries) => {
+  const loadCellMLFiles = async (entries, { flat = false } = {}) => {
     // Single-file fast path: check for connections and load as a graph if present
     if (entries.length === 1) {
       const entry = entries[0]
-      const content = prepareCellmlImport(entry instanceof File ? await readFileAsText(entry) : entry.content, entry.name)
+      const raw = entry instanceof File ? await readFileAsText(entry) : entry.content
+      const content = prepareCellmlImport(raw, entry.name)
       const parsedCellmlPayload = parseCellMLConnections(content, entry.name)
+      const encapsulation = flat ? undefined : readEncapsulation(raw)
 
       if (parsedCellmlPayload.edges.length > 0) {
         if (nodes.value.length > 0) {
@@ -74,10 +82,10 @@ export function useCellmlDrop({
             // Load new graph into clean workspace using the normal path
             const result = await loadCellMLData(content, entry.name, { notify: false })
             const parameters = loadParametersFromCellML(content)
-            await loadFromCellML(parsedCellmlPayload, entry.name, parameters)
+            await loadFromCellML(parsedCellmlPayload, entry.name, parameters, { encapsulation, reserved: snapshot.nodes })
 
-            // Remap snapshotted node IDs to avoid clashes with newly loaded nodes, which are all at the root (the
-            // load starts the canvas there). Super-modules' ids, and their nodes', can't clash, so they keep theirs.
+            // Remap snapshotted node IDs to avoid clashes with newly loaded nodes at the root (the load starts the
+            // canvas there). The load took no super-module id of theirs, so their super-modules' nodes keep theirs.
             const existingIds = new Set(nodes.value.map((n) => n.id))
             const idRemap = new Map()
             const isRootNode = (n) => scopeOf(n) === null && !isSupermoduleInterface(n)
@@ -118,7 +126,7 @@ export function useCellmlDrop({
         // Register modules/units in the store first, then build the graph.
         const result = await loadCellMLData(content, entry.name, { notify: false })
         const parameters = loadParametersFromCellML(content)
-        await loadFromCellML(parsedCellmlPayload, entry.name, parameters)
+        await loadFromCellML(parsedCellmlPayload, entry.name, parameters, { encapsulation })
 
         rebuildNodeEdgeIndex()
 

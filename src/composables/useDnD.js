@@ -12,6 +12,7 @@ import { attachNewNodeToFrame, findAnyNode, generateUniqueInstanceName } from '.
 import { buildInstance } from '../services/import/buildWorkflow'
 import { buildGhostHandles } from '../utils/handles'
 import { useActiveCanvas } from './useActiveCanvas'
+import { usePreservedNaming } from './usePreservedNaming'
 import { useSupermodules } from './useSupermodules'
 import { notify } from '../utils/notify'
 import { toLocalName } from '../utils/hierarchy'
@@ -31,7 +32,16 @@ const state = {
   isDragging: ref(false),
 }
 
-export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MAIN) {
+/**
+ * Drag and drop of modules and super-modules onto a flow's canvas.
+ *
+ * @param {Set|Object} pendingHistoryNodes
+ * @param {string} [flowId=FLOW_IDS.MAIN]
+ * @param {Object} [options]
+ * @param {Function} [options.confirm] - The confirm dialog, which asks before another super instance changes preserved
+ *   flat names (see usePreservedNaming).
+ */
+export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MAIN, { confirm = null } = {}) {
   const { draggedType, isDragOver, isDragging } = state
 
   const { addNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
@@ -39,6 +49,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   const store = useLibraryStore()
   const { addSuperInstance, createEmptySuperModule, freeSupermoduleName, placeLibrarySupermodule } = useSupermodules(flowId)
 
+  const preservedNaming = usePreservedNaming({ flowId, confirm })
   const isGhostSetupOpen = ref(false)
   const pendingGhostNodeId = ref(null)
 
@@ -188,10 +199,15 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     }
 
     if (moduleData.smId) {
-      if (!addSuperInstance(moduleData.smId, position)) {
-        notify.warning({ title: 'Not Placed', message: 'This super-module would then contain itself, so it can’t go here.' })
+      const place = () => {
+        if (!addSuperInstance(moduleData.smId, position)) {
+          notify.warning({ title: 'Not Placed', message: 'This super-module would then contain itself, so it can’t go here.' })
+        }
       }
-      return
+      // A super-module keeping its components' own names asks first, as its flat names change.
+      const after = preservedNaming.withSuperInstance(moduleData.smId, scope.value)
+      if (!preservedNaming.asks(after)) return place()
+      return preservedNaming.allow(after).then((allowed) => allowed && place())
     }
 
     const { nodeId, nodeType } = createInstanceNode(moduleData, position)

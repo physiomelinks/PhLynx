@@ -7,8 +7,9 @@
 import { useVueFlow } from '@vue-flow/core'
 
 import { useFlowHistoryFor } from './useFlowHistoryFor'
+import { prefixedNamingMessage } from './usePreservedNaming'
 import { useSupermodules } from './useSupermodules'
-import { keepForOne, makeUnique, modelIdMap, nestProblem, nestSelection, unnest, unnestProblem } from '../services/hierarchy/operations'
+import { flatNameChanges, keepForOne, makeUnique, modelIdMap, nestProblem, nestSelection, unnest, unnestProblem } from '../services/hierarchy/operations'
 import { remapNodeKeys } from '../services/hierarchy/remapKeys'
 import { FLOW_IDS } from '../utils/constants'
 import { isSuperInstance } from '../utils/hierarchy'
@@ -32,10 +33,11 @@ const EDGE_FIELDS = ['data', 'sourceHandle', 'targetHandle']
  * @param {Object} [options]
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @param {Object} [options.history] - The undo stack; the nearest provided one by default.
+ * @param {Function} [options.confirm] - The confirm dialog, which asks before Make unique changes preserved flat names.
  * @returns {{canMakeUnique: Function, makeUniqueSuperInstance: Function, nestProblemOf: Function, nest: Function,
  *   unnestProblemOf: Function, unnestSuperInstance: Function, keepForOneCommand: Function}}
  */
-export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFlowHistoryFor() } = {}) {
+export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFlowHistoryFor(), confirm = null } = {}) {
   const flow = useVueFlow(flowId)
   const { find } = useSupermodules(flowId)
   const allNodes = () => (flow.nodes ?? flow.getNodes ?? NONE).value
@@ -193,14 +195,28 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
   }
 
   /**
-   * Gives a super instance its own copy of its super-module (see operations.js makeUnique).
+   * Gives a super instance its own copy of its super-module (see operations.js makeUnique). A copy of one keeping its
+   * components' own names is named after its super instance, so it asks first, listing the flat names that change.
    *
    * @param {string} superInstanceId
    * @returns {Promise<{done: boolean, problems: string[]}>}
    */
-  function makeUniqueSuperInstance(superInstanceId) {
+  async function makeUniqueSuperInstance(superInstanceId) {
     const before = store()
-    return apply('make-unique', before, makeUnique(before.nodes, before.edges, superInstanceId))
+    const result = makeUnique(before.nodes, before.edges, superInstanceId)
+    const changes = result.problems.length ? [] : flatNameChanges(before.nodes, result.nodes)
+    if (changes.length && confirm) {
+      const name = find(flow.findNode(superInstanceId)?.data?.smId)?.name ?? ''
+      const answer = await confirm({
+        header: 'Flat Names Will Change',
+        message: prefixedNamingMessage([name], changes),
+        severity: 'warning',
+        acceptLabel: 'Make Unique',
+        rejectLabel: 'Cancel',
+      })
+      if (answer !== true) return { done: false, problems: [] }
+    }
+    return apply('make-unique', before, result)
   }
 
   /** @returns {string|null} Why some nodes can't be nested (see operations.js nestProblem). */

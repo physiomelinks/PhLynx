@@ -5,7 +5,7 @@ import { useCellmlDrop } from '../../../src/composables/useCellmlDrop.js'
 import { importOmexFile } from '../../../src/services/import/omex'
 import { parseCellMLConnections } from '../../../src/services/import/parseCellmlConnections'
 import { prepareCellmlImport, prepareCellmlImports } from '../../../src/services/import/prepareCellml'
-import { loadParametersFromCellML } from '../../../src/utils/cellml'
+import { loadParametersFromCellML, readEncapsulation } from '../../../src/utils/cellml'
 import { readFileAsText } from '../../../src/utils/misc'
 import { notify } from '../../../src/utils/notify'
 
@@ -38,7 +38,10 @@ vi.mock('../../../src/services/import/prepareCellml', () => ({
   prepareCellmlImport: vi.fn((content) => content),
   prepareCellmlImports: vi.fn((files) => files.map((file) => file.content)),
 }))
-vi.mock('../../../src/utils/cellml', () => ({ loadParametersFromCellML: vi.fn(() => ({ params: true })) }))
+vi.mock('../../../src/utils/cellml', () => ({
+  loadParametersFromCellML: vi.fn(() => ({ params: true })),
+  readEncapsulation: vi.fn(() => new Map([['outer', ['inner']]])),
+}))
 vi.mock('../../../src/utils/misc', () => ({ readFileAsText: vi.fn() }))
 
 const createNode = (id, x = 0) => ({ id, position: { x, y: 5 }, data: { name: id } })
@@ -84,7 +87,7 @@ describe('useCellmlDrop', () => {
       expect(parseCellMLConnections).toHaveBeenCalledWith('<model/>', 'm.cellml')
       expect(deps.loadCellMLData).toHaveBeenCalledWith('<model/>', 'm.cellml', { notify: false })
       expect(loadParametersFromCellML).toHaveBeenCalledWith('<model/>')
-      expect(deps.loadFromCellML).toHaveBeenCalledWith({ edges: [{ id: 'conn' }] }, 'm.cellml', { params: true })
+      expect(deps.loadFromCellML).toHaveBeenCalledWith({ edges: [{ id: 'conn' }] }, 'm.cellml', { params: true }, { encapsulation: new Map([['outer', ['inner']]]) })
       expect(deps.rebuildNodeEdgeIndex).toHaveBeenCalledTimes(1)
       expect(results).toEqual([{ ok: true, moduleCount: 1, unitsCount: 0 }])
       expect(nodes.value.map((n) => n.id)).toEqual(['a', 'new-only'])
@@ -100,6 +103,25 @@ describe('useCellmlDrop', () => {
       expect(parseCellMLConnections).toHaveBeenCalledWith('<hoisted/>', 'm.cellml')
       expect(deps.loadCellMLData).toHaveBeenCalledWith('<hoisted/>', 'm.cellml', { notify: false })
       expect(loadParametersFromCellML).toHaveBeenCalledWith('<hoisted/>')
+      // The encapsulation is the original's, before hoisting.
+      expect(readEncapsulation).toHaveBeenCalledWith('<model/>')
+    })
+
+    it('imports encapsulation flat when asked, as before #364', async () => {
+      await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }], { flat: true })
+
+      expect(readEncapsulation).not.toHaveBeenCalled()
+      expect(deps.loadFromCellML).toHaveBeenCalledWith({ edges: [{ id: 'conn' }] }, 'm.cellml', { params: true }, { encapsulation: undefined })
+    })
+
+    it('keeps the workspace kept on combine out of the super-module ids it takes', async () => {
+      nodes.value = [createNode('old')]
+      deps.confirm.mockResolvedValue(false)
+
+      await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+
+      const [, , , options] = deps.loadFromCellML.mock.calls[0]
+      expect(options.reserved.map((node) => node.id)).toEqual(['old'])
     })
 
     it('waits for the graph to load before rebuilding the edge index', async () => {
@@ -480,7 +502,7 @@ describe('useCellmlDrop', () => {
 
       await drop.onDrop(makeEvent({ files: [file('M.CELLML'), file('readme.txt')] }))
 
-      expect(deps.loadFromCellML).toHaveBeenCalledWith({ edges: [{ id: 'conn' }] }, 'M.CELLML', { params: true })
+      expect(deps.loadFromCellML).toHaveBeenCalledWith({ edges: [{ id: 'conn' }] }, 'M.CELLML', { params: true }, { encapsulation: new Map([['outer', ['inner']]]) })
       expect(deps.loadCellMLData).toHaveBeenCalledTimes(1)
     })
 

@@ -386,6 +386,19 @@ describe('useWorkspaceClipboard', () => {
       expect(nodes.value.slice(3).map((node) => node.type)).toEqual(Array(4).fill('moduleNode'))
     })
 
+    it('gives a pasted copy of an imported self leaf neither its role nor its preserved name (#364)', async () => {
+      Object.assign(findNode('dndnode_0').data, { originalName: 'channel', role: 'self' })
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      await clipboard.pasteSelection()
+
+      const [copy] = pastedNodes(['dndnode_0', 'dndnode_1', 'dndnode_2'])
+      expect(copy.data.name).toBe('A_1')
+      expect(copy.data).not.toHaveProperty('originalName')
+      expect(copy.data).not.toHaveProperty('role')
+    })
+
     it('moves values out of older math into the rows of the pasted nodes', async () => {
       const row = { name: 'k', type: 'constant', units: 'per_second', value: '' }
       const old = createNode('x0', 'Old', 0, 0, { data: { ...createNode('', '', 0, 0).data, variables: [row] } })

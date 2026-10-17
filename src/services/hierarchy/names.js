@@ -6,8 +6,13 @@
  * Names inside super-modules can't contain '__' nor start or end with '_' (see utils/hierarchy.js
  * localNameProblem), so a prefixed flat name splits back into its path. A super-module whose naming is 'preserve'
  * gives its children their own names, which don't encode a path: those are found through the expansion instead
- * (resolveName).
+ * (resolveName). A self leaf (a super-module's child whose role is 'self', from the CellML encapsulation import) is
+ * its super instance's own component, so under 'prefixed' naming its flat name is its super instance's, though its path
+ * is `<super instance>/self`.
  */
+
+/** The role of a super-module's self leaf. */
+export const SELF_ROLE = 'self'
 
 /** Separates the levels of a path. */
 export const PATH_SEPARATOR = '/'

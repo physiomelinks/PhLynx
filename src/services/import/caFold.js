@@ -176,7 +176,7 @@ function valueOverrides(from, to) {
  * @param {Object} node - Its handles change in place.
  * @returns {(side: string) => string} A side's handle id.
  */
-function sideHandles(node) {
+export function sideHandles(node) {
   const claimed = new Map()
   return (side) => {
     if (!claimed.has(side)) {
@@ -190,6 +190,21 @@ function sideHandles(node) {
       claimed.set(side, getHandleId(handle))
     }
     return claimed.get(side)
+  }
+}
+
+/**
+ * Turns the handles no edge uses back into ghosts.
+ *
+ * @param {Array} nodes - Their handles change in place.
+ * @param {Array} edges
+ */
+export function ghostUnusedHandles(nodes, edges) {
+  const used = new Set(edges.flatMap((edge) => [`${edge.source}\0${edge.sourceHandle}`, `${edge.target}\0${edge.targetHandle}`]))
+  for (const node of nodes) {
+    for (const handle of node.data?.handles ?? []) {
+      if (handle.variant !== HANDLE_VARIANT.GHOST && !used.has(`${node.id}\0${getHandleId(handle)}`)) handle.variant = HANDLE_VARIANT.GHOST
+    }
   }
 }
 
@@ -495,14 +510,8 @@ export function foldCaModel(model, library, { source = 'module array', load, cur
     superInstance.data.overrides = { ...superInstance.data.overrides, [ids.slice(1).join(EXPANDED_ID_SEPARATOR)]: patches }
   }
 
-  // Handles no edge uses any more go back to ghosts.
   const outEdges = [...modelEdges, ...exposureEdges]
-  const used = new Set(outEdges.flatMap((edge) => [`${edge.source}\0${edge.sourceHandle}`, `${edge.target}\0${edge.targetHandle}`]))
-  for (const node of allNodes) {
-    for (const handle of node.data.handles ?? []) {
-      if (handle.variant !== HANDLE_VARIANT.GHOST && !used.has(`${node.id}\0${getHandleId(handle)}`)) handle.variant = HANDLE_VARIANT.GHOST
-    }
-  }
+  ghostUnusedHandles(allNodes, outEdges)
 
   // What each super-module holds as made from its template, so an edit that changes it shows (see useSupermodules).
   for (const node of allNodes) {

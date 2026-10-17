@@ -712,7 +712,7 @@ import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { categoryColour } from '../utils/nodeThemes'
 import { nodeContextMenuItems } from '../utils/nodeContextMenu'
 import { takeInputFile } from '../utils/misc'
-import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
+import { bindLibCellML, processCellMLData, loadParametersFromCellML, readEncapsulation } from '../utils/cellml'
 import { edgeLineOptions, FLOW_IDS, IMPORT_KEYS, NEW_INSTANCE_MODULE_REF } from '../utils/constants'
 import { resolveEdgeCouplings } from '../utils/edges'
 import { connectionPortWrites } from '../utils/hierarchy'
@@ -801,7 +801,7 @@ const {
   onDragLeave,
   isDragOver,
   createInstanceNode,
-} = useDragAndDrop(pendingHistoryNodes)
+} = useDragAndDrop(pendingHistoryNodes, undefined, { confirm })
 
 const {
   activateHandle,
@@ -1027,7 +1027,7 @@ onConnectEnd(() => {
   revertPendingGhostIfUnused()
 })
 
-const { copySelection, pasteSelection, selectAllNodes } = useWorkspaceClipboard({ mousePosition, allNodeNames })
+const { copySelection, pasteSelection, selectAllNodes } = useWorkspaceClipboard({ mousePosition, allNodeNames, confirm })
 
 // Entering a scope with no viewport remembered frames its nodes as the workspace does, no closer than full size, so a
 // new super-module's lone interface card doesn't fill the canvas.
@@ -1492,14 +1492,14 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
     const parameters = loadParametersFromCellML(importedCellml)
-    await loadFromCellML(cellmlPayload, result.files.cellml)
+    await loadFromCellML(cellmlPayload, result.files.cellml, null, { encapsulation: readEncapsulation(cellmlContent) })
   } else {
     // Last, and not great, scenario: if we don't have a flow snapshot or module configuration, we can still load the CellML file to build the workspace.
     const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
     const parameters = loadParametersFromCellML(importedCellml)
-    await loadFromCellML(cellmlPayload, result.files.cellml, parameters)
+    await loadFromCellML(cellmlPayload, result.files.cellml, parameters, { encapsulation: readEncapsulation(cellmlContent) })
   }
 
   if (result.files?.simulationJson) {
@@ -1578,7 +1578,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   })
 }
 
-async function onImportConfirm(importPayload, updateProgress) {
+async function onImportConfirm(importPayload, updateProgress, { flat = false } = {}) {
   if (currentImportMode.value.key === IMPORT_KEYS.INSTANCE_ARRAY) {
     const instanceArrayFiles = importPayload.get(IMPORT_KEYS.INSTANCE_ARRAY)
     const [[, instanceData]] = instanceArrayFiles
@@ -1628,7 +1628,7 @@ async function onImportConfirm(importPayload, updateProgress) {
       name,
       content: data?.payload,
     }))
-    await loadCellMLFiles(entries)
+    await loadCellMLFiles(entries, { flat })
   } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
     // Read before loading, to warn only about the entries the library takes.
     const configFiles = importPayload.get(IMPORT_KEYS.MODULE_CONFIG).values()
@@ -2009,7 +2009,7 @@ function onNewSupermoduleConfirm(name) {
 }
 
 // Make unique, nest and un-nest, each one undo step.
-const hierarchy = useHierarchyOperations({ history: historyStore })
+const hierarchy = useHierarchyOperations({ history: historyStore, confirm })
 
 /**
  * Says why a structural edit wasn't made, when it wasn't.

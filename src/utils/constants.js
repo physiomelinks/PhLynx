@@ -208,6 +208,7 @@ export const EXPORT_KEYS = {
   CA_FLAT: 'circulatoryAutogenFlat',
   CA_CSV: 'circulatoryAutogenCsv',
   CELLML: 'cellml',
+  CELLML_HIERARCHICAL: 'cellmlHierarchical',
   OMEX: 'omex',
   CUFLYNX: 'cufLynx',
   CELLML_SELECTION: 'cellmlSelection',

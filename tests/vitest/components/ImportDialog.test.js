@@ -351,6 +351,25 @@ describe('ImportDialog single-type dialogs', () => {
     expect(importButton().attributes('disabled')).toBeUndefined()
   })
 
+  it('offers to import an encapsulated CellML file flat, and says so on confirm', async () => {
+    mountDialog(IMPORT_KEYS.CELLML_FILE)
+    await drop(dropEvent(fileEntry('heart.cellml', HEART_CELLML)))
+    expect(wrapper.find('#import-cellml-flat').exists()).toBe(false)
+
+    const encapsulated = '<model name="heart_simple"><encapsulation><component_ref component="a"/></encapsulation></model>'
+    await drop(dropEvent(fileEntry('heart.cellml', encapsulated)))
+    expect(wrapper.text()).toContain('Import flat (hoisted)')
+    await wrapper.vm.handleConfirm()
+    await flushPromises()
+    expect(wrapper.emitted('confirm')[0][2]).toEqual({ flat: false })
+
+    wrapper.vm.isLoading = false
+    wrapper.vm.importFlat = true
+    await wrapper.vm.handleConfirm()
+    await flushPromises()
+    expect(wrapper.emitted('confirm')[1][2]).toEqual({ flat: true })
+  })
+
   it('stays quiet when one valid file is selected for its own field', async () => {
     mountDialog(IMPORT_KEYS.MODULE_CONFIG)
     const field = getImportConfig(IMPORT_KEYS.MODULE_CONFIG).fields[0]

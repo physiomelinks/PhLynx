@@ -32,6 +32,7 @@ import {
   splitNodeId,
   supermoduleDependencies,
   supermoduleDepth,
+  supermoduleOccurrences,
   supermodulesById,
   toLocalName,
 } from '../../utils/hierarchy'
@@ -39,7 +40,7 @@ import { sanitiseName } from '../../utils/identifiers'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR, LOCAL_CONSTANTS_KEY } from './expand'
 import { EXPOSED_PORT_ID_PREFIX, exposureEnds, exposureEntriesOf, indexExposures, nextExposedPortId, superInstancePorts } from './exposure'
 import { asConstants, isLocalConstantRow, localConstantsOf, localConstantValue } from './localConstants'
-import { LEVEL_SEPARATOR } from './names'
+import { LEVEL_SEPARATOR, SELF_ROLE } from './names'
 
 const NODE_ID_PREFIX = 'dndnode_'
 // What Vue Flow adds to nodes and edges as it draws them, never copied.
@@ -361,10 +362,56 @@ function structureProblem(nodes) {
 const refused = (nodes, edges, problem) => ({ nodes, edges, problems: [problem], rewrite: (chain) => chain })
 
 /**
+ * Lists the super-modules whose naming is 'preserve' that occur more than once in a store: their children keep their own
+ * flat names only while they occur once, so each must switch to 'prefixed' (see withPrefixedNaming).
+ *
+ * @param {Array} nodes - Every node in the store, or as a change would leave it.
+ * @returns {string[]} Their ids.
+ */
+export function preserveConflicts(nodes) {
+  const occurrences = supermoduleOccurrences(nodes)
+  return [...supermodulesById(nodes).values()]
+    .filter((node) => node.data?.supermodule?.naming === 'preserve' && (occurrences.get(node.id) ?? 0) > 1)
+    .map((node) => node.id)
+}
+
+/**
+ * Switches super-modules' naming to 'prefixed', so their children's flat names take their super instances' names.
+ *
+ * @param {Array} nodes
+ * @param {string[]} smIds
+ * @returns {Array} The nodes, those super-modules' interfaces changed.
+ */
+export function withPrefixedNaming(nodes, smIds) {
+  const ids = new Set(smIds)
+  return nodes.map((node) =>
+    ids.has(node.id) && isSupermoduleInterface(node) ? { ...node, data: { ...node.data, supermodule: { ...node.data.supermodule, naming: 'prefixed' } } } : node
+  )
+}
+
+/**
+ * Lists the flat names that differ between two stores, module by module (by model id), as SED-ML and PMR references
+ * name them.
+ *
+ * @param {Array} before - Every node in the store.
+ * @param {Array} after - The nodes as a change leaves them.
+ * @returns {Array<{from: string, to: string}>}
+ */
+export function flatNameChanges(before, after) {
+  const from = expandHierarchy(before, [])
+  const to = expandHierarchy(after, [])
+  return from.nodes.flatMap((node) => {
+    const [was, is] = [from.nameOf(node.id), to.nameOf(node.id)]
+    return is !== undefined && is !== was ? [{ from: was, to: is }] : []
+  })
+}
+
+/**
  * Gives one super instance its own copy of its super-module: the interface node, every child (each keeping its local id,
  * in the copy's scope), the edges inside and the exposure edges, each exposed port keeping its id, so the super instance's
  * couplings still name its ports. The super instance then uses the copy; nothing else changes. Super-modules nested inside
- * are shared still.
+ * are shared still. A copy of a super-module whose naming is 'preserve' is 'prefixed', as its children's own names are
+ * the original's.
  *
  * @param {Array} nodes
  * @param {Array} edges
@@ -388,7 +435,7 @@ export function makeUnique(nodes, edges, superInstanceId, { name } = {}) {
     ...copies.get(smId).data,
     scope: copyId,
     localId: copyId,
-    supermodule: { ...copies.get(smId).data.supermodule, name: copyName, ca: null, source: null },
+    supermodule: { ...copies.get(smId).data.supermodule, name: copyName, ca: null, source: null, naming: 'prefixed' },
   }
   for (const child of nodes.filter((node) => scopeOf(node) === smId && !isSupermoduleInterface(node))) {
     const id = nodeIdOf(copyId, localIdOf(child))
@@ -738,7 +785,9 @@ export function unnestProblem(nodes, superInstanceId) {
  * those are unchanged.
  *
  * - Each child gets a new id in the super instance's scope, and its name prefixed with the super instance's (`heart__lv` at the
- *   root, so its flat name is kept; `heart_lv` inside a super-module, whose names can't hold `__`), unique there.
+ *   root, so its flat name is kept; `heart_lv` inside a super-module, whose names can't hold `__`), unique there. Under
+ *   'preserve' naming it takes its own name; a self leaf takes the super instance's name under 'prefixed', so its flat
+ *   name is kept too, and becomes an ordinary module.
  * - The super instance's overrides are baked in: into a module's rows, or a nested super instance's own overrides, which they win
  *   over. Its super-module's local constants are baked into the rows bound to them, as constants with the values they
  *   have for it; an outer super instance's override of them becomes an override of each of those rows.
@@ -783,8 +832,14 @@ export function unnest(nodes, edges, superInstanceId) {
   for (const child of children) {
     const id = nextId()
     const ownName = isPreserved ? (child.data?.originalName ?? child.data?.name) : child.data?.name
-    const joined = isPreserved ? ownName : `${superInstance.data.name}${scope ? '_' : LEVEL_SEPARATOR}${ownName}`
-    const data = { ...clone(child.data), scope, localId: splitNodeId(id).localId, name: claimName(joined, names, { scope }) }
+    const joined = isPreserved
+      ? ownName
+      : child.data?.role === SELF_ROLE
+        ? superInstance.data.name
+        : `${superInstance.data.name}${scope ? '_' : LEVEL_SEPARATOR}${ownName}`
+    // Out of its super-module, a self leaf is a module like any other, and its name its own.
+    const { role: _role, originalName: _originalName, ...own } = clone(child.data)
+    const data = { ...own, scope, localId: splitNodeId(id).localId, name: claimName(joined, names, { scope }) }
     const localId = localIdOf(child)
     if (isSuperInstance(child)) {
       const prefix = `${localId}${EXPANDED_ID_SEPARATOR}`
