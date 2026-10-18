@@ -244,7 +244,7 @@ describe('useInstanceSave', () => {
     expect(edges.value.map((edge) => edge.data.couplings.map((c) => c.sourcePort.variables))).toEqual([[['x', 'k']], []])
     expect(notified.warning).toHaveBeenCalledWith({
       title: 'Couplings Removed',
-      message: expect.stringMatching(/^a2 → c: "a2" has no free "p" slot/),
+      items: [expect.stringMatching(/^a2 → c: "a2" has no free "p" slot/)],
     })
     expect(notified.warning).toHaveBeenCalledTimes(1)
   })

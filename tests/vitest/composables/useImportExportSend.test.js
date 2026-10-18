@@ -141,7 +141,7 @@ describe('useImportExportSend selection exports', () => {
 
     await menuItem(exportMenuItems, 'CellML (selection)').command()
 
-    expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ message: '"a.k" needs a value.' }))
+    expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ items: ['"a.k" needs a value.'] }))
     expect(onExportConfirm).not.toHaveBeenCalled()
   })
 
@@ -188,7 +188,7 @@ describe('useImportExportSend selection exports', () => {
       throw new Error('Analyser error count: 1')
     })
     await menuItem(sendMenuItems, 'OpenCOR (selection)').command()
-    expect(notify.error).toHaveBeenLastCalledWith({ title: 'Send failed', message: 'Analyser error count: 1' })
+    expect(notify.error).toHaveBeenLastCalledWith({ title: 'Send failed', items: ['Analyser error count: 1'] })
     expect(open).not.toHaveBeenCalled()
     open.mockRestore()
   })

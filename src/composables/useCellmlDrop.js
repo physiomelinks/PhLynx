@@ -324,12 +324,12 @@ export function useCellmlDrop({
             })
             notify.success({
               title: 'OMEX Import Complete',
-              message: `${file.name} imported successfully!`,
+              items: [`${file.name} imported successfully!`],
             })
           } catch (error) {
             notify.error({
               title: 'OMEX Import Failed',
-              message: error.message,
+              items: [error.message],
             })
           }
         }

@@ -79,10 +79,10 @@ describe('warnLegacyConfigs', () => {
 
     expect(notified.warning).toHaveBeenCalledTimes(2)
     expect(notified.warning).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Deprecated Junction Types', message: expect.stringMatching(/^Min_junction is a /) })
+      expect.objectContaining({ title: 'Deprecated Junction Types', items: [expect.stringMatching(/^Min_junction is a /)] })
     )
     expect(notified.warning).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Legacy Flow Ports', message: expect.stringMatching(/^venous:vp links flow/) })
+      expect.objectContaining({ title: 'Legacy Flow Ports', items: [expect.stringMatching(/^venous:vp links flow/)] })
     )
   })
 
@@ -146,7 +146,7 @@ describe('newConfigEntries', () => {
     expect(notified.warning).toHaveBeenCalledTimes(2)
     expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Deprecated Junction Types' }))
     expect(notified.warning).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Legacy Flow Ports', message: expect.stringMatching(/^terminal:pp links flow/) })
+      expect.objectContaining({ title: 'Legacy Flow Ports', items: [expect.stringMatching(/^terminal:pp links flow/)] })
     )
   })
 })

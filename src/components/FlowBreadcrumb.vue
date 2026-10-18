@@ -83,7 +83,7 @@ const { makeUniqueSuperInstance } = useHierarchyOperations()
 /** Gives the super instance shown its own copy of its super-module; the canvas then shows the copy. */
 async function makeUnique() {
   const { problems } = await makeUniqueSuperInstance(current.value.instanceId)
-  if (problems.length) notify.warning({ title: 'Not Made Unique', message: problems.join(' ') })
+  if (problems.length) notify.warning({ title: 'Not Made Unique', items: problems })
 }
 
 /**

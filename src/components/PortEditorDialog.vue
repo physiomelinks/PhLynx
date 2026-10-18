@@ -197,7 +197,7 @@ function handleConfirm() {
 
   if (invalidFactor) {
     notify.error({
-      message: `Port "${invalidFactor.label}" has Multiply selected but the scale factor is missing or zero.`,
+      items: [`Port "${invalidFactor.label}" has Multiply selected but the scale factor is missing or zero.`],
     })
     return
   }

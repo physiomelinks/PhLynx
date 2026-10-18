@@ -15,6 +15,8 @@ import { importCaModuleArray, templateHash } from '../services/import/caFold'
 import { layoutSupermoduleScopes } from '../services/layouts/scopes'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
+import { notify } from '../utils/notify'
+import { skippedParametersMessage } from '../utils/parameters'
 import {
   canPlaceSuperInstance,
   isSuperInstance,
@@ -362,7 +364,8 @@ function createCatalogue(flow, flowId) {
    * Places a super instance of a library super-module, as one undo step: of the workspace super-module made from it when
    * there is one, made from the same definition (its moduleRef and content hash); else of a new one, built as a module
    * array of one instance of it is (see caFold.importCaModuleArray), with every super-module nested in it. It exposes
-   * nothing until the user exposes ports. Global constants its parameterisation sets are added when not set already.
+   * nothing until the user exposes ports. Global constants its parameterisation sets are added when not set already;
+   * what its build warns about is shown, as a module array's import shows it.
    *
    * @param {string} moduleRef
    * @param {{x: number, y: number}} position - In flow coordinates.
@@ -389,6 +392,7 @@ function createCatalogue(flow, flowId) {
         modules: library.availableModules,
         getMathAnalysis: library.getMathAnalysis,
         getMathDefaults: library.getMathDefaults,
+        variants: library.caVariants,
       },
       { source: moduleRef, load: library.caParameterLoader(), currentNodes: allNodes(), nextExposedPortId: nextExposedPortId(allNodes(), allEdges()) }
     )
@@ -398,14 +402,20 @@ function createCatalogue(flow, flowId) {
     for (const { name, value, units, data_reference } of built.globals) {
       if (!library.getGlobalConstant(name)) library.assignGlobalConstant(name, value, units, data_reference)
     }
+    let id
     history.startBatch()
     try {
       flow.addNodes(nodes)
       flow.addEdges(built.edges)
-      return addSuperInstance(instance.data.smId, position)
+      id = addSuperInstance(instance.data.smId, position)
     } finally {
       history.endBatch()
     }
+    if (!id) return null
+    if (built.warnings.length) notify.warning({ title: 'Super-module Placed With Warnings', items: built.warnings, sticky: true })
+    if (built.skipped.length) notify.warning({ title: 'Some Parameters Not Applied', items: [skippedParametersMessage(built.skipped)], sticky: true })
+    if (built.conflicts.length) notify.warning({ title: 'Connections Not Made', items: built.conflicts, sticky: true })
+    return id
   }
 
   return {

@@ -443,7 +443,7 @@ async function onRenameConfirm(name) {
   try {
     await renameSupermodule(renameTarget.smId, name, { history })
   } catch (error) {
-    notify.error({ title: 'Not Renamed', message: error.message })
+    notify.error({ title: 'Not Renamed', items: [error.message] })
   }
 }
 

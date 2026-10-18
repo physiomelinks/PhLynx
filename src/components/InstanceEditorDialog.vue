@@ -1567,7 +1567,7 @@ async function handleMathOverwrite() {
  * @param {string} message
  */
 function rejectInstanceName(message) {
-  notify.error({ message })
+  notify.error({ items: [message] })
   nameError.value = message
   rejectedName = editableName.value
   instanceNameRef.value?.focus()
@@ -1641,7 +1641,7 @@ async function handleSave(options) {
   const invalidFactor = finalPorts.find(isMissingFactor)
   if (invalidFactor) {
     flaggedPorts.value = new Set([invalidFactor])
-    notify.error({ message: `Port "${invalidFactor.label}" has Multiply selected but missing scale factor.` })
+    notify.error({ items: [`Port "${invalidFactor.label}" has Multiply selected but missing scale factor.`] })
     showTab('ports')
     return
   }
@@ -1658,7 +1658,7 @@ async function handleSave(options) {
   })
   const duplicateName = [...nameCounts.entries()].find(([, count]) => count > 1)?.[0]
   if (duplicateName) {
-    notify.error({ message: `Two variables are both named "${duplicateName}". Rename one before saving.` })
+    notify.error({ items: [`Two variables are both named "${duplicateName}". Rename one before saving.`] })
     showTab('parameters')
     return
   }

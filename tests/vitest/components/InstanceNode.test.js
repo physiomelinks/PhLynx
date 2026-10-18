@@ -186,7 +186,7 @@ describe('InstanceNode', () => {
     await nameInput().trigger('keydown', { key: 'Enter' })
     await flushPromises()
 
-    expect(notifyError).toHaveBeenCalledWith({ message: 'An instance with this name already exists.' })
+    expect(notifyError).toHaveBeenCalledWith({ items: ['An instance with this name already exists.'] })
     expect(nameInput().exists()).toBe(true)
     expect(nodes.value[0].data.name).toBe('soma')
   })

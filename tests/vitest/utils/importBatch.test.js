@@ -11,7 +11,6 @@ import { IMPORT_KEYS } from '../../../src/utils/constants.js'
 import { getImportConfig } from '../../../src/utils/import.js'
 import {
   buildBatchSummary,
-  escapeHtml,
   parseForRole,
   planBatchEntries,
   providesMissingModule,
@@ -237,11 +236,5 @@ describe('buildBatchSummary', () => {
     const summary = buildBatchSummary({ ...base, autoFill: { count: 2, folderName: 'models' } })
 
     expect(summary.message).toContain('Added 1 file and 2 files from connected folder "models".')
-  })
-})
-
-describe('escapeHtml', () => {
-  it('escapes markup characters', () => {
-    expect(escapeHtml(`<a href="x">'&'</a>`)).toBe('&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;')
   })
 })

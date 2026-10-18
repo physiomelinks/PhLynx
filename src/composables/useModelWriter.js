@@ -48,7 +48,7 @@ export function useModelWriter() {
   function targetOf(modelId, target = 'instance') {
     const found = writeTargetOf(modelId, target, model.graph.value.origin, findNode)
     if (found?.problem) {
-      notify.warning({ title: 'Value Not Set', message: found.problem })
+      notify.warning({ title: 'Value Not Set', items: [found.problem] })
       return null
     }
     return found

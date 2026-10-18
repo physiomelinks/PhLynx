@@ -48,7 +48,7 @@ describe('loadWorkspaceFile', () => {
       readAsText.mockRestore()
     }
     expect(apply).not.toHaveBeenCalled()
-    expect(notify.error).toHaveBeenCalledWith({ title: 'Failed to read workflow', message: 'Failed to read broken.json' })
+    expect(notify.error).toHaveBeenCalledWith({ title: 'Failed to read workflow', items: ['Failed to read broken.json'] })
   })
 
   it('notifies when the file is not JSON', async () => {
@@ -61,6 +61,6 @@ describe('loadWorkspaceFile', () => {
   it('notifies when applying the workspace fails', async () => {
     const apply = vi.fn().mockRejectedValue(new Error('bad flow'))
     expect(await loadWorkspaceFile(jsonFile('{}'), apply)).toBe(false)
-    expect(notify.error).toHaveBeenCalledWith({ title: 'Failed to load workflow', message: 'bad flow' })
+    expect(notify.error).toHaveBeenCalledWith({ title: 'Failed to load workflow', items: ['bad flow'] })
   })
 })

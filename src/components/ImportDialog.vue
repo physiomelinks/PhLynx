@@ -183,6 +183,12 @@
               <div v-for="error in importReadiness.errors" :key="error">{{ error }}</div>
             </div>
           </Message>
+          <Message v-if="importReadiness.notes?.length" severity="warn" :closable="false">
+            <div class="message-title">Some Files Not Used</div>
+            <div class="message-content">
+              <div v-for="note in importReadiness.notes" :key="note">{{ note }}</div>
+            </div>
+          </Message>
           <Message v-if="importReadiness.resourcesAreLoaded" severity="success" :closable="false">
             <div class="message-title">All Required Resources Available</div>
             <div class="message-content">All necessary components and configurations are available.</div>
@@ -259,14 +265,13 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useGtm } from '../composables/useGtm'
 import { useFolderImport } from '../composables/useFolderImport'
 import { useFileDrop } from '../composables/useFileDrop'
-import { notify } from '../utils/notify'
+import { escapeHtml, notify } from '../utils/notify'
 import { newConfigEntries, warnLegacyConfigs } from '../services/caRules'
 import { IMPORT_KEYS, MAX_VISIBLE_TAGS } from '../utils/constants'
 import { createDynamicFields, checkResourcesAreLoaded, getImportConfig, parseParametersFile } from '../utils/import'
 import { hasEncapsulation } from '../utils/cellml'
 import {
   buildBatchSummary,
-  escapeHtml,
   parseForRole,
   planBatchEntries,
   providesMissingModule,
@@ -306,8 +311,10 @@ const expandedFields = ref(new Set())
 const stagedFiles = ref({
   mathFiles: [], // { filename: string, payload: object }
   configFiles: [], // { filename: string, payload: object }
-  parameterFiles: new Map(), // CA parameterisation path -> File, read when the import is confirmed
-  configPaths: new Map(), // moduleRef -> the path its config was dropped at
+  parameterFiles: new Map(), // CA parameterisation path -> File
+  parameterRows: new Map(), // CA parameterisation path -> rows, once read
+  parameterErrors: new Map(), // CA parameterisation path -> why it could not be read
+  configPaths: new Map(), // moduleRef -> the folder path its config was dropped at
 })
 
 // How deep a drop or the connected folder is read for a module array: deep enough for a module version's
@@ -429,7 +436,7 @@ async function handleConnectFolder() {
   try {
     await pickFolder()
   } catch (error) {
-    notify.error({ title: 'Folder Access Failed', message: error.message || 'Could not access the folder.' })
+    notify.error({ title: 'Folder Access Failed', items: [error.message || 'Could not access the folder.'] })
   }
 }
 
@@ -522,6 +529,8 @@ const unstageFiles = () => {
     mathFiles: [],
     configFiles: [],
     parameterFiles: new Map(),
+    parameterRows: new Map(),
+    parameterErrors: new Map(),
     configPaths: new Map(),
   }
 }
@@ -677,6 +686,7 @@ const createTemporaryStore = () => {
     availableSupermodules,
     supermoduleErrors,
     caParameterFiles: new Map([...libraryStore.caParameterFiles, ...stagedFiles.value.parameterFiles]),
+    caParameterFileErrors: stagedFiles.value.parameterErrors,
     caConfigPaths: new Map([...libraryStore.caConfigPaths, ...stagedFiles.value.configPaths]),
   }
 }
@@ -868,7 +878,12 @@ function commitParsedFiles(parsed, skipped, { onlyRequiredCellML = false, parame
     }
     place(instanceArray)
   }
-  for (const { path, file } of parameterEntries) stagedFiles.value.parameterFiles.set(path, file)
+  // A file dropped again is read again.
+  for (const { path, file } of parameterEntries) {
+    stagedFiles.value.parameterFiles.set(path, file)
+    stagedFiles.value.parameterRows.delete(path)
+    stagedFiles.value.parameterErrors.delete(path)
+  }
 
   byKey(IMPORT_KEYS.PARAMETER).forEach(place)
 
@@ -876,9 +891,11 @@ function commitParsedFiles(parsed, skipped, { onlyRequiredCellML = false, parame
     place(result)
     if (result.field.processUpload === 'config') {
       stageFile('configFiles', result.file.name, result.data)
-      // A super-module's parameterisations are next to its config.
-      for (const entry of result.data) {
-        stagedFiles.value.configPaths.set(moduleRefOf(entry.module_type, entry.module_subtype), result.path ?? result.file.name)
+      // A super-module's parameterisations are next to its config; a file picked on its own has no folder to go by.
+      if (result.path?.includes('/')) {
+        for (const entry of result.data) {
+          stagedFiles.value.configPaths.set(moduleRefOf(entry.module_type, entry.module_subtype), result.path)
+        }
       }
     }
   }
@@ -969,7 +986,7 @@ function importBatch(entries, options = {}) {
 
 /**
  * Sets aside the circulatory_autogen parameterisations among entries, which are staged by path, as many share a file
- * name, and read once the import is confirmed.
+ * name, and read once the module array uses them (see readReferencedParameterFiles).
  * @param {{ file: File, path: string }[]} entries
  * @returns {{ rest: Object[], parameterEntries: Object[] }}
  */
@@ -979,23 +996,45 @@ function splitParameterFiles(entries) {
   return { rest: entries.filter((entry) => !isParameterFile(entry)), parameterEntries: entries.filter(isParameterFile) }
 }
 
-/**
- * Reads the staged parameterisations the module array's super-modules use, for the library to keep.
- * @returns {Promise<Map<string, Object[]>>} path -> rows.
- */
-async function readParameterFiles() {
+/** @returns {Set<string>} The paths of the staged parameterisations the module array's super-modules use. */
+function referencedStagedParameterPaths() {
   const rows = getInstanceArrayPayload()
   const staged = stagedFiles.value.parameterFiles
-  if (!rows || !staged.size) return new Map()
+  if (!rows || !staged.size) return new Set()
   const { availableSupermodules, caConfigPaths } = createTemporaryStore()
-  const paths = new Set(
+  return new Set(
     referencedParameterFiles(rows, availableSupermodules)
       .map(({ entry, request }) => findParameterFile(staged.keys(), caConfigPaths, entry, request))
       .filter(Boolean)
   )
-  const read = new Map()
-  for (const path of paths) read.set(path, await parseParametersFile(staged.get(path)))
-  return read
+}
+
+/**
+ * Reads the staged parameterisations the module array uses that are not read yet, so readiness names a file that
+ * can't be read before the import starts. Callers must hold the import lock.
+ */
+async function readReferencedParameterFiles() {
+  const { parameterFiles, parameterRows, parameterErrors } = stagedFiles.value
+  const unread = [...referencedStagedParameterPaths()].filter((path) => !parameterRows.has(path) && !parameterErrors.has(path))
+  if (!unread.length) return
+  for (const path of unread) {
+    try {
+      parameterRows.set(path, await parseParametersFile(parameterFiles.get(path)))
+    } catch (error) {
+      parameterErrors.set(path, error.message)
+    }
+  }
+  const instanceArrayPayload = getInstanceArrayPayload()
+  if (instanceArrayPayload) syncDynamicFields(checkReadiness(instanceArrayPayload))
+}
+
+/**
+ * The staged parameterisations the module array uses that could be read, for the library to keep.
+ * @returns {Map<string, Object[]>} path -> rows.
+ */
+function readParameterFiles() {
+  const { parameterRows } = stagedFiles.value
+  return new Map([...referencedStagedParameterPaths()].filter((path) => parameterRows.has(path)).map((path) => [path, parameterRows.get(path)]))
 }
 
 async function runImportBatch(entries, { preferredKey, isSelection = false }) {
@@ -1005,6 +1044,7 @@ async function runImportBatch(entries, { preferredKey, isSelection = false }) {
   skipped.unshift(...duplicates)
 
   const placed = commitParsedFiles(parsed, skipped, { parameterEntries })
+  await readReferencedParameterFiles()
   const autoFill = await runAutoFillFromFolder()
 
   if (failed.length || placed.length === 0) {
@@ -1104,6 +1144,7 @@ async function runAutoFillFromFolder() {
 
     const placed = commitParsedFiles(needed, [], { onlyRequiredCellML: true, parameterEntries: newParameterEntries })
     placed.forEach(({ name }) => foldersAttemptedFilenames.value.add(name))
+    await readReferencedParameterFiles()
     return { count: placed.length, folderName: folderName.value }
   } catch (error) {
     notify.error({
@@ -1149,7 +1190,7 @@ const commitStagedFiles = (parameterFiles = new Map()) => {
     try {
       libraryStore.addConfigFile(filename, payload)
     } catch (error) {
-      notify.error({ title: 'Loading Configuration Error', message: `${filename}: ${escapeHtml(error.message)}` })
+      notify.error({ title: 'Loading Configuration Error', items: [`${filename}: ${error.message}`] })
     }
   }
   // The module array imported next warns about the junction types it uses.
@@ -1164,15 +1205,7 @@ const handleConfirm = async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 50))
 
-  let parameterFiles
-  try {
-    parameterFiles = await readParameterFiles()
-  } catch (error) {
-    isLoading.value = false
-    notify.error({ title: 'Parameter File Error', message: escapeHtml(error.message) })
-    return
-  }
-  commitStagedFiles(parameterFiles)
+  commitStagedFiles(readParameterFiles())
 
   const importPayload = new Map()
   displayFields.value.forEach((field) => {

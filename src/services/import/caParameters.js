@@ -43,27 +43,55 @@ function joinPath(dir, relative) {
 const dirOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
 
 /**
- * Finds the path of a module version's parameter file among those dropped.
+ * Matches a module version's parameter file among those dropped: next to its config when that path is known and the
+ * file is there, else by CA's library layout, else by its version folder.
  *
  * @param {Iterable<string>} paths - The parameter files' paths.
  * @param {Map<string, string>} configPaths - moduleRef -> the path its config was dropped at.
  * @param {{module_type: string, module_subtype: string}} entry - A super-module template or component.
  * @param {{parameterisation?: string, file?: string}} request
- * @returns {string|null}
+ * @returns {{path: string|null, ambiguous: string[]}} The file's path; or, when several files match equally, null
+ *   and their paths.
  */
-export function findParameterFile(paths, configPaths, entry, request) {
+export function matchParameterFile(paths, configPaths, entry, request) {
   const relative = requestPath(request)
   const all = [...paths]
   const configPath = configPaths.get(moduleRefOf(entry.module_type, entry.module_subtype))
   if (configPath) {
     const path = joinPath(dirOf(configPath), relative)
-    return all.includes(path) ? path : null
+    if (all.includes(path)) return { path, ambiguous: [] }
   }
   const ends = (suffix) => all.filter((path) => path === suffix || path.endsWith(`/${suffix}`))
-  const layout = ends(`${entry.module_type}/versions/${entry.module_subtype}/${relative}`)
-  if (layout.length === 1) return layout[0]
-  const version = ends(`${entry.module_subtype}/${relative}`)
-  return version.length === 1 ? version[0] : null
+  for (const suffix of [`${entry.module_type}/versions/${entry.module_subtype}/${relative}`, `${entry.module_subtype}/${relative}`]) {
+    const found = ends(suffix)
+    if (found.length === 1) return { path: found[0], ambiguous: [] }
+    if (found.length > 1) return { path: null, ambiguous: found }
+  }
+  return { path: null, ambiguous: [] }
+}
+
+/**
+ * Finds the path of a module version's parameter file among those dropped (see matchParameterFile).
+ *
+ * @returns {string|null} Null when there is none, or several match.
+ */
+export function findParameterFile(paths, configPaths, entry, request) {
+  return matchParameterFile(paths, configPaths, entry, request).path
+}
+
+/**
+ * Says that several dropped files could be a module version's parameter file, and which.
+ *
+ * @param {{module_type: string, module_subtype: string}} entry
+ * @param {{parameterisation?: string, file?: string}} request
+ * @param {string[]} paths - The candidates.
+ * @returns {string}
+ */
+export function ambiguousParameterFileMessage(entry, request, paths) {
+  return (
+    `${entry.module_type}:${entry.module_subtype} ${requestPath(request)} matches several files: ${paths.join(', ')}. ` +
+    `Drop only the module library folder it is in.`
+  )
 }
 
 /**
@@ -72,10 +100,12 @@ export function findParameterFile(paths, configPaths, entry, request) {
  * @param {Map<string, Object[]>} files - path -> rows.
  * @param {Map<string, string>} [configPaths] - moduleRef -> config path.
  * @returns {import('./caSupermodules').ParameterLoader}
+ * @throws {Error} from the loader, when several files match a request.
  */
 export function parameterFileLoader(files, configPaths = new Map()) {
   return (entry, request) => {
-    const path = findParameterFile(files.keys(), configPaths, entry, request)
+    const { path, ambiguous } = matchParameterFile(files.keys(), configPaths, entry, request)
+    if (ambiguous.length) throw new Error(ambiguousParameterFileMessage(entry, request, ambiguous))
     return path ? files.get(path) : null
   }
 }

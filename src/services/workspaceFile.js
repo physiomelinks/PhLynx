@@ -62,13 +62,13 @@ export async function loadWorkspaceFile(file, apply) {
   try {
     state = JSON.parse(await readFileAsText(file))
   } catch (error) {
-    notify.error({ title: 'Failed to read workflow', message: error.message })
+    notify.error({ title: 'Failed to read workflow', items: [error.message] })
     return false
   }
   try {
     await apply(state)
   } catch (error) {
-    notify.error({ title: 'Failed to load workflow', message: error.message })
+    notify.error({ title: 'Failed to load workflow', items: [error.message] })
     return false
   }
   return true

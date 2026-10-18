@@ -123,7 +123,7 @@ describe('exposing ports through exposure edges', () => {
       // a's entrance is exposed, so a connection from outside has it.
       await connectOnCanvas({ source: 'sm_1~c', target: 'sm_1~a', sourceHandle: 'handle_c_out', targetHandle: 'handle_a_in' })
       expect(flow.findEdge('sm_1~c--sm_1~a')).toBeUndefined()
-      expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('"a" has no free "vessel" slot') }))
+      expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.stringContaining('"a" has no free "vessel" slot')] }))
     })
   })
 

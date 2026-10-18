@@ -1,21 +1,23 @@
 import JSZip from 'jszip'
 import Papa from 'papaparse'
 
-import { notify } from '../../utils/notify'
 import { BASE_SUBTYPE_KEY, parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { normaliseMultiport, VOLUME_PORT } from '../../utils/multiport'
-import { CA_EMPTY_VALUE } from '../../utils/parameters'
 import { isBlank } from '../../utils/variables'
 import { resolveBoundaryValues } from './boundaryValues'
-import { checkHearts, instanceNames, warnDeprecatedJunctions } from '../caRules'
+import { checkHearts, deprecatedJunctionsNote, instanceNames } from '../caRules'
 import { configSignature, variantSubtype } from '../caVariants'
 import { resolveInstanceVariables } from '../import/buildWorkflow'
 import { expandHierarchy } from '../hierarchy/expand'
 import { asConstants } from '../hierarchy/localConstants'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
-import { parameterisationPath, PARAMETER_COLUMNS, planNativeExport } from './caNative'
+import { firstRowsWin } from '../import/caSupermodules'
+import { parameterisationPath, parameterRows, PARAMETER_COLUMNS, planNativeExport, supermoduleConfigPath } from './caNative'
 import { planCaPairing, RESIDUAL_REASONS } from './caPairing'
+import { createExportReport, notifyEach, throwIfBlocked } from './diagnostics'
+
+export { parameterRows }
 
 // The folder for CA's external_modules_dir, which reads every JSON file in it as a module config, so obs_data stays out.
 const MODULES_DIR = 'modules'
@@ -26,89 +28,130 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
 export const CA_ARRAY_FORMATS = { JSON: 'json', CSV: 'csv' }
 
 /**
- * Generates a zip blob for the Circulatory Autogen export.
+ * Generates a zip blob for the Circulatory Autogen export. Every check that stops it runs before any warning is
+ * gathered, so an export that stops shows none.
+ *
  * @param {string} fileName - The name for the exported files.
- * @param {Array} nodes - The model's nodes (useModelGraph's).
+ * @param {Array} nodes - The model's nodes: the store's expanded (useModelGraph's).
  * @param {Array} edges - The model's edges.
  * @param {Object} libraryStore - The Pinia builder store.
  * @param {ArrayBuffer|string|null} [obsData] - The workspace's obs_data.json, with its protocol, written as
  *   `<fileName>_obs_data.json` beside the config, as CA names it.
  * @param {Object} [options]
  * @param {string} [options.arrayFormat='json'] - The module array's format (see CA_ARRAY_FORMATS).
- * @param {{nodes: Array, edges: Array}|null} [options.hierarchy] - The store's nodes and edges, its super-modules
- *   unexpanded: given, a JSON module array writes each super-module CA can express natively, as a super-module
- *   config of its own (see caNative.js), and the model is expanded from them.
+ * @param {{nodes: Array, edges: Array, expansion?: Object}|null} [options.hierarchy] - The store's nodes and edges, its
+ *   super-modules unexpanded: given, a JSON module array writes each super-module CA can express natively, as a
+ *   super-module config of its own (see caNative.js). `expansion`, expandHierarchy's of them (useModelGraph's `graph`),
+ *   is the model `nodes` and `edges` are, with its paths; without it they are expanded here.
+ * @param {import('./diagnostics').ExportReport} [options.report] - Gathers the warnings and notes for the caller to
+ *   show; without it, each is shown as a toast of its own once the zip is made.
  * @returns {Promise<Blob>} A promise that resolves with the zip file blob.
+ * @throws {ExportBlockedError} listing every problem that stops the export, such as CA's one heart.
  */
-export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null, { arrayFormat = CA_ARRAY_FORMATS.JSON, hierarchy = null } = {}) {
+export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null, { arrayFormat = CA_ARRAY_FORMATS.JSON, hierarchy = null, report = null } = {}) {
+  const diagnostics = report ?? createExportReport()
+  const zip = new JSZip()
+  const native = !!hierarchy && arrayFormat === CA_ARRAY_FORMATS.JSON
+  const model = native ? (hierarchy.expansion ?? expandHierarchy(hierarchy.nodes, hierarchy.edges)) : { nodes, edges }
+  const { flat, moduleConfig: module_config, errors } = prepareFlatExport(model.nodes, model.edges, libraryStore)
+  diagnostics.errors.push(...errors)
+  throwIfBlocked(diagnostics)
+  const { plan, nodeNameMap, rows: instance_array, usersOf } = flat
+
+  notePlan(plan, nodeNameMap, diagnostics)
+  noteVariants(flat.variants, diagnostics)
+  addNote(diagnostics.warnings, deprecatedJunctionsNote(instance_array.map((row) => row.module_type)))
+  noteMissingBoundaryValues(model.nodes, model.edges, diagnostics)
+  notePulmonaryModule(instance_array, diagnostics)
+  noteVolumeSums(module_config, diagnostics)
+
+  // The super-modules CA can read as they are here; the rest, and what holds them, are written flat.
+  const written = native ? planNativeExport({ ...hierarchy, expansion: model, flat, library: libraryStore }) : null
+  if (written?.fallbacks.length) noteFallbacks(written.fallbacks, diagnostics)
+  const nativeArray = written?.records ? written : null
+
+  // The config's CellML, edits included; may rename component files so CA finds them.
+  const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore, {
+    usersOf: (entry) => usersOf.get(entry) ?? [],
+  })
+  if (missingUnits.length) {
+    diagnostics.warnings.push({
+      title: 'Missing Units',
+      items: [`No library units file defines ${listNamed(missingUnits)}, so the exported units file leaves ${missingUnits.length === 1 ? 'it' : 'them'} out.`],
+    })
+  }
+
+  // --- 2. CONSOLIDATE PARAMETER FILES INTO ONE CSV ---
+  // Each name once: rows sharing one have the same value and units (see parameterClashes).
+  const hostRows = nativeArray?.parameterRows ?? instance_array.flatMap((row) => flat.parametersOf.get(row.id) ?? [])
+  const consolidatedParameters = firstRowsWin([...hostRows, ...globalParameterRows(libraryStore)])
+
+  // --- 3. FINALIZING AND COMPRESSING ZIP ---
+  zip.file(`${MODULES_DIR}/${fileName}_module_config.json`, JSON.stringify(module_config, null, 2))
+  if (arrayFormat === CA_ARRAY_FORMATS.CSV) zip.file(`${fileName}_module_array.csv`, Papa.unparse(instance_array.map(csvRow)))
+  else zip.file(`${fileName}_module_array.json`, dumpModuleRecords(nativeArray?.records ?? instance_array.map(moduleRecord)))
+  zip.file(`${fileName}_parameters.csv`, Papa.unparse(consolidatedParameters))
+  if (obsData != null) zip.file(`${fileName}_obs_data.json`, obsData)
+  for (const [name, text] of cellmlFiles) zip.file(`${MODULES_DIR}/${name}`, text)
+  for (const { dir, entry, rows } of nativeArray?.supermodules ?? []) {
+    zip.file(supermoduleConfigPath(dir, entry), JSON.stringify([entry], null, 2))
+    zip.file(`${dir}/${parameterisationPath(entry.default_parameterisation)}`, Papa.unparse({ fields: PARAMETER_COLUMNS, data: rows.map((row) => PARAMETER_COLUMNS.map((column) => row[column])) }))
+  }
+
+  const zipBlob = await zip.generateAsync({
+    type: 'blob',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 9 },
+  })
+
+  if (!report) notifyEach(diagnostics)
+  return zipBlob
+}
+
+/**
+ * The problems that stop the Circulatory Autogen export of a model, without writing it: for checking a model before
+ * asking anything of an export.
+ *
+ * @param {Array} nodes - The model's nodes.
+ * @param {Array} edges - The model's edges.
+ * @param {Object} libraryStore
+ * @returns {string[]}
+ */
+export function caExportProblems(nodes, edges, libraryStore) {
   try {
-    const zip = new JSZip()
-    const native = !!hierarchy && arrayFormat === CA_ARRAY_FORMATS.JSON
-    const model = native ? expandHierarchy(hierarchy.nodes, hierarchy.edges) : { nodes, edges }
-    const flat = buildFlatExport(model.nodes, model.edges, libraryStore)
-    const { plan, nodeNameMap, rows: instance_array, moduleConfigs: uniqueModuleConfigs, usersOf } = flat
-
-    addVariantBases(flat.variantBases, uniqueModuleConfigs, libraryStore)
-    checkHearts(instance_array)
-    reportPlan(plan, nodeNameMap)
-    noteVariants(flat.variants)
-    warnDeprecatedJunctions(instance_array.map((row) => row.module_type))
-    warnMissingBoundaryValues(model.nodes, model.edges)
-    addPulmonaryModule(instance_array, uniqueModuleConfigs, libraryStore)
-
-    // Convert Map to array
-    const module_config = Array.from(uniqueModuleConfigs.values());
-    checkMultiports(module_config)
-
-    // The super-modules CA can read as they are here; the rest, and what holds them, are written flat.
-    const written = native ? planNativeExport({ ...hierarchy, expansion: model, flat, library: libraryStore }) : null
-    if (written?.fallbacks.length) noteFallbacks(written.fallbacks)
-    const nativeArray = written?.records ? written : null
-
-    // The config's CellML, edits included; may rename component files so CA finds them.
-    const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore, {
-      usersOf: (entry) => usersOf.get(entry) ?? [],
-    })
-    if (missingUnits.length) {
-      notify.warning({
-        title: 'Missing Units',
-        message: `No library units file defines ${listNamed(missingUnits)}, so the exported units file leaves ${missingUnits.length === 1 ? 'it' : 'them'} out.`,
-      })
-    }
-
-    // --- 2. CONSOLIDATE PARAMETER FILES INTO ONE CSV ---
-    const allParameters = new Set()
-    const hostRows = nativeArray?.parameterRows ?? instance_array.flatMap((row) => flat.parametersOf.get(row.id) ?? [])
-    for (const row of hostRows) allParameters.add(JSON.stringify(row))
-    for (const row of globalParameterRows(libraryStore)) allParameters.add(JSON.stringify(row))
-    const consolidatedParameters = Array.from(allParameters).map((paramStr) => JSON.parse(paramStr))
-
-    // --- 3. FINALIZING AND COMPRESSING ZIP ---
-    zip.file(`${MODULES_DIR}/${fileName}_module_config.json`, JSON.stringify(module_config, null, 2))
-    if (arrayFormat === CA_ARRAY_FORMATS.CSV) zip.file(`${fileName}_module_array.csv`, Papa.unparse(instance_array.map(csvRow)))
-    else zip.file(`${fileName}_module_array.json`, dumpModuleRecords(nativeArray?.records ?? instance_array.map(moduleRecord)))
-    zip.file(`${fileName}_parameters.csv`, Papa.unparse(consolidatedParameters))
-    if (obsData != null) zip.file(`${fileName}_obs_data.json`, obsData)
-    for (const [name, text] of cellmlFiles) zip.file(`${MODULES_DIR}/${name}`, text)
-    for (const { dir, entry, rows } of nativeArray?.supermodules ?? []) {
-      const base = `${entry.module_type}_${entry.module_subtype}`
-      zip.file(`${dir}/${base}_modules_config.json`, JSON.stringify([entry], null, 2))
-      zip.file(`${dir}/${parameterisationPath(entry.default_parameterisation)}`, Papa.unparse({ fields: PARAMETER_COLUMNS, data: rows.map((row) => PARAMETER_COLUMNS.map((column) => row[column])) }))
-    }
-
-    const zipBlob = await zip.generateAsync({
-      type: 'blob',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 9 },
-    })
-
-    return zipBlob
+    return prepareFlatExport(nodes, edges, libraryStore).errors
   } catch (error) {
-    console.error('Export Error:', error)
-    notify.error({ message: `Failed to export config files: ${error.message}` })
-    throw error
+    return [error.message]
   }
 }
+
+/**
+ * Builds the flat export with the modules it adds (variant bases, the pulmonary module), and checks it: the problems
+ * CA would stop on, each gathered rather than thrown, so all are reported together.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @param {Object} libraryStore
+ * @returns {{flat: Object, moduleConfig: Object[], errors: string[]}}
+ * @throws {Error} for a node whose module the library doesn't have.
+ */
+function prepareFlatExport(nodes, edges, libraryStore) {
+  const flat = buildFlatExport(nodes, edges, libraryStore)
+  addVariantBases(flat.variantBases, flat.moduleConfigs, libraryStore)
+  addPulmonaryModule(flat.rows, flat.moduleConfigs, libraryStore)
+  const moduleConfig = Array.from(flat.moduleConfigs.values())
+  const errors = []
+  try {
+    checkHearts(flat.rows)
+  } catch (error) {
+    errors.push(error.message)
+  }
+  errors.push(...planFailures(flat.plan, flat.nodeNameMap), ...multiportFailures(moduleConfig), ...parameterClashes(flat, libraryStore))
+  return { flat, moduleConfig, errors }
+}
+
+/** Adds a note to a list, when there is one. */
+const addNote = (list, note) => note && list.push(note)
 
 /**
  * Builds the flat (Mode A) export of a model: its rows, in the order and with the lists that have CA pair each
@@ -188,22 +231,28 @@ export function buildFlatExport(modelNodes, edges, libraryStore) {
 }
 
 /**
- * The parameter rows of a module's constants and boundary conditions. CA needs a row for every boundary condition,
- * and uses it only while nothing is connected to it.
+ * The parameter names CA would give more than one value: each instance's rows are named `<variable>_<instance>`, so
+ * `E_a` of `lv` and `E` of `a_lv` are both `E_a_lv`. Rows sharing a name with the same value and units are one row.
  *
- * @param {Array} variables - The module's rows.
- * @param {(variable: string) => string} nameOf - Each row's parameter name.
- * @returns {Array<{variable_name: string, units: string, value: string, data_reference: string}>}
+ * @param {{rows: Array, parametersOf: Map<string, Object[]>}} flat - buildFlatExport's.
+ * @param {Object} libraryStore - For the global constants.
+ * @returns {string[]} One problem naming the clashes, or none.
  */
-export function parameterRows(variables, nameOf) {
-  return (variables ?? [])
-    .filter((variable) => variable.type === 'constant' || variable.type === 'boundary_condition')
-    .map((variable) => ({
-      variable_name: nameOf(variable.name),
-      units: variable.units || '',
-      value: isBlank(variable.value) ? (variable.type === 'constant' ? '' : CA_EMPTY_VALUE) : variable.value,
-      data_reference: variable.data_reference || 'phlynx',
-    }))
+function parameterClashes({ rows, parametersOf }, libraryStore) {
+  const byName = new Map()
+  const add = (owner, row) => {
+    if (!byName.has(row.variable_name)) byName.set(row.variable_name, [])
+    byName.get(row.variable_name).push({ owner, row })
+  }
+  for (const row of rows) for (const parameter of parametersOf.get(row.id) ?? []) add(`"${row.name}"`, parameter)
+  for (const parameter of globalParameterRows(libraryStore)) add('the global constants', parameter)
+  const same = (a, b) => String(a.value).trim() === String(b.value).trim() && a.units === b.units
+  const clashes = [...byName]
+    .filter(([, uses]) => uses.some(({ row }) => !same(row, uses[0].row)))
+    .map(([name, uses]) => `"${name}" (${listNamed([...new Set(uses.map(({ owner }) => owner))])})`)
+  if (!clashes.length) return []
+  const isOne = clashes.length === 1
+  return [`CA names ${isOne ? 'a parameter' : `${clashes.length} parameters`} of different modules alike, with different values or units, so it would keep only one: ${listNamed(clashes)}. Rename a module or variable so each name is one module's.`]
 }
 
 /** @returns {Object[]} The global constants' parameter rows. */
@@ -223,36 +272,44 @@ const csvRow = ({ name, module_subtype, module_type, inp_instances, out_instance
  * Notes the super-modules written flat, with every super instance of them, and why.
  *
  * @param {Array<{name: string, reason: string}>} fallbacks
+ * @param {import('./diagnostics').ExportReport} diagnostics - Added to.
  */
-function noteFallbacks(fallbacks) {
+function noteFallbacks(fallbacks, diagnostics) {
   const isOne = fallbacks.length === 1
-  notify.info({
+  diagnostics.infos.push({
     title: 'Super-modules Written Flat',
-    message: `CA can't read ${isOne ? 'a super-module' : `${fallbacks.length} super-modules`} as ${isOne ? 'it is' : 'they are'} here, so ${isOne ? 'its' : 'their'} super instances are written as their modules. ${fallbacks
+    items: [`CA can't read ${isOne ? 'a super-module' : `${fallbacks.length} super-modules`} as ${isOne ? 'it is' : 'they are'} here, so ${isOne ? 'its' : 'their'} super instances are written as their modules. ${fallbacks
       .map(({ name, reason }) => `"${name}" ${reason}.`)
-      .join(' ')}`,
+      .join(' ')}`],
   })
 }
 
 /**
- * Reports what the export can't make CA pair as here: fails where CA would stop, and warns about connections CA will
- * pair differently (naming CA's rule), couplings made before their ports changed, and edges without couplings that
- * are left out of the module array.
+ * The connections CA would stop on, as one problem naming each, or none.
  *
  * @param {Object} plan - From planCaPairing.
  * @param {Map<string, string>} names - Each node id to its name.
- * @throws {Error} naming each connection CA would stop on.
+ * @returns {string[]}
  */
-function reportPlan({ failures, residuals, stale, dropped, ports }, names) {
-  const nameOf = (edge) => `${names.get(edge.source)} → ${names.get(edge.target)}`
+function planFailures({ failures, ports }, names) {
+  if (!failures.length) return []
   // A label as the workspace has it, which a relabelled port keeps in original.
   const labelOf = (edge, label) =>
     [edge.source, edge.target].flatMap((id) => ports.get(id) ?? []).find((port) => port.label === label)?.original?.label ?? label
+  const messages = [...new Set(failures.map((failure) => describeFailure(failure, names, labelOf(failure.edge, failure.label))))]
+  return [`CA would stop on ${messages.length === 1 ? 'a connection' : `${messages.length} connections`}. ${messages.join(' ')}`]
+}
 
-  if (failures.length) {
-    const messages = [...new Set(failures.map((failure) => describeFailure(failure, names, labelOf(failure.edge, failure.label))))]
-    throw new Error(`CA would stop on ${messages.length === 1 ? 'a connection' : `${messages.length} connections`}. ${messages.join(' ')}`)
-  }
+/**
+ * Notes what the export can't make CA pair as here: connections CA will pair differently (naming CA's rule),
+ * couplings made before their ports changed, and edges without couplings that are left out of the module array.
+ *
+ * @param {Object} plan - From planCaPairing.
+ * @param {Map<string, string>} names - Each node id to its name.
+ * @param {import('./diagnostics').ExportReport} diagnostics - Added to.
+ */
+function notePlan({ residuals, stale, dropped }, names, diagnostics) {
+  const nameOf = (edge) => `${names.get(edge.source)} → ${names.get(edge.target)}`
 
   if (residuals.length) {
     const byReason = new Map()
@@ -261,11 +318,11 @@ function reportPlan({ failures, residuals, stale, dropped, ports }, names) {
       byReason.get(reason).push(`${nameOf(edge)} (${label})`)
     }
     const isOne = residuals.length === 1
-    notify.warning({
+    diagnostics.warnings.push({
       title: 'Connections Paired Differently',
-      message: `CA will pair ${isOne ? 'a connection' : `${residuals.length} connections`} differently from here. ${[...byReason]
+      items: [`CA will pair ${isOne ? 'a connection' : `${residuals.length} connections`} differently from here. ${[...byReason]
         .map(([reason, items]) => `${listNamed([...new Set(items)])}: ${RESIDUAL_REASONS[reason]}.`)
-        .join(' ')}`,
+        .join(' ')}`],
     })
   }
 
@@ -276,17 +333,17 @@ function reportPlan({ failures, residuals, stale, dropped, ports }, names) {
       changed.length && `${listNamed(changed)} ${changed.length === 1 ? 'was' : 'were'} coupled before a port changed, so CA couples the ports as they are now`,
       gone.length && `${listNamed(gone)} ${gone.length === 1 ? 'couples a port' : 'couple ports'} that no longer exist${gone.length === 1 ? 's' : ''}, which CA leaves out`,
     ].filter(Boolean)
-    notify.warning({
+    diagnostics.warnings.push({
       title: 'Stale Connections',
-      message: `${parts.join('; ')}. Reopen ${stale.length === 1 ? 'its' : 'their'} connection dialog to bring the couplings up to date.`,
+      items: [`${parts.join('; ')}. Reopen ${stale.length === 1 ? 'its' : 'their'} connection dialog to bring the couplings up to date.`],
     })
   }
 
   if (dropped.length) {
     const isOne = dropped.length === 1
-    notify.info({
+    diagnostics.infos.push({
       title: 'Connections Left Out',
-      message: `${listNamed(dropped.map(nameOf))} ${isOne ? 'couples' : 'couple'} no ports, so the module array leaves ${isOne ? 'it' : 'them'} out: CA would couple every port label the modules share.`,
+      items: [`${listNamed(dropped.map(nameOf))} ${isOne ? 'couples' : 'couple'} no ports, so the module array leaves ${isOne ? 'it' : 'them'} out: CA would couple every port label the modules share.`],
     })
   }
 }
@@ -321,13 +378,14 @@ function describeFailure({ edge, kind }, names, label) {
  * Notes the instances exported as variants of their module.
  *
  * @param {string[]} names
+ * @param {import('./diagnostics').ExportReport} diagnostics - Added to.
  */
-function noteVariants(names) {
+function noteVariants(names, diagnostics) {
   if (!names.length) return
   const isOne = names.length === 1
-  notify.info({
+  diagnostics.infos.push({
     title: 'Module Variants',
-    message: `${listNamed(names)} ${isOne ? 'differs' : 'differ'} from ${isOne ? 'its' : 'their'} library module, so ${isOne ? 'it is' : 'each is'} exported with a config of its own, its subtype followed by "__" and a hash of that config.`,
+    items: [`${listNamed(names)} ${isOne ? 'differs' : 'differ'} from ${isOne ? 'its' : 'their'} library module, so ${isOne ? 'it is' : 'each is'} exported with a config of its own, its subtype followed by "__" and a hash of that config.`],
   })
 }
 
@@ -413,8 +471,9 @@ function asVariant(entry, subtype) {
  *
  * @param {Array} nodes - The array of nodes from Vue Flow.
  * @param {Array} edges - The array of edges from Vue Flow.
+ * @param {import('./diagnostics').ExportReport} diagnostics - Added to.
  */
-function warnMissingBoundaryValues(nodes, edges) {
+function noteMissingBoundaryValues(nodes, edges, diagnostics) {
   const nodeNames = new Map(nodes.map((node) => [node.id, node.data.name]))
   const missing = [...resolveBoundaryValues(nodes, edges).missing].flatMap(([nodeId, names]) =>
     [...names].map((name) => `${nodeNames.get(nodeId)}.${name}`)
@@ -422,22 +481,21 @@ function warnMissingBoundaryValues(nodes, edges) {
   if (!missing.length) return
 
   const count = missing.length === 1 ? '1 boundary condition has' : `${missing.length} boundary conditions have`
-  notify.warning({
+  diagnostics.warnings.push({
     title: 'Missing Boundary Values',
-    message: `${count} no value and nothing connected, so CA will ask for ${missing.length === 1 ? 'it' : 'them'}: ${listNamed(missing)}.`,
+    items: [`${count} no value and nothing connected, so CA will ask for ${missing.length === 1 ? 'it' : 'them'}: ${listNamed(missing)}.`],
   })
 }
 
 /**
- * Fails on a multi_port CA would reject, such as a Multiply on a port with several variables, which PhLynx's
- * own CellML allows; warns about a volume_port's whole-port Sum, which CA sums over the inp_vessels only.
+ * The multi_ports CA would reject, such as a Multiply on a port with several variables, which PhLynx's own CellML
+ * allows, as one problem naming each, or none.
  *
  * @param {Object[]} moduleConfig - The config entries.
- * @throws {Error} naming each port CA would reject.
+ * @returns {string[]}
  */
-function checkMultiports(moduleConfig) {
+function multiportFailures(moduleConfig) {
   const rejected = []
-  const volumeSums = new Set()
   for (const entry of moduleConfig) {
     const description = `Module "${entry.module_type}:${entry[BASE_SUBTYPE_KEY] ?? entry.module_subtype}"`
     for (const port of PORT_TYPE_OPTIONS.flatMap(({ value }) => entry[value] ?? [])) {
@@ -452,17 +510,32 @@ function checkMultiports(moduleConfig) {
       } catch (error) {
         rejected.push(error.message)
       }
+    }
+  }
+  const reasons = [...new Set(rejected)]
+  return reasons.length ? [`CA can't read ${reasons.length === 1 ? 'a port' : `${reasons.length} ports`}. ${reasons.join(' ')}`] : []
+}
+
+/**
+ * Warns about a volume_port's whole-port Sum, which CA sums over the inp_vessels only.
+ *
+ * @param {Object[]} moduleConfig - The config entries.
+ * @param {import('./diagnostics').ExportReport} diagnostics - Added to.
+ */
+function noteVolumeSums(moduleConfig, diagnostics) {
+  const volumeSums = new Set()
+  for (const entry of moduleConfig) {
+    for (const port of PORT_TYPE_OPTIONS.flatMap(({ value }) => entry[value] ?? [])) {
+      const value = port.multi_port
       if (port.port_type === VOLUME_PORT && typeof value === 'string' && value.toLowerCase() === 'sum') {
         volumeSums.add(`${entry.module_type}:${entry[BASE_SUBTYPE_KEY] ?? entry.module_subtype}`)
       }
     }
   }
-  const reasons = [...new Set(rejected)]
-  if (reasons.length) throw new Error(`CA can't read ${reasons.length === 1 ? 'a port' : `${reasons.length} ports`}. ${reasons.join(' ')}`)
   if (volumeSums.size) {
-    notify.warning({
+    diagnostics.warnings.push({
       title: 'Volume Port Sum',
-      message: `CA sums a volume_port's whole-port Sum over its inp_vessels only, the legacy blood-volume sum, where PhLynx sums every connection: ${listNamed([...volumeSums])}.`,
+      items: [`CA sums a volume_port's whole-port Sum over its inp_vessels only, the legacy blood-volume sum, where PhLynx sums every connection: ${listNamed([...volumeSums])}.`],
     })
   }
 }
@@ -542,22 +615,36 @@ function moduleConfigEntry(module) {
   }
 }
 
+/** @returns {Object|null} The only heart row, when it has one output, so CA adds a pulmonary artery and vein. */
+function pulmonaryHeart(instanceArray) {
+  const hearts = instanceArray.filter((row) => isHeart(row.module_type))
+  return hearts.length === 1 && hearts[0].out_instances.split(' ').filter(Boolean).length < 2 ? hearts[0] : null
+}
+
 /**
- * Adds the module CA uses for the pulmonary artery and vein it adds when the only heart has one output, and warns that
- * CA will ask for their values.
+ * Adds the module CA uses for the pulmonary artery and vein it adds when the only heart has one output.
  *
  * @param {Array} instanceArray - The module array rows.
  * @param {Map<string, Object>} moduleConfigs - The config entries by module ref, added to.
  * @param {Object} libraryStore - The library, for `availableModules`.
  */
 function addPulmonaryModule(instanceArray, moduleConfigs, libraryStore) {
-  const hearts = instanceArray.filter((row) => isHeart(row.module_type))
-  if (hearts.length !== 1 || hearts[0].out_instances.split(' ').filter(Boolean).length >= 2) return
-
+  if (!pulmonaryHeart(instanceArray)) return
   const module = libraryStore.availableModules.get(PULMONARY_MODULE_REF)
   if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, withExtras(moduleConfigEntry(module), module))
-  notify.warning({
+}
+
+/**
+ * Warns that CA adds a pulmonary artery and vein, and will ask for their values, when the only heart has one output.
+ *
+ * @param {Array} instanceArray - The module array rows.
+ * @param {import('./diagnostics').ExportReport} diagnostics - Added to.
+ */
+function notePulmonaryModule(instanceArray, diagnostics) {
+  const heart = pulmonaryHeart(instanceArray)
+  if (!heart) return
+  diagnostics.warnings.push({
     title: 'Pulmonary Circuit Added',
-    message: `"${hearts[0].name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`,
+    items: [`"${heart.name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`],
   })
 }

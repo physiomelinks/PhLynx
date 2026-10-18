@@ -22,7 +22,7 @@ describe('checkResourcesAreLoaded', () => {
 })
 
 describe('checkResourcesAreLoaded with super-modules', () => {
-  const rec = (name, module_type, module_subtype, extra = {}) => ({ name, module_type, module_subtype, ...extra })
+  const rec = (name, module_type, module_subtype, extra = {}) => ({ name, module_type, module_subtype, inp_instances: [], out_instances: [], ...extra })
   const heart = {
     moduleRef: 'heart:v1',
     module_type: 'heart',
@@ -62,6 +62,41 @@ describe('checkResourcesAreLoaded with super-modules', () => {
 
     const unknown = rec('neuron', 'neuron', 'sym', { per_submodule_inputs: { soma: ['x'] } })
     expect(checkResourcesAreLoaded([unknown], store([], [])).supermoduleInstances).toEqual(['neuron (neuron:sym)'])
+  })
+
+  it('stops on a parameter file several dropped files could be, naming them', () => {
+    const loaded = store([['chamber:v', 'c:c'], ['valve:pp', 'c:c'], ['clock:c', 'c:c']], [heart, pacer], ['c:c'])
+    const paths = ['a/heart/versions/v1/parameterisations/rest/rest_parameters.csv', 'b/heart/versions/v1/parameterisations/rest/rest_parameters.csv']
+    const status = checkResourcesAreLoaded([rec('heart', 'heart', 'v1', { parameterisation: 'rest' })], {
+      ...loaded,
+      caParameterFiles: new Map(paths.map((path) => [path, []])),
+    })
+    expect(status.errors).toEqual([expect.stringContaining(`matches several files: ${paths.join(', ')}`)])
+    expect(status.missingResources.parameterisations.size).toBe(0)
+    expect(status.resourcesAreLoaded).toBe(false)
+  })
+
+  it('stops on a named parameter file that could not be read, and leaves out a default one with a note', () => {
+    const withDefault = { ...heart, default_parameterisation: 'default' }
+    const loaded = store([['chamber:v', 'c:c'], ['valve:pp', 'c:c'], ['clock:c', 'c:c']], [withDefault, pacer], ['c:c'])
+    const rest = 'lib/heart/versions/v1/parameterisations/rest/rest_parameters.csv'
+    const fallback = 'lib/heart/versions/v1/parameterisations/default/default_parameters.csv'
+    const files = { caParameterFiles: new Map([[rest, null], [fallback, null]]), caParameterFileErrors: new Map([[rest, 'no rows'], [fallback, 'no rows']]) }
+
+    const named = checkResourcesAreLoaded([rec('heart', 'heart', 'v1', { parameterisation: 'rest' })], { ...loaded, ...files })
+    expect(named.errors).toEqual([`Parameter file ${rest}: no rows`])
+
+    const optional = checkResourcesAreLoaded([rec('heart', 'heart', 'v1')], { ...loaded, ...files })
+    expect(optional.errors).toEqual([])
+    expect(optional.notes).toEqual([`Parameter file ${fallback} is left out: no rows`])
+    expect(optional.resourcesAreLoaded).toBe(true)
+  })
+
+  it('stops on a module array the import could not expand', () => {
+    const loaded = store([['chamber:v', 'c:c'], ['valve:pp', 'c:c'], ['clock:c', 'c:c']], [heart, pacer], ['c:c'])
+    const status = checkResourcesAreLoaded([rec('heart', 'heart', 'v1', { per_submodule_inputs: { nope: ['x'] } })], loaded)
+    expect(status.errors).toEqual([expect.stringContaining('"heart"')])
+    expect(status.resourcesAreLoaded).toBe(false)
   })
 
   it('reports staging errors and nesting cycles without looping', () => {

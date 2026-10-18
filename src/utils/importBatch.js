@@ -1,6 +1,7 @@
 import { hoistEncapsulatedComponents, processCellMLData } from './cellml'
 import { normaliseConfig, parseMathRef } from './config'
 import { extensionOf } from './import'
+import { escapeHtml } from './notify'
 
 const MAX_LISTED = 5
 
@@ -121,20 +122,6 @@ export function requiredCellMLFilenames(status) {
  */
 export function providesMissingModule(configs, status) {
   return configs.some((config) => status.missingResources.modules.has(`${config.module_type}:${config.module_subtype}`))
-}
-
-/**
- * Escapes text for the toast detail, which is rendered as HTML.
- * @param {string} text
- * @returns {string}
- */
-export function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 
 function pluralise(count, noun) {

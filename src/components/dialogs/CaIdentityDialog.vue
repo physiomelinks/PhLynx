@@ -2,34 +2,75 @@
   <Dialog
     :visible="!!question"
     modal
-    header="Name Super-module for Circulatory Autogen"
-    :style="{ width: '440px' }"
+    header="Circulatory Autogen Identities"
+    :style="{ width: '640px' }"
     @update:visible="(visible) => !visible && prompt.answer(null)"
     @mousedown.stop
     @wheel.stop
   >
     <form v-if="question" class="ca-identity-form" @submit.prevent="handleConfirm">
       <p class="ca-identity-message">
-        <template v-if="question.reason === 'changed'">
-          Super-module '{{ question.name }}' no longer matches library super-module {{ question.from }}, so it needs a
-          circulatory_autogen identity of its own.
-        </template>
-        <template v-else>Super-module '{{ question.name }}' needs a circulatory_autogen identity to be written as one.</template>
-        It is kept for later exports.
+        {{ rows.length === 1 ? 'This super-module needs' : 'These super-modules need' }} a circulatory_autogen identity,
+        a module_type and module_subtype, to be written as {{ rows.length === 1 ? 'a super-module' : 'super-modules' }}.
+        Identities are kept for later exports.
       </p>
-      <label for="ca-identity-type">module_type</label>
-      <InputText id="ca-identity-type" v-model="moduleType" autofocus :invalid="!!problem" />
-      <label for="ca-identity-subtype">module_subtype</label>
-      <InputText id="ca-identity-subtype" v-model="moduleSubtype" :invalid="!!problem" aria-describedby="ca-identity-hint" />
-      <small id="ca-identity-hint" :class="['ca-identity-hint', { 'ca-identity-hint--error': problem }]">
-        {{ problem ?? 'Cancel writes its super instances as their modules.' }}
+      <table class="ca-identity-table">
+        <thead>
+          <tr>
+            <th scope="col">Super-module</th>
+            <th scope="col">module_type</th>
+            <th scope="col">module_subtype</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="(row, index) in rows" :key="row.smId">
+            <tr>
+              <th scope="row" class="ca-identity-name">
+                {{ row.name }}
+                <small v-if="row.reason === 'changed'" class="ca-identity-changed">changed from {{ row.from }}</small>
+              </th>
+              <td>
+                <InputText
+                  :id="`ca-identity-type-${index}`"
+                  v-model="row.module_type"
+                  :autofocus="index === 0"
+                  :invalid="!!problems.get(row.smId)"
+                  :aria-label="`${row.name} module_type`"
+                  fluid
+                />
+              </td>
+              <td>
+                <InputText
+                  :id="`ca-identity-subtype-${index}`"
+                  v-model="row.module_subtype"
+                  :invalid="!!problems.get(row.smId)"
+                  :aria-label="`${row.name} module_subtype`"
+                  :aria-describedby="problems.get(row.smId) ? `ca-identity-problem-${index}` : undefined"
+                  fluid
+                />
+              </td>
+            </tr>
+            <tr v-if="problems.get(row.smId)">
+              <td colspan="3">
+                <small :id="`ca-identity-problem-${index}`" class="ca-identity-hint ca-identity-hint--error">{{ problems.get(row.smId) }}</small>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <small class="ca-identity-hint">
+        Export flat writes {{ rows.length === 1 ? 'its super instances' : 'their super instances' }} as their modules,
+        keeping no identity; Cancel stops the export.
       </small>
+      <!-- Enter submits the form. -->
+      <button type="submit" hidden />
     </form>
 
     <template #footer>
       <div class="dialog-footer">
-        <Button label="Export flat" text @click="prompt.answer(null)" />
-        <Button label="Name" :disabled="!!problem" @click="handleConfirm" />
+        <Button label="Cancel" text severity="secondary" @click="prompt.answer(null)" />
+        <Button label="Export flat" text @click="prompt.answer(new Map())" />
+        <Button label="Keep identities and export" :disabled="hasProblem" @click="handleConfirm" />
       </div>
     </template>
   </Dialog>
@@ -37,8 +78,9 @@
 
 <script setup>
 /**
- * Asks for a super-module's circulatory_autogen identity, module_type and module_subtype, before the native CA export
- * writes it (see useCaIdentityPrompt). Offers its name and a free `phlynx_v<n>`; cancelling writes it flat.
+ * Asks, in one table, for the circulatory_autogen identity, module_type and module_subtype, of each super-module the
+ * native CA export needs one for (see useCaIdentityPrompt). Offers each its name and a free `phlynx_v<n>`. Its answer
+ * names them, exports them flat, or, from Cancel, the close button or Escape, cancels the export.
  */
 import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
@@ -50,19 +92,28 @@ import { useCaIdentityPrompt } from '../../composables/useCaIdentityPrompt'
 const prompt = useCaIdentityPrompt()
 const question = prompt.question
 
-const moduleType = ref('')
-const moduleSubtype = ref('')
-const identity = computed(() => ({ module_type: moduleType.value.trim(), module_subtype: moduleSubtype.value.trim() }))
-const problem = computed(() => (question.value ? question.value.problemOf(identity.value) : null))
+const rows = ref([])
+const identities = computed(
+  () => new Map(rows.value.map((row) => [row.smId, { module_type: row.module_type.trim(), module_subtype: row.module_subtype.trim() }]))
+)
+const problems = computed(() => (question.value ? question.value.problemsOf(identities.value) : new Map()))
+const hasProblem = computed(() => [...problems.value.values()].some(Boolean))
 
-// Each question offers its own suggestion.
-watch(question, (asked) => {
-  moduleType.value = asked?.suggestion?.module_type ?? ''
-  moduleSubtype.value = asked?.suggestion?.module_subtype ?? ''
-})
+// Each question offers its own suggestions.
+watch(
+  question,
+  (asked) => {
+    rows.value = (asked?.requests ?? []).map((request) => ({
+      ...request,
+      module_type: request.suggestion?.module_type ?? '',
+      module_subtype: request.suggestion?.module_subtype ?? '',
+    }))
+  },
+  { immediate: true }
+)
 
 function handleConfirm() {
-  if (!problem.value) prompt.answer(identity.value)
+  if (!hasProblem.value) prompt.answer(identities.value)
 }
 </script>
 
@@ -76,6 +127,29 @@ function handleConfirm() {
 .ca-identity-message {
   margin: 0 0 0.5rem;
   line-height: 1.5;
+}
+
+.ca-identity-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ca-identity-table th,
+.ca-identity-table td {
+  padding: 0.25rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ca-identity-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ca-identity-changed {
+  display: block;
+  font-weight: normal;
+  color: var(--p-text-muted-color);
 }
 
 .ca-identity-hint {

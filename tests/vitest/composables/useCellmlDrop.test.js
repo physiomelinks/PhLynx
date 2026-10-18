@@ -546,7 +546,7 @@ describe('useCellmlDrop', () => {
       expect(deps.processImportedOmexArchive).toHaveBeenCalledWith('buffer', { files: {} }, 'archive.OMEX')
       expect(notify.success).toHaveBeenCalledWith({
         title: 'OMEX Import Complete',
-        message: 'archive.OMEX imported successfully!',
+        items: ['archive.OMEX imported successfully!'],
       })
       expect(deps.loadCellMLData).not.toHaveBeenCalled()
     })
@@ -560,11 +560,11 @@ describe('useCellmlDrop', () => {
 
       await drop.onDrop(makeEvent({ files: [bad, good] }))
 
-      expect(notify.error).toHaveBeenCalledWith({ title: 'OMEX Import Failed', message: 'corrupt archive' })
+      expect(notify.error).toHaveBeenCalledWith({ title: 'OMEX Import Failed', items: ['corrupt archive'] })
       expect(deps.processImportedOmexArchive).toHaveBeenCalledTimes(1)
       expect(notify.success).toHaveBeenCalledWith({
         title: 'OMEX Import Complete',
-        message: 'good.omex imported successfully!',
+        items: ['good.omex imported successfully!'],
       })
     })
 

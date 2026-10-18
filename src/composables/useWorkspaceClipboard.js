@@ -193,9 +193,11 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       const names = (unplaceable.length ? unplaceable : sourceClipboard.nodes.filter(isSuperInstance)).map((node) => `"${node.data?.name ?? node.id}"`).join(', ')
       notify.warning({
         title: 'Not Pasted',
-        message: into
-          ? `${names} can't go here: its super-module is missing, or would then contain itself.`
-          : `${names} can't be pasted: its super-module is missing.`,
+        items: [
+          into
+            ? `${names} can't go here: its super-module is missing, or would then contain itself.`
+            : `${names} can't be pasted: its super-module is missing.`,
+        ],
       })
       return
     }

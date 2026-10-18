@@ -76,7 +76,7 @@ export function useWorkspaceSaveLoad({
           })
           notify.error({
             title: 'Error Saving Workflow',
-            message: err.message,
+            items: [err.message],
           })
         }
       }
@@ -166,7 +166,7 @@ export function useWorkspaceSaveLoad({
       notify.success({
         title: 'Workflow loaded successfully!',
       })
-      if (notes.length) notify.warning({ title: 'Workflow updated', message: notes.join('\n') })
+      if (notes.length) notify.warning({ title: 'Workflow updated', items: notes })
     } catch (error) {
       trackEvent('workflow_load_action', {
         category: 'Workflow',

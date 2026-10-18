@@ -31,7 +31,7 @@ export function prepareCellmlImports(files) {
   if (containment.length > 0) {
     notify.info({
       title: 'Containment Groups Ignored',
-      message: `${containment.join(', ')} ${containment.length === 1 ? 'groups' : 'group'} components by containment, which PhLynx doesn't use. The components are imported without it.`,
+      items: [`${containment.join(', ')} ${containment.length === 1 ? 'groups' : 'group'} components by containment, which PhLynx doesn't use. The components are imported without it.`],
       duration: 5000,
     })
   }
@@ -39,7 +39,7 @@ export function prepareCellmlImports(files) {
   if (failed.length > 0) {
     notify.warning({
       title: 'Encapsulation Kept',
-      message: `PhLynx couldn't move the encapsulated components in ${failed.join(', ')} to the top level, so their math may not import correctly.`,
+      items: [`PhLynx couldn't move the encapsulated components in ${failed.join(', ')} to the top level, so their math may not import correctly.`],
     })
   }
   return prepared.map((file) => file.cellml)

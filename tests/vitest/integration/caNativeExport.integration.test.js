@@ -141,7 +141,7 @@ describe.each([
     // What holds it is written flat with it, and so is all it holds.
     expect(Object.keys(unnamed).filter((file) => file.startsWith('supermodules/'))).toEqual([])
     const note = notified.info.mock.calls.map(([n]) => n).find((n) => n.title === 'Super-modules Written Flat')
-    expect(note.message).toContain(`was changed from library super-module ${changed.moduleRef}`)
+    expect(note.items[0]).toContain(`was changed from library super-module ${changed.moduleRef}`)
 
     for (const request of requests) folded.nodes.find((node) => node.id === request.smId).data.supermodule.ca = request.suggestion
     const renamed = await readZip(await generateExportZip(name, expansion.nodes, expansion.edges, store, null, { hierarchy: folded }))

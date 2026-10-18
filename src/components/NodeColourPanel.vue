@@ -296,8 +296,8 @@ async function onImportFile(event) {
   event.target.value = ''
   if (!file) return
   const { theme, errors } = themeStore.importTheme(await file.text())
-  if (theme) notify.success({ title: 'Theme imported', message: theme.name })
-  else notify.error({ title: 'Could not import theme', message: errors.join(' ') })
+  if (theme) notify.success({ title: 'Theme imported', items: [theme.name] })
+  else notify.error({ title: 'Could not import theme', items: errors })
 }
 
 function submitActive() {

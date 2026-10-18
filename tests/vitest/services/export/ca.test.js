@@ -19,7 +19,8 @@ vi.mock('../../../../src/services/caVariants', async (importOriginal) => {
   }
 })
 
-const { CA_ARRAY_FORMATS, dumpModuleRecords, generateExportZip } = await import('../../../../src/services/export/ca.js')
+const { CA_ARRAY_FORMATS, caExportProblems, dumpModuleRecords, generateExportZip } = await import('../../../../src/services/export/ca.js')
+const { createExportReport, ExportBlockedError } = await import('../../../../src/services/export/diagnostics.js')
 const { caModuleFileName } = await import('../../../../src/services/export/caCellml.js')
 const { useLibraryStore } = await import('../../../../src/stores/libraryStore.js')
 
@@ -272,7 +273,7 @@ describe('generateExportZip', () => {
     const node = nodeWith('out', [{ name: 'u_out', type: 'boundary_condition', units: 'J_per_m3', value: '' }])
     const parameters = parametersOf(await readZip(await generateExportZip('heart', [node], [], library)))
     expect(parameters.u_out_out.value).toBe('EMPTY_MUST_BE_FILLED')
-    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('out.u_out') }))
+    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.stringContaining('out.u_out')] }))
   })
 
   it('writes a constant or global constant of 0, which is not blank', async () => {
@@ -344,7 +345,7 @@ describe('generateExportZip', () => {
     library.addMath(BG_MATH_REF, VP_MATH.replace('units="J_per_m3"', 'units="mystery"'))
     const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
     expect(files['modules/heart_units.cellml']).not.toContain('mystery')
-    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('mystery') }))
+    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.stringContaining('mystery')] }))
   })
 
   /**
@@ -411,7 +412,7 @@ describe('generateExportZip', () => {
     const files = await readZip(await generateExportZip('heart', nodes, edges, library))
     const entries = JSON.parse(files['modules/heart_module_config.json']).map((entry) => `${entry.module_type}:${entry.module_subtype}`)
     expect(entries).toEqual(['heart:simple', 'arterial_simple:vp'])
-    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('par, pvn') }))
+    expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.stringContaining('par, pvn')] }))
   })
 
   describe('multi_port', () => {
@@ -443,7 +444,7 @@ describe('generateExportZip', () => {
       const port = await exportedPort({ label: 'volume_port', variables: ['q_C'], multiportType: 'Sum' })
       expect(port.multi_port).toBe('Sum')
       expect(notified.warning).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Volume Port Sum', message: expect.stringContaining('arterial_simple:vp') })
+        expect.objectContaining({ title: 'Volume Port Sum', items: [expect.stringContaining('arterial_simple:vp')] })
       )
     })
 
@@ -549,8 +550,8 @@ describe('generateExportZip', () => {
       const empty = { id: 's--b', source: 's', target: 'b', data: { couplings: [] } }
       const rows = await rowsOf([split, a, b, c], [stale, empty, conduit(split, c, 1, 0)])
       expect(rows.s).toBe(' | a c')
-      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Stale Connections', message: expect.stringContaining('s → a') }))
-      expect(notified.info).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connections Left Out', message: expect.stringContaining('s → b') }))
+      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Stale Connections', items: [expect.stringContaining('s → a')] }))
+      expect(notified.info).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connections Left Out', items: [expect.stringContaining('s → b')] }))
     })
 
     it("names CA's rule for each connection it pairs differently", async () => {
@@ -566,7 +567,7 @@ describe('generateExportZip', () => {
       await generateExportZip('heart', [x, y, z], [edge(y), edge(z)], library)
       expect(notified.warning).toHaveBeenCalledWith({
         title: 'Connections Paired Differently',
-        message: 'CA will pair a connection differently from here. x → z (link): CA pairs every slot that shares a label across a connection.',
+        items: ['CA will pair a connection differently from here. x → z (link): CA pairs every slot that shares a label across a connection.'],
       })
     })
 
@@ -646,7 +647,7 @@ describe('generateExportZip', () => {
     it('warns about two inputs CA would put on other slots', async () => {
       await heartRow(heartWith({ venous_ivc: 0, pvn: 2 }))
       expect(notified.warning).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Connections Paired Differently', message: expect.stringContaining("a heart's inputs") })
+        expect.objectContaining({ title: 'Connections Paired Differently', items: [expect.stringContaining("a heart's inputs")] })
       )
     })
 
@@ -657,7 +658,10 @@ describe('generateExportZip', () => {
       await expect(generateExportZip('heart', nodes, [...first.edges, ...second.edges], library)).rejects.toThrow(
         'CA allows one heart module, but heart, heart2 are hearts.'
       )
-      expect(notified.error).toHaveBeenCalled()
+      // The caller shows the failure: the service shows nothing, not even the notes gathered before it stopped.
+      expect(notified.error).not.toHaveBeenCalled()
+      expect(notified.warning).not.toHaveBeenCalled()
+      expect(notified.info).not.toHaveBeenCalled()
     })
 
     it('fails on a heart with no venous_ivc or venous_svc input, as CA does', async () => {
@@ -673,8 +677,48 @@ describe('generateExportZip', () => {
     const junction = { id: 'j', data: { name: 'j', moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] } }
     await generateExportZip('heart', [junction, nodeWith('vp', [])], [], library)
     expect(notified.warning).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'Deprecated Junction Types', message: expect.stringMatching(/^Min_junction is .*multiport Sum/) })
+      expect.objectContaining({ title: 'Deprecated Junction Types', items: [expect.stringMatching(/^Min_junction is .*multiport Sum/)] })
     )
+  })
+
+  describe('parameter names', () => {
+    const constant = (name, value) => ({ name, units: 'm3_per_J', access: 'no_access', type: 'constant', value })
+
+    it('fails where two modules give one CA name different values, naming both', async () => {
+      const nodes = [nodeWith('lv', [constant('E_a', '1')]), nodeWith('a_lv', [constant('E', '2')])]
+      const error = await generateExportZip('heart', nodes, [], library).catch((thrown) => thrown)
+      expect(error).toBeInstanceOf(ExportBlockedError)
+      expect(error.errors).toEqual([expect.stringContaining('"E_a_lv" ("lv", "a_lv")')])
+      expect(caExportProblems(nodes, [], library)).toEqual(error.errors)
+    })
+
+    it('writes a name two modules give the same value once', async () => {
+      const nodes = [nodeWith('lv', [constant('E_a', '1')]), nodeWith('a_lv', [constant('E', '1')])]
+      const files = await readZip(await generateExportZip('heart', nodes, [], library))
+      expect(Papa.parse(files['heart_parameters.csv'], { header: true, skipEmptyLines: true }).data.filter((row) => row.variable_name === 'E_a_lv')).toHaveLength(1)
+    })
+  })
+
+  describe('diagnostics', () => {
+    it('stops on a problem before gathering any note', async () => {
+      library.addModule({ moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] })
+      const junction = { id: 'j', data: { name: 'j', moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] } }
+      const nodes = [junction, nodeWith('lv', [{ name: 'E_a', units: 'm3_per_J', type: 'constant', value: '1' }]), nodeWith('a_lv', [{ name: 'E', units: 'm3_per_J', type: 'constant', value: '2' }])]
+      const report = createExportReport()
+      await expect(generateExportZip('heart', nodes, [], library, null, { report })).rejects.toBeInstanceOf(ExportBlockedError)
+      expect(report.errors).toHaveLength(1)
+      expect(report.warnings).toEqual([])
+      expect(notified.warning).not.toHaveBeenCalled()
+    })
+
+    it('gathers the notes in the report given rather than showing them', async () => {
+      library.addModule({ moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] })
+      const junction = { id: 'j', data: { name: 'j', moduleRef: 'Min_junction:vp', mathRef: BG_MATH_REF, ports: [], variables: [] } }
+      const report = createExportReport()
+      await generateExportZip('heart', [junction, nodeWith('vp', [])], [], library, null, { report })
+      expect(report.warnings.map((note) => note.title)).toContain('Deprecated Junction Types')
+      expect(notified.warning).not.toHaveBeenCalled()
+    })
   })
 
   it('fails when a component has no math in the library', async () => {

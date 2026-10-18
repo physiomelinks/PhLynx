@@ -13,6 +13,7 @@ import {
   mergeDefaultParameters,
   modelName,
   supermoduleRowName,
+  SupermoduleExpansionError,
 } from '../../../../src/services/import/caSupermodules.js'
 
 const rec = (name, type, { inp = [], out = [], subtype = 'nn', ...extra } = {}) => ({
@@ -70,6 +71,19 @@ describe('expandSupermodules', () => {
     expect(() => expandSupermodules(named, supermodules, { load })).toThrow(
       `module array: supermodule instance "o" ('pair', 'v1'): unknown parameterisation "missing" of (pair, v1)`
     )
+  })
+
+  it('throws a typed error naming the instance it could not expand', () => {
+    const named = normaliseModuleRecords([rec('o', 'pair', { subtype: 'v1', parameterisation: 'missing' })])
+    const error = (() => {
+      try {
+        expandSupermodules(named, registry(PAIR, OUTER), { load })
+      } catch (thrown) {
+        return thrown
+      }
+    })()
+    expect(error).toBeInstanceOf(SupermoduleExpansionError)
+    expect(error.instance).toBe('o')
   })
 
   it('puts parameters in CA precedence: outer super-module, nested super-module, then components', () => {

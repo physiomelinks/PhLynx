@@ -23,6 +23,19 @@ export const CA_SEPARATOR = '_'
 export const MAX_DEPTH = 64
 const GLOBAL = 'global'
 
+/** A super-module instance CA can't expand; `instance` is its record's name as expanded so far. */
+export class SupermoduleExpansionError extends Error {
+  /**
+   * @param {string} message
+   * @param {{instance: string}} details
+   */
+  constructor(message, { instance }) {
+    super(message)
+    this.name = 'SupermoduleExpansionError'
+    this.instance = instance
+  }
+}
+
 /**
  * @typedef {Object} ParameterRow
  * @property {string} variable_name
@@ -241,11 +254,12 @@ function isInstance(record, supermodules, source) {
   if (supermodules.has(keyOf(record))) return true
   if (record.module_subtype === SUPERMODULE_FORMAT || PER_SUBMODULE_KEYS.some((key) => key in record)) {
     const known = [...supermodules.values()].map(tupleOf).sort()
-    throw new Error(
+    throw new SupermoduleExpansionError(
       `${source}: "${record.name}" is a supermodule instance of type (${record.module_type}, ` +
         `${record.module_subtype}), but no supermodule entry of that type was found in the module configs (known ` +
         `supermodules: ${known.length ? `[${known.join(', ')}]` : 'none'}). Add it to a *_modules_config.json in ` +
-        `module_library_dirs or external_modules_dir.`
+        `module_library_dirs or external_modules_dir.`,
+      { instance: record.name }
     )
   }
   return false
@@ -341,7 +355,17 @@ function checkLinks(instance, template, byName, supermodules, where) {
   return { perInputs, perOutputs }
 }
 
+/** Expands one instance; any problem with it is thrown as a SupermoduleExpansionError naming it. */
 function expandOne(records, index, state) {
+  try {
+    return expandInstance(records, index, state)
+  } catch (error) {
+    if (error instanceof SupermoduleExpansionError) throw error
+    throw new SupermoduleExpansionError(error.message, { instance: records[index].name })
+  }
+}
+
+function expandInstance(records, index, state) {
   const { supermodules, source, ancestry, paths, separator } = state
   const instance = records[index]
   const { name } = instance
@@ -417,7 +441,7 @@ function expandOne(records, index, state) {
  * @returns {{records: Object[], parameterRows: ParameterRow[], paths: Map<string, string[]>, warnings: string[]}}
  *   `parameterRows` are the instances' renamed parameters, outer before nested, each name once; `paths` gives each
  *   record's names from the top level down (`['heart', 'ra']`).
- * @throws {Error} naming `source` and the instance: an unknown super-module type, per_submodule_* naming a
+ * @throws {SupermoduleExpansionError} naming `source` and the instance: an unknown super-module type, per_submodule_* naming a
  *   non-submodule or a nested instance, a host listed twice, a host missing or not naming the instance back, a record
  *   naming the instance with no per_submodule_* link, an expanded name clash, nesting in a cycle, or a missing
  *   parameter file.

@@ -233,10 +233,29 @@ const folderOf = (file) => file.slice(0, file.lastIndexOf('/') + 1)
 /**
  * Resolves a file's imports from the zip's files, and flattens it.
  *
+ * @param {Map<string, string>} texts - Every file's CellML, by file name.
+ * @param {string} file
+ * @param {Object} options
+ * @param {Object} [options.importer] - zipImporter's of `texts`, shared between files; made here when not given.
+ * @param {Object} [options.model] - The file's model, already parsed.
  * @returns {{model: Object, flat: Object}} The file's model, imports resolved, and its flattened copy.
  * @throws {Error} When it imports a file the zip lacks, or libcellml can't flatten it.
  */
-function resolveFile(texts, file, { parser, keep }) {
+function resolveFile(texts, file, { parser, keep, importer = zipImporter(texts, { parser, keep }), model = keep(parser.parseModel(texts.get(file))) }) {
+  const folder = folderOf(file).slice(0, -1)
+  importer.resolveImports(model, folder ? `./${folder}` : '.')
+  if (model.hasUnresolvedImports()) throw new Error(`${file} imports a file the export does not include.`)
+  const flat = keep(importer.flattenModel(model))
+  if (!flat || importer.errorCount()) handleLoggerErrors(importer, `${file}: importer error count: ${importer.errorCount()}`)
+  return { model, flat }
+}
+
+/**
+ * An importer holding every file of the zip another imports, each parsed once: the same for whichever file it resolves.
+ *
+ * @returns {Object} A libcellml Importer.
+ */
+function zipImporter(texts, { parser, keep }) {
   // libcellml looks an import up by its href joined to the importing file's folder, as it is: under both spellings.
   const parsed = new Map()
   const modelOf = (name) => (parsed.has(name) || parsed.set(name, keep(parser.parseModel(texts.get(name)))), parsed.get(name))
@@ -254,13 +273,7 @@ function resolveFile(texts, file, { parser, keep }) {
       }
     }
   }
-  const model = keep(parser.parseModel(texts.get(file)))
-  const folder = folderOf(file).slice(0, -1)
-  importer.resolveImports(model, folder ? `./${folder}` : '.')
-  if (model.hasUnresolvedImports()) throw new Error(`${file} imports a file the export does not include.`)
-  const flat = keep(importer.flattenModel(model))
-  if (!flat || importer.errorCount()) handleLoggerErrors(importer, `${file}: importer error count: ${importer.errorCount()}`)
-  return { model, flat }
+  return importer
 }
 
 /** @returns {string} A relative path, its '.' and '..' segments resolved. */
@@ -676,12 +689,11 @@ function writeLevel(level, levels, graph, maths, plan, libraryStore, { units, sh
       component = keep(new lib.Component())
       component.setImportSource(importSourceOf(fileName))
       component.setImportReference(componentName)
-      const leaf = leafComponent(child)
-      for (let i = 0; i < leaf.variableCount(); i++) {
-        const variable = keep(leaf.variableByIndex(i))
+      // Its variables in order, as read once for every instance of its math.
+      for (const [name, unitsName] of maths(child.data.mathRef).units) {
         const placeholder = keep(new lib.Variable())
-        placeholder.setName(variable.name())
-        placeholder.setUnitsByName(keep(variable.units())?.name() || 'dimensionless')
+        placeholder.setName(name)
+        placeholder.setUnitsByName(unitsName || 'dimensionless')
         component.addVariable(placeholder)
       }
     }
@@ -1126,13 +1138,15 @@ function importUnits(model, shared, fileName, keep) {
  */
 function checkFiles(files, host, { parser, keep, preserved, selfNamed }) {
   const validator = keep(new libcellml.Validator())
+  // One importer for every file, so each file it imports is parsed once.
+  const importer = zipImporter(files, { parser, keep })
   for (const [file, text] of files) {
     const model = keep(parser.parseModel(text))
     if (parser.errorCount()) handleLoggerErrors(parser, `${file}: parser error count: ${parser.errorCount()}`)
     validator.validateModel(model)
     if (validator.errorCount()) handleLoggerErrors(validator, `${file}: validator error count: ${validator.errorCount()}`)
     if (file === host || file === UNITS_FILE) continue
-    validator.validateModel(resolveFile(files, file, { parser, keep }).flat)
+    validator.validateModel(resolveFile(files, file, { parser, keep, importer, model }).flat)
     if (validator.errorCount()) handleLoggerErrors(validator, `${file}, imports resolved: validator error count: ${validator.errorCount()}`)
   }
   const flat = keep(parser.parseModel(flattenFiles(files, host, { preserved, selfNamed }).cellml))

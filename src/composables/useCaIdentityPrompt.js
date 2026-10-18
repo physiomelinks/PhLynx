@@ -1,7 +1,7 @@
 /**
- * Asks for super-modules' circulatory_autogen identities, one at a time, before a native CA export writes them (see
- * services/export/caNative.js). CaIdentityDialog shows the question; cancelling it leaves the super-module without one,
- * so the export writes it flat.
+ * Asks for super-modules' circulatory_autogen identities, all at once, before a native CA export writes them (see
+ * services/export/caNative.js). CaIdentityDialog shows the question: its answer names them, exports them flat, or
+ * cancels the export.
  */
 import { shallowRef } from 'vue'
 
@@ -16,30 +16,33 @@ let respond = null
  */
 export function useCaIdentityPrompt() {
   /**
-   * Asks for one super-module's identity.
+   * Asks for the identities of some super-modules.
    *
-   * @param {Object} request - From caIdentityRequests: `{smId, name, reason, from?, suggestion}`.
-   * @param {(identity: Object) => string|null} problemOf - Why an identity can't be its, or null.
-   * @returns {Promise<{module_type: string, module_subtype: string}|null>} Null when cancelled.
+   * @param {Array<Object>} requests - From caIdentityRequests: `{smId, name, reason, from?, suggestion}` each.
+   * @param {(identities: Map<string, Object>) => Map<string, string|null>} problemsOf - Why each identity, by smId,
+   *   can't be its super-module's, or null.
+   * @returns {Promise<Map<string, {module_type: string, module_subtype: string}>|null>} The identities by smId, empty
+   *   to export them flat; null when the export is cancelled.
    */
-  function ask(request, problemOf) {
+  function ask(requests, problemsOf) {
     respond?.(null)
     return new Promise((resolve) => {
       respond = resolve
-      question.value = { ...request, problemOf }
+      question.value = { requests, problemsOf }
     })
   }
 
   /**
    * Answers the question asked.
    *
-   * @param {{module_type: string, module_subtype: string}|null} identity - Null to cancel.
+   * @param {Map<string, {module_type: string, module_subtype: string}>|null} identities - Empty to export flat, null to
+   *   cancel.
    */
-  function answer(identity) {
+  function answer(identities) {
     const resolve = respond
     respond = null
     question.value = null
-    resolve?.(identity)
+    resolve?.(identities)
   }
 
   return { question, ask, answer }

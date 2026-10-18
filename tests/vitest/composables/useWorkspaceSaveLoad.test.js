@@ -172,7 +172,7 @@ describe('handleSaveWorkspace', () => {
     })
     await view.handleSaveWorkspace()
 
-    expect(notify.error).toHaveBeenCalledWith({ title: 'Error Saving Workflow', message: 'disk full' })
+    expect(notify.error).toHaveBeenCalledWith({ title: 'Error Saving Workflow', items: ['disk full'] })
     expect(notify.success).not.toHaveBeenCalled()
     expect(useSessionMetadataStore().lastSaveName).not.toBe('picked.json')
     expect(trackEvent).toHaveBeenCalledWith('save_action', {
@@ -221,7 +221,7 @@ describe('applyWorkspaceState', () => {
 
     expect(notify.error).toHaveBeenCalledWith({
       title: 'Failed to load workflow',
-      message: 'Invalid workflow file format.',
+      items: ['Invalid workflow file format.'],
     })
   })
 
@@ -322,7 +322,7 @@ describe('applyWorkspaceState', () => {
     })
 
     expect(flow.fromObject.mock.calls[0][0].nodes.map((node) => node.id)).toEqual(['a_b'])
-    expect(notify.warning).toHaveBeenCalledWith({ title: 'Workflow updated', message: expect.stringContaining('"a/b" is now "a_b"') })
+    expect(notify.warning).toHaveBeenCalledWith({ title: 'Workflow updated', items: [expect.stringContaining('"a/b" is now "a_b"')] })
   })
 
   it('warns of nothing when no id was rewritten', async () => {

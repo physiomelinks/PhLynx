@@ -139,14 +139,14 @@ export function useNodeChrome(
 
     const nameProblem = localNameProblem(sanitisedName, { scope: scope.value, superInstance: isSuperInstance })
     if (nameProblem) {
-      notify.error({ message: nameProblem })
+      notify.error({ items: [nameProblem] })
       return
     }
 
     const nameExists = canvasNodes.value.some((node) => node.id !== props.id && node.data && node.data.name === sanitisedName)
 
     if (nameExists) {
-      notify.error({ message: nameTakenMessage })
+      notify.error({ items: [nameTakenMessage] })
       return
     }
 

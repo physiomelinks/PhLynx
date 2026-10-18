@@ -5,6 +5,7 @@ import {
   findParameterFile,
   globalRows,
   isParameterisationPath,
+  matchParameterFile,
   parameterFileLoader,
   referencedParameterFiles,
   rowIndex,
@@ -41,6 +42,26 @@ describe('CA parameter files', () => {
     expect(findParameterFile(paths, configPaths, heart, { parameterisation: 'rest' })).toBeNull()
     const load = parameterFileLoader(new Map(paths.map((path, i) => [path, [i]])), configPaths)
     expect(load({ module_type: 'chamber', module_subtype: 'c' }, { parameterisation: 'default' })).toEqual([1])
+  })
+
+  it('falls back to the library layout when the file is not next to the config path known', () => {
+    const paths = ['lib/heart/versions/v1/parameterisations/default/default_parameters.csv']
+    const heart = { module_type: 'heart', module_subtype: 'v1' }
+    // A config picked on its own is known only by its name.
+    const configPaths = new Map([['heart:v1', 'heart_v1_modules_config.json']])
+    expect(findParameterFile(paths, configPaths, heart, { parameterisation: 'default' })).toBe(paths[0])
+  })
+
+  it('gives the candidates when several files match, and the loader names them', () => {
+    const paths = [
+      'a/heart/versions/v1/parameterisations/default/default_parameters.csv',
+      'b/heart/versions/v1/parameterisations/default/default_parameters.csv',
+    ]
+    const heart = { module_type: 'heart', module_subtype: 'v1' }
+    expect(matchParameterFile(paths, new Map(), heart, { parameterisation: 'default' })).toEqual({ path: null, ambiguous: paths })
+    expect(findParameterFile(paths, new Map(), heart, { parameterisation: 'default' })).toBeNull()
+    const load = parameterFileLoader(new Map(paths.map((path) => [path, []])))
+    expect(() => load(heart, { parameterisation: 'default' })).toThrow(/matches several files: a\/heart.*, b\/heart/)
   })
 
   it('lists what each instance reads: named ones required, an entry default when there', () => {

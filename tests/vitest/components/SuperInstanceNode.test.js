@@ -129,13 +129,13 @@ describe('SuperInstanceNode', () => {
     await nameInput().setValue('left__a')
     await nameInput().trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    expect(notifyError).toHaveBeenCalledWith({ message: expect.stringContaining('"__"') })
+    expect(notifyError).toHaveBeenCalledWith({ items: [expect.stringContaining('"__"')] })
     expect(flow.findNode('dndnode_1').data.name).toBe('left')
 
     await nameInput().setValue('right')
     await nameInput().trigger('keydown', { key: 'Enter' })
     await flushPromises()
-    expect(notifyError).toHaveBeenLastCalledWith({ message: 'A node here already has this name.' })
+    expect(notifyError).toHaveBeenLastCalledWith({ items: ['A node here already has this name.'] })
 
     await nameInput().setValue('atrium')
     await nameInput().trigger('keydown', { key: 'Enter' })

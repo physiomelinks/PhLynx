@@ -192,8 +192,8 @@ describe('the native circulatory_autogen export of a PhLynx-authored workspace',
   it('writes a super-module without an identity flat, as the flat export does, naming it', async () => {
     const { native, flat } = await exportBoth(nestedLimb(make, { identities: false }))
     expect(native).toEqual(flat)
-    expect(flatNotice().message).toContain('"limb" has no circulatory_autogen identity')
-    expect(flatNotice().message).toContain('"capillary_bed" has no circulatory_autogen identity')
+    expect(flatNotice().items[0]).toContain('"limb" has no circulatory_autogen identity')
+    expect(flatNotice().items[0]).toContain('"capillary_bed" has no circulatory_autogen identity')
   })
 
   it("writes a super-module flat when CA's '_'-joined names of its modules clash with another module's", async () => {
@@ -203,7 +203,7 @@ describe('the native circulatory_autogen export of a PhLynx-authored workspace',
     const vein = make('dndnode_10', 'leg_vc', 'venous:vp', { values: { Delta_q_us: '0', Delta_C: '0' } })
     const { native, flat } = await exportBoth({ nodes: [...graph.nodes, artery, vein], edges: [...graph.edges, connect(artery, vein, { id: 'e_x' })] })
     expect(native).toEqual(flat)
-    expect(flatNotice().message).toContain('"limb" gives modules CA names that clash')
+    expect(flatNotice().items[0]).toContain('"limb" gives modules CA names that clash')
   })
 
   it("writes a super-module exposing a nested super instance's port flat, with every super instance of it", async () => {
@@ -212,7 +212,7 @@ describe('the native circulatory_autogen export of a PhLynx-authored workspace',
     named(graph.nodes.find((node) => node.id === 'sm_2'), 'capillary_bed')
     const { native, flat } = await exportBoth(graph)
     expect(native).toEqual(flat)
-    const { message } = flatNotice()
+    const [message] = flatNotice().items
     expect(message).toContain('"limb" exposes a port of a super instance inside it')
     expect(message).not.toContain('"capillary_bed"')
   })

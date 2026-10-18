@@ -23,9 +23,10 @@ import { useOmexStore } from '../stores/omexStore'
 import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
-import { CA_ARRAY_FORMATS, generateExportZip } from '../services/export/ca'
+import { CA_ARRAY_FORMATS, caExportProblems, generateExportZip } from '../services/export/ca'
 import { generateHierarchicalCellMLZip } from '../services/export/cellmlHierarchical'
-import { caIdentityProblem, caIdentityRequests, takenIdentities } from '../services/export/caNative'
+import { caIdentityProblems, caIdentityRequests, takenIdentities, withCaIdentities } from '../services/export/caNative'
+import { createExportReport, ExportBlockedError, reportSummary } from '../services/export/diagnostics'
 import { summariseExpansionErrors } from '../services/hierarchy/errors'
 import { isNestedModelId } from '../services/hierarchy/expand'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
@@ -49,9 +50,12 @@ import { getImportConfig } from '../utils/import'
  * @param {import('vue').Ref<boolean>} [options.isHierarchical] - Whether the workspace has super instances (useModelGraph's).
  * @param {() => {nodes: Array, edges: Array}} [options.storeGraph] - The store's nodes and edges, super-modules
  *   unexpanded, which the native circulatory_autogen export writes from.
+ * @param {import('vue').Ref<Object>} [options.modelGraph] - expandHierarchy's of storeGraph's (useModelGraph's `graph`),
+ *   which the native export writes the model from rather than expanding it again.
  * @param {Object} [options.caIdentities] - How super-modules get circulatory_autogen identities before a native
- *   export: `ask(request, problemOf)` resolves with one or null (useCaIdentityPrompt), `save(identities)` stores them
- *   as one undo step (useSupermodules setCaIdentities). Without it, none is asked for.
+ *   export: `ask(requests, problemsOf)` resolves with them by smId, empty to export flat, or null to cancel
+ *   (useCaIdentityPrompt); `save(identities)` stores them as one undo step (useSupermodules setCaIdentities), once
+ *   the export is written. Without it, none is asked for.
  * @returns {Object} The menus, the current modes and their triggers.
  */
 export function useImportExportSend({
@@ -68,6 +72,7 @@ export function useImportExportSend({
   modelErrors = { value: [] },
   isHierarchical = { value: false },
   storeGraph = () => ({ nodes: modelNodes.value, edges: modelEdges.value }),
+  modelGraph = null,
   caIdentities = null,
 }) {
   const simulationSettingsStore = useSimulationSettingsStore()
@@ -129,15 +134,20 @@ export function useImportExportSend({
 
   /**
    * Gets the whole model to export. Problems expanding its super instances stop the export, and their warnings are shown
-   * once, as it starts.
+   * once, as it starts, or added to a report the caller shows.
    *
+   * @param {import('../services/export/diagnostics').ExportReport} [report]
    * @returns {{nodes: Array, edges: Array}}
-   * @throws {Error} Listing the errors.
+   * @throws {ExportBlockedError} Listing the errors.
    */
-  const buildWholeModel = () => {
+  const buildWholeModel = (report = null) => {
     const { errors, warnings } = summariseExpansionErrors(modelErrors.value)
-    if (errors.length) throw new Error(errors.join('\n'))
-    if (warnings.length) notify.warning({ title: 'Model Warnings', message: warnings.join('\n') })
+    if (errors.length) throw new ExportBlockedError(errors)
+    if (warnings.length) {
+      const note = { title: 'Model Warnings', items: warnings }
+      if (report) report.warnings.push(note)
+      else notify.warning(note)
+    }
     return { nodes: modelNodes.value, edges: modelEdges.value }
   }
 
@@ -166,7 +176,7 @@ export function useImportExportSend({
   const confirmSelectionExport = async () => {
     const { errors, warnings } = summariseScopeReport(checkScope(resolveSelectionScope(), libraryStore))
     if (errors.length) {
-      notify.error({ title: 'Selection can’t be exported', message: errors.join('\n') })
+      notify.error({ title: 'Selection can’t be exported', items: errors })
       return false
     }
     if (!warnings.length) return true
@@ -228,25 +238,61 @@ export function useImportExportSend({
     action: (finalName) => generateOmexArchiveAction(finalName, resolveSelectionScope()),
   })
 
+  // The identities given for the native export about to be written, stored once it is.
+  let pendingCaIdentities = null
+
   /**
-   * Asks once for the circulatory_autogen identity of each super-module the native export needs one for, and stores
-   * those given; one cancelled is written flat.
+   * Checks the model for what would stop a Circulatory Autogen export, then asks, in one question, for the identities of
+   * the super-modules the native export needs one for. Nothing is stored yet: the export stores them once written.
    *
-   * @returns {Promise<boolean>} Always true: the export goes on.
+   * @returns {Promise<boolean>} Whether to export: not when the model can't be, or the question is cancelled.
    */
-  const nameSupermodulesForCa = async () => {
-    if (!caIdentities) return true
-    const { nodes, edges } = storeGraph()
-    const taken = takenIdentities(nodes, edges, libraryStore)
-    const named = new Map()
-    for (const request of caIdentityRequests(nodes, edges, libraryStore)) {
-      const identity = await caIdentities.ask(request, (candidate) => caIdentityProblem(candidate, { smId: request.smId, library: libraryStore, taken, from: request.from }))
-      if (!identity) continue
-      named.set(request.smId, identity)
-      taken.set(`${identity.module_type}:${identity.module_subtype}`, request.smId)
+  const prepareNativeCaExport = async () => {
+    pendingCaIdentities = null
+    const { errors } = summariseExpansionErrors(modelErrors.value)
+    const problems = errors.length ? errors : caExportProblems(modelNodes.value, modelEdges.value, libraryStore)
+    if (problems.length) {
+      notify.error({ title: 'Export failed', items: problems })
+      return false
     }
-    if (named.size) await caIdentities.save(named)
+    if (!caIdentities || !isHierarchical.value) return true
+    const { nodes, edges } = storeGraph()
+    const requests = caIdentityRequests(nodes, edges, libraryStore)
+    if (!requests.length) return true
+    const taken = takenIdentities(nodes, edges, libraryStore)
+    const identities = await caIdentities.ask(requests, (given) => caIdentityProblems(requests, given, { library: libraryStore, taken }))
+    if (!identities) return false
+    pendingCaIdentities = identities
     return true
+  }
+
+  /**
+   * Writes a Circulatory Autogen export, showing its warnings and notes as one summary once it is written.
+   *
+   * @param {string} finalName
+   * @param {string} arrayFormat
+   * @param {boolean} native - Whether to write super-modules natively, with the identities just given.
+   * @returns {Promise<Blob>}
+   * @throws {ExportBlockedError} Listing what stops it.
+   */
+  const writeCaExport = async (finalName, arrayFormat, native) => {
+    const report = createExportReport()
+    // CA's own checks, such as its one heart, run on the model's rows.
+    const model = buildWholeModel(report)
+    // Taken once: a later export asks again.
+    const identities = native ? pendingCaIdentities : null
+    pendingCaIdentities = null
+    let hierarchy = null
+    if (native && isHierarchical.value) {
+      const graph = storeGraph()
+      hierarchy = { nodes: withCaIdentities(graph.nodes, identities), edges: graph.edges }
+      if (modelGraph?.value) hierarchy.expansion = modelGraph.value
+    }
+    const blob = await generateExportZip(finalName, model.nodes, model.edges, libraryStore, protocolStore.source?.entry.payload ?? null, { arrayFormat, hierarchy, report })
+    if (identities?.size) await caIdentities.save(identities)
+    const summary = reportSummary(report, 'Circulatory Autogen Export')
+    if (summary) (summary.type === 'warning' ? notify.warning : notify.info)(summary)
+    return blob
   }
 
   /**
@@ -268,13 +314,8 @@ export function useImportExportSend({
     suffix: '.zip',
     fileTypes: ZIP_FILE_TYPES,
     message: 'Generating and zipping CA files.',
-    ...(native && { preflight: nameSupermodulesForCa }),
-    // CA's own checks, such as its one heart, run on the model's rows.
-    action: (finalName) => {
-      const model = buildWholeModel()
-      const hierarchy = native && isHierarchical.value ? storeGraph() : null
-      return generateExportZip(finalName, model.nodes, model.edges, libraryStore, protocolStore.source?.entry.payload ?? null, { arrayFormat, hierarchy })
-    },
+    ...(native && { preflight: prepareNativeCaExport }),
+    action: (finalName) => writeCaExport(finalName, arrayFormat, native),
     successMessage: () => 'Circulatory Autogen export zip generated.',
   })
 
@@ -522,7 +563,7 @@ export function useImportExportSend({
       const url = `https://opencor.ws/app/?opencor://openFile/#${dataUri}`
       window.open(url, '_blank', 'noreferrer')
     } catch (error) {
-      notify.error({ title: 'Send failed', message: error.message })
+      notify.error({ title: 'Send failed', items: [error.message] })
     } finally {
       notification?.close?.()
     }

@@ -7,7 +7,6 @@ import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { buildWorkflowGraph } from '../services/import/buildWorkflow'
 import { foldEncapsulation } from '../services/import/cellmlFold'
 import { layoutSupermoduleScopes } from '../services/layouts/scopes'
-import { escapeHtml } from '../utils/importBatch'
 import { useWorkflowLayout } from './useWorkflowLayout'
 import { PARAMETER_COMPONENT_NAMES } from '../utils/constants'
 
@@ -74,7 +73,7 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
       if (edges.length === 0) {
         notify.info({
           title: 'No Connections Found',
-          message: `${componentFile} contains no inter-component connections.`,
+          items: [`${componentFile} contains no inter-component connections.`],
         })
         return
       }
@@ -133,14 +132,14 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
       )
 
       if (result.conflicts.length) {
-        notify.warning({ title: 'Connections Not Made', message: result.conflicts.join(' ') })
+        notify.warning({ title: 'Connections Not Made', items: result.conflicts, sticky: true })
       }
 
       let { pendingInstances, pendingEdges } = result
       let scopeEdges = []
       const folded = encapsulation?.size ? foldEncapsulation(pendingInstances, pendingEdges, encapsulation, { file: componentFile, reserved }) : null
       if (folded?.supermodules.length) {
-        if (folded.warnings.length) notify.warning({ title: 'Encapsulation Imported With Warnings', message: folded.warnings.map(escapeHtml).join('<br>') })
+        if (folded.warnings.length) notify.warning({ title: 'Encapsulation Imported With Warnings', items: folded.warnings, sticky: true })
         await layoutSupermoduleScopes(folded.nodes, folded.edges)
         pendingInstances = folded.nodes
         pendingEdges = folded.edges.filter((edge) => !edge.hidden)
@@ -166,7 +165,7 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
         file_type: 'cellml',
       })
     } catch (error) {
-      notify.error({ message: `Failed to load CellML connections: ${error.message}` })
+      notify.error({ items: [`Failed to load CellML connections: ${error.message}`] })
       throw error
     }
   }

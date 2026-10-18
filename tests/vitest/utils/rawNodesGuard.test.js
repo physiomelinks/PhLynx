@@ -117,13 +117,6 @@ const ALLOWED = [
   { file: 'src/composables/useClearWorkspace.js', line: 'nodes.value = []', use: 'canvas', reason: 'Clears the whole store.' },
   { file: 'src/composables/useHandleManagement.js', line: 'getNodes.value.find', count: 3, use: 'canvas', reason: 'The handles of canvas nodes.' },
   { file: 'src/composables/useInstanceSave.js', line: 'previewCouplings(nodeId', use: 'canvas', reason: 'Recouples a node’s own edges when its ports change.' },
-  { file: 'src/composables/useLoadFromInstanceArray.js', line: 'nodes.value,', use: 'canvas', reason: 'Ids the imported nodes must not take.' },
-  {
-    file: 'src/composables/useLoadFromInstanceArray.js',
-    line: 'currentNodes: nodes.value',
-    use: 'canvas',
-    reason: 'Ids and super-module names a module array with super-modules must not take.',
-  },
   { file: 'src/composables/useWorkspaceSaveLoad.js', line: 'label: `Nodes:', use: 'canvas', reason: 'Counts what a save holds, for tracking.' },
   { file: 'src/services/generate/generateWorkflow.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'Adds a generated macro to the canvas.' },
   { file: 'src/services/generate/generateWorkflow.js', line: 'getNodes.value.forEach', use: 'canvas', reason: 'Ids the generated nodes must not take, unique across the store.' },

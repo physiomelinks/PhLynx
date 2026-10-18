@@ -9,7 +9,6 @@ import { looksLikeSupermoduleInstance } from '../services/import/caModuleArray'
 import { moduleRefOf } from '../services/import/caModuleConfig'
 import { layoutSupermoduleScopes } from '../services/layouts/scopes'
 import { warnDeprecatedJunctions } from '../services/caRules'
-import { escapeHtml } from '../utils/importBatch'
 import { notify } from '../utils/notify'
 import { skippedParametersMessage } from '../utils/parameters'
 import { useWorkflowLayout } from './useWorkflowLayout'
@@ -19,7 +18,7 @@ import { useWorkflowLayout } from './useWorkflowLayout'
  * @param {object|import('vue').Ref<object>} [options.fitViewParams] fitView options applied after layout.
  */
 export function useLoadFromInstanceArray({ fitViewParams } = {}) {
-  const { nodes, addNodes, addEdges } = useVueFlow()
+  const { addNodes, addEdges } = useVueFlow()
   const store = useLibraryStore()
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
@@ -32,7 +31,8 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
 
   /**
    * Builds a module array with super-modules as super instances (see caFold.importCaModuleArray), its parameters applied:
-   * the host file's, the super-modules' parameterisations the library holds, and the global constants they set.
+   * the host file's, and the super-modules' parameterisations the library holds. It reads the workspace it replaces
+   * as empty, and sets nothing, so a module array it can't build leaves the workspace as it was.
    */
   const buildFolded = async (instanceArray) => {
     const folded = importCaModuleArray(
@@ -44,16 +44,8 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         getMathDefaults: store.getMathDefaults,
         variants: store.caVariants,
       },
-      { source: instanceArray.source, load: store.caParameterLoader(), hostRows: instanceArray.parameters ?? [], currentNodes: nodes.value }
+      { source: instanceArray.source, load: store.caParameterLoader(), hostRows: instanceArray.parameters ?? [], currentNodes: [] }
     )
-    for (const { name, value, units, data_reference } of folded.globals) store.assignGlobalConstant(name, value, units, data_reference)
-    if (folded.warnings.length) {
-      notify.warning({ title: 'Module Array Imported With Warnings', message: folded.warnings.map(escapeHtml).join('<br>') })
-    }
-    // As loading the parameters file warns for a flat module array.
-    if (folded.skipped.length) {
-      notify.warning({ title: 'Some Parameters Not Applied', message: escapeHtml(skippedParametersMessage(folded.skipped)) })
-    }
     await layoutSupermoduleScopes(folded.nodes, folded.edges, { keep: folded.positioned })
     const rootIds = new Set(folded.nodes.filter((node) => !node.hidden).map((node) => node.id))
     const isRoot = (edge) => rootIds.has(edge.source) && rootIds.has(edge.target)
@@ -62,6 +54,9 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
       pendingEdges: folded.edges.filter(isRoot),
       scopeEdges: folded.edges.filter((edge) => !isRoot(edge)),
       conflicts: folded.conflicts,
+      globals: folded.globals,
+      warnings: folded.warnings,
+      skipped: folded.skipped,
       ivcZeroedHearts: [],
       parametersApplied: true,
     }
@@ -70,6 +65,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
   /**
    * Replaces the workspace with a CA module array's modules and connections. Super-module instances become
    * super instances, with the module array's parameters applied (see buildFolded); a flat array is built as it always was.
+   * The workspace is cleared only once the module array is built, so one that fails leaves it as it was.
    *
    * @param {{instances: Array, parameters?: Array, source?: string}} instanceArray - The module array rows, and the
    *   host parameters file's rows, which a module array with super-modules applies itself.
@@ -77,11 +73,10 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
    * @returns {Promise<{ivcZeroedHearts: string[], parametersApplied: boolean}>} The hearts whose ivc flow CA's rule
    *   set to 0, which the module array's parameters file must not set (see withoutZeroedIvcRows); and whether the
    *   parameters were applied already.
+   * @throws {Error} when the module array can't be built; the caller reports it.
    */
   const loadFromInstanceArray = async (instanceArray, progressCallback = null) => {
     try {
-      await clearWorkspace({ recordHistory: false })
-
       if (progressCallback) {
         progressCallback(0, instanceArray.instances.length, 'Building graph...')
       }
@@ -90,7 +85,8 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         instanceArray.instances,
         store.availableModules,
         store.getMathAnalysis,
-        nodes.value,
+        // The workspace is replaced, so no id is taken.
+        [],
         progressCallback,
         store.getMathDefaults,
         { caRules: true, variants: store.caVariants }
@@ -104,8 +100,18 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         )
       }
 
+      await clearWorkspace({ recordHistory: false })
+      for (const { name, value, units, data_reference } of result.globals ?? []) store.assignGlobalConstant(name, value, units, data_reference)
+
+      if (result.warnings?.length) {
+        notify.warning({ title: 'Module Array Imported With Warnings', items: result.warnings, sticky: true })
+      }
+      // As loading the parameters file warns for a flat module array.
+      if (result.skipped?.length) {
+        notify.warning({ title: 'Some Parameters Not Applied', items: [skippedParametersMessage(result.skipped)], sticky: true })
+      }
       if (result.conflicts.length) {
-        notify.warning({ title: 'Connections Not Made', message: result.conflicts.join(' ') })
+        notify.warning({ title: 'Connections Not Made', items: result.conflicts, sticky: true })
       }
       warnDeprecatedJunctions(instanceArray.instances.map((instance) => instance.module_type ?? ''))
 
@@ -140,7 +146,6 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         label: `Error: ${error.message}`,
         file_type: 'instance_array',
       })
-      notify.error({ message: `Failed to load workflow: ${error.message}` })
       throw error
     }
   }

@@ -37,7 +37,7 @@ import { supermoduleContentHash } from '../hierarchy/operations'
 import { PHLYNX_INTERFACE_KEY, PHLYNX_LAYOUT_KEY, templateHash } from '../import/caFold'
 import { normaliseModuleRecords } from '../import/caModuleArray'
 import { moduleRefOf, supermoduleTemplate } from '../import/caModuleConfig'
-import { CA_SEPARATOR, expandSupermodules, mergeDefaultParameters } from '../import/caSupermodules'
+import { CA_SEPARATOR, expandSupermodules, mergeDefaultParameters, SupermoduleExpansionError } from '../import/caSupermodules'
 import { simulateCaPairing, simulateImportPairing } from './caSimulate'
 
 /** The columns of a CA parameters file. */
@@ -76,6 +76,32 @@ const startsWith = (path, prefix) => prefix.every((name, i) => path[i] === name)
  * @returns {string} The path of a parameterisation's parameters file, relative to its config's directory.
  */
 export const parameterisationPath = (name) => `parameterisations/${name}/${name}_parameters.csv`
+
+/**
+ * @param {string} dir - The super-module's directory (see SUPERMODULES_DIR).
+ * @param {{module_type: string, module_subtype: string}} entry
+ * @returns {string} The path of a super-module's config file.
+ */
+export const supermoduleConfigPath = (dir, entry) => `${dir}/${entry.module_type}_${entry.module_subtype}_modules_config.json`
+
+/**
+ * The parameter rows of a module's constants and boundary conditions. CA needs a row for every boundary condition,
+ * and uses it only while nothing is connected to it.
+ *
+ * @param {Array} variables - The module's rows.
+ * @param {(variable: string) => string} nameOf - Each row's parameter name.
+ * @returns {Array<{variable_name: string, units: string, value: string, data_reference: string}>}
+ */
+export function parameterRows(variables, nameOf) {
+  return (variables ?? [])
+    .filter((variable) => variable.type === 'constant' || variable.type === 'boundary_condition')
+    .map((variable) => ({
+      variable_name: nameOf(variable.name),
+      units: variable.units || '',
+      value: isBlank(variable.value) ? (variable.type === 'constant' ? '' : CA_EMPTY_VALUE) : variable.value,
+      data_reference: variable.data_reference || 'phlynx',
+    }))
+}
 
 /**
  * Makes the reader of super-modules' circulatory_autogen identities.
@@ -186,6 +212,50 @@ export function caIdentityRequests(nodes, edges, library) {
       taken.set(refOf(suggestion), smId)
       return { smId, name, reason: needs, ...(from && { from }), suggestion }
     })
+}
+
+/**
+ * Why each identity asked for at once can't be its super-module's (see caIdentityProblem): each also can't be another
+ * one's asked for with it.
+ *
+ * @param {Array<{smId: string, from?: string}>} requests - From caIdentityRequests.
+ * @param {Map<string, {module_type: string, module_subtype: string}>} identities - The identities given, by smId.
+ * @param {Object} options
+ * @param {Object} options.library - The library store.
+ * @param {Map<string, string>} options.taken - From takenIdentities.
+ * @returns {Map<string, string|null>} Each request's problem, or null, by smId.
+ */
+export function caIdentityProblems(requests, identities, { library, taken }) {
+  const givers = new Map()
+  for (const { smId } of requests) {
+    const identity = identities.get(smId)
+    if (identity) givers.set(refOf(identity), [...(givers.get(refOf(identity)) ?? []), smId])
+  }
+  return new Map(
+    requests.map(({ smId, from }) => {
+      const identity = identities.get(smId) ?? {}
+      const problem = caIdentityProblem(identity, { smId, library, taken, from })
+      const shared = !problem && givers.get(refOf(identity))?.length > 1
+      return [smId, shared ? `Another super-module here is ${refOf(identity)}.` : problem]
+    })
+  )
+}
+
+/**
+ * The store's nodes with some super-modules given circulatory_autogen identities, the rest as they are: for an export
+ * with identities not yet stored.
+ *
+ * @param {Array} nodes - Every node in the store.
+ * @param {Map<string, {module_type: string, module_subtype: string}>|null} identities - By super-module id.
+ * @returns {Array}
+ */
+export function withCaIdentities(nodes, identities) {
+  if (!identities?.size) return nodes
+  return nodes.map((node) =>
+    isSupermoduleInterface(node) && identities.has(node.id)
+      ? { ...node, data: { ...node.data, supermodule: { ...node.data.supermodule, ca: { ...identities.get(node.id) } } } }
+      : node
+  )
 }
 
 /**
@@ -540,17 +610,8 @@ function definitionRows(smId, state) {
   )
 }
 
-/** The parameter rows of a module's constants and boundary conditions, named by a path. */
-function rowsOf(variables, path) {
-  return (variables ?? [])
-    .filter((row) => row.type === 'constant' || row.type === 'boundary_condition')
-    .map((row) => ({
-      variable_name: [...path, row.name].join(PATH_SEPARATOR),
-      units: row.units || '',
-      value: isBlank(row.value) ? (row.type === 'constant' ? '' : CA_EMPTY_VALUE) : row.value,
-      data_reference: row.data_reference || 'phlynx',
-    }))
-}
+/** The parameter rows of a module's constants and boundary conditions, named by a path (see parameterRows). */
+const rowsOf = (variables, path) => parameterRows(variables, (name) => [...path, name].join(PATH_SEPARATOR))
 
 /** A super instance's overrides as rows named by path below it (`heart/lv/E`); those that set nothing are left out. */
 function overrideRows(instance, path, state) {
@@ -609,7 +670,7 @@ function verify(built, native, context) {
   const registry = new Map()
   const defaults = new Map()
   for (const { dir, entry, rows: values } of built.supermodules) {
-    const template = supermoduleTemplate(entry, `${dir}/${entry.module_type}_${entry.module_subtype}_modules_config.json`)
+    const template = supermoduleTemplate(entry, supermoduleConfigPath(dir, entry))
     registry.set(template.moduleRef, template)
     defaults.set(template.moduleRef, values)
   }
@@ -628,7 +689,8 @@ function verify(built, native, context) {
   try {
     expanded = expandSupermodules(normaliseModuleRecords(built.records, 'export'), registry, { separator: LEVEL_SEPARATOR, load, settings: [] })
   } catch (error) {
-    const named = /supermodule instance "([^"]+)"/.exec(error.message)?.[1]
+    // One instance's problem blames its root super instance; any other, every one.
+    const named = error instanceof SupermoduleExpansionError ? error.instance : null
     blame(named ? [named] : [], () => `would stop CA expanding it: ${error.message}`)
     return [...byRoot].map(([smId, reason]) => ({ smId, reason }))
   }

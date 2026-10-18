@@ -34,7 +34,7 @@ describe('prepareCellml', () => {
     prepareCellmlImport('<a/>', 'a.cellml')
 
     expect(notify.info).toHaveBeenCalledTimes(1)
-    expect(notify.info.mock.calls[0][0]).toMatchObject({ title: 'Containment Groups Ignored', message: expect.stringMatching(/^a\.cellml groups /) })
+    expect(notify.info.mock.calls[0][0]).toMatchObject({ title: 'Containment Groups Ignored', items: [expect.stringMatching(/^a\.cellml groups /)] })
   })
 
   it('gives a batch one notice of each kind, naming the files it applies to', () => {
@@ -47,8 +47,8 @@ describe('prepareCellml', () => {
     expect(prepareCellmlImports(files)).toEqual(['<a/>+hoisted', '<b/>+hoisted', '<c/>+hoisted'])
 
     expect(notify.info).toHaveBeenCalledTimes(1)
-    expect(notify.info.mock.calls[0][0].message).toMatch(/^a\.cellml, b\.cellml group /)
+    expect(notify.info.mock.calls[0][0].items[0]).toMatch(/^a\.cellml, b\.cellml group /)
     expect(notify.warning).toHaveBeenCalledTimes(1)
-    expect(notify.warning.mock.calls[0][0]).toMatchObject({ title: 'Encapsulation Kept', message: expect.stringContaining('b.cellml, c.cellml') })
+    expect(notify.warning.mock.calls[0][0]).toMatchObject({ title: 'Encapsulation Kept', items: [expect.stringContaining('b.cellml, c.cellml')] })
   })
 })

@@ -190,7 +190,7 @@ export function useSedmlExport() {
       }
       if (!sedml) {
         problem.value = source.errors.join(' ')
-        notify.error({ title: 'Export failed', message: `PhLynx can’t plan the run: ${problem.value}` })
+        notify.error({ title: 'Export failed', items: [`PhLynx can’t plan the run: ${problem.value}`] })
         return
       }
       const blob = isProtocolRun
@@ -199,7 +199,7 @@ export function useSedmlExport() {
       await saveWithDialog(blob, picked.handle ?? null, picked.cleanName ?? defaultStem, '.zip')
       notify.success({ title: 'Export successful!', message: isProtocolRun ? 'The protocol’s run exported as SED-ML.' : 'The run exported as SED-ML.' })
     } catch (error) {
-      notify.error({ title: 'Export failed', message: error.message })
+      notify.error({ title: 'Export failed', items: [error.message] })
     } finally {
       isExporting.value = false
     }

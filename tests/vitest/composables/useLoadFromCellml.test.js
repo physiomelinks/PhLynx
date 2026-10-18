@@ -60,7 +60,7 @@ describe('useLoadFromCellML', () => {
     expect(mocks.clearWorkspace).toHaveBeenCalledWith({ recordHistory: false })
     expect(mocks.notify.info).toHaveBeenCalledWith({
       title: 'No Connections Found',
-      message: 'model.cellml contains no inter-component connections.',
+      items: ['model.cellml contains no inter-component connections.'],
     })
     expect(mocks.store.addModule).not.toHaveBeenCalled()
     expect(mocks.addNodes).not.toHaveBeenCalled()
@@ -152,7 +152,7 @@ describe('useLoadFromCellML', () => {
 
     await loadFromCellML({ components: ['a', 'b'], modules: [mod('a'), mod('b')], edges: [{ source: 'a', target: 'b' }] }, 'f')
 
-    expect(mocks.notify.warning).toHaveBeenCalledWith({ title: 'Connections Not Made', message: 'a → b: no slot.' })
+    expect(mocks.notify.warning).toHaveBeenCalledWith({ title: 'Connections Not Made', items: ['a → b: no slot.'], sticky: true })
   })
 
   it('drops parameter components, edges touching them, and components left without edges', async () => {
@@ -233,7 +233,7 @@ describe('useLoadFromCellML', () => {
 
     expect(mocks.history.startBatch).toHaveBeenCalledTimes(1)
     expect(mocks.history.endBatch).toHaveBeenCalledTimes(1)
-    expect(mocks.notify.error).toHaveBeenCalledWith({ message: 'Failed to load CellML connections: boom' })
+    expect(mocks.notify.error).toHaveBeenCalledWith({ items: ['Failed to load CellML connections: boom'] })
     expect(mocks.trackEvent).not.toHaveBeenCalled()
   })
 
@@ -243,7 +243,7 @@ describe('useLoadFromCellML', () => {
 
     await expect(loadFromCellML({ edges: [{ source: 'a', target: 'b' }] }, 'f')).rejects.toThrow('clear failed')
 
-    expect(mocks.notify.error).toHaveBeenCalledWith({ message: 'Failed to load CellML connections: clear failed' })
+    expect(mocks.notify.error).toHaveBeenCalledWith({ items: ['Failed to load CellML connections: clear failed'] })
     expect(mocks.addNodes).not.toHaveBeenCalled()
   })
 })

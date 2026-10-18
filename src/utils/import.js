@@ -11,7 +11,8 @@ import {
   toInstanceRows,
 } from '../services/import/caModuleArray'
 import { moduleRefOf, normaliseModuleConfig, resolveModuleRefs } from '../services/import/caModuleConfig'
-import { findParameterFile, referencedParameterFiles } from '../services/import/caParameters'
+import { ambiguousParameterFileMessage, matchParameterFile, referencedParameterFiles } from '../services/import/caParameters'
+import { expandSupermodules } from '../services/import/caSupermodules'
 
 /** Columns a parameters CSV must have. */
 const PARAMETER_COLUMNS = ['variable_name', 'units', 'value', 'data_reference']
@@ -101,13 +102,16 @@ export async function collectEntry(entry, path, depth, maxDepth, results) {
  * super-module they instantiate, whose submodules are what is asked for.
  *
  * Super-module instances also need the parameter files CA reads for them (see caParameters
- * referencedParameterFiles): each one named outright is asked for.
+ * referencedParameterFiles): each one named outright is asked for. A file several dropped files could be, or one that
+ * could not be read, stops the import; an entry's default that could not be read is left out, with a note. Once every
+ * module is there, the instances are expanded as the import expands them, so a module array CA would stop on stops
+ * here too.
  *
  * @param {Object[]} requestedModules - The rows.
  * @param {Object} store - availableModules, availableMath, and optionally caVariants, availableSupermodules,
- *   supermoduleErrors (problems found while staging super-modules), caParameterFiles (path -> rows) and
- *   caConfigPaths (moduleRef -> config path).
- * @returns {{warnings: string[], errors: string[], resourcesAreLoaded: boolean,
+ *   supermoduleErrors (problems found while staging super-modules), caParameterFiles (path -> rows),
+ *   caParameterFileErrors (path -> why it could not be read) and caConfigPaths (moduleRef -> config path).
+ * @returns {{warnings: string[], errors: string[], notes: string[], resourcesAreLoaded: boolean,
  *   missingResources: {modules: Set<string>, math: Set<string>, parameterisations: Set<string>},
  *   supermoduleInstances: string[]}} `supermoduleInstances` lists the rows that are super-module instances, as
  *   `name (type:subtype)`, which are imported as super instances; `parameterisations` the parameter files missing, as
@@ -116,6 +120,7 @@ export async function collectEntry(entry, path, depth, maxDepth, results) {
 export const checkResourcesAreLoaded = (requestedModules, store) => {
   const warnings = []
   const errors = [...(store.supermoduleErrors ?? [])]
+  const notes = []
   const missingResources = {
     modules: new Set(),
     math: new Set(),
@@ -148,9 +153,22 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
     .map((row) => `${row.name} (${moduleRefOf(row.module_type, row.module_subtype)})`)
   const parameterFiles = store.caParameterFiles ?? new Map()
   const configPaths = store.caConfigPaths ?? new Map()
+  const unreadable = store.caParameterFileErrors ?? new Map()
   for (const { entry, request, required, label } of referencedParameterFiles(rows, supermodules)) {
-    if (required && !findParameterFile(parameterFiles.keys(), configPaths, entry, request)) {
-      missingResources.parameterisations.add(label)
+    const { path, ambiguous } = matchParameterFile(parameterFiles.keys(), configPaths, entry, request)
+    if (ambiguous.length) errors.push(ambiguousParameterFileMessage(entry, request, ambiguous))
+    else if (path && unreadable.has(path)) {
+      if (required) errors.push(`Parameter file ${path}: ${unreadable.get(path)}`)
+      else notes.push(`Parameter file ${path} is left out: ${unreadable.get(path)}`)
+    } else if (required && !path) missingResources.parameterisations.add(label)
+  }
+
+  // As the import expands them (see caFold.buildCaModel); parameters are checked above.
+  if (supermoduleInstances.length && !missingResources.modules.size && !resolved.cycles.length) {
+    try {
+      expandSupermodules(normaliseModuleRecords(rows), supermodules)
+    } catch (error) {
+      errors.push(error.message)
     }
   }
 
@@ -170,6 +188,7 @@ export const checkResourcesAreLoaded = (requestedModules, store) => {
   return {
     warnings,
     errors,
+    notes,
     resourcesAreLoaded: warnings.length === 0 && errors.length === 0,
     missingResources,
     supermoduleInstances,

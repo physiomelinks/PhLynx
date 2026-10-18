@@ -47,7 +47,7 @@ describe('useLoadFromInstanceArray', () => {
 
     await useLoadFromInstanceArray().loadFromInstanceArray({ instances: [] })
 
-    expect(mocks.notify.warning).toHaveBeenCalledWith({ title: 'Connections Not Made', message: 'a → b: no slot.' })
+    expect(mocks.notify.warning).toHaveBeenCalledWith({ title: 'Connections Not Made', items: ['a → b: no slot.'], sticky: true })
     expect(mocks.addNodes).toHaveBeenCalledWith(pendingInstances)
   })
 
@@ -80,7 +80,7 @@ describe('useLoadFromInstanceArray', () => {
     expect(mocks.notify.warning).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Deprecated Junction Types',
-        message: expect.stringMatching(/^Min_junction, MinNout_junction are circulatory_autogen/),
+        items: [expect.stringMatching(/^Min_junction, MinNout_junction are circulatory_autogen/)],
       })
     )
   })
@@ -130,13 +130,32 @@ describe('useLoadFromInstanceArray', () => {
       currentNodes: [],
     })
     expect(mocks.store.assignGlobalConstant).toHaveBeenCalledWith('R', '8', 'J', 'ref')
+    // Set after the clear, which resets the global constants.
+    expect(mocks.clearWorkspace.mock.invocationCallOrder[0]).toBeLessThan(mocks.store.assignGlobalConstant.mock.invocationCallOrder[0])
     // A super-module whose config gave its layout keeps it.
     expect(mocks.layoutSupermoduleScopes).toHaveBeenCalledWith(nodes, [rootEdge, scopeEdge], { keep: new Set(['sm_9']) })
     expect(mocks.addNodes).toHaveBeenCalledWith(nodes)
     expect(mocks.addEdges).toHaveBeenCalledWith([scopeEdge])
     expect(mocks.prepareLayout).toHaveBeenCalledWith([rootEdge], null)
-    expect(mocks.notify.warning).toHaveBeenCalledWith(expect.objectContaining({ message: 'forked' }))
-    expect(mocks.notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Some Parameters Not Applied', message: expect.stringContaining('heart_lv.q') }))
+    expect(mocks.notify.warning).toHaveBeenCalledWith(expect.objectContaining({ items: ['forked'], sticky: true }))
+    expect(mocks.notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Some Parameters Not Applied', items: [expect.stringContaining('heart_lv.q')] }))
+    delete mocks.store.availableSupermodules
+  })
+
+  it('leaves the workspace as it was when the module array cannot be built, and leaves the report to the caller', async () => {
+    Object.assign(mocks.store, { availableSupermodules: new Map([['heart:v1', {}]]), caParameterLoader: () => vi.fn(), assignGlobalConstant: vi.fn() })
+    mocks.importCaModuleArray.mockImplementation(() => {
+      throw new Error('a.json: "heart" names host "x", which is not in the module array.')
+    })
+
+    await expect(
+      useLoadFromInstanceArray().loadFromInstanceArray({ instances: [{ name: 'heart', module_type: 'heart', module_subtype: 'v1' }] })
+    ).rejects.toThrow('names host "x"')
+
+    expect(mocks.clearWorkspace).not.toHaveBeenCalled()
+    expect(mocks.addNodes).not.toHaveBeenCalled()
+    expect(mocks.store.assignGlobalConstant).not.toHaveBeenCalled()
+    expect(mocks.notify.error).not.toHaveBeenCalled()
     delete mocks.store.availableSupermodules
   })
 })

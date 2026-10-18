@@ -14,10 +14,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { useFlowHistory } from '../../../src/composables/useFlowHistory.js'
 import { useSupermodules } from '../../../src/composables/useSupermodules.js'
 import { expandHierarchy } from '../../../src/services/hierarchy/expand.js'
-import { buildCaModel, foldCaModel } from '../../../src/services/import/caFold.js'
+import { buildCaModel, foldCaModel, importCaModuleArray } from '../../../src/services/import/caFold.js'
 import { compareCanonical } from '../../../src/services/testing/modelCompare.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { notify } from '../../../src/utils/notify.js'
 import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { EXPOSURE_EDGE_TYPE, FLOW_IDS } from '../../../src/utils/constants.js'
 import { isSuperInstance, isSupermoduleInterface } from '../../../src/utils/hierarchy.js'
@@ -28,6 +29,11 @@ import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 vi.setConfig({ testTimeout: 120000 })
 
 vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), warning: vi.fn(), info: vi.fn(), success: vi.fn() } }))
+// Called through, so a test can see what the palette builds with and add to what it returns.
+vi.mock('../../../src/services/import/caFold.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, importCaModuleArray: vi.fn(actual.importCaModuleArray) }
+})
 
 const THREE_COMPARTMENT = 'system_models/closed_loop_cvs/3compartment_supermodules'
 const SN_SIMPLE = 'system_models/cellular/SN_simple_supermodules'
@@ -220,5 +226,17 @@ describe('the palette places a library super-module', () => {
     flow.removeNodes([child.id])
     await nextTick()
     expect(supermodules.templateOf(neuron.id).matches).toBe(false)
+  })
+
+  it("builds with the library's CA variants, and says what the build warns about", async () => {
+    const actual = importCaModuleArray.getMockImplementation()
+    importCaModuleArray.mockImplementationOnce((...args) => ({ ...actual(...args), warnings: ['<b>forked</b>'], conflicts: ['a → b'] }))
+
+    const id = await useSupermodules().placeLibrarySupermodule('neuron:sympathetic', { x: 0, y: 0 })
+
+    expect(id).toBeTruthy()
+    expect(importCaModuleArray.mock.calls.at(-1)[1].variants).toBe(useLibraryStore().caVariants)
+    expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ items: ['<b>forked</b>'], sticky: true }))
+    expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connections Not Made', items: ['a → b'] }))
   })
 })

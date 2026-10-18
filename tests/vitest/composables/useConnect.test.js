@@ -403,7 +403,7 @@ describe('useConnect', () => {
       expect(deps.confirmActivation).not.toHaveBeenCalled()
       expect(deps.activateHandle).not.toHaveBeenCalled()
       expect(notified.error).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.stringContaining('"s" has no free "flow" slot') })
+        expect.objectContaining({ items: [expect.stringContaining('"s" has no free "flow" slot')] })
       )
     })
 

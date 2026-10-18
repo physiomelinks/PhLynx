@@ -153,7 +153,7 @@ describe('useSedmlExport', () => {
 
     expect(saving.saveWithDialog).not.toHaveBeenCalled()
     const reason = "PhLynx can’t plan the run: The protocol sets b/q, which isn't in the model being simulated."
-    expect(notified.error).toHaveBeenCalledWith({ title: 'Export failed', message: reason })
+    expect(notified.error).toHaveBeenCalledWith({ title: 'Export failed', items: [reason] })
     expect(exporter.reason.value).toBe(reason)
     expect(exporter.canExport.value).toBe(false)
 
@@ -198,7 +198,7 @@ describe('useSedmlExport', () => {
       throw new Error('No room.')
     })
     await exporter.exportZip()
-    expect(notified.error).toHaveBeenCalledWith({ title: 'Export failed', message: 'No room.' })
+    expect(notified.error).toHaveBeenCalledWith({ title: 'Export failed', items: ['No room.'] })
     expect(exporter.isExporting.value).toBe(false)
   })
 

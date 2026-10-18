@@ -116,7 +116,7 @@ export function useConnect({
       nameOf,
     )
     if (!valid) {
-      notify.error({ title: 'Connection Not Made', message: conflicts.join(' ') })
+      notify.error({ title: 'Connection Not Made', items: conflicts })
       return
     }
 

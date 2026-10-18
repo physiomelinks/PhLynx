@@ -185,7 +185,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     if (moduleData.caSupermodule) {
       return placeLibrarySupermodule(moduleData.caSupermodule, position).then((id) => {
         if (!id) notify.warning({ title: 'Not Placed', message: 'This super-module would then contain itself, so it can’t go here.' })
-      }, (error) => notify.error({ title: 'Not Placed', message: error.message }))
+      }, (error) => notify.error({ title: 'Not Placed', items: [error.message] }))
     }
 
     if (moduleData.emptySupermodule) {
@@ -193,7 +193,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
       try {
         createEmptySuperModule(freeSupermoduleName(), position)
       } catch (error) {
-        notify.error({ title: 'Not Placed', message: error.message })
+        notify.error({ title: 'Not Placed', items: [error.message] })
       }
       return
     }

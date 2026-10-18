@@ -13,7 +13,7 @@ const notify = vi.hoisted(() => {
   fn.info = vi.fn()
   return fn
 })
-vi.mock('../../../src/utils/notify', () => ({ notify }))
+vi.mock('../../../src/utils/notify', async (importOriginal) => ({ ...(await importOriginal()), notify }))
 vi.mock('../../../src/composables/useGtm', () => ({ useGtm: () => ({ trackEvent: vi.fn() }) }))
 
 const folder = vi.hoisted(() => ({ status: null, scanFolder: null }))
@@ -264,7 +264,7 @@ describe('ImportDialog repeat drops', () => {
     wrapper.vm.commitStagedFiles()
 
     expect(toasts()).toEqual([
-      expect.objectContaining({ type: 'warning', title: 'Legacy Flow Ports', message: expect.stringMatching(/^terminal:pp links/) }),
+      expect.objectContaining({ type: 'warning', title: 'Legacy Flow Ports', items: [expect.stringMatching(/^terminal:pp links/)] }),
     ])
   })
 
@@ -450,5 +450,35 @@ describe('ImportDialog JSON module arrays and super-modules', () => {
     expect(library.caParameterLoader()(library.availableSupermodules.get('pump:v1'), { parameterisation: 'rest' })).toEqual([
       { variable_name: 'inlet/v', units: 'm3_per_s', value: '2', data_reference: 'ref' },
     ])
+  })
+
+  it('names a parameter file it cannot read, and keeps Import disabled', async () => {
+    mountDialog()
+    const { 'modules.csv': _csv, ...rest } = FOLDER_FILES
+    const instance = JSON.stringify([
+      { name: 'svc', module_type: 'heart', module_subtype: 'simple', out_instances: ['pump'] },
+      { name: 'pump', module_type: 'pump', module_subtype: 'v1', parameterisation: 'rest', per_submodule_inputs: { inlet: ['svc'] } },
+    ])
+    const files = {
+      ...rest,
+      'model_module_array.json': instance,
+      'pump_modules_config.json': SUPERMODULE_JSON,
+      'valve_config.json': VALVE_JSON,
+      'valve.cellml': '<model name="valve_pp"/>',
+      parameterisations: { rest: { 'rest_parameters.csv': 'name,value\nx,1\n' } },
+    }
+    await drop(dropEvent(folderEntry('model', files)))
+
+    const readiness = wrapper.vm.importReadiness
+    expect(readiness.errors).toEqual([expect.stringContaining('Parameter file model/parameterisations/rest/rest_parameters.csv: ')])
+    expect(readiness.resourcesAreLoaded).toBe(false)
+    expect(wrapper.text()).toContain('Cannot Import This Module Array')
+    expect(importButton().attributes('disabled')).toBeDefined()
+
+    // Dropped again, fixed, it is read again.
+    const fixed = 'variable_name,units,value,data_reference\nx_pump,dimensionless,1,ref\n'
+    await drop(dropEvent(folderEntry('model', { ...files, parameterisations: { rest: { 'rest_parameters.csv': fixed } } })))
+
+    expect(wrapper.vm.importReadiness.errors).toEqual([])
   })
 })

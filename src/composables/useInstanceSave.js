@@ -151,7 +151,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const conflicts = []
     recomputeEdgeCouplings(id, conflicts)
     otherNodes.forEach((node) => recomputeEdgeCouplings(node.id, conflicts))
-    if (conflicts.length) notify.warning({ title: 'Couplings Removed', message: [...new Set(conflicts)].join(' ') })
+    if (conflicts.length) notify.warning({ title: 'Couplings Removed', items: [...new Set(conflicts)] })
     return moduleRef
   }
 

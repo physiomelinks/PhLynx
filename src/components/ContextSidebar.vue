@@ -389,7 +389,7 @@ async function onRenameSupermodule(smId, name) {
   try {
     await renameSupermodule(smId, name)
   } catch (error) {
-    notify.error({ title: 'Not Renamed', message: error.message })
+    notify.error({ title: 'Not Renamed', items: [error.message] })
   }
 }
 
