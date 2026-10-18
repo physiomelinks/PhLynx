@@ -5,10 +5,11 @@
 import { checkAndClaimCouplings, resolvePortCouplings } from '../../utils/edges'
 import { parseMathRef, parseModuleRef, unparseMultiport } from '../../utils/config'
 import { VOLUME_PORT } from '../../utils/multiport'
+import { SOURCE_PORT_TYPES, TARGET_PORT_TYPES, VESSEL_PORT } from '../../utils/ports'
 import { caHeartInputs, heartSlotPin, isHeart } from '../caRules'
 
 /** The label CA pairs one slot to one slot, and its heart, junction and terminal rules read. */
-export const VESSEL_PORT = 'vessel_port'
+export { VESSEL_PORT }
 /** CA errors that stop generation, by kind. */
 export const CA_FAILURES = new Set(['noMatchingPort', 'targetFull', 'sourceFull', 'heartPin', 'listCount', 'indexError'])
 
@@ -26,7 +27,7 @@ const startsWithAny = (text, prefixes) => prefixes.some((prefix) => (text ?? '')
  */
 export function caPortLists(ports) {
   const of = (type) => ports.flatMap((port, index) => (port.portType === type ? [index] : []))
-  return { source: [...of('exit_ports'), ...of('general_ports')], target: [...of('entrance_ports'), ...of('general_ports')] }
+  return { source: SOURCE_PORT_TYPES.flatMap(of), target: TARGET_PORT_TYPES.flatMap(of) }
 }
 
 /**

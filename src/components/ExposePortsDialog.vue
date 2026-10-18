@@ -4,7 +4,7 @@
     @update:visible="(value) => !value && close()"
     modal
     :header="`Expose ports of ${childName}`"
-    :style="{ width: '44rem' }"
+    :style="{ width: '44rem', maxWidth: '95vw' }"
     class="expose-ports-dialog"
   >
     <p class="dialog-hint">
@@ -36,7 +36,7 @@
       </Column>
       <Column header="Variables">
         <template #body="{ data }">
-          <span class="port-variables">{{ variablesOf(data.port) }}</span>
+          <span class="port-variables" :title="variablesOf(data.port)">{{ variablesOf(data.port) }}</span>
         </template>
       </Column>
       <Column header="Multiport" header-style="width: 6rem">
@@ -147,6 +147,12 @@ function save() {
 }
 
 .port-variables {
+  /* Cut short, whole on hover, so a port of many variables keeps the dialog's width. */
+  display: block;
+  max-width: 12rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--p-font-family-mono, monospace);
   font-size: 12px;
 }

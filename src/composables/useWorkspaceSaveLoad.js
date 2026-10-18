@@ -6,6 +6,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { warnCouplingProblems } from '../services/coupling/loadWarning'
 import { buildWorkspaceFile, withoutHidden } from '../services/workspaceFile'
 import { migrateWorkspace } from '../services/workspaceMigrator'
 import { JSON_FILE_TYPES } from '../utils/constants'
@@ -167,6 +168,7 @@ export function useWorkspaceSaveLoad({
         title: 'Workflow loaded successfully!',
       })
       if (notes.length) notify.warning({ title: 'Workflow updated', message: notes.join('\n') })
+      warnCouplingProblems(nodes.value, edges.value)
     } catch (error) {
       trackEvent('workflow_load_action', {
         category: 'Workflow',

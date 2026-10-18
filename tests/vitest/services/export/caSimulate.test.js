@@ -176,10 +176,10 @@ describe('caMultiPort', () => {
 })
 
 describe('simulateImportPairing', () => {
-  it("couples a source group with each target group of its label, but never from an entrance port", () => {
+  it('couples as CA does, never from an entrance port nor into an exit port', () => {
     const x = node('x', [port('general_ports', 'link', ['a']), port('entrance_ports', 'back', ['b'])])
     const y = node('y', [port('entrance_ports', 'link', ['c']), port('exit_ports', 'link', ['d']), port('general_ports', 'back', ['e'])])
-    expect(pairsOf(simulateImportPairing(array([x, y], ['x>y'])))).toEqual(['x>y:0>0', 'x>y:0>1'])
+    expect(pairsOf(simulateImportPairing(array([x, y], ['x>y'])))).toEqual(['x>y:0>0'])
   })
 
   it('leaves out a conduit whose single slot another took, as the import does', () => {

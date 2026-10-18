@@ -107,6 +107,31 @@ describe('resolvePortCouplings', () => {
     expect(couplings[0].sourceSlot).toBe(1)
   })
 
+  it('takes an exit slot before a general one, and an entrance slot before a general one, as CA groups them', () => {
+    const source = [port('vessel_port', 'general_ports', ['g']), port('vessel_port', 'exit_ports', ['x'])]
+    const target = [port('vessel_port', 'general_ports', ['h']), port('vessel_port', 'entrance_ports', ['n'])]
+    expect(resolvePortCouplings(source, target)).toEqual([{ sourcePort: source[1], targetPort: target[1], sourceSlot: 0, targetSlot: 0 }])
+  })
+
+  it('takes the general slot once every exit slot of its label is held', () => {
+    const source = [port('vessel_port', 'exit_ports', ['x']), port('vessel_port', 'general_ports', ['g'])]
+    const usedPortKeys = buildUsedPortKeys([edge('e', 's', 'a', [{ sourcePort: source[0], targetPort: vesselPorts[0], sourceSlot: 0, targetSlot: 0 }])])
+    const couplings = resolvePortCouplings(source, vesselPorts, { sourceId: 's', targetId: 'b', usedPortKeys })
+    expect(couplings).toEqual([{ sourcePort: source[1], targetPort: vesselPorts[0], sourceSlot: 0, targetSlot: 0 }])
+  })
+
+  it('never couples from an entrance port nor into an exit port', () => {
+    expect(resolvePortCouplings([port('p', 'entrance_ports', ['a'])], [port('p', 'general_ports', ['b'])])).toEqual([])
+    expect(resolvePortCouplings([port('p', 'general_ports', ['a'])], [port('p', 'exit_ports', ['b'])])).toEqual([])
+  })
+
+  it('pairs every free source slot of a label other than vessel_port into a multiport target slot, and one into a single one', () => {
+    const source = [port('p', 'exit_ports', ['a']), port('p', 'general_ports', ['b'])]
+    const shared = [{ ...port('p', 'entrance_ports', ['c']), multiportType: 'True' }]
+    expect(resolvePortCouplings(source, shared).map((c) => c.sourcePort)).toEqual(source)
+    expect(resolvePortCouplings(source, [port('p', 'entrance_ports', ['c'])]).map((c) => c.sourcePort)).toEqual([source[0]])
+  })
+
   it('takes a multiport slot however many edges hold it', () => {
     const shared = [{ ...splitPorts[0], multiportType: 'True' }, splitPorts[1]]
     const usedPortKeys = buildUsedPortKeys([edge('e', 's', 'a', [{ ...held(0)[0], sourcePort: shared[0] }])])

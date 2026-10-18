@@ -329,4 +329,19 @@ describe('applyWorkspaceState', () => {
     await view.applyWorkspaceState({ id: PHLYNX_PROJECT_IDENTIFIER, version: '1.2.0', flow: FLOW, store: {} })
     expect(notify.warning).not.toHaveBeenCalled()
   })
+  it('warns, until closed, of the connections CA would pair otherwise', async () => {
+    const port = (portType, label) => ({ portType, label, variables: ['v'], multiportType: 'None' })
+    const x = { id: 'x', data: { name: 'x', ports: [port('exit_ports', 'p'), port('general_ports', 'q')] } }
+    const y = { id: 'y', data: { name: 'y', ports: [port('entrance_ports', 'p'), port('general_ports', 'q')] } }
+    const coupling = { sourcePort: x.data.ports[0], targetPort: y.data.ports[0], sourceSlot: 0, targetSlot: 0 }
+    flow.fromObject.mockImplementation(() => {
+      nodes.value = [x, y]
+      edges.value = [{ id: 'x--y', source: 'x', target: 'y', data: { couplings: [coupling] } }]
+    })
+    await view.applyWorkspaceState({ id: PHLYNX_PROJECT_IDENTIFIER, version: PHLYNX_PROJECT_VERSION, flow: FLOW, store: {} })
+
+    expect(notify.warning).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Connections CA Would Pair Otherwise', duration: 0, message: expect.stringContaining('x → y: CA couples every label') })
+    )
+  })
 })

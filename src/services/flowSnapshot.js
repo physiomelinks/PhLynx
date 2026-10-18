@@ -126,8 +126,9 @@ export function buildFlowSnapshot(flow, { nodeIds = null, library }) {
 
 /**
  * Narrows the expanded model to some of its nodes and the edges between them, as root modules: a module inside a
- * super instance keeps its flat name and its rows as overridden, stands where its outermost super instance does, and is joined
- * by its edges' handles or, for an edge that met a super instance, a handle of its own.
+ * super instance keeps its flat name and its rows as overridden, stands where it would inside its super instances, each
+ * offset by the one outside it, and is joined by its edges' handles or, for an edge that met a super instance, a handle
+ * of its own.
  *
  * @param {{nodes: Array, edges: Array}} flow
  * @param {ReturnType<typeof expandHierarchy>} expansion
@@ -144,12 +145,18 @@ function flatPart(flow, expansion, selected) {
       // Copied, as handleFor may give a module a handle.
       if (!isNestedModelId(node.id)) return node.data?.handles ? { ...node, data: { ...node.data, handles: [...node.data.handles] } } : node
       const { mainId, instanceChain } = expansion.origin.get(node.id)
-      const at = storeNodeById.get(mainId)?.position ?? { x: 0, y: 0 }
-      const offset = storeNodeById.get(instanceChain[0])?.position ?? { x: 0, y: 0 }
+      // Each super instance's position is within the one outside it, so every level's adds up.
+      const position = [...instanceChain, mainId].reduce(
+        (sum, id) => {
+          const at = storeNodeById.get(id)?.position ?? { x: 0, y: 0 }
+          return { x: sum.x + at.x, y: sum.y + at.y }
+        },
+        { x: 0, y: 0 }
+      )
       return {
         id: node.id,
         type: node.type,
-        position: { x: offset.x + at.x, y: offset.y + at.y },
+        position,
         data: { ...node.data, scope: null, localId: node.id, handles: [...(node.data.handles ?? [])] },
       }
     })

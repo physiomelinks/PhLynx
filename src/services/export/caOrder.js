@@ -51,7 +51,7 @@ export function couplingPairs(nodes, edges) {
  * @param {number} [slot] - Its recorded slot.
  * @returns {number} -1 when the slot holds no port.
  */
-function portIndexOf(ports, port, slot) {
+export function portIndexOf(ports, port, slot) {
   if (!port) return -1
   const group = ports.flatMap((p, index) => (p.portType === port.portType && p.label === port.label ? [index] : []))
   const found = slotOf(ports, port, slot)

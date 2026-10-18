@@ -233,18 +233,16 @@ describe('planCaPairing', () => {
     expect(planned.residuals).toEqual([{ edge: edges[1], label: 'link', reason: 'component' }])
   })
 
-  it('relabels two components together where neither alone lowers the mismatches', () => {
-    // CA pairs only x's first vessel_port and y's entrance; the import pairs x's general ports with y's exit ports too.
+  it("relabels only the coupled slots when CA and the import pair a later general port alike", () => {
+    // CA and the import pair only x's first vessel_port with y's entrance; y's exit ports never take a coupling.
     const x = node('x', [vessel('general_ports', ['a']), vessel('general_ports', ['b']), vessel('general_ports', ['c'])])
     const y = node('y', [vessel('exit_ports', ['d']), vessel('exit_ports', ['e']), vessel('entrance_ports', ['f'])])
 
     const { diff, changed } = plan([x, y], [connect(x, y, [[2, 2]])])
     expect(diff).toEqual(reproduced)
     expect(changed).toEqual([
-      'x#0: general_ports/vessel_port__1 was {"label":"vessel_port"}',
-      'x#1: general_ports/vessel_port__2 was {"label":"vessel_port"}',
-      'x#2: general_ports/vessel_port__3 was {"label":"vessel_port"}',
-      'y#2: entrance_ports/vessel_port__3 was {"label":"vessel_port"}',
+      'x#2: general_ports/vessel_port__1 was {"label":"vessel_port"}',
+      'y#2: entrance_ports/vessel_port__1 was {"label":"vessel_port"}',
     ])
   })
 

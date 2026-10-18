@@ -24,6 +24,7 @@ import {
   rewriteUnsafeIds,
   splitNodeId,
   supermoduleDependencies,
+  superInstanceToEnter,
   supermoduleDepth,
   supermoduleOccurrences,
   supermoduleUses,
@@ -285,5 +286,33 @@ describe('connectionPortWrites', () => {
     const ports = [{ label: 'vessel' }]
     expect(connectionPortWrites([[moduleNode, ports], [superInstanceNode, [{ label: 'edited' }]]])).toEqual([['dndnode_0', ports]])
     expect(connectionPortWrites([[superInstanceNode, []], [undefined, []]])).toEqual([])
+  })
+})
+
+describe('superInstanceToEnter', () => {
+  const body = { closest: () => null }
+  body.ownerDocument = { body }
+  const canvas = { contains: (el) => el === inCanvas || el === nameButton }
+  const inCanvas = { ownerDocument: { body }, closest: () => null }
+  const nameButton = { ownerDocument: { body }, closest: (selector) => (selector.includes('[role="button"]') ? nameButton : null) }
+  const outside = { ownerDocument: { body }, closest: () => null }
+  const superInstance = { id: 'dndnode_1', type: SUPER_INSTANCE_NODE_TYPE }
+  const moduleNode = { id: 'dndnode_0', type: 'instanceNode' }
+  const enter = (target, selected = [superInstance], extra = {}) => superInstanceToEnter({ key: 'Enter', target, ...extra }, selected, canvas)
+
+  it('opens the one selected super instance, on the canvas or with nothing focused', () => {
+    expect(enter(inCanvas)).toBe('dndnode_1')
+    expect(enter(body)).toBe('dndnode_1')
+  })
+
+  it('opens nothing for another selection, key or focus', () => {
+    expect(enter(inCanvas, [superInstance, moduleNode])).toBeNull()
+    expect(enter(inCanvas, [moduleNode])).toBeNull()
+    expect(enter(inCanvas, [])).toBeNull()
+    expect(enter(outside)).toBeNull()
+    expect(enter(nameButton)).toBeNull()
+    expect(enter(inCanvas, [superInstance], { key: 'a' })).toBeNull()
+    expect(enter(inCanvas, [superInstance], { ctrlKey: true })).toBeNull()
+    expect(enter(inCanvas, [superInstance], { defaultPrevented: true })).toBeNull()
   })
 })

@@ -5,10 +5,17 @@
         <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
         Broken couplings ({{ brokenCouplings.length }})
       </h5>
-      <p class="hint">Their ports are no longer exposed. Double-click a connection to re-pair or remove them.</p>
+      <p class="hint">Their ports are no longer exposed. Open a connection to re-pair or remove them.</p>
       <ul class="super-instance-panel-list" aria-label="Broken couplings">
-        <li v-for="coupling in brokenCouplings" :key="coupling.key" class="broken-coupling">
-          {{ coupling.text }}
+        <li v-for="coupling in brokenCouplings" :key="coupling.key">
+          <button
+            type="button"
+            class="broken-coupling"
+            v-tooltip.left="{ value: 'Open its connection', showDelay: 300 }"
+            @click="openEdgeDialog(coupling.edgeId)"
+          >
+            {{ coupling.text }}
+          </button>
         </li>
       </ul>
     </template>
@@ -48,12 +55,14 @@
 <script setup>
 /**
  * A super instance's sidebar: couplings to ports its super-module no longer exposes, kept until the user re-pairs or
- * removes them, and the values it overrides, orphaned ones flagged; each override can be reset.
+ * removes them, each opening its connection's dialog, and the values it overrides, orphaned ones flagged; each override
+ * can be reset.
  */
 import { computed } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import Button from 'primevue/button'
 
+import { useEdgeDialog } from '../composables/useEdgeDialog'
 import { useModelWriter } from '../composables/useModelWriter'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { FLOW_IDS } from '../utils/constants'
@@ -65,6 +74,7 @@ const props = defineProps({
 const { edges, findNode } = useVueFlow(FLOW_IDS.MAIN)
 const { overridesOf, removeOverride } = useModelWriter()
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
+const { openEdgeDialog } = useEdgeDialog()
 
 const overrides = computed(() => overridesOf(props.node.id))
 
@@ -80,6 +90,7 @@ const brokenCouplings = computed(() => {
       .filter((coupling) => broken.has(coupling[`${side}Port`]?.exposedPortId))
       .map((coupling, index) => ({
         key: `${edge.id}:${index}`,
+        edgeId: edge.id,
         text: `${coupling[`${side}Port`].label} ↔ ${other?.data?.name ?? '?'}.${coupling[`${side === 'source' ? 'target' : 'source'}Port`]?.label ?? '?'}`,
       }))
   })
@@ -119,8 +130,26 @@ function remove(override) {
 }
 
 .broken-coupling {
-  padding: 0.15rem 0;
+  display: block;
+  width: 100%;
+  padding: 0.15rem 0.25rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
   color: var(--p-orange-500);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.broken-coupling:hover {
+  background: color-mix(in srgb, var(--p-orange-500) 10%, transparent);
+  text-decoration: underline;
+}
+
+.broken-coupling:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: 1px;
 }
 
 .override {

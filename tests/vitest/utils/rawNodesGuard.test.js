@@ -20,6 +20,7 @@ const PATTERNS = [
 ]
 
 const MACRO = 'The macro builder’s own flow (FLOW_IDS.MACRO), not the workspace.'
+const CHECK = 'Checks the store’s couplings against CA’s pairing, which couplingProblems does on the model it expands to.'
 
 /**
  * The places that may read the store's nodes. `line` is part of the line, matching `count` lines (one by default);
@@ -142,7 +143,12 @@ const ALLOWED = [
   { file: 'src/components/InstanceEditorDialog.vue', line: 'if (!modelId) return { nodeId: props.id, edges: edges.value', use: 'canvas', reason: 'Outside a super instance, its ports’ connections are the canvas edges, as stored.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'const scope = scopeOf(nodes.value.find', use: 'canvas', reason: 'The super-module the edited node is a child of, edited on its own.' },
   { file: 'src/components/InstanceEditorDialog.vue', line: 'return exposedPortsOf(scope, nodes.value', use: 'canvas', reason: 'The ports that super-module exposes, from its exposure edges, each stored once.' },
-  { file: 'src/composables/useEdgeCouplings.js', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The exposure edges saying which ports of a super-module are exposed.' },
+  {
+    file: 'src/composables/useEdgeCouplings.js',
+    line: 'useVueFlow(FLOW_IDS.MAIN)',
+    use: 'model-safe',
+    reason: `The exposure edges saying which ports of a super-module are exposed. ${CHECK}`,
+  },
   { file: 'src/composables/useNodeChrome.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node card is drawn in.' },
   { file: 'src/composables/useNodeHandles.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node\'s handles are drawn in.' },
   { file: 'src/composables/useNodeHandles.js', line: 'const connectedEdges', use: 'canvas', reason: 'The edges on a handle being removed.' },
@@ -157,6 +163,11 @@ const ALLOWED = [
   { file: 'src/composables/useConnect.js', line: 'edges.value.find', count: 2, use: 'canvas', reason: 'Whether a drawn connection repeats one.' },
   { file: 'src/composables/useConnect.js', line: 'buildUsedPortKeys(edges.value', use: 'canvas', reason: 'The slots the canvas edges hold.' },
   { file: 'src/composables/useConnect.js', line: 'exposedSlotKeys(nodes.value', use: 'canvas', reason: 'The slots exposed ports take inside the super-module shown.' },
+  { file: 'src/composables/useConnect.js', line: 'const others = edges.value', use: 'model-safe', reason: CHECK },
+  { file: 'src/composables/useConnect.js', line: 'couplingProblems(nodes.value', use: 'model-safe', reason: CHECK },
+  { file: 'src/composables/useCellmlDrop.js', line: 'warnCouplingProblems(nodes.value', use: 'model-safe', reason: CHECK },
+  { file: 'src/composables/useWorkspaceSaveLoad.js', line: 'warnCouplingProblems(nodes.value', use: 'model-safe', reason: CHECK },
+  { file: 'src/views/WorkspaceArea.vue', line: 'warnCouplingProblems(nodes.value', count: 2, use: 'model-safe', reason: CHECK },
   { file: 'src/composables/useDnD.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow modules are dropped on.' },
   { file: 'src/composables/useFlowHistory.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow whose changes are undone.' },
   { file: 'src/composables/useFlowHistory.js', line: '// excludeEdgeIds', use: 'canvas', reason: 'A comment.' },

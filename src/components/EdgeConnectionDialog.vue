@@ -113,6 +113,7 @@
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
+                    :problems="problemsByUid.get(data.port._uid) ?? []"
                     :style="rowStyle(data.port._uid, 'source')"
                     @change="onPortConfigChange"
                     @start-drag="startDrag($event, data.port._uid, 'source')"
@@ -131,6 +132,7 @@
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
+                    :problems="problemsByUid.get(data.port._uid) ?? []"
                     :style="rowStyle(data.port._uid, 'target')"
                     @change="onPortConfigChange"
                     @start-drag="startDrag($event, data.port._uid, 'target')"
@@ -188,6 +190,18 @@
           <MultiportKey />
         </div>
       </div>
+
+      <!-- A pairing refused as it was dragged, until the next one -->
+      <Message v-if="refusal" severity="warn" size="small" closable class="pairing-refusal" @close="refusal = null">
+        {{ refusal }}
+      </Message>
+
+      <!-- What CA would pair otherwise with these couplings: none may be left to confirm them -->
+      <div v-if="problems.length" class="coupling-problems" data-testid="coupling-problems">
+        <Message v-for="(problem, i) in problems" :key="i" severity="error" size="small" class="coupling-problem">
+          {{ problem.message }}
+        </Message>
+      </div>
     </div>
 
     <!-- Swap confirmation dialog -->
@@ -212,7 +226,10 @@
     <template #footer>
       <div class="dialog-footer">
         <Button label="Cancel" severity="secondary" text @click="handleCancel" />
-        <Button label="Done" @click="handleConfirm" />
+        <!-- A span carries the tooltip, as a disabled button shows none. -->
+        <span v-tooltip.top="confirmBlocker ?? ''" class="confirm-wrap">
+          <Button label="Done" :disabled="!!confirmBlocker" @click="handleConfirm" />
+        </span>
       </div>
     </template>
   </Dialog>
@@ -224,10 +241,10 @@ import { VueFlow, Position, Handle, useVueFlow } from '@vue-flow/core'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Chip from 'primevue/chip'
+import Message from 'primevue/message'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
-import { isSingleConnection, slotOf } from '../utils/edges'
+import { isSingleConnection } from '../utils/edges'
 import { isSuperInstance } from '../utils/hierarchy'
-import { isCompatible } from '../utils/ports'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 
@@ -323,6 +340,8 @@ const {
   localCouplings,
   localSubgraph,
   takenElsewhereUids,
+  problems,
+  refusal,
   portLookup,
   srcByUid,
   tgtByUid,
@@ -332,10 +351,32 @@ const {
   evictHandle,
   swapConnections,
   connectPorts,
+  connectRefusal,
+  pendingCouplings,
+  evaluateProblems,
   deletePort,
   activateGhost,
   onPortConfigChange,
 } = useEdgeCouplings(props, askSwapIntent)
+
+// Each local port's problems, shown on its row.
+const problemsByUid = computed(() => {
+  const byUid = new Map()
+  for (const problem of problems.value) {
+    for (const uid of problem.uids) byUid.set(uid, [...(byUid.get(uid) ?? []), problem.message])
+  }
+  return byUid
+})
+// The couplings a problem concerns, drawn as such.
+const problemPairs = computed(() => new Set(problems.value.flatMap(({ pair }) => (pair ? [`${pair.srcUid}>${pair.tgtUid}`] : []))))
+// Why Done is off: CA would pair these couplings otherwise.
+const confirmBlocker = computed(() => {
+  const count = problems.value.length
+  if (!count) return null
+  return count === 1
+    ? `CA can't reproduce these couplings: ${problems.value[0].message}`
+    : `CA can't reproduce these couplings: ${count} problems, listed above.`
+})
 
 const { dragState, dragOffsetY, startDrag, rowStyle } = usePortDrag(localSrcPorts, localTgtPorts, canvasEl)
 
@@ -376,7 +417,8 @@ const flowEdges = computed(() => {
     const tp = tgtByUid(tgtUid)
     if (!sp || !tp) continue
 
-    if (sp.label === tp.label && isCompatible(sp.portType, tp.portType)) {
+    if (sp.label === tp.label) {
+      const wrong = problemPairs.value.has(`${srcUid}>${tgtUid}`)
       edges.push({
         id: `ce-${srcUid}-${tgtUid}`,
         source: `src-${srcUid}`,
@@ -384,9 +426,11 @@ const flowEdges = computed(() => {
         sourceHandle: 'out',
         targetHandle: 'in',
         updatable: true,
+        ...(wrong && { class: 'coupling--problem' }),
         style: {
-          stroke: 'var(--p-primary-color, #409eff)',
+          stroke: wrong ? 'var(--p-red-500, #ef4444)' : 'var(--p-primary-color, #409eff)',
           strokeWidth: 2.5,
+          ...(wrong && { strokeDasharray: '6 4' }),
         },
       })
     }
@@ -417,7 +461,8 @@ function isValidConnection(connection) {
   const sp = srcByUid(sUid)
   const tp = tgtByUid(tUid)
   if (!sp || !tp || !sp.label || !tp.label) return false
-  return sp.label === tp.label && isCompatible(sp.portType, tp.portType)
+  // Any other rule refuses on the drop (see onConnect), so it can say why.
+  return sp.label === tp.label
 }
 
 async function onConnect(connection) {
@@ -457,6 +502,10 @@ async function onConnect(connection) {
   const tgtUid = (connection.target || '').replace('tgt-', '')
 
   if (localCouplings.value.some((c) => c.srcUid === srcUid && c.tgtUid === tgtUid)) return
+
+  // Refused before any port is evicted for it, with why.
+  refusal.value = connectRefusal(srcUid, tgtUid)
+  if (refusal.value) return
 
   const sp = srcByUid(srcUid)
   const tp = tgtByUid(tgtUid)
@@ -525,6 +574,9 @@ async function onEdgeUpdate({ edge, connection }) {
     return
   }
 
+  refusal.value = connectRefusal(newSrcUid, newTgtUid, { srcUid: oldSrcUid, tgtUid: oldTgtUid })
+  if (refusal.value) return
+
   nextCouplings = await swapConnections(tp, oldTgtUid, newTgtUid, 'target', nextCouplings)
   if (nextCouplings === null) return
   nextCouplings = await swapConnections(sp, oldSrcUid, newSrcUid, 'source', nextCouplings)
@@ -545,10 +597,9 @@ const validConnectUids = computed(() => {
   return new Set(
     candidates
       .filter((p) => {
-        if (!p.label || !port.label) return false
-        if (p.label !== port.label) return false
-        const [srcType, tgtType] = side === 'source' ? [port.portType, p.portType] : [p.portType, port.portType]
-        return isCompatible(srcType, tgtType)
+        if (!p.label || !port.label || p.label !== port.label) return false
+        const [srcUid, tgtUid] = side === 'source' ? [uid, p._uid] : [p._uid, uid]
+        return !connectRefusal(srcUid, tgtUid)
       })
       .map((p) => p._uid)
   )
@@ -577,37 +628,15 @@ function buildPayload() {
     targetNodeId: props.targetNode.id,
     sourcePorts: detachReactivity(localSrcPorts.value),
     targetPorts: detachReactivity(localTgtPorts.value),
-    couplings: localCouplings.value.map((c) => {
-      const sp = srcByUid(c.srcUid)
-      const tp = tgtByUid(c.tgtUid)
-      return {
-        sourcePort: {
-          portType: sp.portType,
-          label: sp.label,
-          variables: sp.variables,
-          multiportType: sp.multiportType,
-          multiplyFactor: sp.multiplyFactor,
-          // A super instance's port is the exposed port it names, so it rebinds by id (see exposure.js)
-          ...(sp.exposedPortId != null && { exposedPortId: sp.exposedPortId }),
-        },
-        targetPort: {
-          portType: tp.portType,
-          label: tp.label,
-          variables: tp.variables,
-          multiportType: tp.multiportType,
-          multiplyFactor: tp.multiplyFactor,
-          // A super instance's port is the exposed port it names, so it rebinds by id (see exposure.js)
-          ...(tp.exposedPortId != null && { exposedPortId: tp.exposedPortId }),
-        },
-        sourceSlot: slotOf(localSrcPorts.value, sp),
-        targetSlot: slotOf(localTgtPorts.value, tp),
-      }
-    }),
+    couplings: pendingCouplings(),
     foreignCouplings,
   }
 }
 
 function handleConfirm() {
+  // Checked now, as an edit's check may be waiting.
+  evaluateProblems()
+  if (problems.value.length) return
   emit('confirm', buildPayload())
   emit('update:modelValue', false)
 }
@@ -872,7 +901,6 @@ watch(
   transform: translate(50%, -50%) !important;
 }
 
-:deep(.vue-flow__handle-valid),
 :deep(.handle--valid-target) {
   background: var(--p-green-500, #67c23a) !important;
   box-shadow: 0 0 0 3px rgba(103, 194, 58, 0.35);
@@ -918,10 +946,22 @@ watch(
   background: var(--p-text-muted-color, #71717a);
 }
 
+/* ── Problems ── */
+.coupling-problems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
 /* ── Footer ── */
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.confirm-wrap {
+  display: inline-flex;
 }
 </style>

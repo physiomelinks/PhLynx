@@ -3,7 +3,7 @@
     :visible="!!question"
     modal
     header="Change Super-module?"
-    :style="{ width: '440px' }"
+    :style="{ width: '440px', maxWidth: '95vw' }"
     @update:visible="(visible) => !visible && guard.answer('cancel')"
     @mousedown.stop
     @wheel.stop

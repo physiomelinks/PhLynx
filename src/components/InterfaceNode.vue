@@ -1,5 +1,5 @@
 <template>
-  <div class="interface-node" :class="{ selected }">
+  <div class="interface-node" :class="{ selected }" @contextmenu.stop.prevent="openContextMenu">
     <div class="interface-header">
       <i class="pi pi-sign-in interface-icon" aria-hidden="true"></i>
       <span class="interface-title">Interface</span>
@@ -18,7 +18,10 @@
         <sup v-if="indices[i]" class="interface-port-index">{{ indices[i] }}</sup>
       </li>
     </ol>
-    <div v-else class="interface-ports">No exposed ports yet</div>
+    <div v-else class="interface-ports">
+      No exposed ports yet
+      <span class="interface-hint">Connect a module to this card to expose its ports.</span>
+    </div>
 
     <NodeHandles :id="id" :handles="data.handles" :selected="selected" />
   </div>
@@ -29,7 +32,7 @@
  * A super-module's interface node: the record of the super-module, shown inside it. Names the super-module and lists,
  * in order, the ports its exposure edges expose, as its super instances get them: a type badge and label each, numbered
  * when labels repeat, with the child it is on, its type and variables on hover. Its handles are only where exposure
- * edges attach, as on any node; it can't be deleted from the canvas.
+ * edges attach, as on any node; it can't be deleted from the canvas. Right-click asks for its context menu.
  */
 import { computed } from 'vue'
 
@@ -52,6 +55,8 @@ const props = defineProps({
   }, // { scope, localId, supermodule: { name, … }, handles }
 })
 
+const emit = defineEmits(['open-context-menu'])
+
 const { portsOf } = useSupermodules()
 const ownersOf = useExposedPortOwners()
 
@@ -61,6 +66,11 @@ const ports = computed(() => portsOf(props.id))
 const owners = computed(() => ownersOf(props.id))
 const indices = computed(() => duplicateIndex(ports.value))
 const describe = (port) => describeExposedPort(owners.value.get(port.exposedPortId), port)
+
+/** @param {MouseEvent} event - A right-click on the card. */
+function openContextMenu(event) {
+  emit('open-context-menu', { clientX: event.clientX, clientY: event.clientY, id: props.id })
+}
 </script>
 
 <style lang="scss" scoped>
@@ -156,5 +166,13 @@ const describe = (port) => describeExposedPort(owners.value.get(port.exposedPort
   margin-top: 0.3rem;
   font-size: 0.75rem;
   color: color-mix(in srgb, var(--p-text-color) 70%, transparent);
+}
+
+.interface-hint {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
+  font-style: italic;
+  color: var(--p-text-muted-color);
 }
 </style>

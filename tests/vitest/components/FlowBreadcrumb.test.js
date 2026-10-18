@@ -138,7 +138,7 @@ describe('FlowBreadcrumb', () => {
       "Editing super-module 'heart' in the library — changes apply to 3 super instances"
     )
     expect(wrapper.find('.supermodule-banner').classes()).toContain('supermodule-banner--shared')
-    expect(wrapper.findAll('.crumb')[1].attributes('title')).toBe("Super-module 'heart' in the library")
+    expect(wrapper.findAll('.crumb')[1].attributes('title')).toBe("heart — super-module 'heart' in the library")
 
     // chamber has one super instance, but it is in heart, so the model has three copies of it.
     level.enter('sm_1~dndnode_0')
@@ -193,11 +193,11 @@ describe('FlowBreadcrumb', () => {
 
     level.enter('sm_1~dndnode_0')
     await wrapper.vm.$nextTick()
-    // A crumb's title names its super-module even when the names are the same.
+    // A crumb's title names it and its super-module, even when the names are the same.
     flow.updateNodeData('sm_1~dndnode_0', { name: 'chamber' })
     await wrapper.vm.$nextTick()
     expect(crumbTexts()).toEqual(['Model', 'heart (super-module)', 'chamber'])
-    expect(wrapper.findAll('.crumb').at(-1).attributes('title')).toBe("Super-module 'chamber' in the library")
+    expect(wrapper.findAll('.crumb').at(-1).attributes('title')).toBe("chamber — super-module 'chamber' in the library")
 
     flow.removeNodes(['dndnode_1'])
     level.exitTo(0)

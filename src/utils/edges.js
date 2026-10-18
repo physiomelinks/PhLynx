@@ -10,16 +10,19 @@
  * - A conduit edge is a single VueFlow edge between two module nodes.
  * - The CellML variable connections implied by a conduit are determined by
  *   matching port labels between the two nodes with compatible portTypes.
- * - Port type compatibility (source → target):
+ * - Port type compatibility (source → target), as circulatory_autogen (CA)
+ *   pairs them (see SOURCE_PORT_TYPES and TARGET_PORT_TYPES in ports.js):
  *     exit_ports    → entrance_ports | general_ports
- *     general_ports → entrance_ports | exit_ports | general_ports
- *   (entrance_ports on the source side cannot initiate a coupling)
+ *     general_ports → entrance_ports | general_ports
+ *   (an entrance port never starts a coupling, and an exit port never ends one)
  *
  * Slot assignment
  * ---------------
  * A label may appear more than once under one portType (e.g. a module with two
  * exit "vessel_port"s). Each occurrence is a slot, identified by its index in
- * that (portType, label) group. A coupling takes the group's first slot that is
+ * that (portType, label) group. As CA does, a coupling looks through a label's
+ * ports as one group, a source's exit before its general ports and a target's
+ * entrance before its general ports, and takes the first slot that is
  * multiport or not yet held by another edge, so slots depend on which edges
  * already exist, not on any edge's position:
  *
@@ -34,13 +37,14 @@
  * either: one edge leaving through a general slot leaves it free for one edge
  * arriving.
  *
- * circulatory_autogen also takes the first free slot as it connects the module
- * array's rows in order (export orders them to match, see
- * services/export/caOrder.js), but the rules differ: CA groups a module's exit
- * (or entrance) and general ports of one label together, gives a heart's
- * entrance vessel_ports by place in its inp_vessels, and wires a non-vessel_port
- * to every free slot. Where no order matches, the export gives the coupled
- * slots labels of their own (services/export/caPairing.js).
+ * CA takes the first free slot the same way as it connects the module array's
+ * rows in order (export orders them to match, see services/export/caOrder.js).
+ * It couples every label two modules share; a vessel_port pairs one source
+ * slot with one target slot, any other label every free source slot with the
+ * target's first free slot. CA gives a heart's entrance vessel_ports by place
+ * in its inp_vessels instead. services/coupling/caReproducible.js lists the
+ * couplings CA's order can't reproduce; where none matches, the export gives
+ * the coupled slots labels of their own (services/export/caPairing.js).
  *
  * Non-multiport constraint
  * ------------------------
@@ -51,14 +55,7 @@
  * value for multiport means the port is unrestricted.
  */
 
-/** portTypes that may appear on the source (outgoing) side of a coupling. */
-const SOURCE_COMPATIBLE_TYPES = new Set(['exit_ports', 'general_ports'])
-
-/** Valid target portTypes for each source portType. */
-const TARGET_COMPATIBLE_TYPES = {
-  exit_ports: new Set(['entrance_ports', 'general_ports']),
-  general_ports: new Set(['entrance_ports', 'exit_ports', 'general_ports']),
-}
+import { SOURCE_PORT_TYPES, TARGET_PORT_TYPES, VESSEL_PORT } from './ports'
 
 /**
  * Generates a unique edge ID.
@@ -109,12 +106,12 @@ export function slotOf(ports, port, slot) {
 }
 
 /**
- * Resolves the port-label couplings for ONE conduit edge.
- *
- * For each compatible (source portType, target portType, label) pair of groups, each side takes its group's first slot
- * that is multiport or not in usedPortKeys, though a slot the edge's stored couplings name comes first while it is
- * free. When every slot is held it takes the first, which checkAndClaimCouplings then rejects. Without usedPortKeys,
- * each group's first slot is taken.
+ * Resolves the port-label couplings for ONE conduit edge, as CA pairs them: every label both ends share, each side's
+ * ports of a label as one group (see caSlotGroups). A vessel_port pairs one source slot with one target slot; any other
+ * label pairs each free source slot with the target's one slot, or only the first while that slot takes one
+ * connection. Each side takes its group's first slot that is multiport or not in usedPortKeys, though a slot the
+ * edge's stored couplings name comes first while it is free. When every slot is held it takes the first, which
+ * checkAndClaimCouplings then rejects. Without usedPortKeys, each group's first slot is taken.
  *
  * @param {Array} sourcePorts - node.data.ports of the source node.
  * @param {Array} targetPorts - node.data.ports of the target node.
@@ -131,33 +128,56 @@ export function resolvePortCouplings(
   { sourceId, targetId, usedPortKeys = new Set(), stored = [] } = {}
 ) {
   const couplings = []
-  const storedSlot = (side, ports, portType, label) => {
-    const coupling = stored.find((c) => c[`${side}Port`]?.portType === portType && c[`${side}Port`]?.label === label)
-    return coupling ? slotOf(ports, coupling[`${side}Port`], coupling[`${side}Slot`]) : -1
+  // The place in a group of the slot a stored coupling of the label names, or -1.
+  const storedPlace = (side, ports, group, label) => {
+    for (const coupling of stored) {
+      const port = coupling[`${side}Port`]
+      if (port?.label !== label) continue
+      const slot = slotOf(ports, port, coupling[`${side}Slot`])
+      const place = group.findIndex((entry) => entry.port.portType === port.portType && entry.slot === slot)
+      if (place !== -1) return place
+    }
+    return -1
   }
-  // One slot per group, however many groups on the other side it couples to.
-  const targetSlots = new Map()
+  const targetGroups = caSlotGroups(targetPorts, TARGET_PORT_TYPES)
 
-  for (const [groupKey, srcSlots] of groupByTypeAndLabel(sourcePorts, SOURCE_COMPATIBLE_TYPES)) {
-    const [srcPortType, label] = groupKey.split('\x00')
-    const targetGroups = groupByTypeAndLabel(targetPorts, TARGET_COMPATIBLE_TYPES[srcPortType])
-    let sourceSlot = null
-
-    for (const [tgtGroupKey, tgtSlots] of targetGroups) {
-      const [tgtPortType, tgtLabel] = tgtGroupKey.split('\x00')
-      if (tgtLabel !== label) continue
-
-      sourceSlot ??= pickSlot(sourceId, 'out', srcSlots, usedPortKeys, storedSlot('source', sourcePorts, srcPortType, label))
-      if (!targetSlots.has(tgtGroupKey)) {
-        const preferred = storedSlot('target', targetPorts, tgtPortType, label)
-        targetSlots.set(tgtGroupKey, pickSlot(targetId, 'in', tgtSlots, usedPortKeys, preferred))
-      }
-      const targetSlot = targetSlots.get(tgtGroupKey)
-      couplings.push({ sourcePort: srcSlots[sourceSlot], targetPort: tgtSlots[targetSlot], sourceSlot, targetSlot })
+  for (const [label, sources] of caSlotGroups(sourcePorts, SOURCE_PORT_TYPES)) {
+    const targets = targetGroups.get(label)
+    if (!targets) continue
+    const target = targets[pickSlot(targetId, 'in', targets, usedPortKeys, storedPlace('target', targetPorts, targets, label))]
+    const first = pickSlot(sourceId, 'out', sources, usedPortKeys, storedPlace('source', sourcePorts, sources, label))
+    const pairsMany = label !== VESSEL_PORT && !isSingleConnection(target.port)
+    const others = pairsMany ? sources.filter((entry, place) => place !== first && isFree(sourceId, 'out', entry, usedPortKeys)) : []
+    for (const source of [sources[first], ...others]) {
+      couplings.push({ sourcePort: source.port, targetPort: target.port, sourceSlot: source.slot, targetSlot: target.slot })
     }
   }
 
   return couplings
+}
+
+/**
+ * Groups a node's ports of some types by label, as CA does: each group in the order of the types, then of the ports,
+ * and the groups in the order of their first port in that order.
+ *
+ * @param {Array} ports
+ * @param {ReadonlyArray<string>} portTypes - SOURCE_PORT_TYPES or TARGET_PORT_TYPES (see ports.js).
+ * @returns {Map<string, Array<{ port: Object, slot: number }>>} Label to its ports, each with its slot: its index in
+ *   its (portType, label) group.
+ */
+export function caSlotGroups(ports, portTypes) {
+  const groups = new Map()
+  for (const portType of portTypes) {
+    const counts = new Map()
+    for (const port of ports ?? []) {
+      if (port.portType !== portType) continue
+      const slot = counts.get(port.label) ?? 0
+      counts.set(port.label, slot + 1)
+      if (!groups.has(port.label)) groups.set(port.label, [])
+      groups.get(port.label).push({ port, slot })
+    }
+  }
+  return groups
 }
 
 /**
@@ -317,39 +337,32 @@ function heldEnds(edge, portsOf) {
 }
 
 /**
- * Groups portLabel entries by a composite key of `portType\x00label`, but only
- * for portTypes that are in the allowedTypes set. Preserves config-file order
- * within each group (which defines slot indices).
- *
- * @param {Array}  portLabels
- * @param {Set}    allowedTypes
- * @returns {Map<string, Array>}  key: "portType\x00label", value: ordered array of portLabel entries
- */
-function groupByTypeAndLabel(portLabels, allowedTypes) {
-  const groups = new Map()
-  for (const pl of portLabels) {
-    if (!allowedTypes.has(pl.portType)) continue
-    const key = `${pl.portType}\x00${pl.label}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key).push(pl)
-  }
-  return groups
-}
-
-/**
  * Picks a group's slot: the preferred one while it is free, else the first free one, else the first.
  *
  * @param {string} nodeId
  * @param {string} role - 'out' for the edge's source end, 'in' for its target end.
- * @param {Array} slots - The group's ports, in order.
+ * @param {Array<{ port: Object, slot: number }>} group - From caSlotGroups.
  * @param {Set<string>} usedPortKeys
- * @param {number} preferred - A slot index, or -1 for none.
- * @returns {number}
+ * @param {number} preferred - A place in the group, or -1 for none.
+ * @returns {number} A place in the group.
  */
-function pickSlot(nodeId, role, slots, usedPortKeys, preferred) {
-  const isFree = (index) => !isSingleConnection(slots[index]) || !usedPortKeys.has(portKey(nodeId, role, slots[index], index))
-  if (preferred >= 0 && preferred < slots.length && isFree(preferred)) return preferred
-  return Math.max(slots.findIndex((_, index) => isFree(index)), 0)
+function pickSlot(nodeId, role, group, usedPortKeys, preferred) {
+  const free = (place) => isFree(nodeId, role, group[place], usedPortKeys)
+  if (preferred >= 0 && preferred < group.length && free(preferred)) return preferred
+  return Math.max(group.findIndex((_, place) => free(place)), 0)
+}
+
+/**
+ * Whether a slot is multiport or held by no other edge.
+ *
+ * @param {string} nodeId
+ * @param {string} role
+ * @param {{ port: Object, slot: number }} entry
+ * @param {Set<string>} usedPortKeys
+ * @returns {boolean}
+ */
+function isFree(nodeId, role, { port, slot }, usedPortKeys) {
+  return !isSingleConnection(port) || !usedPortKeys.has(portKey(nodeId, role, port, slot))
 }
 
 /**

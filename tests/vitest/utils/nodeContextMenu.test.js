@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { MAIN_NODE_TYPE, SUPER_INSTANCE_NODE_TYPE } from '../../../src/utils/constants.js'
+import { MAIN_NODE_TYPE, SUPER_INSTANCE_NODE_TYPE, SUPERMODULE_INTERFACE_NODE_TYPE } from '../../../src/utils/constants.js'
 import { nodeContextMenuItems } from '../../../src/utils/nodeContextMenu.js'
 
 describe('nodeContextMenuItems', () => {
@@ -15,6 +15,8 @@ describe('nodeContextMenuItems', () => {
     remove: vi.fn(),
     replace: vi.fn(),
     simulate: vi.fn(),
+    goUp: vi.fn(),
+    fitView: vi.fn(),
   })
   const build = (node, isEditingSupermodule = false, own = actions(), options = {}) =>
     nodeContextMenuItems({ node, isEditingSupermodule, simulateLabel: 'Simulate Instance', actions: own, ...options })
@@ -28,6 +30,16 @@ describe('nodeContextMenuItems', () => {
     items.forEach((item) => item.action())
     for (const name of ['open', 'editSupermodule', 'makeUnique', 'unnest', 'simulate', 'remove']) expect(own[name]).toHaveBeenCalledWith(superInstanceNode)
     expect(own.replace).not.toHaveBeenCalled()
+  })
+
+  it('gives an interface node Go Up a Level and Fit View, without Nest or Simulate', () => {
+    const own = actions()
+    const node = { id: 'sm_1', type: SUPERMODULE_INTERFACE_NODE_TYPE, data: {} }
+    const items = build(node, false, own, { nestLabel: 'Nest in Super-module' })
+    expect(labels(items)).toEqual(['Go Up a Level', 'Fit View'])
+    items.forEach((item) => item.action())
+    expect(own.goUp).toHaveBeenCalledWith(node)
+    expect(own.fitView).toHaveBeenCalledWith(node)
   })
 
   it('disables Make Unique when the super-module has no other copy', () => {

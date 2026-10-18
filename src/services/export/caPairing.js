@@ -211,7 +211,7 @@ class Components {
  * @param {(id: string) => Array} own - Each node's own ports.
  * @returns {Map<string, string>} Slot key to rule, as in RESIDUAL_REASONS.
  */
-function protectedSlots(nodes, edges, own) {
+export function protectedSlots(nodes, edges, own) {
   const typeOf = (node) => parseModuleRef(node.data?.moduleRef ?? ':').moduleType ?? ''
   const outs = (id) => edges.filter((edge) => edge.source === id).map((edge) => edge.target)
   const inps = (id) => edges.filter((edge) => edge.target === id).map((edge) => edge.source)

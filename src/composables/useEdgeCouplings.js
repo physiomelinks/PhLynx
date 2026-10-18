@@ -1,12 +1,16 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
-import { FLOW_IDS, TARGET_COMPATIBLE } from '../utils/constants'
+import { FLOW_IDS } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
-import { isSingleConnection, portKey, slotOf } from '../utils/edges'
+import { caSlotGroups, isSingleConnection, portKey, slotOf } from '../utils/edges'
 import { scopeOf } from '../utils/hierarchy'
 import { exposedSlotKeys } from '../services/hierarchy/exposure'
-import { isCompatible, findPort } from '../utils/ports'
+import { isCompatible, findPort, SOURCE_PORT_TYPES, TARGET_PORT_TYPES, variableCount, VESSEL_PORT } from '../utils/ports'
+import { couplingProblems, pairingRefusal } from '../services/coupling/caReproducible'
 import { isMultiport } from '../utils/multiport'
+
+// How long the dialog waits after an edit before checking its couplings again, so typing doesn't re-expand the model.
+export const PROBLEM_DELAY_MS = 150
 
 export function useEdgeCouplings(props, askSwapIntent) {
   const localSrcPorts = ref([])
@@ -15,6 +19,13 @@ export function useEdgeCouplings(props, askSwapIntent) {
   const localSubgraph = ref(new Map())
   const portUsage = new Map()
   const takenElsewhereUids = ref(new Set())
+  // What CA would pair otherwise with the couplings and ports as they are here (see couplingProblems), each with the
+  // local ports it is on.
+  const problems = ref([])
+  // Why the last pairing tried here was refused, or null.
+  const refusal = ref(null)
+  let initialised = false
+  let problemTimer = null
   // The single-connection ports a super-module exposes, held from outside it: never evicted, as no edge here holds them.
   const exposedUids = new Set()
   // The workspace, whose exposure edges say which of a super-module's ports are exposed.
@@ -120,6 +131,9 @@ export function useEdgeCouplings(props, askSwapIntent) {
     indexSiblingPorts()
     pruneInvalidConnections()
     autoConnect()
+    refusal.value = null
+    initialised = true
+    evaluateProblems()
   }
 
   function evictForeignHandle(port, side) {
@@ -232,15 +246,136 @@ export function useEdgeCouplings(props, askSwapIntent) {
     portUsage.set(oldPort._uid, { edgeId, ports: newPort })
   }
 
+  /**
+   * Says why CA can't pair two local ports on this edge beside its other couplings (see pairingRefusal); a port being
+   * added, without variables yet, may pair.
+   *
+   * @param {string} srcUid
+   * @param {string} tgtUid
+   * @param {Array<{srcUid: string, tgtUid: string}>} couplings
+   * @returns {string|null}
+   */
+  function refusalOf(srcUid, tgtUid, couplings) {
+    const others = couplings
+      .filter(c => !(c.srcUid === srcUid && c.tgtUid === tgtUid))
+      .map(c => ({ sourcePort: srcByUid(c.srcUid), targetPort: tgtByUid(c.tgtUid) }))
+    return pairingRefusal(srcByUid(srcUid), tgtByUid(tgtUid), others, { allowEmpty: true })
+  }
+
   function connectPorts(srcUid, tgtUid, couplings) {
     const sp = srcByUid(srcUid)
     const tp = tgtByUid(tgtUid)
     if (!sp || !tp || !sp.label || !tp.label) return couplings
     if (sp.label !== tp.label) return couplings
-    if (!isCompatible(sp.portType, tp.portType)) return couplings
     if (couplings.some(c => c.srcUid === srcUid && c.tgtUid === tgtUid)) return couplings
+    const reason = refusalOf(srcUid, tgtUid, couplings)
+    refusal.value = reason
+    if (reason) return couplings
     return [...couplings, { srcUid, tgtUid }]
   }
+
+  /**
+   * Says why CA can't pair two local ports dragged together, before any port is evicted for them: beside the edge's
+   * couplings but those it would replace, the pair being moved and those of a single-connection end.
+   *
+   * @param {string} srcUid
+   * @param {string} tgtUid
+   * @param {{srcUid: string, tgtUid: string}} [moving] - The coupling a drag moves, if any.
+   * @returns {string|null}
+   */
+  function connectRefusal(srcUid, tgtUid, moving = null) {
+    const sp = srcByUid(srcUid)
+    const tp = tgtByUid(tgtUid)
+    if (!sp || !tp) return null
+    const kept = localCouplings.value.filter(
+      (c) =>
+        !(moving && c.srcUid === moving.srcUid && c.tgtUid === moving.tgtUid) &&
+        !(isSingleConnection(sp) && c.srcUid === srcUid) &&
+        !(isSingleConnection(tp) && c.tgtUid === tgtUid)
+    )
+    return refusalOf(srcUid, tgtUid, kept)
+  }
+
+  /** A coupling as the edge stores it, between two local ports. */
+  function storedCoupling(sp, tp) {
+    const stored = (port) => ({
+      portType: port.portType,
+      label: port.label,
+      variables: port.variables,
+      multiportType: port.multiportType,
+      multiplyFactor: port.multiplyFactor,
+      // A super instance's port is the exposed port it names, so it rebinds by id (see exposure.js)
+      ...(port.exposedPortId != null && { exposedPortId: port.exposedPortId }),
+    })
+    return {
+      sourcePort: stored(sp),
+      targetPort: stored(tp),
+      sourceSlot: slotOf(localSrcPorts.value, sp),
+      targetSlot: slotOf(localTgtPorts.value, tp),
+    }
+  }
+
+  /** @returns {Array} The edge's couplings as it would store them, in the order of localCouplings. */
+  function pendingCouplings() {
+    return localCouplings.value.map((c) => storedCoupling(srcByUid(c.srcUid), tgtByUid(c.tgtUid)))
+  }
+
+  /**
+   * Checks the edge's couplings as they are here against CA's pairing (see couplingProblems): the workspace with the
+   * ends' ports, this edge's couplings and the sibling edges' as edited here. Each problem gives the local ports it is
+   * on: a coupling's two, or a label's on both ends when it concerns no one coupling of this edge.
+   */
+  function evaluateProblems() {
+    clearTimeout(problemTimer)
+    const activeId = props.activeEdge?.id
+    if (!activeId || !props.sourceNode || !props.targetNode) {
+      problems.value = []
+      return
+    }
+    const couplings = pendingCouplings()
+    const ends = new Map([[props.sourceNode.id, localSrcPorts.value], [props.targetNode.id, localTgtPorts.value]])
+    const nodeById = new Map((workspace.nodes?.value ?? []).map((node) => [node.id, node]))
+    for (const node of [props.sourceNode, props.targetNode]) if (!nodeById.has(node.id)) nodeById.set(node.id, node)
+    const nodes = [...nodeById.values()].map((node) =>
+      ends.has(node.id) ? { ...node, data: { ...node.data, ports: ends.get(node.id) } } : node
+    )
+    const edgeById = new Map((workspace.edges?.value ?? []).map((edge) => [edge.id, edge]))
+    for (const [id, edge] of localSubgraph.value) edgeById.set(id, edge)
+    const active = edgeById.get(activeId) ?? props.activeEdge
+    edgeById.set(activeId, { ...active, data: { ...active.data, couplings } })
+
+    const labelUids = (label) => [
+      ...(caSlotGroups(localSrcPorts.value, SOURCE_PORT_TYPES).get(label) ?? []),
+      ...(caSlotGroups(localTgtPorts.value, TARGET_PORT_TYPES).get(label) ?? []),
+    ].map(({ port }) => port._uid)
+    let found
+    try {
+      // Problems on other edges only count where the edit makes them: the workspace as stored is the baseline.
+      const baseline = { nodes: [...nodeById.values()], edges: workspace.edges?.value ?? [] }
+      found = couplingProblems(nodes, [...edgeById.values()], { edgeIds: [activeId], baseline })
+    } catch (error) {
+      // A model the check can't read, such as one mid-edit, blocks nothing.
+      console.warn('Could not check the couplings against CA:', error)
+      found = []
+    }
+    problems.value = found.map((problem) => {
+      const pair = problem.coupling ? localCouplings.value[couplings.indexOf(problem.coupling)] : null
+      const uids = pair ? [pair.srcUid, pair.tgtUid] : problem.edgeId === activeId && problem.label != null ? labelUids(problem.label) : []
+      return { ...problem, uids, pair: pair ?? null }
+    })
+  }
+
+  // Checks again a moment after the couplings or ports change here.
+  watch(
+    () => [localCouplings.value, localSrcPorts.value, localTgtPorts.value, localSubgraph.value],
+    () => {
+      if (!initialised) return
+      clearTimeout(problemTimer)
+      problemTimer = setTimeout(evaluateProblems, PROBLEM_DELAY_MS)
+    },
+    { deep: true }
+  )
+  if (getCurrentScope()) onScopeDispose(() => clearTimeout(problemTimer))
 
   function pruneInvalidConnections() {
     localCouplings.value = localCouplings.value.filter(c => {
@@ -268,25 +403,28 @@ export function useEdgeCouplings(props, askSwapIntent) {
     }
   }
 
+  /**
+   * Couples each label both ends share and the edge leaves uncoupled, as CA would (see resolvePortCouplings): each
+   * side's first free slot in CA's group order, exit or entrance before general; a vessel_port one slot to one, any
+   * other label each free source slot into the target's slot while that takes more than one. Ports with different
+   * numbers of variables are left for the user.
+   */
   function autoConnect() {
-    for (const sp of localSrcPorts.value) {
-      if (!sp.label || !sp.label.trim()) continue
-      
-      const srcUsedCount = localCouplings.value.filter(c => c.srcUid === sp._uid).length
-      if (isSingleConnection(sp) && (srcUsedCount > 0 || takenElsewhereUids.value.has(sp._uid))) continue
+    const isFree = (port, uidKey) =>
+      !isSingleConnection(port) ||
+      !(takenElsewhereUids.value.has(port._uid) || localCouplings.value.some(c => c[uidKey] === port._uid))
+    const coupled = new Set(localCouplings.value.map(c => srcByUid(c.srcUid)?.label))
+    const targetGroups = caSlotGroups(localTgtPorts.value, TARGET_PORT_TYPES)
 
-      const compatibleTargets = localTgtPorts.value.filter(tp => {
-        if (tp.label !== sp.label || !isCompatible(sp.portType, tp.portType)) return false
-        
-        const tgtUsedCount = localCouplings.value.filter(c => c.tgtUid === tp._uid).length
-        if (isSingleConnection(tp) && (tgtUsedCount > 0 || takenElsewhereUids.value.has(tp._uid))) return false
-        if (localCouplings.value.some(c => c.srcUid === sp._uid && c.tgtUid === tp._uid)) return false
-        return true
-      })
-
-      for (const tp of compatibleTargets) {
-        localCouplings.value.push({ srcUid: sp._uid, tgtUid: tp._uid })
-        if (isSingleConnection(sp)) break
+    for (const [label, sources] of caSlotGroups(localSrcPorts.value, SOURCE_PORT_TYPES)) {
+      if (!label || !label.trim() || coupled.has(label) || !targetGroups.has(label)) continue
+      const target = targetGroups.get(label).find(({ port }) => isFree(port, 'tgtUid'))?.port
+      const free = sources.map(({ port }) => port).filter(port => isFree(port, 'srcUid'))
+      if (!target || !free.length) continue
+      const pairsMany = label !== VESSEL_PORT && !isSingleConnection(target)
+      for (const sp of pairsMany ? free : free.slice(0, 1)) {
+        if (variableCount(sp) !== variableCount(target)) continue
+        localCouplings.value.push({ srcUid: sp._uid, tgtUid: target._uid })
       }
     }
   }
@@ -340,6 +478,8 @@ export function useEdgeCouplings(props, askSwapIntent) {
     localCouplings,
     localSubgraph,
     takenElsewhereUids,
+    problems,
+    refusal,
     portLookup,
     srcByUid,
     tgtByUid,
@@ -349,6 +489,9 @@ export function useEdgeCouplings(props, askSwapIntent) {
     evictHandle,
     swapConnections,
     connectPorts,
+    connectRefusal,
+    pendingCouplings,
+    evaluateProblems,
     deletePort,
     activateGhost,
     onPortConfigChange,

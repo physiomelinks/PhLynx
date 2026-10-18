@@ -3,7 +3,7 @@
     :visible="!!question"
     modal
     header="Name Super-module for Circulatory Autogen"
-    :style="{ width: '440px' }"
+    :style="{ width: '440px', maxWidth: '95vw' }"
     @update:visible="(visible) => !visible && prompt.answer(null)"
     @mousedown.stop
     @wheel.stop

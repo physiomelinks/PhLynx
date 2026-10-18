@@ -7,7 +7,7 @@ import { buildFlowSnapshot, hashFlowSnapshot, restoreFlowSnapshot, SNAPSHOT_KIND
 import { expandHierarchy } from '../../../src/services/hierarchy/expand.js'
 import { scopeFlowObject } from '../../../src/services/simulation/scopedModel.js'
 import { getHandleId } from '../../../src/utils/handles.js'
-import { connect, exposed, exposures, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
+import { connect, exposed, exposures, module, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 import { modelOf, nestedGraph, vessel } from '../fixtures/hierarchy/saveFormat.js'
 
 const library = {
@@ -77,6 +77,20 @@ describe('buildFlowSnapshot', () => {
       ['e1#0', 'dndnode_1_b', 'dndnode_2'],
       ['dndnode_1_sm_1_a--sm_1_b', 'dndnode_1_a', 'dndnode_1_b'],
     ])
+  })
+
+  it('places a flat part’s module two levels down at every level’s offset added up', () => {
+    const at = (node, x, y) => ({ ...node, position: { x, y } })
+    const wall = at(module('dndnode_0', 'wall', { scope: 'sm_2' }), 5, 7)
+    const chamber = supermodule('sm_2', 'chamber')
+    const lv = at(superInstance([chamber, wall], 'dndnode_0', 'lv', 'sm_2', { scope: 'sm_1' }), 100, 200)
+    const inner = [supermodule('sm_1', 'heart'), lv, chamber, wall]
+    const root = [at(superInstance(inner, 'dndnode_1', 'left', 'sm_1'), 1000, 2000), module('dndnode_2', 'pump')]
+    const flow = { nodes: [...root, ...inner], edges: [] }
+    // Part of the model, so the snapshot is flat.
+    const modelId = expandHierarchy(flow.nodes, flow.edges).nodes.find((node) => node.id !== 'dndnode_2').id
+    const snapshot = roundTrip(flow, { nodeIds: [modelId] })
+    expect(snapshot.nodeData.map((node) => node.position)).toEqual([{ x: 1105, y: 2207 }])
   })
 
   it('joins a flat part’s edges at handles its modules show, one of its own where the edge met a super instance', () => {

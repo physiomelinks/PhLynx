@@ -467,3 +467,20 @@ export function supermoduleDepth(graph, smId) {
   const depth = depthOf(smId)
   return depth > MAX_NESTING_DEPTH ? Infinity : depth
 }
+
+/**
+ * Gets the super instance Enter opens: the one selected node, when it is a super instance, and Enter was pressed on the
+ * canvas itself (or nothing focused), not on a field, button or menu.
+ *
+ * @param {KeyboardEvent} event
+ * @param {Array} selectedNodes - The canvas selection.
+ * @param {Element|null} canvasEl - The canvas's element.
+ * @returns {string|null} Its id; null when Enter opens nothing.
+ */
+export function superInstanceToEnter(event, selectedNodes, canvasEl) {
+  if (event.key !== 'Enter' || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null
+  const target = event.target
+  const onCanvas = target === target?.ownerDocument?.body || !!canvasEl?.contains(target)
+  if (!onCanvas || target.closest?.('input, textarea, select, button, a, [role="button"], [role="menu"], [contenteditable="true"]')) return null
+  return selectedNodes.length === 1 && isSuperInstance(selectedNodes[0]) ? selectedNodes[0].id : null
+}

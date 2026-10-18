@@ -1,18 +1,22 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useExposure } from './useExposure'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
+import { couplingProblems } from '../services/coupling/caReproducible'
 import { exposedSlotKeys } from '../services/hierarchy/exposure'
 import { FLOW_IDS } from '../utils/constants'
 import { buildUsedPortKeys, checkAndClaimCouplings, resolvePortCouplings } from '../utils/edges'
 import { getHandleUidFromHandleId } from '../utils/handles'
 import { isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 import { notify } from '../utils/notify'
+import { escapeHtml } from '../utils/importBatch'
 import { detachReactivity } from '../utils/reactivity'
 
 /**
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
  * asks before replacing an existing connection between the same instances, and adds the edge
- * with its resolved port couplings. A connection needing a port with no free slot is refused.
+ * with its resolved port couplings. A connection needing a port with no free slot is refused, as is one whose
+ * couplings circulatory_autogen would pair otherwise (see couplingProblems), with why: the dialog couldn't make it
+ * pair as CA does without the ports changed, which is the instance editor's to do.
  * A super instance connects like a module, through the ports its super-module exposes. Inside a
  * super-module, an exposed single-connection port is taken, by the connection from outside.
  *
@@ -120,6 +124,26 @@ export function useConnect({
       return
     }
 
+    const edgeId = `${connection.source}--${connection.target}`
+    const others = edges.value.filter((e) => e !== duplicate && e.id !== edgeId)
+    let problems = []
+    try {
+      problems = couplingProblems(nodes.value, [...others, { ...connection, id: edgeId, data: { couplings } }], {
+        edgeIds: [edgeId],
+      })
+    } catch (error) {
+      // A model the check can't read blocks nothing, as in the dialog.
+      console.warn('Could not check the couplings against CA:', error)
+    }
+    if (problems.length) {
+      notify.error({
+        title: 'Connection Not Made',
+        message: [...new Set(problems.map((problem) => escapeHtml(problem.message)))].join('<br>'),
+        duration: 8000,
+      })
+      return
+    }
+
     const sourceHandleUid = connection.sourceHandle ? getHandleUidFromHandleId(connection.sourceHandle) : null
     const targetHandleUid = connection.targetHandle ? getHandleUidFromHandleId(connection.targetHandle) : null
 
@@ -182,7 +206,7 @@ export function useConnect({
     const newEdge = {
       ...connection,
       ...edgeLineOptions,
-      id: `${connection.source}--${connection.target}`,
+      id: edgeId,
       data: {
         couplings,
       },

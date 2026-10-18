@@ -30,6 +30,13 @@
           </div>
         </div>
         <div style="flex-grow: 1; min-width: 1.5em"></div>
+        <div v-if="problemCount" class="status-indicator super-instance-problems">
+          <i
+            class="pi pi-exclamation-triangle warning-icon"
+            :aria-label="problemsTooltip"
+            v-tooltip.top="problemsTooltip"
+          ></i>
+        </div>
         <Button
           rounded
           iconOnly
@@ -88,6 +95,7 @@ import NodeHandles from './NodeHandles.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import { useCanvasLevel } from '../composables/useCanvasLevel'
 import { useExposedPortOwners } from '../composables/useExposure'
+import { useSuperInstanceProblems } from '../composables/useModuleProblems'
 import { useNodeChrome } from '../composables/useNodeChrome'
 import { useSupermodules } from '../composables/useSupermodules'
 import { sanitiseName } from '../utils/identifiers'
@@ -134,6 +142,7 @@ const {
 const canvasLevel = useCanvasLevel(flowId)
 const { find } = useSupermodules(flowId)
 const ownersOf = useExposedPortOwners(flowId)
+const problemsOf = useSuperInstanceProblems(flowId)
 
 // Its super-module's entry: name and label; undefined when missing.
 const supermodule = computed(() => find(props.data.smId))
@@ -145,6 +154,14 @@ const portsTooltip = computed(() => {
     .map((port) => (owners.get(port.exposedPortId) ? `${port.label} — ${owners.get(port.exposedPortId)}` : port.label))
     .join('\n')
 })
+
+// How many modules inside, as this placement expands, have a parameter without a value or units not defined.
+const problemCount = computed(() => problemsOf(props.id))
+const problemsTooltip = computed(() =>
+  problemCount.value === 1
+    ? '1 module inside is missing a parameter value or units'
+    : `${problemCount.value} modules inside are missing parameter values or units`
+)
 
 /** Shows the super-module's nodes, as this super instance's. */
 function open() {

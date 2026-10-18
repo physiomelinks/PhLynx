@@ -1,6 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
+import { warnCouplingProblems } from '../services/coupling/loadWarning'
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
@@ -38,7 +39,7 @@ export function useCellmlDrop({
   onDropModule,
   flowId = FLOW_IDS.MAIN,
 }) {
-  const { addEdges, addNodes, nodes, toObject } = useVueFlow(flowId)
+  const { addEdges, addNodes, edges, nodes, toObject } = useVueFlow(flowId)
 
   /** True while files from the OS are dragged over the workspace. */
   const isFileDragOver = ref(false)
@@ -163,6 +164,7 @@ export function useCellmlDrop({
         await loadFromCellML(parsedCellmlPayload, entry.name, parameters, { encapsulation })
 
         rebuildNodeEdgeIndex()
+        warnCouplingProblems(nodes.value, edges.value)
 
         return [result]
       }

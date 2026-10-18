@@ -76,11 +76,6 @@ export const PAD      = 10          // top/bottom canvas padding
 export const AUTOSCROLL_ZONE = 60   // px from canvas edge that triggers autoscroll
 export const AUTOSCROLL_SPEED = 10  // max px per frame
 
-export const TARGET_COMPATIBLE = {
-  entrance_ports: new Set(['general_ports']),
-  exit_ports:    new Set(['entrance_ports', 'general_ports']),
-  general_ports: new Set(['entrance_ports', 'exit_ports', 'general_ports']),
-}
 export const CELLML_NS = 'http://www.cellml.org/cellml/2.0#'
 export const MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
 export const BQBIOL_NS = 'http://biomodels.net/biology-qualifiers/'

@@ -38,6 +38,48 @@ describe('useEdgeCouplings', () => {
     ])
   })
 
+  describe('as CA pairs', () => {
+    const port = (portType, label, variables = ['v'], multiportType = 'None') => ({ label, portType, variables, multiportType })
+    const open = (sourcePorts, targetPorts, couplings = []) => {
+      const edge = { id: 's--t', source: 's', target: 't', data: { couplings } }
+      const props = {
+        sourceNode: { id: 's', data: { ports: sourcePorts } },
+        targetNode: { id: 't', data: { ports: targetPorts } },
+        activeEdge: edge,
+        subgraph: new Map([[edge.id, edge]]),
+      }
+      const state = useEdgeCouplings(props, vi.fn())
+      state.initLocalState()
+      const pairs = () =>
+        state.localCouplings.value.map(({ srcUid, tgtUid }) => [state.localSrcPorts.value.findIndex((p) => p._uid === srcUid), state.localTgtPorts.value.findIndex((p) => p._uid === tgtUid)])
+      return { state, pairs }
+    }
+
+    it('auto-connects one vessel_port pair, exit before general and entrance before general', () => {
+      const { pairs } = open(
+        [port('general_ports', 'vessel_port'), port('exit_ports', 'vessel_port')],
+        [port('general_ports', 'vessel_port'), port('entrance_ports', 'vessel_port', ['v'], 'True')]
+      )
+      expect(pairs()).toEqual([[1, 1]])
+    })
+
+    it('never auto-connects from an entrance port, nor ports with different numbers of variables', () => {
+      const { pairs } = open([port('entrance_ports', 'p'), port('exit_ports', 'q', ['a', 'b'])], [port('general_ports', 'p'), port('entrance_ports', 'q')])
+      expect(pairs()).toEqual([])
+    })
+
+    it('refuses a second target for a source slot, and ports with different numbers of variables', () => {
+      const { state, pairs } = open(
+        [port('exit_ports', 'p', ['v'], 'True'), port('exit_ports', 'q', ['a', 'b'])],
+        [port('entrance_ports', 'p', ['v'], 'True'), port('general_ports', 'p'), port('entrance_ports', 'q')]
+      )
+      expect(pairs()).toEqual([[0, 0]])
+      const [src, tgt] = [state.localSrcPorts.value, state.localTgtPorts.value]
+      expect(state.connectPorts(src[0]._uid, tgt[1]._uid, state.localCouplings.value)).toBe(state.localCouplings.value)
+      expect(state.connectPorts(src[1]._uid, tgt[2]._uid, state.localCouplings.value)).toBe(state.localCouplings.value)
+    })
+  })
+
   describe('inside a super-module', () => {
     afterEach(() => {
       flowNodes.value = []

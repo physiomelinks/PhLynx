@@ -1,5 +1,12 @@
 <template>
-  <div :class="['port-row', `port-row--${side}`, rowClass, { 'row--valid-target': isValidTarget }]">
+  <div :class="['port-row', `port-row--${side}`, rowClass, { 'row--valid-target': isValidTarget, 'row--problem': problems.length }]">
+    <!-- What CA would pair otherwise through this port, on hover -->
+    <i
+      v-if="problems.length"
+      class="pi pi-exclamation-triangle port-problem"
+      :aria-label="problems.join(' ')"
+      v-tooltip.top="{ value: problems.join(' '), showDelay: 100 }"
+    />
     <!-- Target Side Handle -->
     <Handle
       v-if="side === 'target'"
@@ -142,6 +149,11 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // Why CA would pair otherwise through this port (see couplingProblems).
+  problems: {
+    type: Array,
+    default: () => [],
+  },
 })
 
 defineEmits(['change', 'start-drag', 'delete'])
@@ -167,6 +179,26 @@ const handleClass = computed(() => {
 </script>
 
 <style scoped>
+.row--problem {
+  border-color: var(--p-red-500, #ef4444) !important;
+}
+
+/* Outside the row, on the side away from its handle. */
+.port-problem {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--p-red-500, #ef4444);
+  z-index: 11;
+}
+.port-row--source .port-problem {
+  left: -13px;
+}
+.port-row--target .port-problem {
+  right: -15px;
+}
+
 .port-row {
   width: 520px !important;
   height: 44px;

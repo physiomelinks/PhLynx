@@ -4,7 +4,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import LibraryArea from '../../../src/components/LibraryArea.vue'
 import useDragAndDrop from '../../../src/composables/useDnD.js'
@@ -35,13 +35,22 @@ describe('LibraryArea super-modules', () => {
   }
   const cards = () => wrapper.findAll('.mlc__card--supermodule:not(.mlc__card--empty-supermodule)')
   const card = (smId) => wrapper.find(`[data-supermodule="${smId}"]`)
+  // Types into the search box and waits out its debounce, as every list filters on it.
+  const search = async (text) => {
+    await wrapper.find('.mlc__search input').setValue(text)
+    vi.advanceTimersByTime(150)
+    await nextTick()
+  }
 
   beforeEach(async () => {
     setActivePinia(createPinia())
     level.reset()
     await flow.fromObject(level.withVisibility(graph()))
   })
-  afterEach(() => wrapper?.unmount())
+  afterEach(() => {
+    wrapper?.unmount()
+    vi.useRealTimers()
+  })
 
   it('lists the workspace’s super-modules with how many super instances each has', () => {
     mountLibrary()
@@ -95,10 +104,25 @@ describe('LibraryArea super-modules', () => {
     expect(data.size).toBe(0)
   })
 
-  it('filters by the search text', async () => {
+  it('filters by the search text, once typing stops, as the module collections do', async () => {
+    vi.useFakeTimers()
     mountLibrary()
     await wrapper.find('.mlc__search input').setValue('argus')
+    expect(cards()).toHaveLength(2)
+    vi.advanceTimersByTime(150)
+    await nextTick()
     expect(cards().map((entry) => entry.attributes('data-supermodule'))).toEqual(['sm_1'])
+  })
+
+  it('says nothing matches only when no super-module, Empty super-module or module does', async () => {
+    vi.useFakeTimers()
+    mountLibrary()
+    await search('heart')
+    expect(wrapper.find('.mlc__empty').exists()).toBe(false)
+    await search('empty')
+    expect(wrapper.find('.mlc__empty').exists()).toBe(false)
+    await search('zzz')
+    expect(wrapper.find('.mlc__empty-text').text()).toBe("No modules match 'zzz'")
   })
 
   describe('the Empty super-module entry', () => {
@@ -119,12 +143,13 @@ describe('LibraryArea super-modules', () => {
     })
 
     it('shows with no super-modules yet, but not outside the workspace’s palette or past the filter', async () => {
+      vi.useFakeTimers()
       await flow.fromObject({ nodes: [], edges: [] })
       mountLibrary()
       expect(entry().exists()).toBe(true)
-      await wrapper.find('.mlc__search input').setValue('heart')
+      await search('heart')
       expect(entry().exists()).toBe(false)
-      await wrapper.find('.mlc__search input').setValue('empty')
+      await search('empty')
       expect(entry().exists()).toBe(true)
       wrapper.unmount()
       mountLibrary({ showSupermodules: true, selectable: true })

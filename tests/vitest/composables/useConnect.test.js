@@ -139,8 +139,11 @@ describe('useConnect', () => {
       expect(deps.activateHandle).not.toHaveBeenCalled()
     })
 
+    // A vessel_port, which CA pairs one slot to one slot: another label pairs every free source slot on a connection.
     it('picks the next port slot for later edges from the same source', async () => {
-      nodes.value[0].data.ports = [port('exit_ports', 'flow', ['x']), port('exit_ports', 'flow', ['y'])]
+      nodes.value[0].data.ports = [port('exit_ports', 'vessel_port', ['x']), port('exit_ports', 'vessel_port', ['y'])]
+      nodes.value[1].data.ports = [port('entrance_ports', 'vessel_port', ['v'])]
+      nodes.value[2].data.ports = [port('entrance_ports', 'vessel_port', ['v'])]
       await connect({ source: 'a', target: 'b', sourceHandle: 'handle_s1', targetHandle: 'handle_t1' })
       await connect({ source: 'a', target: 'c', sourceHandle: 'handle_s2', targetHandle: 'handle_t2' })
 
@@ -151,8 +154,9 @@ describe('useConnect', () => {
 
   describe('target port slots', () => {
     it('picks the next port slot for later edges into the same target', async () => {
+      nodes.value[0].data.ports = [port('exit_ports', 'flow', ['v'])]
       nodes.value[1].data.ports = [port('entrance_ports', 'flow', ['x']), port('entrance_ports', 'flow', ['y'])]
-      nodes.value[2].data.ports = [port('exit_ports', 'flow')]
+      nodes.value[2].data.ports = [port('exit_ports', 'flow', ['v'])]
       await connect({ source: 'a', target: 'b', sourceHandle: 'handle_s1', targetHandle: 'handle_t1' })
       await connect({ source: 'c', target: 'b', sourceHandle: 'handle_s2', targetHandle: 'handle_t2' })
 
@@ -354,10 +358,11 @@ describe('useConnect', () => {
   describe('repeated port slots', () => {
     const link = (source, target) => ({ source, target, sourceHandle: `handle_${source}${target}`, targetHandle: `handle_${target}${source}` })
 
+    // A vessel_port, which CA pairs one slot to one slot: another label pairs every free source slot on a connection.
     beforeEach(() => {
       nodes.value = [
-        createNode('s', [port('exit_ports', 'flow', ['x']), port('exit_ports', 'flow', ['y'])]),
-        ...['a', 'b', 'c', 'd'].map((id) => createNode(id, [port('entrance_ports', 'flow', [id])])),
+        createNode('s', [port('exit_ports', 'vessel_port', ['x']), port('exit_ports', 'vessel_port', ['y'])]),
+        ...['a', 'b', 'c', 'd'].map((id) => createNode(id, [port('entrance_ports', 'vessel_port', [id])])),
       ]
     })
 
@@ -375,7 +380,7 @@ describe('useConnect', () => {
     })
 
     it('picks the same slot whatever the order of the existing edges', async () => {
-      nodes.value[0].data.ports.push(port('exit_ports', 'flow', ['z']))
+      nodes.value[0].data.ports.push(port('exit_ports', 'vessel_port', ['z']))
       await connect(link('s', 'a'))
       await connect(link('s', 'b'))
       await connect(link('s', 'd'))
@@ -403,12 +408,12 @@ describe('useConnect', () => {
       expect(deps.confirmActivation).not.toHaveBeenCalled()
       expect(deps.activateHandle).not.toHaveBeenCalled()
       expect(notified.error).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.stringContaining('"s" has no free "flow" slot') })
+        expect.objectContaining({ message: expect.stringContaining('"s" has no free "vessel_port" slot') })
       )
     })
 
     it('shares a multiport slot between edges', async () => {
-      nodes.value[0].data.ports = [{ ...port('exit_ports', 'flow', ['x']), multiportType: 'True' }]
+      nodes.value[0].data.ports = [{ ...port('exit_ports', 'vessel_port', ['x']), multiportType: 'True' }]
       await connect(link('s', 'a'))
       await connect(link('s', 'b'))
 
@@ -423,6 +428,48 @@ describe('useConnect', () => {
 
       expect(notified.error).not.toHaveBeenCalled()
       expect(slotOfEdge('s--b')).toBe(1)
+    })
+  })
+  describe('as CA pairs', () => {
+    const expectRefused = (pattern) => {
+      expect(edges.value).toHaveLength(0)
+      expect(deps.confirmActivation).not.toHaveBeenCalled()
+      expect(deps.activateHandle).not.toHaveBeenCalled()
+      expect(notified.error).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connection Not Made', message: expect.stringMatching(pattern) }))
+    }
+
+    it('refuses ports of different numbers of variables, and says why', async () => {
+      nodes.value = [createNode('a', [port('exit_ports', 'flow', ['x', 'y'])]), createNode('b', [port('entrance_ports', 'flow', ['v'])])]
+      await connect({ source: 'a', target: 'b', sourceHandle: 'handle_s1', targetHandle: 'handle_t1' })
+      expectRefused(/source port has 2 and the target port 1/)
+    })
+
+    it('refuses a label CA would pair from every free source slot into a one-connection slot', async () => {
+      nodes.value = [
+        createNode('a', [port('exit_ports', 'flow', ['x']), port('exit_ports', 'flow', ['y'])]),
+        createNode('b', [port('entrance_ports', 'flow', ['v'])]),
+      ]
+      await connect({ source: 'a', target: 'b', sourceHandle: 'handle_s1', targetHandle: 'handle_t1' })
+      expectRefused(/first free flow slot/)
+    })
+
+    it('escapes the names it gives, as the toast shows HTML', async () => {
+      nodes.value = [
+        createNode('a', [port('exit_ports', 'flow', ['x']), port('exit_ports', 'flow', ['y'])]),
+        createNode('b', [port('entrance_ports', 'flow', ['v'])]),
+      ]
+      nodes.value[0].data.name = '<b>a</b>'
+      await connect({ source: 'a', target: 'b', sourceHandle: 'handle_s1', targetHandle: 'handle_t1' })
+      const { message } = notified.error.mock.calls[0][0]
+      expect(message).toContain('&lt;b&gt;a&lt;/b&gt;')
+      expect(message).not.toContain('<b>')
+    })
+
+    it('makes a connection CA reproduces', async () => {
+      nodes.value = [createNode('a', [port('exit_ports', 'vessel_port', ['v'])]), createNode('b', [port('entrance_ports', 'vessel_port', ['v'])])]
+      await connect({ source: 'a', target: 'b', sourceHandle: 'handle_s1', targetHandle: 'handle_t1' })
+      expect(notified.error).not.toHaveBeenCalled()
+      expect(edges.value).toHaveLength(1)
     })
   })
 })
