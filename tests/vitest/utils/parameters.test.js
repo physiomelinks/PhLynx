@@ -48,6 +48,61 @@ describe('applyParametersToNodes', () => {
   })
 })
 
+describe('applyParametersToNodes with <instance>/<variable> names', () => {
+  const csvRow = (line) => {
+    const [variable_name, units, value, data_reference] = line.split(',')
+    return { variable_name, units, value, data_reference }
+  }
+  const dimensionless = (name, value) => row(name, 'constant', value, 'dimensionless')
+
+  it("applies CUFLynx's send-back to the named instance's rows", () => {
+    const nodes = [
+      node('A', [dimensionless('p', '1')]),
+      node('B', [dimensionless('q', '5')]),
+      node('C', [dimensionless('q', '1')]),
+    ]
+    const { variablesById, updated, skipped } = applyParametersToNodes(
+      nodes,
+      ['C/q,dimensionless,3.0,', 'A/p,dimensionless,1.0,'].map(csvRow)
+    )
+
+    expect(updated).toBe(2)
+    expect(skipped).toEqual([])
+    expect(variablesById.get('C')[0].value).toBe('3.0')
+    expect(variablesById.get('A')[0].value).toBe('1.0')
+    expect(variablesById.has('B')).toBe(false)
+  })
+
+  it("applies a nested name to its last instance's node, unless another path ends in that instance", () => {
+    const lv = node('lv', [dimensionless('E_A', '1'), dimensionless('E_B', '1')])
+    const { variablesById, updated, skipped } = applyParametersToNodes(
+      [lv],
+      ['heart/lv/E_A,dimensionless,2,', 'heart/lv/E_B,dimensionless,3,', 'lung/lv/E_B,dimensionless,4,'].map(csvRow)
+    )
+
+    expect(updated).toBe(1)
+    expect(variablesById.get('lv').map(({ value }) => value)).toEqual(['2', '1'])
+    expect(skipped).toEqual([
+      { nodeName: 'heart/lv', name: 'E_B', ambiguous: true },
+      { nodeName: 'lung/lv', name: 'E_B', ambiguous: true },
+    ])
+    expect(skippedParametersMessage(skipped)).toBe(
+      "2 values weren't applied, as their nested names match more than one instance: heart/lv/E_B, lung/lv/E_B."
+    )
+  })
+
+  it('keeps reading <variable>_<instance> names, with the slash name winning for the same row', () => {
+    const nodes = [node('C', [dimensionless('q', '1'), dimensionless('r', '1')])]
+    const { variablesById, updated } = applyParametersToNodes(
+      nodes,
+      ['q_C,dimensionless,2,', 'C/q,dimensionless,3,', 'r_C,dimensionless,4,'].map(csvRow)
+    )
+
+    expect(updated).toBe(2)
+    expect(variablesById.get('C').map(({ value }) => value)).toEqual(['3', '4'])
+  })
+})
+
 describe('applyParameterValues', () => {
   it('keeps each type, and lists the computed rows it leaves alone', () => {
     const values = { BC: { value: ' 3 ' }, x: { value: '4' } }
