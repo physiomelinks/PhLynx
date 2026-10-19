@@ -194,6 +194,31 @@ export function buildGhostHandles(
   return handles
 }
 
+/**
+ * Gets the style and corner flag of every handle in one pass.
+ *
+ * @param {Array<Object>} allHandles - The node's handles.
+ * @returns {Map<string, {style: Object, isCorner: boolean}>} Keyed by handle uid.
+ */
+export function getHandleLayout(allHandles) {
+  const bySide = new Map()
+  for (const handle of allHandles) {
+    if (!bySide.has(handle.side)) bySide.set(handle.side, [])
+    bySide.get(handle.side).push(handle)
+  }
+
+  const layout = new Map()
+  for (const handlesOfSameType of bySide.values()) {
+    handlesOfSameType.forEach((handle, index) => {
+      layout.set(handle.uid, {
+        style: getHandleStyle(handle, handlesOfSameType),
+        isCorner: index === 0 || index === handlesOfSameType.length - 1,
+      })
+    })
+  }
+  return layout
+}
+
 export function isCornerHandle(handle, allHandles) {
   const handlesOfSameType = allHandles.filter((h) => h.side === handle.side)
   const n = handlesOfSameType.length

@@ -22,7 +22,17 @@ export function useWorkflowLayout({ fitViewParams } = {}) {
   let layoutCompleteResolve = null
   let layoutCompleteReject = null
 
-  const prepareLayout = (edges, progressCallback = null) => {
+  /**
+   * Arms the layout for the nodes about to be added; resolves once they are laid out.
+   *
+   * @param {Array} edges - Edges to add after layout.
+   * @param {Function} [progressCallback]
+   * @param {number} [nodeCount] - Nodes about to be added; 0 resolves at once, as no nodes means no layout event.
+   * @returns {Promise<void>}
+   */
+  const prepareLayout = (edges, progressCallback = null, nodeCount = null) => {
+    if (nodeCount === 0) return Promise.resolve()
+
     pendingEdges = edges
     pendingProgressCallback = progressCallback
     layoutPending.value = true

@@ -106,12 +106,19 @@ describe('buildPlotConfig', () => {
 })
 
 describe('buildPlotVariableRows', () => {
-  it('lists only computed variables, carrying an existing selection’s group', () => {
+  it('lists every row, constants included, carrying an existing selection’s group', () => {
     const rows = buildPlotVariableRows([createNode('b'), createNode('a')], new Map([['a::y', selectionOf('a', 'y', 'plot-2')]]))
 
-    expect(rows.map((row) => row.key)).toEqual(['a::x', 'a::y', 'b::x', 'b::y'])
-    expect(rows[1]).toMatchObject({ plot: true, groupId: 'plot-2', selected: false })
-    expect(rows[0]).toMatchObject({ plot: false, groupId: null })
+    expect(rows.map((row) => row.key)).toEqual(['a::k', 'a::x', 'a::y', 'b::k', 'b::x', 'b::y'])
+    expect(rows[2]).toMatchObject({ plot: true, groupId: 'plot-2', selected: false })
+    expect(rows[1]).toMatchObject({ plot: false, groupId: null })
+  })
+
+  it('lists a boundary condition, which plots its owner’s series', () => {
+    const node = createNode('a')
+    node.data.variables.push({ name: 'p_in', units: 'Pa', type: 'boundary_condition' })
+
+    expect(buildPlotVariableRows([node], new Map()).map((row) => row.key)).toContain('a::p_in')
   })
 })
 
@@ -164,10 +171,11 @@ describe('setNodePlotVariables', () => {
     expect(next.selections[0]).toMatchObject({ nodeName: 'renamed', units: 'metre' })
   })
 
-  it('skips constants, missing variables and duplicates', () => {
+  it('keeps constants, and skips missing variables and duplicates', () => {
     const next = setNodePlotVariables({}, createNode('a'), [{ name: 'k' }, { name: 'gone' }, { name: 'x' }, { name: 'x' }])
 
-    expect(next.selections.map((selection) => selection.key)).toEqual(['a::x'])
+    expect(next.selections.map((selection) => selection.key)).toEqual(['a::k', 'a::x'])
+    expect(next.selections[0]).toMatchObject({ type: 'constant', units: 'per_second' })
   })
 
   it('keeps a variable whose group no longer exists ungrouped', () => {
@@ -191,13 +199,29 @@ describe('resolvePlotConfig', () => {
       selectionOf('a', 'x', 'plot-1', { nodeName: 'stale' }),
       selectionOf('a', 'removed', 'plot-1'),
       selectionOf('deleted', 'x', 'plot-2'),
-      selectionOf('a', 'k', 'plot-2'),
     ])
 
     const resolved = resolvePlotConfig(config, [createNode('a', 'current')])
 
     expect(resolved.selections).toEqual([selectionOf('a', 'x', 'plot-1', { nodeName: 'current' })])
     expect(resolved.groupedSelections.map((group) => group.id)).toEqual(['plot-1'])
+  })
+
+  it('keeps a plotted constant, as an export plots it', () => {
+    const config = buildPlotConfig(GROUPS, [selectionOf('a', 'x', 'plot-1'), selectionOf('a', 'k', 'plot-2', { type: 'constant' })])
+
+    const resolved = resolvePlotConfig(config, [createNode('a')])
+
+    expect(resolved.selections.map((selection) => [selection.key, selection.type, selection.units])).toEqual([
+      ['a::x', 'variable', 'metre'],
+      ['a::k', 'constant', 'per_second'],
+    ])
+  })
+
+  it('keeps a plot against a constant', () => {
+    const config = setPlotXAxis(buildPlotConfig(GROUPS, [selectionOf('a', 'x', 'plot-1')]), 'plot-1', createPlotXAxis(createNode('a'), { name: 'k', units: 'per_second' }))
+
+    expect(resolvePlotConfig(config, [createNode('a')]).groups[0].xAxis).toMatchObject({ key: 'a::k' })
   })
 
   it('resolves an empty config to no selections', () => {

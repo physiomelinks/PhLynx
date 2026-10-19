@@ -78,16 +78,17 @@
         :position="handlePosition(handle.side)"
         :class="['handle',
         `handle--${handle.variant|| 'default'}`,
-        { 'handle--inert': handle.variant === HANDLE_VARIANT.GHOST && selected && isCornerHandle(handle, data.handles)},
+        { 'handle--inert': handle.variant === HANDLE_VARIANT.GHOST && selected && handleLayout.get(handle.uid).isCorner},
         ]"
-        :style="getHandleStyle(handle, data.handles)"
-        v-tooltip.bottom="{ value: handle.name, showDelay: 1000 }"
+        :style="handleLayout.get(handle.uid).style"
+        :title="handle.name"
         @mouseenter="onHandleEnter(handle.uid)"
         @mouseleave="onHandleLeave"
-        @pointerdown="!isEditing && !(selected && isCornerHandle(handle, data.handles)) && handle.variant === HANDLE_VARIANT.GHOST && beginGhostActivation(props.id, handle.uid)"
+        @pointerdown="!isEditing && !(selected && handleLayout.get(handle.uid).isCorner) && handle.variant === HANDLE_VARIANT.GHOST && beginGhostActivation(props.id, handle.uid)"
       >
+        <!-- v-if, not v-show: a large workspace has thousands of handles, and a hidden Button per handle made loading and re-rendering slow. -->
         <Button
-          v-show="hoveredHandleUid === handle.uid && handle.variant !== HANDLE_VARIANT.GHOST"
+          v-if="hoveredHandleUid === handle.uid && handle.variant !== HANDLE_VARIANT.GHOST"
           :class="['delete-handle-popover-btn', 'popover-' + handle.side]"
           icon="pi pi-trash"
           severity="danger"
@@ -116,7 +117,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
-import { getHandleId, getHandleStyle, handlePosition, isCornerHandle } from '../utils/handles'
+import { getHandleId, getHandleLayout, handlePosition } from '../utils/handles'
 import { sanitiseName } from '../utils/identifiers'
 import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
@@ -220,6 +221,9 @@ const applyHandles = async (handlesToSet) => {
   await nextTick()
   updateNodeInternals(props.id)
 }
+
+// One pass over the handles, instead of one filter per handle on every render.
+const handleLayout = computed(() => getHandleLayout(props.data.handles))
 
 const hoveredHandleUid = ref(null)
 let enterTimeout = null

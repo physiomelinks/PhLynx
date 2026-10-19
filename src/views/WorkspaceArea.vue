@@ -394,13 +394,23 @@
           </div>
         </div>
 
-        <div class="dnd-flow" @drop="onDrop" @dragover.prevent @dragenter.prevent>
+        <div
+          class="dnd-flow"
+          @drop="onDrop"
+          @dragover.prevent
+          @dragenter.prevent
+          @dragleave="onFileDragLeave"
+        >
           <Transition name="fade">
-            <div v-if="isUrlLoading" class="flow-loading-overlay">
+            <div v-if="isUrlLoading || dropLoadingMessage" class="flow-loading-overlay">
               <i class="pi pi-spin pi-spinner loading-icon" />
-              <span>Populating Workspace...</span>
+              <span>{{ isUrlLoading ? 'Populating Workspace...' : dropLoadingMessage }}</span>
             </div>
           </Transition>
+          <div v-if="isFileDragOver && !dropLoadingMessage" class="file-drop-overlay">
+            <i class="pi pi-file-import file-drop-icon" />
+            <span>Drop .cellml or .omex files to load</span>
+          </div>
           <Toast
             v-if="!isUrlLoading"
             position="top-right"
@@ -442,6 +452,7 @@
             :nodes="nodes"
             :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
           >
+            <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
             <MiniMap :pannable="true" :zoomable="true" :node-color="miniMapNodeColour" class="mini-map" />
             <Controls :fit-view-params="fitViewParams">
@@ -457,7 +468,6 @@
                 :id="props.id"
                 :data="props.data"
                 :selected="props.selected"
-                :class="getNodeClass(props)"
                 @open-instance-editor="onOpenInstanceEditorDialog"
                 @open-context-menu="onNodeContextMenu"
                 :ref="(el) => (nodeRefs[props.id] = el)"
@@ -871,7 +881,7 @@ const {
   onSearchFocus,
   onSearchBlur,
   onSearchKeydown,
-  getNodeClass,
+  highlightCss,
 } = useWorkspaceSearch({ nodes, findNode, zoomToNode })
 
 /**
@@ -1107,7 +1117,7 @@ const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackE
   })
 }
 
-const { loadCellMLFiles, onDragOver, onDrop } = useCellmlDrop({
+const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dropLoadingMessage } = useCellmlDrop({
   loadCellMLData,
   loadFromCellML,
   rebuildNodeEdgeIndex,
@@ -1392,14 +1402,18 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
     const parameters = loadParametersFromCellML(importedCellml)
-    await loadFromCellML(cellmlPayload, result.files.cellml)
+    if (!(await loadFromCellML(cellmlPayload, result.files.cellml))) {
+      throw new Error(`${result.files.cellml} has no modules to place.`)
+    }
   } else {
     // Last, and not great, scenario: if we don't have a flow snapshot or module configuration, we can still load the CellML file to build the workspace.
     const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
     const parameters = loadParametersFromCellML(importedCellml)
-    await loadFromCellML(cellmlPayload, result.files.cellml, parameters)
+    if (!(await loadFromCellML(cellmlPayload, result.files.cellml, parameters))) {
+      throw new Error(`${result.files.cellml} has no modules to place.`)
+    }
   }
 
   if (result.files?.simulationJson) {
@@ -2469,6 +2483,28 @@ watch(
   color: var(--p-primary-color, #409eff);
 }
 
+.file-drop-overlay {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 2px dashed var(--p-primary-color, #409eff);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p-primary-color, #409eff) 8%, transparent);
+  color: var(--p-primary-color, #409eff);
+  font-size: 18px;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.file-drop-icon {
+  font-size: 32px;
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.25s ease-in-out;
@@ -2678,19 +2714,6 @@ watch(
 
 .cursor-pointer {
   cursor: pointer;
-}
-
-.node-search-match {
-  opacity: 1 !important;
-  transition: opacity 0.2s ease;
-  outline: 3px solid var(--p-primary-color);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-.node-search-dimmed {
-  opacity: 0.25 !important;
-  transition: opacity 0.2s ease;
 }
 
 /* While exporting an image: never the edit controls, and warnings only when Settings asks. */
