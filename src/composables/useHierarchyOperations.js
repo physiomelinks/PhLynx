@@ -28,6 +28,9 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 // The fields of an edge kept in place that an edit may change.
 const EDGE_FIELDS = ['data', 'sourceHandle', 'targetHandle']
 
+/** @returns {Object} An edge without what Vue Flow works out to draw it: its end nodes and their positions. */
+const modelEdge = ({ sourceNode: _sourceNode, targetNode: _targetNode, sourceX: _sourceX, sourceY: _sourceY, targetX: _targetX, targetY: _targetY, ...edge }) => edge
+
 /**
  * Gives the structural edits of a flow's hierarchy.
  *
@@ -43,7 +46,8 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
   const { find } = useSupermodules(flowId)
   const allNodes = () => (flow.nodes ?? flow.getNodes ?? NONE).value
   const allEdges = () => (flow.edges ?? flow.getEdges ?? NONE).value
-  const store = () => ({ nodes: detachReactivity(allNodes()), edges: detachReactivity(allEdges()) })
+  // Each edge without its drawn ends, so cloning it doesn't clone both its nodes too.
+  const store = () => ({ nodes: detachReactivity(allNodes()), edges: detachReactivity(allEdges().map(modelEdge)) })
 
   /**
    * Compares an edit's result with the store it was planned on: the data of nodes and edges it keeps that changes,

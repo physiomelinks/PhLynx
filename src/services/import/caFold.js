@@ -39,6 +39,7 @@ import { supermoduleContentHash } from '../hierarchy/operations'
 import { slotOf } from '../../utils/edges'
 import { EXPOSURE_EDGE_TYPE, HANDLE_VARIANT } from '../../utils/constants'
 import { findMostCentralGhostHandle, getHandleId } from '../../utils/handles'
+import { hashText } from '../../utils/hash'
 import { isSuperInstance, isSupermoduleInterface, localNameProblem, nextSequentialId, nodeIdOf, SUPERMODULE_ID_PREFIX } from '../../utils/hierarchy'
 
 const NODE_ID_PREFIX = 'dndnode_'
@@ -85,10 +86,7 @@ export function templateHash(moduleRef, supermodules) {
     template.submodules.forEach((sub) => visit(refOf(sub)))
   }
   visit(moduleRef)
-  const text = JSON.stringify([...seen].sort(([a], [b]) => a.localeCompare(b)))
-  let hash = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0
-  return hash.toString(16).padStart(8, '0')
+  return hashText(JSON.stringify([...seen].sort(([a], [b]) => a.localeCompare(b))))
 }
 
 /**

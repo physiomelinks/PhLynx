@@ -5,14 +5,18 @@
  * the same order.
  *
  * One expansion per workspace, shared by every caller. It reads the nodes' ids, types and data and the edges' model
- * fields only, so moving, measuring or selecting nodes never recomputes it.
+ * fields only, so moving, measuring or selecting nodes never recomputes it. Without hierarchy there is nothing to expand:
+ * the model is built from the ids alone, so an edit to a node's data recomputes it neither; its names and problems are
+ * read from the data when asked.
  */
 import { computed, effectScope } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
+import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { expandHierarchy } from '../services/hierarchy/expand'
+import { pathOfNames } from '../services/hierarchy/names'
 import { FLOW_IDS } from '../utils/constants'
-import { hasHierarchy, scopeOf } from '../utils/hierarchy'
+import { hasHierarchy, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 
 // A flow without nodes or edges, such as a stub of one, reads as empty.
 const NONE = Object.freeze({ value: Object.freeze([]) })
@@ -27,8 +31,10 @@ const graphs = new WeakMap()
  * @returns {{graph: import('vue').ComputedRef<Object>, modelNodes: import('vue').ComputedRef<Array>,
  *   modelEdges: import('vue').ComputedRef<Array>, errors: import('vue').ComputedRef<Array>,
  *   isHierarchical: import('vue').ComputedRef<boolean>, expandSelection: Function, modelIdOf: Function,
- *   mainIdOf: Function, rootIdOf: Function, findModelNode: Function}} `graph` is expandHierarchy's result; `errors` the
- *   problems builds report, none for a workspace without super instances, whose builds check it as before.
+ *   mainIdOf: Function, rootIdOf: Function, findModelNode: Function, boundary: import('vue').ComputedRef<Object|null>}}
+ *   `graph` is expandHierarchy's result; `errors` the problems builds report, none for a workspace without super
+ *   instances, whose builds check it as before; `boundary` the model's resolveBoundaryValues, null when a malformed
+ *   port stops it (export says why).
  */
 export function useModelGraph(flowId = FLOW_IDS.MAIN) {
   const flow = useVueFlow(flowId)
@@ -48,15 +54,30 @@ function createModelGraph(flow) {
   const edges = flow.edges ?? NONE
 
   const isHierarchical = computed(() => hasHierarchy(nodes.value, edges.value))
+  // Nothing to expand: no super instance, scope or exposure edge, nor an interface node, which the model leaves out.
+  const isFlat = computed(() => !isHierarchical.value && !nodes.value.some(isSupermoduleInterface))
+  // A flat model's names, as expandHierarchy gives them, and its problems; worked out only when asked for.
+  const flatNames = computed(() => namesOfFlat(nodes.value))
+  const flatErrors = computed(() => expandHierarchy(nodes.value, edges.value).errors)
+  const flat = computed(() => flatModel(nodes.value, edges.value, flatNames, flatErrors))
   const graph = computed(() => {
+    if (isFlat.value) return flat.value
     const expansion = expandHierarchy(nodes.value, edges.value)
-    if (import.meta.env.DEV) assertModel(expansion, nodes.value, edges.value, isHierarchical.value)
+    if (import.meta.env.DEV) assertModel(expansion)
     return expansion
   })
   const modelNodes = computed(() => graph.value.nodes)
   const modelEdges = computed(() => graph.value.edges)
   const errors = computed(() => (isHierarchical.value ? graph.value.errors : []))
   const nodeById = computed(() => new Map(graph.value.nodes.map((node) => [node.id, node])))
+  // Resolved once per model, for every row of every node shown from it.
+  const boundary = computed(() => {
+    try {
+      return resolveBoundaryValues(graph.value.nodes, graph.value.edges)
+    } catch {
+      return null
+    }
+  })
   // Each model node's id by where it comes from: the store's node and the super instances it is expanded through.
   const idByOrigin = computed(() => {
     const { nodes: expanded, origin } = graph.value
@@ -124,7 +145,7 @@ function createModelGraph(flow) {
    */
   const findModelNode = (modelId) => nodeById.value.get(modelId)
 
-  return { graph, modelNodes, modelEdges, errors, isHierarchical, expandSelection, modelIdOf, mainIdOf, rootIdOf, findModelNode }
+  return { graph, modelNodes, modelEdges, errors, isHierarchical, expandSelection, modelIdOf, mainIdOf, rootIdOf, findModelNode, boundary }
 }
 
 /**
@@ -136,20 +157,58 @@ function createModelGraph(flow) {
 const originKey = ({ mainId, instanceChain }) => [...instanceChain, mainId].join('\0')
 
 /**
- * Checks what model consumers rely on, in development: a workspace without super instances expands to its own nodes and
- * edges, and no node of a super-module reaches the model.
+ * Gives a flat model's names as expandHierarchy does: each node's flat name its name, and its path that name alone.
  *
- * @param {Object} expansion - From expandHierarchy.
+ * @param {Array} nodes - The store's.
+ * @returns {{names: Map<string, string>, paths: Map<string, string>, idByName: Map<string, string>}}
+ */
+function namesOfFlat(nodes) {
+  const names = new Map()
+  const paths = new Map()
+  for (const node of nodes) {
+    names.set(node.id, node.data?.name)
+    paths.set(node.id, pathOfNames([node.data?.name]))
+  }
+  const idByName = new Map()
+  for (const [id, path] of paths) if (!idByName.has(path)) idByName.set(path, id)
+  for (const [id, name] of names) idByName.set(name, id)
+  return { names, paths, idByName }
+}
+
+/**
+ * Builds the model of a workspace without hierarchy as expandHierarchy would, from the ids alone: its own nodes and
+ * edges, in their order, each its own origin.
+ *
  * @param {Array} nodes - The store's.
  * @param {Array} edges - The store's.
- * @param {boolean} isHierarchical
- * @throws {Error} When either fails.
+ * @param {import('vue').ComputedRef<ReturnType<typeof namesOfFlat>>} names
+ * @param {import('vue').ComputedRef<Array>} errors - expandHierarchy's.
+ * @returns {ReturnType<typeof expandHierarchy>}
  */
-function assertModel(expansion, nodes, edges, isHierarchical) {
-  const isSame = (expanded, stored) => expanded.length === stored.length && expanded.every((item, i) => item === stored[i])
-  if (!isHierarchical && !(isSame(expansion.nodes, nodes) && isSame(expansion.edges, edges))) {
-    throw new Error('A workspace without super instances must expand to its own nodes and edges.')
+function flatModel(nodes, edges, names, errors) {
+  const origin = new Map()
+  for (const node of nodes) origin.set(node.id, { mainId: node.id, instanceChain: [] })
+  for (const edge of edges) origin.set(edge.id, { mainId: edge.id, instanceChain: [], ...(edge.id && { edgeId: edge.id }) })
+  return {
+    nodes: [...new Set(nodes)],
+    edges: [...edges],
+    origin,
+    nameOf: (id) => names.value.names.get(id),
+    idOf: (name) => names.value.idByName.get(name),
+    pathOf: (id) => names.value.paths.get(id),
+    get errors() {
+      return errors.value
+    },
   }
+}
+
+/**
+ * Checks what model consumers rely on, in development: no node of a super-module reaches the model.
+ *
+ * @param {Object} expansion - From expandHierarchy.
+ * @throws {Error} When it does.
+ */
+function assertModel(expansion) {
   const scoped = expansion.nodes.find((node) => scopeOf(node) !== null)
   if (scoped) throw new Error(`Node "${scoped.id}" of super-module "${scopeOf(scoped)}" reached the model.`)
 }

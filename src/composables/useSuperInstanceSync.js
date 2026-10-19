@@ -57,9 +57,13 @@ function createSync(flow, flowId) {
     }
   }
 
-  /** @returns {boolean} Whether anything was out of step. */
-  function sync() {
-    const changes = materialiseSuperInstances(allNodes(), allEdges())
+  /**
+   * Writes what is out of step, outside the history.
+   *
+   * @param {ReturnType<typeof materialiseSuperInstances>} changes - Worked out on the store as it is now.
+   * @returns {boolean} Whether anything was out of step.
+   */
+  function bringInStep(changes) {
     if (!changes.nodes.size && !changes.couplings.size) return false
     // Found when used, so the workspace's store is the one active now.
     const history = flowId === FLOW_IDS.MAIN ? useFlowHistoryStore() : null
@@ -68,13 +72,11 @@ function createSync(flow, flowId) {
     return true
   }
 
-  watch(
-    pending,
-    (changes) => {
-      if (changes.nodes.size || changes.couplings.size) sync()
-    },
-    { immediate: true }
-  )
+  /** @returns {boolean} Whether anything was out of step. */
+  const sync = () => bringInStep(materialiseSuperInstances(allNodes(), allEdges()))
+
+  // The watcher's changes are the store's as it is now, so they are written as they are.
+  watch(pending, bringInStep, { immediate: true })
 
   return { sync }
 }

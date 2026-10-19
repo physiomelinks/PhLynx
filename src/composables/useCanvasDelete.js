@@ -35,10 +35,12 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
 
   // Whether deleting the canvas selection needs asking first, or breaks what Vue Flow's Delete key would leave behind,
   // so the workspace turns that key off.
+  // Read on every render, so nothing selected answers at once, and the copies removed are found without planning the rest.
   const selectionNeedsAsking = computed(() => {
     const ids = selectedNodes.value.map((node) => node.id)
     const edgeIds = selectedEdges.value.map((edge) => edge.id)
-    return orphanedBy(ids).length > 0 || exposedBy(ids, edgeIds).length > 0 || exposure.planRemoval(ids, edgeIds).deadModelIds.size > 0
+    if (!ids.length && !edgeIds.length) return false
+    return orphanedBy(ids).length > 0 || exposedBy(ids, edgeIds).length > 0 || exposure.deadModelIdsOf(ids).size > 0
   })
 
   const nameOf = (smId) => `'${find(smId)?.name ?? smId}'`

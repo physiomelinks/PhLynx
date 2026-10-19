@@ -157,12 +157,14 @@ export function withOverrides(overrides, key, patches, inherited) {
  * @param {{nodes: Array, edges: Array, origin: Map}} model - From expandHierarchy.
  * @param {(id: string) => Object|undefined} findNode
  * @param {Object} [options]
- * @param {ReturnType<typeof resolveBoundaryValues>} [options.boundary] - The model's, when already resolved.
+ * @param {ReturnType<typeof resolveBoundaryValues>|null} [options.boundary] - The model's, when already resolved; null
+ *   for one that fails to resolve.
+ * @param {(modelId: string) => Object|undefined} [options.findModelNode] - Gets a model node, when indexed already.
  * @returns {Map<string, {value: *, inherited: *, isOverridden: boolean, isIgnored: boolean, isLocal: boolean, status: Object|null,
  *   chip: 'default'|'local'|'overridden'|'ignored'}>} By row name; empty for a model node that isn't there.
  */
-export function provenanceOf(modelId, model, findNode, { boundary = resolveQuietly(model) } = {}) {
-  const node = model.nodes.find((candidate) => candidate.id === modelId)
+export function provenanceOf(modelId, model, findNode, { boundary = resolveQuietly(model), findModelNode } = {}) {
+  const node = findModelNode ? findModelNode(modelId) : model.nodes.find((candidate) => candidate.id === modelId)
   const from = model.origin.get(modelId)
   if (!node || !from) return new Map()
   const nested = from.instanceChain.length > 0
@@ -200,16 +202,17 @@ export function provenanceOf(modelId, model, findNode, { boundary = resolveQuiet
  * @param {string} mainId - The module's store id.
  * @param {{nodes: Array, edges: Array, origin: Map}} model - From expandHierarchy.
  * @param {(id: string) => Object|undefined} findNode
+ * @param {Object} [options]
+ * @param {ReturnType<typeof resolveBoundaryValues>|null} [options.boundary] - The model's, when already resolved.
  * @returns {Map<string, {total: number, counts: Object<string, number>, ignored: number, overridden: number,
  *   summary: string}>} By row name. counts: copies by #686 state ('none' for no state); summary as "connected in
  *   2/3", or the one state every copy shares.
  */
-export function aggregateProvenance(mainId, model, findNode) {
-  const copies = model.nodes.filter((node) => model.origin.get(node.id)?.mainId === mainId).map((node) => node.id)
-  const boundary = resolveQuietly(model)
+export function aggregateProvenance(mainId, model, findNode, { boundary = resolveQuietly(model) } = {}) {
+  const copies = model.nodes.filter((node) => model.origin.get(node.id)?.mainId === mainId)
   const byName = new Map()
-  for (const id of copies) {
-    for (const [name, info] of provenanceOf(id, model, findNode, { boundary })) {
+  for (const copy of copies) {
+    for (const [name, info] of provenanceOf(copy.id, model, findNode, { boundary, findModelNode: () => copy })) {
       if (!byName.has(name)) byName.set(name, { total: 0, counts: {}, ignored: 0, overridden: 0 })
       const entry = byName.get(name)
       const state = info.status?.state ?? 'none'

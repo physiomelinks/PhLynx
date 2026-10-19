@@ -10,7 +10,6 @@ import { useCanvasLevel } from './useCanvasLevel'
 import { useHandleManagement } from './useHandleManagement'
 import { useNodeDataHistory } from './useNodeDataHistory'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
-import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { localNameProblem } from '../utils/hierarchy'
 import { sanitiseName } from '../utils/identifiers'
 import { categoryStyle as themeCategoryStyle } from '../utils/nodeThemes'
@@ -43,14 +42,9 @@ export function useNodeChrome(
   const { revertPendingGhostIfUnused } = useHandleManagement()
   const { recordEdit } = useNodeDataHistory(flowId)
   const nodeThemeStore = useNodeThemeStore()
-  const simulationResultsStore = useSimulationResultsStore()
 
   // Outlined while the Simulation tab shows results of a selection that includes it, or any module inside it.
-  const isSimulated = computed(() => {
-    const scopeNodeIds = simulationResultsStore.results && simulationResultsStore.scopeNodeIds
-    if (!scopeNodeIds) return false
-    return canvasLevel.modelIdsOf([props.id]).some((id) => scopeNodeIds.includes(id))
-  })
+  const isSimulated = computed(() => canvasLevel.simulatedIds.value.has(props.id))
 
   // The node stores a category key; the active theme decides its colour (none when the theme lacks it).
   const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeTheme, props.data.domainType))

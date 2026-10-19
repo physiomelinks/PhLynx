@@ -7,6 +7,7 @@
  * couplings go in the same step (an edge left with none with them), and so does an outer super-module's port exposing
  * it through `via`.
  */
+import { computed, effectScope } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useFlowHistoryFor } from './useFlowHistoryFor'
@@ -130,8 +131,28 @@ export const describeExposedPort = (owner, port) =>
  */
 export function useExposedPortOwners(flowId = FLOW_IDS.MAIN) {
   const flow = useVueFlow(flowId)
-  const { exposedPortsOf } = useSupermodules(flowId)
-  return (smId) => exposedPortOwners((flow.nodes ?? NONE).value, exposedPortsOf(smId))
+  // Outside any component, so no component's unmounting stops it for the others.
+  if (!portOwners.has(flow)) portOwners.set(flow, effectScope(true).run(() => createPortOwners(flow, flowId)))
+  return portOwners.get(flow)
+}
+
+// Each flow's lookup of exposed ports' owners, shared by every card and dialog.
+const portOwners = new WeakMap()
+
+/**
+ * Builds a flow's lookup of exposed ports' owners: every super-module's at once, from one index of the nodes.
+ *
+ * @param {Object} flow - From useVueFlow.
+ * @param {string} flowId
+ * @returns {(smId: string) => Map<string, string>}
+ */
+function createPortOwners(flow, flowId) {
+  const { exposures } = useSupermodules(flowId)
+  const ownersBySm = computed(() => {
+    const nodeById = new Map((flow.nodes ?? NONE).value.map((node) => [node.id, node]))
+    return new Map([...exposures.value].map(([smId, exposed]) => [smId, new Map(exposed.map((port) => [port.id, ownerNameOf(port, nodeById)]))]))
+  })
+  return (smId) => ownersBySm.value.get(smId) ?? new Map()
 }
 
 /**
@@ -391,6 +412,18 @@ function createExposure(flow, flowId, history, handles) {
   }
 
   /**
+   * Gets the model ids of every copy of the nodes inside super-modules some nodes removed are, whose keys go with them.
+   *
+   * @param {string[]} nodeIds
+   * @returns {Set<string>}
+   */
+  function deadModelIdsOf(nodeIds) {
+    const nodeById = nodeIndex()
+    const inside = nodeIds.filter((id) => scopeOf(nodeById.get(id)) !== null && !isSupermoduleInterface(nodeById.get(id)))
+    return new Set(inside.length ? model.expandSelection(inside) : [])
+  }
+
+  /**
    * Plans what removing nodes and edges does beyond them (see exposure.js planUnexpose): the ports they un-expose, the
    * connections those take, the overrides they orphan, and, for nodes inside super-modules, the model ids of every copy
    * of them, whose keys go.
@@ -400,9 +433,7 @@ function createExposure(flow, flowId, history, handles) {
    * @returns {ReturnType<typeof planUnexpose> & {deadModelIds: Set<string>}}
    */
   function planRemoval(nodeIds, edgeIds = []) {
-    const nodeById = nodeIndex()
-    const inside = nodeIds.filter((id) => scopeOf(nodeById.get(id)) !== null && !isSupermoduleInterface(nodeById.get(id)))
-    const deadModelIds = new Set(inside.length ? model.expandSelection(inside) : [])
+    const deadModelIds = deadModelIdsOf(nodeIds)
     const exposureEdgeIds = edgeIds.filter((id) => isExposureEdge(flow.findEdge(id)))
     return { ...planUnexpose(allNodes(), allEdges(), { removedNodeIds: nodeIds, removedEdgeIds: exposureEdgeIds }), deadModelIds }
   }
@@ -430,6 +461,7 @@ function createExposure(flow, flowId, history, handles) {
     unexposePorts,
     reorderExposedPorts,
     relabelExposedPort,
+    deadModelIdsOf,
     planRemoval,
     applyRemoval,
   }

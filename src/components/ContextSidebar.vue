@@ -100,11 +100,13 @@
 
           <!-- ── Parameters of the selected node ─────────────────────────────── -->
           <TabPanel value="params">
-            <h4 class="context-section-title">Instance Parameters</h4>
+            <h4 class="context-section-title">{{ paramsHeading }}</h4>
             <section class="context-section context-section--params">
               <template v-if="selectedNode && !isMultipleSelected && isSupermoduleInterface(selectedNode)">
                 <h4 class="context-section-title">
-                  Exposed ports of {{ selectedNode.data?.supermodule?.name ?? selectedNode.id }}
+                  <span class="context-title-name" :title="`Exposed ports of ${selectedNode.data?.supermodule?.name ?? selectedNode.id}`">
+                    Exposed ports of {{ selectedNode.data?.supermodule?.name ?? selectedNode.id }}
+                  </span>
                   <Button
                     icon="pi pi-tag"
                     severity="secondary"
@@ -128,7 +130,9 @@
                 />
               </template>
               <template v-else-if="selectedNode && !isMultipleSelected && isSuperInstance(selectedNode)">
-                <h4 class="context-section-title">{{ selectedNode.data?.name }}</h4>
+                <h4 class="context-section-title">
+                  <span class="context-title-name" :title="selectedNode.data?.name">{{ selectedNode.data?.name }}</span>
+                </h4>
                 <SuperInstancePanel :node="selectedNode" />
               </template>
               <template v-else-if="selectedNode && !isMultipleSelected">
@@ -450,6 +454,14 @@ const selectedNode = computed(() => selectedNodes.value[0] || null)
 
 const isMultipleSelected = computed(() => selectedNodes.value.length > 1)
 
+/** The Params tab's heading, by what is selected: a super instance, a super-module's interface, or a module. */
+const paramsHeading = computed(() => {
+  const node = isMultipleSelected.value ? null : selectedNode.value
+  if (isSuperInstance(node)) return 'Super Instance'
+  if (isSupermoduleInterface(node)) return 'Super-module Interface'
+  return 'Instance Parameters'
+})
+
 const isParamsVisible = computed(() => !isCollapsed.value && activeTabId.value === 'params')
 const isSimulationVisible = computed(() => !isCollapsed.value && activeTabId.value === 'sim')
 
@@ -591,7 +603,8 @@ const editTargetOptions = computed(() => [
 // Whether an edit is this super instance's override, which sets only a value.
 const isOverrideTarget = computed(() => parameterMode.value === 'instance' && editTarget.value === 'instance')
 
-watch(parameterMode, (mode) => {
+// Back to the default on a new mode or node, so a choice of the super-module's default never carries over to the next.
+watch([parameterMode, () => parameterRowsNode.value?.id], ([mode]) => {
   editTarget.value = mode === 'supermodule' ? 'supermodule' : 'instance'
 })
 
@@ -630,28 +643,30 @@ function buildParameterRows(node) {
   })
 }
 
-// Rows are only built while visible, never mid box-select, and after the next paint so a click-then-drag stays smooth.
-watch(
-  [selectedNode, isParamsVisible, userSelectionActive],
-  async ([node, isVisible, isSelecting]) => {
-    const requestId = ++pendingRowsRequestId
-    if (!isVisible || isSelecting) return
+/**
+ * Rebuilds the selected node's rows, only while visible, never mid box-select, and after the next paint so a
+ * click-then-drag stays smooth; a later call supersedes one still waiting.
+ */
+async function rebuildParameterRows() {
+  const requestId = ++pendingRowsRequestId
+  if (!isParamsVisible.value || userSelectionActive.value) return
 
-    if (!node) {
-      parameterRows.value = []
-      parameterRowsNode.value = null
-      return
-    }
+  const node = selectedNode.value
+  if (!node) {
+    parameterRows.value = []
+    parameterRowsNode.value = null
+    return
+  }
 
-    // rAF runs before the next paint; the timeout lands after it.
-    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
-    if (requestId !== pendingRowsRequestId) return
+  // rAF runs before the next paint; the timeout lands after it.
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+  if (requestId !== pendingRowsRequestId) return
 
-    parameterRows.value = buildParameterRows(node)
-    parameterRowsNode.value = node
-  },
-  { immediate: true }
-)
+  parameterRows.value = buildParameterRows(node)
+  parameterRowsNode.value = node
+}
+
+watch([selectedNode, isParamsVisible, userSelectionActive], rebuildParameterRows, { immediate: true })
 
 watch(
   () => toRaw(parameterRowsNode.value?.data?.variables),
@@ -663,7 +678,7 @@ watch(
 
 // Inside a super instance, the rows are the model's, which an override or an undo of one changes.
 watch(modelGraph, () => {
-  if (parameterMode.value !== 'root' && parameterRowsNode.value) parameterRows.value = buildParameterRows(parameterRowsNode.value)
+  if (parameterMode.value !== 'root' && parameterRowsNode.value) rebuildParameterRows()
 })
 
 // Undo or redo of a global constant changes only the store, so refresh the shown values in place.
@@ -920,6 +935,15 @@ function handleParameterTypeChange(row) {
 .rename-supermodule-btn {
   margin-left: auto;
   align-self: center;
+  flex-shrink: 0;
+}
+
+/* A long name truncates, so a button beside it stays visible; its title holds the whole name. */
+.context-title-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .context-section-title {

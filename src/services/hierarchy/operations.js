@@ -36,6 +36,7 @@ import {
   supermodulesById,
   toLocalName,
 } from '../../utils/hierarchy'
+import { hashText } from '../../utils/hash'
 import { sanitiseName } from '../../utils/identifiers'
 import { expandHierarchy, EXPANDED_ID_SEPARATOR, LOCAL_CONSTANTS_KEY } from './expand'
 import { EXPOSED_PORT_ID_PREFIX, exposureEnds, exposureEntriesOf, indexExposures, nextExposedPortId, superInstancePorts } from './exposure'
@@ -1056,12 +1057,16 @@ function supermoduleSignature(smId, nodes, edges) {
   const members = nodes.filter((node) => node.id === smId || scopeOf(node) === smId)
   const localOf = new Map(members.map((node) => [node.id, isSupermoduleInterface(node) ? '' : localIdOf(node)]))
   const content = ({ handles: _handles, ...data }) => data
+  // Each edge's entry with its text, worked out once to sort by.
+  const edgeEntries = edges
+    .filter((edge) => localOf.has(edge.source) && localOf.has(edge.target))
+    .map((edge) => {
+      const entry = [localOf.get(edge.source), localOf.get(edge.target), edge.type ?? null, edge.data ?? null]
+      return { entry, key: JSON.stringify(entry) }
+    })
   return JSON.stringify({
     nodes: members.map((node) => [localOf.get(node.id), node.type, content(node.data ?? {})]).sort((a, b) => a[0].localeCompare(b[0])),
-    edges: edges
-      .filter((edge) => localOf.has(edge.source) && localOf.has(edge.target))
-      .map((edge) => [localOf.get(edge.source), localOf.get(edge.target), edge.type ?? null, edge.data ?? null])
-      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    edges: edgeEntries.sort((a, b) => a.key.localeCompare(b.key)).map(({ entry }) => entry),
   })
 }
 
@@ -1079,20 +1084,21 @@ function supermoduleSignature(smId, nodes, edges) {
  * @returns {string} Eight hex digits.
  */
 export function supermoduleContentHash(smId, nodes, edges, { exposure = true } = {}) {
+  // Its own nodes and edges only, by their model fields, so nothing drawn is read.
+  const members = nodes.filter((node) => node.id === smId || scopeOf(node) === smId)
+  const ids = new Set(members.map((node) => node.id))
   const structureOf = (node) => {
-    if (node.id === smId) {
-      const { name: _name, ca: _ca, source: _source, ...definition } = node.data?.supermodule ?? {}
-      return { ...node, data: { ...node.data, supermodule: definition } }
+    const { id, type, data } = node
+    if (id === smId) {
+      const { name: _name, ca: _ca, source: _source, ...definition } = data?.supermodule ?? {}
+      return { id, type, data: { ...data, supermodule: definition } }
     }
-    return isSuperInstance(node) && scopeOf(node) === smId ? { ...node, data: { ...node.data, ports: undefined } } : node
+    return { id, type, data: isSuperInstance(node) ? { ...data, ports: undefined } : data }
   }
   const drawn = edges
-    .filter((edge) => exposure || edge.type !== EXPOSURE_EDGE_TYPE)
-    .map((edge) => (edge.type === EXPOSURE_EDGE_TYPE ? edge : { ...edge, type: null }))
-  const text = supermoduleSignature(smId, nodes.map(structureOf), drawn)
-  let hash = 0x811c9dc5
-  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0
-  return hash.toString(16).padStart(8, '0')
+    .filter((edge) => ids.has(edge.source) && ids.has(edge.target) && (exposure || edge.type !== EXPOSURE_EDGE_TYPE))
+    .map(({ source, target, type, data }) => ({ source, target, type: type === EXPOSURE_EDGE_TYPE ? type : null, data }))
+  return hashText(supermoduleSignature(smId, members.map(structureOf), drawn))
 }
 
 /**

@@ -38,9 +38,11 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   const isLoading = computed(() => libopencor.status === 'loading')
   const isSimulatorMissing = computed(() => ['unavailable', 'error'].includes(libopencor.status))
 
-  const scopeNodes = computed(() =>
-    store.scopeNodeIds ? modelNodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : modelNodes.value
-  )
+  const scopeNodes = computed(() => {
+    if (!store.scopeNodeIds) return modelNodes.value
+    const ids = new Set(store.scopeNodeIds)
+    return modelNodes.value.filter((node) => ids.has(node.id))
+  })
   // Without ODEs there is no time course: the model is solved once, or once per value of a sweep. With them, a sweep
   // runs a time course per value, and reads each one.
   const isSteadyState = computed(() => !!store.results?.isSteadyState)

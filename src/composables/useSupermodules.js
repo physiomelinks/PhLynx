@@ -57,6 +57,37 @@ export function useSupermodules(flowId = FLOW_IDS.MAIN) {
   return catalogues.get(flow)
 }
 
+/** @returns {boolean} Whether two arrays hold the same items, in the same order. */
+const sameItems = (a, b) => a.length === b.length && a.every((item, i) => item === b[i])
+
+/**
+ * Groups each super-module's nodes, its interface node and every node in its scope, with the edges between them, as
+ * supermoduleContentHash reads them.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @returns {Map<string, {nodes: Array, edges: Array}>} By super-module id, the nodes and edges in the store's order.
+ */
+function supermoduleContents(nodes, edges) {
+  const contents = new Map(nodes.filter(isSupermoduleInterface).map((node) => [node.id, { nodes: [], edges: [] }]))
+  const groupsOf = new Map()
+  const add = (smId, node) => {
+    contents.get(smId).nodes.push(node)
+    if (!groupsOf.has(node.id)) groupsOf.set(node.id, new Set())
+    groupsOf.get(node.id).add(smId)
+  }
+  for (const node of nodes) {
+    const scope = scopeOf(node)
+    if (contents.has(scope)) add(scope, node)
+    if (node.id !== scope && contents.has(node.id)) add(node.id, node)
+  }
+  for (const edge of edges) {
+    const targets = groupsOf.get(edge.target)
+    for (const smId of groupsOf.get(edge.source) ?? []) if (targets?.has(smId)) contents.get(smId).edges.push(edge)
+  }
+  return contents
+}
+
 /**
  * Builds a flow's super-modules.
  *
@@ -88,26 +119,50 @@ function createCatalogue(flow, flowId) {
   })
   const byId = computed(() => new Map(supermodules.value.map((entry) => [entry.id, entry])))
   const dependencies = computed(() => supermoduleDependencies(allNodes()))
-  // Every super-module's exposed ports, from its exposure edges.
+  // Every super-module's exposed ports, from its exposure edges (see exposure.js indexExposures).
   const exposures = computed(() => indexExposures(allNodes(), allEdges()))
 
   /** @returns {Object|undefined} A super-module's entry. */
   const find = (smId) => byId.value.get(smId)
 
+  // Each super-module's nodes and the edges between them, by their ids, types and ends only; a super-module's arrays
+  // are kept while they hold the same nodes and edges, so its content hash isn't worked out again.
+  const contents = computed((previous) => {
+    const next = supermoduleContents(allNodes(), allEdges())
+    for (const [smId, content] of next) {
+      const before = previous?.get(smId)
+      if (before && sameItems(before.nodes, content.nodes) && sameItems(before.edges, content.edges)) next.set(smId, before)
+    }
+    return next
+  })
+  // Each super-module's content hash, worked out again only when what it holds changes: never for a selection, a drag
+  // or a redraw, nor for an edit to another super-module.
+  const contentHashes = new Map()
+  const contentHashOf = (smId) => {
+    if (!contentHashes.has(smId)) {
+      const content = computed(() => contents.value.get(smId))
+      contentHashes.set(
+        smId,
+        computed(() => supermoduleContentHash(smId, content.value?.nodes ?? [], content.value?.edges ?? []))
+      )
+    }
+    return contentHashes.get(smId).value
+  }
+
   // Each super-module made from a circulatory_autogen library template: the template, and whether it still matches,
   // by what it holds as it was made, and by the template the library has now, when it has it.
   const templates = computed(() => {
     const nodes = allNodes()
-    const edges = allEdges()
     const library = useLibraryStore().availableSupermodules
     const result = new Map()
     for (const node of nodes) {
       const { source, ca } = (isSupermoduleInterface(node) && node.data?.supermodule) || {}
       if (source?.format !== 'circulatory_autogen') continue
-      const changed = !!source.contentHash && supermoduleContentHash(node.id, nodes, edges) !== source.contentHash
+      const changed = !!source.contentHash && contentHashOf(node.id) !== source.contentHash
       const replaced = library.has(source.moduleRef) && templateHash(source.moduleRef, library) !== source.hash
       result.set(node.id, { label: ca ? `${ca.module_type}:${ca.module_subtype}` : source.moduleRef, matches: !changed && !replaced })
     }
+    for (const smId of contentHashes.keys()) if (!result.has(smId)) contentHashes.delete(smId)
     return result
   })
 
@@ -427,6 +482,7 @@ function createCatalogue(flow, flowId) {
     countOf,
     canPlace,
     portsOf,
+    exposures,
     exposedPortsOf,
     memberIdsOf,
     orphanedBy,

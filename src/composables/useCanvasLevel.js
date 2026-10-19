@@ -9,6 +9,7 @@ import { useActiveCanvas } from './useActiveCanvas'
 import { useModelGraph } from './useModelGraph'
 import { useSupermodules } from './useSupermodules'
 import { useFlowHistoryStore } from '../stores/historyStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { FLOW_IDS } from '../utils/constants'
 import { isSuperInstance, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 
@@ -359,6 +360,26 @@ function createCanvasLevel(flow, flowId) {
   const selectedModelIds = computed(() => modelIdsOf(selectedNodes.value.map((node) => node.id)))
 
   /**
+   * The store ids of the canvas nodes whose model nodes (see modelIdsOf) the shown results simulate, worked out once for
+   * every card: each simulated model node's own node and the super instances it is expanded through, as entered.
+   */
+  const simulatedIds = computed(() => {
+    const results = useSimulationResultsStore()
+    const scopeNodeIds = results.results && results.scopeNodeIds
+    if (!scopeNodeIds) return new Set()
+    if (!model.isHierarchical.value) return new Set(scopeNodeIds)
+    const entered = within()
+    const ids = new Set()
+    for (const modelId of scopeNodeIds) {
+      const from = model.findModelNode(modelId) && model.graph.value.origin.get(modelId)
+      if (!from || entered?.some((instanceId, level) => from.instanceChain[level] !== instanceId)) continue
+      ids.add(from.mainId)
+      from.instanceChain.forEach((instanceId) => ids.add(instanceId))
+    }
+    return ids
+  })
+
+  /**
    * Gets the canvas node a model node shows as at this level: itself, or the super instance on the canvas it is inside.
    *
    * @param {string} modelId
@@ -388,6 +409,7 @@ function createCanvasLevel(flow, flowId) {
     isEditingSupermodule,
     path,
     selectedModelIds,
+    simulatedIds,
     enter,
     editSupermodule,
     exitTo,

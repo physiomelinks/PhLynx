@@ -140,10 +140,10 @@ export function portResolver(nodes, exposures) {
  * @param {Array} edges - Every edge in the store.
  * @param {string} smId
  * @param {Map<string, Array>} [exposures] - From indexExposures, when already made.
+ * @param {Function} [resolve] - From portResolver over the same nodes and exposures, when already made.
  * @returns {Array}
  */
-export function superInstancePorts(nodes, edges, smId, exposures = indexExposures(nodes, edges)) {
-  const resolve = portResolver(nodes, exposures)
+export function superInstancePorts(nodes, edges, smId, exposures = indexExposures(nodes, edges), resolve = portResolver(nodes, exposures)) {
   return (exposures.get(smId) ?? []).flatMap((exposed) => {
     const port = resolve(smId, exposed.id)
     return port ? [{ ...port, exposedPortId: exposed.id }] : []
@@ -517,7 +517,14 @@ export function materialiseSuperInstances(nodes, edges) {
   if (!superInstances.length) return { nodes: changedNodes, couplings: changedCouplings }
 
   const exposures = indexExposures(nodes, edges)
-  const portsById = new Map(superInstances.map((node) => [node.id, superInstancePorts(nodes, edges, node.data.smId, exposures)]))
+  // One resolver for the call, and each super-module's ports resolved once; each super instance gets its own copies.
+  const resolve = portResolver(nodes, exposures)
+  const portsBySm = new Map()
+  const portsOf = (smId) => {
+    if (!portsBySm.has(smId)) portsBySm.set(smId, superInstancePorts(nodes, edges, smId, exposures, resolve))
+    return portsBySm.get(smId).map((port) => ({ ...port }))
+  }
+  const portsById = new Map(superInstances.map((node) => [node.id, portsOf(node.data.smId)]))
   const broken = new Map(superInstances.map((node) => [node.id, new Set()]))
 
   for (const edge of edges) {

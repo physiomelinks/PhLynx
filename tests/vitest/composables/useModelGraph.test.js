@@ -3,6 +3,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useModelGraph } from '../../../src/composables/useModelGraph.js'
+import { expandHierarchy } from '../../../src/services/hierarchy/expand.js'
 import { FLOW_IDS } from '../../../src/utils/constants.js'
 import { connect, constant, exposed, exposures, module, port, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
 
@@ -129,6 +130,7 @@ describe('useModelGraph', () => {
       edgeId: 'e0',
       editId: 'b',
       modelId: 'b',
+      isRebuilt: false,
     },
     {
       workspace: 'with super instances',
@@ -142,10 +144,11 @@ describe('useModelGraph', () => {
       edgeId: 'e_in',
       editId: 'sm_1~ra',
       modelId: 'dndnode_1/ra',
+      isRebuilt: true,
     },
   ])(
-    'keeps its model, $workspace, while nodes move, are measured or are selected, and makes a new one when the model changes',
-    ({ build, changes, edgeId, editId, modelId }) => {
+    'keeps its model, $workspace, while nodes move, are measured or are selected, and shows a change to the model',
+    ({ build, changes, edgeId, editId, modelId, isRebuilt }) => {
       show(build())
       const before = graph.value
       flow.applyNodeChanges(changes)
@@ -155,10 +158,33 @@ describe('useModelGraph', () => {
       expect(graph.value).toBe(before)
 
       flow.updateNodeData(editId, { variables: [constant('R', '9')] })
-      expect(graph.value).not.toBe(before)
+      // Without hierarchy, the model is the store's nodes themselves, so an edit to their data needs no new one.
+      expect(graph.value === before).toBe(!isRebuilt)
       expect(findModelNode(modelId).data.variables).toEqual([constant('R', '9')])
     }
   )
+
+  it('gives, without hierarchy, what expanding would: origins, names, paths and problems, read from the data as it is now', () => {
+    const { nodes, edges } = flatGraph()
+    nodes[1].data.name = 'a'
+    delete nodes[2].data.name
+    show({ nodes, edges })
+    const expanded = expandHierarchy(flow.nodes.value, flow.edges.value)
+    const model = graph.value
+    expect(model.nodes).toEqual(expanded.nodes)
+    expect(model.edges).toEqual(expanded.edges)
+    expect(model.origin).toEqual(expanded.origin)
+    for (const key of ['a', 'b', 'c', 'e0', 'x']) {
+      expect([model.nameOf(key), model.pathOf(key)]).toEqual([expanded.nameOf(key), expanded.pathOf(key)])
+    }
+    for (const name of ['a', 'b', 'c', '', undefined]) expect(model.idOf(name)).toBe(expanded.idOf(name))
+    expect(model.errors).toEqual(expanded.errors)
+
+    flow.updateNodeData('b', { name: 'renamed' })
+    expect(graph.value).toBe(model)
+    expect([model.nameOf('b'), model.pathOf('b'), model.idOf('renamed')]).toEqual(['renamed', 'renamed', 'b'])
+    expect(model.errors).toEqual(expandHierarchy(flow.nodes.value, flow.edges.value).errors)
+  })
 })
 
 describe('useModelGraph in development', () => {
@@ -189,11 +215,6 @@ describe('useModelGraph in development', () => {
     store.addEdges(shown.edges)
     return useFreshModelGraph()
   }
-
-  it('refuses a workspace without super instances expanded to other nodes than its own', async () => {
-    const { graph } = await withExpansion((expansion) => ({ nodes: expansion.nodes.map((node) => ({ ...node })), edges: expansion.edges }), flatGraph())
-    expect(() => graph.value).toThrow('A workspace without super instances must expand to its own nodes and edges.')
-  })
 
   it('refuses a node of a super-module reaching the model', async () => {
     const leak = (expansion) => ({ ...expansion, nodes: [...expansion.nodes, { id: 'x', data: { scope: 'sm_1' } }] })
