@@ -6,6 +6,16 @@ import { computed, ref, watch } from 'vue'
 import { SEARCH_MODES, findWorkspaceMatches, parseSearchQuery } from '../utils/workspaceSearch'
 
 /**
+ * Escapes a value for a double-quoted CSS string.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function cssString(value) {
+  return String(value).replace(/["\\]/g, '\\$&').replace(/\n/g, '\\a ')
+}
+
+/**
  * Builds the search state for a workspace.
  *
  * @param {Object} options
@@ -118,16 +128,14 @@ export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
     }
   }
 
-  /**
-   * Gets the class that highlights or dims a node while a search is active.
-   *
-   * @param {{id: string}} props - The node's slot props.
-   * @returns {string}
-   */
-  const getNodeClass = (props) => {
+  // A stylesheet keyed by node id, not a class per node: a class read in the node slot re-rendered every node on each keystroke.
+  const highlightCss = computed(() => {
     if (!isActive.value) return ''
-    return matchingNodeIds.value.has(props.id) ? 'node-search-match' : 'node-search-dimmed'
-  }
+    const matchSelectors = [...matchingNodeIds.value].map((id) => `.vue-flow__node[data-id="${cssString(id)}"] > .instance-node`)
+    const dimmed = '.vue-flow__node > .instance-node { opacity: 0.25 !important; transition: opacity 0.2s ease; }'
+    if (!matchSelectors.length) return dimmed
+    return `${dimmed}\n${matchSelectors.join(',\n')} { opacity: 1 !important; outline: 3px solid var(--p-primary-color); outline-offset: 2px; border-radius: 4px; }`
+  })
 
   // Emptying the box offers the modes again.
   watch(
@@ -179,6 +187,6 @@ export function useWorkspaceSearch({ nodes, findNode, zoomToNode }) {
     onSearchFocus,
     onSearchBlur,
     onSearchKeydown,
-    getNodeClass,
+    highlightCss,
   }
 }

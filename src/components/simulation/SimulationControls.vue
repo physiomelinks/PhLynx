@@ -48,6 +48,7 @@
         :plot-config="shownPlotConfig"
         :is-single-plot="isSinglePlot"
         :is-plottable="isPlottable"
+        :resolve-entry="resolveEntry"
         :nodes="nodes"
         :index="index"
         :scope-node-ids="scopeNodeIds"
@@ -97,7 +98,7 @@ import SweepEditor from './SweepEditor.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { sliderValueKey } from '../../services/simulation/parameterSliders'
 import { addPlotSelection, getPlotUnits, plotVariable, resolveGroups } from '../../services/simulation/plotSelections'
-import { buildVariableIndex, resolvePlotTarget } from '../../services/simulation/variableIndex'
+import { buildVariableIndex, indexKeyOf, resolvePlotTarget } from '../../services/simulation/variableIndex'
 import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
@@ -176,7 +177,7 @@ watch(
 )
 
 const plotNames = computed(() => new Map(plotOptions.value.map((plot) => [plot.id, plot.name])))
-const plottedGroups = computed(() => new Map((shownPlotConfig.value?.selections ?? []).map((selection) => [selection.key, selection.groupId])))
+const plottedGroups = computed(() => new Map((shownPlotConfig.value?.selections ?? []).map((selection) => [indexKeyOf(selection), selection.groupId])))
 
 /**
  * Sets the plots shown: the view's own, or the workspace's.
@@ -195,7 +196,20 @@ function setPlotConfig(plotConfig) {
  * @returns {boolean}
  */
 function isPlottable(entry) {
-  return entry.plottable && (!props.plotNodeId || entry.nodeId === props.plotNodeId)
+  return entry.plottable && (!props.plotNodeId || entry.nodeId === props.plotNodeId || !!findOwnGlobalRow(entry))
+}
+
+/**
+ * Finds the plot's instance's own row for a global constant's entry, which names only the first instance using it.
+ *
+ * @param {Object} entry
+ * @returns {{node: Object, row: Object}|null}
+ */
+function findOwnGlobalRow(entry) {
+  if (!props.plotNodeId || entry.kind !== 'global_constant') return null
+  const node = props.nodes.find((candidate) => candidate.id === props.plotNodeId)
+  const row = node?.data?.variables?.find((candidate) => candidate.type === 'global_constant' && candidate.name === entry.rowName)
+  return row ? { node, row } : null
 }
 
 // The units the view's own plot shows, when adding to it offers only those; empty offers any.
@@ -239,7 +253,7 @@ function describePlottable(entry) {
  * @returns {{node: Object, row: Object}|null}
  */
 function resolveEntry(entry) {
-  return resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
+  return findOwnGlobalRow(entry) ?? resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
 }
 
 // Says where a picked variable went when that wasn't the target plot.

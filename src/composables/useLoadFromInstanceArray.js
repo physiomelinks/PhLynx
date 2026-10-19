@@ -44,7 +44,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
       }
 
       // 1. Prepare the layout promise chain
-      const layoutPromise = prepareLayout(result.pendingEdges, progressCallback)
+      const layoutPromise = prepareLayout(result.pendingEdges, progressCallback, result.pendingInstances.length)
 
       // 2. Add nodes as a single undoable batch so this import is not split into
       //    separate node and edge history entries.

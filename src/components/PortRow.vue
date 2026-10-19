@@ -48,22 +48,7 @@
         </template>
       </Button>
 
-      <MultiSelect
-        :modelValue="port.variables"
-        @update:modelValue="setPortVariables(port, $event)"
-        :options="variables"
-        optionLabel="name"
-        optionValue="name"
-        overlayClass="compact-multiselect-panel"
-        placeholder="Select variables"
-        size="small"
-        @change="$emit('change')"
-      >
-        <template #value="{ value, placeholder }">
-          <PortVariableChips v-if="value?.length" :port="port" :limit="2" @change="$emit('change')" />
-          <template v-else>{{ placeholder }}</template>
-        </template>
-      </MultiSelect>
+      <PortVariableSelect :port="port" :options="variables" :chipLimit="2" compact @change="$emit('change')" />
 
       <!-- Right actions for Source Row -->
       <template v-if="side === 'source'">
@@ -88,11 +73,10 @@ import { computed } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
-import MultiSelect from 'primevue/multiselect'
 import { Handle, Position } from '@vue-flow/core'
-import PortVariableChips from './PortVariableChips.vue'
+import PortVariableSelect from './PortVariableSelect.vue'
 import { PORT_TYPE_OPTIONS } from '../utils/constants'
-import { isMultiport, setMultiport, setPortVariables } from '../utils/multiport'
+import { isMultiport, setMultiport } from '../utils/multiport'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
@@ -292,31 +276,5 @@ const handleClass = computed(() => {
   font-size: 12px !important;
   padding: 4px 8px !important;
   min-height: 24px !important;
-}
-
-/* ── MultiSelect Options & Items ── */
-.compact-multiselect-panel .p-multiselect-option,
-.compact-multiselect-panel .p-multiselect-item {
-  font-size: 11px !important;
-  padding: 4px 8px !important;
-  min-height: 24px !important;
-}
-
-/* ── MultiSelect Header (Filter input & Select-All checkbox) ── */
-.compact-multiselect-panel .p-multiselect-header {
-  padding: 4px 8px !important;
-}
-
-.compact-multiselect-panel .p-multiselect-filter {
-  font-size: 11px !important;
-  padding: 2px 6px !important;
-  height: 24px !important;
-}
-
-/* ── Checkbox scaling inside option rows ── */
-.compact-multiselect-panel .p-checkbox,
-.compact-multiselect-panel .p-checkbox-box {
-  width: 14px !important;
-  height: 14px !important;
 }
 </style>

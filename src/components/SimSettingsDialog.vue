@@ -267,7 +267,7 @@ import VariablePathPicker from './simulation/VariablePathPicker.vue'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { plotVariable, resolveGroups } from '../services/simulation/plotSelections'
 import { MAX_SOLVER_STEPS, SOLVERS, findSolverSettingsProblem } from '../services/simulation/sedParameters'
-import { buildVariableIndex, resolvePlotTarget } from '../services/simulation/variableIndex'
+import { buildVariableIndex, indexKeyOf, resolvePlotTarget } from '../services/simulation/variableIndex'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { cloneSimulationSettings, useSimulationSettingsStore } from '../stores/simulationSettingsStore'
@@ -309,7 +309,7 @@ watch(plotOptions, (plots) => {
 })
 
 const plotNames = computed(() => new Map(plotOptions.value.map((plot) => [plot.id, plot.name])))
-const plottedGroups = computed(() => new Map((draftPlotConfig.value?.selections ?? []).map((selection) => [selection.key, selection.groupId])))
+const plottedGroups = computed(() => new Map((draftPlotConfig.value?.selections ?? []).map((selection) => [indexKeyOf(selection), selection.groupId])))
 
 /**
  * Notes the plot a variable is already on.

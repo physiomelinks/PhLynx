@@ -41,7 +41,8 @@
 
           <!-- Module cards -->
           <transition name="slide">
-            <div v-show="activeCollapseNames.includes(collection.componentFile)" class="mlc__group-body">
+            <!-- v-if, not v-show: a large library mounted every card of every collapsed group. -->
+            <div v-if="activeCollapseNames.includes(collection.componentFile)" class="mlc__group-body">
               <div
                 v-for="card in collection.cards"
                 :key="card.cardKey"
@@ -149,7 +150,7 @@
 </template>
 
 <script setup>
-import { computed, ref, reactive, onMounted, onUnmounted } from 'vue'
+import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 
 // PrimeVue Imports
 import InputText from 'primevue/inputtext'
@@ -202,8 +203,26 @@ onUnmounted(() => {
 
 // ─── Filtering ────────────────────────────────────────────────────────────────
 
+// Filters a moment after typing stops, so a large library isn't re-filtered and re-rendered on every keystroke.
+const FILTER_DEBOUNCE_MS = 150
+const appliedFilterText = ref('')
+let filterTimeout = null
+
+watch(filterText, (text) => {
+  clearTimeout(filterTimeout)
+  if (!text) {
+    appliedFilterText.value = ''
+    return
+  }
+  filterTimeout = setTimeout(() => {
+    appliedFilterText.value = text
+  }, FILTER_DEBOUNCE_MS)
+})
+
+onUnmounted(() => clearTimeout(filterTimeout))
+
 const filteredCollections = computed(() => {
-  const q = filterText.value.toLowerCase().trim()
+  const q = appliedFilterText.value.toLowerCase().trim()
   if (!q) return view.groups
 
   return view.groups

@@ -1205,11 +1205,11 @@ class TestSimulationTab(unittest.TestCase):
             letter.click()
             expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
 
-            # A name in a denominator is clicked too (a constant, so it says why it isn't plotted).
+            # A name in a denominator is clicked too, and a constant plots like any variable.
             denominator = dialog.locator('[data-row$=".den"] [data-name]').filter(has_text=re.compile(r"^RdiffSensed")).first
             denominator.scroll_into_view_if_needed()
             denominator.click()
-            expect(dialog.locator(".plot-tab-auto-notice")).to_have_text("R_diffSensed is set, not computed, so it isn’t plotted")
+            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/R_diffSensed")
             # ----------- END ------------
 
             context.close()

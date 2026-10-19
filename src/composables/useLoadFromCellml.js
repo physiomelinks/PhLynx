@@ -49,31 +49,34 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
   const { clearWorkspace } = useClearWorkspace()
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
 
+  /**
+   * Replaces the workspace with the modules and connections parsed from a CellML file.
+   *
+   * @returns {Promise<boolean>} False when the file has no modules to place; the workspace is left as is.
+   */
   const loadFromCellML = async (parsedCellmlPayload, componentFile, parameterData = null) => {
     try {
-      await clearWorkspace({ recordHistory: false })
-
       const { components = [], modules = [], edges = [], cellmlModuleSubtype } = parsedCellmlPayload
 
-      if (edges.length === 0) {
+      // Keep modules wired only to parameter components (e.g. a one-module export), but only
+      // build edges between modules.
+      const namesWithEdges = new Set(edges.flatMap((e) => [e.source, e.target]))
+      const liveComponents = new Set(
+        components.filter((name) => !PARAMETER_COMPONENT_NAMES.has(name) && namesWithEdges.has(name))
+      )
+      const prunedComponents = components.filter((name) => liveComponents.has(name))
+      const prunedModules = modules.filter((mod) => liveComponents.has(mod.name))
+      const prunedEdges = edges.filter((e) => liveComponents.has(e.source) && liveComponents.has(e.target))
+
+      if (prunedComponents.length === 0) {
         notify.info({
           title: 'No Connections Found',
           message: `${componentFile} contains no inter-component connections.`,
         })
-        return
+        return false
       }
 
-      let liveComponents = new Set(components.filter((name) => !PARAMETER_COMPONENT_NAMES.has(name)))
-      const liveEdges = edges.filter(
-        (e) => !PARAMETER_COMPONENT_NAMES.has(e.source) && !PARAMETER_COMPONENT_NAMES.has(e.target)
-      )
-
-      const namesWithEdges = new Set(liveEdges.flatMap((e) => [e.source, e.target]))
-      liveComponents = new Set([...liveComponents].filter((name) => namesWithEdges.has(name)))
-
-      const prunedComponents = components.filter((name) => liveComponents.has(name))
-      const prunedModules = modules.filter((mod) => liveComponents.has(mod.name))
-      const prunedEdges = liveEdges
+      await clearWorkspace({ recordHistory: false })
 
       if (parameterData) {
         prunedModules.forEach((mod) => applyParameterTypes(mod, parameterData))
@@ -116,7 +119,7 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
         store.getMathDefaults
       )
 
-      const layoutPromise = prepareLayout(result.pendingEdges)
+      const layoutPromise = prepareLayout(result.pendingEdges, null, result.pendingInstances.length)
       const history = useFlowHistoryStore()
       history.startBatch()
       try {
@@ -133,6 +136,7 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
         label: `Components: ${prunedComponents.length}, Edges: ${prunedEdges.length}`,
         file_type: 'cellml',
       })
+      return true
     } catch (error) {
       notify.error({ message: `Failed to load CellML connections: ${error.message}` })
       throw error

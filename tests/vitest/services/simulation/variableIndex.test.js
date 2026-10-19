@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildVariableIndex, findInspectionModule, readInspectionOutputId, resolvePlotTarget, searchVariableIndex } from '../../../../src/services/simulation/variableIndex.js'
+import { buildVariableIndex, findInspectionModule, indexKeyOf, readInspectionOutputId, resolvePlotTarget, searchVariableIndex } from '../../../../src/services/simulation/variableIndex.js'
 
 const NODES = [
   {
@@ -38,9 +38,9 @@ describe('buildVariableIndex', () => {
       'Na_channel/V',
     ].sort((a, b) => a.localeCompare(b)))
     const byPath = new Map(index.map((entry) => [entry.path, entry]))
-    expect(byPath.get('Na_channel/g_Na')).toMatchObject({ plottable: false, slidable: true, kind: 'constant' })
+    expect(byPath.get('Na_channel/g_Na')).toMatchObject({ plottable: true, slidable: true, kind: 'constant' })
     expect(byPath.get('Na_channel/V')).toMatchObject({ plottable: true, slidable: false })
-    expect(byPath.get('global_parameters/R')).toMatchObject({ key: 'global::R', nodeId: 'n1', slidable: true, plottable: false })
+    expect(byPath.get('global_parameters/R')).toMatchObject({ key: 'global::R', nodeId: 'n1', slidable: true, plottable: true })
   })
 
   it('marks what a run left out, and names the variables a run made one', () => {
@@ -56,6 +56,19 @@ describe('buildVariableIndex', () => {
     expect(byPath.get('membrane/g_Na_eff').equivalents).toEqual([])
     // A global constant is in a run when any instance using it is.
     expect(byPath.get('global_parameters/R').inScope).toBe(true)
+  })
+})
+
+describe('indexKeyOf', () => {
+  it('lists a plotted global constant under its one entry, whichever instance plots it', () => {
+    const entry = buildVariableIndex(NODES).find((candidate) => candidate.key === 'global::R')
+    const { node, row } = resolvePlotTarget(entry, NODES)
+    expect(`${node.id}::${row.name}`).toBe('n1::R')
+
+    expect(indexKeyOf({ key: 'n1::R', variableName: 'R', type: 'global_constant' })).toBe('global::R')
+    expect(indexKeyOf({ key: 'n2::R', variableName: 'R', type: 'global_constant' })).toBe('global::R')
+    expect(indexKeyOf({ key: 'n1::g_Na', variableName: 'g_Na', type: 'constant' })).toBe('n1::g_Na')
+    expect(indexKeyOf({ key: 'n2::V', variableName: 'V', type: 'variable' })).toBe('n2::V')
   })
 })
 

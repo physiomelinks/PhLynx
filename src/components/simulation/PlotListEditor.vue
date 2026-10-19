@@ -202,6 +202,8 @@ const props = defineProps({
   isSinglePlot: { type: Boolean, default: false },
   // Which of the index's entries a plot can be set against.
   isPlottable: { type: Function, default: (entry) => entry.plottable },
+  // The node and row an index entry plots, when not the entry's own (see resolvePlotTarget).
+  resolveEntry: { type: Function, default: null },
 })
 const emit = defineEmits(['update:plotConfig', 'add-here'])
 
@@ -389,7 +391,7 @@ const menuItems = computed(() => {
  * @param {Object} entry - From the variable index.
  */
 function pickXAxis(plot, entry) {
-  const target = resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
+  const target = props.resolveEntry ? props.resolveEntry(entry) : resolvePlotTarget(entry, props.nodes, inspectionStore.modules)
   choosingXFor.value = null
   if (target) emitConfig(setPlotXAxis(props.plotConfig, plot.id, createPlotXAxis(target.node, target.row)))
 }

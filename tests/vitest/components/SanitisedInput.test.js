@@ -1,12 +1,25 @@
 // @vitest-environment happy-dom
 import { mount } from '@vue/test-utils'
+import { ZIndex } from '@primeuix/utils/zindex'
 import PrimeVue from 'primevue/config'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import SanitisedInput from '../../../src/components/SanitisedInput.vue'
 
 let wrapper
-afterEach(() => wrapper?.unmount())
+let mask
+afterEach(() => {
+  wrapper?.unmount()
+  ZIndex.clear(mask)
+  mask = undefined
+})
+
+/** Pushes a fake dialog mask onto PrimeVue's z-index stack, as a long-lived tab would have. */
+function pushMask() {
+  mask = document.createElement('div')
+  ZIndex.set('modal', mask, 5000)
+  return ZIndex.get(mask)
+}
 
 describe('SanitisedInput', () => {
   it('puts the id and autofocus on the input, so a label and a dialog can find it', () => {
@@ -130,5 +143,43 @@ describe('SanitisedInput', () => {
     expect(wrapper.find('[role="option"]').exists()).toBe(true)
     expect(wrapper.find('.sanitised-input__suggestions--detailed').exists()).toBe(false)
     expect(wrapper.find('.sanitised-input__option-detail').exists()).toBe(false)
+  })
+
+  it('stacks the floating suggestion list above an open dialog and frees its slot on close', async () => {
+    const maskZIndex = pushMask()
+    wrapper = mount(SanitisedInput, {
+      props: { modelValue: '', floating: true, suggest: () => ['mV'] },
+      global: { plugins: [PrimeVue] },
+    })
+    await wrapper.find('input').setValue('m')
+
+    const list = document.body.querySelector('.sanitised-input__suggestions')
+    expect(ZIndex.get(list)).toBeGreaterThan(maskZIndex)
+
+    await wrapper.find('input').trigger('keydown', { key: 'Escape' })
+    expect(document.body.querySelector('.sanitised-input__suggestions')).toBeNull()
+    expect(ZIndex.getCurrent()).toBe(maskZIndex)
+  })
+
+  it('stacks the floating rename popover above an open dialog and frees its slot on blur', async () => {
+    const maskZIndex = pushMask()
+    wrapper = mount(SanitisedInput, {
+      props: { modelValue: 'mV/ms', floating: true, sanitise: (value) => value.replace(/\W/g, '_') },
+      global: { plugins: [PrimeVue] },
+    })
+    await wrapper.find('input').trigger('focus')
+
+    const popover = document.body.querySelector('[role="alert"]')
+    expect(ZIndex.get(popover)).toBeGreaterThan(maskZIndex)
+
+    await wrapper.find('input').trigger('blur')
+    expect(document.body.querySelector('[role="alert"]')).toBeNull()
+    expect(ZIndex.getCurrent()).toBe(maskZIndex)
+  })
+
+  it('leaves the z-index to the stylesheet when not floating', async () => {
+    wrapper = mount(SanitisedInput, { props: { modelValue: '', suggest: () => ['mV'] }, global: { plugins: [PrimeVue] } })
+    await wrapper.find('input').setValue('m')
+    expect(wrapper.find('.sanitised-input__suggestions').element.style.zIndex).toBe('')
   })
 })

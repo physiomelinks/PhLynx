@@ -308,6 +308,52 @@ describe('useSedmlExport', () => {
       expect(sedml).toContain('name="inspection_modules/ratio"')
     })
 
+    it('plots a boundary condition and its owner from one data generator, and a constant', async () => {
+      simulation.prepareRunExport = vi.fn(async () =>
+        createRun({
+          mapping: new Map([
+            ['a::x', 'a/x'],
+            ['b::x', 'a/x'],
+            ['b::k', 'instance_parameters/b_k'],
+          ]),
+          variables: new Map([
+            ['a/x', { kind: 'state', unit: 'mV' }],
+            ['instance_parameters/b_k', { kind: 'constant', unit: 'dimensionless' }],
+          ]),
+        })
+      )
+      nodes.value = [
+        node('a', [{ name: 'x', type: 'variable', units: 'mV' }]),
+        node('b', [
+          { name: 'x', type: 'boundary_condition', units: 'mV' },
+          { name: 'k', type: 'constant', units: 'dimensionless' },
+        ]),
+      ]
+      const selectionOf = (nodeId, variableName, type, groupId) => ({ key: `${nodeId}::${variableName}`, nodeId, nodeName: nodeId, variableName, type, groupId })
+      useSimulationSettingsStore().setPlotConfig({
+        groups: [
+          { id: 'plot-1', name: 'Voltage' },
+          { id: 'plot-2', name: 'Inputs' },
+        ],
+        selections: [
+          selectionOf('a', 'x', 'variable', 'plot-1'),
+          selectionOf('b', 'x', 'boundary_condition', 'plot-1'),
+          selectionOf('b', 'x', 'boundary_condition', 'plot-2'),
+          selectionOf('b', 'k', 'constant', 'plot-2'),
+        ],
+      })
+      await useSedmlExport().exportZip()
+
+      const [[blob]] = saving.saveWithDialog.mock.calls
+      const sedml = await (await JSZip.loadAsync(await blob.arrayBuffer())).file('simulation.sedml').async('string')
+      const ids = [...sedml.matchAll(/<dataGenerator id="([^"]+)"/g)].map(([, id]) => id)
+      expect(new Set(ids).size).toBe(ids.length)
+      expect(sedml.match(/<dataGenerator [^>]*name="a\/x"/g)).toHaveLength(1)
+      expect(sedml).toContain("cellml:variable[@name='b_k']")
+      // Once per plot: the owner's series on Voltage, and on Inputs under the boundary condition's name.
+      expect(sedml.match(/<curve /g)).toHaveLength(3)
+    })
+
     it('is disabled, with why, in sweep mode and without instances', () => {
       const exporter = useSedmlExport()
       const resultsStore = useSimulationResultsStore()

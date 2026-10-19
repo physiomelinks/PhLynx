@@ -152,6 +152,14 @@ describe('variables of integration and algebraic systems in the flattened model'
     expect(connectedToVoi(text, 'fill')).toEqual(['tau → t'])
   })
 
+  it('names a module’s variable of integration whose units can’t join the environment’s, rather than leaving it out (#713)', async () => {
+    const nodes = [buildNode('beam', DISTANCE_XML, { k: '2', y_init: '1' }), buildNode('fill', T_XML, { k: '1', q_init: '0' })]
+    const message = "Variables of integration in units that can't join environment/x (metre): fill.t (second)."
+    await expect(flatten(nodes)).rejects.toThrow(message)
+    // The simulator builds without checking, and still gets the reason.
+    expect(() => generateFlattenedModel(nodes, [], store, [], { check: false })).toThrow(message)
+  })
+
   it('integrates over a variable that isn’t time, such as a distance in metres', async () => {
     const text = await flatten([buildNode('beam', DISTANCE_XML, { k: '2', y_init: '1' })])
     expect(environmentVoi(text)).toEqual(['x', 'metre'])

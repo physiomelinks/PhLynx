@@ -46,14 +46,15 @@ describe('useWorkspaceSearch', () => {
     type('   ')
     expect(search.isActive.value).toBe(false)
     expect(search.matchCount.value).toBeNull()
-    expect(search.getNodeClass({ id: 'heart' })).toBe('')
+    expect(search.highlightCss.value).toBe('')
   })
 
   it('highlights matches and dims the rest', () => {
     const { search, type } = setup([makeNode('heart'), makeNode('lung')])
     type('heart')
-    expect(search.getNodeClass({ id: 'heart' })).toBe('node-search-match')
-    expect(search.getNodeClass({ id: 'lung' })).toBe('node-search-dimmed')
+    expect(search.highlightCss.value).toContain('.vue-flow__node > .instance-node { opacity: 0.25')
+    expect(search.highlightCss.value).toContain('.vue-flow__node[data-id="heart"] > .instance-node')
+    expect(search.highlightCss.value).not.toContain('data-id="lung"')
   })
 
   it('steps through matches from the first, wrapping round, and zooms to each', () => {
@@ -136,7 +137,7 @@ describe('useWorkspaceSearch', () => {
     const { search, type } = setup([makeNode('a', { variables: [{ name: 'x' }] })])
     type('var:')
     expect(search.matchCount.value).toBeNull()
-    expect(search.getNodeClass({ id: 'a' })).toBe('')
+    expect(search.highlightCss.value).toBe('')
   })
 
   it('re-runs a variable search when a variable is renamed', async () => {

@@ -777,6 +777,7 @@ function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
  * @param {Object} model - A libcellml Model.
  * @param {Array<{component: Object, voiNames: Set<string>, hasOde: boolean}>} voiVariables - Each component's
  *   VoI names, and whether it has an ODE.
+ * @throws {Error} Naming each VoI whose units are incompatible with the environment's, which would be left unconnected.
  */
 function addEnvironmentComponent(model, voiVariables) {
   const odeVoi = voiVariables
@@ -800,6 +801,8 @@ function addEnvironmentComponent(model, voiVariables) {
   odeVoiVar.delete()
 
   const voiUnits = voiVar.units()
+  const environmentVoi = `environment/${voiVar.name()} (${voiUnits.name()})`
+  const incompatible = []
   for (const { component, voiNames } of voiVariables) {
     for (const name of voiNames) {
       const voiVarInComp = component.variableByName(name)
@@ -808,6 +811,8 @@ function addEnvironmentComponent(model, voiVariables) {
       if (_libcellml.Units.compatible(voiUnits, voiVarInCompUnits)) {
         ensurePublicInterface(voiVarInComp)
         _libcellml.Variable.addEquivalence(voiVar, voiVarInComp)
+      } else {
+        incompatible.push(`${component.name()}.${name} (${voiVarInCompUnits.name()})`)
       }
       voiVarInCompUnits.delete()
       voiVarInComp.delete()
@@ -817,6 +822,10 @@ function addEnvironmentComponent(model, voiVariables) {
   voiUnits.delete()
   environmentComp.delete()
   voiVar.delete()
+
+  if (incompatible.length) {
+    throw new Error(`Variables of integration in units that can't join ${environmentVoi}: ${incompatible.join(', ')}.`)
+  }
 }
 
 function prioritizeEnvironmentComponent(xmlString) {

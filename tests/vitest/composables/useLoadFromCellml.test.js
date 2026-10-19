@@ -52,12 +52,12 @@ describe('useLoadFromCellML', () => {
     mocks.buildWorkflowGraph.mockReturnValue({ pendingInstances: [{ id: 'n1' }], pendingEdges: [{ id: 'e1' }] })
   })
 
-  it('clears the workspace without recording history, then notifies and stops when there are no edges', async () => {
+  it('notifies and stops without clearing the workspace when there are no edges', async () => {
     const { loadFromCellML } = useLoadFromCellML()
 
     await loadFromCellML({ components: ['a'], modules: [mod('a')], edges: [] }, 'model.cellml')
 
-    expect(mocks.clearWorkspace).toHaveBeenCalledWith({ recordHistory: false })
+    expect(mocks.clearWorkspace).not.toHaveBeenCalled()
     expect(mocks.notify.info).toHaveBeenCalledWith({
       title: 'No Connections Found',
       message: 'model.cellml contains no inter-component connections.',
@@ -120,7 +120,7 @@ describe('useLoadFromCellML', () => {
       null,
       'defaults'
     )
-    expect(mocks.prepareLayout).toHaveBeenCalledWith([{ id: 'e1' }])
+    expect(mocks.prepareLayout).toHaveBeenCalledWith([{ id: 'e1' }], null, 1)
     expect(mocks.addNodes).toHaveBeenCalledWith([{ id: 'n1' }])
     expect(mocks.order).toEqual(['layout-start', 'start', 'addNodes', 'end'])
     expect(mocks.trackEvent).toHaveBeenCalledWith('cellml_connection_load', {
@@ -172,6 +172,78 @@ describe('useLoadFromCellML', () => {
     expect(refs[0].inp_instances).toBe('')
     expect(refs[1].out_instances).toBe('')
     expect(mocks.trackEvent.mock.calls[0][1].label).toBe('Components: 2, Edges: 1')
+  })
+
+  it('places a module wired only to parameter components, as in a one-module export', async () => {
+    const { loadFromCellML } = useLoadFromCellML()
+    const vATPase = mod('vATPase', [{ name: 'K_H', value: '' }])
+
+    const loaded = await loadFromCellML(
+      {
+        components: ['global_parameters', 'instance_parameters', 'vATPase'],
+        modules: [mod('global_parameters'), mod('instance_parameters'), vATPase],
+        edges: [
+          { source: 'global_parameters', target: 'vATPase' },
+          { source: 'instance_parameters', target: 'vATPase' },
+        ],
+      },
+      'one-module.cellml',
+      { parameters: { vATPase: [{ name: 'K_H', value: '1' }] }, globalParameters: [] }
+    )
+
+    expect(mocks.clearWorkspace).toHaveBeenCalledWith({ recordHistory: false })
+    expect(mocks.store.addModule.mock.calls.map((c) => c[0].name)).toEqual(['vATPase'])
+    expect(mocks.store.addModule.mock.calls[0][0].variables[0]).toMatchObject({ value: '1', type: 'constant' })
+    const refs = mocks.buildWorkflowGraph.mock.calls[0][0]
+    expect(refs).toEqual([
+      expect.objectContaining({ name: 'vATPase', out_instances: '', inp_instances: '' }),
+    ])
+    expect(mocks.addNodes).toHaveBeenCalledWith([{ id: 'n1' }])
+    expect(mocks.notify.info).not.toHaveBeenCalled()
+    expect(loaded).toBe(true)
+  })
+
+  it('keeps a module wired only to parameters as an unconnected node beside connected ones', async () => {
+    const { loadFromCellML } = useLoadFromCellML()
+
+    await loadFromCellML(
+      {
+        components: ['a', 'b', 'lone', 'instance_parameters'],
+        modules: [mod('a'), mod('b'), mod('lone'), mod('instance_parameters')],
+        edges: [
+          { source: 'a', target: 'b' },
+          { source: 'instance_parameters', target: 'lone' },
+        ],
+      },
+      'f'
+    )
+
+    const refs = mocks.buildWorkflowGraph.mock.calls[0][0]
+    expect(refs.map((r) => [r.name, r.out_instances, r.inp_instances])).toEqual([
+      ['a', 'b', ''],
+      ['b', '', 'a'],
+      ['lone', '', ''],
+    ])
+  })
+
+  it('stops without waiting on the layout when every component is a parameter component', async () => {
+    const { loadFromCellML } = useLoadFromCellML()
+    mocks.prepareLayout.mockReturnValue(new Promise(() => {}))
+
+    const loaded = await loadFromCellML(
+      {
+        components: ['global_parameters', 'instance_parameters'],
+        modules: [],
+        edges: [{ source: 'global_parameters', target: 'instance_parameters' }],
+      },
+      'params-only.cellml'
+    )
+
+    expect(mocks.notify.info).toHaveBeenCalledTimes(1)
+    expect(mocks.clearWorkspace).not.toHaveBeenCalled()
+    expect(mocks.addNodes).not.toHaveBeenCalled()
+    expect(mocks.prepareLayout).not.toHaveBeenCalled()
+    expect(loaded).toBe(false)
   })
 
   it('applies local constants and global constant types from parameterData and registers globals', async () => {
@@ -232,7 +304,9 @@ describe('useLoadFromCellML', () => {
     const { loadFromCellML } = useLoadFromCellML()
     mocks.clearWorkspace.mockRejectedValue(new Error('clear failed'))
 
-    await expect(loadFromCellML({ edges: [{ source: 'a', target: 'b' }] }, 'f')).rejects.toThrow('clear failed')
+    await expect(
+      loadFromCellML({ components: ['a', 'b'], edges: [{ source: 'a', target: 'b' }] }, 'f')
+    ).rejects.toThrow('clear failed')
 
     expect(mocks.notify.error).toHaveBeenCalledWith({ message: 'Failed to load CellML connections: clear failed' })
     expect(mocks.addNodes).not.toHaveBeenCalled()
