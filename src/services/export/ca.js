@@ -14,6 +14,9 @@ const EMPTY_VALUE = 'EMPTY_MUST_BE_FILLED'
 const MODULES_DIR = 'modules'
 // The module CA adds as a pulmonary artery and vein ('par', 'pvn') when the heart has one output.
 const PULMONARY_MODULE_REF = 'arterial_simple:vp'
+// Joins the levels of a nested instance's path in CA's vessel names (heart/lv is heart__lv), so CA refuses an
+// instance name that contains it or begins or ends with '_'.
+const CA_LEVEL_SEPARATOR = '__'
 
 /**
  * Generates a zip blob for the Circulatory Autogen export.
@@ -27,6 +30,7 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
  */
 export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
   try {
+    checkInstanceNames(nodes)
     const zip = new JSZip()
 
     // Create maps for quick lookup of node names and objects
@@ -83,19 +87,19 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
         out_instances: out_instances.join(' '),
       })
 
-      // Collect parameters for this node's module. CA needs a row for every boundary condition, and uses it only
-      // while nothing is connected to it.
+      // Collect parameters for this node's module, named <instance>/<variable> as CA reads them. CA needs a row for
+      // every boundary condition, and uses it only while nothing is connected to it.
       for (const variable of node.data.variables || []) {
         if (variable.type === 'constant') {
           allParameters.add(JSON.stringify({
-            variable_name: `${variable.name}_${node.data.name}`,
+            variable_name: `${node.data.name}/${variable.name}`,
             units: variable.units || '',
             value: isBlank(variable.value) ? '' : variable.value,
             data_reference: variable.data_reference || 'phlynx',
           }))
         } else if (variable.type === 'boundary_condition') {
           allParameters.add(JSON.stringify({
-            variable_name: `${variable.name}_${node.data.name}`,
+            variable_name: `${node.data.name}/${variable.name}`,
             units: variable.units || '',
             value: isBlank(variable.value) ? EMPTY_VALUE : variable.value,
             data_reference: variable.data_reference || 'phlynx',
@@ -120,7 +124,11 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     }
 
     // --- 2. CONSOLIDATE PARAMETER FILES INTO ONE CSV ---
-    const globalConstants = libraryStore.globalVariables
+    // Globals by their bare names; only those a module declares, as CA refuses a global no module has.
+    const declaredGlobals = new Set(
+      module_config.flatMap((entry) => entry.variables_and_units.filter((v) => v[3] === 'global_constant').map((v) => v[0]))
+    )
+    const globalConstants = [...libraryStore.globalVariables].filter(([name]) => declaredGlobals.has(name))
 
     for (const variable of globalConstants) {
       allParameters.add(JSON.stringify({
@@ -152,6 +160,25 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     notify.error({ message: `Failed to export config files: ${error.message}` })
     throw error
   }
+}
+
+/**
+ * Checks each instance name can be a CA vessel name: CA joins the levels of a nested instance's path with '__', so it
+ * refuses a name that contains '__' or begins or ends with '_'.
+ *
+ * @param {Array} nodes - The array of nodes from Vue Flow.
+ * @throws {Error} naming the instances to rename.
+ */
+function checkInstanceNames(nodes) {
+  const refused = nodes
+    .map((node) => node.data.name)
+    .filter((name) => name.includes(CA_LEVEL_SEPARATOR) || name.startsWith('_') || name.endsWith('_'))
+  if (!refused.length) return
+  throw new Error(
+    `CA can't use the instance name${refused.length === 1 ? '' : 's'} ${listNamed(refused)}: a name may not contain ` +
+      `"${CA_LEVEL_SEPARATOR}" nor begin or end with "_", as CA joins nested instance names with "${CA_LEVEL_SEPARATOR}". ` +
+      `Rename ${refused.length === 1 ? 'it' : 'them'} and export again.`
+  )
 }
 
 /**

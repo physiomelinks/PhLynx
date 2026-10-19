@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import { parseParametersFile } from '../../../src/utils/import.js'
-import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../../../src/utils/parameters.js'
+import {
+  applyParameterValues,
+  applyParametersToNodes,
+  globalParameters,
+  skippedParametersMessage,
+} from '../../../src/utils/parameters.js'
 
 const row = (name, type, value = '', units = 'mM') => ({ name, type, value, units, data_reference: '' })
 const node = (id, variables) => ({ id, data: { name: id, variables } })
@@ -96,8 +101,46 @@ describe('applyParametersToNodes with <instance>/<variable> names', () => {
       { nodeName: 'lung/lv', name: 'E_B', ambiguous: true },
     ])
     expect(skippedParametersMessage(skipped)).toBe(
-      "2 values weren't applied, as their nested names match more than one instance: heart/lv/E_B, lung/lv/E_B."
+      "2 values weren't applied, as their nested names end in the same instance and variable as another: heart/lv/E_B, lung/lv/E_B."
     )
+  })
+
+  it("applies a nested name to the node of its flat name (heart__lv for heart/lv/E) before its last instance's", () => {
+    const flat = node('heart__lv', [dimensionless('E', '1')])
+    const lv = node('lv', [dimensionless('E', '1')])
+    const { variablesById, updated, skipped } = applyParametersToNodes(
+      [flat, lv],
+      ['heart/lv/E,dimensionless,2,', 'lung/lv/E,dimensionless,3,'].map(csvRow)
+    )
+
+    expect(skipped).toEqual([])
+    expect(updated).toBe(2)
+    expect(variablesById.get('heart__lv')[0].value).toBe('2')
+    expect(variablesById.get('lv')[0].value).toBe('3')
+  })
+
+  it("reports nested names that end in the same instance and variable when there's no such node", () => {
+    const { updated, skipped } = applyParametersToNodes(
+      [node('A', [dimensionless('E', '1')])],
+      ['heart/lv/E,dimensionless,2,', 'lung/lv/E,dimensionless,3,'].map(csvRow)
+    )
+
+    expect(updated).toBe(0)
+    expect(skipped).toEqual([
+      { nodeName: 'heart/lv', name: 'E', ambiguous: true },
+      { nodeName: 'lung/lv', name: 'E', ambiguous: true },
+    ])
+  })
+
+  it('leaves global/<variable> rows to the global constants, even beside a node named global', () => {
+    const rows = ['global/R,J_per_K_per_mol,8.314,', 'rho,kg_per_m3,1050,', 'A/p,dimensionless,1,'].map(csvRow)
+    const { updated } = applyParametersToNodes([node('global', [dimensionless('R', '1')])], rows)
+
+    expect(updated).toBe(0)
+    expect(globalParameters(rows, new Set(['R', 'rho', 'p'])).map(({ name, value }) => [name, value])).toEqual([
+      ['R', '8.314'],
+      ['rho', '1050'],
+    ])
   })
 
   it('keeps reading <variable>_<instance> names, with the slash name winning for the same row', () => {

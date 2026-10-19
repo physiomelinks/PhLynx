@@ -194,24 +194,76 @@ describe('generateExportZip', () => {
       { name: 'q_out', type: 'boundary_condition', units: 'm3_per_s', value: 0 },
     ])
     const parameters = parametersOf(await readZip(await generateExportZip('heart', [node], [], library)))
-    expect(parameters.u_out_out).toMatchObject({ units: 'J_per_m3', value: '1000', data_reference: 'phlynx' })
-    expect(parameters.q_out_out.value).toBe('0')
+    expect(parameters['out/u_out']).toMatchObject({ units: 'J_per_m3', value: '1000', data_reference: 'phlynx' })
+    expect(parameters['out/q_out'].value).toBe('0')
     expect(notified.warning).not.toHaveBeenCalled()
   })
 
   it("marks a blank boundary condition for CA to ask for, and warns when nothing is connected to it", async () => {
     const node = nodeWith('out', [{ name: 'u_out', type: 'boundary_condition', units: 'J_per_m3', value: '' }])
     const parameters = parametersOf(await readZip(await generateExportZip('heart', [node], [], library)))
-    expect(parameters.u_out_out.value).toBe('EMPTY_MUST_BE_FILLED')
+    expect(parameters['out/u_out'].value).toBe('EMPTY_MUST_BE_FILLED')
     expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('out.u_out') }))
   })
 
   it('writes a constant or global constant of 0, which is not blank', async () => {
     library.assignGlobalConstant('g', 0, 'dimensionless')
-    const node = nodeWith('out', [{ name: 'R', type: 'constant', units: 'Js_per_m6', value: 0 }])
+    const node = nodeWith('out', [
+      { name: 'R', type: 'constant', units: 'Js_per_m6', value: 0 },
+      { name: 'g', type: 'global_constant', units: 'dimensionless' },
+    ])
     const parameters = parametersOf(await readZip(await generateExportZip('heart', [node], [], library)))
-    expect(parameters.R_out.value).toBe('0')
+    expect(parameters['out/R'].value).toBe('0')
     expect(parameters.g.value).toBe('0')
+  })
+
+  it("names an instance's rows <instance>/<variable> and a global by its bare name, as CA reads them", async () => {
+    library.assignGlobalConstant('rho', '1050', 'kg_per_m3')
+    const node = nodeWith('aortic_root', [
+      { name: 'C', type: 'constant', units: 'm3_per_J', value: '1e-8' },
+      { name: 'u_out', type: 'boundary_condition', units: 'J_per_m3', value: '0' },
+      { name: 'rho', type: 'global_constant', units: 'kg_per_m3' },
+      { name: 'q_C', type: 'variable', units: 'm3' },
+    ])
+    const files = await readZip(await generateExportZip('heart', [node], [], library))
+    const { data } = Papa.parse(files['heart_parameters.csv'], { header: true, skipEmptyLines: true })
+    expect(data.map((row) => row.variable_name)).toEqual(['aortic_root/C', 'aortic_root/u_out', 'rho'])
+  })
+
+  it('leaves out a global constant no exported module declares, as CA refuses it', async () => {
+    library.assignGlobalConstant('unused', '1', 'dimensionless')
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
+    expect(Object.keys(parametersOf(files))).not.toContain('unused')
+  })
+
+  // The snapshot files are the input of the CA cross-check: circulatory_autogen's host_model_names accepts the
+  // parameters file's names against the module array and config.
+  it('writes a parameters file, module array and config CA reads, as in the snapshot files', async () => {
+    library.assignGlobalConstant('rho', '1050', 'kg_per_m3')
+    library.assignGlobalConstant('unused', '1', 'dimensionless')
+    const nodes = [
+      nodeWith('aortic_root', [
+        { name: 'C', type: 'constant', units: 'm3_per_J', value: '1e-8', data_reference: 'doe2020' },
+        { name: 'u_in', type: 'boundary_condition', units: 'J_per_m3', value: '' },
+        { name: 'rho', type: 'global_constant', units: 'kg_per_m3' },
+        { name: 'q_C', type: 'variable', units: 'm3' },
+      ]),
+      nodeWith('venous_ivc', [{ name: 'C', type: 'constant', units: 'm3_per_J', value: '2e-8' }]),
+    ]
+    const edges = [{ source: 'aortic_root', target: 'venous_ivc', data: { couplings: [] } }]
+    const files = await readZip(await generateExportZip('small', nodes, edges, library))
+    const dir = '../../fixtures/ca_export'
+    await expect(files['small_parameters.csv']).toMatchFileSnapshot(`${dir}/small_parameters.csv`)
+    await expect(files['small_module_array.csv']).toMatchFileSnapshot(`${dir}/small_module_array.csv`)
+    await expect(files['modules/small_module_config.json']).toMatchFileSnapshot(`${dir}/small_module_config.json`)
+  })
+
+  it("refuses instance names CA can't use as vessel names, naming them", async () => {
+    const nodes = ['heart__lv', '_1a', 'ok', 'tail_'].map((name) => nodeWith(name, []))
+    await expect(generateExportZip('heart', nodes, [], library)).rejects.toThrow(
+      `CA can't use the instance names heart__lv, _1a, tail_`
+    )
+    expect(notified.error).toHaveBeenCalled()
   })
 
   it('writes each component file the config names, holding only the components it uses', async () => {
@@ -323,7 +375,7 @@ describe('generateExportZip', () => {
     const target = { id: 'b', data: { ...nodeWith('b', [{ name: 'u_out', type: 'boundary_condition', units: 'J_per_m3', value: '' }]).data, ports: [port('p', 'u_out')] } }
     const edge = { source: 'a', target: 'b', data: { couplings: [{ sourcePort: source.data.ports[0], targetPort: target.data.ports[0] }] } }
     const files = await readZip(await generateExportZip('heart', [source, target], [edge], library))
-    expect(parametersOf(files).u_out_b.value).toBe('EMPTY_MUST_BE_FILLED')
+    expect(parametersOf(files)['b/u_out'].value).toBe('EMPTY_MUST_BE_FILLED')
     expect(notified.warning).not.toHaveBeenCalled()
   })
 
