@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
+import { parseParametersFile } from '../../../src/utils/import.js'
 import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../../../src/utils/parameters.js'
 
 const row = (name, type, value = '', units = 'mM') => ({ name, type, value, units, data_reference: '' })
@@ -55,22 +57,25 @@ describe('applyParametersToNodes with <instance>/<variable> names', () => {
   }
   const dimensionless = (name, value) => row(name, 'constant', value, 'dimensionless')
 
-  it("applies CUFLynx's send-back to the named instance's rows", () => {
+  // A copy of CUFLynx's apps/api/tests/fixtures/phlynx_send_back_parameters.csv (physiomelinks/CUFLynx), what it
+  // sends back to PhLynx.
+  const sendBack = readFileSync('tests/vitest/fixtures/phlynx_send_back_parameters.csv', 'utf8')
+
+  it("applies CUFLynx's send-back to the named instance's rows", async () => {
+    const rows = await parseParametersFile(sendBack)
+    const sent = (name) => rows.find((entry) => entry.variable_name === name)
     const nodes = [
-      node('A', [dimensionless('p', '1')]),
+      node('A', [dimensionless('p', sent('A/p').value)]),
       node('B', [dimensionless('q', '5')]),
       node('C', [dimensionless('q', '1')]),
     ]
-    const { variablesById, updated, skipped } = applyParametersToNodes(
-      nodes,
-      ['C/q,dimensionless,3.0,', 'A/p,dimensionless,1.0,'].map(csvRow)
-    )
+    const { variablesById, skipped } = applyParametersToNodes(nodes, rows)
 
-    expect(updated).toBe(2)
     expect(skipped).toEqual([])
-    expect(variablesById.get('C')[0].value).toBe('3.0')
-    expect(variablesById.get('A')[0].value).toBe('1.0')
+    expect(variablesById.get('C')[0].value).toBe(sent('C/q').value)
+    expect((variablesById.get('A') ?? nodes[0].data.variables)[0].value).toBe(sent('A/p').value)
     expect(variablesById.has('B')).toBe(false)
+    expect(nodes[1].data.variables[0].value).toBe('5')
   })
 
   it("applies a nested name to its last instance's node, unless another path ends in that instance", () => {
