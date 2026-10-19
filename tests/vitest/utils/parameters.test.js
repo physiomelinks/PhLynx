@@ -57,25 +57,29 @@ describe('applyParametersToNodes with <instance>/<variable> names', () => {
   }
   const dimensionless = (name, value) => row(name, 'constant', value, 'dimensionless')
 
-  // A copy of CUFLynx's apps/api/tests/fixtures/phlynx_send_back_parameters.csv (physiomelinks/CUFLynx), what it
-  // sends back to PhLynx.
+  // A verbatim copy of apps/api/tests/fixtures/phlynx_send_back_parameters.csv in physiomelinks/CUFLynx (e50ce1bb):
+  // the parameters CSV CUFLynx sends back to PhLynx.
   const sendBack = readFileSync('tests/vitest/fixtures/phlynx_send_back_parameters.csv', 'utf8')
 
   it("applies CUFLynx's send-back to the named instance's rows", async () => {
     const rows = await parseParametersFile(sendBack)
-    const sent = (name) => rows.find((entry) => entry.variable_name === name)
-    const nodes = [
-      node('A', [dimensionless('p', sent('A/p').value)]),
-      node('B', [dimensionless('q', '5')]),
-      node('C', [dimensionless('q', '1')]),
-    ]
-    const { variablesById, skipped } = applyParametersToNodes(nodes, rows)
+    expect(rows.find((entry) => entry.variable_name === 'C/q').data_reference).toBe(
+      'calibrated by workflow selection, step c-alone (YYYY-MM-DD)'
+    )
 
+    const nodes = [
+      node('A', [dimensionless('p', '0')]),
+      node('B', [dimensionless('q', '5'), dimensionless('k', '6')]),
+      node('C', [dimensionless('q', '1'), dimensionless('k', '0')]),
+    ]
+    const { variablesById, updated, skipped } = applyParametersToNodes(nodes, rows)
+
+    expect(updated).toBe(3)
     expect(skipped).toEqual([])
-    expect(variablesById.get('C')[0].value).toBe(sent('C/q').value)
-    expect((variablesById.get('A') ?? nodes[0].data.variables)[0].value).toBe(sent('A/p').value)
+    expect(variablesById.get('C').map(({ value }) => value)).toEqual(['3', '1.0'])
+    expect(variablesById.get('A')[0].value).toBe('1.0')
     expect(variablesById.has('B')).toBe(false)
-    expect(nodes[1].data.variables[0].value).toBe('5')
+    expect(nodes[1].data.variables.map(({ value }) => value)).toEqual(['5', '6'])
   })
 
   it("applies a nested name to its last instance's node, unless another path ends in that instance", () => {
