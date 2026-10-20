@@ -451,7 +451,7 @@
       :message="saveAs.message"
       :initial-name="saveAs.initialName"
       :file="saveAs.file"
-      :is-taken="isComponentNameTaken"
+      :is-taken="saveAs.isTaken"
       @confirm="(name) => resolveSaveAs(name)"
       @cancel="resolveSaveAs(null)"
     />
@@ -462,9 +462,9 @@
         <div
           v-if="siblingCount > 0"
           class="apply-all-checkbox"
-          :title="`Also switch the ${siblingCount} other instance${
+          :title="`Ticked, math changes also reach the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
-          } using ${componentName} from ${componentFile} to the new math. Parameters and ports only change here.`"
+          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameters and ports only change here.`"
         >
           <Checkbox v-model="applyToAll" binary inputId="applyToAll" />
           <label for="applyToAll">
@@ -643,7 +643,7 @@ function suggestUnitsFor(typed) {
 const loading = ref(false)
 const activeTab = ref('parameters')
 
-const applyToAll = ref(false)
+const applyToAll = ref(true)
 // The editor mounts after the table paints, so its synchronous parse doesn't delay the table.
 const isEditorReady = ref(false)
 const editorWrapperRef = ref(null)
@@ -1534,6 +1534,16 @@ const siblings = computed(() => {
 
 const siblingCount = computed(() => siblings.value.length)
 
+/**
+ * Gets the other nodes on a math reference.
+ *
+ * @param {string} mathRef
+ * @returns {string[]} Their ids.
+ */
+function otherNodesOn(mathRef) {
+  return nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === mathRef).map((n) => n.id)
+}
+
 // ── Watchers & Handlers ──────────────────────────────────────────────────────
 let openRequestId = 0
 
@@ -1586,7 +1596,7 @@ async function loadEditor({ keepTab = false } = {}) {
   loading.value = true
   isDiagramSaved.value = false
   isEditorReady.value = false
-  applyToAll.value = false
+  applyToAll.value = true
   nameError.value = ''
   rejectedName = ''
   flaggedPorts.value = new Set()
@@ -1822,7 +1832,7 @@ async function handleCancel() {
 }
 
 // ── Save As ──────────────────────────────────────────────────────────────────
-const saveAs = ref({ visible: false, message: '', initialName: '', file: USER_MODULES_FILE })
+const saveAs = ref({ visible: false, message: '', initialName: '', file: USER_MODULES_FILE, isTaken: isComponentNameTaken })
 let saveAsResolver = null
 
 /**
@@ -1861,16 +1871,31 @@ function isComponentNameTaken(name, { file = saveAs.value.file } = {}) {
 }
 
 /**
+ * Like isComponentNameTaken, but also refuses the component the other instances use.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function isSharedComponentNameTaken(name, { file = saveAs.value.file } = {}) {
+  if (`${file}:${name}` === props.mathRef) return `"${name}" is used by the other instances.`
+  return isComponentNameTaken(name, { file })
+}
+
+/**
  * Asks for a new component name before saving math that can't keep its current one.
  *
  * @param {string} message - Why a new name is needed.
- * @param {{file?: string, initialName?: string}} [options] - The grouping the component goes in (newComponentFile by
- *   default), and the name offered, the instance's by default.
+ * @param {{file?: string, initialName?: string, isTaken?: (name: string) => string}} [options] - The grouping the
+ *   component goes in (newComponentFile by default), the name offered, the instance's by default, and why a name can't
+ *   be used, or '' when it can (isComponentNameTaken by default).
  * @returns {Promise<string|null>} The new name, or null if cancelled.
  */
-function promptComponentSaveAs(message, { file = newComponentFile(), initialName = editableName.value } = {}) {
+function promptComponentSaveAs(
+  message,
+  { file = newComponentFile(), initialName = editableName.value, isTaken = isComponentNameTaken } = {}
+) {
   resolveSaveAs(null)
-  saveAs.value = { visible: true, message, initialName: sanitiseName(initialName ?? ''), file }
+  saveAs.value = { visible: true, message, initialName: sanitiseName(initialName ?? ''), file, isTaken }
   return new Promise((resolve) => {
     saveAsResolver = resolve
   })
@@ -1882,23 +1907,29 @@ function resolveSaveAs(name) {
 }
 
 /**
- * Counts the instances, other than this one, on a module's math.
- *
- * @param {string} mathRef
- * @returns {number}
- */
-const otherInstanceCount = (mathRef) => nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === mathRef).length
-
-/**
- * Asks whether to overwrite stored math, or save it as a new component under an unused name.
+ * Asks whether to overwrite stored math, or save it as a new component under an unused name. With "Apply math changes
+ * to all" unticked, math other instances use is never overwritten: it asks for the new component's name straight away.
  *
  * @param {string} name - The stored component's name, offered to edit.
  * @param {{file?: string, mathRef?: string}} [options] - The grouping a new component goes in (newComponentFile by
- *   default), and the math overwritten, the instance's by default, whose other instances the warning counts.
+ *   default), and the math overwritten, the instance's by default, whose other instances the warning counts, with the
+ *   siblings that switch to it when ticked.
  * @returns {Promise<{name: string|null}|null>} The new component's name, a null name to overwrite, or null to cancel.
  */
 async function handleMathOverwrite(name, { file = newComponentFile(), mathRef = props.mathRef } = {}) {
-  const count = otherInstanceCount(mathRef)
+  const sharedWith = otherNodesOn(mathRef)
+  if (!applyToAll.value && sharedWith.length > 0) {
+    const count = sharedWith.length
+    const renamed = await promptComponentSaveAs(
+      `${count} other instance${count !== 1 ? 's' : ''} use${count !== 1 ? '' : 's'} ${name}. ` +
+        'Name a new component for this instance’s math, or tick “Apply math changes to all” to change them all.',
+      { file, isTaken: isSharedComponentNameTaken }
+    )
+    return renamed ? { name: renamed } : null
+  }
+  // Siblings switching to other existing math change too.
+  const switching = mathRef !== props.mathRef && applyToAll.value ? siblings.value : []
+  const count = new Set([...sharedWith, ...switching]).size
   const affects = count > 0 ? ` This will affect ${count} other instance${count === 1 ? '' : 's'}.` : ''
   const choice = await choose({
     header: 'Overwrite Math?',
