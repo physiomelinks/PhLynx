@@ -460,6 +460,7 @@
       v-if="configPrompt.visible"
       v-model="configPrompt.visible"
       :module-ref="configPrompt.moduleRef"
+      :match-ref="configPrompt.matchRef"
       :other-count="configPrompt.otherCount"
       :can-update="configPrompt.canUpdate"
       :initial-name="configPrompt.initialName"
@@ -1923,20 +1924,20 @@ function resolveSaveAs(name) {
 }
 
 // ── Module Config ────────────────────────────────────────────────────────────
-const configPrompt = ref({ visible: false, moduleRef: '', otherCount: 0, canUpdate: true, initialName: '', existingRefs: [] })
+const configPrompt = ref({ visible: false, moduleRef: '', matchRef: '', otherCount: 0, canUpdate: true, initialName: '', existingRefs: [] })
 let configResolver = null
 
 /**
  * Asks whether a config change updates the instance's module or saves as a new one.
  *
- * @param {Object} options - The prompt's `moduleRef`, `otherCount` and `canUpdate`.
+ * @param {Object} options - The prompt's `moduleRef`, `matchRef`, `otherCount` and `canUpdate`.
  * @returns {Promise<Object|null>} The save's `config`, or null if cancelled.
  */
-function promptModuleConfig({ moduleRef, otherCount, canUpdate }) {
+function promptModuleConfig({ moduleRef, matchRef = '', otherCount, canUpdate }) {
   resolveConfigPrompt(null)
   const initialName = sanitiseName(`${moduleRef.split(':')[1] ?? ''}_${editableName.value ?? ''}`)
   const existingRefs = [...new Set([...store.availableModules.keys(), moduleRef])]
-  configPrompt.value = { visible: true, moduleRef, otherCount, canUpdate, initialName, existingRefs }
+  configPrompt.value = { visible: true, moduleRef, matchRef, otherCount, canUpdate, initialName, existingRefs }
   return new Promise((resolve) => {
     configResolver = resolve
   })
@@ -1981,6 +1982,7 @@ async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
 
   const choice = await promptModuleConfig({
     moduleRef: isNewModule ? store.defaultModuleRef(mathRef) : moduleRef,
+    matchRef: isNewModule ? moduleRef : '',
     otherCount: followers.length,
     canUpdate: mathRef === moduleMathRef,
   })

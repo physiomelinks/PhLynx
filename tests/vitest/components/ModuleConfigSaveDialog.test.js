@@ -29,6 +29,12 @@ describe('ModuleConfigSaveDialog', () => {
     expect(wrapper.text()).toContain('the 2 other instances using it')
   })
 
+  it('names the module the instance no longer matches when it is not the one updated', () => {
+    mountDialog({ moduleRef: 'glut2:default', matchRef: 'glut:base' })
+    expect(wrapper.find('.config-message').text()).toContain('no longer match glut:base')
+    expect(wrapper.text()).toContain('Update glut2:default')
+  })
+
   it('saves as a new config by default when other instances use the module', async () => {
     mountDialog()
     await button('Save').trigger('click')

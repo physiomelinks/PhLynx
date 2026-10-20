@@ -162,18 +162,26 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   /**
    * Writes the edited node's config to the library. The save's `config.action` says how: 'update' writes it to the
    * node's module and every other node on it, 'new' adds `config.moduleRef` for this node alone, and 'follow' moves
-   * the module to the node's math. A 'new' with `follow` also moves the module it leaves to that math.
+   * the module to the node's math. A 'new' with `follow` also moves the module it leaves to that math. A module on
+   * changed math takes the ports and rows of an instance staying on it.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
    * @returns {string[]} The other nodes whose ports changed.
    */
-  function applyConfig({ id, config }) {
+  function applyConfig({ id, config, math }) {
     const node = findNode(id)
     if (!config || !node) return []
     const { moduleRef, mathRef, ports, variables } = node.data
     const module = libraryStore.availableModules.get(moduleRef)
+    // New math may have dropped rows and ports from the instances staying on the module, so it takes theirs.
+    const isMathChanged = math !== null || (module && module.mathRef !== mathRef)
+    const stayer = isMathChanged && nodes.value.find((other) => other.id !== id && other.data?.moduleRef === moduleRef && other.data.mathRef === mathRef)
+    const stayerConfig = stayer && {
+      ports: detachReactivity(stayer.data.ports),
+      variables: toModuleRows(stayer.data.variables, module?.variables ?? []),
+    }
     if (config.action === 'new') {
-      if (config.follow && module) libraryStore.replaceModule({ ...detachReactivity(module), mathRef })
+      if ((config.follow || stayer) && module) libraryStore.replaceModule({ ...detachReactivity(module), mathRef, ...stayerConfig })
       const newModule = { moduleRef: config.moduleRef, mathRef, ports, variables: toModuleRows(variables) }
       libraryStore.addModule(detachReactivity(newModule))
       updateNodeData(id, { moduleRef: config.moduleRef })
@@ -182,7 +190,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
 
     if (!module) return []
     if (config.action === 'follow') {
-      libraryStore.replaceModule({ ...detachReactivity(module), mathRef })
+      libraryStore.replaceModule({ ...detachReactivity(module), mathRef, ...stayerConfig })
       return []
     }
     libraryStore.replaceModule({
@@ -354,7 +362,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     if (!config) return null
     const isNew = config.action === 'new'
     const changes = [
-      (!isNew || config.follow) && prepareModuleUpdate(findNode(id)?.data.moduleRef),
+      prepareModuleUpdate(findNode(id)?.data.moduleRef),
       isNew && prepareModuleAdd(config.moduleRef),
     ].filter(Boolean)
     if (!changes.length) return null

@@ -857,8 +857,8 @@ describe('useInstanceSave', () => {
 
     describe('with math saved as a new component for every instance', () => {
       const GROWTH_MODULE_REF = 'growth:default'
-      const growth = (config) =>
-        buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML, updateAll: true, siblings: ['b'], ports, variables: variables(), config })
+      const growth = (config, overrides = {}) =>
+        buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML, updateAll: true, siblings: ['b'], ports, variables: variables(), config, ...overrides })
 
       beforeEach(() => {
         library.replaceModule({ ...baseModule(), variables: detachReactivity(findNode('a').data.variables) })
@@ -899,6 +899,54 @@ describe('useInstanceSave', () => {
         expect(snapshot()).toEqual(before)
         expect(library.availableModules.has('growth:a_only')).toBe(false)
         expect(library.availableModules.has(GROWTH_MODULE_REF)).toBe(false)
+
+        await history.redo()
+        expectNodesMatchModules()
+      })
+
+      it('builds the new math\'s module from what the switching instances keep when that math drops a port\'s variable', async () => {
+        const before = snapshot()
+        const math = GROWTH_XML.replace('<variable name="k" units="per_second" initial_value="0.5"/>', '').replace(
+          '<apply><times/><ci>k</ci><ci>x</ci></apply>',
+          '<ci>x</ci>'
+        )
+        const rows = variables().filter((row) => row.name !== 'k')
+        await saveInstanceEdit(growth({ action: 'new', moduleRef: 'growth:a_only' }, { math, variables: rows }))
+        expect(findNode('b').data.ports).toEqual([])
+        expect(module(GROWTH_MODULE_REF)).toMatchObject({ ports: [] })
+        expect(module(GROWTH_MODULE_REF).variables.some((row) => row.name === 'k')).toBe(false)
+        expectNodesMatchModules()
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(library.availableModules.has(GROWTH_MODULE_REF)).toBe(false)
+
+        await history.redo()
+        expectNodesMatchModules()
+      })
+    })
+
+    describe('with saved math that drops a variable the module\'s port carries', () => {
+      const math = DECAY_XML.replace('<variable name="k" units="per_second" initial_value="0.5"/>', '').replace(
+        '<apply><times/><apply><minus/><ci>k</ci></apply><ci>x</ci></apply>',
+        '<ci>x</ci>'
+      )
+      const rows = () => findNode('a').data.variables.filter((row) => row.name !== 'k')
+
+      beforeEach(() => library.replaceModule({ ...baseModule(), variables: detachReactivity(findNode('a').data.variables) }))
+
+      it('gives the module it leaves the instances staying on it, and undo puts it back', async () => {
+        const before = snapshot()
+        const moduleBefore = module()
+        const config = { action: 'new', moduleRef: 'decay:a_only' }
+        await saveInstanceEdit(buildSave({ math, updateAll: true, siblings: ['b'], ports, variables: rows(), config }))
+        expect(findNode('b').data.ports).toEqual([])
+        expect(module()).toMatchObject({ ports: [] })
+        expectNodesMatchModules()
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(module()).toEqual(moduleBefore)
 
         await history.redo()
         expectNodesMatchModules()

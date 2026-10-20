@@ -477,7 +477,7 @@ describe('InstanceEditorDialog module config', () => {
   it('asks about the new component\'s module when the instances switching to it would differ', async () => {
     const newXml = EDITED_XML.replace(/"decay"/g, '"decay2"')
     await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] }, { xml: newXml })
-    expect(configDialog().props()).toMatchObject({ moduleRef: 'decay2:default', otherCount: 1, canUpdate: true })
+    expect(configDialog().props()).toMatchObject({ moduleRef: 'decay2:default', matchRef: MODULE_REF, otherCount: 1, canUpdate: true })
     expect(configDialog().props('existingRefs')).toContain('decay2:default')
 
     configDialog().vm.$emit('confirm', { action: 'new', moduleRef: 'decay2:a' })

@@ -12,7 +12,7 @@
   >
     <form class="config-form" @submit.prevent="handleConfirm">
       <p class="config-message">
-        This instance's ports or variables no longer match <strong>{{ moduleRef }}</strong>.
+        This instance's ports or variables no longer match <strong>{{ matchRef || moduleRef }}</strong>.
       </p>
 
       <div v-if="canUpdate" class="config-option">
@@ -71,6 +71,8 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   /** The instance's module, `<type>:<subtype>`. */
   moduleRef: { type: String, required: true },
+  /** The module the instance no longer matches, when not moduleRef (math saved as a new component). */
+  matchRef: { type: String, default: '' },
   /** How many other instances use the module. */
   otherCount: { type: Number, default: 0 },
   /** Whether the module can take this instance's config; false when its math differs from the others'. */
