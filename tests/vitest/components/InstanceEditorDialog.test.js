@@ -39,6 +39,8 @@ vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor
 
 const { default: InstanceEditorDialog } = await import('../../../src/components/InstanceEditorDialog.vue')
 const { default: ComponentSaveAsDialog } = await import('../../../src/components/dialogs/ComponentSaveAsDialog.vue')
+const { default: ModuleConfigSaveDialog } = await import('../../../src/components/dialogs/ModuleConfigSaveDialog.vue')
+const { buildInstance } = await import('../../../src/services/import/buildWorkflow.js')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
 const { useCelldlEditorHost } = await import('../../../src/composables/useCelldlEditorHost.js')
@@ -348,6 +350,113 @@ describe('InstanceEditorDialog math shared with other instances', () => {
     await flushPromises()
     expect(saveAsDialog().exists()).toBe(false)
     expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, math: null })
+  })
+})
+
+describe('InstanceEditorDialog module config', () => {
+  const MODULE_REF = 'decay:base'
+  const PORTS = [{ label: 'p', portType: 'general_ports', variables: ['x', 'k'] }]
+  let rows
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    const library = useLibraryStore()
+    library.addMath(MATH_REF, XML)
+    const module = {
+      moduleRef: MODULE_REF,
+      mathRef: MATH_REF,
+      ports: PORTS,
+      variables: [
+        { name: 'x', value: null, units: 'metre', access: 'access', type: 'variable' },
+        { name: 'k', value: '0.5', units: 'per_second', access: 'access', type: 'boundary_condition' },
+      ],
+    }
+    library.addModule(module)
+    rows = buildInstance('a', 'a', null, module, [], null, library.getMathAnalysis(MATH_REF)).data.variables
+    flowNodes.value = ['a', 'b'].map((id) => ({ id, data: { name: id, mathRef: MATH_REF, moduleRef: MODULE_REF } }))
+  })
+
+  afterEach(() => {
+    flowNodes.value = []
+  })
+
+  const configDialog = () => wrapper.findComponent(ModuleConfigSaveDialog)
+
+  /**
+   * Opens the dialog on instance `a`, optionally edits the math, and clicks Save.
+   *
+   * @param {Object} [props] - Props beyond the instance's rows and ports.
+   * @param {{xml?: string, untick?: boolean}} [options]
+   */
+  async function save(props = {}, { xml = null, untick = false } = {}) {
+    mountDialog({ variables: rows, initialPorts: PORTS, ...props })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    if (xml) await report(editor, 'edit', xml)
+    if (untick) await wrapper.find('#applyToAll').setValue(false)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+  }
+
+  it('saves without asking when only values change', async () => {
+    await save({ variables: rows.map((row) => (row.name === 'k' ? { ...row, value: '9' } : row)) })
+    expect(configDialog().exists()).toBe(false)
+    expect(wrapper.emitted('confirm')[0][0].config).toBeNull()
+  })
+
+  it('saves math in place for every instance without asking', async () => {
+    await save({}, { xml: EDITED_XML })
+    expect(configDialog().exists()).toBe(false)
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, updateAll: true, config: null })
+  })
+
+  it('saves math as a new component for this instance without asking', async () => {
+    await save({}, { xml: EDITED_XML, untick: true })
+    wrapper.findComponent(ComponentSaveAsDialog).vm.$emit('confirm', 'decay_a')
+    await flushPromises()
+    expect(configDialog().exists()).toBe(false)
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:decay_a', config: null })
+  })
+
+  it('asks before saving changed ports, and sends the choice', async () => {
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    expect(configDialog().props()).toMatchObject({ moduleRef: MODULE_REF, otherCount: 1, canUpdate: true, initialName: 'base_a' })
+    expect(configDialog().props('existingRefs')).toContain(MODULE_REF)
+
+    configDialog().vm.$emit('confirm', { action: 'update' })
+    await flushPromises()
+    expect(wrapper.emitted('confirm')[0][0].config).toEqual({ action: 'update' })
+  })
+
+  it('asks before saving a changed variable type', async () => {
+    await save({ variables: rows.map((row) => (row.name === 'k' ? { ...row, type: 'constant' } : row)) })
+    expect(configDialog().exists()).toBe(true)
+  })
+
+  it('offers only a new config when this instance alone moves to other math', async () => {
+    const otherRef = 'file:other'
+    useLibraryStore().addMath(otherRef, XML.replace(/"decay"/g, '"other"'))
+    useLibraryStore().addModule({ moduleRef: 'other:base', mathRef: otherRef, ports: [], variables: [] })
+    await save({}, { xml: EDITED_XML.replace(/"decay"/g, '"other"'), untick: true })
+    expect(configDialog().props('canUpdate')).toBe(false)
+
+    configDialog().vm.$emit('confirm', { action: 'new', moduleRef: 'decay:base_a' })
+    await flushPromises()
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: otherRef, config: { action: 'new', moduleRef: 'decay:base_a' } })
+  })
+
+  it('saves nothing when the config prompt is cancelled', async () => {
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
+    configDialog().vm.$emit('cancel')
+    await flushPromises()
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 })
 

@@ -516,6 +516,20 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
+   * Replaces a stored module in place, moving it to its math's collection if that changed.
+   *
+   * @param {Object} module
+   */
+  function replaceModule(module) {
+    const existing = availableModules.value.get(module.moduleRef)
+    if (!existing) return addModule(module)
+    if (existing.mathRef !== module.mathRef) moveModule(module.moduleRef, existing.mathRef, module.mathRef)
+    if (availableMath.value.has(module.mathRef) || module.mathRef === GHOST_MATH_REF) delete module.isStub
+    else module.isStub = true
+    availableModules.value.set(module.moduleRef, module)
+  }
+
+  /**
    * Removes a module and its place in its math's collection. Stubs, whose math is missing, go too.
    *
    * @param {string} moduleRef
@@ -727,6 +741,7 @@ export const useLibraryStore = defineStore('library', () => {
     resetGlobalConstants,
     loadState,
     removeModule,
+    replaceModule,
     removeCollection,
     removeGlobalConstant,
     removeMath,

@@ -456,6 +456,18 @@
       @cancel="resolveSaveAs(null)"
     />
 
+    <ModuleConfigSaveDialog
+      v-if="configPrompt.visible"
+      v-model="configPrompt.visible"
+      :module-ref="configPrompt.moduleRef"
+      :other-count="configPrompt.otherCount"
+      :can-update="configPrompt.canUpdate"
+      :initial-name="configPrompt.initialName"
+      :existing-refs="configPrompt.existingRefs"
+      @confirm="(config) => resolveConfigPrompt(config)"
+      @cancel="resolveConfigPrompt(null)"
+    />
+
     <!-- DIALOG FOOTER -->
     <template #footer>
       <div class="dialog-footer" v-if="!loading && !isScreenTooSmall">
@@ -464,7 +476,7 @@
           class="apply-all-checkbox"
           :title="`Ticked, math changes also reach the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
-          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameters and ports only change here.`"
+          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameter values only change here, and a change to ports or variable types asks first.`"
         >
           <Checkbox v-model="applyToAll" binary inputId="applyToAll" />
           <label for="applyToAll">
@@ -518,6 +530,7 @@ import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
+import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
 import CelldlPane from './celldl/CelldlPane.vue'
 import CelldlParametersTab from './celldl/CelldlParametersTab.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
@@ -538,6 +551,7 @@ import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
 import { confirmDrivenStores } from '../services/export/drivenStores'
+import { isModuleConfig } from '../services/moduleConfig'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -1908,6 +1922,61 @@ function resolveSaveAs(name) {
   saveAsResolver = null
 }
 
+// ── Module Config ────────────────────────────────────────────────────────────
+const configPrompt = ref({ visible: false, moduleRef: '', otherCount: 0, canUpdate: true, initialName: '', existingRefs: [] })
+let configResolver = null
+
+/**
+ * Asks whether a config change updates the instance's module or saves as a new one.
+ *
+ * @param {Object} options - The prompt's `moduleRef`, `otherCount` and `canUpdate`.
+ * @returns {Promise<Object|null>} The save's `config`, or null if cancelled.
+ */
+function promptModuleConfig({ moduleRef, otherCount, canUpdate }) {
+  resolveConfigPrompt(null)
+  const initialName = sanitiseName(`${moduleRef.split(':')[1] ?? ''}_${editableName.value ?? ''}`)
+  const existingRefs = [...store.availableModules.keys()]
+  configPrompt.value = { visible: true, moduleRef, otherCount, canUpdate, initialName, existingRefs }
+  return new Promise((resolve) => {
+    configResolver = resolve
+  })
+}
+
+function resolveConfigPrompt(config) {
+  configResolver?.(config)
+  configResolver = null
+}
+
+/**
+ * Works out what a save does to the instance's module, asking when the ports or variable units, access or types no
+ * longer match it. Values never count. Math saved for every instance on the module's math takes the module along.
+ *
+ * @param {Object} save
+ * @param {string} save.mathRef - The math the instance saves to.
+ * @param {string|null} save.math - The math written, or null.
+ * @param {Array} save.ports
+ * @param {boolean} save.updateAll
+ * @returns {Promise<Object|null|false>} The save's `config`, null when the module needs no change, or false if cancelled.
+ */
+async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
+  const moduleRef = nodes.value.find((n) => n.id === props.id)?.data?.moduleRef
+  const module = moduleRef && store.availableModules.get(moduleRef)
+  // Math no module uses gets a module built from this instance (see useInstanceSave).
+  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
+  if (!module || isNewModule) return null
+
+  const isFollowing = updateAll && props.mathRef === module.mathRef
+  const moduleMathRef = isFollowing ? mathRef : module.mathRef
+  const analysis = isFollowing && math !== null ? analyzeMathXml(math) : store.getMathAnalysis(moduleMathRef)
+  const config = { moduleRef, mathRef, ports, variables: parameterRows.value }
+  if (isModuleConfig(config, { ...module, mathRef: moduleMathRef }, analysis)) {
+    return moduleMathRef !== module.mathRef ? { action: 'follow' } : null
+  }
+
+  const otherCount = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef).length
+  return (await promptModuleConfig({ moduleRef, otherCount, canUpdate: mathRef === moduleMathRef })) ?? false
+}
+
 /**
  * Asks whether to overwrite stored math, or save it as a new component under an unused name. With "Apply math changes
  * to all" unticked, math other instances use is never overwritten: it asks for the new component's name straight away.
@@ -2523,6 +2592,15 @@ async function saveInstance(options) {
 
   const updateAll = applyToAll.value || siblingCount.value === 0
 
+  // 4. Check the ports and variable kinds against the module
+  const config = await resolveModuleConfig({
+    mathRef: newMathRef,
+    math: isMathChanged ? mathToSave : null,
+    ports: renamePortVariables(finalPorts, renames),
+    updateAll,
+  })
+  if (config === false) return
+
   trackEvent('editor_action', {
     category: 'Editor',
     action: 'save_unified_module',
@@ -2568,6 +2646,7 @@ async function saveInstance(options) {
       plotVariables: renamedPlotEntries(),
       updateAll,
       siblings: updateAll ? siblings.value : [],
+      config,
       keepOpen,
     })
   )
