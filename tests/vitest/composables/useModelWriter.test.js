@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const notify = vi.hoisted(() => ({ warning: vi.fn() }))
 vi.mock('../../../src/utils/notify', () => ({ notify }))
+// How many times the model's boundary values are resolved.
+const boundary = vi.hoisted(() => ({ resolves: 0 }))
+vi.mock('../../../src/services/export/boundaryValues', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, resolveBoundaryValues: (...args) => (boundary.resolves++, actual.resolveBoundaryValues(...args)) }
+})
 
 const { useModelWriter } = await import('../../../src/composables/useModelWriter.js')
 const { FLOW_IDS } = await import('../../../src/utils/constants.js')
@@ -131,6 +137,20 @@ describe('useModelWriter', () => {
       expect(provenanceOf('dndnode_3/art').get('C')).toMatchObject({ value: '2', chip: 'default' })
       expect(aggregateProvenanceOf('sm_1~art').get('C')).toMatchObject({ total: 2, overridden: 1 })
       expect(overridesOf('dndnode_1')).toEqual([{ key: 'art', path: 'art', variable: 'C', value: '8', isOrphaned: false }])
+    })
+
+    it('resolves the model’s boundary values once for every value shown from it, and again once it changes', () => {
+      provenanceOf('dndnode_1/art')
+      boundary.resolves = 0
+      provenanceOf('dndnode_1/art')
+      provenanceOf('dndnode_3/art')
+      aggregateProvenanceOf('sm_1~art')
+      expect(boundary.resolves).toBe(0)
+
+      writeValue('dndnode_1/art', 'C', { value: '8' })
+      expect(provenanceOf('dndnode_1/art').get('C')).toMatchObject({ value: '8', chip: 'overridden' })
+      provenanceOf('dndnode_3/art')
+      expect(boundary.resolves).toBe(1)
     })
 
     it('removes an override by its key, an orphaned one too', () => {

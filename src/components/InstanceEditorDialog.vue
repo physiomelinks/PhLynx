@@ -195,6 +195,9 @@
           <TabPanels class="tab-panels-container">
             <!-- TAB 1: PARAMETER EDITOR -->
             <TabPanel value="parameters" class="tab-panel-flex">
+              <Message v-if="isConnectionElsewhere" severity="secondary" size="small" class="connection-elsewhere-note">
+                Connection status is shown inside a super instance.
+              </Message>
               <ParameterTable
                 ref="parameterTableRef"
                 :rows="parameterRows"
@@ -497,7 +500,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
+import { ref, reactive, computed, shallowRef, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
@@ -943,34 +946,83 @@ function hasTimeVaryingInitialiser(row) {
   return !!initialiserRow && !isInitialisable(initialiserRow, variableKinds.value)
 }
 
+// No connection status: what a malformed model, which export reports, or a module outside any super instance gives.
+const NO_CONNECTION = Object.freeze({ status: new Map(), ignored: new Set(), emptySums: new Set() })
+// How long the rows and ports rest before their connection status is resolved again.
+const CONNECTION_DELAY_MS = 200
+
+/** This module's copy in the super instance entered from the root, by its model id; none at the root. */
+const placementModelId = computed(() => {
+  const instancePath = canvasLevel.instancePath.value
+  return instancePath.length ? modelIdOf(props.id, instancePath) : undefined
+})
+
+/**
+ * The model id this module's connection status is read under: its copy in the super instance entered, else itself; none
+ * when its super-module is edited on its own, as each super instance connects it differently.
+ */
+const connectionModelId = computed(() => (canvasLevel.isEditingSupermodule.value ? undefined : placementModelId.value ?? props.id))
+
+/** Whether connection status is shown only inside a super instance: its super-module is edited on its own. */
+const isConnectionElsewhere = computed(() => !connectionModelId.value)
+
 /**
  * Where this instance's rows get their values, from resolveBoundaryValues, using the rows and complete ports as
  * edited here against the rest of the canvas. Couplings are previewed as save would recompute them, and the values
- * resolved in the model that leaves, its super instances expanded; the instance is a root module, its own model node.
+ * resolved in the model that leaves, its super instances expanded; read under this module's model id there.
+ *
+ * @returns {{status: Map, ignored: Set, emptySums: Set}} Nothing for a model that fails to expand or resolve.
  */
-const connection = computed(() => {
+function resolveConnection() {
+  const modelId = connectionModelId.value
+  if (!modelId) return NO_CONNECTION
   const rows = parameterRows.value
   const ports = editablePorts.value.filter((port) => !isBlankPort(port) && !isIncompletePort(port))
-  const canvasNodes = (nodes.value ?? []).map((node) =>
-    node.id === props.id ? { ...node, data: { ...node.data, variables: rows, ports } } : node
-  )
-  const couplings = previewCouplings(props.id, ports, canvasNodes, edges.value ?? [])
-  const canvasEdges = (edges.value ?? []).map((edge) =>
-    couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
-  )
-  const model = expandHierarchy(canvasNodes, canvasEdges)
-  let resolved
   try {
-    resolved = resolveBoundaryValues(model.nodes, model.edges)
+    const canvasNodes = (nodes.value ?? []).map((node) =>
+      node.id === props.id ? { ...node, data: { ...node.data, variables: rows, ports } } : node
+    )
+    const couplings = previewCouplings(props.id, ports, canvasNodes, edges.value ?? [])
+    const canvasEdges = (edges.value ?? []).map((edge) =>
+      couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
+    )
+    const model = expandHierarchy(canvasNodes, canvasEdges)
+    const resolved = resolveBoundaryValues(model.nodes, model.edges)
+    return {
+      status: resolved.status.get(modelId) ?? new Map(),
+      ignored: resolved.ignored.get(modelId) ?? new Set(),
+      emptySums: resolved.emptySums.get(modelId) ?? new Set(),
+    }
   } catch {
-    return { status: new Map(), ignored: new Set(), emptySums: new Set() } // a malformed multiport, which export reports
+    return NO_CONNECTION
   }
-  return {
-    status: resolved.status.get(props.id) ?? new Map(),
-    ignored: resolved.ignored.get(props.id) ?? new Set(),
-    emptySums: resolved.emptySums.get(props.id) ?? new Set(),
-  }
-})
+}
+
+// Resolved while open: once loaded, at once on moving level or new rows or ports, and once edits to them rest, so
+// typing never expands the whole model per keystroke.
+const connection = shallowRef(NO_CONNECTION)
+let connectionTimer = null
+watch(
+  () => [props.modelValue, connectionModelId.value, nodes.value, edges.value, loading.value],
+  ([isOpen, , , , isLoading], [wasOpen] = []) => {
+    clearTimeout(connectionTimer)
+    // Opening loads the rows and ports, whose load ending resolves them.
+    const isOpening = wasOpen === false && isOpen
+    connection.value = isOpen && !isLoading && !isOpening ? resolveConnection() : NO_CONNECTION
+  },
+  { immediate: true }
+)
+watch(
+  [parameterRows, editablePorts],
+  ([rows, ports], [lastRows, lastPorts]) => {
+    clearTimeout(connectionTimer)
+    if (!props.modelValue || loading.value) return
+    if (rows !== lastRows || ports !== lastPorts) connection.value = resolveConnection()
+    else connectionTimer = setTimeout(() => (connection.value = resolveConnection()), CONNECTION_DELAY_MS)
+  },
+  { deep: true }
+)
+onUnmounted(() => clearTimeout(connectionTimer))
 
 /** Each row name to where its value comes from (see resolveBoundaryValues' `status`). */
 const connectionStatus = computed(() => connection.value.status)
@@ -1395,8 +1447,7 @@ const nameOf = (id) => nodes.value.find((node) => node.id === id)?.data.name ?? 
  * the super instance where it is; elsewhere the canvas edges, as stored.
  */
 const connectionSource = computed(() => {
-  const instancePath = canvasLevel.instancePath.value
-  const modelId = instancePath.length ? modelIdOf(props.id, instancePath) : undefined
+  const modelId = placementModelId.value
   if (!modelId) return { nodeId: props.id, edges: edges.value ?? [], nameOf }
   return { nodeId: modelId, edges: modelEdges.value ?? [], nameOf: (id) => graph.value.pathOf(id) ?? id }
 })
@@ -2195,7 +2246,8 @@ async function handleSave(options) {
   color: var(--p-text-muted-color);
 }
 
-.plot-tab-note {
+.plot-tab-note,
+.connection-elsewhere-note {
   flex-shrink: 0;
 }
 

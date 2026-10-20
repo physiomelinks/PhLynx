@@ -231,7 +231,8 @@ export function useModelWriter() {
    * @param {string} modelId
    * @returns {Map<string, Object>} By row name.
    */
-  const provenanceOf = (modelId) => rowProvenance(modelId, model.graph.value, findNode)
+  const provenanceOf = (modelId) =>
+    rowProvenance(modelId, model.graph.value, findNode, { boundary: model.boundary.value, findModelNode: model.findModelNode })
 
   /**
    * Sums up where a super-module's module's values come from across its copies, as editing the super-module on its
@@ -240,7 +241,7 @@ export function useModelWriter() {
    * @param {string} mainId - The module's store id.
    * @returns {Map<string, Object>} By row name.
    */
-  const aggregateProvenanceOf = (mainId) => aggregateProvenance(mainId, model.graph.value, findNode)
+  const aggregateProvenanceOf = (mainId) => aggregateProvenance(mainId, model.graph.value, findNode, { boundary: model.boundary.value })
 
   /**
    * Lists a super instance's overrides for its sidebar, orphaned ones flagged (see overrides.js overridesOf).

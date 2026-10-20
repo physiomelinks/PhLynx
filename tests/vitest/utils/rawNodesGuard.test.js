@@ -181,6 +181,12 @@ const ALLOWED = [
   },
   {
     file: 'src/components/InstanceEditorDialog.vue',
+    line: '() => [props.modelValue, connectionModelId.value, nodes.value',
+    use: 'model-safe',
+    reason: 'The canvas whose change resolves the edited values again, expanded before they are resolved.',
+  },
+  {
+    file: 'src/components/InstanceEditorDialog.vue',
     line: 'const canvasEdges',
     use: 'model-safe',
     reason: 'The canvas edges recoupled as a save would, expanded before its values are resolved.',

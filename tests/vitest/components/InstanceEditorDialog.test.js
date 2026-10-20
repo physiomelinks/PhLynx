@@ -706,12 +706,13 @@ describe('InstanceEditorDialog connection status', () => {
 
     wrapper.vm.deletePort(0)
     await flushPromises()
-    expect(wrapper.vm.connectionStatus.get('k')).toEqual({ state: 'missing', from: [] })
+    // Resolved once the edits rest, not per keystroke.
+    expect(wrapper.vm.connectionStatus.get('k')).toEqual({ state: 'connected', from: ['Src.k_src'] })
+    await vi.waitFor(() => expect(wrapper.vm.connectionStatus.get('k')).toEqual({ state: 'missing', from: [] }))
     expect(wrapper.vm.issueChips.find((chip) => chip.key === 'unconnected')?.label).toBe('1 boundary condition not connected')
 
     kRow().value = '0.5'
-    await flushPromises()
-    expect(wrapper.vm.connectionStatus.get('k')).toEqual({ state: 'own', from: [] })
+    await vi.waitFor(() => expect(wrapper.vm.connectionStatus.get('k')).toEqual({ state: 'own', from: [] }))
     expect(wrapper.vm.issueChips.map((chip) => chip.key)).not.toContain('unconnected')
   })
 

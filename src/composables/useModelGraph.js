@@ -10,6 +10,7 @@
 import { computed, effectScope } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
+import { resolveBoundaryValues } from '../services/export/boundaryValues'
 import { expandHierarchy } from '../services/hierarchy/expand'
 import { FLOW_IDS } from '../utils/constants'
 import { hasHierarchy, scopeOf } from '../utils/hierarchy'
@@ -27,8 +28,10 @@ const graphs = new WeakMap()
  * @returns {{graph: import('vue').ComputedRef<Object>, modelNodes: import('vue').ComputedRef<Array>,
  *   modelEdges: import('vue').ComputedRef<Array>, errors: import('vue').ComputedRef<Array>,
  *   isHierarchical: import('vue').ComputedRef<boolean>, expandSelection: Function, modelIdOf: Function,
- *   mainIdOf: Function, rootIdOf: Function, findModelNode: Function}} `graph` is expandHierarchy's result; `errors` the
- *   problems builds report, none for a workspace without super instances, whose builds check it as before.
+ *   mainIdOf: Function, rootIdOf: Function, findModelNode: Function, boundary: import('vue').ComputedRef<Object|null>}}
+ *   `graph` is expandHierarchy's result; `errors` the problems builds report, none for a workspace without super
+ *   instances, whose builds check it as before; `boundary` the model's resolveBoundaryValues, null when a malformed
+ *   port stops it (export says why).
  */
 export function useModelGraph(flowId = FLOW_IDS.MAIN) {
   const flow = useVueFlow(flowId)
@@ -57,6 +60,14 @@ function createModelGraph(flow) {
   const modelEdges = computed(() => graph.value.edges)
   const errors = computed(() => (isHierarchical.value ? graph.value.errors : []))
   const nodeById = computed(() => new Map(graph.value.nodes.map((node) => [node.id, node])))
+  // Resolved once per model, for every row of every node shown from it.
+  const boundary = computed(() => {
+    try {
+      return resolveBoundaryValues(graph.value.nodes, graph.value.edges)
+    } catch {
+      return null
+    }
+  })
   // Each model node's id by where it comes from: the store's node and the super instances it is expanded through.
   const idByOrigin = computed(() => {
     const { nodes: expanded, origin } = graph.value
@@ -124,7 +135,7 @@ function createModelGraph(flow) {
    */
   const findModelNode = (modelId) => nodeById.value.get(modelId)
 
-  return { graph, modelNodes, modelEdges, errors, isHierarchical, expandSelection, modelIdOf, mainIdOf, rootIdOf, findModelNode }
+  return { graph, modelNodes, modelEdges, errors, isHierarchical, expandSelection, modelIdOf, mainIdOf, rootIdOf, findModelNode, boundary }
 }
 
 /**
