@@ -14,7 +14,7 @@ import { generateFlattenedModel } from '../../../src/utils/cellml.js'
 import { multiportSummary } from '../../../src/utils/multiport.js'
 import { interpretUnitExpression } from '../../../src/utils/unitExpression.js'
 import { resolveBoundaryValues } from '../../../src/services/export/boundaryValues.js'
-import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } from '../../../src/services/simulation/scopedModel.js'
+import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope, SIMULATION_BUILD } from '../../../src/services/simulation/scopedModel.js'
 import { buildVariableMapping, mapInspectionModules, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { setNodePlotVariables } from '../../../src/services/simulation/plotSelections.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
@@ -448,7 +448,7 @@ describe('scoped models', () => {
 
   const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
 
-  it('builds a selection with nothing to integrate as an algebraic system, with no clock', async () => {
+  it('builds a selection with nothing to integrate as an algebraic system for the simulator, and with a clock for export', async () => {
     const { nodes, edges } = buildNetwork()
     const scope = resolveScope(['leaf_1'], nodes, edges)
     const report = checkScope(scope, store)
@@ -456,8 +456,10 @@ describe('scoped models', () => {
     expect(report.errors).toEqual([])
     expect(report.zeroedBoundaries).toEqual([{ nodeId: 'leaf_1', nodeName: 'leaf_1', variableName: 'u' }])
     expect(report.canBuild).toBe(true)
-    const text = await buildScopedModel(scope, store).text()
+    const text = await buildScopedModel(scope, store, SIMULATION_BUILD).text()
     expect(text).not.toMatch(/<component name="environment"/)
+    const exported = await buildScopedModel(scope, store).text()
+    expect(exported).toMatch(/<component name="environment">\s*<variable name="time" units="second"/)
   })
 
   it('sets a boundary condition the cut leaves without a value to 0', async () => {
