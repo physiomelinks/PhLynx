@@ -60,14 +60,18 @@ export function usePreservedNaming({ flowId = FLOW_IDS.MAIN, confirm = null, his
 
   /**
    * Asks before a change that gives a super-module with preserved names a second occurrence, and switches those to
-   * 'prefixed' naming, as one undo step, when the user agrees.
+   * 'prefixed' naming when the user agrees, then makes the change: the switch and the change one undo step.
    *
    * @param {Array} after - Every node as the change leaves it; a stand-in for each super instance added will do.
-   * @returns {Promise<boolean>} Whether the change may be made.
+   * @param {() => (Promise<void>|void)} [change] - Makes the change, once allowed.
+   * @returns {Promise<boolean>} Whether the change was allowed.
    */
-  async function allow(after) {
+  async function allow(after, change = () => {}) {
     const smIds = preserveConflicts(after)
-    if (!smIds.length) return true
+    if (!smIds.length) {
+      await change()
+      return true
+    }
     if (!confirm) return false
     const before = detachReactivity(allNodes())
     const changes = flatNameChanges(before, withPrefixedNaming(before, smIds))
@@ -86,7 +90,13 @@ export function usePreservedNaming({ flowId = FLOW_IDS.MAIN, confirm = null, his
         if (node) node.data = { ...node.data, supermodule: { ...node.data.supermodule, naming } }
       }
     }
-    await history.executeAndAddCommand({ type: 'prefix-supermodule-names', redo: () => write('prefixed'), undo: () => write('preserve') })
+    history.startBatch()
+    try {
+      await history.executeAndAddCommand({ type: 'prefix-supermodule-names', redo: () => write('prefixed'), undo: () => write('preserve') })
+      await change()
+    } finally {
+      history.endBatch()
+    }
     return true
   }
 

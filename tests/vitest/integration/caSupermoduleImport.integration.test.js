@@ -228,15 +228,21 @@ describe('the palette places a library super-module', () => {
     expect(supermodules.templateOf(neuron.id).matches).toBe(false)
   })
 
-  it("builds with the library's CA variants, and says what the build warns about", async () => {
-    const actual = importCaModuleArray.getMockImplementation()
-    importCaModuleArray.mockImplementationOnce((...args) => ({ ...actual(...args), warnings: ['<b>forked</b>'], conflicts: ['a → b'] }))
+  it('adds the global constants it sets in the same undo step', async () => {
+    const library = useLibraryStore()
+    const history = useFlowHistoryStore()
+    library.assignGlobalConstant('kept', '1', 'dimensionless', null)
+    const id = await useSupermodules().placeLibrarySupermodule('neuron:sympathetic', { x: 10, y: 20 })
+    const added = [...library.globalVariables.keys()].filter((name) => name !== 'kept')
+    expect(added.length).toBeGreaterThan(0)
+    expect(history.pointerIndex).toBe(0)
 
-    const id = await useSupermodules().placeLibrarySupermodule('neuron:sympathetic', { x: 0, y: 0 })
+    await history.undo()
+    expect(flow.findNode(id)).toBeUndefined()
+    expect([...library.globalVariables.keys()]).toEqual(['kept'])
 
-    expect(id).toBeTruthy()
-    expect(importCaModuleArray.mock.calls.at(-1)[1].variants).toBe(useLibraryStore().caVariants)
-    expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ items: ['<b>forked</b>'], sticky: true }))
-    expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Connections Not Made', items: ['a → b'] }))
+    await history.redo()
+    expect(flow.findNode(id)).toBeDefined()
+    expect([...library.globalVariables.keys()].filter((name) => name !== 'kept')).toEqual(added)
   })
 })

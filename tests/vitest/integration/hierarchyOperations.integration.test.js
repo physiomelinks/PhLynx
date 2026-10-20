@@ -318,6 +318,37 @@ describe('nest, un-nest and Make unique on the workspace', () => {
     expect(snapshot()).toEqual(before)
   })
 
+  describe('of a super-module keeping its components’ own names', () => {
+    beforeEach(async () => {
+      const graph = segments()
+      const sm = graph.nodes.find((node) => node.id === 'sm_1')
+      sm.data.supermodule = { ...sm.data.supermodule, naming: 'preserve' }
+      await load(graph)
+    })
+
+    it('asks, then makes it unique as planned when nothing changed meanwhile', async () => {
+      const confirm = vi.fn(async () => true)
+      const { done } = await useHierarchyOperations({ history, confirm }).makeUniqueSuperInstance('dndnode_1')
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Flat Names Will Change' }))
+      expect(done).toBe(true)
+      expect(flow.findNode('dndnode_1').data.smId).toBe('sm_2')
+    })
+
+    it('makes nothing when the flat names it asked about changed while it asked', async () => {
+      const before = snapshot()
+      const confirm = vi.fn(async () => {
+        const node = flow.findNode('dndnode_1')
+        node.data = { ...node.data, name: 'renamed' }
+        return true
+      })
+      const { done, problems } = await useHierarchyOperations({ history, confirm }).makeUniqueSuperInstance('dndnode_1')
+      expect(done).toBe(false)
+      expect(problems[0]).toMatch(/changed/)
+      expect(flow.findNode('dndnode_1').data.smId).toBe('sm_1')
+      expect(snapshot().nodes.filter((node) => node.id !== 'dndnode_1')).toEqual(before.nodes.filter((node) => node.id !== 'dndnode_1'))
+    })
+  })
+
   it('refuses to nest an interface node, changing nothing', async () => {
     await load(segments())
     const before = snapshot()

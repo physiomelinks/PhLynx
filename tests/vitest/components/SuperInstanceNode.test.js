@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import ConfirmationService from 'primevue/confirmationservice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FLOW_IDS } from '../../../src/utils/constants.js'
@@ -49,7 +50,7 @@ describe('SuperInstanceNode', () => {
   const mountNode = (id = 'dndnode_1') => {
     wrapper = mount(SuperInstanceNode, {
       props: { id, data: flow.findNode(id).data },
-      global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+      global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {} } },
       attachTo: document.body,
     })
   }
@@ -78,7 +79,7 @@ describe('SuperInstanceNode', () => {
     const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value?.value ?? '') }
     wrapper = mount(SuperInstanceNode, {
       props: { id: 'dndnode_1', data: flow.findNode('dndnode_1').data },
-      global: { plugins: [PrimeVue], directives: { tooltip } },
+      global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip } },
     })
     expect(wrapper.find('.super-instance-ports').attributes('data-tooltip')).toBe('vessel — lv')
   })
@@ -169,7 +170,7 @@ describe('InterfaceNode', () => {
   const flow = useVueFlow(FLOW_IDS.MAIN)
   // The tooltip directive, as a data attribute to read.
   const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value?.value ?? '') }
-  const render = (node, data = node.data) => mount(InterfaceNode, { props: { id: node.id, data }, global: { directives: { tooltip } } })
+  const render = (node, data = node.data) => mount(InterfaceNode, { props: { id: node.id, data }, global: { plugins: [ConfirmationService], directives: { tooltip } } })
   const rows = (wrapper) => wrapper.findAll('.interface-port-list li')
 
   beforeEach(async () => {

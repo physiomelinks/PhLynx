@@ -4,16 +4,20 @@ import { useVueFlow } from '@vue-flow/core'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import LibraryArea from '../../../src/components/LibraryArea.vue'
-import useDragAndDrop from '../../../src/composables/useDnD.js'
-import { useCanvasLevel } from '../../../src/composables/useCanvasLevel.js'
-import { useSupermoduleEditGuard } from '../../../src/composables/useSupermoduleEditGuard.js'
-import { supermoduleContentHash } from '../../../src/services/hierarchy/operations.js'
-import { createHistory } from '../../../src/stores/historyStore.js'
-import { FLOW_IDS } from '../../../src/utils/constants.js'
-import { module, superInstance, supermodule } from '../fixtures/hierarchy/graph.js'
+const confirm = vi.hoisted(() => vi.fn())
+vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
+
+const { default: LibraryArea } = await import('../../../src/components/LibraryArea.vue')
+const { default: useDragAndDrop } = await import('../../../src/composables/useDnD.js')
+const { useCanvasLevel } = await import('../../../src/composables/useCanvasLevel.js')
+const { useFlowHistory } = await import('../../../src/composables/useFlowHistory.js')
+const { useSupermoduleEditGuard } = await import('../../../src/composables/useSupermoduleEditGuard.js')
+const { supermoduleContentHash } = await import('../../../src/services/hierarchy/operations.js')
+const { createHistory, useFlowHistoryStore } = await import('../../../src/stores/historyStore.js')
+const { FLOW_IDS } = await import('../../../src/utils/constants.js')
+const { module, superInstance, supermodule } = await import('../fixtures/hierarchy/graph.js')
 
 /** Root: two super instances of heart (sm_1), which holds lv, a super instance of chamber (sm_2). */
 function graph() {
@@ -129,6 +133,67 @@ describe('LibraryArea super-modules', () => {
       wrapper.unmount()
       mountLibrary({ showSupermodules: true, selectable: true })
       expect(entry().exists()).toBe(false)
+    })
+  })
+
+  describe('deleting a super-module', () => {
+    let history, listeners
+    const deleteButton = (smId) => card(smId).find(`[aria-label^="Delete super-module"]`)
+    const ids = () => flow.nodes.value.map((node) => node.id).sort()
+
+    beforeEach(async () => {
+      // valve (sm_3), which no super instance uses, holds a module.
+      await flow.fromObject(level.withVisibility({ nodes: [...graph().nodes, supermodule('sm_3', 'valve'), module('dndnode_0', 'leaflet', { scope: 'sm_3' })], edges: [] }))
+      history = useFlowHistoryStore()
+      flow.applyDefault.value = false
+      const { onNodeChange, onEdgeChange } = useFlowHistory({
+        suppressedEdgeIds: new Set(),
+        indexAddEdge: vi.fn(),
+        indexRemoveEdge: vi.fn(),
+        updateHelperLines: vi.fn(),
+        revertHandlesForEdge: vi.fn(),
+        reactivateEdgeHandles: vi.fn(),
+      })
+      listeners = [flow.onNodesChange(onNodeChange), flow.onEdgesChange(onEdgeChange)]
+      confirm.mockReset()
+    })
+    afterEach(() => {
+      listeners.forEach((listener) => listener.off())
+      flow.applyDefault.value = true
+    })
+
+    it('asks, saying what it holds, then deletes it and what it holds as one undo step', async () => {
+      const before = ids()
+      confirm.mockResolvedValue(true)
+      mountLibrary()
+      await deleteButton('sm_3').trigger('click')
+      await vi.waitFor(() => expect(flow.findNode('sm_3')).toBeUndefined())
+      expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('1 module and 0 super instances') }))
+      expect(flow.findNode('sm_3~dndnode_0')).toBeUndefined()
+      expect(history.pointerIndex).toBe(0)
+
+      await history.undo()
+      expect(ids()).toEqual(before)
+      expect(history.canUndo).toBe(false)
+    })
+
+    it('keeps it when told no', async () => {
+      confirm.mockResolvedValue(false)
+      mountLibrary()
+      await deleteButton('sm_3').trigger('click')
+      await vi.waitFor(() => expect(confirm).toHaveBeenCalled())
+      expect(flow.findNode('sm_3')).toBeDefined()
+    })
+
+    it('can’t while a super instance uses it, or while the canvas shows it', async () => {
+      mountLibrary()
+      expect(deleteButton('sm_1').attributes('disabled')).toBeDefined()
+      expect(deleteButton('sm_3').attributes('disabled')).toBeUndefined()
+      level.editSupermodule('sm_3')
+      await nextTick()
+      expect(deleteButton('sm_3').attributes('disabled')).toBeDefined()
+      // The tooltip is on a span around the button, as a disabled button shows none.
+      expect(deleteButton('sm_3').element.parentElement.classList).toContain('mlc__delete-supermodule')
     })
   })
 

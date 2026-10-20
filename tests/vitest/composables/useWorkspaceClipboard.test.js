@@ -7,6 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { useActiveCanvas } from '../../../src/composables/useActiveCanvas.js'
 import { shouldIgnoreShortcut, useWorkspaceClipboard } from '../../../src/composables/useWorkspaceClipboard.js'
 import { buildSuperInstance, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
+import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -314,6 +315,52 @@ describe('useWorkspaceClipboard', () => {
         expect(findNode(smId).data.supermodule.name).toBe('heart')
         expect(emit).not.toHaveBeenCalledWith('add', expect.objectContaining({ summary: 'Not Pasted' }))
       })
+    })
+  })
+
+  describe('a super instance of a super-module keeping its own names', () => {
+    let history, addNodes
+
+    beforeEach(() => {
+      history = useFlowHistoryStore()
+      nodes.value.push(
+        buildSupermoduleInterface('sm_0', { name: 'channel', submoduleOrder: ['self'], naming: 'preserve' }),
+        { ...createNode('sm_0~self', 'self', 0, 0), data: { ...createNode('', 'self', 0, 0).data, scope: 'sm_0', localId: 'self', originalName: 'channel', role: 'self' } },
+        { ...buildSuperInstance('dndnode_9', 'channel', 'sm_0'), position: { x: 0, y: 0 }, dimensions: { width: 100, height: 60 } }
+      )
+      // As the canvas records the nodes added.
+      addNodes = flow.addNodes
+      flow.findNode = findNode
+      flow.addNodes = (added) => {
+        nodes.value.push(...added)
+        const ids = added.map((node) => node.id)
+        history.addCommand({
+          type: 'add',
+          redo: () => nodes.value.push(...added),
+          undo: () => (nodes.value = nodes.value.filter((node) => !ids.includes(node.id))),
+        })
+      }
+    })
+    afterEach(() => {
+      flow.addNodes = addNodes
+      delete flow.findNode
+    })
+
+    it('switches it to prefixed names and pastes, as one undo step', async () => {
+      clipboard = useWorkspaceClipboard({ mousePosition, allNodeNames: computed(() => []), confirm: async () => true })
+      select(['dndnode_9'])
+      await clipboard.copySelection()
+      const before = nodes.value.map((node) => node.id)
+
+      await clipboard.pasteSelection()
+      expect(findNode('sm_0').data.supermodule.naming).toBe('prefixed')
+      expect(nodes.value).toHaveLength(before.length + 1)
+      expect(history.pointerIndex).toBe(0)
+
+      await history.undo()
+      expect(findNode('sm_0').data.supermodule.naming).toBe('preserve')
+      expect(nodes.value.map((node) => node.id)).toEqual(before)
+      expect(history.canUndo).toBe(false)
     })
   })
 

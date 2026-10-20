@@ -207,7 +207,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
       // A super-module keeping its components' own names asks first, as its flat names change.
       const after = preservedNaming.withSuperInstance(moduleData.smId, scope.value)
       if (!preservedNaming.asks(after)) return place()
-      return preservedNaming.allow(after).then((allowed) => allowed && place())
+      return preservedNaming.allow(after, place)
     }
 
     const { nodeId, nodeType } = createInstanceNode(moduleData, position)

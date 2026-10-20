@@ -5,10 +5,13 @@
 import { nextTick, onBeforeUnmount, ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
+import { useCanvasDelete } from './useCanvasDelete'
+import { useConfirmDialog } from './useConfirmDialog'
 import { useFlowHistoryFor } from './useFlowHistoryFor'
 import { useHandleManagement } from './useHandleManagement'
 import { HANDLE_VARIANT } from '../utils/constants'
 import { getHandleId } from '../utils/handles'
+import { isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 import { detachReactivity } from '../utils/reactivity'
 
 // How long a pointer rests on a handle before its remove button shows, and the grace to reach the button.
@@ -21,9 +24,10 @@ const HANDLE_LEAVE_DELAY_MS = 150
  * @param {Object} props - `id` (the node's) and `handles` (its handles).
  */
 export function useNodeHandles(props) {
-  const { addEdges, edges, removeEdges, updateNodeData, updateNodeInternals } = useVueFlow()
+  const { id: flowId, addEdges, edges, findNode, removeEdges, updateNodeData, updateNodeInternals } = useVueFlow()
   const { beginGhostActivation } = useHandleManagement()
   const historyStore = useFlowHistoryFor()
+  const canvasDelete = useCanvasDelete({ confirm: useConfirmDialog().confirm, history: historyStore, flowId })
 
   const hoveredHandleUid = ref(null)
   let enterTimeout = null
@@ -59,32 +63,47 @@ export function useNodeHandles(props) {
     updateNodeInternals(props.id)
   }
 
-  /**
-   * Turns a handle back into a ghost and removes the edges on it, as one undo step.
-   *
-   * @param {string} handleIdToRemove - The handle's uid.
-   */
-  async function removeHandle(handleIdToRemove) {
-    const oldHandles = detachReactivity(props.handles)
-
-    const handle = oldHandles.find((h) => h.uid === handleIdToRemove)
-    if (!handle) return
-
-    const handleId = getHandleId(handle)
-
-    // The edges on this handle, copied so undo can put them back.
+  /** @returns {Object[]} The edges on a handle now, copied so undo can put them back. */
+  function edgesOn(handleId) {
     const connectedEdges = edges.value.filter(
       (edge) =>
         (edge.source === props.id && edge.sourceHandle === handleId) ||
         (edge.target === props.id && edge.targetHandle === handleId)
     )
+    return connectedEdges.map((edge) => detachReactivity(edge))
+  }
 
-    const edgesSnapshot = connectedEdges.map((edge) => detachReactivity(edge))
+  /**
+   * Turns a handle back into a ghost and removes the edges on it, as one undo step. Its edges go as the canvas deletes
+   * them, asking first when that un-exposes ports, and breaking the connections to them in the same step.
+   *
+   * @param {string} handleIdToRemove - The handle's uid.
+   */
+  async function removeHandle(handleIdToRemove) {
+    const handle = props.handles.find((h) => h.uid === handleIdToRemove)
+    if (!handle) return
+    const handleId = getHandleId(handle)
+    const edgeIds = edgesOn(handleId).map((edge) => edge.id)
+    if (!edgeIds.length) return ghostHandle(handleIdToRemove, [])
+    await canvasDelete.deleteNodes([], edgeIds, { remove: () => ghostHandle(handleIdToRemove, edgesOn(handleId)) })
+  }
 
-    const newHandles = props.handles.map((h) => (h.uid === handleIdToRemove ? { ...h, variant: HANDLE_VARIANT.GHOST } : h))
+  /**
+   * Turns a handle back into a ghost, removing the edges given, as a command that changes the node's scope.
+   *
+   * @param {string} uid
+   * @param {Object[]} edgesSnapshot - The edges on it.
+   */
+  async function ghostHandle(uid, edgesSnapshot) {
+    const oldHandles = detachReactivity(props.handles)
+    const newHandles = oldHandles.map((h) => (h.uid === uid ? { ...h, variant: HANDLE_VARIANT.GHOST } : h))
+    const node = findNode(props.id)
+    // An interface node's handles are its super-module's.
+    const scope = isSupermoduleInterface(node) ? node.id : scopeOf(node)
 
-    historyStore.executeAndAddCommand({
+    await historyStore.executeAndAddCommand({
       type: 'remove-handle',
+      scopes: [scope],
       undo: async () => {
         // Restore the handle first, so it exists in the DOM, then its edges.
         await applyHandles(oldHandles)

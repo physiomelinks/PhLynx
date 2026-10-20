@@ -139,6 +139,13 @@ const ALLOWED = [
   { file: 'src/composables/useNodeChrome.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node card is drawn in.' },
   { file: 'src/composables/useNodeHandles.js', line: '= useVueFlow()', use: 'canvas', reason: 'The flow the node\'s handles are drawn in.' },
   { file: 'src/composables/useNodeHandles.js', line: 'const connectedEdges', use: 'canvas', reason: 'The edges on a handle being removed.' },
+  { file: 'src/components/LibraryArea.vue', line: 'useVueFlow(FLOW_IDS.MAIN)', use: 'canvas', reason: 'The workspace\'s flow, whose super-modules the library deletes.' },
+  {
+    file: 'src/components/LibraryArea.vue',
+    line: 'const held = flow.nodes.value',
+    use: 'model-safe',
+    reason: 'Counts what a super-module holds, each store node once, for the question before deleting it.',
+  },
   { file: 'src/composables/useCanvasDelete.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow canvas nodes are deleted from.' },
   { file: 'src/composables/useRevealModelNode.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'Finds the canvas node a revealed model node shows as, to centre on it once measured.' },
   { file: 'src/composables/useCellmlDrop.js', line: 'useVueFlow(flowId)', use: 'canvas', reason: 'The flow a CellML file is dropped on.' },

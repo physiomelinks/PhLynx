@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import ConfirmationService from 'primevue/confirmationservice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FLOW_IDS, HANDLE_VARIANT } from '../../../src/utils/constants.js'
@@ -54,7 +55,7 @@ describe.each([
   const mountNode = (props = {}) => {
     wrapper = mount(component, {
       props: { id, data: flow.findNode(id).data, ...props },
-      global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+      global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {} } },
       attachTo: document.body,
     })
   }

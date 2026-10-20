@@ -399,12 +399,17 @@ function createCatalogue(flow, flowId) {
     const instance = built.nodes.find((node) => !node.hidden)
     const nodes = built.nodes.filter((node) => node.hidden)
     await layoutSupermoduleScopes(nodes, built.edges, { keep: built.positioned })
-    for (const { name, value, units, data_reference } of built.globals) {
-      if (!library.getGlobalConstant(name)) library.assignGlobalConstant(name, value, units, data_reference)
-    }
-    let id
+    // The global constants not set already, added in the same step, so undo takes them away again.
+    const globals = [...new Map(built.globals.filter(({ name }) => !library.getGlobalConstant(name)).map((g) => [g.name, g])).values()]
     history.startBatch()
     try {
+      if (globals.length) {
+        await history.executeAndAddCommand({
+          type: 'add-global-constants',
+          undo: () => globals.forEach(({ name }) => library.removeGlobalConstant(name)),
+          redo: () => globals.forEach(({ name, value, units, data_reference }) => library.assignGlobalConstant(name, value, units, data_reference)),
+        })
+      }
       flow.addNodes(nodes)
       flow.addEdges(built.edges)
       id = addSuperInstance(instance.data.smId, position)

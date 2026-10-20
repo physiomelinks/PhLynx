@@ -107,18 +107,20 @@
                         v-tooltip.top="'Rename super-module'"
                         @click.stop="openRename(entry)"
                       />
-                      <Button
-                        icon="pi pi-trash"
-                        severity="secondary"
-                        text
-                        rounded
-                        size="small"
-                        class="mlc__preview-btn"
-                        :aria-label="`Delete super-module ${entry.name}`"
-                        :disabled="entry.count > 0"
-                        v-tooltip.top="entry.count > 0 ? 'Used by a super instance, so it can’t be deleted' : 'Delete super-module'"
-                        @click.stop="deleteSupermodule(entry.id)"
-                      />
+                      <!-- A span carries the tooltip, as a disabled button shows none. -->
+                      <span class="mlc__delete-supermodule" v-tooltip.top="deleteBlocker(entry) ?? 'Delete super-module'">
+                        <Button
+                          icon="pi pi-trash"
+                          severity="secondary"
+                          text
+                          rounded
+                          size="small"
+                          class="mlc__preview-btn"
+                          :aria-label="`Delete super-module ${entry.name}`"
+                          :disabled="!!deleteBlocker(entry)"
+                          @click.stop="confirmDeleteSupermodule(entry)"
+                        />
+                      </span>
                     </div>
                   </div>
                   <div v-if="entry.label !== entry.name" class="mlc__supermodule-label">{{ entry.label }}</div>
@@ -301,6 +303,7 @@
 
 <script setup>
 import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
 
 // PrimeVue Imports
 import InputText from 'primevue/inputtext'
@@ -317,12 +320,14 @@ import { useFlowHistoryStore } from '../stores/historyStore.js'
 import useDragAndDrop from '../composables/useDnD'
 import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { useCanvasLevel } from '../composables/useCanvasLevel'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useSupermodules } from '../composables/useSupermodules'
 import { useSupermoduleEditGuard } from '../composables/useSupermoduleEditGuard'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
 import NewSupermoduleDialog from './dialogs/NewSupermoduleDialog.vue'
 import { notify } from '../utils/notify'
-import { GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
+import { FLOW_IDS, GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
+import { isSuperInstance, isSupermoduleInterface, scopeOf } from '../utils/hierarchy'
 
 const props = defineProps({
   selectable: { type: Boolean, default: false },
@@ -408,6 +413,8 @@ const { supermodules, librarySupermodules, canPlace, deleteSupermodule, renameSu
 const { isModified } = useSupermoduleEditGuard()
 const { scope: canvasScope } = useActiveCanvas()
 const canvasLevel = useCanvasLevel()
+const flow = useVueFlow(FLOW_IDS.MAIN)
+const { confirm } = useConfirmDialog()
 
 const filteredSupermodules = computed(() => {
   if (!props.showSupermodules || props.selectable) return []
@@ -444,6 +451,50 @@ async function onRenameConfirm(name) {
     await renameSupermodule(renameTarget.smId, name, { history })
   } catch (error) {
     notify.error({ title: 'Not Renamed', items: [error.message] })
+  }
+}
+
+/**
+ * Says why a super-module can't be deleted: a super instance uses it, or the canvas shows it or is inside it.
+ *
+ * @param {{id: string, count: number}} entry
+ * @returns {string|null} Null when it can be.
+ */
+function deleteBlocker(entry) {
+  if (entry.count > 0) return 'Used by a super instance, so it can’t be deleted'
+  if (canvasLevel.path.value.some((level) => level.smId === entry.id)) return 'Open on the canvas, so it can’t be deleted'
+  return null
+}
+
+/**
+ * Asks before deleting a super-module and what it holds, then deletes it as one undo step.
+ *
+ * @param {{id: string, name: string, count: number}} entry
+ */
+async function confirmDeleteSupermodule(entry) {
+  if (deleteBlocker(entry)) return
+  const held = flow.nodes.value.filter((node) => scopeOf(node) === entry.id && !isSupermoduleInterface(node))
+  const instances = held.filter(isSuperInstance).length
+  const counted = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`
+  const answer = await confirm({
+    header: 'Delete Super-module?',
+    message:
+      `No super instance uses the super-module '${entry.name}'. ` +
+      (held.length
+        ? `Deleting it also deletes what it holds: ${counted(held.length - instances, 'module')} and ${counted(instances, 'super instance')}.`
+        : 'It holds nothing.'),
+    severity: 'warning',
+    acceptLabel: 'Delete',
+    rejectLabel: 'Cancel',
+  })
+  // Checked again, as the workspace may have changed while it asked.
+  const current = supermodules.value.find((candidate) => candidate.id === entry.id)
+  if (answer !== true || !current || deleteBlocker(current)) return
+  history.startBatch()
+  try {
+    deleteSupermodule(entry.id)
+  } finally {
+    history.endBatch()
   }
 }
 
@@ -768,6 +819,10 @@ function handleSelect(module) {
 .mlc__card--blocked .mlc__card-name,
 .mlc__card--blocked .mlc__supermodule-icon,
 .mlc__card--blocked .mlc__badge { opacity: 0.45; }
+
+.mlc__delete-supermodule {
+  display: inline-flex;
+}
 
 .mlc__supermodule-icon {
   font-size: 12px;

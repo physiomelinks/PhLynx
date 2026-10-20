@@ -201,8 +201,23 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       })
       return
     }
-    if (placed.length && !(await preservedNaming.allow([...storeNodes.value, ...supermodules.nodes, ...placed]))) return
+    // A super-module keeping its components' own names asks first; its switch to prefixed names and the paste are one step.
+    const paste = () => pasteNodes(sourceClipboard, { into, supermodules, smIdOf, atMouse })
+    if (placed.length) await preservedNaming.allow([...storeNodes.value, ...supermodules.nodes, ...placed], paste)
+    else paste()
+  }
 
+  /**
+   * Adds the clipboard's nodes and edges to a scope, selected, with the super-modules copied with them.
+   *
+   * @param {Object} sourceClipboard
+   * @param {Object} options
+   * @param {string|null} options.into - The scope pasted into.
+   * @param {{nodes: Array, edges: Array}} options.supermodules - The super-modules to add (see planSupermodulePaste).
+   * @param {(smId: string) => string} options.smIdOf - Each copied super-module's id here.
+   * @param {boolean} options.atMouse
+   */
+  function pasteNodes(sourceClipboard, { into, supermodules, smIdOf, atMouse }) {
     // Nodes copied from an older version keep values in their math; they move into the rows here.
     const clipboardMath = Object.values(sourceClipboard.storeSnapshot ?? {}).map((entry) => [
       entry.mathRef,

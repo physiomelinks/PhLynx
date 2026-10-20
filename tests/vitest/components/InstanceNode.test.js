@@ -3,6 +3,7 @@ import { reactive, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import ConfirmationService from 'primevue/confirmationservice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
@@ -47,7 +48,7 @@ let wrapper
 function mountNode() {
   wrapper = mount(InstanceNode, {
     props: { id: 'a', data: nodes.value[0].data },
-    global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {} } },
     attachTo: document.body,
   })
 }

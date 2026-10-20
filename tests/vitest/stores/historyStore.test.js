@@ -106,4 +106,83 @@ describe('createHistory', () => {
     await workspace.redo()
     expect(log).toEqual(['undo b', 'undo a', 'redo a', 'redo b'])
   })
+
+  it('waits for each asynchronous command in a batch, in order, recording nothing they add', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    /** A command that finishes later, and records another change as it does, as replacing an edge does. */
+    const slow = (name) => ({
+      type: name,
+      undo: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        history.addCommand(loggedCommand(`tail ${name}`, log))
+        log.push(`undo ${name}`)
+      },
+      redo: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        history.addCommand(loggedCommand(`tail ${name}`, log))
+        log.push(`redo ${name}`)
+      },
+    })
+
+    history.startBatch()
+    await history.executeAndAddCommand(slow('a'))
+    await history.executeAndAddCommand(loggedCommand('b', log))
+    await history.executeAndAddCommand(slow('c'))
+    history.endBatch()
+    log.length = 0
+
+    await history.undo()
+    expect(log).toEqual(['undo c', 'undo b', 'undo a'])
+    expect(history.isUndoRedoing).toBe(false)
+    expect(history.canRedo).toBe(true)
+
+    await history.redo()
+    expect(log).toEqual(['undo c', 'undo b', 'undo a', 'redo a', 'redo b', 'redo c'])
+    expect(history.canUndo).toBe(true)
+    expect(history.canRedo).toBe(false)
+
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await history.undo()
+    expect(history.canUndo).toBe(false)
+  })
+
+  it('ignores an undo or redo pressed while an asynchronous one is still running', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    let finish
+    await history.executeAndAddCommand(loggedCommand('a', log))
+    await history.executeAndAddCommand({
+      type: 'slow',
+      undo: () => new Promise((resolve) => (finish = resolve)).then(() => log.push('undo slow')),
+      redo: () => log.push('redo slow'),
+    })
+    log.length = 0
+
+    const first = history.undo()
+    await history.undo()
+    finish()
+    await first
+    expect(log).toEqual(['undo slow'])
+    expect(history.canUndo).toBe(true)
+    expect(history.canRedo).toBe(true)
+
+    const again = history.redo()
+    await history.undo()
+    await again
+    expect(log).toEqual(['undo slow', 'redo slow'])
+    expect(history.canRedo).toBe(false)
+  })
+
+  it('applies a batch of synchronous commands at once', () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.startBatch()
+    history.addCommand(loggedCommand('a', log))
+    history.addCommand(loggedCommand('b', log))
+    history.endBatch()
+
+    history.undo()
+    expect(log).toEqual(['undo b', 'undo a'])
+  })
 })

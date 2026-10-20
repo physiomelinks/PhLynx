@@ -206,25 +206,33 @@ export function useHierarchyOperations({ flowId = FLOW_IDS.MAIN, history = useFl
 
   /**
    * Gives a super instance its own copy of its super-module (see operations.js makeUnique). A copy of one keeping its
-   * components' own names is named after its super instance, so it asks first, listing the flat names that change.
+   * components' own names is named after its super instance, so it asks first, listing the flat names that change, and
+   * is planned again once answered: when the workspace changed meanwhile, so that other names change, nothing is made.
    *
    * @param {string} superInstanceId
    * @returns {Promise<{done: boolean, problems: string[]}>}
    */
   async function makeUniqueSuperInstance(superInstanceId) {
-    const before = store()
-    const result = makeUnique(before.nodes, before.edges, superInstanceId)
-    const changes = result.problems.length ? [] : flatNameChanges(before.nodes, result.nodes)
-    if (changes.length && confirm) {
-      const name = find(flow.findNode(superInstanceId)?.data?.smId)?.name ?? ''
-      const answer = await confirm({
-        header: 'Flat Names Will Change',
-        message: prefixedNamingMessage([name], changes),
-        severity: 'warning',
-        acceptLabel: 'Make Unique',
-        rejectLabel: 'Cancel',
-      })
-      if (answer !== true) return { done: false, problems: [] }
+    const plan = () => {
+      const before = store()
+      const result = makeUnique(before.nodes, before.edges, superInstanceId)
+      return { before, result, changes: result.problems.length ? [] : flatNameChanges(before.nodes, result.nodes) }
+    }
+    const asked = plan()
+    if (!asked.changes.length || !confirm) return apply('make-unique', asked.before, asked.result)
+    const name = find(flow.findNode(superInstanceId)?.data?.smId)?.name ?? ''
+    const answer = await confirm({
+      header: 'Flat Names Will Change',
+      message: prefixedNamingMessage([name], asked.changes),
+      severity: 'warning',
+      acceptLabel: 'Make Unique',
+      rejectLabel: 'Cancel',
+    })
+    if (answer !== true) return { done: false, problems: [] }
+    const { before, result, changes } = plan()
+    if (result.problems.length) return { done: false, problems: result.problems }
+    if (!same(changes, asked.changes)) {
+      return { done: false, problems: ['The workspace changed while you were asked, so other flat names would change. Try again.'] }
     }
     return apply('make-unique', before, result)
   }

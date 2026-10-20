@@ -93,8 +93,11 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
    *
    * @param {string[]} nodeIds
    * @param {string[]} [edgeIds=[]]
+   * @param {Object} [options]
+   * @param {(nodeIds: string[], edgeIds: string[]) => Promise<void>|void} [options.remove] - Removes what is left, in
+   *   the same step, in place of Vue Flow's removeNodes and removeEdges.
    */
-  async function deleteNodes(nodeIds, edgeIds = []) {
+  async function deleteNodes(nodeIds, edgeIds = [], { remove } = {}) {
     const exposures = exposedBy(nodeIds, edgeIds)
     if (exposures.length && !(await askToBreakExposures(exposures, exposure.planRemoval(nodeIds, edgeIds)))) return
     const orphaned = orphanedBy(nodeIds)
@@ -108,8 +111,12 @@ export function useCanvasDelete({ confirm, history = useFlowHistoryFor(), flowId
     history.startBatch()
     try {
       await exposure.applyRemoval(exposure.planRemoval(nodesLeft, edgesLeft))
-      if (nodesLeft.length) removeNodes(nodesLeft)
-      if (edgesLeft.length) removeEdges(edgesLeft)
+      if (remove) {
+        await remove(nodesLeft, edgesLeft)
+      } else {
+        if (nodesLeft.length) removeNodes(nodesLeft)
+        if (edgesLeft.length) removeEdges(edgesLeft)
+      }
       stillOrphaned.forEach(deleteSupermodule)
     } finally {
       history.endBatch()

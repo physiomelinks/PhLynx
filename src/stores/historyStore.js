@@ -268,17 +268,30 @@ export function createHistory() {
     } else {
       const superCommand = {
         type: 'super',
-        redo: () => {
-          batch.forEach((cmd) => cmd.redo())
-        },
-        undo: () => {
-          ;[...batch].reverse().forEach((cmd) => cmd.undo())
-        },
+        redo: () => runInOrder(batch, 'redo'),
+        undo: () => runInOrder([...batch].reverse(), 'undo'),
       }
       // A batch is one change, made in one place.
       const first = toRaw(batch[0])
       if (contexts.has(first)) contexts.set(superCommand, contexts.get(first))
       _pushToStack(superCommand, batch)
+    }
+  }
+
+  /**
+   * Runs each command's `method` in order, waiting for one that returns a promise before the next. Synchronous
+   * commands run synchronously, so a batch of them still applies at once.
+   *
+   * @param {Object[]} commands
+   * @param {'undo'|'redo'} method
+   * @returns {Promise<void>|undefined} A promise when a command was asynchronous.
+   */
+  function runInOrder(commands, method) {
+    for (let i = 0; i < commands.length; i++) {
+      const result = commands[i][method]()
+      if (typeof result?.then === 'function') {
+        return Promise.resolve(result).then(() => runInOrder(commands.slice(i + 1), method))
+      }
     }
   }
 
@@ -337,8 +350,9 @@ export function createHistory() {
   }
 
   async function undo() {
-    // A held change, already made, is undone only by the gate's decision.
-    if (!canUndo.value || held) {
+    // A held change, already made, is undone only by the gate's decision; a step still being made, undone or redone
+    // finishes first, so an asynchronous one is never interleaved with another.
+    if (!canUndo.value || held || working.value) {
       return
     }
     working.value = true
@@ -353,7 +367,7 @@ export function createHistory() {
   }
 
   async function redo() {
-    if (!canRedo.value || held) {
+    if (!canRedo.value || held || working.value) {
       return
     }
 

@@ -1,7 +1,8 @@
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildSuperInstance, buildSupermoduleInterface } from '../../../src/services/import/buildWorkflow.js'
+import { createHistory } from '../../../src/stores/historyStore.js'
 import { MAIN_NODE_TYPE } from '../../../src/utils/constants.js'
 
 const nodes = ref([])
@@ -23,7 +24,7 @@ function preserved() {
 }
 
 describe('usePreservedNaming', () => {
-  const history = { executeAndAddCommand: vi.fn(async (command) => command.redo()) }
+  const history = { executeAndAddCommand: vi.fn(async (command) => command.redo()), startBatch: vi.fn(), endBatch: vi.fn() }
   const naming = () => nodes.value[0].data.supermodule.naming
 
   beforeEach(() => {
@@ -60,6 +61,33 @@ describe('usePreservedNaming', () => {
     expect(await usePreservedNaming({ history }).allow(after)).toBe(false)
     expect(naming()).toBe('preserve')
     expect(history.executeAndAddCommand).not.toHaveBeenCalled()
+  })
+
+  it('makes the change allowed in the same undo step as the switch', async () => {
+    const own = reactive(createHistory())
+    const guard = usePreservedNaming({ confirm: async () => true, history: own })
+    const added = { id: 'dndnode_1', type: MAIN_NODE_TYPE, data: { name: 'added' } }
+    // As the canvas records a node added.
+    const change = () => {
+      nodes.value.push(added)
+      own.addCommand({ type: 'add', redo: () => nodes.value.push(added), undo: () => nodes.value.pop() })
+    }
+
+    expect(await guard.allow(guard.withSuperInstance('sm_0', null), change)).toBe(true)
+    expect(naming()).toBe('prefixed')
+    expect(nodes.value.map((node) => node.id)).toContain('dndnode_1')
+    expect(own.pointerIndex).toBe(0)
+
+    await own.undo()
+    expect(naming()).toBe('preserve')
+    expect(nodes.value.map((node) => node.id)).not.toContain('dndnode_1')
+    expect(own.canUndo).toBe(false)
+  })
+
+  it('makes the change at once when nothing asks', async () => {
+    const change = vi.fn()
+    expect(await usePreservedNaming({ history }).allow(nodes.value, change)).toBe(true)
+    expect(change).toHaveBeenCalled()
   })
 
   it('lists at most eight flat names', () => {
