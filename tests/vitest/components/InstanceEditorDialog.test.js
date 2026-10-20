@@ -467,6 +467,31 @@ describe('InstanceEditorDialog module config', () => {
     })
   })
 
+  it('updates a module no other instance uses without asking', async () => {
+    flowNodes.value[1].data.moduleRef = 'decay:other'
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
+    expect(configDialog().exists()).toBe(false)
+    expect(wrapper.emitted('confirm')[0][0].config).toEqual({ action: 'update' })
+  })
+
+  it('asks about the new component\'s module when the instances switching to it would differ', async () => {
+    const newXml = EDITED_XML.replace(/"decay"/g, '"decay2"')
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] }, { xml: newXml })
+    expect(configDialog().props()).toMatchObject({ moduleRef: 'decay2:default', otherCount: 1, canUpdate: true })
+    expect(configDialog().props('existingRefs')).toContain('decay2:default')
+
+    configDialog().vm.$emit('confirm', { action: 'new', moduleRef: 'decay2:a' })
+    await flushPromises()
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:decay2', config: { action: 'new', moduleRef: 'decay2:a' } })
+  })
+
+  it('saves a new component without asking when no instance on the module switches to it', async () => {
+    flowNodes.value[1].data.moduleRef = 'decay:other'
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] }, { xml: EDITED_XML.replace(/"decay"/g, '"decay2"') })
+    expect(configDialog().exists()).toBe(false)
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:decay2', config: null })
+  })
+
   it('saves nothing when the config prompt is cancelled', async () => {
     await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
     configDialog().vm.$emit('cancel')

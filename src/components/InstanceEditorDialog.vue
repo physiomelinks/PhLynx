@@ -1935,7 +1935,7 @@ let configResolver = null
 function promptModuleConfig({ moduleRef, otherCount, canUpdate }) {
   resolveConfigPrompt(null)
   const initialName = sanitiseName(`${moduleRef.split(':')[1] ?? ''}_${editableName.value ?? ''}`)
-  const existingRefs = [...store.availableModules.keys()]
+  const existingRefs = [...new Set([...store.availableModules.keys(), moduleRef])]
   configPrompt.value = { visible: true, moduleRef, otherCount, canUpdate, initialName, existingRefs }
   return new Promise((resolve) => {
     configResolver = resolve
@@ -1949,7 +1949,9 @@ function resolveConfigPrompt(config) {
 
 /**
  * Works out what a save does to the instance's module, asking when the ports or variable units, access or types no
- * longer match it. Values never count. Math saved for every instance on the module's math takes the module along.
+ * longer match it and other instances would follow. Values never count. A module no other instance uses is updated
+ * without asking, and math saved for every instance on the module's math takes the module along. Math no module uses
+ * gets a module of its own (see useInstanceSave), which the instances switching from this module share.
  *
  * @param {Object} save
  * @param {string} save.mathRef - The math the instance saves to.
@@ -1961,23 +1963,30 @@ function resolveConfigPrompt(config) {
 async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
   const moduleRef = nodes.value.find((n) => n.id === props.id)?.data?.moduleRef
   const module = moduleRef && store.availableModules.get(moduleRef)
-  // Math no module uses gets a module built from this instance (see useInstanceSave).
-  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
-  if (!module || isNewModule) return null
+  if (!module) return null
 
-  const isFollowing = updateAll && props.mathRef === module.mathRef
+  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
+  const others = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef)
+  const followers = isNewModule ? others.filter((n) => updateAll && n.data.mathRef === props.mathRef) : others
+  if (isNewModule && !followers.length) return null
+
+  const isFollowing = isNewModule || (updateAll && props.mathRef === module.mathRef)
   const moduleMathRef = isFollowing ? mathRef : module.mathRef
   const analysis = isFollowing && math !== null ? analyzeMathXml(math) : store.getMathAnalysis(moduleMathRef)
   const config = { moduleRef, mathRef, ports, variables: parameterRows.value }
   if (isModuleConfig(config, { ...module, mathRef: moduleMathRef }, analysis)) {
-    return moduleMathRef !== module.mathRef ? { action: 'follow' } : null
+    return !isNewModule && moduleMathRef !== module.mathRef ? { action: 'follow' } : null
   }
+  if (!followers.length) return { action: 'update' }
 
-  const otherCount = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef).length
-  const choice = await promptModuleConfig({ moduleRef, otherCount, canUpdate: mathRef === moduleMathRef })
+  const choice = await promptModuleConfig({
+    moduleRef: isNewModule ? store.defaultModuleRef(mathRef) : moduleRef,
+    otherCount: followers.length,
+    canUpdate: mathRef === moduleMathRef,
+  })
   if (!choice) return false
   // Leaving a module whose instances all switched math, take it along.
-  return choice.action === 'new' && moduleMathRef !== module.mathRef ? { ...choice, follow: true } : choice
+  return choice.action === 'new' && !isNewModule && moduleMathRef !== module.mathRef ? { ...choice, follow: true } : choice
 }
 
 /**

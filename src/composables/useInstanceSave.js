@@ -233,15 +233,23 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         libraryStore.setMathDefaults(mathRef, new Map([...libraryStore.getMathDefaults(mathRef), ...kept]))
       }
     } else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
-    const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
     // The source's renames, and the units its math changed, are its own variables', so they move and rescale only the
     // rows of nodes that were on the saved math, not those of another module's it overwrote.
     const previousMathRef = save.previousMathRef ?? mathRef
     const renamedIds = new Set(nodes.value.filter((node) => node.data?.mathRef === previousMathRef).map((node) => node.id))
 
     // Without its own module, a node would keep its old one's ref, which export keys configs by.
-    // Only siblings on the edited node's old module share its ports, so only they move to the new one.
+    // Only siblings on the edited node's old module share its ports, so only they move to the new one. When this
+    // node saves a config of its own, they keep their old module's.
     const previousModuleRef = findNode(id)?.data.moduleRef
+    const previousModule = libraryStore.availableModules.get(previousModuleRef)
+    // The old module's config follows the source's renames, as the switching nodes' rows do.
+    const moduleSource =
+      save.config?.action === 'new' && previousModule
+        ? { ports: renamePortVariables(previousModule.ports, renames), variables: renameRows(previousModule.variables ?? [], renames) }
+        : { ports, variables }
+    const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity(moduleSource)) : null
+
     const moduleFields = moduleRef ? { moduleRef } : {}
     updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields })
     if (updateAll) {

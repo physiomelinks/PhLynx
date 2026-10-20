@@ -471,6 +471,17 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
+   * Gets the ref createModuleForMath would give a module for math.
+   *
+   * @param {string} mathRef
+   * @returns {string}
+   */
+  function defaultModuleRef(mathRef) {
+    const { componentName } = parseMathRef(mathRef)
+    return uniqueModuleRef(`${componentName}:default`, mathRef, (ref) => availableModules.value.get(ref))
+  }
+
+  /**
    * Adds a module for math, named `<component>:default` unless a module on other math has that ref.
    *
    * @param {string} mathRef
@@ -482,8 +493,7 @@ export const useLibraryStore = defineStore('library', () => {
   function createModuleForMath(mathRef, { ports, variables } = {}) {
     if (PROTECTED_MATH_REFS.has(mathRef)) return null
 
-    const { componentName } = parseMathRef(mathRef)
-    const moduleRef = uniqueModuleRef(`${componentName}:default`, mathRef, (ref) => availableModules.value.get(ref))
+    const moduleRef = defaultModuleRef(mathRef)
     const module = variables
       ? { moduleRef, mathRef, ports: [], variables }
       : buildModule(moduleRef, mathRef, availableMath.value.get(mathRef), getMathDefaults(mathRef))
@@ -732,6 +742,7 @@ export const useLibraryStore = defineStore('library', () => {
     addModule,
     addMathFile,
     createModuleForMath,
+    defaultModuleRef,
     addMath,
     addUnitsFile,
     removeUnitsFile,
