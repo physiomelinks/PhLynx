@@ -262,8 +262,11 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   }
 
   if (mode === SIMPLE_MODE) {
-    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost.
-    const keptDeclared = analysis.declared.map((variable) => variable.name).filter((name) => previousByName.has(name))
+    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost; so
+    // does a row for a declared variable whose value the math came with.
+    const keptDeclared = analysis.declared
+      .map((variable) => variable.name)
+      .filter((name) => previousByName.has(name) || defaults.has(name))
     for (const name of new Set([...analysis.referenced, ...initialiserOf.values(), ...keptDeclared])) {
       addRow(buildSimpleModeRow(name, declaredByName.get(name), previousByName.get(name), context))
     }

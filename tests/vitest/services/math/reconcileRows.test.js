@@ -115,6 +115,17 @@ describe('reconcileRows (simple mode)', () => {
     expect(rows.gone).toBeUndefined()
   })
 
+  it('makes a row for a declared variable no equation uses when the math came with its value', () => {
+    const declared = [
+      { name: 'R', units: 'J_per_K_mol', interface: 'public', initialValue: '' },
+      { name: 'spare', units: 'dimensionless', interface: 'public', initialValue: '' },
+    ]
+    const rows = byName(reconcileRows(analysis({ referenced: ['k'], declared }), [], { defaults: new Map([['R', '8.314']]) }))
+    expect(rows.R).toMatchObject({ value: '8.314', type: 'constant', units: 'J_per_K_mol' })
+    // A declaration without a value has nothing to keep.
+    expect(rows.spare).toBeUndefined()
+  })
+
   it('keeps data references and gives a new initialiser its state\'s', () => {
     const previous = [
       { name: 'k', value: '3', type: 'constant', data_reference: 'Smith2001' },

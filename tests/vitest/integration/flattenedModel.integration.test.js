@@ -78,6 +78,27 @@ describe('generateFlattenedModel with values only in the rows', () => {
   it('names the parameters left without a value', () => {
     expect(() => generateFlattenedModel([buildNode({ k: '' })], [], store)).toThrow(/Missing parameter values: decay_1\.k/)
   })
+
+  it('keeps the value of a variable the module declares with one but no equation uses, and the result analyses cleanly', async () => {
+    // y = k: R is declared with a value, kept for later.
+    store.addMath(
+      'file:spare',
+      `<model xmlns="http://www.cellml.org/cellml/2.0#" name="spare">
+  <component name="spare">
+    <variable name="R" units="dimensionless" initial_value="8.314" interface="public"/>
+    <variable name="k" units="dimensionless" initial_value="2" interface="public"/>
+    <variable name="y" units="dimensionless" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML"><apply><eq/><ci>y</ci><ci>k</ci></apply></math>
+  </component>
+</model>`
+    )
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get('file:spare')), [], { defaults: store.getMathDefaults('file:spare') })
+    expect(rows.find((row) => row.name === 'R')).toMatchObject({ value: '8.314', type: 'constant' })
+
+    const node = { id: 'n2', type: 'instanceNode', data: { name: 'spare_1', mathRef: 'file:spare', variables: rows, ports: [] } }
+    const text = await (await generateFlattenedModel([node], [], store)).text()
+    expect(text).toMatch(/<variable name="R"[^>]*initial_value="8\.314"/)
+  })
 })
 
 describe('generateFlattenedModel with units made from expressions', () => {
