@@ -22,7 +22,7 @@
           <small class="hint-text">{{ updateHint }}</small>
         </label>
       </div>
-      <p v-else class="config-message">Its math differs from the other instances', so it needs a config of its own.</p>
+      <p v-else class="config-message">Its math differs from {{ moduleRef }}'s, so it needs a config of its own.</p>
 
       <div class="config-option">
         <RadioButton v-if="canUpdate" v-model="choice" input-id="module-config-new" value="new" />

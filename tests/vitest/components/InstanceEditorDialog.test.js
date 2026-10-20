@@ -451,6 +451,22 @@ describe('InstanceEditorDialog module config', () => {
     expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: otherRef, config: { action: 'new', moduleRef: 'decay:base_a' } })
   })
 
+  it('takes the module along to math every instance switches to when this instance saves a new config', async () => {
+    const otherRef = 'file:other'
+    useLibraryStore().addMath(otherRef, XML.replace(/"decay"/g, '"other"'))
+    useLibraryStore().addModule({ moduleRef: 'other:base', mathRef: otherRef, ports: [], variables: [] })
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] }, { xml: EDITED_XML.replace(/"decay"/g, '"other"') })
+    expect(configDialog().props('canUpdate')).toBe(true)
+
+    configDialog().vm.$emit('confirm', { action: 'new', moduleRef: 'decay:base_a' })
+    await flushPromises()
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({
+      mathRef: otherRef,
+      updateAll: true,
+      config: { action: 'new', moduleRef: 'decay:base_a', follow: true },
+    })
+  })
+
   it('saves nothing when the config prompt is cancelled', async () => {
     await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
     configDialog().vm.$emit('cancel')

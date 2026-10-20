@@ -1974,7 +1974,10 @@ async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
   }
 
   const otherCount = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef).length
-  return (await promptModuleConfig({ moduleRef, otherCount, canUpdate: mathRef === moduleMathRef })) ?? false
+  const choice = await promptModuleConfig({ moduleRef, otherCount, canUpdate: mathRef === moduleMathRef })
+  if (!choice) return false
+  // Leaving a module whose instances all switched math, take it along.
+  return choice.action === 'new' && moduleMathRef !== module.mathRef ? { ...choice, follow: true } : choice
 }
 
 /**

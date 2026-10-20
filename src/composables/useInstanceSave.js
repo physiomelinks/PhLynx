@@ -162,7 +162,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   /**
    * Writes the edited node's config to the library. The save's `config.action` says how: 'update' writes it to the
    * node's module and every other node on it, 'new' adds `config.moduleRef` for this node alone, and 'follow' moves
-   * the module to the node's math.
+   * the module to the node's math. A 'new' with `follow` also moves the module it leaves to that math.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
    * @returns {string[]} The other nodes whose ports changed.
@@ -171,14 +171,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const node = findNode(id)
     if (!config || !node) return []
     const { moduleRef, mathRef, ports, variables } = node.data
+    const module = libraryStore.availableModules.get(moduleRef)
     if (config.action === 'new') {
-      const module = { moduleRef: config.moduleRef, mathRef, ports, variables: toModuleRows(variables) }
-      libraryStore.addModule(detachReactivity(module))
+      if (config.follow && module) libraryStore.replaceModule({ ...detachReactivity(module), mathRef })
+      const newModule = { moduleRef: config.moduleRef, mathRef, ports, variables: toModuleRows(variables) }
+      libraryStore.addModule(detachReactivity(newModule))
       updateNodeData(id, { moduleRef: config.moduleRef })
       return []
     }
 
-    const module = libraryStore.availableModules.get(moduleRef)
     if (!module) return []
     if (config.action === 'follow') {
       libraryStore.replaceModule({ ...detachReactivity(module), mathRef })
@@ -343,24 +344,25 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    */
   function prepareConfigChange({ id, config }) {
     if (!config) return null
-    if (config.action === 'new') {
-      const moduleRef = config.moduleRef
-      let module = null
-      const isUsed = () => nodes.value.some((node) => node.data?.moduleRef === moduleRef)
-      const isStored = () => libraryStore.availableModules.has(moduleRef)
-      return {
-        changed: () => (module = detachReactivity(libraryStore.availableModules.get(moduleRef))),
-        library: {
-          isAt: (side) => (side === 'after' ? isStored() : !isStored() || isUsed()),
-          restore: (side) => {
-            if (side === 'after') libraryStore.addModule(detachReactivity(module))
-            else if (!isUsed()) libraryStore.removeModule(moduleRef)
-          },
-        },
-      }
+    const isNew = config.action === 'new'
+    const changes = [
+      (!isNew || config.follow) && prepareModuleUpdate(findNode(id)?.data.moduleRef),
+      isNew && prepareModuleAdd(config.moduleRef),
+    ].filter(Boolean)
+    if (!changes.length) return null
+    return {
+      changed: () => changes.forEach((change) => change.changed()),
+      library: combineLibraries(changes.map((change) => change.library)),
     }
+  }
 
-    const moduleRef = findNode(id)?.data.moduleRef
+  /**
+   * Gets a change to a stored module, for prepareConfigChange.
+   *
+   * @param {string} moduleRef
+   * @returns {{changed: Function, library: Object}|null} Null when there is no such module.
+   */
+  function prepareModuleUpdate(moduleRef) {
     const current = () => detachReactivity(libraryStore.availableModules.get(moduleRef) ?? null)
     const states = { before: current(), after: null }
     if (!states.before) return null
@@ -369,6 +371,28 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       library: {
         isAt: (side) => JSON.stringify(current()) === JSON.stringify(states[side]),
         restore: (side) => libraryStore.replaceModule(detachReactivity(states[side])),
+      },
+    }
+  }
+
+  /**
+   * Gets a module a save adds, for prepareConfigChange. Undo removes it unless a node still uses it.
+   *
+   * @param {string} moduleRef
+   * @returns {{changed: Function, library: Object}}
+   */
+  function prepareModuleAdd(moduleRef) {
+    let module = null
+    const isUsed = () => nodes.value.some((node) => node.data?.moduleRef === moduleRef)
+    const isStored = () => libraryStore.availableModules.has(moduleRef)
+    return {
+      changed: () => (module = detachReactivity(libraryStore.availableModules.get(moduleRef))),
+      library: {
+        isAt: (side) => (side === 'after' ? isStored() : !isStored() || isUsed()),
+        restore: (side) => {
+          if (side === 'after') libraryStore.addModule(detachReactivity(module))
+          else if (!isUsed()) libraryStore.removeModule(moduleRef)
+        },
       },
     }
   }

@@ -813,6 +813,24 @@ describe('useInstanceSave', () => {
       expect([...library.availableCollections.get(DECAY_REF)]).toContain(BASE_REF)
     })
 
+    it('moves the module it leaves to math every instance switched to, and undo puts both modules back', async () => {
+      library.addMath(GROWTH_REF, GROWTH_XML)
+      library.addModule({ moduleRef: 'growth:lib', mathRef: GROWTH_REF, ports: [], variables: [] })
+      const config = { action: 'new', moduleRef: 'decay:a_only', follow: true }
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML, updateAll: true, siblings: ['b'], ports, config }))
+      expect(findNode('a').data.moduleRef).toBe('decay:a_only')
+      expect(module().mathRef).toBe(GROWTH_REF)
+      expect(module('decay:a_only')).toMatchObject({ mathRef: GROWTH_REF, ports })
+
+      await history.undo()
+      expect(module()).toEqual(baseModule())
+      expect(library.availableModules.has('decay:a_only')).toBe(false)
+
+      await history.redo()
+      expect(module().mathRef).toBe(GROWTH_REF)
+      expect(module('decay:a_only')).toMatchObject({ ports })
+    })
+
     it('leaves the module alone without a config', async () => {
       await saveInstanceEdit(buildSave({ ports }))
       expect(module()).toEqual(baseModule())
