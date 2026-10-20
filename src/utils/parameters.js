@@ -107,21 +107,27 @@ function slashParameters(instanceNames, rows) {
  * @param {Array} nodes - Workspace nodes with `data.name` and `data.variables`; not changed.
  * @param {Array<{variable_name: string, units: string, value: string, data_reference: string}>} rows
  * @returns {{variablesById: Map<string, Array>, updated: number, skipped: Array}}
- *   Each changed node's new rows, how many rows took a value, and the rows left as they were: computed rows, and
+ *   Each changed node's new rows, how many rows took a value, and the rows left as they were: computed rows,
  *   nested names that end in the same instance and variable as another (`ambiguous`), whether or not that
- *   instance is a node.
+ *   instance is a node, and `global/` names with a path after `global/` (`nestedGlobal`), which name no global.
  */
 export function applyParametersToNodes(nodes, rows) {
   const variablesById = new Map()
   let updated = 0
 
-  // `global/R` rows set global constants (globalParameters), not a node's rows.
+  // `global/R` rows set global constants (globalParameters), never a node's rows: `global/lv/E` is skipped.
   const isSlashName = (entry) => entry.variable_name.includes('/')
-  const isInstanceName = (entry) => isSlashName(entry) && globalParameterName(entry.variable_name).includes('/')
+  const isGlobalName = (entry) => globalParameterName(entry.variable_name) !== entry.variable_name.trim()
+  const isInstanceName = (entry) => isSlashName(entry) && !isGlobalName(entry)
   const underscoreRows = rows.filter((entry) => !isSlashName(entry))
   const instanceNames = new Set(nodes.map((node) => node.data.name))
   const { byInstance, ambiguous } = slashParameters(instanceNames, rows.filter(isInstanceName))
-  const skipped = [...ambiguous]
+  const nestedGlobals = rows
+    .filter(isGlobalName)
+    .map((entry) => globalParameterName(entry.variable_name))
+    .filter((name) => name.includes('/'))
+    .map((name) => ({ nodeName: GLOBAL_VESSEL, name, nestedGlobal: true }))
+  const skipped = [...ambiguous, ...nestedGlobals]
 
   for (const node of nodes) {
     const instance = node.data.name
@@ -155,7 +161,7 @@ export function applyParametersToNodes(nodes, rows) {
 /**
  * Describes the rows whose loaded values were not applied, naming at most three of each kind.
  *
- * @param {Array<{nodeName: string, name: string, ambiguous?: boolean}>} skipped
+ * @param {Array<{nodeName: string, name: string, ambiguous?: boolean, nestedGlobal?: boolean}>} skipped
  * @returns {string}
  */
 export function skippedParametersMessage(skipped) {
@@ -169,7 +175,7 @@ export function skippedParametersMessage(skipped) {
   }
   return [
     describe(
-      skipped.filter((row) => !row.ambiguous),
+      skipped.filter((row) => !row.ambiguous && !row.nestedGlobal),
       "its variable is computed by its module's math",
       "their variables are computed by their modules' math",
       '.'
@@ -178,6 +184,12 @@ export function skippedParametersMessage(skipped) {
       skipped.filter((row) => row.ambiguous),
       'its nested name ends in the same instance and variable as another',
       'their nested names end in the same instance and variable as another',
+      '/'
+    ),
+    describe(
+      skipped.filter((row) => row.nestedGlobal),
+      'a global/ row sets only a global constant, and its name has a path after global/',
+      'a global/ row sets only a global constant, and their names have a path after global/',
       '/'
     ),
   ]

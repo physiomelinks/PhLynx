@@ -379,6 +379,14 @@ describe('generateExportZip', () => {
     expect(notified.warning).not.toHaveBeenCalled()
   })
 
+  it("writes a Multiply port's factor in the module config, as CA scales the connection by it", async () => {
+    const scaled = { label: 'flow', portType: 'exit_ports', variables: ['v_in'], multiportType: 'Multiply', multiplyFactor: 2.5 }
+    const a = { id: 'a', data: { ...nodeWith('a', []).data, ports: [scaled] } }
+    const files = await readZip(await generateExportZip('heart', [a], [], library))
+    const [entry] = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entry.exit_ports).toEqual([{ port_type: 'flow', variables: ['v_in'], multi_port: 'Multiply', multiply_factor: 2.5 }])
+  })
+
   it('adds the module CA uses for the pulmonary circuit of a heart with one output, and warns', async () => {
     library.addModule({ moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] })
     const node = { id: 'h', data: { name: 'heart', moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] } }

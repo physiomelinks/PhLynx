@@ -143,6 +143,19 @@ describe('applyParametersToNodes with <instance>/<variable> names', () => {
     ])
   })
 
+  it('never applies a global/ row to a node, reporting one with a path after global/', () => {
+    const rows = ['global/lv/E,dimensionless,5,', 'global/E,dimensionless,6,'].map(csvRow)
+    const { variablesById, updated, skipped } = applyParametersToNodes([node('lv', [dimensionless('E', '1')])], rows)
+
+    expect(updated).toBe(0)
+    expect(variablesById.size).toBe(0)
+    expect(skipped).toEqual([{ nodeName: 'global', name: 'lv/E', nestedGlobal: true }])
+    expect(skippedParametersMessage(skipped)).toBe(
+      "1 value wasn't applied, as a global/ row sets only a global constant, and its name has a path after global/: global/lv/E."
+    )
+    expect(globalParameters(rows, new Set(['E', 'lv/E'])).map(({ name }) => name)).toEqual(['E'])
+  })
+
   it('keeps reading <variable>_<instance> names, with the slash name winning for the same row', () => {
     const nodes = [node('C', [dimensionless('q', '1'), dimensionless('r', '1')])]
     const { variablesById, updated } = applyParametersToNodes(

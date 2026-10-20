@@ -1,7 +1,7 @@
 import { PORT_TYPE_OPTIONS } from './constants'
 import { toRaw } from 'vue'
 import { extractVariablesFromMath } from './cellml'
-import { parseMultiport } from './multiport'
+import { multiplyFactor, parseMultiport, variableTypes } from './multiport'
 
 export function parseMathRef(mathRef) {
   const [componentFile, componentName] = mathRef.split(':')
@@ -59,12 +59,14 @@ export function normalisePorts(config) {
   PORT_TYPE_OPTIONS.forEach((portType) => {
     const list = config?.[portType.value] || []
     for (const p of list) {
-      ports.push({
+      const port = {
         portType: portType.value,
-        label: p.port_type, 
+        label: p.port_type,
         variables: p.variables || [],
         multiportType: parseMultiport(p.multi_port),
-      })
+      }
+      if (p.multiply_factor !== undefined) port.multiplyFactor = structuredClone(p.multiply_factor)
+      ports.push(port)
     }
   })
   return ports
@@ -88,10 +90,15 @@ export function restorePorts(ports) {
       variables: toRaw(p.variables) || [],
     }
 
-    const multiPortValue = unparseMultiport(p.multiportType)
+    const multiPortValue = unparseMultiport(p.multiportType, p.variables)
     
     if (multiPortValue !== undefined) {
       portEntry.multi_port = multiPortValue
+    }
+
+    const factor = exportedMultiplyFactor(p)
+    if (factor !== undefined) {
+      portEntry.multiply_factor = factor
     }
 
     config[p.portType].push(portEntry)
@@ -120,7 +127,30 @@ export function restoreVariables(variables = []) {
   ])
 }
 
-function unparseMultiport(value) {
+/**
+ * A port's `multiply_factor` as circulatory_autogen reads it: one number when every Multiply variable has
+ * the same factor, else a list aligned with the variables, null for the others (which needs CA's per-variable
+ * form). Undefined for a port with no Multiply variable, as CA refuses a factor there.
+ */
+function exportedMultiplyFactor(port) {
+  let types
+  try {
+    types = variableTypes(port)
+  } catch {
+    return undefined
+  }
+  const factors = types.map((type, i) => (type === 'Multiply' ? multiplyFactor(port, i) : null))
+  const used = factors.filter((_, i) => types[i] === 'Multiply')
+  if (!used.length) return undefined
+  return new Set(used).size === 1 ? used[0] : factors
+}
+
+/**
+ * A port's `multi_port`. A whole-port Sum or Multiply over several variables is written as a list, one entry
+ * per variable, as CA takes the whole-port form for one variable only.
+ */
+function unparseMultiport(value, variables = []) {
   if (value === "None") return undefined
+  if ((value === 'Sum' || value === 'Multiply') && variables.length > 1) return variables.map(() => value.toLowerCase())
   return value
 }
