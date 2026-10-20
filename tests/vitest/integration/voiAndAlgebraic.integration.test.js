@@ -194,19 +194,14 @@ describe('variables of integration and algebraic systems in the flattened model'
     }
   }, 60000)
 
-  it('leaves a model with an ODE without the environment’s clock', async () => {
-    const text = await flatten([buildNode('fill', T_XML, { k: '1', q_init: '0' })])
-    expect(text).not.toMatch(/name="clock"/)
-  })
-
-  it('gives a model without ODEs a time in seconds, which the environment’s clock makes its variable of integration', async () => {
+  it('gives a model without ODEs a time in seconds, which nothing computes, and checks it with time external', async () => {
     const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })
     expect(node.data.variables.find((row) => row.name === 't').type).toBe('constant')
 
     // The build analyses the model, so it would throw were anything left unknown.
     const text = await flatten([node])
     expect(environmentVoi(text)).toEqual(['time', 'second'])
-    expect(text).toMatch(/<variable name="clock" units="second" initial_value="0"\/>/)
+    expect(text).not.toMatch(/<diff\/>/)
     // The lever's t has a value: it is a length, not a clock.
     expect(connectedToVoi(text, 'lever')).toEqual([])
     expect(extractVoiAndParametersFromModel(text, {}).voi).toEqual({ name: 'time', componentName: 'environment', units: 'second' })
@@ -216,23 +211,16 @@ describe('variables of integration and algebraic systems in the flattened model'
     const nodes = [buildNode('ramp', RAMP_XML, { a: '2' }), buildNode('ramp_time', RAMP_TIME_XML, { a: '3' })]
     expect(nodes[0].data.variables.find((row) => row.name === 't').type).toBe('variable')
 
-    const text = await flatten(nodes, ALGEBRAIC)
-    expect(environmentVoi(text)).toEqual(['t', 'second'])
-    expect(connectedToVoi(text, 'ramp')).toEqual(['t → t'])
-    expect(connectedToVoi(text, 'ramp_time')).toEqual(['t → time'])
-
-    const session = createSimulationSession({ module: libOpenCOR, cellml: text })
-    try {
-      const settings = { ...BASELINE_SIMULATION_SETTINGS, endingPoint: 1, pointInterval: 0.5 }
-      const results = await session.run({ settings }).promise
-      expect(results.isSteadyState).toBe(false)
-      expect(results.voi).toMatchObject({ name: 'environment/t', unit: 'second' })
-      expect([...results.variables.get('ramp/I').values]).toEqual([0, 1, 2])
-      expect([...results.variables.get('ramp_time/I').values]).toEqual([0, 1.5, 3])
-    } finally {
-      session.dispose()
+    for (const options of [undefined, ALGEBRAIC]) {
+      const text = await flatten(nodes, options)
+      expect(environmentVoi(text)).toEqual(['t', 'second'])
+      expect(text).toMatch(/<component name="environment">\s*<variable name="t" units="second" interface="public"\/>\s*<\/component>/)
+      expect(text).not.toMatch(/<diff\/>/)
+      expect(connectedToVoi(text, 'ramp')).toEqual(['t → t'])
+      expect(connectedToVoi(text, 'ramp_time')).toEqual(['t → time'])
+      expect(extractVoiAndParametersFromModel(text, {}).voi).toEqual({ name: 't', componentName: 'environment', units: 'second' })
     }
-  }, 60000)
+  })
 
   it('builds a model without ODEs or clock readers as an algebraic system, with no environment, for the simulator', async () => {
     const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })

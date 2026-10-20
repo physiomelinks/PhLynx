@@ -448,7 +448,7 @@ describe('scoped models', () => {
 
   const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
 
-  it('builds a selection with nothing to integrate as an algebraic system for the simulator, and with a clock for export', async () => {
+  it('builds a selection with nothing to integrate as an algebraic system for the simulator, and with a time for export', async () => {
     const { nodes, edges } = buildNetwork()
     const scope = resolveScope(['leaf_1'], nodes, edges)
     const report = checkScope(scope, store)
