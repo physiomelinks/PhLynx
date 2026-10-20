@@ -294,6 +294,8 @@
         :style="{
           '--library-panel-width': libraryPanelWidth + 'px',
           '--context-sidebar-width': contextSidebarWidth + 'px',
+          // The search box's width, wider for a variable search; the breadcrumb keeps clear of it.
+          '--workspace-search-width': parsedQuery.mode === 'var' ? '24rem' : '15.5rem',
         }"
       >
         <FlowBreadcrumb :escape-disabled="dialogVisible || !!searchQuery" />
@@ -487,7 +489,12 @@
               />
             </template>
             <template #node-supermoduleInterface="props">
-              <InterfaceNode :id="props.id" :data="props.data" :selected="props.selected" />
+              <InterfaceNode
+                :id="props.id"
+                :data="props.data"
+                :selected="props.selected"
+                @open-context-menu="onNodeContextMenu"
+              />
             </template>
             <Workbench>
               <p v-if="isDragOver">Drop here</p>
@@ -647,6 +654,7 @@ import { useActiveCanvas } from '../composables/useActiveCanvas'
 import { useCanvasLevel } from '../composables/useCanvasLevel'
 import { useModelGraph } from '../composables/useModelGraph'
 import { useRevealModelNode } from '../composables/useRevealModelNode'
+import { useEdgeDialog } from '../composables/useEdgeDialog'
 import { useModelWriter } from '../composables/useModelWriter'
 import { useSupermodules } from '../composables/useSupermodules'
 import { useCaIdentityPrompt } from '../composables/useCaIdentityPrompt'
@@ -726,7 +734,7 @@ import { takeInputFile } from '../utils/misc'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML, readEncapsulation } from '../utils/cellml'
 import { edgeLineOptions, FLOW_IDS, IMPORT_KEYS, NEW_INSTANCE_MODULE_REF } from '../utils/constants'
 import { resolveEdgeCouplings } from '../utils/edges'
-import { connectionPortWrites } from '../utils/hierarchy'
+import { connectionPortWrites, superInstanceToEnter } from '../utils/hierarchy'
 import { parseParametersFile } from '../utils/import'
 import {
   applyParametersToModel,
@@ -763,6 +771,7 @@ const toastTop = computed(() => SEARCH_BAR_TOP + TOAST_GAP_BELOW_SEARCH_BAR)
 const {
   addEdges,
   addNodes,
+  addSelectedEdges,
   addSelectedNodes,
   dimensions,
   edges,
@@ -1819,6 +1828,16 @@ function onEdgeDoubleClick({ edge }) {
   edgeConnectionDialogVisible.value = true
 }
 
+// The sidebar opens a connection's dialog, such as for a broken coupling, as a double-click on it would, selected.
+const { setEdgeDialogOpener } = useEdgeDialog()
+setEdgeDialogOpener((edgeId) => {
+  const edge = findEdge(edgeId)
+  if (!edge) return
+  addSelectedEdges([edge])
+  onEdgeDoubleClick({ edge })
+})
+onUnmounted(() => setEdgeDialogOpener(null))
+
 function onEdgeConnectionConfirm({
   sourceNodeId,
   targetNodeId,
@@ -1974,6 +1993,8 @@ function onNodeContextMenu({ clientX, clientY, id }) {
       remove: () => deleteNodes([id]),
       replace: () => onOpenReplacementDialog(node),
       simulate: () => simulateFromNode(id),
+      goUp: () => canvasLevel.exitOne(),
+      fitView: () => fitView(fitViewParams.value),
     },
   })
   contextMenuRef.value.open(clientX, clientY)
@@ -2310,6 +2331,13 @@ const handleKeyDown = (event) => {
   if (isCtrl && event.key.toLowerCase() === 'a') {
     event.preventDefault()
     selectAllNodes()
+  }
+
+  // Enter opens the one selected super instance, pressed on the canvas.
+  const toEnter = superInstanceToEnter(event, canvasSelectedNodes.value, vueFlowRef.value)
+  if (toEnter) {
+    event.preventDefault()
+    canvasLevel.enter(toEnter)
   }
 
   // Vue Flow's Delete key is off while deleting the selection needs asking: this asks first.
@@ -2730,7 +2758,7 @@ watch(
   top: 16px;
   right: 16px;
   z-index: 10;
-  width: 15.5rem;
+  width: var(--workspace-search-width, 15.5rem);
   max-width: calc(100% - 32px);
   transition:
     opacity 0.3s ease,
@@ -2738,10 +2766,6 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.workspace-search-container.search-mode-var {
-  width: 24rem;
 }
 
 .workspace-search-container.search-inactive {

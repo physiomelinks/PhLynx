@@ -3,7 +3,7 @@
     v-model:visible="dialogVisible"
     modal
     :header="text.header"
-    :style="{ width: '400px' }"
+    :style="{ width: '400px', maxWidth: '95vw' }"
     @mousedown.stop
     @wheel.stop
   >

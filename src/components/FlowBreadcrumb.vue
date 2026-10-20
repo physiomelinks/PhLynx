@@ -14,7 +14,7 @@
             :type="index < path.length - 1 ? 'button' : undefined"
             :class="['crumb', index < path.length - 1 ? 'crumb--link' : 'crumb--current']"
             :aria-current="index === path.length - 1 ? 'location' : undefined"
-            :title="`Super-module '${entry.supermoduleName}' in the library`"
+            :title="`${entry.name} — super-module '${entry.supermoduleName}' in the library`"
             @click="index < path.length - 1 && exitTo(index + 1)"
           >
             <i v-if="entry.instanceId === null" class="pi pi-pencil crumb-icon" aria-hidden="true" />
@@ -127,7 +127,7 @@ useActiveDocumentListeners({ keydown: onKeydown })
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  max-width: calc(100% - var(--library-panel-width, 0px) - 15.5rem - 48px);
+  max-width: calc(100% - var(--library-panel-width, 0px) - var(--workspace-search-width, 15.5rem) - 48px);
 }
 
 .flow-breadcrumb {
@@ -161,6 +161,8 @@ useActiveDocumentListeners({ keydown: onKeydown })
   align-items: center;
   gap: 4px;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   padding: 2px 4px;
   border: none;
   border-radius: 4px;
@@ -190,7 +192,9 @@ useActiveDocumentListeners({ keydown: onKeydown })
 }
 
 .crumb-name {
+  min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 

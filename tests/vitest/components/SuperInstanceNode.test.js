@@ -158,6 +158,39 @@ describe('SuperInstanceNode', () => {
     expect(wrapper.classes()).not.toContain('instance-node--simulated')
   })
 
+  it('flags modules inside with problems as its own placement expands, overrides and all', async () => {
+    const k = { name: 'k', type: 'parameter', value: '', units: 'second' }
+    const lv = module('dndnode_0', 'lv', { scope: 'sm_1', ports: [{ ...IN }], variables: [k] })
+    const exposure = exposures('sm_1', [exposed('xp_in', 'dndnode_0', 'entrance_ports', 'vessel')])
+    const inner = { nodes: [supermodule('sm_1', 'heart'), lv], edges: exposure }
+    const left = superInstance(inner, 'dndnode_1', 'left', 'sm_1', { overrides: { dndnode_0: { k: { value: '1' } } } })
+    const right = superInstance(inner, 'dndnode_2', 'right', 'sm_1')
+    await flow.fromObject(level.withVisibility({ nodes: [left, right, ...inner.nodes], edges: exposure }))
+    const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value ?? ''), updated: (el, { value }) => (el.dataset.tooltip = value ?? '') }
+    const render = (id) => mount(SuperInstanceNode, { props: { id, data: flow.findNode(id).data }, global: { plugins: [PrimeVue], directives: { tooltip } } })
+
+    expect(render('dndnode_1').find('.super-instance-problems').exists()).toBe(false)
+    wrapper = render('dndnode_2')
+    expect(wrapper.find('.super-instance-problems .warning-icon').attributes('data-tooltip')).toBe('1 module inside is missing a parameter value or units')
+  })
+
+  it('counts each module inside once across every copy while its super-module is edited on its own', async () => {
+    const k = { name: 'k', type: 'parameter', value: '', units: 'second' }
+    const wall = module('dndnode_0', 'wall', { scope: 'sm_2', variables: [k] })
+    const chamber = supermodule('sm_2', 'chamber')
+    const lv = superInstance({ nodes: [chamber, wall], edges: [] }, 'dndnode_0', 'lv', 'sm_2', { scope: 'sm_1' })
+    const inner = { nodes: [supermodule('sm_1', 'heart'), lv, chamber, wall], edges: [] }
+    const left = superInstance(inner, 'dndnode_1', 'left', 'sm_1')
+    const right = superInstance(inner, 'dndnode_2', 'right', 'sm_1')
+    await flow.fromObject(level.withVisibility({ nodes: [left, right, ...inner.nodes], edges: [] }))
+    level.editSupermodule('sm_1')
+    const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value ?? ''), updated: (el, { value }) => (el.dataset.tooltip = value ?? '') }
+    const lvId = flow.nodes.value.find((node) => node.data?.scope === 'sm_1' && node.data?.smId === 'sm_2').id
+    wrapper = mount(SuperInstanceNode, { props: { id: lvId, data: flow.findNode(lvId).data }, global: { plugins: [PrimeVue], directives: { tooltip } } })
+
+    expect(wrapper.find('.super-instance-problems .warning-icon').attributes('data-tooltip')).toBe('1 module inside is missing a parameter value or units')
+  })
+
   it('asks for its context menu', async () => {
     mountNode()
     await wrapper.trigger('contextmenu', { clientX: 5, clientY: 7 })
@@ -215,6 +248,13 @@ describe('InterfaceNode', () => {
   it('says when nothing is exposed yet', () => {
     const wrapper = render(supermodule('sm_2', 'lung'))
     expect(wrapper.find('.interface-name').text()).toBe('lung')
-    expect(wrapper.find('.interface-ports').text()).toBe('No exposed ports yet')
+    expect(wrapper.find('.interface-ports').text()).toContain('No exposed ports yet')
+    expect(wrapper.find('.interface-hint').text()).toBe('Connect a module to this card to expose its ports.')
+  })
+
+  it('asks for its context menu instead of the browser’s', async () => {
+    const wrapper = render(flow.findNode('sm_1'))
+    await wrapper.trigger('contextmenu', { clientX: 3, clientY: 4 })
+    expect(wrapper.emitted('open-context-menu')).toEqual([[{ clientX: 3, clientY: 4, id: 'sm_1' }]])
   })
 })

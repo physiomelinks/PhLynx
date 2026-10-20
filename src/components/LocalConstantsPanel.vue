@@ -47,8 +47,9 @@
         aria-label="New local constant name"
         @change="onPickName"
       />
-      <InputText v-model="draft.units" size="small" class="local-constant-add-units" placeholder="Units" aria-label="New local constant units" />
+      <!-- In the list's columns: value, then units. -->
       <InputText v-model="draft.value" size="small" class="local-constant-add-value" placeholder="Value" aria-label="New local constant value" />
+      <InputText v-model="draft.units" size="small" class="local-constant-add-units" placeholder="Units" aria-label="New local constant units" />
       <Button type="submit" icon="pi pi-plus" size="small" :disabled="!draft.name?.trim()" aria-label="Declare local constant" v-tooltip.left="'Declare'" />
     </form>
     <label v-if="bindableCount" class="local-constant-bind">
@@ -160,38 +161,43 @@ async function onRemove(declaration) {
 
 .local-constant,
 .local-constant-add {
-  display: flex;
+  /* One grid for the rows and the add row, so their columns line up: name, value, units, uses, action. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem 5rem 2rem 2rem;
   align-items: center;
   gap: 0.35rem;
   margin-bottom: 0.25rem;
 }
 
 .local-constant-name {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
   font-family: var(--p-font-family-mono, monospace);
 }
 
 .local-constant-value,
-.local-constant-add-value {
-  width: 5.5rem;
+.local-constant-add-value,
+.local-constant-add-name,
+.local-constant-add-units {
+  width: 100%;
+  min-width: 0;
 }
 
 .local-constant-units,
 .local-constant-uses {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 12px;
   color: var(--p-text-muted-color);
 }
 
-.local-constant-add-name {
-  flex: 1;
-  min-width: 0;
-}
-
-.local-constant-add-units {
-  width: 5rem;
+/* The add row has no uses: its button takes the action column. */
+.local-constant-add > :last-child {
+  grid-column: 5;
 }
 
 .local-constant-bind {

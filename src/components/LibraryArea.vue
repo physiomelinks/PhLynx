@@ -280,10 +280,10 @@
       </template>
 
       <!-- Empty state -->
-      <div v-if="filteredCollections.length === 0 && filteredSupermodules.length === 0" class="mlc__empty">
+      <div v-if="isListEmpty" class="mlc__empty">
         <i class="pi pi-inbox mlc__empty-icon" />
         <p class="mlc__empty-text">
-          {{ filterText ? `No modules match '${filterText}'` : 'No modules found' }}
+          {{ appliedFilterText ? `No modules match '${appliedFilterText}'` : 'No modules found' }}
         </p>
       </div>
     </div>
@@ -411,14 +411,14 @@ const canvasLevel = useCanvasLevel()
 
 const filteredSupermodules = computed(() => {
   if (!props.showSupermodules || props.selectable) return []
-  const q = filterText.value.toLowerCase().trim()
+  const q = appliedFilterText.value.toLowerCase().trim()
   if (!q) return supermodules.value
   return supermodules.value.filter((entry) => `${entry.name} ${entry.label}`.toLowerCase().includes(q))
 })
 
 const filteredLibrarySupermodules = computed(() => {
   if (!props.showSupermodules || props.selectable) return []
-  const q = filterText.value.toLowerCase().trim()
+  const q = appliedFilterText.value.toLowerCase().trim()
   if (!q) return librarySupermodules.value
   return librarySupermodules.value.filter((entry) => `${entry.name} ${entry.moduleRef}`.toLowerCase().includes(q))
 })
@@ -426,9 +426,16 @@ const filteredLibrarySupermodules = computed(() => {
 // The Empty super-module entry, listed where super-modules are, when the filter matches it.
 const showsEmptySupermodule = computed(() => {
   if (!props.showSupermodules || props.selectable) return false
-  const q = filterText.value.toLowerCase().trim()
+  const q = appliedFilterText.value.toLowerCase().trim()
   return !q || 'empty super-module'.includes(q)
 })
+
+// Nothing listed: no collection, super-module or Empty super-module entry passes the filter.
+const isListEmpty = computed(
+  () =>
+    !showsEmptySupermodule.value &&
+    filteredCollections.value.length + filteredSupermodules.value.length + filteredLibrarySupermodules.value.length === 0
+)
 
 // The super-module the rename dialog renames.
 const renameTarget = reactive({ visible: false, smId: null, name: '' })

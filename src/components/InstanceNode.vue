@@ -83,8 +83,7 @@ import NodeHandles from './NodeHandles.vue'
 import SanitisedInput from './SanitisedInput.vue'
 import { useLibraryStore } from '../stores/libraryStore'
 import { sanitiseName } from '../utils/identifiers'
-import { isEditableVariableType, isEmpty } from '../utils/variables'
-import { isUnitKnown } from '../utils/parameterRows'
+import { moduleProblems } from '../composables/useModuleProblems'
 import { useNodeChrome } from '../composables/useNodeChrome'
 
 import '../assets/vueflownode.css'
@@ -145,35 +144,10 @@ const componentName = computed(() => props.data.mathRef.split(':')[1])
 
 const mathFile = computed(() => props.data.mathRef.split(':')[0])
 
-const isMissingParameters = computed(() => {
-  for (const variable of props.data.variables || []) {
-    // A local constant's value is its super-module's.
-    if (isEditableVariableType(variable.type) && variable.type !== 'local_constant') {
-      if (variable.type === 'global_constant') {
-        const globalConstant = libraryStore.getGlobalConstant(variable.name)
-        if (isEmpty(globalConstant?.value)) {
-          return true
-        }
-      } else if (isEmpty(variable.value)) {
-        return true
-      }
-    }
-  }
-  return false
-})
-
-const isMissingUnits = computed(() => {
-  for (const variable of props.data.variables || []) {
-    if (isEditableVariableType(variable.type)) {
-      if (isEmpty(variable.units)) {
-        return true
-      } else if (!isUnitKnown(variable, libraryStore.availableUnitNames)) {
-        return true
-      }
-    }
-  }
-  return false
-})
+// A local constant's value is its super-module's.
+const problems = computed(() => moduleProblems(props.data.variables, libraryStore, { skipLocalConstants: true }))
+const isMissingParameters = computed(() => problems.value.missingParameters)
+const isMissingUnits = computed(() => problems.value.missingUnits)
 
 const portMenuRef = ref(null)
 
