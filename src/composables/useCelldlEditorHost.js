@@ -8,6 +8,8 @@
  */
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 
+import { chooseOpenView, lastView, rememberView } from '../utils/celldlView.js'
+
 /** How long to wait for the editor to mount, and to answer a command. */
 const READY_TIMEOUT_MS = 30000
 const COMMAND_TIMEOUT_MS = 10000
@@ -129,6 +131,12 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   // `element` commands waiting for their reply, by kind: `list` for `elements`, `set` and `select` for `element-result`.
   const pendingElements = new Map()
   const pendingResults = new Map()
+  // `view` commands waiting for their `view-state` reply, by kind.
+  const pendingViews = new Map()
+  // The documentUri the shown diagram's view is remembered under, once it has opened.
+  let viewKey = null
+  // Whether a pane next claiming the editor sets the view a diagram opens at, for a source shown already.
+  let isViewDue = false
   // The element the host last selected, whose `select` event the pane is told about as the host's own.
   let hostSelection = null
   // The claiming pane's handler for the editor's viewer events (select, unselect, active, unactive).
@@ -509,6 +517,8 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   async function open(source) {
     await whenReady()
     isOpening = true
+    isViewDue = false
+    viewKey = null
     error.value = ''
     try {
       const previous = svgOf()
@@ -524,8 +534,45 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
       baseline = await serialise()
       isOpenedBlank = !source?.document
       isDirty.value = false
+      await setOpenView(source?.documentUri ?? null)
     } finally {
       isOpening = false
+    }
+  }
+
+  /**
+   * Sets the view a diagram opens at (chooseOpenView), and remembers its view under its documentUri from then on.
+   * An editor that doesn't report its view keeps its own.
+   *
+   * @param {string|null} key - The source's documentUri.
+   * @returns {Promise<void>}
+   */
+  async function setOpenView(key) {
+    viewKey = null
+    const view = (options) =>
+      sendAwaiting(pendingViews, (kind) => ({ command: 'view', options: { ...options, kind } }), 'set its view')
+    try {
+      const state = await view({})
+      await view(chooseOpenView(state, lastView(key)))
+    } catch (e) {
+      console.warn("CellDL diagram's view couldn't be set:", e)
+    }
+    viewKey = key
+  }
+
+  /**
+   * Takes the editor's `view-state` emit: a reply to a `view` command, or the view after the user pans or zooms,
+   * remembered for the shown diagram while a pane holds it.
+   *
+   * @param {{kind?: string, scale: number, centre: {x: number, y: number}}} state
+   */
+  function onViewState(state) {
+    const resolve = state?.kind && pendingViews.get(state.kind)
+    if (resolve) {
+      pendingViews.delete(state.kind)
+      resolve(state)
+    } else if (!state?.kind && !isOpening && isActive.value) {
+      rememberView(viewKey, state)
     }
   }
 
@@ -541,8 +588,10 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     // The editor already shows an unedited source, e.g. the one just saved.
     const isShown = !!shown && !isDirty.value && isSameSource(shown.source, source)
     wanted = { source }
-    // Its elements may be newer, e.g. a stored source saved since.
+    // Its elements may be newer, e.g. a stored source saved since. Shown again in a pane, rather than reloaded in
+    // one after a save, it opens at its opening view, as if opened anew.
     if (isShown) setShown(wanted)
+    isViewDue = isShown && !isActive.value
     isDirty.value = false
     if (isActive.value) sync().catch((e) => (error.value = e.message))
   }
@@ -572,6 +621,10 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
           )
           .finally(() => (syncing = null))
         await syncing
+      }
+      if (isViewDue && shown === wanted) {
+        isViewDue = false
+        await setOpenView(shown.source?.documentUri ?? null)
       }
     } finally {
       isSyncing.value = !!syncing
@@ -737,6 +790,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     onDiagramChanged,
     onElements,
     onElementResult,
+    onViewState,
     listElements,
     setElement,
     selectElement,

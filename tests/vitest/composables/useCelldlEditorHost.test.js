@@ -8,6 +8,7 @@ import {
   isEditorKey,
   LIVE_ISSUE_CLASS,
 } from '../../../src/composables/useCelldlEditorHost.js'
+import { lastView, resetViews } from '../../../src/utils/celldlView.js'
 
 const SOURCE = { format: 'celldl', document: '<svg>rc</svg>', documentUri: 'https://phlynx.example/rc.celldl' }
 
@@ -15,7 +16,7 @@ const SOURCE = { format: 'celldl', document: '<svg>rc</svg>', documentUri: 'http
  * Stands in for the CellDL editor: it draws a diagram into the host's root once mounted, and answers commands
  * as the editor does.
  */
-function mountFakeEditor(host, { failOpen = false, listsElements = true } = {}) {
+function mountFakeEditor(host, { failOpen = false, listsElements = true, reportsView = true, view = { fitScale: 1, bounds: null } } = {}) {
   const root = document.createElement('div')
   document.body.appendChild(root)
   const container = document.createElement('div')
@@ -29,6 +30,11 @@ function mountFakeEditor(host, { failOpen = false, listsElements = true } = {}) 
     const { action, data, kind } = command.options
     if (command.command === 'element' && action === 'list' && listsElements) {
       queueMicrotask(() => host.onElements({ kind, revision: 0, elements: [] }))
+    }
+    if (command.command === 'view' && reportsView) {
+      const { zoom, centre } = command.options
+      const scale = typeof zoom === 'number' ? zoom : zoom === 'fit' ? Math.min(view.fitScale, command.options.maxScale ?? 32) : 1
+      queueMicrotask(() => host.onViewState({ kind, scale, centre: centre ?? { x: 0, y: 0 }, ...view }))
     }
     if (command.command !== 'file') return
     if (action === 'open') {
@@ -89,15 +95,17 @@ describe('useCelldlEditorHost', () => {
       options: { action: 'open', data: SOURCE.document, name: SOURCE.documentUri },
     })
     expect(editor.commands[1].options.action).toBe('data')
+    // Its view is asked for, then set.
+    expect(editor.commands.slice(2, 4).map((command) => command.command)).toEqual(['view', 'view'])
     // Its elements are listed for the Parameters tab.
-    await vi.waitFor(() => expect(editor.commands[2]).toMatchObject({ command: 'element', options: { action: 'list' } }))
+    await vi.waitFor(() => expect(editor.commands[4]).toMatchObject({ command: 'element', options: { action: 'list' } }))
 
     // Shown again without reopening.
     host.release(pane)
     expect(host.isActive.value).toBe(false)
     host.claim(pane)
     await host.sync()
-    expect(editor.commands).toHaveLength(3)
+    expect(editor.commands).toHaveLength(5)
   })
 
   it('closes the diagram for a source with no document', async () => {
@@ -391,6 +399,99 @@ describe('useCelldlEditorHost', () => {
     host.claim(document.createElement('div'))
     await host.sync()
     expect(host.annotations.value).toEqual({})
+  })
+
+  describe('the view a diagram opens at', () => {
+    beforeEach(() => {
+      window.localStorage.clear()
+      resetViews()
+    })
+
+    const viewsSet = (editor) =>
+      editor.commands.filter((command) => command.command === 'view').map(({ options: { kind, ...options } }) => options)
+
+    it('opens a blank diagram at 100%', async () => {
+      const editor = mountFakeEditor(host)
+      editor.draw()
+      host.prepare({ ...SOURCE, document: null })
+      host.claim(document.createElement('div'))
+      await host.sync()
+      expect(viewsSet(editor)).toEqual([{}, { zoom: 1 }])
+    })
+
+    it('fits a diagram at most 100%, then restores a view the user zoomed in to as it reopens', async () => {
+      const editor = mountFakeEditor(host, { view: { fitScale: 3, bounds: { left: 0, top: 0, right: 40, bottom: 20 } } })
+      editor.draw()
+      host.prepare(SOURCE)
+      host.claim(document.createElement('div'))
+      await host.sync()
+      expect(viewsSet(editor)).toEqual([{}, { zoom: 'fit', maxScale: 1 }])
+
+      host.onViewState({ scale: 5, centre: { x: 10, y: 5 } })
+      host.prepare({ ...SOURCE, document: null })
+      await vi.waitFor(() => expect(host.isSyncing.value).toBe(false))
+      editor.commands.length = 0
+      host.prepare(SOURCE)
+      await vi.waitFor(() => expect(host.isSyncing.value).toBe(false))
+      expect(viewsSet(editor)).toEqual([{}, { zoom: 5, centre: { x: 10, y: 5 } }])
+    })
+
+    it('sets the opening view for a source shown again in a new pane, but not on reloading in one after a save', async () => {
+      const editor = mountFakeEditor(host, { view: { fitScale: 0.5, bounds: { left: 0, top: 0, right: 40, bottom: 20 } } })
+      editor.draw()
+      host.prepare(SOURCE)
+      const pane = document.createElement('div')
+      host.claim(pane)
+      await host.sync()
+      host.release(pane)
+      editor.commands.length = 0
+
+      // The dialog reopens: the editor still shows the source, so it isn't opened again, but its view is set.
+      host.prepare(SOURCE)
+      host.claim(pane)
+      await host.sync()
+      expect(viewsSet(editor)).toEqual([{}, { zoom: 'fit', maxScale: 1 }])
+      expect(editor.commands.some((command) => command.command === 'file' && command.options.action === 'open')).toBe(false)
+
+      // Reloading in the pane after a save leaves the view as the user had it.
+      editor.commands.length = 0
+      host.markSaved(SOURCE)
+      host.prepare(SOURCE)
+      await host.sync()
+      // A view set now would be sent once the command watcher next runs.
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(viewsSet(editor)).toEqual([])
+    })
+
+    it('remembers only views the user sees, not those while opening or parked', async () => {
+      const editor = mountFakeEditor(host)
+      editor.draw()
+      host.prepare(SOURCE)
+      const pane = document.createElement('div')
+      host.claim(pane)
+      const opening = host.sync()
+      host.onViewState({ scale: 6, centre: { x: 0, y: 0 } })
+      await opening
+      expect(lastView(SOURCE.documentUri)).toBeNull()
+      host.release(pane)
+      host.onViewState({ scale: 7, centre: { x: 0, y: 0 } })
+      expect(lastView(SOURCE.documentUri)).toBeNull()
+      host.claim(pane)
+      host.onViewState({ scale: 8, centre: { x: 0, y: 0 } })
+      expect(lastView(SOURCE.documentUri)).toEqual({ scale: 8, centre: { x: 0, y: 0 } })
+    })
+
+    it("still opens the diagram with an editor that doesn't report its view", async () => {
+      const editor = mountFakeEditor(host, { reportsView: false })
+      editor.draw()
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      host.prepare(SOURCE)
+      host.claim(document.createElement('div'))
+      await host.sync()
+      expect(warn).toHaveBeenCalledWith("CellDL diagram's view couldn't be set:", expect.any(Error))
+      expect(host.isDirty.value).toBe(false)
+      warn.mockRestore()
+    })
   })
 
   it("doesn't park the editor for a pane that no longer holds it", () => {

@@ -14,6 +14,7 @@
         @diagram-changed="host.onDiagramChanged"
         @elements="host.onElements"
         @element-result="host.onElementResult"
+        @view-state="host.onViewState"
       />
     </div>
   </Teleport>
