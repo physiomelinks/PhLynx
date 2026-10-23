@@ -131,6 +131,7 @@
 
                 <div v-else-if="isParamsVisible" class="table-flex-wrapper">
                   <DataTable
+                    ref="parameterTableRef"
                     :key="parameterTableKey"
                     :value="filteredParameterRows"
                     dataKey="name"
@@ -467,8 +468,9 @@ watch(selectedNode, () => {
   parameterSearch.value = ''
 })
 
+const parameterTableRef = ref(null)
 const { virtualScrollerOptions: parameterVirtualScrollerOptions, tableKey: parameterTableKey } =
-  useVirtualScrollerOptions(parameterRows)
+  useVirtualScrollerOptions(parameterRows, { shownRows: filteredParameterRows, tableRef: parameterTableRef })
 
 /**
  * Build detached sidebar rows from a node's variables, showing the shared value for global constants.

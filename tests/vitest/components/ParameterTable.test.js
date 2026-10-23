@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import DataTable from 'primevue/datatable'
 import Select from 'primevue/select'
 import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +10,7 @@ const confirm = vi.fn()
 vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
 
 const { default: ParameterTable } = await import('../../../src/components/ParameterTable.vue')
+const { useIssueFilter } = await import('../../../src/composables/useIssueFilter.js')
 
 let wrapper
 afterEach(() => wrapper?.unmount())
@@ -278,5 +280,66 @@ describe('ParameterTable connection status', () => {
     })
     const labels = wrapper.vm.initialiserOptionsFor(rows[0]).map((option) => option.label)
     expect(labels).toEqual(expect.arrayContaining(['b (from axon_SN.V)', 'c (not connected)', 'd']))
+  })
+})
+
+describe('ParameterTable virtual scrolling', () => {
+  /** Mounts the table with more rows than turns on virtual scrolling, the last two missing units. */
+  function mountLongTable() {
+    const rows = reactive(
+      Array.from({ length: 45 }, (_, index) => ({
+        name: `row_${index}`,
+        units: index >= 43 ? '' : 'metre',
+        type: 'constant',
+        value: '1',
+        access: 'access',
+      }))
+    )
+    const isMissingUnits = (row) => !row.units
+    const issueFilter = useIssueFilter({
+      rows: computed(() => rows),
+      matchers: { units: isMissingUnits },
+      availableKeys: computed(() => (rows.some(isMissingUnits) ? ['units'] : [])),
+    })
+    wrapper = mount(ParameterTable, {
+      props: {
+        rows,
+        isMissingUnits,
+        getUnitsNotice: () => '',
+        issueChips: [{ key: 'units', kind: 'units', icon: 'pi-exclamation-circle', label: '2 variables missing units' }],
+        issueFilter,
+      },
+      global: { plugins: [PrimeVue] },
+    })
+    const scroller = wrapper.findComponent(DataTable).vm.getVirtualScrollerRef()
+    return { rows, scrollToIndex: vi.spyOn(scroller, 'scrollToIndex') }
+  }
+
+  it('scrolls back to the top when a chip narrows the rows', async () => {
+    const { scrollToIndex } = mountLongTable()
+    await wrapper.find('.issue-chip').trigger('click')
+    await flushPromises()
+
+    expect(scrollToIndex).toHaveBeenCalledWith(0)
+  })
+
+  it('scrolls back to the top when a search narrows the rows, but not when it widens them', async () => {
+    const { scrollToIndex } = mountLongTable()
+    await wrapper.find('.search-input-wrapper input').setValue('row_4')
+    await flushPromises()
+    expect(scrollToIndex).toHaveBeenCalledOnce()
+    expect(scrollToIndex).toHaveBeenCalledWith(0)
+
+    await wrapper.find('.search-input-wrapper input').setValue('')
+    await flushPromises()
+    expect(scrollToIndex).toHaveBeenCalledOnce()
+  })
+
+  it('leaves the scroll alone when a row is edited', async () => {
+    const { rows, scrollToIndex } = mountLongTable()
+    rows[10].value = '2'
+    await flushPromises()
+
+    expect(scrollToIndex).not.toHaveBeenCalled()
   })
 })
