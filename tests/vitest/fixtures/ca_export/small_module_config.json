@@ -1,0 +1,38 @@
+[
+  {
+    "module_type": "arterial_simple",
+    "module_subtype": "vp",
+    "module_format": "cellml",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_simple_type",
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [],
+    "variables_and_units": [
+      [
+        "C",
+        "m3_per_J",
+        null,
+        "constant"
+      ],
+      [
+        "u_in",
+        "J_per_m3",
+        null,
+        "boundary_condition"
+      ],
+      [
+        "rho",
+        "kg_per_m3",
+        null,
+        "global_constant"
+      ],
+      [
+        "q_C",
+        "m3",
+        null,
+        "variable"
+      ]
+    ]
+  }
+]

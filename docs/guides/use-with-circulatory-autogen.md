@@ -23,7 +23,7 @@ For an export named `<name>`:
 | File | Contents |
 | :--- | :--- |
 | `<name>_module_array.csv` | Instances and their connections. |
-| `<name>_parameters.csv` | Constants, boundary conditions and global constants. |
+| `<name>_parameters.csv` | Constants and boundary conditions as `<instance>/<variable>` (`aortic_root/C`), and the global constants the modules declare, by name. |
 | `<name>_obs_data.json` | The protocol, if the workspace has one. |
 | `modules/<name>_module_config.json` | Ports, variables and units of every module used. |
 | `modules/*modules.cellml` | One per CellML file used, with PhLynx edits, renamed to end in `modules.cellml` (`my_math.cellml` → `my_math_modules.cellml`). With a heart, also `zero_flow`, plus `arterial_simple:vp` when CA adds a pulmonary circuit. |
@@ -40,6 +40,8 @@ use_builtin_modules: false
 ```
 
 `use_builtin_modules: false` stops built-in components being written twice and units clashing. For the protocol, also set `param_id_obs_path` to `<name>_obs_data.json`.
+
+CA joins the names of nested instances with `__` (`heart/lv` is `heart__lv`), so an instance name may not contain `__` nor begin or end with `_`. The export stops and names any instances to rename.
 
 ### Warnings on export
 

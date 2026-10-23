@@ -684,7 +684,7 @@ import {
 } from '../utils/constants'
 import { resolvePortCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
-import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
+import { applyParameterValues, applyParametersToNodes, globalParameters, skippedParametersMessage } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
 import { saveWithDialog, stripExtension } from '../utils/save'
 
@@ -1149,12 +1149,7 @@ const loadParametersData = async (content, filename, { notify: shouldNotify = tr
       if (variablesById.has(node.id)) node.data.variables = variablesById.get(node.id)
     }
 
-    const globalConstants = Array.from(content)
-      .filter((entry) => variableCatalogue.has(entry.variable_name.trimEnd()))
-      .map((entry) => ({
-        ...entry,
-        name: entry.variable_name.trimEnd(),
-      }))
+    const globalConstants = globalParameters(Array.from(content), variableCatalogue)
 
     globalConstants.forEach((p) => {
       libraryStore.assignGlobalConstant(p.name, p.value, p.units, p.data_reference)
