@@ -145,7 +145,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
 
   /** Simulates the whole model or the part, as the switch says. */
   function play() {
-    run(playScopeNodeIds.value)
+    run(playScopeNodeIds.value).catch(console.error)
   }
 
   // What the status line says: the most pressing thing first, with the full lists a click away. Notes, such as a

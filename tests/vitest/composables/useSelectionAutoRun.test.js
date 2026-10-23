@@ -11,7 +11,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
     useVueFlow: () => ({ getSelectedNodes: computed(() => selected.value.map((id) => ({ id }))), userSelectionActive: ref(false) }),
   }
 })
-const run = vi.hoisted(() => vi.fn())
+const run = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../../../src/composables/useSimulation', () => ({ useSimulation: () => ({ run }) }))
 vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
 const store = vi.hoisted(() => ({ scopeMode: 'selection', scopeNodeIds: ['a'], results: {} }))

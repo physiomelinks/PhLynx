@@ -242,9 +242,18 @@ const { rerunForSliders } = useSliderReruns()
 
 const { xAxis, charts, predictionPlotCharts } = useSimulationCharts(scopeNodes, { plotConfig: toRef(props, 'plotConfig') })
 
-/** Plays, unless current results of the scope play would run are shown or on their way. */
+/**
+ * Plays, unless current results of the scope play would run are shown or on their way. It doesn't wait for the
+ * simulator to load, as a run does; failed results, kept partial, are never current.
+ */
 function ensureResults() {
-  if (canPlay.value && (!store.results || isOutdated.value)) play()
+  if (blockedReason.value) return
+  if (isRunning.value) {
+    // A run of another scope, such as the sidebar's selection, is stopped for this one.
+    if (JSON.stringify(store.scopeNodeIds) !== JSON.stringify(playScopeNodeIds.value)) play()
+    return
+  }
+  if (!store.results || isOutdated.value || store.status === 'error') play()
 }
 
 defineExpose({ ensureResults })

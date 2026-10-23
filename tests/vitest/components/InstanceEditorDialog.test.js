@@ -22,7 +22,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
   }
 })
 vi.mock('../../../src/utils/layout', () => ({ waitUntilStable: () => Promise.resolve() }))
-const run = vi.hoisted(() => vi.fn())
+const run = vi.hoisted(() => vi.fn(async () => {}))
 // The shown results' staleness, which a test sets.
 const simulation = vi.hoisted(() => ({ isStale: null }))
 vi.mock('../../../src/composables/useSimulation', async () => {
