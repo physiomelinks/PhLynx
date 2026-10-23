@@ -12,6 +12,7 @@ vi.mock('../../../../src/utils/notify', () => ({ notify: notified }))
 const { generateExportZip } = await import('../../../../src/services/export/ca.js')
 const { caModuleFileName } = await import('../../../../src/services/export/caCellml.js')
 const { useLibraryStore } = await import('../../../../src/stores/libraryStore.js')
+const { buildInstance } = await import('../../../../src/services/import/buildWorkflow.js')
 
 const BG_MATH_REF = 'BG_modules.cellml:vp_simple_type'
 const BG_MODULE_REF = 'arterial_simple:vp'
@@ -196,7 +197,7 @@ describe('generateExportZip', () => {
     const parameters = parametersOf(await readZip(await generateExportZip('heart', [node], [], library)))
     expect(parameters.u_out_out).toMatchObject({ units: 'J_per_m3', value: '1000', data_reference: 'phlynx' })
     expect(parameters.q_out_out.value).toBe('0')
-    expect(notified.warning).not.toHaveBeenCalled()
+    expect(notified.warning).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Missing Boundary Values' }))
   })
 
   it("marks a blank boundary condition for CA to ask for, and warns when nothing is connected to it", async () => {
@@ -324,7 +325,7 @@ describe('generateExportZip', () => {
     const edge = { source: 'a', target: 'b', data: { couplings: [{ sourcePort: source.data.ports[0], targetPort: target.data.ports[0] }] } }
     const files = await readZip(await generateExportZip('heart', [source, target], [edge], library))
     expect(parametersOf(files).u_out_b.value).toBe('EMPTY_MUST_BE_FILLED')
-    expect(notified.warning).not.toHaveBeenCalled()
+    expect(notified.warning).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Missing Boundary Values' }))
   })
 
   it('adds the module CA uses for the pulmonary circuit of a heart with one output, and warns', async () => {
@@ -334,6 +335,126 @@ describe('generateExportZip', () => {
     const entries = JSON.parse(files['modules/heart_module_config.json']).map((entry) => `${entry.module_type}:${entry.module_subtype}`)
     expect(entries).toEqual(['heart:simple', 'arterial_simple:vp'])
     expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('par, pvn') }))
+  })
+
+  describe('instances edited apart from their module', () => {
+    const port = (label) => ({ label, portType: 'general_ports', variables: ['u'], multiportType: 'None' })
+    const C = (units, type = 'constant') => ({ name: 'C', type, units, value: '1' })
+
+    /**
+     * Exports nodes, and reads back the config subtypes and each instance's module array subtype.
+     *
+     * @param {Array} nodes
+     * @param {Array} [edges]
+     * @returns {Promise<{files: Object, config: Array, subtypes: Object}>}
+     */
+    async function exportNodes(nodes, edges = []) {
+      const files = await readZip(await generateExportZip('heart', nodes, edges, library))
+      const config = JSON.parse(files['modules/heart_module_config.json'])
+      const { data } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+      return { files, config, subtypes: Object.fromEntries(data.map((row) => [row.name, row.module_subtype])) }
+    }
+
+    it('gives an instance with its own ports a config of its own, named in its module array row, and warns', async () => {
+      const b = nodeWith('B', [])
+      b.data.ports = [port('p')]
+      const { config, subtypes } = await exportNodes([nodeWith('A', []), b])
+      expect(config.map((entry) => entry.module_subtype)).toEqual(['vp', 'vp_B'])
+      expect(config[1].general_ports).toEqual([{ port_type: 'p', variables: ['u'] }])
+      expect(config[0].general_ports).toEqual([])
+      expect(subtypes).toEqual({ A: 'vp', B: 'vp_B' })
+      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining(': B (vp_B).') }))
+    })
+
+    it("keeps an instance's own units in its config, matching its parameter row", async () => {
+      const { files, config, subtypes } = await exportNodes([nodeWith('A', [C('m3_per_J')]), nodeWith('B', [C('m3_per_s')])])
+      expect(subtypes.B).toBe('vp_B')
+      expect(config.find((entry) => entry.module_subtype === 'vp_B').variables_and_units).toEqual([['C', 'm3_per_s', null, 'constant']])
+      expect(parametersOf(files).C_B.units).toBe('m3_per_s')
+    })
+
+    it("keeps an instance's own variable types in its config", async () => {
+      const { files, config } = await exportNodes([nodeWith('A', [C('m3_per_J')]), nodeWith('B', [C('m3_per_J', 'global_constant')])])
+      expect(config.map((entry) => entry.variables_and_units[0][3])).toEqual(['constant', 'global_constant'])
+      expect(parametersOf(files).C_B).toBeUndefined()
+    })
+
+    it('gives an instance saved to other math a config naming that math', async () => {
+      library.addMath('BG_modules.cellml:rate_type', RATE_MATH)
+      const b = nodeWith('B', [])
+      b.data.mathRef = 'BG_modules.cellml:rate_type'
+      const { config } = await exportNodes([nodeWith('A', []), b])
+      expect(config.map((entry) => [entry.module_subtype, entry.component_type])).toEqual([['vp', 'vp_simple_type'], ['vp_B', 'rate_type']])
+    })
+
+    it('shares one config among instances with the same edits', async () => {
+      const edited = (name) => ({ ...nodeWith(name, []), data: { ...nodeWith(name, []).data, ports: [port('p')] } })
+      const { config, subtypes } = await exportNodes([nodeWith('A', []), edited('B'), edited('C')])
+      expect(config.map((entry) => entry.module_subtype)).toEqual(['vp', 'vp_B'])
+      expect(subtypes).toEqual({ A: 'vp', B: 'vp_B', C: 'vp_B' })
+      expect(notified.warning).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('gives them their own module configs: B (vp_B), C (vp_B).') })
+      )
+    })
+
+    /**
+     * Drops an instance of the library's module as the editor does, its rows filled out from its math.
+     *
+     * @param {string} name
+     * @param {string} [moduleRef]
+     * @returns {Object}
+     */
+    function dropped(name, moduleRef = BG_MODULE_REF) {
+      const module = library.availableModules.get(moduleRef)
+      const node = buildInstance(name, name, 'moduleNode', module, [], null, library.getMathAnalysis(module.mathRef), library.getMathDefaults(module.mathRef))
+      return { ...node, data: { ...node.data, variables: [...node.data.variables].reverse() } }
+    }
+
+    it("keeps the module's subtype for untouched instances, whose rows their math fills out in any order", async () => {
+      library.addModule({ moduleRef: BG_MODULE_REF, mathRef: BG_MATH_REF, ports: [], variables: [{ name: 'C', units: 'm3_per_J', access: null, type: 'constant' }] })
+      library.addModule({ moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] })
+      const heart = dropped('heart', 'heart:simple')
+      const edges = [{ source: 'heart', target: 'A' }, { source: 'A', target: 'B' }, { source: 'B', target: 'heart' }]
+      const { config, subtypes } = await exportNodes([heart, dropped('A'), dropped('B')], edges)
+      expect(config.map((entry) => `${entry.module_type}:${entry.module_subtype}`)).toEqual(['heart:simple', 'arterial_simple:vp'])
+      expect(subtypes).toEqual({ heart: 'simple', A: 'vp', B: 'vp' })
+      expect(notified.warning).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Instances Exported Separately' }))
+    })
+
+    it('splits off an edited first instance, not the untouched one after it', async () => {
+      const a = dropped('A')
+      a.data.ports = [port('p')]
+      const { config, subtypes } = await exportNodes([a, dropped('B')])
+      expect(subtypes).toEqual({ A: 'vp_A', B: 'vp' })
+      expect(config.find((entry) => entry.module_subtype === 'vp_A').general_ports).toEqual([{ port_type: 'p', variables: ['u'] }])
+      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining(': A (vp_A).') }))
+    })
+
+    it("keeps the module's subtype for the instances matching the library, wherever they come", async () => {
+      const { subtypes } = await exportNodes([nodeWith('A', [C('m3_per_J')]), nodeWith('B', [])])
+      expect(subtypes).toEqual({ A: 'vp_A', B: 'vp' })
+    })
+
+    it("keeps the module's subtype off a config no untouched instance would have, so an import keeps its edits", async () => {
+      const { config, subtypes } = await exportNodes([nodeWith('A', [C('m3_per_J')]), nodeWith('B', [C('m3_per_J')])])
+      expect(config.map((entry) => entry.module_subtype)).toEqual(['vp_A'])
+      expect(subtypes).toEqual({ A: 'vp_A', B: 'vp_A' })
+    })
+
+    it("names a split config clear of the library's subtypes", async () => {
+      library.addModule({ moduleRef: 'arterial_simple:vp_B', mathRef: BG_MATH_REF, ports: [], variables: [] })
+      const { subtypes } = await exportNodes([nodeWith('A', []), nodeWith('B', [C('m3_per_J')])])
+      expect(subtypes.B).toBe('vp_B_2')
+    })
+
+    it("keeps the library's config for the pulmonary circuit, which CA builds from the module's subtype", async () => {
+      library.addModule({ moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] })
+      const heart = { id: 'h', data: { name: 'heart', moduleRef: 'heart:simple', mathRef: BG_MATH_REF, ports: [], variables: [] } }
+      const { config, subtypes } = await exportNodes([heart, nodeWith('A', [C('m3_per_J')])])
+      expect(config.map((entry) => `${entry.module_type}:${entry.module_subtype}`)).toEqual(['heart:simple', 'arterial_simple:vp_A', 'arterial_simple:vp'])
+      expect(config[2].variables_and_units).toEqual([])
+      expect(subtypes.A).toBe('vp_A')
+    })
   })
 
   it('fails when a component has no math in the library', async () => {

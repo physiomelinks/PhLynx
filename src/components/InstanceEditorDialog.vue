@@ -422,9 +422,22 @@
       :message="saveAs.message"
       :initial-name="saveAs.initialName"
       :file="componentFile"
-      :is-taken="isComponentNameTaken"
+      :is-taken="saveAs.isTaken"
       @confirm="(name) => resolveSaveAs(name)"
       @cancel="resolveSaveAs(null)"
+    />
+
+    <ModuleConfigSaveDialog
+      v-if="configPrompt.visible"
+      v-model="configPrompt.visible"
+      :module-ref="configPrompt.moduleRef"
+      :match-ref="configPrompt.matchRef"
+      :other-count="configPrompt.otherCount"
+      :can-update="configPrompt.canUpdate"
+      :initial-name="configPrompt.initialName"
+      :existing-refs="configPrompt.existingRefs"
+      @confirm="(config) => resolveConfigPrompt(config)"
+      @cancel="resolveConfigPrompt(null)"
     />
 
     <!-- DIALOG FOOTER -->
@@ -433,9 +446,9 @@
         <div
           v-if="siblingCount > 0"
           class="apply-all-checkbox"
-          :title="`Also switch the ${siblingCount} other instance${
+          :title="`Ticked, math changes also reach the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
-          } using ${componentName} from ${componentFile} to the new math. Parameters and ports only change here.`"
+          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameter values only change here, and a change to ports or variable types asks first.`"
         >
           <Checkbox v-model="applyToAll" binary inputId="applyToAll" />
           <label for="applyToAll">
@@ -488,6 +501,7 @@ import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
+import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
@@ -502,6 +516,8 @@ import { useAppSettings } from '../composables/useAppSettings'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { analyzeMathXml } from '../services/math/analyzeMath'
+import { isModuleConfig } from '../services/moduleConfig'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -577,7 +593,7 @@ function suggestUnitsFor(typed) {
 const loading = ref(false)
 const activeTab = ref('parameters')
 
-const applyToAll = ref(false)
+const applyToAll = ref(true)
 // The editor mounts after the table paints, so its synchronous parse doesn't delay the table.
 const isEditorReady = ref(false)
 const editorWrapperRef = ref(null)
@@ -1143,6 +1159,16 @@ const siblings = computed(() => {
 
 const siblingCount = computed(() => siblings.value.length)
 
+/**
+ * Gets the other nodes on a math reference.
+ *
+ * @param {string} mathRef
+ * @returns {string[]} Their ids.
+ */
+function otherNodesOn(mathRef) {
+  return nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === mathRef).map((n) => n.id)
+}
+
 // ── Watchers & Handlers ──────────────────────────────────────────────────────
 let openRequestId = 0
 
@@ -1194,7 +1220,7 @@ async function loadEditor({ keepTab = false } = {}) {
   history.clear()
   loading.value = true
   isEditorReady.value = false
-  applyToAll.value = false
+  applyToAll.value = true
   nameError.value = ''
   rejectedName = ''
   flaggedPorts.value = new Set()
@@ -1384,7 +1410,7 @@ async function handleCancel() {
 }
 
 // ── Save As ──────────────────────────────────────────────────────────────────
-const saveAs = ref({ visible: false, message: '', initialName: '' })
+const saveAs = ref({ visible: false, message: '', initialName: '', isTaken: isComponentNameTaken })
 let saveAsResolver = null
 
 /**
@@ -1402,14 +1428,26 @@ function isComponentNameTaken(name) {
 }
 
 /**
+ * Like isComponentNameTaken, but also refuses the component the other instances use.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function isSharedComponentNameTaken(name) {
+  if (`${componentFile.value}:${name}` === props.mathRef) return `"${name}" is used by the other instances.`
+  return isComponentNameTaken(name)
+}
+
+/**
  * Asks for a new component name before saving math that can't keep its current one.
  *
  * @param {string} message - Why a new name is needed.
+ * @param {(name: string) => string} [isTaken] - Why a name can't be used, or '' when it can.
  * @returns {Promise<string|null>} The new name, or null if cancelled.
  */
-function promptComponentSaveAs(message) {
+function promptComponentSaveAs(message, isTaken = isComponentNameTaken) {
   resolveSaveAs(null)
-  saveAs.value = { visible: true, message, initialName: sanitiseName(editableName.value ?? '') }
+  saveAs.value = { visible: true, message, initialName: sanitiseName(editableName.value ?? ''), isTaken }
   return new Promise((resolve) => {
     saveAsResolver = resolve
   })
@@ -1420,8 +1458,82 @@ function resolveSaveAs(name) {
   saveAsResolver = null
 }
 
-async function handleMathOverwrite() {
-  const message = siblingCount.value > 0 ? `This will affect ${siblingCount.value} other instances. ` : ''
+// ── Module Config ────────────────────────────────────────────────────────────
+const configPrompt = ref({ visible: false, moduleRef: '', matchRef: '', otherCount: 0, canUpdate: true, initialName: '', existingRefs: [] })
+let configResolver = null
+
+/**
+ * Asks whether a config change updates the instance's module or saves as a new one.
+ *
+ * @param {Object} options - The prompt's `moduleRef`, `matchRef`, `otherCount` and `canUpdate`.
+ * @returns {Promise<Object|null>} The save's `config`, or null if cancelled.
+ */
+function promptModuleConfig({ moduleRef, matchRef = '', otherCount, canUpdate }) {
+  resolveConfigPrompt(null)
+  const initialName = sanitiseName(`${moduleRef.split(':')[1] ?? ''}_${editableName.value ?? ''}`)
+  const existingRefs = [...new Set([...store.availableModules.keys(), moduleRef])]
+  configPrompt.value = { visible: true, moduleRef, matchRef, otherCount, canUpdate, initialName, existingRefs }
+  return new Promise((resolve) => {
+    configResolver = resolve
+  })
+}
+
+function resolveConfigPrompt(config) {
+  configResolver?.(config)
+  configResolver = null
+}
+
+/**
+ * Works out what a save does to the instance's module, asking when the ports or variable units, access or types no
+ * longer match it and other instances would follow. Values never count. A module no other instance uses is updated
+ * without asking, and math saved for every instance on the module's math takes the module along. Math no module uses
+ * gets a module of its own (see useInstanceSave), which the instances switching from this module share.
+ *
+ * @param {Object} save
+ * @param {string} save.mathRef - The math the instance saves to.
+ * @param {string|null} save.math - The math written, or null.
+ * @param {Array} save.ports
+ * @param {boolean} save.updateAll
+ * @returns {Promise<Object|null|false>} The save's `config`, null when the module needs no change, or false if cancelled.
+ */
+async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
+  const moduleRef = nodes.value.find((n) => n.id === props.id)?.data?.moduleRef
+  const module = moduleRef && store.availableModules.get(moduleRef)
+  if (!module) return null
+
+  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
+  const others = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef)
+  const followers = isNewModule ? others.filter((n) => updateAll && n.data.mathRef === props.mathRef) : others
+  if (isNewModule && !followers.length) return null
+
+  const isFollowing = isNewModule || (updateAll && props.mathRef === module.mathRef)
+  const moduleMathRef = isFollowing ? mathRef : module.mathRef
+  const analysis = isFollowing && math !== null ? analyzeMathXml(math) : store.getMathAnalysis(moduleMathRef)
+  const config = { moduleRef, mathRef, ports, variables: parameterRows.value }
+  if (isModuleConfig(config, { ...module, mathRef: moduleMathRef }, analysis)) {
+    return !isNewModule && moduleMathRef !== module.mathRef ? { action: 'follow' } : null
+  }
+  if (!followers.length) return { action: 'update' }
+
+  const choice = await promptModuleConfig({
+    moduleRef: isNewModule ? store.defaultModuleRef(mathRef) : moduleRef,
+    matchRef: isNewModule ? moduleRef : '',
+    otherCount: followers.length,
+    canUpdate: mathRef === moduleMathRef,
+  })
+  if (!choice) return false
+  // Leaving a module whose instances all switched math, take it along.
+  return choice.action === 'new' && !isNewModule && moduleMathRef !== module.mathRef ? { ...choice, follow: true } : choice
+}
+
+/**
+ * Confirms overwriting existing math.
+ *
+ * @param {number} affectedCount - How many other instances the overwrite changes.
+ * @returns {Promise<boolean>}
+ */
+async function handleMathOverwrite(affectedCount) {
+  const message = affectedCount > 0 ? `This will affect ${affectedCount} other instance${affectedCount !== 1 ? 's' : ''}. ` : ''
   return confirm({
     header: 'Overwrite Math?',
     message: `You are about to overwrite an existing math definition. ${message}Are you sure you want to proceed?`,
@@ -1565,7 +1677,13 @@ async function handleSave(options) {
       notify.error({ message: 'Could not find a valid component name in the model.' })
       return
     }
-    const newComponentName = componentNames[0].trim()
+    let newComponentName = componentNames[0].trim()
+    const renameComponent = (renamed) => {
+      mathToSave = renameModelComponent(mathToSave, newComponentName, renamed)
+      layoutToSave = renameLayoutComponent(layoutToSave, newComponentName, renamed)
+      newComponentName = renamed
+      newMathRef = `${componentFile.value}:${renamed}`
+    }
 
     newMathRef = `${componentFile.value}:${newComponentName}`
     if (PROTECTED_MATH_REFS.has(newMathRef)) {
@@ -1573,16 +1691,38 @@ async function handleSave(options) {
         `"${newComponentName}" is the template new instances start from. Save your changes as a new component instead.`
       )
       if (!renamed) return
-      mathToSave = renameModelComponent(mathToSave, newComponentName, renamed)
-      layoutToSave = renameLayoutComponent(layoutToSave, newComponentName, renamed)
-      newMathRef = `${componentFile.value}:${renamed}`
+      renameComponent(renamed)
+    }
+
+    // Unticked, the math never reaches other instances: math they use is saved here under a new name.
+    const sharedWith = otherNodesOn(newMathRef)
+    if (!applyToAll.value && sharedWith.length > 0) {
+      const count = sharedWith.length
+      const renamed = await promptComponentSaveAs(
+        `${count} other instance${count !== 1 ? 's' : ''} use${count !== 1 ? '' : 's'} ${newComponentName}. ` +
+          'Name a new component for this instance’s math, or tick “Apply math changes to all” to change them all.',
+        isSharedComponentNameTaken
+      )
+      if (!renamed) return
+      renameComponent(renamed)
     } else if (store.availableMath.has(newMathRef)) {
-      const overwrite = await handleMathOverwrite()
+      // Siblings switching to other existing math change too.
+      const switching = newMathRef !== props.mathRef && applyToAll.value ? siblings.value : []
+      const overwrite = await handleMathOverwrite(new Set([...sharedWith, ...switching]).size)
       if (!overwrite) return
     }
   }
 
   const updateAll = applyToAll.value || siblingCount.value === 0
+
+  // 4. Check the ports and variable kinds against the module
+  const config = await resolveModuleConfig({
+    mathRef: newMathRef,
+    math: isMathChanged ? mathToSave : null,
+    ports: finalPorts,
+    updateAll,
+  })
+  if (config === false) return
 
   trackEvent('editor_action', {
     category: 'Editor',
@@ -1618,6 +1758,7 @@ async function handleSave(options) {
       plotVariables: renamedPlotEntries(),
       updateAll,
       siblings: updateAll ? siblings.value : [],
+      config,
       keepOpen,
     })
   )

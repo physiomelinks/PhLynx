@@ -2,9 +2,10 @@ import JSZip from 'jszip'
 import Papa from 'papaparse'
 
 import { notify } from '../../utils/notify'
-import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
+import { parseModuleRef } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { isBlank } from '../../utils/variables'
+import { configSignature, librarySignatures, moduleConfigEntry } from '../moduleConfig'
 import { resolveBoundaryValues } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 
@@ -37,7 +38,8 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       nodeNameObjMap.set(node.data.name, node)
     }
 
-    const uniqueModuleConfigs = new Map()
+    // Each node's config entry, by module ref and then by signature (the entry less its subtype).
+    const configsByRef = new Map()
     const instance_array = []
     const allParameters = new Set()
 
@@ -58,12 +60,6 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
         }
       }
 
-      // Process Ports
-      const allConnectedInstanceNames = new Set([...inp_instances, ...out_instances])
-      const connectedNodeObjects = Array.from(allConnectedInstanceNames)
-        .map((name) => nodeNameObjMap.get(name))
-        .filter(Boolean)
-
       const { moduleType, moduleSubtype } = parseModuleRef(node.data.moduleRef)
 
       const moduleData = libraryStore.availableModules.get(node.data.moduleRef)
@@ -71,17 +67,22 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
         throw new Error(`Missing module definition '${node.data.moduleRef}' for node '${node.data.name}'`)
       }
 
-      if (!uniqueModuleConfigs.has(node.data.moduleRef)) {
-        uniqueModuleConfigs.set(node.data.moduleRef, moduleConfigEntry(node.data))
-      }
+      // An instance's own edits (ports, math, variable units or types) give it a config of its own.
+      const entry = moduleConfigEntry(node.data)
+      const signature = configSignature(entry)
+      if (!configsByRef.has(node.data.moduleRef)) configsByRef.set(node.data.moduleRef, new Map())
+      const configs = configsByRef.get(node.data.moduleRef)
+      if (!configs.has(signature)) configs.set(signature, { entry, rows: [] })
 
-      instance_array.push({
+      const row = {
         name: node.data.name,
         module_subtype: moduleSubtype,
         module_type: moduleType,
         inp_instances: inp_instances.join(' '),
         out_instances: out_instances.join(' '),
-      })
+      }
+      configs.get(signature).rows.push(row)
+      instance_array.push(row)
 
       // Collect parameters for this node's module. CA needs a row for every boundary condition, and uses it only
       // while nothing is connected to it.
@@ -105,10 +106,8 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     }
 
     warnMissingBoundaryValues(nodes, edges)
-    addPulmonaryModule(instance_array, uniqueModuleConfigs, libraryStore)
-
-    // Convert Map to array
-    const module_config = Array.from(uniqueModuleConfigs.values());
+    const module_config = assignSubtypes(configsByRef, libraryStore)
+    addPulmonaryModule(instance_array, module_config, libraryStore)
 
     // The config's CellML, edits included; may rename component files so CA finds them.
     const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
@@ -175,42 +174,63 @@ function warnMissingBoundaryValues(nodes, edges) {
 }
 
 /**
- * Makes a module's CA config entry.
+ * Gives a module ref's configs their subtypes. A config an untouched instance would have keeps the module ref's
+ * subtype. Each other config gets `<subtype>_<first instance>`, made unique, and its instances' rows name it, so an
+ * edited config never goes out under a ref that resolves to the library module. Warns, naming the instances split out.
  *
- * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module.
- * @returns {Object}
+ * @param {Map<string, Map<string, {entry: Object, rows: Array}>>} configsByRef - Configs by module ref, then signature.
+ * @param {Object} libraryStore - The library, for `availableModules` and its math.
+ * @returns {Array<Object>} The config entries.
  */
-function moduleConfigEntry(module) {
-  const portsByType = restorePorts(module.ports)
-  const { componentFile, componentName } = parseMathRef(module.mathRef)
-  const { moduleType, moduleSubtype } = parseModuleRef(module.moduleRef)
-  return {
-    module_type: moduleType,
-    module_subtype: moduleSubtype,
-    module_format: 'cellml', // TODO - will need to generalise
-    component_file: componentFile,
-    component_type: componentName,
-    entrance_ports: portsByType.entrance_ports || [],
-    exit_ports: portsByType.exit_ports || [],
-    general_ports: portsByType.general_ports || [],
-    variables_and_units: restoreVariables(module.variables),
+function assignSubtypes(configsByRef, libraryStore) {
+  const taken = new Set([...libraryStore.availableModules.keys(), ...configsByRef.keys()])
+  const entries = []
+  const splitOut = []
+
+  for (const [moduleRef, configs] of configsByRef) {
+    const { moduleType, moduleSubtype } = parseModuleRef(moduleRef)
+    const libraryModule = libraryStore.availableModules.get(moduleRef)
+    const baseSignature = librarySignatures(libraryModule, libraryStore).find((signature) => configs.has(signature))
+
+    for (const [signature, { entry, rows }] of configs) {
+      if (signature !== baseSignature) {
+        let subtype = `${moduleSubtype}_${rows[0].name}`
+        for (let i = 2; taken.has(`${moduleType}:${subtype}`); i++) subtype = `${moduleSubtype}_${rows[0].name}_${i}`
+        taken.add(`${moduleType}:${subtype}`)
+        entry.module_subtype = subtype
+        for (const row of rows) row.module_subtype = subtype
+        splitOut.push(...rows.map((row) => `${row.name} (${subtype})`))
+      }
+      entries.push(entry)
+    }
   }
+
+  if (splitOut.length) {
+    const one = splitOut.length === 1
+    notify.warning({
+      title: 'Instances Exported Separately',
+      message: `${one ? '1 instance differs' : `${splitOut.length} instances differ`} from ${one ? 'its' : 'their'} library module in ports, math or variables, so the export gives ${one ? 'it its own module config' : 'them their own module configs'}: ${listNamed(splitOut)}.`,
+    })
+  }
+  return entries
 }
 
 /**
- * Adds the module CA uses for the pulmonary artery and vein it adds when the only heart has one output, and warns that
- * CA will ask for their values.
+ * Adds the module CA uses for the pulmonary artery and vein it adds when the only heart has one output, unless a
+ * config has it already, and warns that CA will ask for their values.
  *
  * @param {Array} instanceArray - The module array rows.
- * @param {Map<string, Object>} moduleConfigs - The config entries by module ref, added to.
+ * @param {Array<Object>} moduleConfig - The config entries, added to.
  * @param {Object} libraryStore - The library, for `availableModules`.
  */
-function addPulmonaryModule(instanceArray, moduleConfigs, libraryStore) {
+function addPulmonaryModule(instanceArray, moduleConfig, libraryStore) {
   const hearts = instanceArray.filter((row) => isHeart(row.module_type))
   if (hearts.length !== 1 || hearts[0].out_instances.split(' ').filter(Boolean).length >= 2) return
 
+  const { moduleType, moduleSubtype } = parseModuleRef(PULMONARY_MODULE_REF)
   const module = libraryStore.availableModules.get(PULMONARY_MODULE_REF)
-  if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, moduleConfigEntry(module))
+  const present = moduleConfig.some((entry) => entry.module_type === moduleType && entry.module_subtype === moduleSubtype)
+  if (module && !present) moduleConfig.push(moduleConfigEntry(module))
   notify.warning({
     title: 'Pulmonary Circuit Added',
     message: `"${hearts[0].name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`,

@@ -31,6 +31,9 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
   }),
 }))
 
+// Loaded after the mock, since it calls useVueFlow on import.
+const { isModuleConfig } = await import('../../../src/services/moduleConfig.js')
+
 const DECAY_REF = 'file:decay'
 const GROWTH_REF = 'file:growth'
 const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -308,6 +311,22 @@ describe('useInstanceSave', () => {
       expect(findNode('b').data.moduleRef).toBe(GROWTH_MODULE_REF)
     })
 
+    it('moves only the edited node to math saved for it alone, and undo puts it back in one step', async () => {
+      const before = snapshot()
+      const mathBefore = library.getMathEntry(DECAY_REF)
+      const growth = buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML })
+      expect(await saveInstanceEdit(growth)).toBe(1)
+      expect(findNode('a').data).toMatchObject({ mathRef: GROWTH_REF, moduleRef: GROWTH_MODULE_REF })
+      expect(findNode('b').data).toEqual(before.nodes[1].data)
+      expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
+
+      await history.undo()
+      expect(snapshot()).toEqual(before)
+      expect(library.availableMath.has(GROWTH_REF)).toBe(false)
+      expect(library.availableModules.has(GROWTH_MODULE_REF)).toBe(false)
+      expect(history.canUndo).toBe(false)
+    })
+
     it('moves only the siblings on the edited node\'s module to the new one', async () => {
       findNode('b').data.moduleRef = 'decay:fast'
       await saveInstanceEdit(fork())
@@ -348,6 +367,225 @@ describe('useInstanceSave', () => {
       await saveInstanceEdit(buildSave({ math: DECAY_WITHOUT_K }))
       expect(findNode('a').data.moduleRef).toBe(NEW_MODULE_REF)
       expect([...library.availableCollections.get(DECAY_REF)]).toEqual(['decay:default'])
+    })
+  })
+
+  describe('module configs', () => {
+    const BASE_REF = 'decay:base'
+    const baseModule = () => ({
+      moduleRef: BASE_REF,
+      mathRef: DECAY_REF,
+      ports: [{ label: 'p', portType: 'general_ports', variables: ['x', 'k'] }],
+      variables: [
+        { name: 'x', value: null, units: 'metre', access: 'access', type: 'variable', data_reference: null },
+        { name: 'k', value: '0.5', units: 'per_second', access: 'access', type: 'constant', data_reference: null },
+      ],
+    })
+    const ports = [{ label: 'q', portType: 'general_ports', variables: ['x'] }]
+    const variables = () =>
+      findNode('a').data.variables.map((row) => (row.name === 'k' ? { ...row, value: '3', units: 'per_minute' } : row))
+    const module = (ref = BASE_REF) => detachReactivity(library.availableModules.get(ref) ?? null)
+
+    beforeEach(() => {
+      library.addModule(baseModule())
+      nodes.value.forEach((node) => (node.data.moduleRef = BASE_REF))
+      findNode('b').data.variables[1].value = '7'
+    })
+
+    it('updates the module and every other instance on it, keeping their values, and undo puts both back', async () => {
+      const before = snapshot()
+      const moduleBefore = module()
+      await saveInstanceEdit(buildSave({ ports, variables: variables(), config: { action: 'update' } }))
+      const after = snapshot()
+      const moduleAfter = module()
+      expect(moduleAfter.ports).toEqual(ports)
+      expect(moduleAfter.variables.find((row) => row.name === 'k')).toMatchObject({ units: 'per_minute', value: '0.5' })
+      expect(findNode('b').data.ports).toEqual(ports)
+      expect(findNode('b').data.variables.find((row) => row.name === 'k')).toMatchObject({ units: 'per_minute', value: '7' })
+
+      await history.undo()
+      expect(snapshot()).toEqual(before)
+      expect(module()).toEqual(moduleBefore)
+      expect(history.canUndo).toBe(false)
+
+      await history.redo()
+      expect(snapshot()).toEqual(after)
+      expect(module()).toEqual(moduleAfter)
+    })
+
+    it('saves a new config for this instance alone, and undo removes it', async () => {
+      const before = snapshot()
+      const config = { action: 'new', moduleRef: 'decay:a_only' }
+      await saveInstanceEdit(buildSave({ ports, variables: variables(), config }))
+      expect(findNode('a').data.moduleRef).toBe('decay:a_only')
+      expect(module('decay:a_only')).toMatchObject({ mathRef: DECAY_REF, ports })
+      expect([...library.availableCollections.get(DECAY_REF)]).toContain('decay:a_only')
+      expect(findNode('b').data).toMatchObject({ moduleRef: BASE_REF, ports: before.nodes[1].data.ports })
+      expect(module()).toEqual(baseModule())
+
+      await history.undo()
+      expect(snapshot()).toEqual(before)
+      expect(library.availableModules.has('decay:a_only')).toBe(false)
+
+      await history.redo()
+      expect(findNode('a').data.moduleRef).toBe('decay:a_only')
+      expect(module('decay:a_only')).toMatchObject({ ports })
+    })
+
+    it('moves the module to math every instance switched to, and undo moves it back', async () => {
+      library.addMath(GROWTH_REF, GROWTH_XML)
+      library.addModule({ moduleRef: 'growth:lib', mathRef: GROWTH_REF, ports: [], variables: [] })
+      const config = { action: 'follow' }
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML, updateAll: true, siblings: ['b'], config }))
+      expect(module().mathRef).toBe(GROWTH_REF)
+      expect([...library.availableCollections.get(GROWTH_REF)]).toContain(BASE_REF)
+
+      await history.undo()
+      expect(module().mathRef).toBe(DECAY_REF)
+      expect([...library.availableCollections.get(DECAY_REF)]).toContain(BASE_REF)
+    })
+
+    it('moves the module it leaves to math every instance switched to, and undo puts both modules back', async () => {
+      library.addMath(GROWTH_REF, GROWTH_XML)
+      library.addModule({ moduleRef: 'growth:lib', mathRef: GROWTH_REF, ports: [], variables: [] })
+      const config = { action: 'new', moduleRef: 'decay:a_only', follow: true }
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML, updateAll: true, siblings: ['b'], ports, config }))
+      expect(findNode('a').data.moduleRef).toBe('decay:a_only')
+      expect(module().mathRef).toBe(GROWTH_REF)
+      expect(module('decay:a_only')).toMatchObject({ mathRef: GROWTH_REF, ports })
+
+      await history.undo()
+      expect(module()).toEqual(baseModule())
+      expect(library.availableModules.has('decay:a_only')).toBe(false)
+
+      await history.redo()
+      expect(module().mathRef).toBe(GROWTH_REF)
+      expect(module('decay:a_only')).toMatchObject({ ports })
+    })
+
+    /**
+     * Checks that every node's ports and variable kinds are its module's.
+     */
+    const expectNodesMatchModules = () =>
+      nodes.value.forEach(({ id, data }) => {
+        const nodeModule = library.availableModules.get(data.moduleRef)
+        expect(isModuleConfig(data, nodeModule, library.getMathAnalysis(nodeModule.mathRef)), id).toBe(true)
+      })
+
+    it('updates a module only this instance uses, and undo puts it back', async () => {
+      findNode('b').data.moduleRef = NEW_MODULE_REF
+      const before = snapshot()
+      await saveInstanceEdit(buildSave({ ports, variables: variables(), config: { action: 'update' } }))
+      expect(module().ports).toEqual(ports)
+      expect(findNode('b').data).toMatchObject({ moduleRef: NEW_MODULE_REF, ports: before.nodes[1].data.ports })
+
+      await history.undo()
+      expect(snapshot()).toEqual(before)
+      expect(module()).toEqual(baseModule())
+    })
+
+    describe('with math saved as a new component for every instance', () => {
+      const GROWTH_MODULE_REF = 'growth:default'
+      const growth = (config, overrides = {}) =>
+        buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML, updateAll: true, siblings: ['b'], ports, variables: variables(), config, ...overrides })
+
+      beforeEach(() => {
+        library.replaceModule({ ...baseModule(), variables: detachReactivity(findNode('a').data.variables) })
+        expectNodesMatchModules()
+      })
+
+      it('gives the instances that switch this one\'s ports and kinds on update, and undo puts every module back', async () => {
+        const before = snapshot()
+        const moduleBefore = module()
+        await saveInstanceEdit(growth({ action: 'update' }))
+        expect(findNode('b').data).toMatchObject({ moduleRef: GROWTH_MODULE_REF, ports })
+        expect(findNode('b').data.variables.find((row) => row.name === 'k')).toMatchObject({ units: 'per_minute', value: '7' })
+        expect(module(GROWTH_MODULE_REF)).toMatchObject({ mathRef: GROWTH_REF, ports })
+        expect(module()).toEqual(moduleBefore)
+        expectNodesMatchModules()
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(module()).toEqual(moduleBefore)
+        expect(library.availableModules.has(GROWTH_MODULE_REF)).toBe(false)
+
+        await history.redo()
+        expectNodesMatchModules()
+      })
+
+      it('builds the new math\'s module from the instances that switch when this one saves a new config', async () => {
+        const before = snapshot()
+        const moduleBefore = module()
+        await saveInstanceEdit(growth({ action: 'new', moduleRef: 'growth:a_only' }))
+        expect(findNode('a').data.moduleRef).toBe('growth:a_only')
+        expect(module('growth:a_only')).toMatchObject({ mathRef: GROWTH_REF, ports })
+        expect(findNode('b').data).toMatchObject({ moduleRef: GROWTH_MODULE_REF, ports: before.nodes[1].data.ports })
+        expect(module(GROWTH_MODULE_REF)).toMatchObject({ mathRef: GROWTH_REF, ports: moduleBefore.ports })
+        expect(module()).toEqual(moduleBefore)
+        expectNodesMatchModules()
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(library.availableModules.has('growth:a_only')).toBe(false)
+        expect(library.availableModules.has(GROWTH_MODULE_REF)).toBe(false)
+
+        await history.redo()
+        expectNodesMatchModules()
+      })
+
+      it('builds the new math\'s module from what the switching instances keep when that math drops a port\'s variable', async () => {
+        const before = snapshot()
+        const math = GROWTH_XML.replace('<variable name="k" units="per_second" initial_value="0.5"/>', '').replace(
+          '<apply><times/><ci>k</ci><ci>x</ci></apply>',
+          '<ci>x</ci>'
+        )
+        const rows = variables().filter((row) => row.name !== 'k')
+        await saveInstanceEdit(growth({ action: 'new', moduleRef: 'growth:a_only' }, { math, variables: rows }))
+        expect(findNode('b').data.ports).toEqual([])
+        expect(module(GROWTH_MODULE_REF)).toMatchObject({ ports: [] })
+        expect(module(GROWTH_MODULE_REF).variables.some((row) => row.name === 'k')).toBe(false)
+        expectNodesMatchModules()
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(library.availableModules.has(GROWTH_MODULE_REF)).toBe(false)
+
+        await history.redo()
+        expectNodesMatchModules()
+      })
+    })
+
+    describe('with saved math that drops a variable the module\'s port carries', () => {
+      const math = DECAY_XML.replace('<variable name="k" units="per_second" initial_value="0.5"/>', '').replace(
+        '<apply><times/><apply><minus/><ci>k</ci></apply><ci>x</ci></apply>',
+        '<ci>x</ci>'
+      )
+      const rows = () => findNode('a').data.variables.filter((row) => row.name !== 'k')
+
+      beforeEach(() => library.replaceModule({ ...baseModule(), variables: detachReactivity(findNode('a').data.variables) }))
+
+      it('gives the module it leaves the instances staying on it, and undo puts it back', async () => {
+        const before = snapshot()
+        const moduleBefore = module()
+        const config = { action: 'new', moduleRef: 'decay:a_only' }
+        await saveInstanceEdit(buildSave({ math, updateAll: true, siblings: ['b'], ports, variables: rows(), config }))
+        expect(findNode('b').data.ports).toEqual([])
+        expect(module()).toMatchObject({ ports: [] })
+        expectNodesMatchModules()
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(module()).toEqual(moduleBefore)
+
+        await history.redo()
+        expectNodesMatchModules()
+      })
+    })
+
+    it('leaves the module alone without a config', async () => {
+      await saveInstanceEdit(buildSave({ ports }))
+      expect(module()).toEqual(baseModule())
+      expect(findNode('b').data.ports).not.toEqual(ports)
     })
   })
 
