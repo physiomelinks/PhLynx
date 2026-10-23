@@ -228,7 +228,9 @@ export function processCellMLData(cellmlString) {
 
   // --- Extract units into a stripped model ---
   const unitsModel = new _libcellml.Model()
-  unitsModel.setName('OnlyUnitsFrom_' + model.name())
+  // Once only, so a units file that went through here, e.g. one an OMEX export wrote, keeps its name.
+  const UNITS_PREFIX = 'OnlyUnitsFrom_'
+  unitsModel.setName(model.name().startsWith(UNITS_PREFIX) ? model.name() : UNITS_PREFIX + model.name())
   const unitsCount = model.unitsCount()
 
   for (let i = 0; i < unitsCount; i++) {

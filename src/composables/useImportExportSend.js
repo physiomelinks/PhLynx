@@ -148,7 +148,7 @@ export function useImportExportSend({
         parameterScanConfig: scanConfig,
       },
       // A selection is never the model as imported.
-      { extractedData, modified: scope ? true : hasModelChanged.value, cellmlFileName }
+      { extractedData, modified: scope ? true : hasModelChanged.value, cellmlFileName, unitsFiles: libraryStore.availableUnits }
     )
   }
 

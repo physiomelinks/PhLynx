@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import JSZip from 'jszip'
 
-import { extractOmexArchive, importOmexFile } from '../../../../src/services/import/omex.js'
+import { extractOmexArchive, importOmexFile, readSedmlModelSources, validateCellmlEntries } from '../../../../src/services/import/omex.js'
 import { isSimulationJsonFile, isPhlynxFlowSnapshotFile } from '../../../../src/services/import/omexClassifiers.js'
 import { PHLYNX_PROJECT_VERSION } from '../../../../src/utils/constants.js'
 
@@ -63,6 +63,7 @@ describe('Import OMEX', () => {
         moduleConfig: null,
         flowSnapshot: null,
       },
+      otherCellmls: [],
       extras: [
         { location: '3compartment_obs_data.json', format: 'application/json' },
         { location: '3compartment_params_for_id.csv', format: 'text/csv' },
@@ -94,6 +95,61 @@ describe('Import OMEX', () => {
     await expect(importOmexFile(archivePayload.omex)).rejects.toThrow(
       'multiple CellML files require exactly one master CellML file'
     )
+  })
+})
+
+describe('CellML master selection', () => {
+  const CELLML = 'http://identifiers.org/combine.specifications/cellml'
+  const SEDML = 'http://identifiers.org/combine.specifications/sed-ml'
+
+  /** An archive as PhLynx now exports it: only the SED-ML is master, and units files sit beside the model. */
+  async function exportedArchive({ source = 'model.cellml', sedml = true } = {}) {
+    const zip = new JSZip()
+    zip.file(
+      'manifest.xml',
+      `<?xml version="1.0" encoding="utf-8"?>
+      <omexManifest xmlns="http://identifiers.org/combine.specifications/omex-manifest">
+        ${sedml ? `<content location="document.sedml" format="${SEDML}" master="true"/>` : ''}
+        <content location="model.cellml" format="${CELLML}"/>
+        <content location="units/units.cellml" format="${CELLML}"/>
+        <content location="units/user_units.cellml" format="${CELLML}"/>
+      </omexManifest>`
+    )
+    zip.file('document.sedml', `<sedML xmlns="http://sed-ml.org/sed-ml/level1/version4"><listOfModels><model id="model1" language="urn:sedml:language:cellml" source="${source}"/></listOfModels></sedML>`)
+    zip.file('model.cellml', '<model />')
+    zip.file('units/units.cellml', '<model />')
+    zip.file('units/user_units.cellml', '<model />')
+    return zip.generateAsync({ type: 'arraybuffer' })
+  }
+
+  it('takes the CellML the SED-ML uses when none is master, and returns the others', async () => {
+    const result = await importOmexFile(await exportedArchive())
+    expect(result.files.cellml).toBe('model.cellml')
+    expect(result.otherCellmls).toEqual(['units/units.cellml', 'units/user_units.cellml'])
+    expect(result.extras).toEqual([])
+  })
+
+  it('accepts a ./ source', async () => {
+    expect((await importOmexFile(await exportedArchive({ source: './model.cellml' }))).files.cellml).toBe('model.cellml')
+  })
+
+  it('still rejects several CellML files with neither a master nor a SED-ML model', async () => {
+    await expect(importOmexFile(await exportedArchive({ sedml: false }))).rejects.toThrow(
+      'multiple CellML files require exactly one master CellML file'
+    )
+  })
+
+  it('prefers the one master over the SED-ML', () => {
+    const entries = [
+      { location: 'a.cellml', isMaster: true },
+      { location: 'b.cellml', isMaster: false },
+    ]
+    expect(validateCellmlEntries(entries, ['b.cellml'])).toBe('a.cellml')
+  })
+
+  it('resolves SED-ML sources against its folder', () => {
+    const sedml = '<sedML><listOfModels><model source="model.cellml"/></listOfModels></sedML>'
+    expect(readSedmlModelSources(sedml, 'sim/document.sedml')).toEqual(['sim/model.cellml', 'model.cellml'])
   })
 })
 
