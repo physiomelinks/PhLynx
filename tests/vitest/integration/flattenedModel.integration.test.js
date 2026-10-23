@@ -79,6 +79,42 @@ describe('generateFlattenedModel with values only in the rows', () => {
   })
 })
 
+describe('generateFlattenedModel with math too wide for libcellml.js', () => {
+  const WIDE_REF = 'file:wide'
+  const N = 500
+  // N equations in one <math>, one of them a sum of 400 terms: either alone overflowed libcellml.js's stack.
+  const terms = Array.from({ length: 400 }, (_, i) => `<apply><times/><cn cellml:units="dimensionless">${i}</cn><ci>x${i}</ci></apply>`)
+  const WIDE_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="wide">
+  <component name="wide">
+    ${Array.from({ length: N }, (_, i) => `<variable name="x${i}" units="dimensionless" initial_value="1" interface="public"/><variable name="z${i}" units="dimensionless" interface="public"/>`).join('')}
+    <variable name="y" units="dimensionless" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>y</ci><apply><plus/>${terms.join('')}</apply></apply>
+      ${Array.from({ length: N }, (_, i) => `<apply><eq/><ci>z${i}</ci><ci>x${i}</ci></apply>`).join('')}
+    </math>
+  </component>
+</model>`
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  it('checks and analyses the model, its math split into narrower parts', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addMath(WIDE_REF, WIDE_XML)
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(WIDE_REF)), [], { defaults: store.getMathDefaults(WIDE_REF) })
+    const node = { id: 'n1', type: 'instanceNode', data: { name: 'wide_1', mathRef: WIDE_REF, variables: rows, ports: [] } }
+
+    const text = await (await generateFlattenedModel([node], [], store)).text()
+    const doc = new DOMParser().parseFromString(text, 'application/xml')
+    const mathMl = 'http://www.w3.org/1998/Math/MathML'
+    expect(doc.getElementsByTagNameNS(mathMl, 'math').length).toBeGreaterThan(5)
+    const widest = Math.max(...Array.from(doc.getElementsByTagNameNS(mathMl, 'apply'), (apply) => apply.children.length - 1))
+    expect(widest).toBeLessThanOrEqual(100)
+  })
+})
+
 describe('generateFlattenedModel with units made from expressions', () => {
   const FLOW_REF = 'file:flow'
   // dV/dt = Q, in units only the generated units file defines.
