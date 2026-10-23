@@ -216,6 +216,112 @@ describe('InstanceEditorDialog undo (#605)', () => {
   })
 })
 
+describe('InstanceEditorDialog math shared with other instances', () => {
+  const OTHER_REF = 'file:other'
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useLibraryStore().addMath(MATH_REF, XML)
+    flowNodes.value = [
+      { id: 'a', data: { name: 'a', mathRef: MATH_REF } },
+      { id: 'b', data: { name: 'b', mathRef: MATH_REF } },
+    ]
+  })
+
+  afterEach(() => {
+    flowNodes.value = []
+  })
+
+  const checkbox = () => wrapper.find('#applyToAll')
+  const saveAsDialog = () => wrapper.findComponent(ComponentSaveAsDialog)
+
+  /**
+   * Opens the dialog, edits the math, optionally unticks the box, and clicks Save.
+   *
+   * @param {{untick?: boolean, xml?: string}} [options]
+   */
+  async function editAndSave({ untick = false, xml = EDITED_XML } = {}) {
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await report(editor, 'edit', xml)
+    if (untick) await checkbox().setValue(false)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+  }
+
+  it('ticks the box by default, and again on each open', async () => {
+    mountDialog()
+    await open()
+    expect(checkbox().element.checked).toBe(true)
+    await checkbox().setValue(false)
+    await wrapper.setProps({ modelValue: false })
+    await open()
+    expect(checkbox().element.checked).toBe(true)
+  })
+
+  it('overwrites the math in place for every instance when ticked', async () => {
+    await editAndSave()
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('affect 1 other instance.') }))
+    expect(saveAsDialog().exists()).toBe(false)
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save).toMatchObject({ mathRef: MATH_REF, updateAll: true, siblings: ['b'] })
+  })
+
+  it('asks for a new component when unticked, leaving the other instances on the old math', async () => {
+    await editAndSave({ untick: true })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(saveAsDialog().props('message')).toContain('1 other instance uses decay')
+    expect(saveAsDialog().props('isTaken')('decay')).toContain('used by the other instances')
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+
+    saveAsDialog().vm.$emit('confirm', 'decay_a')
+    await flushPromises()
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save).toMatchObject({ mathRef: 'file:decay_a', previousMathRef: MATH_REF, updateAll: false, siblings: [] })
+    expect(save.math).toContain('<component name="decay_a"')
+    expect(save.math).toContain('<cn>1</cn>')
+  })
+
+  it('saves nothing when the new component is cancelled', async () => {
+    await editAndSave({ untick: true })
+    saveAsDialog().vm.$emit('cancel')
+    await flushPromises()
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('asks for a new component when unticked and renamed to math other instances use', async () => {
+    useLibraryStore().addMath(OTHER_REF, XML.replace(/"decay"/g, '"other"'))
+    flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: OTHER_REF } }]
+    await editAndSave({ untick: true, xml: EDITED_XML.replace(/"decay"/g, '"other"') })
+    expect(saveAsDialog().props('message')).toContain('1 other instance uses other')
+  })
+
+  it('counts every instance an overwrite of other math changes', async () => {
+    useLibraryStore().addMath(OTHER_REF, XML.replace(/"decay"/g, '"other"'))
+    flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: OTHER_REF } }]
+    await editAndSave({ xml: EDITED_XML.replace(/"decay"/g, '"other"') })
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('affect 2 other instances.') }))
+  })
+
+  it('saves without asking when the math is unchanged', async () => {
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', useLibraryStore().availableMath.get(MATH_REF))
+    await checkbox().setValue(false)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    expect(saveAsDialog().exists()).toBe(false)
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, math: null })
+  })
+})
+
 describe('InstanceEditorDialog new module template (#634)', () => {
   const TEMPLATE_XML = XML.replace(/"decay"/g, '"new_module"')
   const EDITED_TEMPLATE_XML = EDITED_XML.replace(/"decay"/g, '"new_module"')

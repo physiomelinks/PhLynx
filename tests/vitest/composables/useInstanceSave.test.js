@@ -308,6 +308,22 @@ describe('useInstanceSave', () => {
       expect(findNode('b').data.moduleRef).toBe(GROWTH_MODULE_REF)
     })
 
+    it('moves only the edited node to math saved for it alone, and undo puts it back in one step', async () => {
+      const before = snapshot()
+      const mathBefore = library.getMathEntry(DECAY_REF)
+      const growth = buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML })
+      expect(await saveInstanceEdit(growth)).toBe(1)
+      expect(findNode('a').data).toMatchObject({ mathRef: GROWTH_REF, moduleRef: GROWTH_MODULE_REF })
+      expect(findNode('b').data).toEqual(before.nodes[1].data)
+      expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
+
+      await history.undo()
+      expect(snapshot()).toEqual(before)
+      expect(library.availableMath.has(GROWTH_REF)).toBe(false)
+      expect(library.availableModules.has(GROWTH_MODULE_REF)).toBe(false)
+      expect(history.canUndo).toBe(false)
+    })
+
     it('moves only the siblings on the edited node\'s module to the new one', async () => {
       findNode('b').data.moduleRef = 'decay:fast'
       await saveInstanceEdit(fork())

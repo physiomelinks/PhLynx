@@ -422,7 +422,7 @@
       :message="saveAs.message"
       :initial-name="saveAs.initialName"
       :file="componentFile"
-      :is-taken="isComponentNameTaken"
+      :is-taken="saveAs.isTaken"
       @confirm="(name) => resolveSaveAs(name)"
       @cancel="resolveSaveAs(null)"
     />
@@ -433,9 +433,9 @@
         <div
           v-if="siblingCount > 0"
           class="apply-all-checkbox"
-          :title="`Also switch the ${siblingCount} other instance${
+          :title="`Ticked, math changes also reach the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
-          } using ${componentName} from ${componentFile} to the new math. Parameters and ports only change here.`"
+          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameters and ports only change here.`"
         >
           <Checkbox v-model="applyToAll" binary inputId="applyToAll" />
           <label for="applyToAll">
@@ -577,7 +577,7 @@ function suggestUnitsFor(typed) {
 const loading = ref(false)
 const activeTab = ref('parameters')
 
-const applyToAll = ref(false)
+const applyToAll = ref(true)
 // The editor mounts after the table paints, so its synchronous parse doesn't delay the table.
 const isEditorReady = ref(false)
 const editorWrapperRef = ref(null)
@@ -1143,6 +1143,16 @@ const siblings = computed(() => {
 
 const siblingCount = computed(() => siblings.value.length)
 
+/**
+ * Gets the other nodes on a math reference.
+ *
+ * @param {string} mathRef
+ * @returns {string[]} Their ids.
+ */
+function otherNodesOn(mathRef) {
+  return nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === mathRef).map((n) => n.id)
+}
+
 // ── Watchers & Handlers ──────────────────────────────────────────────────────
 let openRequestId = 0
 
@@ -1194,7 +1204,7 @@ async function loadEditor({ keepTab = false } = {}) {
   history.clear()
   loading.value = true
   isEditorReady.value = false
-  applyToAll.value = false
+  applyToAll.value = true
   nameError.value = ''
   rejectedName = ''
   flaggedPorts.value = new Set()
@@ -1384,7 +1394,7 @@ async function handleCancel() {
 }
 
 // ── Save As ──────────────────────────────────────────────────────────────────
-const saveAs = ref({ visible: false, message: '', initialName: '' })
+const saveAs = ref({ visible: false, message: '', initialName: '', isTaken: isComponentNameTaken })
 let saveAsResolver = null
 
 /**
@@ -1402,14 +1412,26 @@ function isComponentNameTaken(name) {
 }
 
 /**
+ * Like isComponentNameTaken, but also refuses the component the other instances use.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function isSharedComponentNameTaken(name) {
+  if (`${componentFile.value}:${name}` === props.mathRef) return `"${name}" is used by the other instances.`
+  return isComponentNameTaken(name)
+}
+
+/**
  * Asks for a new component name before saving math that can't keep its current one.
  *
  * @param {string} message - Why a new name is needed.
+ * @param {(name: string) => string} [isTaken] - Why a name can't be used, or '' when it can.
  * @returns {Promise<string|null>} The new name, or null if cancelled.
  */
-function promptComponentSaveAs(message) {
+function promptComponentSaveAs(message, isTaken = isComponentNameTaken) {
   resolveSaveAs(null)
-  saveAs.value = { visible: true, message, initialName: sanitiseName(editableName.value ?? '') }
+  saveAs.value = { visible: true, message, initialName: sanitiseName(editableName.value ?? ''), isTaken }
   return new Promise((resolve) => {
     saveAsResolver = resolve
   })
@@ -1420,8 +1442,14 @@ function resolveSaveAs(name) {
   saveAsResolver = null
 }
 
-async function handleMathOverwrite() {
-  const message = siblingCount.value > 0 ? `This will affect ${siblingCount.value} other instances. ` : ''
+/**
+ * Confirms overwriting existing math.
+ *
+ * @param {number} affectedCount - How many other instances the overwrite changes.
+ * @returns {Promise<boolean>}
+ */
+async function handleMathOverwrite(affectedCount) {
+  const message = affectedCount > 0 ? `This will affect ${affectedCount} other instance${affectedCount !== 1 ? 's' : ''}. ` : ''
   return confirm({
     header: 'Overwrite Math?',
     message: `You are about to overwrite an existing math definition. ${message}Are you sure you want to proceed?`,
@@ -1565,7 +1593,13 @@ async function handleSave(options) {
       notify.error({ message: 'Could not find a valid component name in the model.' })
       return
     }
-    const newComponentName = componentNames[0].trim()
+    let newComponentName = componentNames[0].trim()
+    const renameComponent = (renamed) => {
+      mathToSave = renameModelComponent(mathToSave, newComponentName, renamed)
+      layoutToSave = renameLayoutComponent(layoutToSave, newComponentName, renamed)
+      newComponentName = renamed
+      newMathRef = `${componentFile.value}:${renamed}`
+    }
 
     newMathRef = `${componentFile.value}:${newComponentName}`
     if (PROTECTED_MATH_REFS.has(newMathRef)) {
@@ -1573,11 +1607,24 @@ async function handleSave(options) {
         `"${newComponentName}" is the template new instances start from. Save your changes as a new component instead.`
       )
       if (!renamed) return
-      mathToSave = renameModelComponent(mathToSave, newComponentName, renamed)
-      layoutToSave = renameLayoutComponent(layoutToSave, newComponentName, renamed)
-      newMathRef = `${componentFile.value}:${renamed}`
+      renameComponent(renamed)
+    }
+
+    // Unticked, the math never reaches other instances: math they use is saved here under a new name.
+    const sharedWith = otherNodesOn(newMathRef)
+    if (!applyToAll.value && sharedWith.length > 0) {
+      const count = sharedWith.length
+      const renamed = await promptComponentSaveAs(
+        `${count} other instance${count !== 1 ? 's' : ''} use${count !== 1 ? '' : 's'} ${newComponentName}. ` +
+          'Name a new component for this instance’s math, or tick “Apply math changes to all” to change them all.',
+        isSharedComponentNameTaken
+      )
+      if (!renamed) return
+      renameComponent(renamed)
     } else if (store.availableMath.has(newMathRef)) {
-      const overwrite = await handleMathOverwrite()
+      // Siblings switching to other existing math change too.
+      const switching = newMathRef !== props.mathRef && applyToAll.value ? siblings.value : []
+      const overwrite = await handleMathOverwrite(new Set([...sharedWith, ...switching]).size)
       if (!overwrite) return
     }
   }

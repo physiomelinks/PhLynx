@@ -132,7 +132,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     }
 
     // The edited node's rows are already reconciled by the editor. Every other node on this math is
-    // rebuilt here, ticked or not, since an overwrite in place changes their math too.
+    // rebuilt here, since an overwrite changes their math too.
     cleanPorts(findNode(id))
     const otherNodes = nodes.value.filter((node) => node.id !== id && node.data?.mathRef === mathRef)
     otherNodes.forEach((node) => {
