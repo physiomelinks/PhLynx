@@ -1,0 +1,66 @@
+# Synthetic ApiCoords for a toy epithelium: an outside pool, one cell, its membrane, two porters and a vessel.
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix bqbiol:  <http://biomodels.net/biology-qualifiers/> .
+@prefix api:     <https://apinatomy.org/uris/elements/> .
+@prefix uberon:  <http://purl.obolibrary.org/obo/UBERON_> .
+@prefix cl:      <http://purl.obolibrary.org/obo/CL_> .
+@prefix go:      <http://purl.obolibrary.org/obo/GO_> .
+@prefix uniprot: <http://identifiers.org/uniprot/> .
+@prefix model:   <./model.cellml#> .
+@prefix local:   <./apicoords.rdf#> .
+
+local:this a api:ApiCoordSet ;
+    dcterms:title "Toy ApiCoords" ;
+    api:vocabularyVersion "0.2" .
+
+local:scope_tube a api:Scope ;
+    api:anatomy uberon:0000025 , <http://identifiers.org/UBERON:0000483> ;
+    api:closure "part_of,is_a" .
+
+model:outside bqbiol:is local:coord_outside .
+local:coord_outside a api:ApiCoord ;
+    api:kind "layer" ;
+    api:within local:scope_tube ;
+    api:layerIndex 0 ;
+    api:material <https://example.org/toy/ids/mat-toy-fluid> .
+
+model:cell bqbiol:is local:coord_cell .
+local:coord_cell a api:ApiCoord ;
+    api:kind "cell" ;
+    api:within local:scope_tube ;
+    api:cell cl:0000066 ;
+    api:chainShape "bag-tube-bag" .
+
+model:wall bqbiol:is local:coord_wall .
+local:coord_wall a api:ApiCoord ;
+    api:kind "facet-layer" ;
+    api:within local:coord_cell ;
+    api:facet "basolateral" , "apical" , "lateral" ;
+    api:layerIndex 1 ;
+    api:material go:0005886 .
+
+model:porter_in bqbiol:is local:coord_porter_in .
+local:coord_porter_in a api:ApiCoord ;
+    api:kind "deployment" ;
+    api:within local:coord_cell ;
+    api:facet "apical" ;
+    api:protein uniprot:Q0TOY1 ;
+    api:label "porter" ;
+    api:regions "extracellular,transmembrane,cytoplasmic" .
+
+model:porter_out bqbiol:is local:coord_porter_out .
+local:coord_porter_out a api:ApiCoord ;
+    api:kind "deployment" ;
+    api:within local:coord_cell ;
+    api:facet "basolateral" ;
+    api:protein <https://purl.uniprot.org/uniprot/Q0TOY1> ;
+    api:regions "extracellular,transmembrane,cytoplasmic" .
+
+model:vessel bqbiol:is local:coord_vessel .
+local:coord_vessel a api:ApiCoord ;
+    api:kind "lyph" ;
+    api:origin <https://example.org/toy/ids/lyph-toy-vessel> ;
+    api:anatomy uberon:0001982 ;
+    api:conveys uberon:0000178 ;
+    api:coalescedWith <https://example.org/toy/ids/coalescence-toy> .
