@@ -769,37 +769,101 @@ function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
   }
 }
 
+const DERIVATIVE_ELEMENT = /<(?:[\w.-]+:)?diff\b/
+
+/**
+ * Whether a component, or one it encapsulates, has a derivative in its math.
+ *
+ * @param {Object} component - A libcellml Component.
+ * @returns {boolean}
+ */
+function hasDerivative(component) {
+  if (DERIVATIVE_ELEMENT.test(component.math())) return true
+  for (let i = 0; i < component.componentCount(); i++) {
+    const child = component.componentByIndex(i)
+    const found = hasDerivative(child)
+    child.delete()
+    if (found) return true
+  }
+  return false
+}
+
+/**
+ * Analyses a flattened model. A model without ODEs whose environment holds a VoI (see addEnvironmentComponent) has
+ * nothing that computes it, so it is analysed as an external variable, as a simulator supplies time.
+ *
+ * @param {Object} analyser - A libcellml Analyser, its errors read afterwards.
+ * @param {Object} model - A libcellml Model.
+ * @returns {{name: string, componentName: string, units: string}|null} The external VoI, if there is one.
+ */
+export function analyseFlattenedModel(analyser, model) {
+  let externalVoi = null
+  const environment = model.componentByName('environment', true)
+  if (environment?.variableCount()) {
+    let isAlgebraic = true
+    for (let i = 0; i < model.componentCount() && isAlgebraic; i++) {
+      const component = model.componentByIndex(i)
+      if (hasDerivative(component)) isAlgebraic = false
+      component.delete()
+    }
+    if (isAlgebraic) {
+      const voi = environment.variableByIndex(0)
+      const units = voi.units()
+      externalVoi = { name: voi.name(), componentName: 'environment', units: units.name() }
+      analyser.addExternalVariableByVariable(voi)
+      units.delete()
+      voi.delete()
+    }
+  }
+  environment?.delete()
+  analyser.analyseModel(model)
+  return externalVoi
+}
+
 /**
  * Adds the `environment` component, holding the model's variable of integration (VoI), and connects each
  * component's VoI to it. The environment's VoI takes the name and units of the first ODE's, so a model that
- * integrates over a distance in metres gets `environment/x` in metres. A model without ODEs is algebraic: it
- * has no VoI, and so no environment.
+ * integrates over a distance in metres gets `environment/x` in metres.
+ *
+ * A model without ODEs gets a VoI too, as circulatory_autogen's models do, for the modules that read a clock (a
+ * stimulus reading `t`, say) and for simulators that run time courses: named and in units as the first clock
+ * reader's, else `time` in seconds. Nothing computes it, so libcellml analyses such a model with the VoI as an
+ * external variable (see analyseFlattenedModel). With `keepAlgebraic`, a model without ODEs or clock readers gets
+ * no environment, and stays an algebraic system.
  *
  * @param {Object} model - A libcellml Model.
  * @param {Array<{component: Object, voiNames: Set<string>, hasOde: boolean}>} voiVariables - Each component's
  *   VoI names, and whether it has an ODE.
+ * @param {{keepAlgebraic?: boolean}} [options]
  * @throws {Error} Naming each VoI whose units are incompatible with the environment's, which would be left unconnected.
  */
-function addEnvironmentComponent(model, voiVariables) {
-  const odeVoi = voiVariables
-    .filter(({ hasOde }) => hasOde)
-    .flatMap(({ component, voiNames }) => [...voiNames].map((name) => ({ component, name })))
-    .find(({ component, name }) => component.hasVariableByName(name))
-  if (!odeVoi) return
+function addEnvironmentComponent(model, voiVariables, { keepAlgebraic = false } = {}) {
+  const firstVoi = (entries) =>
+    entries
+      .flatMap(({ component, voiNames }) => [...voiNames].map((name) => ({ component, name })))
+      .find(({ component, name }) => component.hasVariableByName(name))
+  const odeVoi = firstVoi(voiVariables.filter(({ hasOde }) => hasOde))
+  const modelVoi = odeVoi ?? firstVoi(voiVariables)
+  if (!modelVoi && keepAlgebraic) return
 
   const environmentComp = new _libcellml.Component()
   environmentComp.setName('environment')
   model.addComponent(environmentComp)
 
-  const odeVoiVar = odeVoi.component.variableByName(odeVoi.name)
-  const odeVoiUnits = odeVoiVar.units()
   const voiVar = new _libcellml.Variable()
-  voiVar.setName(odeVoi.name)
-  voiVar.setUnitsByName(odeVoiUnits.name())
+  if (modelVoi) {
+    const modelVoiVar = modelVoi.component.variableByName(modelVoi.name)
+    const modelVoiUnits = modelVoiVar.units()
+    voiVar.setName(modelVoi.name)
+    voiVar.setUnitsByName(modelVoiUnits.name())
+    modelVoiUnits.delete()
+    modelVoiVar.delete()
+  } else {
+    voiVar.setName('time')
+    voiVar.setUnitsByName('second')
+  }
   voiVar.setInterfaceTypeByString('public')
   environmentComp.addVariable(voiVar)
-  odeVoiUnits.delete()
-  odeVoiVar.delete()
 
   const voiUnits = voiVar.units()
   const environmentVoi = `environment/${voiVar.name()} (${voiUnits.name()})`
@@ -1052,13 +1116,16 @@ function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariabl
  *   time on large models; a simulator that checks the model itself can skip it.
  * @param {boolean} [options.allowBcOnly=false] - Builds boundary conditions coupled only to each other from their own
  *   values, for a scope that cut them off from what computes them, rather than throwing.
+ * @param {boolean} [options.keepAlgebraic=false] - Leaves a model without ODEs or clock readers algebraic, with no
+ *   environment, for a simulator that solves it once as a steady state. Otherwise every model gets a variable of
+ *   integration (see addEnvironmentComponent).
  */
 export function generateFlattenedModel(
   nodes,
   edges,
   libraryStore,
   inspectionModules = [],
-  { check = true, allowBcOnly = false } = {}
+  { check = true, allowBcOnly = false, keepAlgebraic = false } = {}
 ) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
@@ -1196,7 +1263,7 @@ export function generateFlattenedModel(
     // Values live only in the parameter rows, so one left blank leaves its variable uninitialised.
     const missingValues = []
 
-    // Each component's VoI, connected to the environment's once the model has an ODE.
+    // Each component's VoI, connected to the environment's.
     const voiVariables = []
 
     // ---------------------------------
@@ -1409,7 +1476,7 @@ export function generateFlattenedModel(
 
     model.linkUnits()
 
-    addEnvironmentComponent(model, voiVariables)
+    addEnvironmentComponent(model, voiVariables, { keepAlgebraic })
 
     if (globalParameterComponent.variableCount() === 0) {
       model.removeComponentByName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME, true)
@@ -1442,7 +1509,7 @@ export function generateFlattenedModel(
         handleLoggerErrors(validator, `Validator error count: ${validator.errorCount()}`)
       }
 
-      analyser.analyseModel(flattenedModel)
+      analyseFlattenedModel(analyser, flattenedModel)
       if (analyser.errorCount()) {
         flattenedModel.delete()
         handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
@@ -1827,7 +1894,7 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
     const analyser = new _libcellml.Analyser()
     garbageCollector.add(analyser)
 
-    analyser.analyseModel(model)
+    const externalVoi = analyseFlattenedModel(analyser, model)
     if (analyser.errorCount()) {
       handleLoggerErrors(analyser, `Analyser error count: ${analyser.errorCount()}`)
     }
@@ -1868,8 +1935,8 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
       }
     }
 
-    // A valid model with no ODEs has no VOI.
-    if (!voi) return { voi: null, mappedParameters }
+    // A model with no ODEs has no VOI, unless its environment holds one for clock readers and time courses.
+    if (!voi) return { voi: externalVoi, mappedParameters }
 
     const voiVariable = voi.variable()
     garbageCollector.add(voiVariable)

@@ -146,6 +146,8 @@ If you switch a state away from an initialiser that has a value and that no othe
 
 A model with no ODEs has no VoI and is solved once, so its plots list each variable's value. To see a curve, sweep a parameter; see [Sweep](../reference/simulation-ui-overview.md#sweep). To plot one variable against another, see [Plots](../reference/simulation-ui-overview.md#plots).
 
+A module with no ODE that reads a clock, such as a stimulus using `t` in seconds, gets its time from the environment: a VoI named and in units as that `t`, which the simulator supplies as it steps. Exported, every model has a VoI, as Circulatory Autogen's models do and CUFLynx's time courses need: a model with no ODEs and no clock reader gets `environment/time` in seconds, which nothing in the model computes.
+
 ```bash
 // A lever: the load moved for a given effort
 load = effort * arm_ratio;

@@ -8,6 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath.js'
 import { reconcileRows } from '../../../src/services/math/reconcileRows.js'
 import { createSimulationSession } from '../../../src/services/simulation/engine.js'
+import { buildScopedModel, resolveScope, SIMULATION_BUILD } from '../../../src/services/simulation/scopedModel.js'
 import { createFamily, createSweep, familyValues, resolveSweepTarget, splitFamily, sweepValues } from '../../../src/services/simulation/sweep.js'
 import { buildVariableMapping } from '../../../src/services/simulation/variableMapping.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
@@ -88,6 +89,21 @@ const ALGEBRAIC_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="le
     </math>
   </component>
 </model>`
+// I = a * t: no ODE, but it reads a clock, t in seconds.
+const RAMP_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="ramp">
+  <component name="ramp">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="a" units="per_second" interface="public"/>
+    <variable name="I" units="dimensionless" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>I</ci><apply><times/><ci>a</ci><ci>t</ci></apply></apply>
+    </math>
+  </component>
+</model>`
+// As RAMP_XML, reading a clock called time.
+const RAMP_TIME_XML = RAMP_XML.replaceAll('"ramp"', '"ramp_time"').replaceAll('"t"', '"time"').replace('<ci>t</ci>', '<ci>time</ci>')
+// The flatten the simulator asks for: a model without ODEs or clock readers stays algebraic.
+const ALGEBRAIC = { keepAlgebraic: true }
 
 // s = x + y and s = 3 leave x on no left side, as a bond graph's junctions do, so libcellml solves
 // it as a nonlinear system.
@@ -147,7 +163,7 @@ describe('variables of integration and algebraic systems in the flattened model'
     return { id, type: 'instanceNode', data: { name: id, mathRef, variables: rows, ports: [] } }
   }
 
-  const flatten = async (nodes) => (await generateFlattenedModel(nodes, [], store)).text()
+  const flatten = async (nodes, options) => (await generateFlattenedModel(nodes, [], store, [], options)).text()
 
   it('connects the variable of integration to the environment, and leaves a parameter called t its value (#614)', async () => {
     const node = buildNode('tank', TIME_AND_T_XML, { t: '0.2', k: '1', q_init: '0' })
@@ -204,18 +220,45 @@ describe('variables of integration and algebraic systems in the flattened model'
     }
   }, 60000)
 
-  it('builds a model without ODEs as an algebraic system, with no environment', async () => {
+  it('gives a model without ODEs a time in seconds, which nothing computes, and checks it with time external', async () => {
     const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })
     expect(node.data.variables.find((row) => row.name === 't').type).toBe('constant')
 
     // The build analyses the model, so it would throw were anything left unknown.
     const text = await flatten([node])
+    expect(environmentVoi(text)).toEqual(['time', 'second'])
+    expect(text).not.toMatch(/<diff\/>/)
+    // The lever's t has a value: it is a length, not a clock.
+    expect(connectedToVoi(text, 'lever')).toEqual([])
+    expect(extractVoiAndParametersFromModel(text, {}).voi).toEqual({ name: 'time', componentName: 'environment', units: 'second' })
+  })
+
+  it('connects modules that read a clock but have no ODE to a variable of integration named and in units as the first one’s', async () => {
+    const nodes = [buildNode('ramp', RAMP_XML, { a: '2' }), buildNode('ramp_time', RAMP_TIME_XML, { a: '3' })]
+    expect(nodes[0].data.variables.find((row) => row.name === 't').type).toBe('variable')
+
+    for (const options of [undefined, ALGEBRAIC]) {
+      const text = await flatten(nodes, options)
+      expect(environmentVoi(text)).toEqual(['t', 'second'])
+      expect(text).toMatch(/<component name="environment">\s*<variable name="t" units="second" interface="public"\/>\s*<\/component>/)
+      expect(text).not.toMatch(/<diff\/>/)
+      expect(connectedToVoi(text, 'ramp')).toEqual(['t → t'])
+      expect(connectedToVoi(text, 'ramp_time')).toEqual(['t → time'])
+      expect(extractVoiAndParametersFromModel(text, {}).voi).toEqual({ name: 't', componentName: 'environment', units: 'second' })
+    }
+  })
+
+  it('builds a model without ODEs or clock readers as an algebraic system, with no environment, for the simulator', async () => {
+    const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })
+    const text = await flatten([node], ALGEBRAIC)
     expect(text).not.toMatch(/<component name="environment"/)
     expect(extractVoiAndParametersFromModel(text, {}).voi).toBeNull()
+    // As the simulator builds it.
+    expect(await buildScopedModel(resolveScope(null, [node], []), store, SIMULATION_BUILD).text()).toBe(text)
   })
 
   it('solves an algebraic system once in libOpenCOR, as a steady state', async () => {
-    const text = await flatten([buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })])
+    const text = await flatten([buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })], ALGEBRAIC)
     const session = createSimulationSession({ module: libOpenCOR, cellml: text })
     try {
       const results = await session.run({ settings: {} }).promise
@@ -229,7 +272,7 @@ describe('variables of integration and algebraic systems in the flattened model'
 
   it('sweeps a parameter of an algebraic system in libOpenCOR, solving it at each value', async () => {
     const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })
-    const cellml = await flatten([node])
+    const cellml = await flatten([node], ALGEBRAIC)
     const session = createSimulationSession({ module: libOpenCOR, cellml })
     try {
       const solved = await session.run({ settings: {} }).promise
@@ -278,7 +321,7 @@ describe('variables of integration and algebraic systems in the flattened model'
 
   it('sweeps an algebraic system in libOpenCOR once per value of a second parameter, a curve each', async () => {
     const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })
-    const cellml = await flatten([node])
+    const cellml = await flatten([node], ALGEBRAIC)
     const session = createSimulationSession({ module: libOpenCOR, cellml })
     try {
       const described = session.describe()
