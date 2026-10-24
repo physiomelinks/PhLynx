@@ -246,19 +246,21 @@ export function findClashes(elements, manifest) {
 }
 
 /**
- * Says what an element still needs: a type, its own species and location, and a value for each value cell.
+ * Says what an element still needs: a type, its own species and location, and a value for each value cell a
+ * connection doesn't supply.
  *
  * @param {Object} element - A DiagramElement.
  * @param {Object[]} values - Its value cells (elementValues).
+ * @param {Set<string>} [supplied] - Names a connection supplies.
  * @returns {string[]}
  */
-export function unsetReasons(element, values) {
+export function unsetReasons(element, values, supplied = new Set()) {
   const reasons = []
   if (element.isBondElement && !element.template) reasons.push('No type chosen')
   if (element.species === DEFAULT_SPECIES) reasons.push(`Species is still the default, ${DEFAULT_SPECIES}`)
   if (element.location === DEFAULT_LOCATION) reasons.push(`Location is still the default, ${DEFAULT_LOCATION}`)
   values
-    .filter((cell) => isEmpty(cell.row?.value) && isEmpty(cell.defaultValue))
+    .filter((cell) => !supplied.has(cell.name) && isEmpty(cell.row?.value) && isEmpty(cell.defaultValue))
     .forEach((cell) => reasons.push(`No value for ${cell.label}`))
   return reasons
 }
@@ -293,6 +295,8 @@ export function isDefaultValue(cell, savedDefaults = new Map()) {
  *   element leaves until the diagram is saved; they aren't the model's constants.
  * @param {Map<string, string>} [options.renames] - The variables unsaved diagram edits renamed (variableRenames),
  *   whose values the instance's rows hold under their old names until the save.
+ * @param {Set<string>} [options.supplied] - Names a connection supplies, which need no value; their cells are marked
+ *   `supplied`.
  * @returns {{sections: Object[], rowsById: Map<string, Object>, clashCount: number, unsetCount: number}}
  */
 export function buildElementTable({
@@ -303,6 +307,7 @@ export function buildElementTable({
   savedDefaults = new Map(),
   savedManifest = null,
   renames = new Map(),
+  supplied = new Set(),
 }) {
   const naming = manifest ?? namesManifest ?? {}
   const rowsByName = carryRenamedRows(new Map((rows ?? []).map((row) => [row.name, row])), renames)
@@ -317,6 +322,7 @@ export function buildElementTable({
     const entry = naming[element.id]
     const values = elementValues(element, entry, rowsByName)
     values.forEach((cell) => cell.name && usedNames.add(cell.name))
+    values.forEach((cell) => supplied.has(cell.name) && (cell.supplied = true))
     ;(entry?.variables ?? []).forEach((variable) => usedNames.add(variable.name))
     const quantity = variablesOf(entry, 'quantity')[0]
     if (quantity) usedNames.add(rowsByName.get(quantity.name)?.initialiser ?? `${quantity.name}_init`)
@@ -326,7 +332,7 @@ export function buildElementTable({
       element,
       names: generatedNames(entry),
       values,
-      unset: unsetReasons(element, values),
+      unset: unsetReasons(element, values, supplied),
       clash: clash ? { ...clash, others: clash.otherIds.map((id) => byId.get(id)).filter(Boolean) } : null,
       storeId: linkedJunctions.get(element.id) ?? null,
       junctionId: links.get(element.id) ?? null,
@@ -353,8 +359,18 @@ export function buildElementTable({
       id: `constant:${row.name}`,
       element: null,
       names: [row.name],
-      values: [{ key: 'constant', label: row.name, name: row.name, row, defaultValue, units: row.units ?? '' }],
-      unset: isEmpty(row.value) && isEmpty(defaultValue) ? [`No value for ${row.name}`] : [],
+      values: [
+        {
+          key: 'constant',
+          label: row.name,
+          name: row.name,
+          row,
+          defaultValue,
+          units: row.units ?? '',
+          ...(supplied.has(row.name) && { supplied: true }),
+        },
+      ],
+      unset: !supplied.has(row.name) && isEmpty(row.value) && isEmpty(defaultValue) ? [`No value for ${row.name}`] : [],
       clash: null,
       depth: 0,
     }

@@ -219,6 +219,18 @@ describe('the CellDL Parameters table', () => {
       expect(unsetReasons(element, values)).toEqual(['No value for kappa'])
       expect(unsetReasons(element, [{ ...values[0], defaultValue: '10' }])).toEqual([])
     })
+
+    it('needs no value for a cell a connection supplies, nor counts its row as unset', () => {
+      const element = byId(REACTION_R1)
+      const values = [{ label: 'kappa', name: 'kappa_Rx_r1_c', row: { value: '' }, defaultValue: '' }]
+      expect(unsetReasons(element, values, new Set(['kappa_Rx_r1_c']))).toEqual([])
+      const rows = ROWS.map((row) => (row.name === 'q_S_c_init' ? { ...row, value: '' } : row))
+      const defaults = { elements: edit(STORE_S, { value: { value: '' } }), manifest: MANIFEST, rows }
+      expect(buildElementTable(defaults).rowsById.get(STORE_S).unset).toEqual(['No value for initial'])
+      const table = buildElementTable({ ...defaults, supplied: new Set(['q_S_c_init']) })
+      expect(table.rowsById.get(STORE_S).unset).toEqual([])
+      expect(table.unsetCount).toBe(0)
+    })
   })
 
   describe('flags', () => {

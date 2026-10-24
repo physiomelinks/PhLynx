@@ -169,14 +169,18 @@
                       :model-value="shownValue(cell)"
                       :placeholder="cell.defaultValue"
                       :validate="validateNumber"
-                      :disabled="!cell.name"
+                      :disabled="!cell.name || !!suppliedBy(cell)"
                       :invalid="isMissing(cell)"
+                      :class="{ 'value-input--ignored': ignoredNotices.has(cell.name) }"
                       :title="valueTitle(cell)"
                       :aria-label="`${cell.label} of ${row.element ? label(row.element) : cell.name}`"
                       @commit="(value) => emit('set-value', cell, value)"
                     />
                     <span class="value-units">{{ cell.units }}</span>
-                    <span v-if="isDefault(cell) && !isEmptyValue(cell.defaultValue)" class="default-hint">default</span>
+                    <span v-if="suppliedBy(cell)" class="supplied-hint" :title="valueTitle(cell)">
+                      <i class="pi pi-link"></i> {{ suppliedBy(cell) }}
+                    </span>
+                    <span v-else-if="isDefault(cell) && !isEmptyValue(cell.defaultValue)" class="default-hint">default</span>
                   </label>
                 </div>
               </td>
@@ -224,6 +228,10 @@ const props = defineProps({
   isDiagramShown: { type: Boolean, default: false },
   /** Whether the diagram is still opening, so has no elements yet. */
   isOpening: { type: Boolean, default: false },
+  /** Each row name to where its value comes from (resolveBoundaryValues' `status`). */
+  connectionStatus: { type: Map, default: () => new Map() },
+  /** Each row whose value export ignores, as something else supplies its variable, with why. */
+  ignoredNotices: { type: Map, default: () => new Map() },
 })
 
 const emit = defineEmits(['set-value', 'show-in-diagram'])
@@ -327,10 +335,23 @@ const isEmptyValue = isEmpty
 const isDefault = (cell) => isDefaultValue(cell, props.savedDefaults)
 /** A value still on the diagram's shows blank, so the diagram's greyed placeholder reads as its default. */
 const shownValue = (cell) => (isDefault(cell) ? '' : String(cell.row?.value ?? ''))
-const isMissing = (cell) => isEmpty(cell.row?.value) && isEmpty(cell.defaultValue)
+const isMissing = (cell) => !cell.supplied && isEmpty(cell.row?.value) && isEmpty(cell.defaultValue)
+
+/**
+ * Says where a connection supplies a cell's value from, e.g. `Set by other_1.X`; null when it doesn't.
+ *
+ * @param {Object} cell - A value cell.
+ * @returns {string|null}
+ */
+function suppliedBy(cell) {
+  const status = cell.name ? props.connectionStatus.get(cell.name) : null
+  return status?.state === 'connected' ? `Set by ${status.from.join(', ') || 'a connection'}` : null
+}
 
 function valueTitle(cell) {
   if (!cell.name) return 'Converting the diagram...'
+  if (props.ignoredNotices.has(cell.name)) return `${cell.name}: ${props.ignoredNotices.get(cell.name)}`
+  if (suppliedBy(cell)) return `${cell.name}: ${suppliedBy(cell)}`
   const own = cell.row?.carriedFrom
     ? ` It was ${cell.row.carriedFrom}'s, and moves to the new name when the diagram is saved.`
     : cell.row?.pending
@@ -710,6 +731,24 @@ watch(
   font-size: var(--dlg-fs-tiny);
   color: var(--p-text-muted-color);
   white-space: nowrap;
+}
+
+.supplied-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--dlg-fs-tiny);
+  color: var(--p-text-muted-color);
+  white-space: nowrap;
+}
+
+.supplied-hint .pi {
+  font-size: var(--dlg-fs-tiny);
+}
+
+.value-item .value-input--ignored {
+  color: var(--p-text-muted-color, #64748b);
+  text-decoration: line-through;
 }
 
 .default-hint {

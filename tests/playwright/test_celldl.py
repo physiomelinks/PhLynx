@@ -42,6 +42,10 @@ REACTIONS_MODULE = "reactions_panel"
 # Its A store (ID-00000003), bonded straight to r1's node (ID-00000002).
 STORE_A, BOND_A = "ID-00000003", "ID-00000004"
 
+# A CellML module computing an amount X = 2 X0 from its constant X0 of 0.75 mole.
+INITIAL_AMOUNT = os.path.join(RESOURCE_PATH, "celldl", "initial_amount.cellml")
+INITIAL_AMOUNT_MODULE = "initial_amount"
+
 # A store's base kind, which only its templates make convertible.
 ZERO_STORAGE_NODE = "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroStorageNode"
 STORAGE_NODES = [
@@ -338,6 +342,64 @@ def saved_math_has(page, text):
         """(text) => [...document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
             .get('library').availableMath.values()].some((math) => String(math).includes(text))""",
         text,
+    )
+
+
+def import_cellml(page, path):
+    """Imports a CellML file's components as library modules, from the Import menu."""
+    page.locator(".file-io-buttons .p-splitbutton").first.locator(".p-splitbutton-dropdown").click()
+    page.get_by_role("menuitem", name="CellML File").click()
+    dialog = page.locator(".p-dialog").filter(has_text="Import CellML File")
+    dialog.locator("input[type=file]").set_input_files(path)
+    dialog.get_by_role("button", name="Import", exact=True).click()
+    expect(dialog).to_have_count(0)
+
+
+def add_port(page, dialog, label, variable):
+    """Adds a general port carrying one variable in an instance's Ports tab."""
+    dialog.get_by_role("tab", name=re.compile(r"Ports \(")).click()
+    dialog.get_by_role("button", name=re.compile(r"^Add port$", re.IGNORECASE)).click()
+    row = dialog.locator(".p-datatable-tbody tr").last
+    row.get_by_placeholder("Enter label").fill(label)
+    row.locator(".p-multiselect").click()
+    overlay = page.locator(".ports-variable-overlay")
+    option = overlay.locator(".p-multiselect-option").filter(has_text=re.compile(rf"^\s*{re.escape(variable)}\s*$"))
+    option.click()
+    expect(option).to_have_attribute("aria-selected", "true")
+    # Closes the list with a click outside it, as Esc would close the editor.
+    row.get_by_placeholder("Enter label").click()
+    expect(overlay).to_be_hidden(timeout=10000)
+    expect(row.locator(".p-multiselect")).to_contain_text(variable)
+
+
+def connect(page, source, target):
+    """Draws an edge from a free handle on one instance to one on another."""
+    def handle(name, side):
+        handles = page.locator(".vue-flow__node").filter(has_text=name).first.locator(
+            f".vue-flow__handle.handle--ghost.vue-flow__handle-{side}"
+        )
+        box = handles.nth(handles.count() // 2).bounding_box()
+        return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+    edges = page.locator(".vue-flow__edge").count()
+    start, end = handle(source, "right"), handle(target, "left")
+    page.mouse.move(*start)
+    page.mouse.down()
+    page.mouse.move(*end, steps=15)
+    page.mouse.up()
+    expect(page.locator(".vue-flow__edge")).to_have_count(edges + 1)
+
+
+def first_value(page, name):
+    """The first value of a variable in the latest run's results, by its name's ending."""
+    return page.evaluate(
+        """(name) => {
+            const results = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                .get('simulationResults').results
+            const entry = [...(results?.variables ?? [])].find(([key]) => key === name || key.endsWith('/' + name))
+            return entry ? entry[1].values[0] : null
+        }""",
+        name,
     )
 
 
@@ -1458,6 +1520,53 @@ class TestCelldl(unittest.TestCase):
             # ----------- END ------------
 
             browser.close()
+
+    def test_shows_a_value_a_connection_supplies_as_set_by_it_and_runs_with_it(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            page.evaluate(SHORT_SIMULATION)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, ENZYME_MODULE, x=450)
+            import_cellml(page, INITIAL_AMOUNT)
+            place(page, "initial amount", INITIAL_AMOUNT_MODULE, x=950)
+
+            # A port on each instance, one carrying the computed amount, the other the store S's initial value.
+            dialog = open_editor(page, INITIAL_AMOUNT_MODULE)
+            add_port(page, dialog, "initial", "X")
+            dialog.get_by_role("button", name="Save", exact=True).click()
+            expect(dialog).to_have_count(0)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            add_port(page, dialog, "initial", "q_S_c_init")
+
+            # Until an edge connects the ports, the value is the diagram's, editable.
+            expect(parameter_value(dialog, "q_S_c_init")).to_be_enabled()
+            dialog.get_by_role("button", name="Save", exact=True).click()
+            expect(dialog).to_have_count(0)
+            connect(page, ENZYME_MODULE, INITIAL_AMOUNT_MODULE)
+
+            # Connected, the store's initial value is set by the other instance's X: read-only, and not to set.
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            initial = parameter_value(dialog, "q_S_c_init")
+            expect(initial).to_be_disabled()
+            cell = dialog.locator('.celldl-parameters [data-variable="q_S_c_init"]')
+            expect(cell.locator(".supplied-hint")).to_have_text(re.compile(r"Set by initial_amount\w*\.X"))
+            expect(cell.locator("xpath=ancestor::tr[1]")).not_to_have_class(re.compile(r"element-row--unset"))
+
+            # A run starts S at the supplied 2 X0 = 1.5, not the diagram's 1.
+            dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            dialog.get_by_role("switch", name="Simulate the whole model, not this instance").check()
+            dialog.get_by_role("button", name="Simulate the whole model").click()
+            expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=SIMULATION_TIMEOUT)
+            self.assertAlmostEqual(first_value(page, "q_S_c"), 1.5)
+            # ----------- END ------------
+
+            browser.close()
+
 
 if __name__ == '__main__':
     unittest.main()

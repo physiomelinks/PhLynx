@@ -217,6 +217,8 @@
                 :saved-defaults="savedDefaults"
                 :is-diagram-shown="isDiagramShown"
                 :is-opening="celldlHost.isSyncing.value"
+                :connection-status="connectionStatus"
+                :ignored-notices="ignoredNotices"
                 @set-value="setInstanceValue"
                 @show-in-diagram="showInDiagram"
               />
@@ -882,6 +884,7 @@ const celldlTable = computed(() =>
     savedDefaults: savedDefaults.value,
     savedManifest: store.getMathSource(props.mathRef)?.elements ?? null,
     renames: celldlRenames.value,
+    supplied: connectionSuppliedNames.value,
   })
 )
 
@@ -1238,6 +1241,12 @@ const connection = computed(() => {
 
 /** Each row name to where its value comes from (see resolveBoundaryValues' `status`). */
 const connectionStatus = computed(() => connection.value.status)
+
+/** The rows a connection supplies, or Sums nothing is connected to (so 0), which need no value of their own. */
+const connectionSuppliedNames = computed(() => {
+  const { status, emptySums } = connection.value
+  return new Set([...[...status].filter(([, { state }]) => state === 'connected').map(([name]) => name), ...emptySums])
+})
 
 /** Each row whose value export ignores, as something else supplies its variable, with why. */
 const ignoredNotices = computed(() => {
