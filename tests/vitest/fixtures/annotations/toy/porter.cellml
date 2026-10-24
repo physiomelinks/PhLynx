@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="ToyPorter">
+  <component name="porter">
+    <variable name="c_A_i" units="mM" interface="public"/>
+    <variable name="c_A_o" units="mM" interface="public"/>
+    <variable id="flux_in" name="v_A_i" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="v_A_o" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="j_A" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="u" units="J_per_C" interface="public"/>
+    <variable name="area" units="mm2" interface="public"/>
+  </component>
+</model>
