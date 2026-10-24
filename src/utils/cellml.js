@@ -358,6 +358,8 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
 
       // Both sides share the same affine unit
       if (scale === 1 && offset === 0) {
+        ensurePublicInterface(v1)
+        ensurePublicInterface(v2)
         _libcellml.Variable.addEquivalence(v1, v2)
         return true
       }
@@ -446,6 +448,8 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
     const freshOutVar = outVarComponent.variableByName(outVarName)
     garbageCollector.add(freshOutVar)
 
+    ensurePublicInterface(freshInVar)
+    ensurePublicInterface(freshOutVar)
     _libcellml.Variable.addEquivalence(freshInLocal, freshInVar)
     _libcellml.Variable.addEquivalence(freshOutLocal, freshOutVar)
   } finally {
@@ -505,6 +509,7 @@ function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
   inputVar.setUnitsByName(unitsName)
   inputVar.setInterfaceTypeByString('public')
   mulComp.addVariable(inputVar)
+  ensurePublicInterface(sourceVar)
   _libcellml.Variable.addEquivalence(inputVar, sourceVar)
   inputVar.delete()
   sourceVar.delete()
@@ -558,6 +563,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   sumVar.setUnitsByName(unitsName)
   sumVar.setInterfaceTypeByString('public')
   sumComp.addVariable(sumVar)
+  ensurePublicInterface(referenceVar)
   _libcellml.Variable.addEquivalence(referenceVar, sumVar)
 
   // Create Input Variables in the Sum Component.
@@ -578,6 +584,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
     sumComp.addVariable(opVar)
 
     const tmpVar = component.variableByName(targetVarName)
+    ensurePublicInterface(tmpVar)
     _libcellml.Variable.addEquivalence(opVar, tmpVar)
     opVar.delete()
     tmpVar.delete()
@@ -653,6 +660,7 @@ function createInspectionModuleComponent(model, module, nodeComponentMap) {
     opVar.setInterfaceTypeByString('public')
     inspectionComp.addVariable(opVar)
 
+    ensurePublicInterface(sourceVar)
     _libcellml.Variable.addEquivalence(opVar, sourceVar)
 
     opVar.delete()
@@ -875,8 +883,9 @@ function prioritizeEnvironmentComponent(xmlString) {
 }
 
 /**
- * Makes a component's variable public so it can connect to a sibling component. Math saved
- * before variables were always declared public may still have private or missing interfaces.
+ * Makes a component's variable public so it can connect to a sibling component. Math from
+ * bg2cellml, imported CellML without interfaces, or saved before variables were always declared
+ * public may have a private interface or none.
  *
  * @param {Object} variable - A libcellml Variable.
  */
@@ -1025,6 +1034,8 @@ function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariabl
   if (v1 && v2) {
     const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
     if (!handled) {
+      ensurePublicInterface(v1)
+      ensurePublicInterface(v2)
       _libcellml.Variable.addEquivalence(v1, v2)
     }
   }
@@ -1369,6 +1380,7 @@ export function generateFlattenedModel(
             const outputVar = mulComp.variableByName(term.varName)
             const neighbourVar = neighbour.component.variableByName(neighbour.varName)
             if (outputVar && neighbourVar) {
+              ensurePublicInterface(neighbourVar)
               _libcellml.Variable.addEquivalence(outputVar, neighbourVar)
             }
             outputVar?.delete()
@@ -1643,7 +1655,9 @@ export function doesComponentExistInModel(cellmlString, componentName) {
 }
 
 /**
- * Puts the components of several one-component models (as the library stores math) into one model.
+ * Puts the components of several one-component models (as the library stores math) into one model. A model that
+ * imports the components connects to their variables, so a variable with no interface (as bg2cellml writes them)
+ * becomes public.
  *
  * @param {string} modelName - The combined model's name.
  * @param {string[]} componentModels - CellML models, each holding one component.
@@ -1659,6 +1673,11 @@ export function combineComponentModels(modelName, componentModels) {
       const source = parser.parseModel(componentModel)
       const component = source.componentByIndex(0)
       const clone = component.clone()
+      for (let i = 0; i < clone.variableCount(); i++) {
+        const variable = clone.variableByIndex(i)
+        if (!variable.interfaceType()) variable.setInterfaceTypeByString('public')
+        variable.delete()
+      }
       model.addComponent(clone)
       clone.delete()
       component.delete()

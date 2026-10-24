@@ -231,6 +231,20 @@ describe('generateExportZip', () => {
     expect(files['modules/BG_modules.cellml']).toContain('C_edited')
   })
 
+  it('makes variables with no interface public, as CA connects to them, and keeps the interfaces math declares', async () => {
+    library.addMath(
+      BG_MATH_REF,
+      VP_MATH.replace('<variable name="t" units="second" interface="public"/>', '<variable name="t" units="second"/>')
+        .replace('<variable name="C" units="m3_per_J" interface="public"/>', '<variable name="C" units="m3_per_J"/>')
+        .replace('<variable name="u" units="J_per_m3" interface="public"/>', '<variable name="u" units="J_per_m3" interface="public_and_private"/>')
+    )
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
+    const modules = files['modules/BG_modules.cellml']
+    expect(modules).toContain('<variable name="t" units="second" interface="public"/>')
+    expect(modules).toContain('<variable name="C" units="m3_per_J" interface="public"/>')
+    expect(modules).toContain('<variable name="u" units="J_per_m3" interface="public_and_private"/>')
+  })
+
   it("lays each module file out as CA's line-based copy needs", async () => {
     const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
     const lines = files['modules/BG_modules.cellml'].trimEnd().split('\n')
