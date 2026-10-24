@@ -114,6 +114,11 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   const elements = shallowRef([])
   /** The diagram revision `elements` was listed at, or -1 before any list. */
   const elementsRevision = ref(-1)
+  /**
+   * The shown diagram's unit system, as its element list tells: `'si'` or `'cellular'`, null while opening or when the
+   * editor doesn't know it (an unknown or repeated one in the diagram).
+   */
+  const unitSystem = ref(null)
   /** The element selected in the diagram, as its viewer events tell, and whether the host selected it. */
   const selection = shallowRef({ id: null, isHostSelection: false })
 
@@ -288,8 +293,28 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
    * @param {'data'|'rdf'} action - `data` for the CellDL document, `rdf` for its BG-RDF Turtle.
    * @returns {Promise<string>}
    */
-  function request(action) {
-    return sendAwaiting(pendingData, (kind) => ({ command: 'file', options: { action, kind } }), 'return its diagram')
+  async function request(action) {
+    const reply = await sendAwaiting(pendingData, (kind) => ({ command: 'file', options: { action, kind } }), 'return its diagram')
+    return reply.data ?? ''
+  }
+
+  /**
+   * Sets the diagram's unit system, as one undoable edit the editor reports as any other. Its stored values are
+   * converted to the same quantities in the new system's units, so the diagram stays in one system.
+   *
+   * @param {'si'|'cellular'} id
+   * @returns {Promise<{ok: boolean, unitSystem: string|null, error?: string}>} The diagram's unit system after.
+   */
+  async function setUnitSystem(id) {
+    await whenReady()
+    const { data, error: reason } = await sendAwaiting(
+      pendingData,
+      (kind) => ({ command: 'document', options: { action: 'set-unit-system', kind, id, convert: true } }),
+      'set its unit system'
+    )
+    const after = data || null
+    if (!reason) unitSystem.value = after
+    return { ok: !reason, unitSystem: after, ...(reason && { error: reason }) }
   }
 
   /**
@@ -388,6 +413,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     if (!Array.isArray(change?.elements) || isOpening) return
     elements.value = change.elements
     elementsRevision.value = change.revision ?? -1
+    unitSystem.value = change.unitSystem ?? null
   }
 
   /**
@@ -483,6 +509,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     if (rdf === null) {
       elements.value = []
       elementsRevision.value = -1
+      unitSystem.value = null
       selection.value = { id: null, isHostSelection: false }
     }
     const change = { rdf, documentUri: shown?.source?.documentUri ?? null, isOpened }
@@ -509,15 +536,15 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
   }
 
   /**
-   * Passes on the editor's `editor-data` event.
+   * Passes on the editor's `editor-data` event to the command it answers.
    *
-   * @param {{data: string, kind?: string}} payload
+   * @param {{data: string, kind?: string, error?: string}} payload
    */
-  function onEditorData({ data, kind } = {}) {
-    const resolve = pendingData.get(kind)
+  function onEditorData(payload = {}) {
+    const resolve = pendingData.get(payload.kind)
     if (!resolve) return
-    pendingData.delete(kind)
-    resolve(data ?? '')
+    pendingData.delete(payload.kind)
+    resolve(payload)
   }
 
   /**
@@ -745,6 +772,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     annotations,
     elements,
     elementsRevision,
+    unitSystem,
     selection,
     attach,
     whenReady,
@@ -769,6 +797,7 @@ export function createCelldlEditorHost({ readyTimeout = READY_TIMEOUT_MS, comman
     onElementResult,
     listElements,
     setElement,
+    setUnitSystem,
     selectElement,
     revealElement,
     listen,

@@ -31,7 +31,8 @@ function blockingErrors(result) {
  * @param {string} options.componentName - The CellML component's name.
  * @param {string[]} [options.knownUnits] - The library's other units (knownUnitsFor).
  * @returns {Promise<Object>} `{ ok, components, unitsModel, elements, annotations, documentUri, generator,
- *   frameworkVersion, errors, warnings, renamedUnits }`. `components` and `unitsModel` are as
+ *   frameworkVersion, unitSystem, errors, warnings, renamedUnits }`. The unit system ('si' or 'cellular') is the
+ *   diagram's own, from its triple; a diagram without one is SI. `components` and `unitsModel` are as
  *   processCellMLData gives them, and null unless ok. Issues are bg2cellml's
  *   `{ message, severity, stage, subject?, elementId? }`. Rejects if the converter can't start.
  */
@@ -63,6 +64,7 @@ export async function convertCelldl(document, { documentUri, componentName, know
     documentUri: documentUriFor(result),
     generator: result.generator,
     frameworkVersion: result.framework.version ?? null,
+    unitSystem: result.unitSystem ?? null,
     errors,
     warnings: result.warnings,
     renamedUnits: result.units.renamed,

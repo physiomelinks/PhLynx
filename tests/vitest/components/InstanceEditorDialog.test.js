@@ -1464,6 +1464,53 @@ describe('InstanceEditorDialog locked math', () => {
       expect(save).not.toHaveProperty('keptValues')
     })
 
+    describe('when the diagram changes units', () => {
+      const unitsXml = (definitions) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">${definitions}</model>`
+      const PER_SECOND = '<units name="per_second"><unit units="second" exponent="-1"/></units>'
+      const PER_MS = '<units name="per_ms"><unit prefix="milli" units="second" exponent="-1"/></units>'
+      const IN_MS = GENERATED_XML.replace('name="k" units="per_second"', 'name="k" units="per_ms"')
+
+      beforeEach(() => {
+        useLibraryStore().addUnitsFile({ componentFile: 'file', model: unitsXml(PER_SECOND) })
+        convertCelldl.mockResolvedValue(converted({ components: [{ name: 'decay', math: IN_MS }], unitsModel: unitsXml(PER_MS) }))
+      })
+
+      it("rescales the instance's values and the module's defaults to the new units, saying by how much", async () => {
+        await saveEdited()
+
+        const asked = confirm.mock.calls.find(([options]) => options.header === 'Units Changed')[0]
+        expect(asked.message).toContain('every instance of the module')
+        expect(asked.issues).toEqual([{ key: 'k', label: 'k', message: 'per_second → per_ms, ×0.001' }])
+        const [save] = wrapper.emitted('confirm')[0]
+        expect(save.variables.find((row) => row.name === 'k')).toMatchObject({ value: '0.0005', units: 'per_ms' })
+        expect(save.unitRescales).toEqual([{ name: 'k', from: 'per_second', to: 'per_ms', factor: { coefficient: 1, power: -3 } }])
+        expect(new Map(save.previousDefaults).get('k')).toBe('0.0005')
+      })
+
+      it('saves nothing when the rescale is declined', async () => {
+        confirm.mockImplementation(async (options) => options.header !== 'Units Changed')
+        await saveEdited()
+        confirm.mockImplementation(async () => true)
+
+        expect(wrapper.emitted('confirm')).toBeUndefined()
+        const k = wrapper.vm.parameterRows.find((row) => row.name === 'k')
+        expect(k.units).toBe('per_second')
+        expect(k.value).not.toBe('0.0005')
+      })
+
+      it('relabels units that keep their scale without asking', async () => {
+        const PER_S = '<units name="per_s"><unit units="second" exponent="-1"/></units>'
+        convertCelldl.mockResolvedValue(
+          converted({ components: [{ name: 'decay', math: IN_MS.replace('units="per_ms"', 'units="per_s"') }], unitsModel: unitsXml(PER_S) })
+        )
+        await saveEdited()
+
+        expect(confirm.mock.calls.some(([options]) => options.header === 'Units Changed')).toBe(false)
+        const [save] = wrapper.emitted('confirm')[0]
+        expect(save.variables.find((row) => row.name === 'k')).toMatchObject({ value: '0.5', units: 'per_s' })
+      })
+    })
+
     describe('when only the diagram changed', () => {
       const UNITS_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
   <units name="per_second"><unit units="second" exponent="-1"/></units>

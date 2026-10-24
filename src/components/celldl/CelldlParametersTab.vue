@@ -19,6 +19,22 @@
           </button>
         </template>
         <span v-else class="toolbar-label toolbar-label--ok"><i class="pi pi-check-circle"></i> Every element is named and valued</span>
+        <label class="unit-system" :title="unitSystemTitle">
+          <span>Units</span>
+          <Select
+            :model-value="host.unitSystem.value"
+            :options="UNIT_SYSTEM_OPTIONS"
+            option-label="label"
+            option-value="value"
+            placeholder="Unknown"
+            size="small"
+            class="unit-system-select"
+            :disabled="!isDiagramShown || isSettingUnits"
+            input-id="celldl-unit-system"
+            aria-label="Unit system"
+            @update:model-value="onUnitSystemChange"
+          />
+        </label>
         <label class="follow-toggle" title="Changing a store's species or location changes its 0-junction's too, unless the junction has its own">
           <ToggleSwitch v-model="isFollowing" input-id="celldl-follow-store" aria-label="Junctions follow their store" />
           <span>Junctions follow their store</span>
@@ -230,6 +246,11 @@ const emit = defineEmits(['set-value', 'show-in-diagram'])
 
 const host = useCelldlEditorHost()
 const NAME_FIELDS = ['species', 'location']
+/** The unit systems a diagram can build its CellML in. */
+const UNIT_SYSTEM_OPTIONS = [
+  { value: 'cellular', label: 'Cellular (fmol, pL)' },
+  { value: 'si', label: 'SI (mol, L)' },
+]
 const FOLLOW_STORAGE_KEY = 'celldlParameters.followStore'
 
 // ── Toolbar ─────────────────────────────────────────────────────────────────
@@ -370,6 +391,32 @@ function onNameCommit(row, field, value) {
   sendEdits(structureEdits(row.element, field, value, { junction, follow: isFollowing.value }))
 }
 
+// ── Unit system ─────────────────────────────────────────────────────────────
+const isSettingUnits = ref(false)
+const unitSystemTitle = computed(() =>
+  props.isDiagramShown
+    ? "The units the diagram's CellML is in. Changing them is a diagram edit; saving rescales this instance's values to match."
+    : 'Show the diagram to change its unit system'
+)
+
+/**
+ * Sets the diagram's unit system, as a diagram edit.
+ *
+ * @param {string} id
+ */
+async function onUnitSystemChange(id) {
+  if (!id || id === host.unitSystem.value || !props.isDiagramShown) return
+  isSettingUnits.value = true
+  try {
+    const result = await host.setUnitSystem(id)
+    if (!result.ok) notify.error({ message: result.error || "The diagram's unit system wasn't changed" })
+  } catch (error) {
+    notify.error({ message: error.message })
+  } finally {
+    isSettingUnits.value = false
+  }
+}
+
 // ── Selection, both ways ────────────────────────────────────────────────────
 function onRowClick(row, event) {
   if (!row.element || event.target.closest('input, button, .p-select, label')) return
@@ -430,6 +477,23 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.unit-system {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: var(--dlg-fs-tiny);
+  color: var(--p-text-color);
+}
+
+.unit-system-select {
+  min-width: 10rem;
+}
+
+.unit-system + .follow-toggle {
+  margin-left: 8px;
 }
 
 .follow-toggle {

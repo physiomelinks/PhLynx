@@ -1459,5 +1459,102 @@ class TestCelldl(unittest.TestCase):
 
             browser.close()
 
+    def test_builds_a_new_module_in_cellular_units_and_rescales_its_values_when_switched_to_si(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            page.evaluate(SHORT_SIMULATION)
+
+            # ---------- START -----------
+            # A new module's diagram is Cellular, the default: a reaction drawn in it values its stores in fmol.
+            place(page, "TEMPLATE MODULES", "new_module")
+            dialog = open_editor(page, "new_module")
+            show_diagram_tab(page, dialog)
+            host = page.locator(".celldl-pane .celldl-host")
+            host.locator("#reactions-panel").click()
+            equation = host.get_by_label("New reaction's equation")
+            equation.fill("A[c] <=> B[c]")
+            equation.press("Enter")
+            initial = parameter_value(dialog, "q_A_c_init")
+            expect(initial).to_be_enabled(timeout=DIAGRAM_TIMEOUT)
+            expect(dialog.locator(".celldl-parameters .unit-system")).to_contain_text("Cellular (fmol, pL)")
+            expect(dialog.locator('.celldl-parameters [data-variable="q_A_c_init"] .value-units')).to_have_text("fmol")
+
+            # 5 and 1 mol, in fmol, so the same model in SI has values near 1.
+            initial.fill("5e15")
+            initial.press("Enter")
+            other = parameter_value(dialog, "q_B_c_init")
+            other.fill("1e15")
+            other.press("Enter")
+            dialog.get_by_role("button", name="Apply").click()
+            save_as = page.locator(".p-dialog").filter(has_text="Save As New Component")
+            save_as.locator("input").fill("ab_cellular")
+            save_as.get_by_role("button", name="Save").click()
+            # It converts with no issues, units ones included, so the save asks nothing more.
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            expect(page.locator(".confirm-container")).to_have_count(0)
+            wait_for_diagram(page)
+            for name, units in [("q_A_c_init", "fmol"), ("K_q_A_c", "per_fmol"), ("kappa_Rx_R1_c", "fmol_per_s")]:
+                expect(dialog.locator(f'.celldl-parameters [data-variable="{name}"] .value-units')).to_have_text(units)
+            self.assertTrue(saved_math_has(page, 'units="fmol"'))
+
+            run_this_instance(page, dialog)
+            cellular = final_value(page, "q_B_c")
+            self.assertIsNotNone(cellular)
+
+            # Switched to SI and saved, its values are rescaled to mol, keeping the quantities, so the run is the same.
+            dialog.get_by_role("tab", name=re.compile(r"Parameters \(")).click()
+            dialog.locator(".celldl-parameters .unit-system .p-select").click()
+            page.locator(".p-select-option").filter(has_text="SI (mol, L)").click()
+            expect(dialog.locator(".celldl-parameters .unit-system")).to_contain_text("SI (mol, L)")
+            dialog.get_by_role("button", name="Apply").click()
+            accept_overwrite(page)
+            prompt = page.locator(".confirm-container").filter(has_text="Units Changed")
+            expect(prompt).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            expect(prompt).to_contain_text("q_A_c_init")
+            expect(prompt).to_contain_text("fmol → mole, ×10⁻¹⁵")
+            prompt.get_by_role("button", name="Rescale and Save").click()
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            wait_for_diagram(page)
+            expect(parameter_value(dialog, "q_A_c_init")).to_have_value("5")
+            expect(parameter_value(dialog, "q_B_c_init")).to_have_value("1")
+            expect(dialog.locator('.celldl-parameters [data-variable="q_A_c_init"] .value-units')).to_have_text("mole")
+
+            run_this_instance(page, dialog)
+            page.wait_for_function(
+                """([name, before]) => {
+                    const results = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s
+                        .get('simulationResults').results
+                    const entry = [...(results?.variables ?? [])].find(([key]) => key === name || key.endsWith('/' + name))
+                    return entry && entry[1].values[entry[1].values.length - 1] !== before
+                }""",
+                arg=["q_B_c", cellular],
+                timeout=SIMULATION_TIMEOUT,
+            )
+            self.assertAlmostEqual(final_value(page, "q_B_c") / (cellular * 1e-15), 1, places=5)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_keeps_an_imported_diagram_without_a_unit_system_in_si(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+
+            # ---------- START -----------
+            import_diagram(page, ENZYME)
+            expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+            place(page, CELLDL_GROUP, ENZYME_MODULE)
+            dialog = open_editor(page, ENZYME_MODULE)
+            wait_for_diagram(page)
+            parameter_value(dialog, "kappa_Rx_r1_c")
+            expect(dialog.locator(".celldl-parameters .unit-system")).to_contain_text("SI (mol, L)")
+            expect(dialog.locator('.celldl-parameters [data-variable="kappa_Rx_r1_c"] .value-units')).to_have_text("mol_per_s")
+            with open(ENZYME) as f:
+                imported = f.read()
+            self.assertNotIn("unitSystem", imported)
+            self.assertEqual(stored_document(page, f"User_Modules.celldl:{ENZYME_MODULE}"), imported)
+            # ----------- END ------------
+
+            browser.close()
+
 if __name__ == '__main__':
     unittest.main()

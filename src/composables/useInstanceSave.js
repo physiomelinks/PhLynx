@@ -11,6 +11,7 @@ import {
   renameValues,
 } from '../services/math/reconcileRows'
 import { separateParameters } from '../services/math/separateParameters'
+import { rescaleRows } from '../services/math/unitRescale'
 import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
@@ -126,6 +127,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, source, isSourceChanged, units, globalConstants, updateAll, siblings } =
       save
     const renames = new Map(save.renames ?? [])
+    const unitRescales = save.unitRescales ?? []
     // The module's defaults before its source regenerated the math, under the names the source's edit gave them.
     const previousDefaults = save.previousDefaults ? renameValues(new Map(save.previousDefaults), renames) : null
     // Keep the shared units and reference, so one node's fields don't replace them.
@@ -149,8 +151,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       }
     } else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
-    // The source's renames are its own variables', so they move only the rows of nodes that were on the saved math,
-    // not those of another module's it overwrote.
+    // The source's renames, and the units its math changed, are its own variables', so they move and rescale only the
+    // rows of nodes that were on the saved math, not those of another module's it overwrote.
     const previousMathRef = save.previousMathRef ?? mathRef
     const renamedIds = new Set(nodes.value.filter((node) => node.data?.mathRef === previousMathRef).map((node) => node.id))
 
@@ -176,6 +178,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         node.data.variables = renameRows(node.data.variables ?? [], renames)
         node.data.ports = renamePortVariables(node.data.ports, renames)
       }
+      // Values keep their quantities in the math's new units.
+      if (unitRescales.length && renamedIds.has(node.id)) node.data.variables = rescaleRows(node.data.variables ?? [], unitRescales)
       updateVariablesFromMath(node, mathRef)
       cleanPorts(node)
     })

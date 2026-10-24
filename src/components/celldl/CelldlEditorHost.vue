@@ -8,6 +8,7 @@
         :editor-command="host.command.value"
         :options="EDITOR_OPTIONS"
         :theme="isDarkMode ? 'dark' : 'light'"
+        :unit-system="settings.celldlUnitSystem"
         @editor-data="host.onEditorData"
         @editor-state="host.onEditorState"
         @event="host.onViewerEvent"

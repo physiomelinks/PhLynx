@@ -23,13 +23,22 @@ function mountFakeEditor(host, { failOpen = false, listsElements = true } = {}) 
   container.id = 'svg-container'
   root.appendChild(container)
   let diagram = 'blank'
+  let unitSystem = 'cellular'
   const draw = () => container.replaceChildren(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
   const commands = []
   watch(host.command, (command) => {
     commands.push(command)
     const { action, data, kind } = command.options
     if (command.command === 'element' && action === 'list' && listsElements) {
-      queueMicrotask(() => host.onElements({ kind, revision: 0, elements: [] }))
+      queueMicrotask(() => host.onElements({ kind, revision: 0, elements: [], unitSystem }))
+    }
+    if (command.command === 'document' && action === 'set-unit-system') {
+      const { id } = command.options
+      const isKnown = ['si', 'cellular'].includes(id)
+      if (isKnown) unitSystem = id
+      queueMicrotask(() =>
+        host.onEditorData({ kind, data: unitSystem, ...(!isKnown && { error: `Unknown unit system '${id}'` }) })
+      )
     }
     if (command.command !== 'file') return
     if (action === 'open') {
@@ -666,5 +675,44 @@ describe('EDITOR_CHROME', () => {
     // An empty list, not false: false would hide the Undo and Redo buttons with the toolbar.
     expect(EDITOR_CHROME.tools).toEqual([])
     expect(EDITOR_CHROME.undo).not.toBe(false)
+  })
+})
+
+describe("the CellDL editor's unit system", () => {
+  let host
+
+  beforeEach(() => {
+    host = createCelldlEditorHost({ readyTimeout: 500, commandTimeout: 200 })
+    host.listen()
+  })
+
+  afterEach(() => {
+    host.unlisten()
+    document.body.replaceChildren()
+  })
+
+  it("follows the diagram's unit system from its element list, and forgets it as another opens", async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    await host.whenReady()
+    expect(host.unitSystem.value).toBeNull()
+    await host.listElements()
+    expect(host.unitSystem.value).toBe('cellular')
+    host.onElements({ revision: 1, elements: [], unitSystem: 'si' })
+    expect(host.unitSystem.value).toBe('si')
+    host.claim(document.createElement('div'))
+    host.prepare(SOURCE)
+    expect(host.unitSystem.value).toBeNull()
+  })
+
+  it('sets the unit system, converting the values, and says why it could not', async () => {
+    const editor = mountFakeEditor(host)
+    editor.draw()
+    expect(await host.setUnitSystem('si')).toEqual({ ok: true, unitSystem: 'si' })
+    expect(host.unitSystem.value).toBe('si')
+    const sent = editor.commands.find((command) => command.command === 'document')
+    expect(sent.options).toMatchObject({ action: 'set-unit-system', id: 'si', convert: true })
+    expect(await host.setUnitSystem('kmol')).toEqual({ ok: false, unitSystem: 'si', error: "Unknown unit system 'kmol'" })
+    expect(host.unitSystem.value).toBe('si')
   })
 })

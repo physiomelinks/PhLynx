@@ -30,6 +30,11 @@ describe('CelldlParametersTab', () => {
       selection: shallowRef({ id: null, isHostSelection: false }),
       setElement: vi.fn(async () => ({ ok: true })),
       selectElement: vi.fn(async () => ({ ok: true })),
+      unitSystem: shallowRef('si'),
+      setUnitSystem: vi.fn(async (id) => {
+        host.unitSystem.value = id
+        return { ok: true, unitSystem: id }
+      }),
     })
     notify.error.mockClear()
     try {
@@ -200,5 +205,42 @@ describe('CelldlParametersTab', () => {
     expect(host.selectElement).not.toHaveBeenCalled()
     await mainRow(STORE_S).find('button[aria-label="Show in diagram"]').trigger('click')
     expect(wrapper.emitted('show-in-diagram')).toEqual([[STORE_S]])
+  })
+
+  describe('unit system', () => {
+    const unitSystem = () => wrapper.find('.unit-system')
+    const choose = async (id) => {
+      await wrapper.vm.$.setupState.onUnitSystemChange(id)
+      await nextTick()
+    }
+
+    it("shows the diagram's unit system, and sets another as a diagram edit", async () => {
+      mountTab()
+      expect(unitSystem().text()).toContain('SI (mol, L)')
+      await unitSystem().find('.p-select-label').trigger('click')
+      await nextTick()
+      const offered = [...document.body.querySelectorAll('.p-select-option')].map((option) => option.textContent.trim())
+      expect(offered).toEqual(['Cellular (fmol, pL)', 'SI (mol, L)'])
+      await choose('cellular')
+      expect(host.setUnitSystem).toHaveBeenCalledWith('cellular')
+      expect(unitSystem().text()).toContain('Cellular (fmol, pL)')
+      // Choosing the system it has already sends nothing.
+      await choose('cellular')
+      expect(host.setUnitSystem).toHaveBeenCalledTimes(1)
+    })
+
+    it('says why the unit system was not set', async () => {
+      host.setUnitSystem.mockResolvedValueOnce({ ok: false, unitSystem: 'si', error: "Unknown unit system 'x'" })
+      mountTab()
+      await choose('cellular')
+      expect(notify.error).toHaveBeenCalledWith({ message: "Unknown unit system 'x'" })
+    })
+
+    it("can't be changed while the diagram isn't shown", async () => {
+      mountTab({ isDiagramShown: false })
+      expect(unitSystem().find('.p-select').classes()).toContain('p-disabled')
+      await choose('cellular')
+      expect(host.setUnitSystem).not.toHaveBeenCalled()
+    })
   })
 })

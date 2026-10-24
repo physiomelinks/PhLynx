@@ -280,6 +280,55 @@ describe('useInstanceSave', () => {
       expect(library.getMathDefaults(DECAY_REF).get('c')).toBe('3')
     })
 
+    describe('units the regenerated math changed', () => {
+      // x from metre to mm: a value of 2 m is 2000 mm.
+      const MM_XML = GENERATED_XML.replaceAll('units="metre"', 'units="mm"')
+      const RESCALES = ['x', 'x0'].map((name) => ({ name, from: 'metre', to: 'mm', factor: { coefficient: 1, power: 3 } }))
+      const withX0 = (node, value) =>
+        (node.data.variables = [...node.data.variables, { name: 'x0', value, units: 'metre', type: 'constant' }])
+
+      beforeEach(() => {
+        library.setMathSource(DECAY_REF, SOURCE)
+        withX0(findNode('a'), '1')
+        withX0(findNode('b'), '2')
+      })
+
+      it("rescales every instance's values on an overwrite, and undoes it", async () => {
+        const bBefore = detachReactivity(findNode('b').data.variables)
+        const variables = findNode('a').data.variables.map((row) =>
+          row.name === 'x0' ? { ...row, value: '1000', units: 'mm' } : row.name === 'x' ? { ...row, units: 'mm' } : row
+        )
+
+        await saveInstanceEdit(buildSave({ math: MM_XML, source: SOURCE, isSourceChanged: true, variables, unitRescales: RESCALES }))
+
+        const x0 = findNode('b').data.variables.find((row) => row.name === 'x0')
+        expect(x0).toMatchObject({ value: '2000', units: 'mm' })
+        await history.undo()
+        expect(detachReactivity(findNode('b').data.variables)).toEqual(bBefore)
+        await history.redo()
+        expect(findNode('b').data.variables.find((row) => row.name === 'x0')).toMatchObject({ value: '2000', units: 'mm' })
+      })
+
+      it("rescales only this instance's values when saved as a new component", async () => {
+        const bBefore = detachReactivity(findNode('b').data.variables)
+
+        await saveInstanceEdit(
+          buildSave({ mathRef: 'fast.cellml:fast', math: MM_XML.replaceAll('decay', 'fast'), source: SOURCE, isSourceChanged: true, unitRescales: RESCALES })
+        )
+
+        expect(detachReactivity(findNode('b').data.variables)).toEqual(bBefore)
+      })
+
+      it('leaves a row in other units alone', async () => {
+        const rescales = [{ name: 'k', from: 'per_second', to: 'per_ms', factor: { coefficient: 1, power: -3 } }]
+        findNode('b').data.variables = findNode('b').data.variables.map((row) => (row.name === 'k' ? { ...row, units: 'per_minute' } : row))
+
+        await saveInstanceEdit(buildSave({ math: GENERATED_XML, source: SOURCE, isSourceChanged: true, unitRescales: rescales }))
+
+        expect(findNode('b').data.variables.find((row) => row.name === 'k')).toMatchObject({ value: '0.5', units: 'per_minute' })
+      })
+    })
+
     it("moves every instance's values, ports and the module's defaults to the variables a diagram edit renamed", async () => {
       library.setMathSource(DECAY_REF, SOURCE)
       const own = createNode('c')

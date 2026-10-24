@@ -543,7 +543,7 @@ import {
   resolvePlotConfig,
 } from '../services/simulation/plotSelections'
 
-import { isEmpty, syncInitialiserUnits } from '../utils/variables'
+import { isEmpty, isNumericLiteral, syncInitialiserUnits } from '../utils/variables'
 import { getUnknownUnitsNotice, isValueMissing } from '../utils/parameterRows'
 import {
   NEW_MODULE_MATH_REF,
@@ -563,13 +563,23 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { areModelsEquivalent, getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
-import { areUnitsModelsEquivalent } from '../utils/units'
+import { areUnitsModelsEquivalent, mergeUnitDefinitions } from '../utils/units'
 import { separateParameters } from '../services/math/separateParameters'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
 import { issueItems } from '../services/celldl/issues'
 import { buildElementTable, variableRenames } from '../services/celldl/elementTable'
 import { renamePortVariables, renameRows, renameValues } from '../services/math/reconcileRows'
 import { liveComponentMath } from '../services/celldl/liveMath'
+import { analyzeMathXml } from '../services/math/analyzeMath'
+import {
+  declaredUnits,
+  findUnitRescales,
+  formatFactor,
+  isIdentityFactor,
+  rescaleRows,
+  rescaleValues,
+  withInitialiserRescales,
+} from '../services/math/unitRescale'
 import { findPort } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
@@ -2138,6 +2148,75 @@ function renameCelldlRows(renames) {
 }
 
 /**
+ * Finds the variables a regenerated math gives compatible new units, e.g. a diagram switched to Cellular gives
+ * `mole` rows `fmol`, so their values are rescaled to keep the quantities they were; values are numbers in their
+ * row's units, so would otherwise change by the factor. A rescale that changes a value this instance or the module
+ * holds is confirmed first.
+ *
+ * @param {{mathRef: string, math: string, units: Object|null}} staged - stageDiagram's.
+ * @param {Map<string, string>} renames - The variables the diagram edit renamed.
+ * @param {Map<string, string>} defaults - The module's defaults before the save, under their old names.
+ * @returns {Promise<Array<Object>|null>} findUnitRescales', with initialisers, or null when the save stops.
+ */
+async function confirmUnitRescales(staged, renames, defaults) {
+  const fromUnits = declaredUnits(analyzeMathXml(store.availableMath.get(props.mathRef) ?? ''), renames)
+  const toUnits = declaredUnits(analyzeMathXml(staged.math))
+  // The new units are those the save writes: its grouping's file first, then the library's others.
+  const ownFile = staged.units?.componentFile
+  const toModels = [
+    ...(staged.units?.model ? [staged.units.model] : []),
+    ...store.availableUnits.filter((file) => file.componentFile !== ownFile).map((file) => file.model),
+  ]
+  const rows = renameRows(parameterRows.value, renames)
+  const rescales = withInitialiserRescales(
+    findUnitRescales(fromUnits, toUnits, { from: store.unitDefinitions, to: mergeUnitDefinitions(toModels) }),
+    rows
+  )
+  // Only values change, so only variables holding one are listed.
+  const valued = new Set([
+    ...rows.filter((row) => isNumericLiteral(row.value)).map((row) => row.name),
+    ...[...defaults].filter(([, value]) => isNumericLiteral(value)).map(([name]) => renames.get(name) ?? name),
+  ])
+  const changed = rescales.filter((rescale) => !isIdentityFactor(rescale.factor) && valued.has(rescale.name))
+  if (!changed.length) return rescales
+  const whose =
+    staged.mathRef === props.mathRef
+      ? "every instance of the module has its values"
+      : applyToAll.value && siblingCount.value
+        ? 'this instance and those it applies to have their values'
+        : "this instance's values are"
+  const proceed = await confirm({
+    header: 'Units Changed',
+    message: `The diagram changes these variables' units, so ${whose} rescaled to keep the same quantities:`,
+    issues: changed.map((rescale) => ({
+      key: rescale.name,
+      label: rescale.name,
+      message: `${rescale.from} → ${rescale.to}, ${formatFactor(rescale.factor)}`,
+    })),
+    severity: 'info',
+    acceptLabel: 'Rescale and Save',
+    rejectLabel: 'Cancel',
+  })
+  return proceed ? rescales : null
+}
+
+/**
+ * Rescales the values this instance holds for variables whose units a regenerated math changed (confirmUnitRescales):
+ * its rows, and values typed for renamed variables, which are in the units their old rows show.
+ *
+ * @param {Array<Object>} rescales
+ * @param {Map<string, string>} renames
+ */
+function rescaleInstanceValues(rescales, renames) {
+  if (!rescales.length) return
+  const renamedTo = new Set(renames.values())
+  const pending = pendingValues.value
+  const carried = new Map([...pending].filter(([name]) => renamedTo.has(name)))
+  pendingValues.value = new Map([...pending, ...rescaleValues(carried, rescales)])
+  parameterRows.value = rescaleRows(parameterRows.value, rescales)
+}
+
+/**
  * Works out the math reference a save writes to, asking before overwriting stored math or renaming a save of the
  * template. Math saved under its component's name overwrites it in place; a new component, renamed or saved as new,
  * stays in its math's grouping, or, from the template, goes in the CellML user modules grouping (newComponentFile).
@@ -2300,9 +2379,17 @@ async function saveInstance(options) {
   // Its math replaces the session's only once the save goes ahead, so a cancelled save keeps the stored math.
   let target = null
   // The module's defaults before this save, which its variables keep (keepDefaults).
-  const previousDefaults = isRegenerated && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
+  let previousDefaults = isRegenerated && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
   let renames = new Map()
+  // Variables whose units the regenerated math changed, whose values every instance that moves to it rescales.
+  let unitRescales = []
   if (isRegenerated) {
+    // Variables the edit renamed keep this instance's values under their new names.
+    renames = variableRenames(store.getMathSource(props.mathRef)?.elements ?? null, staged.source.elements ?? null)
+    const rescales = await confirmUnitRescales(staged, renames, previousDefaults)
+    if (!rescales) return
+    unitRescales = rescales
+    previousDefaults = rescaleValues(previousDefaults, rescales, renames)
     // A diagram saved under its module's name overwrites it, as asked while staging. The template's, a renamed one's, or
     // one saved as a new component, was named as it converted, so is a new module.
     target = {
@@ -2310,9 +2397,8 @@ async function saveInstance(options) {
       math: staged.math,
       layout: staged.mathRef === props.mathRef ? currentLayout.value : null,
     }
-    // Variables the edit renamed keep this instance's values under their new names.
-    renames = variableRenames(store.getMathSource(props.mathRef)?.elements ?? null, staged.source.elements ?? null)
     renameCelldlRows(renames)
+    rescaleInstanceValues(rescales, renames)
     session.applyGeneratedModel(staged.math, { previousDefaults: renameValues(previousDefaults, renames) })
   }
   if (isCelldlModule.value) applyCelldlValues({ isStaged: isRegenerated })
@@ -2362,6 +2448,8 @@ async function saveInstance(options) {
       previousDefaults: isRegenerated ? [...previousDefaults] : null,
       // Variables the diagram edit renamed, whose values every instance's rows on the saved math move to the new names.
       renames: [...renames],
+      // Variables whose units the regenerated math changed, by their new names, whose values those rows rescale.
+      unitRescales,
       // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
       globalConstants: parameterRows.value
         .filter((row) => row.type === 'global_constant')

@@ -58,3 +58,13 @@ describe('bond arrowheads setting', () => {
     expect(isValidAppSetting('arrowStyle', 'notched')).toBe(false)
   })
 })
+
+describe('unit system for new CellDL modules', () => {
+  it('defaults to Cellular, offering SI as the other choice', () => {
+    expect(defaultAppSettings().celldlUnitSystem).toBe('cellular')
+    expect(APP_SETTINGS.get('celldlUnitSystem').options.map((option) => option.value)).toEqual(['cellular', 'si'])
+    expect(APP_SETTINGS.get('celldlUnitSystem').label).toBe('New CellDL modules: unit system')
+    expect(isValidAppSetting('celldlUnitSystem', 'si')).toBe(true)
+    expect(isValidAppSetting('celldlUnitSystem', 'fmol')).toBe(false)
+  })
+})

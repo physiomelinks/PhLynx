@@ -54,6 +54,18 @@ export const SETTING_SECTIONS = [
         ],
         default: 'classic',
       },
+      {
+        key: 'celldlUnitSystem',
+        type: 'select',
+        label: 'New CellDL modules: unit system',
+        description:
+          "The units a new module's diagram builds its CellML in. Each module keeps its own, which its Parameters tab changes; a diagram saved without one is SI.",
+        options: [
+          { value: 'cellular', label: 'Cellular (fmol, pL)', hint: 'Amounts in fmol and volumes in pL, so cell-sized values are near 1' },
+          { value: 'si', label: 'SI (mol, L)', hint: "The BG-RDF templates' own units" },
+        ],
+        default: 'cellular',
+      },
     ],
   },
   {
