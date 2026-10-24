@@ -46,3 +46,19 @@ export function issueItems({ errors = [], warnings = [] } = {}, sources = {}) {
   })
   return [...errors.map(item('error')), ...warnings.map(item('warning'))]
 }
+
+/**
+ * Warns of each store or source whose location isn't that of the labelled compartment it is drawn in, e.g. as it was
+ * set by hand: the CellDL editor lists that compartment's location as the element's `compartment`.
+ *
+ * @param {Array<{ id: string, location?: string, compartment?: string }>|null} elements - The editor's element list.
+ * @returns {Array<{ message: string, elementId: string }>} Warnings of bg2cellml's shape.
+ */
+export function compartmentLocationWarnings(elements) {
+  return (elements ?? [])
+    .filter((element) => element.compartment && element.compartment !== element.location)
+    .map((element) => ({
+      message: `Its location is ${element.location ? `'${element.location}'` : 'unset'}, but it is inside compartment '${element.compartment}'`,
+      elementId: element.id,
+    }))
+}

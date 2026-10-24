@@ -68,7 +68,7 @@ import ProgressSpinner from 'primevue/progressspinner'
 import { useCelldlEditorHost } from '../../composables/useCelldlEditorHost'
 import { useLiveCelldlConvert } from '../../composables/useLiveCelldlConvert'
 import { variableForElement } from '../../services/celldl/elements'
-import { issueItems } from '../../services/celldl/issues'
+import { compartmentLocationWarnings, issueItems } from '../../services/celldl/issues'
 
 const props = defineProps({
   /** The instance's variable rows, which an element's variable must have to be plotted. */
@@ -88,28 +88,33 @@ const isPending = computed(() => !host.isReady.value || host.isSyncing.value)
 // Not for a diagram that failed to open, as the editor still shows the one before.
 const isLiveShown = computed(() => live.isAvailable && !host.error.value)
 
+/** The editor's warnings of stores and sources whose location isn't their compartment's. */
+const locationWarnings = computed(() => compartmentLocationWarnings(host.elements.value))
+
+/** The live conversion's warnings, with the editor's. */
+const warnings = computed(() => [...(live.result.value?.warnings ?? []), ...locationWarnings.value])
+
 /** The live conversion's state: off, converting, ok, warnings or errors. */
 const liveState = computed(() => {
   if (live.error.value) return 'off'
   const result = live.result.value
   if (live.isPending.value || !result) return 'converting'
   if (result.errors.length) return 'errors'
-  return result.warnings.length ? 'warnings' : 'ok'
+  return warnings.value.length ? 'warnings' : 'ok'
 })
 
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
 const liveStatus = computed(() => {
-  const result = live.result.value
   switch (liveState.value) {
     case 'off':
       return 'Live conversion is unavailable'
     case 'converting':
       return 'Converting…'
     case 'errors':
-      return `${plural(live.issues.value.length, 'issue')}, checked again on save`
+      return `${plural(live.issues.value.length + locationWarnings.value.length, 'issue')}, checked again on save`
     case 'warnings':
-      return `Converts, with ${plural(result.warnings.length, 'warning')}`
+      return `Converts, with ${plural(warnings.value.length, 'warning')}`
     default:
       // Runs check the saved module, so until the diagram is saved only its conversion is known.
       if (host.isDirty.value) return 'Converts, not yet saved'
@@ -122,7 +127,7 @@ const isRunnable = computed(() => live.latest.value?.pass === 'full' && !!live.r
 
 const liveTitle = computed(() => {
   if (live.error.value) return live.error.value
-  if (live.issues.value.length) return ''
+  if (live.issues.value.length || locationWarnings.value.length) return ''
   if (live.isChecking.value && !live.isPending.value) return 'Checking with libCellML…'
   if (live.latest.value?.pass !== 'full') return ''
   if (host.isDirty.value && isRunnable.value) return 'Checked with libCellML: it runs once saved'
@@ -130,13 +135,16 @@ const liveTitle = computed(() => {
 })
 
 /**
- * The live conversion's issues, errors first, each naming its element by the label the conversion, or else the
- * diagram's annotations, give it.
+ * The live conversion's issues, errors first, then the editor's location warnings, each naming its element by the
+ * label the conversion, or else the diagram's annotations, give it.
  */
 const issueList = computed(() => {
   const result = live.result.value
   if (!result || live.error.value) return []
-  return issueItems(result, { elements: result.elements, annotations: host.annotations.value })
+  return issueItems(
+    { errors: result.errors, warnings: warnings.value },
+    { elements: result.elements, annotations: host.annotations.value }
+  )
 })
 
 const issuePopover = ref(null)

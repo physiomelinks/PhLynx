@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { elementLabel, issueItems, issueLines } from '../../../../src/services/celldl/issues.js'
+import {
+  compartmentLocationWarnings,
+  elementLabel,
+  issueItems,
+  issueLines,
+} from '../../../../src/services/celldl/issues.js'
 
 describe('issueLines', () => {
   it('lists the first issues, after the element each names, and counts the rest', () => {
@@ -33,5 +38,24 @@ describe('issueItems', () => {
 
   it('lists nothing for no result', () => {
     expect(issueItems()).toEqual([])
+  })
+})
+
+describe('compartmentLocationWarnings', () => {
+  it("warns of each element whose location isn't its compartment's", () => {
+    const elements = [
+      { id: 'A', location: 'x', compartment: 'm' },
+      { id: 'B', location: 'm', compartment: 'm' },
+      { id: 'C', location: 'c' },
+      { id: 'D', compartment: 'm' },
+    ]
+    expect(compartmentLocationWarnings(elements)).toEqual([
+      { message: "Its location is 'x', but it is inside compartment 'm'", elementId: 'A' },
+      { message: "Its location is unset, but it is inside compartment 'm'", elementId: 'D' },
+    ])
+  })
+
+  it('warns of nothing without an element list', () => {
+    expect(compartmentLocationWarnings(null)).toEqual([])
   })
 })
