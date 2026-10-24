@@ -159,10 +159,10 @@ function resolveWholeBoundaryValues(scope) {
 }
 
 /**
- * Checks a scope before it is flattened. Missing values, conflicts, incomplete nodes and boundary conditions
- * coupled only to each other in the whole model stop the build; lost Sum terms, trimmed inspection modules,
- * boundary conditions falling back to their own value and boundary conditions set to 0 for want of one are
- * warnings, since the scope still builds. A boundary condition the run itself supplies, as a sweep does, isn't set to 0
+ * Checks a scope before it is flattened. Missing values, conflicts, variables set more than once, incomplete nodes
+ * and boundary conditions coupled only to each other in the whole model stop the build; lost Sum terms, trimmed
+ * inspection modules, boundary conditions falling back to their own value and boundary conditions set to 0 for want of
+ * one are warnings, since the scope still builds. A boundary condition the run itself supplies, as a sweep does, isn't set to 0
  * for long, so it isn't warned about.
  *
  * @param {ReturnType<typeof resolveScope>} scope
@@ -194,8 +194,12 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
   if (!scope.nodes.length) errors.push('Select at least one instance to simulate.')
 
   try {
-    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges)
-    conflicts = [...scoped.conflicts, ...findCouplingConflicts(scope, libraryStore)]
+    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges, libraryStore.getMathAnalysis)
+    conflicts = [
+      ...scoped.conflicts,
+      ...scoped.overdetermined.map(({ message }) => message),
+      ...findCouplingConflicts(scope, libraryStore),
+    ]
     const whole = resolveWholeBoundaryValues(scope)
 
     // Boundary conditions coupled only to each other in the whole model, which export rejects too.

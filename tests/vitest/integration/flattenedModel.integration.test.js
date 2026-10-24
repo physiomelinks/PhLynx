@@ -450,6 +450,48 @@ describe('generateFlattenedModel multiport couplings', () => {
     expect(math.match(/<ci>op_scaled_v[^<]*<\/ci>/g)).toHaveLength(entry.terms.filter((term) => term.factor === 2).length)
   })
 
+  it('rejects a state coupled to an algebraic variable, which libCellML would solve as a DAE dropping one', () => {
+    const statePort = (portType, variable) => ({ portType, label: 'state', variables: [variable], multiportType: 'None' })
+    const owner = buildNode('owner', 'file:hub', [statePort('exit_ports', 'q')], { v_sum: '0' })
+    const reader = buildNode('reader', 'file:hub', [statePort('entrance_ports', 'u')], { v_sum: '0' })
+    expect(() => generateFlattenedModel([owner, reader], [connect(owner, reader)], store)).toThrow(
+      'owner.q and reader.u are both computed; only one module can set a connected variable.'
+    )
+    expect(checkScope(resolveScope(null, [owner, reader], [connect(owner, reader)]), store).conflicts).toEqual([
+      'owner.q and reader.u are both computed; only one module can set a connected variable.',
+    ])
+  })
+
+  it('builds an input a saved row still types as a variable, which its math only reads', async () => {
+    const pressure = (portType) => ({ portType, label: 'pressure', variables: ['u'], multiportType: 'None' })
+    const hub = buildNode('hub', 'file:hub', [pressure('exit_ports')], { v_sum: '0' })
+    const leaf = buildNode('leaf', 'file:leaf', [pressure('entrance_ports')])
+    leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'u' ? { ...row, type: 'variable' } : row))
+    const edges = [connect(hub, leaf)]
+    await expect(flatten([hub, leaf], edges)).resolves.toContain('<component name="leaf">')
+    expect(checkScope(resolveScope(null, [hub, leaf], edges), store).conflicts).toEqual([])
+  })
+
+  /** A leaf whose rate k is a constant coupled through a port. */
+  function rateLeaf(id, portType, k) {
+    const leaf = buildNode(id, 'file:leaf', [{ portType, label: 'rate', variables: ['k'], multiportType: 'None' }], { u: '1', k })
+    leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'k' ? { ...row, type: 'constant' } : row))
+    return leaf
+  }
+
+  it('rejects constants coupled with different values, which would both initialise the variable', () => {
+    const a = rateLeaf('a', 'exit_ports', '0.5')
+    const b = rateLeaf('b', 'entrance_ports', '0.25')
+    expect(() => generateFlattenedModel([a, b], [connect(a, b)], store)).toThrow('a.k=0.5 and b.k=0.25 are connected but set to different values')
+  })
+
+  it('builds constants coupled with the same value, initialising them once', async () => {
+    const a = rateLeaf('a', 'exit_ports', '0.5')
+    const b = rateLeaf('b', 'entrance_ports', '0.5')
+    const text = await (await generateFlattenedModel([a, b], [connect(a, b)], store)).text()
+    expect(text.match(/initial_value="0\.5"/g)).toHaveLength(1)
+  })
+
   it('rejects a sum between ports with different numbers of variables', () => {
     const hub = buildNode('hub', 'file:hub', [vesselPort('exit_ports', ['v_sum', 'u'], ['sum', 'True'])])
     const leaf = buildNode('leaf', 'file:leaf', [vesselPort('entrance_ports', ['v'], 'None')], { u: '1' })

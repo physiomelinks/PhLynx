@@ -244,6 +244,165 @@ describe('resolveBoundaryValues', () => {
     })
   })
 
+  describe('variables set more than once', () => {
+    const state = (name) => ({ ...row(name, 'variable'), stateRole: 'state' })
+    const messages = (nodes, edges) => resolveBoundaryValues(nodes, edges).overdetermined.map(({ message }) => message)
+
+    it.each([
+      ['a state and an algebraic variable', state('V'), row('V', 'variable')],
+      ['two states', state('V'), state('V')],
+      ['two algebraic variables', row('V', 'variable'), row('V', 'variable')],
+    ])('reports %s', (_, somaRow, axonRow) => {
+      const nodes = [node('soma', [somaRow]), node('axon', [axonRow])]
+      const result = resolveBoundaryValues(nodes, [edge('soma', 'axon', port(['V']), port(['V']))])
+      expect(result.overdetermined).toEqual([
+        { keys: ['soma::V', 'axon::V'], message: 'soma.V and axon.V are both computed; only one module can set a connected variable.' },
+      ])
+      expect(result.status.get('soma').get('V')).toEqual({ state: 'overdetermined', from: ['axon.V'] })
+    })
+
+    it('names every computed variable in a larger group, and still ignores its constants', () => {
+      const nodes = [node('a', [row('x', 'variable')]), node('b', [row('x', 'variable')]), node('c', [row('x', 'variable')]), node('d', [row('x', 'constant', '1')])]
+      const edges = [edge('a', 'b', port(['x']), port(['x'])), edge('b', 'c', port(['x']), port(['x'])), edge('c', 'd', port(['x']), port(['x']))]
+      const { overdetermined, ignored } = resolveBoundaryValues(nodes, edges)
+      expect(overdetermined.map(({ message }) => message)).toEqual([
+        'a.x, b.x and c.x are all computed; only one module can set a connected variable.',
+      ])
+      expect(overdetermined[0].keys).toEqual(expect.arrayContaining(['d::x']))
+      expect(namesFor(ignored, 'd')).toEqual(['x'])
+    })
+
+    it('reports a variable coupled to a sum, a multiply output or a unit conversion', () => {
+      const hub = node('hub', [row('total', 'boundary_condition')], [port(['total'], 'Sum')])
+      const summed = [hub, node('leaf', [row('q', 'variable')]), node('other', [row('total', 'variable')])]
+      expect(
+        messages(summed, [edge('hub', 'leaf', port(['total'], 'Sum'), port(['q'])), edge('hub', 'other', port(['total']), port(['total']))])
+      ).toEqual(['hub.total (the sum of leaf.q) and other.total are both computed; only one module can set a connected variable.'])
+
+      const scaled = [node('src', [row('q', 'variable')]), node('dst', [row('q_in', 'variable')])]
+      expect(messages(scaled, [edge('src', 'dst', port(['q'], 'Multiply'), port(['q_in']))])).toEqual([
+        'dst.q_in (its own math and scaled from src.q) is computed twice; only one module can set a connected variable.',
+      ])
+
+      const converted = [node('a', [row('T', 'variable', '', 'kelvin')]), node('b', [row('T_c', 'variable', '', 'celsius')])]
+      expect(messages(converted, [edge('a', 'b', port(['T']), port(['T_c']))])).toEqual([
+        'b.T_c (its own math and converted from a.T) is computed twice; only one module can set a connected variable.',
+      ])
+    })
+
+    it('reports a boundary condition two Multiply outputs both set', () => {
+      const nodes = [node('a', [row('q', 'variable')]), node('b', [row('q', 'variable')]), node('dst', [row('q_in', 'boundary_condition')])]
+      const edges = ['a', 'b'].map((src) => edge(src, 'dst', port(['q'], 'Multiply'), port(['q_in'])))
+      expect(messages(nodes, edges)).toEqual([
+        'dst.q_in (scaled from a.q, b.q) is computed twice; only one module can set a connected variable.',
+      ])
+    })
+
+    it('reports a computed variable a connected Sum port also sums into', () => {
+      const nodes = [node('hub', [row('total', 'variable')], [port(['total'], 'Sum')]), node('leaf', [row('q', 'variable')])]
+      expect(messages(nodes, [edge('hub', 'leaf', port(['total'], 'Sum'), port(['q']))])).toEqual([
+        'hub.total (its own math and the sum of leaf.q) is computed twice; only one module can set a connected variable.',
+      ])
+    })
+
+    it('reports a computed variable coupled to a Sum variable nothing sums into, which is 0', () => {
+      const nodes = [node('hub', [row('s', 'boundary_condition')], [port(['s'], 'Sum'), port(['s'])]), node('leaf', [row('q', 'variable')])]
+      expect(messages(nodes, [edge('hub', 'leaf', port(['s']), port(['q']))])).toEqual([
+        'hub.s (a sum with nothing connected, so 0) and leaf.q are both computed; only one module can set a connected variable.',
+      ])
+    })
+
+    it('reports constants given different values, naming each', () => {
+      const nodes = [node('a', [row('k', 'constant', '1')]), node('b', [row('k', 'constant', '2')])]
+      const result = resolveBoundaryValues(nodes, [edge('a', 'b', port(['k']), port(['k']))])
+      expect(result.overdetermined.map(({ message }) => message)).toEqual([
+        'a.k=1 and b.k=2 are connected but set to different values; give them one value, or let one module compute it.',
+      ])
+      expect(result.status.get('b').get('k')).toEqual({ state: 'overdetermined', from: ['a.k'] })
+      expect(result.ignored.size).toBe(0)
+    })
+
+    it('reports a constant coupled to a global constant, or to another one', () => {
+      const mixed = [node('a', [row('T', 'constant', '310')]), node('b', [row('T', 'global_constant')])]
+      expect(messages(mixed, [edge('a', 'b', port(['T']), port(['T']))])).toEqual([
+        'a.T=310 and b.T (global) are connected but set to different values; give them one value, or let one module compute it.',
+      ])
+      const globals = [node('a', [row('R', 'global_constant')]), node('b', [row('R_gas', 'global_constant')])]
+      expect(messages(globals, [edge('a', 'b', port(['R']), port(['R_gas']))])).toHaveLength(1)
+    })
+
+    it('sets a group once from constants that agree, as it does from boundary conditions', () => {
+      const nodes = [node('a', [row('k', 'constant', '2')]), node('b', [row('k', 'constant', ' 2 ')]), node('c', [row('k', 'boundary_condition')])]
+      const edges = [edge('a', 'b', port(['k']), port(['k'])), edge('b', 'c', port(['k']), port(['k']))]
+      const { overdetermined, ignored, status } = resolveBoundaryValues(nodes, edges)
+      expect(overdetermined).toEqual([])
+      expect(namesFor(ignored, 'b')).toEqual(['k'])
+      expect(ignored.has('a')).toBe(false)
+      expect(status.get('b').get('k')).toEqual({ state: 'connected', from: ['a.k'] })
+      expect(status.get('c').get('k')).toEqual({ state: 'connected', from: ['a.k'] })
+
+      const globals = [node('a', [row('R', 'global_constant')]), node('b', [row('R', 'global_constant')])]
+      expect(resolveBoundaryValues(globals, [edge('a', 'b', port(['R']), port(['R']))]).overdetermined).toEqual([])
+    })
+
+    describe('leaves valid groups alone', () => {
+      it('one computed variable with constants and boundary conditions', () => {
+        const nodes = [node('a', [state('V')]), node('b', [row('V', 'constant', '1')]), node('c', [row('V', 'boundary_condition', '2')])]
+        const edges = [edge('a', 'b', port(['V']), port(['V'])), edge('a', 'c', port(['V']), port(['V']))]
+        expect(resolveBoundaryValues(nodes, edges).overdetermined).toEqual([])
+      })
+
+      it('a sum of several computed terms feeding one boundary condition', () => {
+        const hubPort = port(['total'], 'Sum')
+        const nodes = [
+          node('hub', [row('total', 'boundary_condition')], [hubPort]),
+          node('l1', [row('q', 'variable')]),
+          node('l2', [row('q', 'variable')]),
+          node('tank', [row('v_in', 'boundary_condition')]),
+        ]
+        const edges = [
+          edge('hub', 'l1', hubPort, port(['q'])),
+          edge('hub', 'l2', hubPort, port(['q'])),
+          edge('hub', 'tank', port(['total']), port(['v_in'])),
+        ]
+        expect(resolveBoundaryValues(nodes, edges).overdetermined).toEqual([])
+      })
+
+      it('a saved variable row its math only reads, or uses as the VoI', () => {
+        // As an older workspace's SN_axon.V_in: typed `variable`, though its math only reads it.
+        const withMath = (id, rows, mathRef) => ({ ...node(id, rows), data: { ...node(id, rows).data, mathRef } })
+        const analyses = { soma: { stateVariables: ['V'], assigned: [] }, axon: { stateVariables: ['V'], assigned: ['I'] } }
+        const nodes = [withMath('soma', [state('V'), row('t', 'variable')], 'soma'), withMath('axon', [row('V_in', 'variable'), row('t', 'variable')], 'axon')]
+        const edges = [edge('soma', 'axon', port(['V', 't']), port(['V_in', 't']))]
+        expect(resolveBoundaryValues(nodes, edges, (mathRef) => analyses[mathRef]).overdetermined).toEqual([])
+        // Math it can't analyse falls back to the rows' types.
+        expect(resolveBoundaryValues(nodes, edges, () => null).overdetermined).toHaveLength(2)
+      })
+
+      it('a Multiply term feeding a Sum', () => {
+        const hubPort = port(['total'], 'Sum')
+        const nodes = [node('hub', [row('total', 'boundary_condition')], [hubPort]), node('leaf', [row('q', 'variable')])]
+        expect(resolveBoundaryValues(nodes, [edge('hub', 'leaf', hubPort, port(['q'], 'Multiply'))]).overdetermined).toEqual([])
+      })
+
+      it('a per-variable multiport that sums one variable and shares another', () => {
+        const hubPort = port(['v_sum', 'u'], ['sum', 'True'])
+        const nodes = [
+          node('hub', [row('v_sum', 'boundary_condition'), row('u', 'variable')], [hubPort]),
+          node('l1', [row('v', 'variable'), row('u', 'boundary_condition')]),
+          node('l2', [row('v', 'variable'), row('u', 'boundary_condition')]),
+        ]
+        const edges = ['l1', 'l2'].map((leaf) => edge('hub', leaf, hubPort, port(['v', 'u'])))
+        expect(resolveBoundaryValues(nodes, edges).overdetermined).toEqual([])
+      })
+
+      it('a pair summed on both ends, which the export rejects itself', () => {
+        const nodes = [node('a', [row('v', 'variable')]), node('b', [row('v', 'variable')])]
+        expect(resolveBoundaryValues(nodes, [edge('a', 'b', port(['v'], 'Sum'), port(['v'], 'Sum'))]).overdetermined).toEqual([])
+      })
+    })
+  })
+
   describe('status', () => {
     const statusOf = (nodes, edges, nodeId, name) => resolveBoundaryValues(nodes, edges).status.get(nodeId)?.get(name)
 

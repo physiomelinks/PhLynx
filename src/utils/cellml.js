@@ -1166,7 +1166,7 @@ export function generateFlattenedModel(
     model.addComponent(parameterComponent)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges)
+    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis)
     // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
     // falls back to their own values (see checkScope).
     if (boundaryValues.bcOnly.length && !allowBcOnly) {
@@ -1175,6 +1175,10 @@ export function generateFlattenedModel(
     }
     if (boundaryValues.conflicts.length) {
       throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
+    }
+    // libCellML would reject a variable set more than once, or accept it as a DAE and drop an equation.
+    if (boundaryValues.overdetermined.length) {
+      throw new Error(boundaryValues.overdetermined.map(({ message }) => message).join(' '))
     }
     // A value something else supplies is dropped (see resolveBoundaryValues).
     const isIgnored = (nodeId, v) => !!boundaryValues.ignored.get(nodeId)?.has(v.name)

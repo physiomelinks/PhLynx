@@ -265,6 +265,14 @@ describe('ParameterTable connection status', () => {
     expect(rowFor('P').find('.connection-flag.pi-exclamation-triangle').attributes('title')).toBe('Given a different value by b.P')
   })
 
+  it('warns about a variable set more than once', async () => {
+    const computed = { name: 'V', units: 'metre', type: 'variable', access: 'access' }
+    const rowFor = await mountStatus([computed], [['V', { state: 'overdetermined', from: ['axon.V'] }]])
+    expect(rowFor('V').find('.connection-flag.pi-exclamation-triangle').attributes('title')).toBe(
+      'Also set by axon.V: only one module can set a connected variable'
+    )
+  })
+
   it('labels initialiser options by their connection status', async () => {
     const rows = mountTable(new Set(['t', 'x', 'k']), { extraRows: [bc('b'), bc('c'), bc('d', '1')] })
     await wrapper.setProps({
