@@ -23,7 +23,7 @@ import { useOmexStore } from '../stores/omexStore'
 import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
-import { generateExportZip } from '../services/export/ca'
+import { annotatedCouplingEdges, generateExportZip } from '../services/export/ca'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
 import { buildScopedModel, checkScope, resolveScope, summariseScopeReport } from '../services/simulation/scopedModel'
 import { useConfirmDialog } from './useConfirmDialog'
@@ -152,6 +152,24 @@ export function useImportExportSend({
     )
   }
 
+  /**
+   * Stops a CA export before asking where to save when an edge has couplings made by annotations, which CA can't
+   * carry. The export itself checks again.
+   *
+   * @returns {boolean} Whether to go on.
+   */
+  const checkCaExport = () => {
+    const annotated = annotatedCouplingEdges(nodes.value, edges.value)
+    if (!annotated.length) return true
+    notify.error({
+      title: 'Circulatory Autogen can’t export this model',
+      message:
+        `These edges have couplings made by annotations, which CA can’t pair: ${annotated.join(', ')}. ` +
+        'Export CellML instead.',
+    })
+    return false
+  }
+
   const hasSelection = computed(() => (selectedNodeIds.value?.length ?? 0) > 0)
 
   const selectionOmexOption = (key) => ({
@@ -202,6 +220,7 @@ export function useImportExportSend({
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating and zipping CA files.',
+      preflight: checkCaExport,
       action: (finalName) => generateExportZip(finalName, nodes.value, edges.value, libraryStore, protocolStore.source?.entry.payload ?? null),
       successMessage: () => 'Circulatory Autogen export zip generated.',
     },

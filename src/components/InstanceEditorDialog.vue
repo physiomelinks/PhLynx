@@ -518,7 +518,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
-import { findPort } from '../utils/ports'
+import { findPort, isNamedPort, portDisplayName } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
   isMultiport,
@@ -1263,13 +1263,14 @@ async function handleEditorRedo() {
 }
 
 /**
- * Checks whether a port has nothing filled in, so it can be dropped on save without losing work.
+ * Checks whether a port has nothing filled in, so it can be dropped on save without losing work. An annotated
+ * port is named by its annotation, so never blank.
  *
  * @param {Object} port
  * @returns {boolean}
  */
 function isBlankPort(port) {
-  return !port.label?.trim() && !port.variables?.length
+  return !isNamedPort(port) && !port.variables?.length
 }
 
 /**
@@ -1279,7 +1280,7 @@ function isBlankPort(port) {
  * @returns {boolean}
  */
 function isIncompletePort(port) {
-  return !isBlankPort(port) && (!port.label?.trim() || !port.variables?.length)
+  return !isBlankPort(port) && (!isNamedPort(port) || !port.variables?.length)
 }
 
 /**
@@ -1512,7 +1513,7 @@ async function handleSave(options) {
   const invalidFactor = finalPorts.find(isMissingFactor)
   if (invalidFactor) {
     flaggedPorts.value = new Set([invalidFactor])
-    notify.error({ message: `Port "${invalidFactor.label}" has Multiply selected but missing scale factor.` })
+    notify.error({ message: `Port "${portDisplayName(invalidFactor)}" has Multiply selected but missing scale factor.` })
     showTab('ports')
     return
   }

@@ -229,7 +229,7 @@ import Dialog from 'primevue/dialog'
 import Chip from 'primevue/chip'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
 import { isSingleConnection } from '../utils/edges'
-import { isCompatible } from '../utils/ports'
+import { portRef } from '../utils/ports'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -239,6 +239,7 @@ import { waitUntilStable } from '../utils/layout'
 import MultiportKey from './MultiportKey.vue'
 import PortRow from './PortRow.vue'
 import { useEdgeCouplings } from '../composables/useEdgeCouplings'
+import { useCouplingContext } from '../composables/useCouplingContext'
 import { usePortDrag } from '../composables/usePortDrag'
 import { useConnectionAutoscroll } from '../composables/useConnectionAutoscroll'
 
@@ -268,6 +269,10 @@ const visible = computed({
 const isFlowReady = ref(false)
 
 const { getViewport, setViewport, updateNodeInternals } = useVueFlow(FLOW_IDS.EDGE)
+const { nodes: canvasNodes } = useVueFlow(FLOW_IDS.MAIN)
+const { getContext, ensureContext } = useCouplingContext()
+// Annotated ports couple by their annotations, located on the canvas nodes' ApiCoords.
+const couplingContext = computed(() => getContext(canvasNodes.value))
 
 const swapDialog = ref({ visible: false, resolve: null })
 
@@ -298,6 +303,8 @@ async function refreshNodeInternals() {
 
 async function onDialogShow() {
   isFlowReady.value = false
+  // Parses the instance files and sidecars annotated couplings need; the context updates when they land.
+  ensureContext([props.sourceNode, props.targetNode]).catch(() => {})
   initLocalState()
   await waitUntilStable(canvasEl.value, 400)
   isFlowReady.value = true
@@ -320,10 +327,12 @@ const {
   evictHandle,
   swapConnections,
   connectPorts,
+  canConnect,
+  canKeep,
   deletePort,
   activateGhost,
   onPortConfigChange,
-} = useEdgeCouplings(props, askSwapIntent)
+} = useEdgeCouplings(props, askSwapIntent, { getContext: () => couplingContext.value })
 
 const { dragState, dragOffsetY, startDrag, rowStyle } = usePortDrag(localSrcPorts, localTgtPorts, canvasEl)
 
@@ -364,7 +373,7 @@ const drawnCouplings = computed(() => {
   return localCouplings.value.flatMap(({ srcUid, tgtUid }) => {
     const sp = srcByUid(srcUid)
     const tp = tgtByUid(tgtUid)
-    if (!sp || !tp || sp.label !== tp.label || !isCompatible(sp.portType, tp.portType)) return []
+    if (!canKeep(sp, tp)) return []
     const unitConflicts = couplingConflicts(sp, tp).length
       ? []
       : couplingUnitConflicts(
@@ -417,8 +426,7 @@ function isValidConnection(connection) {
   const tUid = (connection.target || '').replace('tgt-', '')
   const sp = srcByUid(sUid)
   const tp = tgtByUid(tUid)
-  if (!sp || !tp || !sp.label || !tp.label) return false
-  return sp.label === tp.label && isCompatible(sp.portType, tp.portType)
+  return canConnect(sp, tp)
 }
 
 async function onConnect(connection) {
@@ -545,12 +553,7 @@ const validConnectUids = computed(() => {
   if (!port) return new Set()
   return new Set(
     candidates
-      .filter((p) => {
-        if (!p.label || !port.label) return false
-        if (p.label !== port.label) return false
-        const [srcType, tgtType] = side === 'source' ? [port.portType, p.portType] : [p.portType, port.portType]
-        return isCompatible(srcType, tgtType)
-      })
+      .filter((p) => (side === 'source' ? canConnect(port, p) : canConnect(p, port)))
       .map((p) => p._uid)
   )
 })
@@ -581,22 +584,7 @@ function buildPayload() {
     couplings: localCouplings.value.map((c) => {
       const sp = srcByUid(c.srcUid)
       const tp = tgtByUid(c.tgtUid)
-      return {
-        sourcePort: {
-          portType: sp.portType,
-          label: sp.label,
-          variables: sp.variables,
-          multiportType: sp.multiportType,
-          multiplyFactor: sp.multiplyFactor,
-        },
-        targetPort: {
-          portType: tp.portType,
-          label: tp.label,
-          variables: tp.variables,
-          multiportType: tp.multiportType,
-          multiplyFactor: tp.multiplyFactor,
-        },
-      }
+      return { sourcePort: portRef(sp), targetPort: portRef(tp) }
     }),
     foreignCouplings,
   }

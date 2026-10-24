@@ -214,6 +214,26 @@ describe('InstanceEditorDialog undo (#605)', () => {
     expect(save.math).toContain('<cn>1</cn>')
     expect(save.variables.find((row) => row.name === 'x0')).toMatchObject({ type: 'global_constant' })
   })
+
+  it('saves an annotated port, which has no label', async () => {
+    const annotated = {
+      portType: 'general_ports',
+      label: '',
+      variables: ['x'],
+      multiportType: 'True',
+      annotation: { subject: 'decay.cellml#decay.x', variable: 'x', role: 'owner', source: { kind: 'sidecar' } },
+    }
+    const blank = { portType: 'general_ports', label: '', variables: [] }
+    mountDialog({ initialPorts: [annotated, blank] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.ports).toEqual([annotated])
+  })
 })
 
 describe('InstanceEditorDialog new module template (#634)', () => {

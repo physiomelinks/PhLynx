@@ -7,6 +7,7 @@ import { FLOW_IDS } from '../utils/constants'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
+import { withoutApiCoord } from '../services/annotations/nodeData'
 
 /**
  * Whether a workspace keyboard shortcut should be left alone: the user is typing in an input, a dialog is
@@ -103,6 +104,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
         mathRef,
         math,
         layout: libraryStore.getMathLayout(mathRef),
+        annotations: libraryStore.getModuleAnnotations(mathRef),
         moduleRef,
         module,
       }
@@ -155,6 +157,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
           // Clipboard text can come from anywhere, so the layout is checked like a saved one.
           const layout = entry.layout ? parseLayout(JSON.stringify(entry.layout)) : null
           libraryStore.addMath(entry.mathRef, entry.math, true, layout)
+          if (typeof entry.annotations === 'string') libraryStore.setModuleAnnotations(entry.mathRef, entry.annotations)
         }
       }
     }
@@ -190,12 +193,12 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       const finalName = generateUniqueInstanceName(node.data.name, namesSet)
       namesSet.add(finalName)
 
-      // Create the new node with offset position.
+      // Create the new node with offset position. A copy is unlocated: two instances at one ApiCoord would conflict.
       newNodes.push({
         id: newId,
         type: node.type,
         data: {
-          ...node.data,
+          ...withoutApiCoord(node.data),
           name: finalName,
         },
         position: {
