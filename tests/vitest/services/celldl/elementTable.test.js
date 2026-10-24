@@ -175,7 +175,7 @@ describe('the CellDL Parameters table', () => {
       }
       const row = { name: 'u_S_ATP_c', value: '1', units: 'J_per_mol', type: 'constant' }
       expect(elementValues(chemostat, entry, new Map([[row.name, row]]))).toEqual([
-        { key: 'value', label: 'value', name: 'u_S_ATP_c', row, defaultValue: '1', units: 'J_per_mol' },
+        { key: 'value', label: 'value', name: 'u_S_ATP_c', row, defaultValue: '1', units: 'J_per_mol', isComputed: false },
       ])
       // Before the diagram is saved with it, the cell is named for the variable, with no row yet.
       expect(elementValues(chemostat, entry, new Map())[0]).toMatchObject({ name: 'u_S_ATP_c', row: null })
@@ -211,6 +211,45 @@ describe('the CellDL Parameters table', () => {
       // The diagram's value changed in its Properties panel since the save, and the row is on the saved one.
       expect(isDefaultValue({ ...cell, row: { value: '5' } }, saved)).toBe(true)
       expect(isDefaultValue({ ...cell, row: { value: '2' } }, saved)).toBe(false)
+    })
+
+    it("marks a variable the math computes, e.g. an inductor's acceleration, and doesn't flag it as unset", () => {
+      const inductor = {
+        id: 'ID-00000003',
+        isBondElement: true,
+        kind: `${BGF}FlowStore`,
+        template: `${BGF}MechanicalInductor`,
+        symbol: 'L',
+        species: 'S2',
+        location: 'c',
+        parameters: [{ name: 'L', value: '1', units: 'kg' }],
+        variables: [{ name: 'a', value: '', units: 'm/s2' }],
+      }
+      const entry = {
+        kind: 'element',
+        symbol: 'L_S2_c',
+        variables: [
+          { name: 'L_L_S2_c', role: 'parameter', units: 'kg' },
+          { name: 'a_L_S2_c', role: 'other', units: 'm_per_s2' },
+        ],
+      }
+      const rows = new Map([
+        ['L_L_S2_c', { name: 'L_L_S2_c', value: '', units: 'kg', type: 'constant' }],
+        ['a_L_S2_c', { name: 'a_L_S2_c', value: '', units: 'm_per_s2', type: 'variable' }],
+      ])
+      const [L, a] = elementValues(inductor, entry, rows)
+      expect(L).toMatchObject({ name: 'L_L_S2_c', isComputed: false })
+      expect(a).toMatchObject({ key: 'variable:a', name: 'a_L_S2_c', isComputed: true })
+      expect(unsetReasons(inductor, [L, a])).toEqual([])
+
+      // A variable the user sets, e.g. an osmotic store's q, is a constant row, so still takes a value.
+      rows.set('a_L_S2_c', { ...rows.get('a_L_S2_c'), type: 'constant' })
+      const [, set] = elementValues(inductor, entry, rows)
+      expect(set.isComputed).toBe(false)
+      expect(unsetReasons(inductor, [L, set])).toEqual(['No value for a'])
+      // A state is set through its initial value, not computed.
+      rows.set('a_L_S2_c', { ...rows.get('a_L_S2_c'), type: 'variable', stateRole: 'state' })
+      expect(elementValues(inductor, entry, rows)[1].isComputed).toBe(false)
     })
 
     it('flags a value with neither its own nor a default', () => {

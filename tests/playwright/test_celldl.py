@@ -42,6 +42,11 @@ REACTIONS_MODULE = "reactions_panel"
 # Its A store (ID-00000003), bonded straight to r1's node (ID-00000002).
 STORE_A, BOND_A = "ID-00000003", "ID-00000004"
 
+# A mechanical potential source driving an inductor L (ID-00000003) and a resistor through a 1-junction. The
+# inductor's acceleration a_L_S2_c is a BG-RDF variable its math computes (dv/dt = a, u = L a).
+MECHANICAL_INDUCTOR = os.path.join(RESOURCE_PATH, "celldl", "mechanical_inductor.celldl")
+INDUCTOR = "ID-00000003"
+
 # A store's base kind, which only its templates make convertible.
 ZERO_STORAGE_NODE = "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroStorageNode"
 STORAGE_NODES = [
@@ -717,6 +722,36 @@ class TestCelldl(unittest.TestCase):
             expect(dialog.get_by_role("switch", name="Simulate the whole model, not this instance")).to_be_checked()
             dialog.get_by_role("button", name="Simulate the whole model").click()
             expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=SIMULATION_TIMEOUT)
+            # ----------- END ------------
+
+            browser.close()
+
+    def test_shows_a_variable_the_math_computes_as_computed_not_as_a_value_to_enter(self):
+        with sync_playwright() as playwright:
+            browser, page = open_app(playwright)
+            page.evaluate(SHORT_SIMULATION)
+
+            # ---------- START -----------
+            place(page, "TEMPLATE MODULES", "new_module")
+            dialog = open_editor(page, "new_module")
+            show_diagram_tab(page, dialog)
+            draw_in_editor(page, MECHANICAL_INDUCTOR)
+            dialog.get_by_role("button", name="Apply").click()
+            save_as = page.locator(".p-dialog").filter(has_text="Save As New Component")
+            save_as.locator("input").fill("mechanical_inductor")
+            save_as.get_by_role("button", name="Save").click()
+            expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+
+            # The inductor's acceleration is computed, so it has no field and isn't flagged as unset; L still has one.
+            expect(parameter_value(dialog, "L_L_S2_c")).to_have_attribute("placeholder", "1")
+            acceleration = dialog.locator('.celldl-parameters [data-variable="a_L_S2_c"]')
+            expect(acceleration.locator(".computed-value")).to_have_text("computed")
+            expect(acceleration.locator("input")).to_have_count(0)
+            expect(element_row(dialog, INDUCTOR).locator(".flag--unset")).to_have_count(0)
+
+            # It runs, and the acceleration has values to plot.
+            run_this_instance(page, dialog)
+            self.assertIsNotNone(final_value(page, "a_L_S2_c"))
             # ----------- END ------------
 
             browser.close()
