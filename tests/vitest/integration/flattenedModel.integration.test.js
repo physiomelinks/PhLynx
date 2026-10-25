@@ -596,7 +596,7 @@ describe('scoped models', () => {
     expect(checkScope(scope, store).canBuild).toBe(true)
 
     const text = await buildScopedModel(scope, store).text()
-    expect(text).toMatch(/<component name="hub">/)
+    expect(text).toMatch(/<component name="hub" id="hub">/)
     expect(text).not.toMatch(/<component name="leaf_/)
   })
 

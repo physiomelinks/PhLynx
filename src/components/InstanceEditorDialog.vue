@@ -215,9 +215,8 @@
             <!-- TAB 2: PORT EDITOR -->
             <TabPanel value="ports" class="tab-panel-flex">
               <div class="ports-tab-body">
-                <Message v-if="incompletePortCount" class="ports-header" severity="error" size="small" variant="simple">
-                  {{ incompletePortCount }} {{ incompletePortCount === 1 ? 'port needs' : 'ports need' }} a label and at
-                  least one variable.
+                <Message v-if="incompletePortMessage" class="ports-header" severity="error" size="small" variant="simple">
+                  {{ incompletePortMessage }}
                 </Message>
 
                 <div v-if="editablePorts.length" class="table-flex-wrapper">
@@ -233,18 +232,25 @@
                   >
                     <Column header="Type" style="width: 140px">
                       <template #body="slotProps">
-                        <Select
-                          v-model="slotProps.data.portType"
-                          :options="PORT_TYPE_OPTIONS"
-                          optionLabel="label"
-                          optionValue="value"
-                          size="small"
-                          class="w-full"
-                        />
+                        <!-- An annotated port's type, mode and meaning come from its annotation -->
+                        <span
+                          class="port-type-cell"
+                          :title="isAnnotatedPort(slotProps.data) ? fromAnnotationTitle(slotProps.data) : undefined"
+                        >
+                          <Select
+                            v-model="slotProps.data.portType"
+                            :options="PORT_TYPE_OPTIONS"
+                            optionLabel="label"
+                            optionValue="value"
+                            size="small"
+                            class="w-full"
+                            :disabled="isAnnotatedPort(slotProps.data)"
+                          />
+                        </span>
                       </template>
                     </Column>
 
-                    <Column header="Label" style="min-width: 140px">
+                    <Column header="Label" style="min-width: 220px">
                       <template #body="slotProps">
                         <div class="flex items-center gap-2">
                           <!-- Whether the port is connected, as the edge dialog shows it -->
@@ -255,7 +261,15 @@
                             ]"
                             v-tooltip.top="portStatus(slotProps.data)"
                           ></span>
+                          <AnnotationChips
+                            v-if="isAnnotatedPort(slotProps.data)"
+                            :annotation="slotProps.data.annotation"
+                            :quantity="portQuantity(slotProps.data)"
+                            :variable="slotProps.data.variables?.[0] ?? ''"
+                            :is-bound="isNodeBound"
+                          />
                           <InputText
+                            v-else
                             v-model="slotProps.data.label"
                             :invalid="isPortFlagged(slotProps.data) && !slotProps.data.label?.trim()"
                             placeholder="Enter label"
@@ -277,10 +291,13 @@
                           :aria-pressed="isMultiport(slotProps.data)"
                           aria-label="Multiport"
                           :title="
-                            isMultiport(slotProps.data)
-                              ? 'Multiport: takes several connections'
-                              : 'Basicport: takes one connection'
+                            isAnnotatedPort(slotProps.data)
+                              ? fromAnnotationTitle(slotProps.data)
+                              : isMultiport(slotProps.data)
+                                ? 'Multiport: takes several connections'
+                                : 'Basicport: takes one connection'
                           "
+                          :disabled="isAnnotatedPort(slotProps.data)"
                           @click="setMultiport(slotProps.data, !isMultiport(slotProps.data))"
                         >
                           <template #icon>
@@ -293,10 +310,18 @@
 
                     <Column header="Variables" style="min-width: 200px">
                       <template #body="slotProps">
+                        <!-- A sidecar port's variable is the annotated one; a mirrored copy's is picked here -->
+                        <PortVariableChips
+                          v-if="isAnnotatedPort(slotProps.data) && !isMirroredPort(slotProps.data)"
+                          :port="slotProps.data"
+                          locked
+                        />
                         <PortVariableSelect
+                          v-else
                           :port="slotProps.data"
                           :options="parameterRows"
                           :flagged="isPortFlagged(slotProps.data)"
+                          :locked="isAnnotatedPort(slotProps.data)"
                           class="w-full"
                         />
                       </template>
@@ -345,6 +370,28 @@
                     outlined
                     @click="addPort"
                   />
+                </div>
+                <!-- Annotated variables get a port when a suggested coupling is accepted, not before -->
+                <div v-if="unportedAnnotations.length" class="unported-annotations">
+                  <div class="unported-annotations__title">
+                    Annotated, no port yet
+                    <span class="unported-annotations__hint">(made when a coupling is accepted)</span>
+                  </div>
+                  <div
+                    v-for="entry in unportedAnnotations"
+                    :key="entry.subject"
+                    class="unported-annotations__row"
+                    data-test="unported-annotation"
+                  >
+                    <span class="unported-annotations__variable">{{ entry.variable }}</span>
+                    <AnnotationChips
+                      :annotation="entry.annotation"
+                      :quantity="entry.quantity"
+                      :variable="entry.variable"
+                      :is-bound="isNodeBound"
+                      muted
+                    />
+                  </div>
                 </div>
               </div>
             </TabPanel>
@@ -487,6 +534,8 @@ import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
+import PortVariableChips from './PortVariableChips.vue'
+import AnnotationChips from './AnnotationChips.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
@@ -499,9 +548,14 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
+import { useCouplingContext } from '../composables/useCouplingContext'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { coordOf, quantityOfPort } from '../services/annotations/couple'
+import { roleOf } from '../services/annotations/match'
+import { portFor } from '../services/annotations/ports'
+import { fromAnnotationTitle } from '../services/annotations/display'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -518,7 +572,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
-import { findPort } from '../utils/ports'
+import { findPort, isAnnotatedPort, isMirroredPort, isNamedPort, portDisplayName } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
   isMultiport,
@@ -1202,6 +1256,7 @@ async function loadEditor({ keepTab = false } = {}) {
   issueFilter.reset()
 
   editableName.value = props.initialName
+  ensureAnnotations()
   editableComponentName.value = componentName.value
   componentNameForEditor.value = componentName.value
   editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
@@ -1263,13 +1318,14 @@ async function handleEditorRedo() {
 }
 
 /**
- * Checks whether a port has nothing filled in, so it can be dropped on save without losing work.
+ * Checks whether a port has nothing filled in, so it can be dropped on save without losing work. An annotated
+ * port is named by its annotation, so never blank.
  *
  * @param {Object} port
  * @returns {boolean}
  */
 function isBlankPort(port) {
-  return !port.label?.trim() && !port.variables?.length
+  return !isNamedPort(port) && !port.variables?.length
 }
 
 /**
@@ -1279,7 +1335,7 @@ function isBlankPort(port) {
  * @returns {boolean}
  */
 function isIncompletePort(port) {
-  return !isBlankPort(port) && (!port.label?.trim() || !port.variables?.length)
+  return !isBlankPort(port) && (!isNamedPort(port) || !port.variables?.length)
 }
 
 /**
@@ -1331,9 +1387,66 @@ const portStatus = (port) => {
   return names.length ? `Connected to ${names.join(', ')}` : 'Not connected'
 }
 
-const incompletePortCount = computed(
-  () => editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)).length
+/**
+ * What incomplete ports still need: an unannotated port a label and a variable, an annotated one (a mirrored
+ * copy) only its variable.
+ *
+ * @param {Array<Object>} ports - Incomplete ports.
+ * @returns {string} Empty when there are none.
+ */
+function describeIncompletePorts(ports) {
+  const annotated = ports.filter(isAnnotatedPort).length
+  const unannotated = ports.length - annotated
+  const parts = []
+  if (unannotated) {
+    parts.push(`${unannotated} ${unannotated === 1 ? 'port needs' : 'ports need'} a label and at least one variable.`)
+  }
+  if (annotated) {
+    parts.push(`${annotated} annotated ${annotated === 1 ? 'port needs' : 'ports need'} a variable.`)
+  }
+  return parts.join(' ')
+}
+
+const incompletePortMessage = computed(() =>
+  describeIncompletePorts(editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)))
 )
+
+// Annotated ports: their places come from the canvas node's ApiCoord, and their sidecar from the library.
+const { getContext, ensureContext } = useCouplingContext()
+const couplingContext = computed(() => getContext(nodes.value))
+const instanceNode = computed(() => nodes.value?.find((node) => node.id === props.id) ?? null)
+const isNodeBound = computed(() => !!coordOf(instanceNode.value, couplingContext.value))
+
+/** An annotated port's located quantity, for its chips' detail. */
+const portQuantity = (port) =>
+  quantityOfPort(port, instanceNode.value ?? { id: props.id, data: { mathRef: props.mathRef } }, couplingContext.value)
+
+/** The annotated variables of this instance's math that no port carries yet, each with what its port would be. */
+const unportedAnnotations = computed(() => {
+  const sidecar = store.getParsedModuleAnnotations(props.mathRef)
+  if (!sidecar) return []
+  const ported = new Set(editablePorts.value.map((port) => port.annotation?.subject).filter(Boolean))
+  const node = instanceNode.value ?? { id: props.id, data: { mathRef: props.mathRef } }
+  return sidecar.variables
+    .filter((entry) => entry.subject && entry.property && entry.location && !ported.has(entry.subject))
+    .map((entry) => {
+      const port = portFor({ ...entry, role: roleOf(entry), mathRef: sidecar.mathRef ?? props.mathRef })
+      return {
+        subject: entry.subject,
+        variable: entry.variable,
+        annotation: port.annotation,
+        quantity: quantityOfPort(port, node, couplingContext.value),
+      }
+    })
+})
+
+/** Parses what annotated ports read; their chips fill in when it lands. */
+function ensureAnnotations() {
+  const parse = instanceNode.value
+    ? ensureContext([instanceNode.value])
+    : store.ensureModuleAnnotations(props.mathRef)
+  parse.catch(() => {})
+}
 
 const portRowClass = (port) =>
   isPortFlagged(port) && (isIncompletePort(port) || isMissingFactor(port)) ? 'port-row--invalid' : ''
@@ -1504,7 +1617,7 @@ async function handleSave(options) {
   const incompletePorts = editablePorts.value.filter(isIncompletePort)
   if (incompletePorts.length) {
     flaggedPorts.value = new Set(incompletePorts)
-    notify.error({ message: 'Every port needs a label and at least one variable.' })
+    notify.error({ message: describeIncompletePorts(incompletePorts) })
     showTab('ports')
     return
   }
@@ -1512,7 +1625,7 @@ async function handleSave(options) {
   const invalidFactor = finalPorts.find(isMissingFactor)
   if (invalidFactor) {
     flaggedPorts.value = new Set([invalidFactor])
-    notify.error({ message: `Port "${invalidFactor.label}" has Multiply selected but missing scale factor.` })
+    notify.error({ message: `Port "${portDisplayName(invalidFactor)}" has Multiply selected but missing scale factor.` })
     showTab('ports')
     return
   }
@@ -2099,6 +2212,48 @@ async function handleSave(options) {
 .right-pane :deep(.p-datatable-frozen-column) {
   z-index: 2;
   box-shadow: inset 1px 0 0 var(--p-datatable-body-cell-border-color);
+}
+
+.port-type-cell {
+  display: block;
+}
+
+/* Annotated variables of the math that have no port yet */
+.unported-annotations {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px dashed var(--p-content-border-color);
+  border-radius: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.unported-annotations__title {
+  font-size: 12px;
+  color: var(--p-text-muted-color);
+}
+
+.unported-annotations__hint {
+  font-size: 11px;
+}
+
+.unported-annotations__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.unported-annotations__variable {
+  flex: none;
+  min-width: 6rem;
+  font-size: 12px;
+  color: var(--p-text-muted-color);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* A port's connection state, coloured as in the edge dialog's legend */
