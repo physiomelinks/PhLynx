@@ -1039,6 +1039,7 @@ useConnect({
   revertHandleIfUnused,
   revertHandlesForEdge,
   reactivateEdgeHandles,
+  recordEdit,
 })
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)

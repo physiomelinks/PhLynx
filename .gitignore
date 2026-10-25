@@ -35,6 +35,8 @@ stats.html
 .env.local
 __pycache__/
 tests/playwright/test_generated.py
+# Unpublished annotation fixtures, kept local
+tests/vitest/fixtures/annotations/private/
 coverage/
 
 # Local Claude Code configuration and skills
