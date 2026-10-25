@@ -203,6 +203,32 @@ describe('useInstanceSave', () => {
     expect(preview.get('e')).toHaveLength(1)
   })
 
+  it('keeps annotated couplings through a save, while both their ports remain', async () => {
+    const annotated = (subject, variable, multiportType) => ({
+      label: '',
+      portType: 'general_ports',
+      variables: [variable],
+      multiportType,
+      annotation: { subject, variable, role: 'reader', source: { kind: 'sidecar', mathRef: DECAY_REF } },
+    })
+    const reader = annotated('decay.cellml#decay.x', 'x', 'None')
+    const owner = annotated('decay.cellml#decay.k', 'k', 'True')
+    findNode('a').data = { ...findNode('a').data, ports: [...findNode('a').data.ports, reader] }
+    findNode('b').data = { ...findNode('b').data, ports: [...findNode('b').data.ports, owner] }
+    const couplings = [{ sourcePort: reader, targetPort: owner }]
+    edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings } }]
+
+    await saveInstanceEdit(buildSave({ name: 'a' }))
+    const saved = detachReactivity(edges.value[0].data.couplings)
+    expect(saved).toHaveLength(2)
+    expect(saved[0].sourcePort.label).toBe('p')
+    expect(saved[1]).toEqual(detachReactivity({ sourcePort: reader, targetPort: owner }))
+
+    // Removing the annotated port drops its coupling.
+    await saveInstanceEdit(buildSave({ name: 'a', ports: findNode('a').data.ports.filter((port) => !port.annotation) }))
+    expect(edges.value[0].data.couplings.map(({ sourcePort }) => sourcePort.label)).toEqual(['p'])
+  })
+
   it('undoes a save on an instance that was deleted and restored', async () => {
     const before = snapshot()
     await saveInstanceEdit(fork())
