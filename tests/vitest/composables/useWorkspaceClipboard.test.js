@@ -245,6 +245,34 @@ describe('useWorkspaceClipboard', () => {
       }
     })
 
+    it('drops the ApiCoord binding from pasted nodes but keeps the annotation overlay', async () => {
+      const apiCoord = { subject: 'model#A', coordIri: 'coord_A', name: 'A' }
+      const overlay = { heldConstant: true }
+      findNode('dndnode_0').data = { ...findNode('dndnode_0').data, apiCoord, annotationOverlay: overlay }
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      await clipboard.pasteSelection()
+
+      const pasted = nodes.value.at(-1)
+      expect(pasted.data).not.toHaveProperty('apiCoord')
+      expect(pasted.data.annotationOverlay).toEqual({ heldConstant: true })
+      expect(findNode('dndnode_0').data.apiCoord).toEqual(apiCoord)
+    })
+
+    it('restores the module sidecar into a fresh library, keeping one already there', async () => {
+      library.setModuleAnnotations(MATH_REF, '# sidecar')
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      setActivePinia(createPinia())
+      const freshLibrary = useLibraryStore()
+      nodes.value = []
+      edges.value = []
+      await createClipboard().pasteSelection()
+      expect(freshLibrary.getModuleAnnotations(MATH_REF)).toBe('# sidecar')
+    })
+
     it('gives pasted nodes new unique ids and names, and selects only them', async () => {
       select(['dndnode_0', 'dndnode_1'])
       await clipboard.copySelection()

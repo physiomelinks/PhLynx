@@ -6,6 +6,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useAnnotationStore } from '../stores/annotationStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useProtocolStore } from '../stores/protocolStore'
 import { cancelSimulation, forgetSimulationSession } from './useSimulation'
@@ -22,6 +23,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const inspectionStore = useInspectionModuleStore()
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
+  const annotationStore = useAnnotationStore()
   const sessionMetadataStore = useSessionMetadataStore()
 
   const clearWorkspace = async ({ recordHistory = true } = {}) => {
@@ -32,6 +34,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldGlobalConstants = Array.from(libraryStore.globalVariables.entries())
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
+    const oldAnnotationState = annotationStore.getState()
     const oldSessionMetadata = sessionMetadataStore.getState()
 
     const undoState = () => {
@@ -39,6 +42,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       edges.value = oldEdges
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
+        annotationStore.loadState(oldAnnotationState)
         inspectionStore.loadState(oldInspectStore)
         sessionMetadataStore.loadState(oldSessionMetadata)
         simStore.loadState(oldSimStore)
@@ -61,6 +65,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         useProtocolStore().resetState()
         inspectionStore.resetState()
         omexStore.resetState()
+        annotationStore.resetState()
         sessionMetadataStore.resetState()
         libraryStore.resetGlobalConstants()
       }

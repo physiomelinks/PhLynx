@@ -463,6 +463,14 @@
             <template #edge-smoothstep="edgeProps">
               <CouplingEdge v-bind="edgeProps" />
             </template>
+            <template #zoom-pane>
+              <SuggestionLayer @accept="couplingSuggestions.accept" @dismiss="couplingSuggestions.dismiss" />
+            </template>
+            <SuggestionPanel
+              @accept-all="couplingSuggestions.acceptAll"
+              @dismiss-all="couplingSuggestions.dismissAll"
+              @restore-dismissed="couplingSuggestions.restoreDismissed"
+            />
             <template #node-instanceNode="props">
               <InstanceNode
                 :id="props.id"
@@ -589,6 +597,7 @@ import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
 import { useConnect } from '../composables/useConnect'
+import { useCouplingSuggestions } from '../composables/useCouplingSuggestions'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
@@ -617,6 +626,8 @@ import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
+import SuggestionLayer from '../components/SuggestionLayer.vue'
+import SuggestionPanel from '../components/SuggestionPanel.vue'
 import InstanceNode from '../components/InstanceNode.vue'
 import ImportDialog from '../components/ImportDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
@@ -1039,7 +1050,11 @@ useConnect({
   revertHandleIfUnused,
   revertHandlesForEdge,
   reactivateEdgeHandles,
+  recordEdit,
 })
+
+// Annotation-driven suggestions, drawn over the canvas but never edges until accepted.
+const couplingSuggestions = useCouplingSuggestions({ activateHandle, recordEdit, edgeLineOptions })
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
 
@@ -2753,8 +2768,10 @@ watch(
   cursor: pointer;
 }
 
-/* While exporting an image: never the edit controls, and warnings only when Settings asks. */
+/* While exporting an image: never the edit controls or coupling suggestions, and warnings only when Settings asks. */
 .image-export .instance-button,
+.image-export .suggestion-layer,
+.image-export .suggestion-panel,
 .image-export .delete-handle-popover-btn,
 .image-export .vue-flow__resize-control,
 .image-export--no-warnings .status-indicator,

@@ -122,6 +122,17 @@ describe('useImportExportSend selection exports', () => {
     expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen').disabled).toBe(false)
   })
 
+  it('stops a CA export with annotated couplings before asking where to save', async () => {
+    const annotated = { ...flowPort('general_ports'), label: '', annotation: { subject: 'decay.cellml#v' } }
+    edges.value[0].data.couplings = [{ sourcePort: annotated, targetPort: annotated }]
+    const { exportMenuItems } = setup()
+
+    await menuItem(exportMenuItems, 'Circulatory Autogen').command()
+
+    expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('a → b') }))
+    expect(onExportConfirm).not.toHaveBeenCalled()
+  })
+
   it('exports a selection that builds cleanly without asking', async () => {
     selectedNodeIds.value = ['a', 'b']
     const { exportMenuItems } = setup()
