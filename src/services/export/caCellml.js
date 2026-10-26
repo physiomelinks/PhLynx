@@ -14,6 +14,8 @@ const MAX_NAMED = 3
 // Flow and volume units CA's junction, terminal and volume-sum components use.
 const CA_GLUE_UNITS = ['m3', 'm3_per_s', 'L_per_s']
 const STANDARD = new Set(STANDARD_UNITS)
+// The variables_and_units kinds CA maps a parameters row to, which it can only through a public interface.
+const PARAMETER_KINDS = new Set(['constant', 'global_constant', 'boundary_condition'])
 
 /**
  * Names at most three items, then how many more there are.
@@ -64,6 +66,25 @@ function unitsUsedBy(math) {
 }
 
 /**
+ * A component's math with each of the named variables that has no interface made public. The library's math keeps
+ * its values apart, so a constant set inside its component in the source is set from the parameters file instead.
+ *
+ * @param {string} math - A CellML model with one component.
+ * @param {Set<string>} names
+ * @returns {string} The math unchanged when no such variable lacks an interface.
+ */
+function withParameterInterfaces(math, names) {
+  const doc = new DOMParser().parseFromString(math, 'application/xml')
+  let changed = false
+  for (const variable of doc.getElementsByTagNameNS(CELLML_NS, 'variable')) {
+    if (!names.has(variable.getAttribute('name')) || variable.hasAttribute('interface')) continue
+    variable.setAttribute('interface', 'public')
+    changed = true
+  }
+  return changed ? new XMLSerializer().serializeToString(doc) : math
+}
+
+/**
  * Builds the CellML files a CA module config refers to.
  *
  * @param {string} fileName - The export's name; the units file is `<fileName>_units.cellml`.
@@ -79,6 +100,13 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
   const typesByFile = new Map()
   const fileOfType = new Map()
   const clashes = new Set()
+  // Each math ref to the variables CA sets from the parameters file.
+  const parametersOf = new Map()
+  for (const entry of moduleConfig) {
+    const mathRef = `${entry.component_file}:${entry.component_type}`
+    const names = (entry.variables_and_units ?? []).filter(([, , , kind]) => PARAMETER_KINDS.has(kind)).map(([name]) => name)
+    parametersOf.set(mathRef, new Set([...(parametersOf.get(mathRef) ?? []), ...names]))
+  }
   const add = (componentFile, componentType) => {
     const file = fileOfType.get(componentType)
     if (file && file !== componentFile) clashes.add(componentType)
@@ -112,7 +140,9 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
   const files = new Map()
   const usedUnits = new Set()
   for (const [file, types] of typesByFile) {
-    const maths = [...types].map((type) => libraryStore.availableMath.get(`${file}:${type}`))
+    const maths = [...types].map((type) =>
+      withParameterInterfaces(libraryStore.availableMath.get(`${file}:${type}`), parametersOf.get(`${file}:${type}`) ?? new Set())
+    )
     maths.forEach((math) => unitsUsedBy(math).forEach((name) => usedUnits.add(name)))
     // The model's name can't hold "component": CA copies from the first line that does.
     files.set(renames.get(file), combineComponentModels('modules', maths))
