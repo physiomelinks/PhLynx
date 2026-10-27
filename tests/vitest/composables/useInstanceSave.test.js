@@ -191,7 +191,7 @@ describe('useInstanceSave', () => {
   })
 
   it('couples the edited ports as the instance editor previews them', async () => {
-    const ports = [{ label: 'p', portType: 'general_ports', variables: ['x'] }]
+    const ports = [{ label: 'p', portType: 'general_ports', variables: ['k', 'x'] }]
     edges.value = [
       { id: 'e', source: 'a', target: 'b', data: { couplings: [] } },
       { id: 'f', source: 'b', target: 'a', data: { couplings: [] } },

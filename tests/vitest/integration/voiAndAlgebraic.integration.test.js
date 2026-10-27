@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import fs from 'node:fs'
+import path from 'node:path'
 import createLibOpenCOR from '@opencor/libopencor'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -9,7 +11,7 @@ import { createSimulationSession } from '../../../src/services/simulation/engine
 import { createFamily, createSweep, familyValues, resolveSweepTarget, splitFamily, sweepValues } from '../../../src/services/simulation/sweep.js'
 import { buildVariableMapping } from '../../../src/services/simulation/variableMapping.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
-import { extractVoiAndParametersFromModel, generateFlattenedModel } from '../../../src/utils/cellml.js'
+import { extractVoiAndParametersFromModel, generateFlattenedModel, processCellMLData } from '../../../src/utils/cellml.js'
 import { BASELINE_SIMULATION_SETTINGS } from '../../../src/utils/constants.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -86,6 +88,30 @@ const ALGEBRAIC_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="le
     </math>
   </component>
 </model>`
+
+// s = x + y and s = 3 leave x on no left side, as a bond graph's junctions do, so libcellml solves
+// it as a nonlinear system.
+// dq/dt = x gives it an ODE to run.
+const DAE_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="pair">
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+  <component name="pair">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="q" units="dimensionless" initial_value="q_init" interface="public"/>
+    <variable name="q_init" units="dimensionless" interface="public"/>
+    <variable name="x" units="per_second" interface="public"/>
+    <variable name="y" units="per_second" interface="public"/>
+    <variable name="s" units="per_second" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>q</ci></apply><ci>x</ci></apply>
+      <apply><eq/><ci>y</ci><cn cellml:units="per_second">1</cn></apply>
+      <apply><eq/><ci>s</ci><apply><plus/><ci>x</ci><ci>y</ci></apply></apply>
+      <apply><eq/><ci>s</ci><cn cellml:units="per_second">3</cn></apply>
+    </math>
+  </component>
+</model>`
+// What bg2cellml makes of a mechanical RLC bond graph (rdf_error.celldl in celldl2cellml): its junctions
+// leave the inductor's acceleration and the junction velocity on no left side.
+const RLC_DAE_XML = fs.readFileSync(path.resolve(__dirname, '../fixtures/bg2cellml/rlc_dae.cellml'), 'utf8')
 
 /** A component's variables connected to the environment's in a flattened model, as `environment → component` names. */
 const connectedToVoi = (text, component) => {
@@ -272,6 +298,45 @@ describe('variables of integration and algebraic systems in the flattened model'
         [1, [0, 1, 2]],
         [2, [0, 2, 4]],
       ])
+    } finally {
+      session.dispose()
+    }
+  }, 60000)
+
+  it('types the variables a DAE solves implicitly as computed, and solves them in libOpenCOR', async () => {
+    const node = buildNode('pair', DAE_XML, { q_init: '0' })
+    const types = Object.fromEntries(node.data.variables.map((row) => [row.name, row.type]))
+    expect(types).toMatchObject({ s: 'variable', x: 'variable', y: 'variable', q_init: 'constant' })
+
+    const text = await flatten([node])
+    const session = createSimulationSession({ module: libOpenCOR, cellml: text })
+    try {
+      const results = await session.run({ settings: { ...BASELINE_SIMULATION_SETTINGS, endingPoint: 1, pointInterval: 0.5 } }).promise
+      expect([...results.variables.get('pair/x').values][0]).toBeCloseTo(2, 6)
+      expect([...results.variables.get('pair/y').values][0]).toBeCloseTo(1, 6)
+      expect([...results.variables.get('pair/q').values][2]).toBeCloseTo(2, 6)
+    } finally {
+      session.dispose()
+    }
+  }, 60000)
+
+  it('runs a bond graph DAE from bg2cellml, with its parameters keeping their values', async () => {
+    const processed = processCellMLData(RLC_DAE_XML)
+    expect(processed.type).toBe('success')
+    const extracted = Object.fromEntries(processed.components[0].variables.map((row) => [row.name, row.type]))
+    expect(extracted).toMatchObject({ a_L_m_L: 'variable', v_m_1: 'variable', C_q_m_C: 'constant' })
+    store.addUnitsFile({ componentFile: 'rlc.cellml', model: processed.units.model })
+    store.addMathFile('rlc.cellml', processed.components)
+    const mathRef = 'rlc.cellml:main'
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], { defaults: store.getMathDefaults(mathRef) })
+    const types = Object.fromEntries(rows.map((row) => [row.name, row.type]))
+    expect(types).toMatchObject({ a_L_m_L: 'variable', v_m_1: 'variable', C_q_m_C: 'constant', L_L_m_L: 'constant', R_R_m_R: 'constant' })
+
+    const node = { id: 'rlc', type: 'instanceNode', data: { name: 'rlc', mathRef, variables: rows, ports: [] } }
+    const session = createSimulationSession({ module: libOpenCOR, cellml: await flatten([node]) })
+    try {
+      const results = await session.run({ settings: { ...BASELINE_SIMULATION_SETTINGS, endingPoint: 1, pointInterval: 0.5 } }).promise
+      expect(results.voi.values).toHaveLength(3)
     } finally {
       session.dispose()
     }

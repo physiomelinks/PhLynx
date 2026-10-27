@@ -667,12 +667,12 @@ describe('useMathSession', () => {
     })
   })
 
-  describe('SN_varicosity in sn_simple.json', () => {
-    const FIXTURE = path.resolve(process.cwd(), 'tests/resources/migration-versioning/v1-2-0/sn_simple.json')
+  // The SN simple workspace's var_SN instance: its math and rows, as saved.
+  describe('SN_varicosity from the SN simple workspace', () => {
+    const FIXTURE = path.resolve(process.cwd(), 'tests/resources/math-session/sn_varicosity.json')
     const UNUSED = ['N_avo', 'cAMP', 'Ca_ER_RyR_tau_mid', 'Ca_ER_RyR_tau_den']
-    const workspace = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))
-    const node = workspace.flow.nodes.find((n) => n.data.name === 'var_SN').data
-    const MATH = new Map(workspace.store.availableMath).get(node.mathRef)
+    const node = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))
+    const MATH = node.math
     const generator = new CellMLTextGenerator({ simplified: true })
     const pick = (rows) =>
       rows.map(({ name, value, type, units, initialiser, data_reference }) => ({ name, value, type, units, initialiser, data_reference }))

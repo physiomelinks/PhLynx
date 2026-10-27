@@ -119,7 +119,7 @@ Handles are the dots where arrows attach. They don't decide which variables an a
 
 One arrow runs in each direction between two instances, and it holds all their couplings. Drawing a second arrow from A to B asks whether to replace the first (**Connection already exists**). To share more variables, double-click the existing arrow and couple more ports there.
 
-An orange arrow with a warning badge has couplings that can't be exported: for example, Sum or Multiply ports with different numbers of variables, or a pair that is Sum (or Multiply) on both ends. Hover the badge for the reason, then double-click the arrow to fix it. Until then the model won't export or simulate. See [Ports that take several connections](./valid-port-configurations.md#multiports).
+An orange arrow with a warning badge has couplings that can't be exported: for example, Sum or Multiply ports with different numbers of variables, a pair that is Sum (or Multiply) on both ends, or a pair of variables whose units have different dimensions (e.g. second and metre; millisecond and second is fine, as it only differs in scale). Hover the badge for the reason, then double-click the arrow to fix it: the Connections dialog draws a pair with incompatible units as an orange line and lists why below it. Until then the model won't export or simulate. See [Ports that take several connections](./valid-port-configurations.md#multiports).
 
 ---
 

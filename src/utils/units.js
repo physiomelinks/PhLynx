@@ -214,6 +214,15 @@ export function resolveUnits(name, definitions, cache, leaves = SI_UNITS) {
   return result
 }
 
+/**
+ * Whether two expansions from resolveUnits have the same dimensions, whatever their scale. Cancelled
+ * dimensions (power 0) don't count.
+ */
+export function sameDimensions(a, b) {
+  const names = new Set([...Object.keys(a.dimensions), ...Object.keys(b.dimensions)])
+  return [...names].every((name) => Math.abs((a.dimensions[name] ?? 0) - (b.dimensions[name] ?? 0)) < 1e-9)
+}
+
 /** Multiplies a definition's parts: each is multiplier × (10^prefix × units)^exponent. */
 function combineParts(name, parts, definitions, cache, leaves) {
   if (!parts.length) return base({ [USER_DIMENSION + name]: 1 })

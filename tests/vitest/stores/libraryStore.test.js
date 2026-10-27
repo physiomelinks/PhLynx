@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import fs from 'node:fs'
+import path from 'node:path'
+
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { CellMLTextParser } from 'cellml-text-editor'
@@ -308,6 +311,18 @@ describe('instances of a module built from a CellML file', () => {
     const rows = Object.fromEntries(instance.data.variables.map((row) => [row.name, row.value]))
     expect(rows).toMatchObject({ k: '0.5', x_init: '1.5' })
   })
+
+  it("type a DAE's implicit unknown as computed, and its parameters as constants with their values", () => {
+    const store = useLibraryStore()
+    const xml = fs.readFileSync(path.resolve(__dirname, '../fixtures/bg2cellml/rlc_dae.cellml'), 'utf8')
+    store.addMathFile('rlc.cellml', [{ name: 'main', math: xml }])
+    const module = store.availableModules.get('main:default')
+
+    const instance = buildInstance('n1', 'rlc_1', 'instanceNode', module, [], null, store.getMathAnalysis('rlc.cellml:main'), store.getMathDefaults('rlc.cellml:main'))
+    const rows = Object.fromEntries(instance.data.variables.map((row) => [row.name, row]))
+    expect(rows.a_L_m_L.type).toBe('variable')
+    expect(rows.L_L_m_L).toMatchObject({ type: 'constant', value: '1' })
+  })
 })
 
 describe('libraryStore unit expansions', () => {
@@ -328,6 +343,39 @@ describe('libraryStore unit expansions', () => {
 
     expect(Object.keys(store.getState())).not.toContain('unitExpansions')
     expect(Object.keys(store.getState())).not.toContain('builtInUnitExpansions')
+  })
+})
+
+describe('libraryStore units files', () => {
+  const UNITS = (name) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="u"><units name="${name}"/></model>`
+
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('replaces a file of the same name by default, as a user drop does', () => {
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('workspace_only') })
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('built_in') })
+
+    expect(store.availableUnits).toHaveLength(1)
+    expect(store.availableUnits[0].model).toBe(UNITS('built_in'))
+  })
+
+  it('keeps a file already under the name with replace: false, as built-in hydration does', () => {
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('workspace_only') })
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('built_in') }, { replace: false })
+
+    expect(store.availableUnits).toHaveLength(1)
+    expect(store.availableUnits[0].model).toBe(UNITS('workspace_only'))
+    expect(store.availableUnitNames.has('workspace_only')).toBe(true)
+    expect(store.availableUnitNames.has('built_in')).toBe(false)
+  })
+
+  it('still adds a new file with replace: false', () => {
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS('built_in') }, { replace: false })
+
+    expect(store.availableUnits.map((f) => f.componentFile)).toEqual(['units.cellml'])
   })
 })
 

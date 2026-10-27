@@ -97,6 +97,10 @@ describe('analyzeMathXml', () => {
     ])
   })
 
+  it('records the equations without a derivative as algebraic', () => {
+    expect(analyzeMathXml(SAMPLE).algebraic).toEqual([{ target: 'I', uses: ['V'] }])
+  })
+
   it('returns null for empty input', () => {
     expect(analyzeMathXml('')).toBeNull()
     expect(analyzeMathXml(undefined)).toBeNull()
@@ -107,7 +111,7 @@ describe('analyzeMathXml', () => {
     expect(components.length).toBeGreaterThan(10)
     for (const { id, xml } of components) {
       const doc = new DOMParser().parseFromString(xml, 'application/xml')
-      const { references, ...analysis } = analyzeMathXml(xml)
+      const { references, algebraic, ...analysis } = analyzeMathXml(xml)
       expect({ id, ...analysis }, id).toEqual({ id, ...analyzeModel(doc) })
       expect({ id, references }, id).toEqual({ id, references: referenceSequence(doc) })
     }

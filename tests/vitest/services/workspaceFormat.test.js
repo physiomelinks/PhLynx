@@ -4,25 +4,27 @@ import path from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
+import { SYNTHETIC_VERSIONS, syntheticCaseNames, syntheticWorkspace } from '../helpers/syntheticWorkspaces/index.js'
 import { loadAndSave } from '../helpers/workspaceSave.js'
 
-const RESOURCES_DIR = path.resolve(process.cwd(), 'tests/resources/migration-versioning')
-const FIXTURE_DIR = path.join(RESOURCES_DIR, `v${PHLYNX_PROJECT_VERSION.replaceAll('.', '-')}`)
-const SHAPE_FILE = path.join(RESOURCES_DIR, 'shapes', `${PHLYNX_PROJECT_VERSION}.json`)
-const ERAS = fs.readdirSync(RESOURCES_DIR).filter((name) => name === 'legacy' || /^v\d+-\d+-\d+$/.test(name))
+const SHAPE_FILE = path.resolve(process.cwd(), 'tests/resources/migration-versioning/shapes', `${PHLYNX_PROJECT_VERSION}.json`)
 
-// Objects keyed by data (e.g. node ids) rather than by field name; their keys aren't part of the format.
-const MAP_PATHS = new Set(['simulation.plotConfig', 'simulation.parameterScanConfig'])
+// Cases holding saved fields a released shape doesn't record, as its fixtures never held them; `<version>/<case>`.
+// A shape recorded from 1.3.0 on records them.
+const UNRECORDED = {
+  '1.2.0': new Set(['legacy/domainType', '1.2.0/inspectionPlotSelection', '1.2.0/parameterScanLabel']),
+}
 
 const SHAPE_CHANGED = `The saved workspace file's shape no longer matches format ${PHLYNX_PROJECT_VERSION}.
-Any change to the saved file needs a new format version: bump PHLYNX_PROJECT_VERSION and add a
-migration step in src/services/workspaceMigrator.js, plus a fixture in tests/resources/migration-versioning.
+Any change to the saved file needs a new format version: bump PHLYNX_PROJECT_VERSION, add a migration step
+in src/services/workspaceMigrator.js, and add a synthetic case for the change to the new version's workspace in
+tests/vitest/helpers/syntheticWorkspaces, not a fixture file.
 If ${PHLYNX_PROJECT_VERSION} has not reached production yet, amend its migration step instead.
 Then regenerate the shape with UPDATE_WORKSPACE_SHAPE=1 yarn vitest run tests/vitest/services/workspaceFormat.test.js.
 Never edit the shape of a released version.`
 
 /**
- * Collects the key paths of a value. Array elements share one path, and map objects one key.
+ * Collects the key paths of a value. Array elements share one path.
  *
  * @param {*} value
  * @param {string} prefix - The path so far.
@@ -35,9 +37,8 @@ function collectPaths(value, prefix, paths) {
   }
   if (!value || typeof value !== 'object') return
 
-  const isMap = MAP_PATHS.has(prefix)
   for (const [key, child] of Object.entries(value)) {
-    const childPath = isMap ? `${prefix}{*}` : prefix ? `${prefix}.${key}` : key
+    const childPath = prefix ? `${prefix}.${key}` : key
     paths.add(childPath)
     collectPaths(child, childPath, paths)
   }
@@ -49,14 +50,20 @@ describe('workspace file format', () => {
   })
 
   it(`saves the shape recorded for format ${PHLYNX_PROJECT_VERSION}`, { timeout: 60000 }, () => {
-    expect(fs.existsSync(FIXTURE_DIR), `No fixture folder for format ${PHLYNX_PROJECT_VERSION}.\n${SHAPE_CHANGED}`).toBe(true)
+    expect(SYNTHETIC_VERSIONS, `No synthetic workspace for format ${PHLYNX_PROJECT_VERSION}.\n${SHAPE_CHANGED}`).toContain(
+      PHLYNX_PROJECT_VERSION
+    )
 
-    // Every era, since only migrating older files runs the code that builds rows.
+    // Every version, since only migrating older files runs the code that builds rows.
+    const unrecorded = UNRECORDED[PHLYNX_PROJECT_VERSION] ?? new Set()
+    for (const entry of unrecorded) {
+      const [version, name] = entry.split('/')
+      expect(syntheticCaseNames(version), `UNRECORDED names no case ${entry}.`).toContain(name)
+    }
     const paths = new Set()
-    for (const era of ERAS) {
-      for (const file of fs.readdirSync(path.join(RESOURCES_DIR, era)).filter((name) => name.endsWith('.json'))) {
-        collectPaths(loadAndSave(JSON.parse(fs.readFileSync(path.join(RESOURCES_DIR, era, file), 'utf8'))), '', paths)
-      }
+    for (const version of SYNTHETIC_VERSIONS) {
+      const caseNames = syntheticCaseNames(version).filter((name) => !unrecorded.has(`${version}/${name}`))
+      collectPaths(loadAndSave(syntheticWorkspace(version, caseNames)), '', paths)
     }
     const shape = [...paths].sort()
 

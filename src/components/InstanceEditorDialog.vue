@@ -901,7 +901,9 @@ const connection = computed(() => {
   )
   let resolved
   try {
-    resolved = resolveBoundaryValues(canvasNodes, canvasEdges)
+    // The store analyses the saved math, while this instance's rows already follow the math as edited.
+    const savedAnalysis = (mathRef) => (mathRef === props.mathRef ? null : (store.getMathAnalysis?.(mathRef) ?? null))
+    resolved = resolveBoundaryValues(canvasNodes, canvasEdges, savedAnalysis)
   } catch {
     return { status: new Map(), ignored: new Set(), emptySums: new Set() } // a malformed multiport, which export reports
   }

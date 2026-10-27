@@ -27,7 +27,7 @@
     :style="style"
     :class="{ 'coupling-edge--conflict': conflicts.length }"
   />
-  <!-- Like an instance's missing-parameter warning: these couplings can't be exported -->
+  <!-- Like an instance's missing-parameter warning: these couplings can't be exported, as their ports or units don't pair -->
   <EdgeLabelRenderer v-if="conflicts.length">
     <div
       class="coupling-edge-warning nodrag nopan"
@@ -40,8 +40,10 @@
 
 <script setup>
 import { computed } from 'vue'
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from '@vue-flow/core'
+import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useVueFlow } from '@vue-flow/core'
+import { useLibraryStore } from '../stores/libraryStore'
 import { couplingConflicts } from '../utils/multiport'
+import { couplingUnitConflicts } from '../utils/couplingUnits'
 
 defineOptions({ inheritAttrs: false })
 
@@ -65,9 +67,23 @@ const props = defineProps({
 // [path, labelX, labelY, ...], drawn as the default smoothstep edge is.
 const path = computed(() => getSmoothStepPath(props))
 
-const conflicts = computed(() =>
-  (props.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => couplingConflicts(sourcePort, targetPort))
-)
+const { findNode } = useVueFlow()
+const libraryStore = useLibraryStore()
+
+// One resolveUnits cache per set of definitions.
+const unitsCache = computed(() => (libraryStore.unitDefinitions, new Map()))
+
+// A pair the ports already reject isn't checked for units too.
+const conflicts = computed(() => {
+  const sourceRows = findNode(props.source)?.data?.variables
+  const targetRows = findNode(props.target)?.data?.variables
+  return (props.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
+    const portConflicts = couplingConflicts(sourcePort, targetPort)
+    return portConflicts.length
+      ? portConflicts
+      : couplingUnitConflicts(sourcePort, targetPort, sourceRows, targetRows, libraryStore.unitDefinitions, unitsCache.value)
+  })
+})
 
 const ownMarker = computed(() => props.selected || conflicts.value.length > 0)
 const markerId = `coupling-edge-arrow-${props.id}`

@@ -10,12 +10,13 @@ export function createEmptyAnalysis() {
     assigned: [],
     voi: [],
     dependencies: [],
+    algebraic: [],
   }
 }
 
 const stripNamespacePrefix = (qualifiedName) => qualifiedName.slice(qualifiedName.indexOf(':') + 1)
 
-function buildAnalysis({ componentName, declared, referenced, references, stateVariables, assigned, voi, dependencies }) {
+function buildAnalysis({ componentName, declared, referenced, references, stateVariables, assigned, voi, dependencies, algebraic }) {
   const unitsByName = new Map(declared.map((variable) => [variable.name, variable.units]))
   const referencedNames = Array.from(referenced)
   return {
@@ -28,6 +29,7 @@ function buildAnalysis({ componentName, declared, referenced, references, stateV
     assigned: Array.from(assigned),
     voi: Array.from(voi),
     dependencies,
+    algebraic,
   }
 }
 
@@ -35,10 +37,12 @@ function buildAnalysis({ componentName, declared, referenced, references, stateV
  * Analyzes CellML XML in one streaming pass, giving the same result as cellml-text-editor's
  * analyzeModel without needing a DOM, so it can run in a worker. The parser is lenient, so
  * malformed XML gives a best-effort result. It also gives `references`: every `<ci>` name in
- * document order, repeats included, which is what `detectRenames` compares.
+ * document order, repeats included, which is what `detectRenames` compares; and `algebraic`: the
+ * dependencies of equations without a derivative, which findImplicitVariables matches to unknowns.
  *
  * @param {string} xml - CellML model XML.
- * @returns {(import('cellml-text-editor').ModelAnalysis & { references: string[] })|null} The analysis, or null for empty input.
+ * @returns {(import('cellml-text-editor').ModelAnalysis & { references: string[], algebraic: Array<{ target: (string|null), uses: string[] }> })|null}
+ *   The analysis, or null for empty input.
  */
 export function analyzeMathXml(xml) {
   if (typeof xml !== 'string' || !xml.trim()) return null
@@ -52,6 +56,7 @@ export function analyzeMathXml(xml) {
     assigned: new Set(),
     voi: new Set(),
     dependencies: [],
+    algebraic: [],
   }
 
   let hasSeenComponent = false
@@ -77,6 +82,7 @@ export function analyzeMathXml(xml) {
           eqUses: null, // on a top-level apply: the names its equation uses
           isEqTarget: false,
           isTopLevelApply: false,
+          hasDerivative: false, // on a top-level apply: whether its equation contains a diff
           isStateSettled: false,
           isStateCandidate: false,
           isComponent: false,
@@ -101,6 +107,8 @@ export function analyzeMathXml(xml) {
             frame.eqUses = new Set()
           }
         }
+
+        if (name === 'diff' && frame.equation) frame.equation.hasDerivative = true
 
         if (name === 'component' && !hasSeenComponent && !isComponentDone) {
           hasSeenComponent = true
@@ -147,7 +155,9 @@ export function analyzeMathXml(xml) {
         }
 
         if (frame.isTopLevelApply && frame.inComponent && frame.first === 'eq') {
-          collected.dependencies.push({ target: frame.eqTarget, uses: Array.from(frame.eqUses) })
+          const dependency = { target: frame.eqTarget, uses: Array.from(frame.eqUses) }
+          collected.dependencies.push(dependency)
+          if (!frame.hasDerivative) collected.algebraic.push(dependency)
         }
 
         if (frame.isComponent) isComponentDone = true

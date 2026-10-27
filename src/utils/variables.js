@@ -56,15 +56,58 @@ export function findVoiNames(analysis, unitsOf = () => undefined) {
 }
 
 /**
- * Infers a row's type from its role in the math. States, equation LHS names and the VoI (see
- * findVoiNames) are computed ('variable'); being an initialiser doesn't count.
+ * Finds the variables a DAE solves implicitly: those on no left side that an equation still has to
+ * solve, such as a junction's flow in a bond graph. Each equation without a derivative solves one
+ * unknown, so equations left over once every left-side name has its own are matched to unknowns they
+ * use, as libcellml's Analyser would solve them in a nonlinear system. Only names nothing else
+ * supplies can be unknowns: a variable with a value, or one a port gives, is a parameter.
+ *
+ * @param {{algebraic?: Array<{target: (string|null), uses: string[]}>}} analysis - A math analysis.
+ * @param {{states: Set, assigned: Set, voi: Set}} roles - From the analysis, as inferType takes them.
+ * @param {(name: string) => boolean} isSupplied - Whether a value or port supplies the variable.
+ * @param {Set<string>} [preferred] - Unknowns to try first, such as rows already computed, so the choice stays put.
+ * @returns {Set<string>}
+ */
+export function findImplicitVariables(analysis, { states, assigned, voi }, isSupplied, preferred = new Set()) {
+  const equations = analysis?.algebraic ?? []
+  const isUnknown = (name) => !states.has(name) && !voi.has(name) && (assigned.has(name) || !isSupplied(name))
+  const unknownsOf = equations.map(({ target, uses }) => [...new Set([target, ...uses])].filter((name) => name && isUnknown(name)))
+  const equationOf = new Map() // unknown → the equation solving it
+
+  // Kuhn's augmenting paths: an unknown already solved stays solved, by whichever equation.
+  const solve = (index, allowed, visited) => {
+    for (const name of unknownsOf[index]) {
+      if (!allowed(name) || visited.has(name)) continue
+      visited.add(name)
+      if (!equationOf.has(name) || solve(equationOf.get(name), allowed, visited)) {
+        equationOf.set(name, index)
+        return true
+      }
+    }
+    return false
+  }
+  // Left-side names first, then preferred unknowns, then any.
+  const tiers = [(name) => assigned.has(name), (name) => assigned.has(name) || preferred.has(name), () => true]
+  const solved = new Set()
+  for (const allowed of tiers) {
+    unknownsOf.forEach((_, index) => {
+      if (!solved.has(index) && solve(index, allowed, new Set())) solved.add(index)
+    })
+  }
+  return new Set([...equationOf.keys()].filter((name) => !assigned.has(name)))
+}
+
+/**
+ * Infers a row's type from its role in the math. States, equation LHS names, what a DAE solves
+ * implicitly (see findImplicitVariables) and the VoI (see findVoiNames) are computed ('variable');
+ * being an initialiser doesn't count.
  *
  * @param {string} name
- * @param {{states: Set, assigned: Set, voi: Set}} roles
+ * @param {{states: Set, assigned: Set, voi: Set, implicit?: Set}} roles
  * @returns {'variable'|'constant'}
  */
-export function inferType(name, { states, assigned, voi }) {
-  if (states.has(name) || assigned.has(name) || voi.has(name)) return 'variable'
+export function inferType(name, { states, assigned, voi, implicit }) {
+  if (states.has(name) || assigned.has(name) || voi.has(name) || implicit?.has(name)) return 'variable'
   return 'constant'
 }
 

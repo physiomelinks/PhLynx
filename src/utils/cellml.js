@@ -1,7 +1,8 @@
-import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
+import { couplingUnitConflicts } from './couplingUnits.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -885,6 +886,19 @@ function ensurePublicInterface(variable) {
   variable.setInterfaceTypeByString('public')
 }
 
+/**
+ * Joins the first items of a list for an error message, saying how many more there are.
+ *
+ * @param {string[]} items
+ * @param {number} max - How many to show.
+ * @param {string} [separator=', ']
+ * @returns {string} e.g. `a, b and 3 more`.
+ */
+function listWithMore(items, max, separator = ', ') {
+  const more = items.length > max ? ` and ${items.length - max} more` : ''
+  return `${items.slice(0, max).join(separator)}${more}`
+}
+
 function addVariableToParameterComponent(model, variable, parameterComponent, parameterData) {
   let sourceVar = parameterComponent.variableByName(parameterData.name)
 
@@ -910,6 +924,35 @@ function addVariableToParameterComponent(model, variable, parameterComponent, pa
   _libcellml.Variable.addEquivalence(sourceVar, variable)
 
   sourceVar.delete()
+}
+
+/**
+ * Rewrites a CellML string's `id` attributes for one instance, so two instances of one math don't repeat
+ * them. Ids made from the component's name, as bg2cellml writes them (`main`, `main-x`), take the
+ * instance's name in its place (`decay_1`, `decay_1-x`); any other id is prefixed (`decay_1-<id>`).
+ *
+ * @param {string} xmlString
+ * @param {string} instanceName - A CellML identifier, so it holds no hyphen and no two instances share a prefix.
+ * @returns {string} The rewritten string, or unchanged if it has no ids or doesn't parse.
+ */
+function prefixIdAttributes(xmlString, instanceName) {
+  if (!/\sid\s*=/.test(xmlString)) return xmlString
+
+  const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
+  if (doc.querySelector('parsererror')) return xmlString
+
+  const elements = [...doc.querySelectorAll('[id]')]
+  const componentName = doc.querySelector('component')?.getAttribute('name')
+  const renamed = (id) => {
+    if (componentName && id === componentName) return instanceName
+    if (componentName && id.startsWith(`${componentName}-`)) return instanceName + id.slice(componentName.length)
+    return `${instanceName}-${id}`
+  }
+  // Renaming could merge two ids, e.g. "main-x" and "x"; prefixing every id keeps them apart.
+  const ids = elements.map((el) => el.getAttribute('id'))
+  const rename = new Set(ids.map(renamed)).size === ids.length ? renamed : (id) => `${instanceName}-${id}`
+  for (const el of elements) el.setAttribute('id', rename(el.getAttribute('id')))
+  return new XMLSerializer().serializeToString(doc)
 }
 
 /**
@@ -1037,7 +1080,15 @@ export function generateFlattenedModel(
   const unitsLibraryCache = new Map() // Key: componentFile,  Value: libcellml.Model
   const unitsImportSourceMap = new Map() // Key: componentFile,  Value: libcellml.ImportSource
 
-  const ensureUnitImported = (unitsName) => {
+  const unresolvedUnits = new Map() // Key: unitsName,      Value: Set of what uses them
+
+  /**
+   * Imports a units definition from the library's units files, unless the model has it or it is standard.
+   *
+   * @param {string} unitsName
+   * @param {string} usedBy - What uses them, such as `component.variable`, named if no units file defines them.
+   */
+  const ensureUnitImported = (unitsName, usedBy) => {
     // Safety Checks
     if (!unitsName) return
 
@@ -1102,7 +1153,8 @@ export function generateFlattenedModel(
     }
 
     if (!found) {
-      console.warn(`Could not find definition for unit '${unitsName}'`)
+      if (!unresolvedUnits.has(unitsName)) unresolvedUnits.set(unitsName, new Set())
+      unresolvedUnits.get(unitsName).add(usedBy)
     }
   }
 
@@ -1114,7 +1166,7 @@ export function generateFlattenedModel(
     model.addComponent(parameterComponent)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges)
+    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis)
     // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
     // falls back to their own values (see checkScope).
     if (boundaryValues.bcOnly.length && !allowBcOnly) {
@@ -1123,6 +1175,10 @@ export function generateFlattenedModel(
     }
     if (boundaryValues.conflicts.length) {
       throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
+    }
+    // libCellML would reject a variable set more than once, or accept it as a DAE and drop an equation.
+    if (boundaryValues.overdetermined.length) {
+      throw new Error(boundaryValues.overdetermined.map(({ message }) => message).join(' '))
     }
     // A value something else supplies is dropped (see resolveBoundaryValues).
     const isIgnored = (nodeId, v) => !!boundaryValues.ignored.get(nodeId)?.has(v.name)
@@ -1157,7 +1213,8 @@ export function generateFlattenedModel(
       const modelString = libraryStore.availableMath.get(mathRef)
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
-      const modelFromInstance = parser.parseModel(modelString)
+      // Ids, such as bg2cellml writes, would repeat in each instance of the same math.
+      const modelFromInstance = parser.parseModel(prefixIdAttributes(modelString, node.data.name))
 
       const originalComponent = modelFromInstance.componentByIndex(0)
       originalComponent.setName(node.data.name)
@@ -1179,7 +1236,7 @@ export function generateFlattenedModel(
       // Add Units found in MathML.
       const mathUnits = extractUnitsFromMath(originalComponent.math())
       for (const unitsName of mathUnits) {
-        ensureUnitImported(unitsName)
+        ensureUnitImported(unitsName, `${node.data.name}'s math`)
       }
 
       // Add Units found in Variables.
@@ -1202,6 +1259,7 @@ export function generateFlattenedModel(
           if (nodeVariable.type === 'global_constant') {
             const v = libraryStore.getGlobalConstant(variable.name())
             if (!isEmpty(v?.value)) {
+              if (v.units !== unitsName) ensureUnitImported(v.units, `global constant ${variable.name()}`)
               addVariableToParameterComponent(model, variable, globalParameterComponent, {
                 ...v,
                 name: variable.name(),
@@ -1215,6 +1273,7 @@ export function generateFlattenedModel(
             const v = node.data.variables.find((cv) => cv.name === nodeVariable.name)
             if (!isEmpty(v?.value)) {
               const isShared = (constantNameRefCount.get(v.name) ?? 0) > 1
+              if (v.units !== unitsName) ensureUnitImported(v.units, `${node.data.name}.${v.name}'s parameter row`)
               addVariableToParameterComponent(model, variable, parameterComponent, {
                 ...v,
                 name: isShared ? `${node.data.name}_${v.name}` : v.name,
@@ -1225,8 +1284,7 @@ export function generateFlattenedModel(
           }
         }
 
-        // Use our helper
-        ensureUnitImported(unitsName)
+        ensureUnitImported(unitsName, `${node.data.name}.${variable.name()}`)
 
         variable.delete()
         units.delete()
@@ -1234,9 +1292,16 @@ export function generateFlattenedModel(
     }
 
     if (missingValues.length) {
-      const shown = missingValues.slice(0, 10).join(', ')
-      const more = missingValues.length > 10 ? ` and ${missingValues.length - 10} more` : ''
-      throw new Error(`Missing parameter values: ${shown}${more}.`)
+      throw new Error(`Missing parameter values: ${listWithMore(missingValues, 10)}.`)
+    }
+
+    for (const module of inspectionModules) {
+      ensureUnitImported(module.units, `inspection module ${module.name}`)
+    }
+
+    if (unresolvedUnits.size) {
+      const listed = [...unresolvedUnits].map(([name, users]) => `${name} (used by ${listWithMore([...users], 3)})`)
+      throw new Error(`Units no units file defines: ${listWithMore(listed, 3, '; ')}.`)
     }
 
     // ----------------------------------
@@ -1252,6 +1317,7 @@ export function generateFlattenedModel(
       if (!multiPortSums.has(key)) multiPortSums.set(key, { component, varName, terms: [] })
       if (term) multiPortSums.get(key).terms.push(term)
     }
+    const unitsCache = new Map() // for resolveUnits, across the edges' couplings
     let mulComp = null // generated_multiplications, kept until Pass 2 sums the outputs it holds
     for (const edge of edges) {
       // Edges only carry source/target node ids plus resolved coupling data
@@ -1267,9 +1333,13 @@ export function generateFlattenedModel(
       // (and recomputed on any edit), so ordinal slot assignment is already
       // correct — no need to re-derive from ports here.
       const couplings = edge.data?.couplings ?? []
+      const sourceRows = nodes.find((node) => node.id === edge.source)?.data.variables
+      const targetRows = nodes.find((node) => node.id === edge.target)?.data.variables
 
       for (const { sourcePort, targetPort } of couplings) {
-        const [conflict] = couplingConflicts(sourcePort, targetPort)
+        const [conflict] = couplingConflicts(sourcePort, targetPort).concat(
+          couplingUnitConflicts(sourcePort, targetPort, sourceRows, targetRows, libraryStore.unitDefinitions, unitsCache)
+        )
         if (conflict) throw new Error(`Cannot connect "${sourceComp.name()}" to "${targetComp.name()}": ${conflict}`)
         const sourceTypes = variableTypes(sourcePort)
         const targetTypes = variableTypes(targetPort)
@@ -1427,10 +1497,14 @@ function isPossibleParameter(variable, voiNames, includeInitialised = false) {
 }
 
 /**
- * Extracts unique variable names from a CellML model/component. A variable the math computes is a
- * `variable`; anything else is a `constant` until someone says otherwise.
+ * Extracts unique variable names from a CellML model/component. A variable the math computes, or a
+ * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
+ *
+ * @param {string} math
+ * @param {boolean} [includeInitialisedVariables]
+ * @param {Map<string, string>} [defaults] - The math's values, for stored math, which holds none (libraryStore.getMathDefaults).
  */
-export function extractVariablesFromMath(math, includeInitialisedVariables = true) {
+export function extractVariablesFromMath(math, includeInitialisedVariables = true, defaults = new Map()) {
   const garbageCollector = new Set() // To track created objects for cleanup.
   try {
     const variables = []
@@ -1441,6 +1515,9 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
         assigned: new Set(analysis?.assigned),
         voi: findVoiNames(analysis),
       }
+      const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
+      const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
+      roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)
       const model = parser.parseModel(math)

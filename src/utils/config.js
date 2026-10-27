@@ -43,12 +43,12 @@ export function normaliseConfig(config) {
   }
 }
 
-export function buildModule(moduleRef, mathRef, math) {
+export function buildModule(moduleRef, mathRef, math, defaults) {
   return {
     moduleRef: moduleRef,
     mathRef: mathRef,
     ports: [],
-    variables: extractVariablesFromMath(math),
+    variables: extractVariablesFromMath(math, true, defaults),
   }
 }
 

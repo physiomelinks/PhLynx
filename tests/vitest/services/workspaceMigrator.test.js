@@ -1,12 +1,10 @@
-import fs from 'node:fs'
-import path from 'node:path'
-
 import { beforeAll, describe, expect, it } from 'vitest'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath'
 import { detectVersion, migrateWorkspace, separateNodeParameters } from '../../../src/services/workspaceMigrator'
 import { PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
-import { legacyWorkspace } from '../helpers/legacyWorkspace.js'
+import { SYNTHETIC_VERSIONS, syntheticCase, syntheticCaseNames, syntheticWorkspace } from '../helpers/syntheticWorkspaces/index.js'
+import { loadAndSave } from '../helpers/workspaceSave.js'
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -194,65 +192,6 @@ describe('migrateWorkspace', () => {
     expect(migrated.simulation.simulationSettings).toBeDefined()
   })
 
-  it('gives a 1.1.0 file the solver settings its runs used, keeping its other settings', () => {
-    const migrated = migrateWorkspace({
-      id: 'phlynx-project',
-      version: '1.1.0',
-      flow: { nodes: [], edges: [] },
-      store: { availableMath: [] },
-      simulation: {
-        simulationSettings: { pointInterval: 0.25, endingPoint: 3, solver: 'RungeKutta4', timeStep: 0.2, tolerance: 1e-6, maxSteps: 10000, extra: 'kept' },
-        plotConfig: { groups: [] },
-        parameterScanConfig: {},
-      },
-      inspectionModules: [],
-    })
-    expect(migrated.simulation.simulationSettings).toEqual({
-      pointInterval: 0.25,
-      endingPoint: 3,
-      solver: 'CVODE',
-      timeStep: 0,
-      tolerance: 1e-7,
-      maxSteps: 500,
-      extra: 'kept',
-    })
-    expect(migrated.simulation.plotConfig).toEqual({ groups: [] })
-  })
-
-  it("connects each legacy edge to its own node's handle when a copied node shares its original's port uids", () => {
-    const legacyNode = (id, ports) => ({
-      id,
-      position: { x: 0, y: 0 },
-      data: { name: id, sourceFile: 'm.cellml', componentName: 'c', portLabels: [], portOptions: [], variables: [], ports },
-    })
-    const shared = [
-      { uid: 'shared-top', side: 'top' },
-      { uid: 'shared-bottom', side: 'bottom' },
-    ]
-    const legacyEdge = (source, target) => ({
-      id: `${source}--${target}`,
-      type: 'smoothstep',
-      source,
-      target,
-      sourceHandle: 'port_shared-bottom',
-      targetHandle: 'port_shared-top',
-      data: { couplings: [] },
-    })
-    const migrated = migrateWorkspace({
-      flow: {
-        nodes: [legacyNode('original', shared), legacyNode('copy', shared), legacyNode('other', shared)],
-        edges: [legacyEdge('original', 'other'), legacyEdge('other', 'copy')],
-      },
-      store: { availableModules: [], availableUnits: [], globalConstants: [] },
-    })
-
-    const handlesOf = new Map(migrated.flow.nodes.map(({ id, data }) => [id, data.handles.map((h) => `handle_${h.uid}`)]))
-    for (const edge of migrated.flow.edges) {
-      expect(handlesOf.get(edge.source)).toContain(edge.sourceHandle)
-      expect(handlesOf.get(edge.target)).toContain(edge.targetHandle)
-    }
-  })
-
   it('refuses a version it does not know', () => {
     expect(() => migrateWorkspace({ version: '99.0.0', flow: { nodes: [] }, store: {} })).toThrow(/99\.0\.0/)
   })
@@ -266,69 +205,13 @@ describe('detectVersion', () => {
   })
 })
 
-describe('migrateWorkspace over legacy modules', () => {
-  let store
-  let nodes
-  beforeAll(async () => {
-    await ensureLibCellmlReady()
-    ;({ store, flow: { nodes } } = migrateWorkspace(legacyWorkspace()))
-  })
-  const mathRefOf = (moduleRef) => new Map(store.availableModules).get(moduleRef)?.mathRef
-
-  it('gives each legacy module its own library module', () => {
-    expect(Object.fromEntries(store.availableModules.map(([moduleRef, module]) => [moduleRef, module.mathRef]))).toEqual({
-      'new_module:phlynx': 'template_modules.cellml:new_module',
-      'artery:pp': 'vessel_modules.cellml:vessel',
-      'artery:vp': 'vessel_modules.cellml:vessel',
-      'GLUT2:default': 'User_Modules.cellml:GLUT2',
-      'NKA:default': 'User_Modules.cellml:NKA',
-      'vessel:default': 'User_Modules.cellml:vessel',
-    })
-  })
-
-  it('lists every module in its math\'s collection', () => {
-    expect(new Map(store.availableCollections)).toEqual(
-      new Map([
-        ['template_modules.cellml:new_module', ['new_module:phlynx']],
-        ['vessel_modules.cellml:vessel', ['artery:pp', 'artery:vp']],
-        ['User_Modules.cellml:GLUT2', ['GLUT2:default']],
-        ['User_Modules.cellml:NKA', ['NKA:default']],
-        ['User_Modules.cellml:vessel', ['vessel:default']],
-      ])
-    )
-  })
-
-  it('points each node at the module made from its config', () => {
-    expect(nodes.map(({ data }) => [data.name, data.moduleRef])).toEqual([
-      ['GLUT2_1', 'GLUT2:default'],
-      ['NKA_1', 'NKA:default'],
-      ['vessel_user', 'vessel:default'],
-      ['vessel_library', 'artery:vp'],
-    ])
-    for (const { data } of nodes) expect(mathRefOf(data.moduleRef)).toBe(data.mathRef)
-  })
-})
-
-const FIXTURES_DIR = path.resolve(process.cwd(), 'tests/resources/migration-versioning')
-const ERAS = fs
-  .readdirSync(FIXTURES_DIR)
-  .filter((name) => name === 'legacy' || /^v\d+-\d+-\d+$/.test(name))
-const FIXTURES = ERAS.flatMap((era) =>
-  fs
-    .readdirSync(path.join(FIXTURES_DIR, era))
-    .filter((file) => file.endsWith('.json'))
-    .map((file) => [`${era}/${file}`, era])
-)
-
-const readFixture = (name) => JSON.parse(fs.readFileSync(path.join(FIXTURES_DIR, name), 'utf8'))
-
 /**
- * Lists the data references a fixture gives its node rows, keyed `<node>|<variable>`.
+ * Lists the data references a workspace gives its node rows, keyed `<node>|<variable>`.
  * A legacy file keeps them in availableParameters under `<variable>_<node>`.
  */
-function expectedRowReferences(doc, era) {
+function expectedRowReferences(doc, version) {
   const references = new Map()
-  if (era === 'legacy') {
+  if (version === 'legacy') {
     const byParameterName = new Map((doc.store.availableParameters ?? []).map(([, entry]) => [entry.variable_name, entry]))
     for (const { data } of doc.flow.nodes) {
       const globalNames = new Set((data.variables ?? []).filter((v) => v.type === 'global_constant').map((v) => v.name))
@@ -382,13 +265,204 @@ function effectiveValues(doc, mathFallback) {
 
 const globalReferences = (globalConstants = []) => Object.fromEntries(globalConstants.map(([name, entry]) => [name, entry.data_reference]))
 
-describe('migrateWorkspace over saved workspaces', () => {
+const nodeNamed = (doc, name) => doc.flow.nodes.find((node) => node.data.name === name)
+const rowsOf = (doc, name) => byName(nodeNamed(doc, name).data.variables)
+
+describe('migrating the synthetic legacy workspace', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+  const migrateCase = (name) => migrateWorkspace(syntheticCase('legacy', name))
+  const moduleRefs = (doc) => Object.fromEntries(doc.store.availableModules.map(([moduleRef, module]) => [moduleRef, module.mathRef]))
+  const nodeModules = (doc) => Object.fromEntries(doc.flow.nodes.map(({ data }) => [data.name, data.moduleRef]))
+
+  it("sharedPortUids: connects each edge to its own node's handles, and keeps its couplings", () => {
+    const migrated = migrateCase('sharedPortUids')
+    const handlesOf = new Map(migrated.flow.nodes.map(({ id, data }) => [id, data.handles.map((h) => `handle_${h.uid}`)]))
+    expect(migrated.flow.edges).toHaveLength(2)
+    for (const edge of migrated.flow.edges) {
+      expect(handlesOf.get(edge.source)).toContain(edge.sourceHandle)
+      expect(handlesOf.get(edge.target)).toContain(edge.targetHandle)
+      const xPort = { portType: 'general_ports', label: 'x_port', variables: ['x'], multiportType: 'None' }
+      expect(edge.data.couplings).toEqual([{ sourcePort: xPort, targetPort: xPort }])
+    }
+  })
+
+  it('templateUserModules: gives each module made from the template its own moduleRef', () => {
+    const migrated = migrateCase('templateUserModules')
+    expect(moduleRefs(migrated)).toEqual({
+      'new_module:phlynx': 'template_modules.cellml:new_module',
+      'GLUT2:default': 'User_Modules.cellml:GLUT2',
+      'NKA:default': 'User_Modules.cellml:NKA',
+    })
+    expect(nodeModules(migrated)).toEqual({ GLUT2_1: 'GLUT2:default', NKA_1: 'NKA:default' })
+  })
+
+  it("userCopyOfLibraryModule: gives the copy its own moduleRef, leaving the library's", () => {
+    const migrated = migrateCase('userCopyOfLibraryModule')
+    expect(moduleRefs(migrated)).toEqual({
+      'artery:pp': 'vessel_modules.cellml:vessel',
+      'artery:vp': 'vessel_modules.cellml:vessel',
+      'vessel:default': 'user_vessels.cellml:vessel',
+    })
+    expect(nodeModules(migrated)).toEqual({ vessel_user: 'vessel:default', vessel_library: 'artery:vp' })
+    expect(new Map(migrated.store.availableCollections).get('vessel_modules.cellml:vessel')).toEqual(['artery:pp', 'artery:vp'])
+  })
+
+  it("globalConstants: takes each constant's value from availableParameters, or from the store's globalConstants", () => {
+    const migrated = migrateCase('globalConstants')
+    expect(new Map(migrated.store.globalConstants)).toEqual(
+      new Map([
+        ['R', { value: '8.314', units: 'dimensionless', data_reference: 'known' }],
+        ['T', { value: '310', units: 'dimensionless', data_reference: null }],
+      ])
+    )
+    const rows = rowsOf(migrated, 'pump')
+    for (const name of ['R', 'T']) expect(rows[name]).toMatchObject({ type: 'global_constant', value: null })
+  })
+
+  it('dataReferences: gives each row its value and data reference from availableParameters', () => {
+    const rows = rowsOf(migrateCase('dataReferences'), 'channel')
+    expect(rows.g).toMatchObject({ value: '2', data_reference: 'Smith2001' })
+    expect(rows.in).toMatchObject({ value: '', data_reference: 'Jones1999' })
+    expect(rows.out.data_reference).toBeNull()
+  })
+
+  it('edgesWithoutCouplings: makes the shared ions boundary conditions only Environment values', () => {
+    const migrated = migrateCase('edgesWithoutCouplings')
+    expect(migrated.flow.edges.every((edge) => edge.data.couplings.length === 0)).toBe(true)
+    expect(rowsOf(migrated, 'Environment')).toMatchObject({
+      Na_o: { type: 'boundary_condition', value: '140' },
+      Cl_o: { type: 'boundary_condition', value: '100' },
+    })
+    expect(rowsOf(migrated, 'reversal_potentials')).toMatchObject({
+      Na_o: { type: 'boundary_condition', value: '' },
+      Cl_o: { type: 'boundary_condition', value: '' },
+    })
+  })
+
+  it("domainType: keeps the MVP's node colour category", () => {
+    const migrated = migrateWorkspace(syntheticWorkspace('legacy'))
+    expect(nodeNamed(migrated, 'colour_coded').data.domainType).toBe('membrane')
+    expect(migrated.flow.nodes.filter((node) => 'domainType' in node.data)).toHaveLength(1)
+  })
+})
+
+describe('migrating the synthetic 1.0.0 workspace', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+  const migrateCase = (name) => migrateWorkspace(syntheticCase('1.0.0', name))
+  const mathOf = (doc, name) => new Map(doc.store.availableMath).get(nodeNamed(doc, name).data.mathRef)
+
+  it("mathInitialValues: keeps the rows' values, moving the state's onto a new initialiser, and records the math's", () => {
+    const migrated = migrateCase('mathInitialValues')
+    const rows = rowsOf(migrated, 'decay_valued')
+    expect(rows.k).toMatchObject({ value: '3', data_reference: 'Smith2001' })
+    expect(rows.x).toMatchObject({ stateRole: 'state', initialiser: 'x_init', data_reference: 'Jones1999' })
+    expect(rows.x_init).toMatchObject({ value: '2', data_reference: 'Jones1999' })
+    expect(mathOf(migrated, 'decay_valued')).not.toMatch(/initial_value="[\d.]+"/)
+    expect(new Map(new Map(migrated.store.mathDefaults).get('decay_modules.cellml:decay_valued'))).toEqual(
+      new Map([
+        ['x_init', '1.5'],
+        ['k', '0.5'],
+      ])
+    )
+  })
+
+  it("blankRows: gives blank rows the math's values", () => {
+    const rows = rowsOf(migrateCase('blankRows'), 'decay_blank')
+    expect(rows.k.value).toBe('0.5')
+    expect(rows.x_init.value).toBe('1.5')
+  })
+
+  it("blankGlobalConstant: gives a global constant with a blank stored value the math's, keeping stored values", () => {
+    const migrated = migrateCase('blankGlobalConstant')
+    expect(new Map(migrated.store.globalConstants)).toEqual(
+      new Map([
+        ['k', { value: '0.5', units: 'per_second', data_reference: 'Smith2001' }],
+        ['g', { value: '9.81', units: 'per_second', data_reference: 'known' }],
+      ])
+    )
+  })
+
+  it('replaces the info envelope with the current one', () => {
+    const migrated = migrateWorkspace(syntheticWorkspace('1.0.0'))
+    expect(migrated.info).toBeUndefined()
+    expect(migrated).toMatchObject({ id: 'phlynx-project', version: PHLYNX_PROJECT_VERSION })
+  })
+})
+
+describe('migrating the synthetic 1.1.0 workspace', () => {
   beforeAll(async () => {
     await ensureLibCellmlReady()
   })
 
-  it.each(FIXTURES)('brings %s up to the current version', (name, era) => {
-    const doc = readFixture(name)
+  it('separatedMath: leaves separated math, its defaults and its rows as they are', () => {
+    const doc = syntheticCase('1.1.0', 'separatedMath')
+    const migrated = migrateWorkspace(doc)
+    expect(migrated.flow.nodes).toEqual(doc.flow.nodes)
+    expect(migrated.store.availableMath).toEqual(doc.store.availableMath)
+    expect(migrated.store.mathDefaults).toEqual(doc.store.mathDefaults)
+  })
+
+  it('unappliedSolverSettings: gives the settings the solver settings its runs used, keeping its others', () => {
+    const migrated = migrateWorkspace(syntheticCase('1.1.0', 'unappliedSolverSettings'))
+    expect(migrated.simulation.simulationSettings).toEqual({
+      pointInterval: 0.25,
+      startingPoint: 0,
+      endingPoint: 3,
+      initialPoint: 0,
+      solver: 'CVODE',
+      timeStep: 0,
+      tolerance: 1e-7,
+      maxSteps: 500,
+    })
+  })
+})
+
+describe('loading and saving the synthetic 1.2.0 workspace', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+  const roundTrip = (name) => {
+    const doc = syntheticCase('1.2.0', name)
+    return { doc, saved: loadAndSave(doc) }
+  }
+
+  it("inspectionPlotSelection: keeps a plot of an inspection module's output, and the module", () => {
+    const { doc, saved } = roundTrip('inspectionPlotSelection')
+    expect(saved.simulation.plotConfig).toEqual(doc.simulation.plotConfig)
+    expect(saved.simulation.plotConfig.selections[0].nodeId).toBe('inspection:inspection-total')
+    expect(saved.inspectionModules).toEqual(doc.inspectionModules)
+  })
+
+  it("parameterScanLabel: keeps a slider's label", () => {
+    const { doc, saved } = roundTrip('parameterScanLabel')
+    expect(saved.simulation.parameterScanConfig).toEqual(doc.simulation.parameterScanConfig)
+    expect(saved.simulation.parameterScanConfig.selections[0].label).toBe('decay rate')
+  })
+
+  it('sweepWithFamily: keeps the sweep and its family', () => {
+    const { doc, saved } = roundTrip('sweepWithFamily')
+    expect(saved.simulation.simulationSettings.sweep).toEqual(doc.simulation.simulationSettings.sweep)
+  })
+
+  it('coupledNodes: keeps the couplings and the stub module', () => {
+    const { doc, saved } = roundTrip('coupledNodes')
+    expect(saved.flow.edges).toEqual(doc.flow.edges)
+    expect(new Map(saved.store.availableModules).get('amplifier:stub')).toMatchObject({ isStub: true })
+    expect(new Map(saved.store.availableModules).get('amplifier:gain').isStub).toBeUndefined()
+  })
+})
+
+describe('migrating each synthetic workspace', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  it.each(SYNTHETIC_VERSIONS)('brings %s up to the current version, keeping its references', (version) => {
+    const doc = syntheticWorkspace(version)
     const migrated = migrateWorkspace(doc)
 
     expect(migrated.version).toBe(PHLYNX_PROJECT_VERSION)
@@ -397,25 +471,12 @@ describe('migrateWorkspace over saved workspaces', () => {
     const actual = new Map(
       migrated.flow.nodes.flatMap(({ data }) => (data.variables ?? []).map((row) => [`${data.name}|${row.name}`, row.data_reference]))
     )
-    for (const [key, reference] of expectedRowReferences(doc, era)) {
+    for (const [key, reference] of expectedRowReferences(doc, version)) {
       expect({ key, reference: actual.get(key) }).toEqual({ key, reference })
     }
 
-    if (era !== 'legacy') {
+    if (version !== 'legacy') {
       expect(globalReferences(migrated.store.globalConstants)).toEqual(globalReferences(doc.store.globalConstants))
-    } else {
-      const parameterReferences = new Map(
-        (doc.store.availableParameters ?? []).map(([, entry]) => [entry.variable_name, entry.data_reference])
-      )
-      for (const [constantName, reference] of Object.entries(globalReferences(migrated.store.globalConstants))) {
-        if (parameterReferences.has(constantName)) expect(reference).toBe(parameterReferences.get(constantName))
-      }
-
-      // Global constants set in the app live only in store.globalConstants.
-      const migratedConstants = new Map(migrated.store.globalConstants)
-      for (const [constantName, { value, units }] of doc.store.globalConstants ?? []) {
-        expect({ constantName, ...migratedConstants.get(constantName) }).toMatchObject({ constantName, value, units })
-      }
     }
 
     const separatedRefs = migrated.store.availableMath
@@ -425,33 +486,29 @@ describe('migrateWorkspace over saved workspaces', () => {
     for (const mathRef of separatedRefs) expect(defaultRefs).toContain(mathRef)
   })
 
-  it.each(FIXTURES.filter(([, era]) => era === 'v1-0-0'))(
-    'gives the model the same values for %s after migrating',
-    (name) => {
-      const doc = readFixture(name)
-      const before = effectiveValues(doc, true)
-      const after = effectiveValues(migrateWorkspace(doc), false)
-      for (const [key, value] of before) expect({ key, value: after.get(key) }).toEqual({ key, value })
-    }
-  )
+  it('gives the model the same values for 1.0.0 after migrating', () => {
+    const doc = syntheticWorkspace('1.0.0')
+    const before = effectiveValues(doc, true)
+    const after = effectiveValues(migrateWorkspace(doc), false)
+    expect(before.size).toBeGreaterThan(0)
+    for (const [key, value] of before) expect({ key, value: after.get(key) }).toEqual({ key, value })
+  })
 
-  it.each(FIXTURES)('migrates %s once, so loading the result again changes nothing', (name) => {
-    const migrated = migrateWorkspace(readFixture(name))
+  it.each(SYNTHETIC_VERSIONS)('migrates %s once, so loading the result again changes nothing', (version) => {
+    const migrated = migrateWorkspace(syntheticWorkspace(version))
     const saved = JSON.parse(JSON.stringify(migrated))
     expect(migrateWorkspace(saved)).toEqual(saved)
   })
-})
 
-describe('migrateWorkspace node colour categories', () => {
-  beforeAll(async () => {
-    await ensureLibCellmlReady()
-  })
-
-  it.each(FIXTURES.filter(([, era]) => era === 'legacy'))('keeps the MVP domainType of %s', (name) => {
-    const doc = readFixture(name)
-    doc.flow.nodes[0].data.domainType = 'membrane'
-    const migrated = migrateWorkspace(doc)
-    expect(migrated.flow.nodes[0].data.domainType).toBe('membrane')
-    expect(migrated.flow.nodes.slice(1).every((node) => !('domainType' in node.data))).toBe(true)
+  // Handles get new uids on each legacy migration, so only the rows and module refs are compared.
+  it.each(SYNTHETIC_VERSIONS)('migrates each %s case alone as it does among the others', (version) => {
+    const nodesOf = (doc) =>
+      new Map(migrateWorkspace(doc).flow.nodes.map(({ data }) => [data.name, { moduleRef: data.moduleRef, variables: data.variables }]))
+    const together = nodesOf(syntheticWorkspace(version))
+    for (const name of syntheticCaseNames(version)) {
+      for (const [nodeName, node] of nodesOf(syntheticCase(version, name))) {
+        expect({ name, nodeName, node }).toEqual({ name, nodeName, node: together.get(nodeName) })
+      }
+    }
   })
 })

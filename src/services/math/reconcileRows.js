@@ -3,8 +3,8 @@
  * Pure (no Vue, no DOM), so it is safe in a worker.
  *
  * A row's type says where its value comes from:
- * - `variable`: this component's math computes it (state, assigned, VoI). Only computed
- *   rows are variables, and computed rows always are.
+ * - `variable`: this component's math computes it (state, assigned, VoI, or solved implicitly in a
+ *   DAE). Only computed rows are variables, and computed rows always are.
  * - `boundary_condition`: another module supplies it through a port.
  * - `constant` / `global_constant`: the parameter pane supplies it. The default for a new row.
  * A port doesn't settle which of these a row is, since the connected module may compute it or take
@@ -12,7 +12,15 @@
  * `variable` the math doesn't compute: in a port it becomes a boundary condition, else a constant.
  */
 import { ACCESS, NO_ACCESS } from '../../utils/constants'
-import { accessFromInterface, findVoiNames, inferType, isNumericLiteral, syncInitialiserUnits } from '../../utils/variables'
+import {
+  accessFromInterface,
+  findImplicitVariables,
+  findVoiNames,
+  inferType,
+  isBlank,
+  isNumericLiteral,
+  syncInitialiserUnits,
+} from '../../utils/variables'
 
 export const SIMPLE_MODE = 'simple'
 export const ADVANCED_MODE = 'advanced'
@@ -26,23 +34,35 @@ export const ADVANCED_MODE = 'advanced'
 export const modeFor = (isSimple) => (isSimple ? SIMPLE_MODE : ADVANCED_MODE)
 
 /**
- * Gets the roles the math gives its variables, as used by inferType.
+ * Gets the roles the math gives its variables, as used by inferType. A DAE's implicit unknowns can
+ * only be variables nothing supplies: a row with a value, a port or a global supplies one, as do the
+ * math's defaults and initial values for a variable without a row yet.
  *
  * @param {import('./analyzeMath').MathAnalysis} analysis
- * @param {Array} rows - Rows giving units the math doesn't declare.
- * @returns {{states: Set<string>, assigned: Set<string>, voi: Set<string>}}
+ * @param {Array} rows - Rows giving units the math doesn't declare, and the values and types already set.
+ * @param {Map<string, string>} [defaults] - Values for variables without a row.
+ * @returns {{states: Set<string>, assigned: Set<string>, voi: Set<string>, implicit: Set<string>}}
  */
-function getRoles(analysis, rows) {
-  const rowUnits = new Map(rows.map((row) => [row.name, row.units]))
-  const voi = findVoiNames(analysis, (name) => rowUnits.get(name))
-  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), voi }
+function getRoles(analysis, rows, defaults = new Map()) {
+  const rowsByName = new Map(rows.map((row) => [row.name, row]))
+  const voi = findVoiNames(analysis, (name) => rowsByName.get(name)?.units)
+  const roles = { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), voi }
+  const initialValues = new Map(analysis.declared.map((variable) => [variable.name, variable.initialValue]))
+  const isSupplied = (name) => {
+    const row = rowsByName.get(name)
+    if (!row) return isNumericLiteral(defaults.get(name)) || isNumericLiteral(initialValues.get(name))
+    if (row.type === 'variable') return false
+    return row.type !== 'constant' || !isBlank(row.value ?? defaults.get(name))
+  }
+  const computed = new Set(rows.filter((row) => row.type === 'variable').map((row) => row.name))
+  return { ...roles, implicit: findImplicitVariables(analysis, roles, isSupplied, computed) }
 }
 
 /**
  * Resolves a row's type from what the math computes, what the ports carry and the stored type.
  *
  * @param {string} name
- * @param {{states: Set, assigned: Set, voi: Set}} roles
+ * @param {{states: Set, assigned: Set, voi: Set, implicit: Set}} roles
  * @param {Object|undefined} previousRow
  * @param {Set<string>|null} portVariables - Names the instance's ports carry; null keeps a stored `variable`.
  * @returns {string} The row type.
@@ -129,7 +149,7 @@ function findInitialiserPairings(analysis, previousRows, stateNames) {
 
 /**
  * @typedef {Object} RowContext
- * @property {{states: Set, assigned: Set, voi: Set}} roles
+ * @property {{states: Set, assigned: Set, voi: Set, implicit: Set}} roles
  * @property {Set<string>|null} portVariables - Names the instance's ports carry; null if unknown.
  * @property {Map<string, string>} defaults - Values taken out of the math, for rows with none yet.
  */
@@ -249,7 +269,7 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   const declaredByName = new Map(analysis.declared.map((variable) => [variable.name, variable]))
   const stateNames = new Set(analysis.stateVariables)
   const initialiserOf = findInitialiserPairings(analysis, previousRows, stateNames)
-  const context = { roles: getRoles(analysis, previousRows), portVariables: portVariables ? new Set(portVariables) : null, defaults }
+  const context = { roles: getRoles(analysis, previousRows, defaults), portVariables: portVariables ? new Set(portVariables) : null, defaults }
 
   const rows = []
   const listedNames = new Set()
