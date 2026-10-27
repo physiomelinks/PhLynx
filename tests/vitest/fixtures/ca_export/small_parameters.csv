@@ -1,0 +1,5 @@
+variable_name,units,value,data_reference
+aortic_root/C,m3_per_J,1e-8,doe2020
+aortic_root/u_in,J_per_m3,EMPTY_MUST_BE_FILLED,phlynx
+venous_ivc/C,m3_per_J,2e-8,phlynx
+rho,kg_per_m3,1050,phlynx

@@ -21,18 +21,19 @@ Parameter values in Circulatory Autogen format, loaded with **Import ▸ Paramet
 
 | Column | Description |
 | :--- | :--- |
-| `variable_name` | `[parameter_name]_[instance_name]`, or `[parameter_name]` for a global constant. |
+| `variable_name` | `<instance>/<variable>`, or `<variable>` or `global/<variable>` for a global constant. A nested name such as `heart/lv/E` sets `E` of the instance `heart__lv`, else of `lv`. The older `<variable>_<instance>` is also read. |
 | `units` | The variable's units. |
 | `value` | The value. |
 | `data_reference` | Source, e.g. `[Author][Date][FirstWord]`. |
 
 ```csv
 variable_name,units,value,data_reference
-g_Na_soma_SN,microS,2.3,user_defined
-Cm_soma_SN,picoF,30,Davis2021Transcriptomic
+SN/g_Na_soma,microS,2.3,user_defined
+SN/Cm_soma,picoF,30,Davis2021Transcriptomic
+global/T,kelvin,310,user_defined
 ```
 
-Loading never changes a variable's type. Rows starting with `#` are ignored; values for computed variables are skipped.
+Loading never changes a variable's type. Rows starting with `#` are ignored; values for computed variables are skipped, as are nested names that end in the same instance and variable as another (`heart/lv/E` and `lung/lv/E` with no `heart__lv` or `lung__lv` instance).
 
 ## Workspace file {#workspace-file}
 

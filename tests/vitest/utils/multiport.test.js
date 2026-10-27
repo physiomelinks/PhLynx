@@ -220,6 +220,65 @@ it('round-trips a per-variable multi_port through a bundled config', () => {
   expect(restorePorts(module.ports).exit_ports[0].multi_port).toEqual(['sum', 'True'])
 })
 
+describe('multiply_factor in a CA module config', () => {
+  const exported = (ports) => restorePorts(ports.map((p) => ({ portType: 'general_ports', label: 'p', ...p })))
+  const roundTrip = (configPort) => normaliseConfig({ general_ports: [configPort] }).ports[0]
+
+  it("writes one factor for a port's Multiply variables, and reads it back", () => {
+    const [port] = exported([{ variables: ['q'], multiportType: 'Multiply', multiplyFactor: 2.5 }]).general_ports
+    expect(port).toEqual({ port_type: 'p', variables: ['q'], multi_port: 'Multiply', multiply_factor: 2.5 })
+    expect(roundTrip(port)).toMatchObject({ multiportType: 'Multiply', multiplyFactor: 2.5 })
+    expect(multiplyFactor(roundTrip(port), 0)).toBe(2.5)
+  })
+
+  it('writes the default factor of 1 for a Multiply port with none set', () => {
+    const [port] = exported([{ variables: ['q'], multiportType: 'Multiply' }]).general_ports
+    expect(port.multiply_factor).toBe(1)
+  })
+
+  it('writes one number when every Multiply variable has the same factor', () => {
+    const [port] = exported([
+      { variables: ['a', 'b', 'c'], multiportType: ['multiply', 'True', 'multiply'], multiplyFactor: [3, null, 3] },
+    ]).general_ports
+    expect(port.multiply_factor).toBe(3)
+  })
+
+  it('writes a per-variable list, null for the others, when the factors differ, and reads it back', () => {
+    const [port] = exported([
+      { variables: ['a', 'b', 'c'], multiportType: ['multiply', 'sum', 'multiply'], multiplyFactor: [2, 7, '0.5'] },
+    ]).general_ports
+    expect(port).toMatchObject({ multi_port: ['multiply', 'sum', 'multiply'], multiply_factor: [2, null, 0.5] })
+    const back = roundTrip(port)
+    expect([0, 1, 2].map((i) => multiplyFactor(back, i))).toEqual([2, 1, 0.5])
+    expect(exported([back]).general_ports[0].multiply_factor).toEqual([2, null, 0.5])
+  })
+
+  it('writes a whole-port Sum or Multiply over several variables as a list, as CA needs', () => {
+    const ports = exported([
+      { variables: ['a', 'b'], multiportType: 'Multiply', multiplyFactor: [2, 0.5] },
+      { variables: ['a', 'b'], multiportType: 'Sum' },
+      { variables: ['a'], multiportType: 'Sum' },
+    ]).general_ports
+    expect(ports.map(({ multi_port, multiply_factor }) => [multi_port, multiply_factor])).toEqual([
+      [['multiply', 'multiply'], [2, 0.5]],
+      [['sum', 'sum'], undefined],
+      ['Sum', undefined],
+    ])
+  })
+
+  it('writes no factor on a port with no Multiply variable, as CA refuses one there', () => {
+    const ports = exported([
+      { variables: ['q'], multiportType: 'Sum', multiplyFactor: 1 },
+      { variables: ['q'], multiportType: 'None', multiplyFactor: 4 },
+    ]).general_ports
+    expect(ports.map((p) => 'multiply_factor' in p)).toEqual([false, false])
+  })
+
+  it('reads a config port with no factor as factor 1', () => {
+    expect(multiplyFactor(roundTrip({ port_type: 'p', variables: ['q'], multi_port: 'Multiply' }), 0)).toBe(1)
+  })
+})
+
 describe('multiportSummary', () => {
   const own = (variables, multiportType, multiplyFactor, label = 'own') => ({
     label,
