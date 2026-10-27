@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { TARGET_COMPATIBLE } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
-import { isSingleConnection } from '../utils/edges'
+import { isSingleConnection, resolvePortCouplings } from '../utils/edges'
 import { isCompatible, findPort } from '../utils/ports'
 import { isMultiport } from '../utils/multiport'
 
@@ -89,8 +89,26 @@ export function useEdgeCouplings(props, askSwapIntent) {
     })
 
     indexSiblingPorts()
-    pruneInvalidConnections()
-    autoConnect()
+    deriveCouplings()
+  }
+
+  /**
+   * Sets the edge's couplings to those its ports give (see resolvePortCouplings), the same as save and export
+   * apply: the single-connection slots its couplings here name are kept, and those other edges hold are passed by.
+   * Call it after any change to the ports or the couplings.
+   */
+  function deriveCouplings() {
+    const { sourceIndex = 0, targetIndex = 0 } = props.ordinals ?? {}
+    const stored = localCouplings.value
+      .map(({ srcUid, tgtUid }) => ({ sourcePort: srcByUid(srcUid), targetPort: tgtByUid(tgtUid) }))
+      .filter(({ sourcePort, targetPort }) => sourcePort && targetPort)
+    const held = new Set(
+      [...localSrcPorts.value, ...localTgtPorts.value].filter((port) => takenElsewhereUids.value.has(port._uid))
+    )
+    localCouplings.value = resolvePortCouplings(localSrcPorts.value, localTgtPorts.value, sourceIndex, targetIndex, {
+      stored,
+      held,
+    }).map(({ sourcePort, targetPort }) => ({ srcUid: sourcePort._uid, tgtUid: targetPort._uid }))
   }
 
   function evictForeignHandle(port, side) {
@@ -133,6 +151,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
         const intent = await askSwapIntent(false)
         if (intent === 'cancel') return null
         evictForeignHandle(port, side)
+        takenElsewhereUids.value = new Set(portUsage.keys())
       }
     }
     return newCouplings
@@ -207,63 +226,13 @@ export function useEdgeCouplings(props, askSwapIntent) {
     return [...couplings, { srcUid, tgtUid }]
   }
 
-  function pruneInvalidConnections() {
-    localCouplings.value = localCouplings.value.filter(c => {
-      const sp = srcByUid(c.srcUid)
-      const tp = tgtByUid(c.tgtUid)
-      return sp && tp && sp.label === tp.label && isCompatible(sp.portType, tp.portType)
-    })
-
-    pruneSingleConnectionSide(localSrcPorts.value, 'source')
-    pruneSingleConnectionSide(localTgtPorts.value, 'target')
-  }
-
-  function pruneSingleConnectionSide(ports, side) {
-    const uidKey = side === 'source' ? 'srcUid' : 'tgtUid'
-    for (const port of ports) {
-      if (!isSingleConnection(port)) continue
-      if (takenElsewhereUids.value.has(port._uid)) {
-        localCouplings.value = localCouplings.value.filter(c => c[uidKey] !== port._uid)
-      } else {
-        const mine = localCouplings.value.filter(c => c[uidKey] === port._uid)
-        if (mine.length > 1) {
-          localCouplings.value = localCouplings.value.filter(c => c[uidKey] !== port._uid || c === mine[0])
-        }
-      }
-    }
-  }
-
-  function autoConnect() {
-    for (const sp of localSrcPorts.value) {
-      if (!sp.label || !sp.label.trim()) continue
-      
-      const srcUsedCount = localCouplings.value.filter(c => c.srcUid === sp._uid).length
-      if (isSingleConnection(sp) && (srcUsedCount > 0 || takenElsewhereUids.value.has(sp._uid))) continue
-
-      const compatibleTargets = localTgtPorts.value.filter(tp => {
-        if (tp.label !== sp.label || !isCompatible(sp.portType, tp.portType)) return false
-        
-        const tgtUsedCount = localCouplings.value.filter(c => c.tgtUid === tp._uid).length
-        if (isSingleConnection(tp) && (tgtUsedCount > 0 || takenElsewhereUids.value.has(tp._uid))) return false
-        if (localCouplings.value.some(c => c.srcUid === sp._uid && c.tgtUid === tp._uid)) return false
-        return true
-      })
-
-      for (const tp of compatibleTargets) {
-        localCouplings.value.push({ srcUid: sp._uid, tgtUid: tp._uid })
-        if (isSingleConnection(sp)) break
-      }
-    }
-  }
-
   function deletePort(uid, side) {
     if (side === 'source') {
       localSrcPorts.value = localSrcPorts.value.filter(p => p._uid !== uid)
-      localCouplings.value = localCouplings.value.filter(c => c.srcUid !== uid)
     } else {
       localTgtPorts.value = localTgtPorts.value.filter(p => p._uid !== uid)
-      localCouplings.value = localCouplings.value.filter(c => c.tgtUid !== uid)
     }
+    deriveCouplings()
   }
 
   function activateGhost(side, inferFrom = null) {
@@ -295,8 +264,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
   }
 
   function onPortConfigChange() {
-    pruneInvalidConnections()
-    autoConnect()
+    deriveCouplings()
   }
 
   return {
@@ -311,6 +279,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     connectedSrcUids,
     connectedTgtUids,
     initLocalState,
+    deriveCouplings,
     evictHandle,
     swapConnections,
     connectPorts,

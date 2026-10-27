@@ -1,6 +1,4 @@
 // @vitest-environment happy-dom
-import fs from 'node:fs'
-import path from 'node:path'
 
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +16,7 @@ import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } f
 import { buildVariableMapping, mapInspectionModules, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { setNodePlotVariables } from '../../../src/services/simulation/plotSelections.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
+import { syntheticCase } from '../helpers/syntheticWorkspaces/index.js'
 
 const MATH_REF = 'file:decay'
 // dx/dt = g - k * x. The initialiser is private, as math saved before variables were always public may have.
@@ -148,17 +147,94 @@ describe('generateFlattenedModel with units made from expressions', () => {
   })
 })
 
+describe('generateFlattenedModel imports the units the build adds', () => {
+  // dx/dt = -k * x, with k in per_second; its row, a global constant or an inspection module can use other units.
+  const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+  <component name="decay">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="x" units="dimensionless" initial_value="1" interface="public"/>
+    <variable name="k" units="per_second" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply><apply><minus/><apply><times/><ci>k</ci><ci>x</ci></apply></apply></apply>
+    </math>
+  </component>
+</model>`
+  let store
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addUnitsFile({
+      componentFile: 'units.cellml',
+      model: `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+  <units name="per_minute"><unit units="minute" exponent="-1"/></units>
+  <units name="minute"><unit units="second" multiplier="60"/></units>
+</model>`,
+    })
+    store.addMath(MATH_REF, DECAY_XML)
+  })
+
+  /** A decay instance with k's row changed. */
+  function buildNode(kRow, index = 1) {
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(MATH_REF)), [], { defaults: store.getMathDefaults(MATH_REF) })
+    const variables = rows.map((row) => (row.name === 'k' ? { ...row, value: '6', ...kRow } : row))
+    return { id: `n${index}`, type: 'instanceNode', data: { name: `decay_${index}`, mathRef: MATH_REF, variables, ports: [] } }
+  }
+
+  it("imports a parameter row's units, and the result analyses cleanly", async () => {
+    const text = await (await generateFlattenedModel([buildNode({ units: 'per_minute' })], [], store)).text()
+    expect(text).toMatch(/<units name="per_minute">/)
+    expect(text).toMatch(/<variable name="k" units="per_minute" initial_value="6"/)
+  })
+
+  it("imports a global constant's units", async () => {
+    store.assignGlobalConstant('k', '6', 'per_minute')
+    const node = buildNode({ type: 'global_constant', value: '' })
+    const text = await (await generateFlattenedModel([node], [], store)).text()
+    expect(text).toMatch(/<variable name="k" units="per_minute" initial_value="6"/)
+  })
+
+  it("imports an inspection module's units", async () => {
+    const module = { name: 'k_total', units: 'per_minute', variables: [{ nodeId: 'n1', variableName: 'k', units: 'per_second' }] }
+    const text = await (await generateFlattenedModel([buildNode({ units: 'per_second' })], [], store, [module])).text()
+    expect(text).toMatch(/<variable name="k_total" units="per_minute"/)
+  })
+
+  it('names units no units file defines, and what uses them', () => {
+    store.assignGlobalConstant('k', '6', 'per_week')
+    const module = { name: 'k_total', units: 'per_day', variables: [] }
+    const nodes = [buildNode({ units: 'per_fortnight' }), buildNode({ type: 'global_constant', value: '' }, 2)]
+    expect(() => generateFlattenedModel(nodes, [], store, [module])).toThrow(
+      "Units no units file defines: per_fortnight (used by decay_1.k's parameter row); per_week (used by global constant k); " +
+        'per_day (used by inspection module k_total).'
+    )
+  })
+
+  it('shortens a long list of them', () => {
+    const units = ['per_fortnight', 'per_fortnight', 'per_fortnight', 'per_fortnight', 'per_week', 'per_day', 'per_year']
+    const nodes = units.map((u, i) => buildNode({ units: u }, i + 1))
+    expect(() => generateFlattenedModel(nodes, [], store)).toThrow(
+      "Units no units file defines: per_fortnight (used by decay_1.k's parameter row, decay_2.k's parameter row, " +
+        "decay_3.k's parameter row and 1 more); per_week (used by decay_5.k's parameter row); " +
+        "per_day (used by decay_6.k's parameter row) and 1 more."
+    )
+  })
+})
+
 describe('boundary values in a migrated workspace', () => {
   beforeAll(async () => {
     await ensureLibCellmlReady()
   }, 120000)
 
-  // The full export of this workspace also fails on main ("The model is not fully defined"), so this
-  // checks the boundary conditions it hands to generateFlattenedModel instead.
+  // Checks the boundary conditions the workspace hands to generateFlattenedModel.
   it('sets each boundary condition group once, from the module that supplies it', () => {
     setActivePinia(createPinia())
-    const file = path.resolve(process.cwd(), 'tests/resources/migration-versioning/legacy/tran_hund_coupled.json')
-    const migrated = migrateWorkspace(JSON.parse(fs.readFileSync(file, 'utf8')))
+    const migrated = migrateWorkspace(syntheticCase('legacy', 'edgesWithoutCouplings'))
 
     // Legacy edges have no couplings yet; the workspace resolves them on load, in this order.
     const { nodes, edges } = migrated.flow
@@ -374,10 +450,54 @@ describe('generateFlattenedModel multiport couplings', () => {
     expect(math.match(/<ci>op_scaled_v[^<]*<\/ci>/g)).toHaveLength(entry.terms.filter((term) => term.factor === 2).length)
   })
 
+  it('rejects a state coupled to an algebraic variable, which libCellML would solve as a DAE dropping one', () => {
+    const statePort = (portType, variable) => ({ portType, label: 'state', variables: [variable], multiportType: 'None' })
+    const owner = buildNode('owner', 'file:hub', [statePort('exit_ports', 'q')], { v_sum: '0' })
+    const reader = buildNode('reader', 'file:hub', [statePort('entrance_ports', 'u')], { v_sum: '0' })
+    expect(() => generateFlattenedModel([owner, reader], [connect(owner, reader)], store)).toThrow(
+      'owner.q and reader.u are both computed; only one module can set a connected variable.'
+    )
+    expect(checkScope(resolveScope(null, [owner, reader], [connect(owner, reader)]), store).conflicts).toEqual([
+      'owner.q and reader.u are both computed; only one module can set a connected variable.',
+    ])
+  })
+
+  it('builds an input a saved row still types as a variable, which its math only reads', async () => {
+    const pressure = (portType) => ({ portType, label: 'pressure', variables: ['u'], multiportType: 'None' })
+    const hub = buildNode('hub', 'file:hub', [pressure('exit_ports')], { v_sum: '0' })
+    const leaf = buildNode('leaf', 'file:leaf', [pressure('entrance_ports')])
+    leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'u' ? { ...row, type: 'variable' } : row))
+    const edges = [connect(hub, leaf)]
+    await expect(flatten([hub, leaf], edges)).resolves.toContain('<component name="leaf">')
+    expect(checkScope(resolveScope(null, [hub, leaf], edges), store).conflicts).toEqual([])
+  })
+
+  /** A leaf whose rate k is a constant coupled through a port. */
+  function rateLeaf(id, portType, k) {
+    const leaf = buildNode(id, 'file:leaf', [{ portType, label: 'rate', variables: ['k'], multiportType: 'None' }], { u: '1', k })
+    leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'k' ? { ...row, type: 'constant' } : row))
+    return leaf
+  }
+
+  it('rejects constants coupled with different values, which would both initialise the variable', () => {
+    const a = rateLeaf('a', 'exit_ports', '0.5')
+    const b = rateLeaf('b', 'entrance_ports', '0.25')
+    expect(() => generateFlattenedModel([a, b], [connect(a, b)], store)).toThrow('a.k=0.5 and b.k=0.25 are connected but set to different values')
+  })
+
+  it('builds constants coupled with the same value, initialising them once', async () => {
+    const a = rateLeaf('a', 'exit_ports', '0.5')
+    const b = rateLeaf('b', 'entrance_ports', '0.5')
+    const text = await (await generateFlattenedModel([a, b], [connect(a, b)], store)).text()
+    expect(text.match(/initial_value="0\.5"/g)).toHaveLength(1)
+  })
+
   it('rejects a sum between ports with different numbers of variables', () => {
     const hub = buildNode('hub', 'file:hub', [vesselPort('exit_ports', ['v_sum', 'u'], ['sum', 'True'])])
     const leaf = buildNode('leaf', 'file:leaf', [vesselPort('entrance_ports', ['v'], 'None')], { u: '1' })
-    expect(() => generateFlattenedModel([hub, leaf], [connect(hub, leaf)], store)).toThrow(/same number of variables/)
+    // Couplings no longer pair them, so only a coupling stored before that reaches the export.
+    const stored = { id: 'hub_leaf', source: hub.id, target: leaf.id, data: { couplings: [{ sourcePort: hub.data.ports[0], targetPort: leaf.data.ports[0] }] } }
+    expect(() => generateFlattenedModel([hub, leaf], [stored], store)).toThrow(/same number of variables/)
   })
 
   it('sums a variable through two separate ports of the same instance', async () => {
@@ -728,5 +848,60 @@ describe('trying out parameter values', () => {
     const applied = applyParameterOverrides(scope, store)
     expect(applied.scope.nodes[0]).toBe(scope.nodes[0])
     expect(applied.libraryStore).toBe(store)
+  })
+})
+
+describe('generateFlattenedModel couplings of incompatible units', () => {
+  // a = 1, in units the test sets; c = b, both in metre.
+  const sourceXml = (units) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="src">
+  <component name="src">
+    <variable name="a" units="${units}" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>a</ci><cn xmlns:cellml="http://www.cellml.org/cellml/2.0#" cellml:units="${units}">1</cn></apply>
+    </math>
+  </component>
+</model>`
+  const TARGET_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="dst">
+  <component name="dst">
+    <variable name="b" units="metre" interface="public"/>
+    <variable name="c" units="metre" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>c</ci><ci>b</ci></apply>
+    </math>
+  </component>
+</model>`
+  const MM_UNITS = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="mm"><unit prefix="milli" units="metre"/></units>
+</model>`
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  /** Couples a source's a, in `units`, to a target's b, in metre. */
+  function build(units) {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: MM_UNITS })
+    store.addMath('file:src', sourceXml(units))
+    store.addMath('file:dst', TARGET_XML)
+    const node = (id, mathRef, port) => {
+      const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], { defaults: store.getMathDefaults(mathRef) })
+      const typed = rows.map((row) => (row.name === port.variables[0] && row.type === 'constant' ? { ...row, type: 'boundary_condition' } : row))
+      return { id, type: 'instanceNode', data: { name: id, mathRef, variables: typed, ports: [port] } }
+    }
+    const source = node('A', 'file:src', { portType: 'exit_ports', label: 'p', variables: ['a'], multiportType: 'None' })
+    const target = node('B', 'file:dst', { portType: 'entrance_ports', label: 'p', variables: ['b'], multiportType: 'None' })
+    const edge = { id: 'e', source: 'A', target: 'B', data: { couplings: resolvePortCouplings(source.data.ports, target.data.ports) } }
+    return () => generateFlattenedModel([source, target], [edge], store)
+  }
+
+  it('names the instances, variables and units, before libcellml validates', () => {
+    expect(build('second')).toThrow('Cannot connect "A" to "B": "a" (second) and "b" (metre) have incompatible units.')
+  })
+
+  it('exports units that differ only in scale', async () => {
+    const text = await (await build('mm')()).text()
+    expect(text).toMatch(/<variable name="a" units="mm"/)
   })
 })

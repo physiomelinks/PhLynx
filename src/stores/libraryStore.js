@@ -431,7 +431,7 @@ export const useLibraryStore = defineStore('library', () => {
     const moduleRef = uniqueModuleRef(`${componentName}:default`, mathRef, (ref) => availableModules.value.get(ref))
     const module = variables
       ? { moduleRef, mathRef, ports: [], variables }
-      : buildModule(moduleRef, mathRef, availableMath.value.get(mathRef))
+      : buildModule(moduleRef, mathRef, availableMath.value.get(mathRef), getMathDefaults(mathRef))
     if (ports) module.ports = ports
     addModule(module)
     return moduleRef
@@ -544,10 +544,17 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   // TODO - move to a storage of units - currently store entire units files.
-  function addUnitsFile(payload) {
+  /**
+   * Adds a units file, or replaces the model of the file already under its name.
+   *
+   * @param {{ componentFile: string, model: string }} payload
+   * @param {{ replace?: boolean }} [options] - replace: false keeps a file already under the name, so a built-in
+   *   units file never displaces a workspace's own one.
+   */
+  function addUnitsFile(payload, { replace = true } = {}) {
     const existingFile = availableUnits.value.find((f) => f.componentFile === payload.componentFile) // SMELL - units files also called component files
     if (existingFile) {
-      existingFile.model = payload.model
+      if (replace) existingFile.model = payload.model
     } else {
       availableUnits.value.push(payload)
     }

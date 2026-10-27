@@ -258,6 +258,45 @@ describe('reconcileRows (row types)', () => {
   })
 })
 
+describe('reconcileRows (DAE)', () => {
+  // s = x + y and s = k: x is solved implicitly, while k is a parameter.
+  const math = analysis({
+    referenced: ['s', 'x', 'y', 'k'],
+    assigned: ['s'],
+    declared: ['s', 'x', 'y', 'k'].map((name) => ({ name, units: 'volt', interface: '', initialValue: '' })),
+    algebraic: [
+      { target: 's', uses: ['x', 'y'] },
+      { target: 's', uses: ['k'] },
+    ],
+  })
+
+  it('makes what the DAE solves implicitly a variable, and what has a value a constant', () => {
+    const rows = byName(reconcileRows(math, [], { defaults: new Map([['k', '3'], ['y', '1']]) }))
+    expect(rows).toMatchObject({ s: { type: 'variable' }, x: { type: 'variable' }, y: { type: 'constant' }, k: { type: 'constant' } })
+  })
+
+  it('keeps the unknown it chose before, and gives it up to a value someone enters', () => {
+    const previous = [
+      { name: 'x', type: 'constant', value: '2' },
+      { name: 'y', type: 'variable' },
+      { name: 'k', type: 'constant', value: '3' },
+    ]
+    expect(byName(reconcileRows(math, previous))).toMatchObject({ x: { type: 'constant' }, y: { type: 'variable' } })
+    expect(byName(reconcileRows(math, previous.slice(1)))).toMatchObject({ y: { type: 'variable' } })
+  })
+
+  it('keeps what the DAE solves implicitly a variable when a port carries it', () => {
+    const rows = [
+      { name: 's', type: 'variable' },
+      { name: 'x', type: 'variable' },
+      { name: 'y', type: 'constant', value: '1' },
+      { name: 'k', type: 'constant', value: '3' },
+    ]
+    applyPortTypes(rows, math, new Set(['x', 'k']))
+    expect(byName(rows)).toMatchObject({ x: { type: 'variable' }, y: { type: 'constant' }, k: { type: 'constant' } })
+  })
+})
+
 describe('reconcileRows (defaults)', () => {
   const math = analysis({
     referenced: ['x', 'x_init', 'k', 'g'],

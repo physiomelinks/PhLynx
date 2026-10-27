@@ -1,6 +1,55 @@
 # Changelog
 
 
+## v0.5.3
+###### Released on 2026-10-27
+
+#### Not Specified
+* Keep dark-theme colours inside the node colour panel and simulation status by [@jmdowrick](https://github.com/jmdowrick) in [#920](https://github.com/physiomelinks/PhLynx/pull/920)
+* Reject couplings that set a variable more than once by [@jmdowrick](https://github.com/jmdowrick) in [#930](https://github.com/physiomelinks/PhLynx/pull/930)
+* Type a library module's DAE unknowns with the math's stored values by [@jmdowrick](https://github.com/jmdowrick) in [#892](https://github.com/physiomelinks/PhLynx/pull/892)
+* Name each instance's ids after it when flattening by [@jmdowrick](https://github.com/jmdowrick) in [#878](https://github.com/physiomelinks/PhLynx/pull/878)
+
+
+#### New Features
+* Flag couplings whose variables have units of different dimensions by [@jmdowrick](https://github.com/jmdowrick) in [#869](https://github.com/physiomelinks/PhLynx/pull/869)
+
+
+#### Fixed Bugs
+* Derive every edge's couplings with one resolver by [@jmdowrick](https://github.com/jmdowrick) in [#949](https://github.com/physiomelinks/PhLynx/pull/949)
+* Handle per user defined units by [@hsorby](https://github.com/hsorby) in [#915](https://github.com/physiomelinks/PhLynx/pull/915)
+* Keep a workspace's units file over the built-in one, and load it after the library by [@jmdowrick](https://github.com/jmdowrick) in [#875](https://github.com/physiomelinks/PhLynx/pull/875)
+* Type the variables a DAE solves implicitly as computed by [@jmdowrick](https://github.com/jmdowrick) in [#883](https://github.com/physiomelinks/PhLynx/pull/883)
+* Import the units parameter rows use, and name units nothing defines by [@FinbarArgus](https://github.com/FinbarArgus) in [#864](https://github.com/physiomelinks/PhLynx/pull/864)
+
+
+#### Maintenance Work
+* Replace the migration fixture files with synthetic workspaces by [@jmdowrick](https://github.com/jmdowrick) in [#884](https://github.com/physiomelinks/PhLynx/pull/884)
+
+
+#### Contributors
+
+<kbd>
+  <a href="https://github.com/jmdowrick">
+    <img src="https://avatars.githubusercontent.com/u/146781982?u=94c7295b017c61161e81ba34c929524b31a423c2&v=4&s=100" width="50" height="50"><br>
+    <sub>@jmdowrick</sub>
+  </a>
+</kbd> <kbd>
+  <a href="https://github.com/hsorby">
+    <img src="https://avatars.githubusercontent.com/u/778048?u=31d6ee5b17c95630c61a61e7cfe0c008b138b769&v=4&s=100" width="50" height="50"><br>
+    <sub>@hsorby</sub>
+  </a>
+</kbd> <kbd>
+  <a href="https://github.com/FinbarArgus">
+    <img src="https://avatars.githubusercontent.com/u/64084030?v=4&s=100" width="50" height="50"><br>
+    <sub>@FinbarArgus</sub>
+  </a>
+</kbd>
+
+
+
+---
+
 ## v0.5.2
 ###### Released on 2026-10-19
 

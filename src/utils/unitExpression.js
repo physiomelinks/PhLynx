@@ -144,8 +144,17 @@ export function parseUnitExpression(text) {
 
 // ── Symbols ─────────────────────────────────────────────────────────────────
 
-/** Finds a symbol with no exponent: a library name, a UCUM symbol, or a prefix and a metric UCUM symbol. */
-function lookUpSymbol(text, names) {
+/** Every prefix as written before a library name: CellML's (`kilo`), then UCUM's (`k`), each with its power of ten. */
+const LIBRARY_PREFIXES = [
+  ...[...PREFIX_POWERS].sort(([a], [b]) => b.length - a.length),
+  ...[...UCUM_PREFIXES].map(([symbol, prefix]) => [symbol, PREFIX_POWERS.get(prefix)]),
+]
+
+/**
+ * Finds a symbol with no exponent: a library name, a UCUM symbol, a prefix and a metric UCUM symbol, or, with
+ * `prefixedLibrary`, a prefix and a library name (`kilofish`, `kfish`).
+ */
+function lookUpSymbol(text, names, prefixedLibrary = false) {
   if (Object.hasOwn(AFFINE_UNIT_CONVERSIONS, text)) return { affine: text }
   if (names.has(text)) return { library: text }
   if (AFFINE_SYMBOLS.has(text)) return { affine: AFFINE_SYMBOLS.get(text) }
@@ -155,24 +164,61 @@ function lookUpSymbol(text, names) {
     const atom = text.startsWith(symbol) && UCUM_ATOMS.get(text.slice(symbol.length))
     if (atom?.metric) return { atom, prefix: PREFIX_POWERS.get(prefix) }
   }
+  if (!prefixedLibrary) return null
+
+  for (const [prefix, power] of LIBRARY_PREFIXES) {
+    const rest = text.startsWith(prefix) && text.slice(prefix.length)
+    if (rest && names.has(rest) && !Object.hasOwn(AFFINE_UNIT_CONVERSIONS, rest)) return { library: rest, prefix: power }
+  }
   return null
 }
 
 /**
  * Resolves one symbol of an expression. Library names come first, so `Hz2` stays the library's units; only when the
- * whole symbol isn't known is a trailing integer read as its exponent.
+ * whole symbol isn't known is a trailing integer read as its exponent. A prefix on a library name (`kilofish`) is
+ * tried last of all, so it never changes what a UCUM symbol means: `kHz2` stays (kHz)².
  *
  * @param {string} text - The symbol as written, e.g. `mV`, `s-1` or `mm[Hg]`.
  * @param {Set<string>} names - Every library and built-in units name.
  * @returns {{ label: string, exponent: number, library?: string, affine?: string, atom?: Object, prefix?: number } | null}
  */
 export function resolveSymbol(text, names) {
-  const whole = lookUpSymbol(text, names)
-  if (whole) return { ...whole, label: text, exponent: 1 }
-
   const split = /^(.*?[^\d+-])([+-]?\d+)$/.exec(text)
-  const found = split && lookUpSymbol(split[1], names)
-  return found ? { ...found, label: split[1], exponent: Number(split[2]) } : null
+  for (const prefixedLibrary of [false, true]) {
+    const whole = lookUpSymbol(text, names, prefixedLibrary)
+    if (whole) return { ...whole, label: text, exponent: 1 }
+
+    const found = split && lookUpSymbol(split[1], names, prefixedLibrary)
+    if (found) return { ...found, label: split[1], exponent: Number(split[2]) }
+  }
+  return null
+}
+
+/** Where a name in the library's style divides: a leading `per_`, or `_per_` within it. */
+const PER = /(?:^|_)per_/
+
+/**
+ * Reads a name in the library's style as the symbols it divides: `per_months` is months⁻¹ and
+ * `number_of_sharks_per_month` is number_of_sharks·month⁻¹.
+ *
+ * @param {string} text - The symbol as written.
+ * @param {Set<string>} names - Every library and built-in units name.
+ * @returns {{ symbols: Array<Object> } | { unknown: string } | null} The resolved symbols, as resolveSymbol gives them
+ *   but with signed exponents; the first piece that isn't a units; or null when the text isn't in that style.
+ */
+export function resolveLibraryStyle(text, names) {
+  if (!PER.test(text)) return null
+  const [above, ...below] = text.split(PER)
+  const pieces = [...(above ? [{ text: above, sign: 1 }] : []), ...below.map((piece) => ({ text: piece, sign: -1 }))]
+  if (pieces.some((piece) => !piece.text)) return null
+
+  const symbols = []
+  for (const piece of pieces) {
+    const symbol = resolveSymbol(piece.text, names)
+    if (!symbol) return { unknown: piece.text }
+    symbols.push({ ...symbol, exponent: symbol.exponent * piece.sign })
+  }
+  return { symbols }
 }
 
 // ── Conversion ──────────────────────────────────────────────────────────────
@@ -222,7 +268,16 @@ function symbolToParts(symbol, definitions, baseUnits) {
   }
   const flat = flattenUnits(symbol.library, definitions, baseUnits)
   if (!flat) return null
-  return { factor: flat.factor ** exponent, parts: flat.parts.map((part) => ({ ...part, exponent: part.exponent * exponent })) }
+  const prefix = symbol.prefix ?? 0
+  const [only] = flat.parts
+  // A prefix on one unprefixed part stays a prefix, so `kilofish` writes `<unit units="fish" prefix="kilo"/>`.
+  if (prefix && flat.parts.length === 1 && only.prefix === 0 && only.exponent === 1) {
+    return { factor: flat.factor ** exponent, parts: [builtInPart(only.units, prefix, exponent)] }
+  }
+  return {
+    factor: (10 ** prefix * flat.factor) ** exponent,
+    parts: flat.parts.map((part) => ({ ...part, exponent: part.exponent * exponent })),
+  }
 }
 
 /** Merges parts with the same units and prefix, dropping the ones that cancel and any `dimensionless`. */
@@ -297,12 +352,18 @@ export function interpretUnitExpression(text, { names, definitions, expansions, 
   const symbols = []
   for (const { text: written, sign } of parsed.symbols) {
     const symbol = resolveSymbol(written, names)
-    if (!symbol) return { error: `Unknown units "${written}"` }
-    symbols.push({ ...symbol, exponent: symbol.exponent * sign })
+    if (symbol) {
+      symbols.push({ ...symbol, exponent: symbol.exponent * sign })
+      continue
+    }
+    // Not a units itself, so perhaps named in the library's style, e.g. `per_months`.
+    const styled = resolveLibraryStyle(written, names)
+    if (!styled?.symbols) return { error: `Unknown units "${styled?.unknown ?? written}"` }
+    symbols.push(...styled.symbols.map((piece) => ({ ...piece, exponent: piece.exponent * sign })))
   }
 
   const [only] = symbols
-  if (symbols.length === 1 && parsed.factor === 1 && only.exponent === 1 && !only.atom) {
+  if (symbols.length === 1 && parsed.factor === 1 && only.exponent === 1 && !only.atom && !only.prefix) {
     return { name: only.library ?? only.affine, existing: true }
   }
   if (symbols.some((symbol) => symbol.affine)) return { error: "Celsius and Fahrenheit can't be combined with other units" }
@@ -340,13 +401,16 @@ export function interpretUnitExpression(text, { names, definitions, expansions, 
 
 /**
  * Gets the base units a name not in the library could become, e.g. `number_of_sharks`: a dimension of its own.
+ * A name that reads as other units never is, as it would be a second, unrelated dimension: one in the library's style
+ * (`per_months`), a prefixed units (`kilofish`) or a units with an exponent (`fish2`).
  *
  * @param {string} text - As typed.
  * @param {Set<string>} names - Every library and built-in units name.
- * @returns {string} The name, or '' when the text isn't a valid name or is already taken.
+ * @returns {string} The name, or '' when the text isn't a valid name, is already taken, or reads as other units.
  */
 export function newBaseUnitsName(text, names) {
-  return text && sanitiseName(text) === text && !names.has(text) ? text : ''
+  if (!text || sanitiseName(text) !== text || names.has(text)) return ''
+  return resolveSymbol(text, names) || resolveLibraryStyle(text, names) ? '' : text
 }
 
 /**

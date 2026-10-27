@@ -74,7 +74,8 @@ describe('useImportExportSend selection exports', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     useLibraryStore().addMath('file:decay', ODE_XML)
-    nodes = ref([createNode('a'), createNode('b'), createNode('c')])
+    // Only a computes v; b and c take it from the connections.
+    nodes = ref([createNode('a'), createNode('b', { vType: 'boundary_condition' }), createNode('c', { vType: 'boundary_condition' })])
     edges = ref([connect(nodes.value[0], nodes.value[1]), connect(nodes.value[1], nodes.value[2])])
     selectedNodeIds = ref([])
     snapshotFlowState = vi.fn(() => '{}')

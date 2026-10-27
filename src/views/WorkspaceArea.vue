@@ -553,6 +553,7 @@
     :target-node="edgeDialogTargetNode"
     :active-edge="edgeDialogActiveEdge"
     :subgraph="edgeDialogSubgraph"
+    :ordinals="edgeDialogOrdinals"
     @confirm="onEdgeConnectionConfirm"
   />
 </template>
@@ -682,7 +683,7 @@ import {
   NUM_GHOST_HANDLES_LEFT_RIGHT,
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
-import { resolvePortCouplings } from '../utils/edges'
+import { edgeOrdinals, resolvePortCouplings } from '../utils/edges'
 import { parseParametersFile } from '../utils/import'
 import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
@@ -827,6 +828,10 @@ const helperLineVertical = ref(null)
 const alignment = ref('edge')
 
 const libcellmlReadyPromise = inject('$libcellml_ready')
+// Settles once registerBuiltInLibrary finishes or fails. Workspace and OMEX loads wait on it, so a loaded
+// library always lands after the built-in one, whatever the timing.
+let markBuiltInLibraryReady
+const builtInLibraryReady = new Promise((resolve) => (markBuiltInLibraryReady = resolve))
 const libcellml = inject('$libcellml')
 const instanceEditorDefaultTab = ref('parameters')
 const instanceEditorDialogVisible = ref(false)
@@ -845,6 +850,7 @@ const edgeDialogSourceNode = ref({})
 const edgeDialogTargetNode = ref({})
 const edgeDialogActiveEdge = ref({})
 const edgeDialogSubgraph = ref(new Map())
+const edgeDialogOrdinals = ref({ sourceIndex: 0, targetIndex: 0 })
 const importDialogRef = ref(null)
 
 const currentEditingNode = ref({
@@ -1039,7 +1045,11 @@ useConnect({
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
 
-const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
+const loadCellMLData = (
+  content,
+  filename,
+  { notify: shouldNotify = true, trackEvents = true, replaceUnits = true } = {}
+) => {
   return new Promise((resolve) => {
     const result = processCellMLData(content)
 
@@ -1054,10 +1064,13 @@ const loadCellMLData = (content, filename, { notify: shouldNotify = true, trackE
 
       // Register units with the store
       if (unitsCount > 0) {
-        libraryStore.addUnitsFile({
-          componentFile: filename,
-          model: result.units.model,
-        })
+        libraryStore.addUnitsFile(
+          {
+            componentFile: filename,
+            model: result.units.model,
+          },
+          { replace: replaceUnits }
+        )
       }
 
       if (trackEvents) {
@@ -1329,6 +1342,7 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
 }
 
 async function processImportedOmexArchive(archivePayload, result, fileName) {
+  await builtInLibraryReady
   const archive = await JSZip.loadAsync(archivePayload)
   const manifestFile = archive.file('manifest.xml')
   const manifestXml = manifestFile ? await manifestFile.async('string') : ''
@@ -1703,6 +1717,7 @@ function onEdgeDoubleClick({ edge }) {
   if (!sourceNode || !targetNode) return
 
   edgeDialogSubgraph.value = buildEdgeSubgraph(edge)
+  edgeDialogOrdinals.value = edgeOrdinals(edge, edges.value)
   edgeDialogSourceNode.value = detachReactivity(sourceNode)
   edgeDialogTargetNode.value = detachReactivity(targetNode)
   edgeDialogActiveEdge.value = detachReactivity(edge)
@@ -2072,12 +2087,21 @@ async function handleLoadWorkspace(event) {
   const file = event?.target ? takeInputFile(event) : event?.raw || event
   if (!file) return
 
-  if (await loadWorkspaceFile(file, (state) => applyWorkspaceState(state, { source: 'json' }))) {
+  const apply = async (state) => {
+    await builtInLibraryReady
+    await applyWorkspaceState(state, { source: 'json' })
+  }
+  if (await loadWorkspaceFile(file, apply)) {
     sessionMetadataStore.setLastSaveName(stripExtension(file.name))
   }
 }
 
-const urlLoaders = createUrlLoaders({ applyWorkspaceState, importOmexFile, processImportedOmexArchive })
+const urlLoaders = createUrlLoaders({
+  applyWorkspaceState,
+  importOmexFile,
+  processImportedOmexArchive,
+  libraryReady: builtInLibraryReady,
+})
 
 const { load: loadFromUrl, isLoading: isUrlLoading } = useLoadFromUrl()
 
@@ -2214,7 +2238,7 @@ async function fetchAndLoadResource(entry, resourceType) {
 
     // Load the content
     if (resourceType === 'cellml module' || resourceType === 'cellml units') {
-      await loadCellMLData(content, entry.file ?? entry.name, { notify: false })
+      await loadCellMLData(content, entry.file ?? entry.name, { notify: false, replaceUnits: false })
     } else if (resourceType === 'module config') {
       await loadConfigData(content, entry.name, false)
       // const jsonContent = JSON.parse(content)
@@ -2244,15 +2268,12 @@ const moduleConfigs = import.meta.glob('../assets/module_configs/*.json', {
   eager: true,
 })
 
-const hydrateCellmlAndDependents = async () => {
-  // Load the manifest and the libCellML WebAssembly module.
-  // Initialise libCellML independently of the manifest fetch so URL loads aren't blocked by the network.
-  const [manifest] = await Promise.all([loadManifest(), bindLibCellML(libcellmlReadyPromise)])
-
-  // const printPurgeUrl = false
-  // if (printPurgeUrl) {
-  //   console.log(getPurgedUrlForResource())
-  // }
+/**
+ * Binds libCellML and adds the bundled modules, units and configs to the library. Never waits on the network, and
+ * never displaces a units file already loaded under the same name, such as a workspace's own units.cellml.
+ */
+const registerBuiltInLibrary = async () => {
+  await bindLibCellML(libcellmlReadyPromise)
 
   const promises = []
   for (const [path, content] of Object.entries(cellmlModules)) {
@@ -2260,9 +2281,43 @@ const hydrateCellmlAndDependents = async () => {
   }
 
   for (const [path, content] of Object.entries(cellmlUnits)) {
-    promises.push(loadCellMLData(content.default, path.split('/').pop(), { notify: false }))
+    promises.push(loadCellMLData(content.default, path.split('/').pop(), { notify: false, replaceUnits: false }))
   }
 
+  const results = await Promise.all(promises)
+  const successCount = results.filter((result) => result?.ok).length
+  const failCount = results.length - successCount
+
+  if (successCount > 0) {
+    notify.success({
+      title: 'Resource Loading',
+      message: `Successfully loaded ${successCount} file${successCount > 1 ? 's' : ''}.`,
+    })
+  }
+
+  if (failCount > 0) {
+    if (successCount > 0) await nextTick()
+    notify.warning({
+      title: 'Resource Loading',
+      message: `${failCount} file${failCount > 1 ? 's' : ''} failed to load.`,
+    })
+  }
+
+  for (const [path, content] of Object.entries(moduleConfigs)) {
+    libraryStore.addConfigFile(path.split('/').pop(), content.default)
+  }
+}
+
+const hydrateCellmlAndDependents = async () => {
+  // Waits on the built-in library too, so manifest entries would land after it.
+  const [manifest] = await Promise.all([loadManifest(), builtInLibraryReady])
+
+  // const printPurgeUrl = false
+  // if (printPurgeUrl) {
+  //   console.log(getPurgedUrlForResource())
+  // }
+
+  // const promises = []
   // if (manifest?.modules) {
   //   for (const entry of manifest.modules) {
   //     if (printPurgeUrl) {
@@ -2299,28 +2354,7 @@ const hydrateCellmlAndDependents = async () => {
   //   }
   // }
 
-  const results = await Promise.all(promises)
-  const successCount = results.filter((result) => result?.ok).length
-  const failCount = results.length - successCount
-
-  if (successCount > 0) {
-    notify.success({
-      title: 'Resource Loading',
-      message: `Successfully loaded ${successCount} file${successCount > 1 ? 's' : ''}.`,
-    })
-  }
-
-  if (failCount > 0) {
-    if (successCount > 0) await nextTick()
-    notify.warning({
-      title: 'Resource Loading',
-      message: `${failCount} file${failCount > 1 ? 's' : ''} failed to load.`,
-    })
-  }
-
-  for (const [path, content] of Object.entries(moduleConfigs)) {
-    libraryStore.addConfigFile(path.split('/').pop(), content.default)
-  }
+  // await Promise.all(promises)
 
   return manifest
 }
@@ -2328,8 +2362,14 @@ const hydrateCellmlAndDependents = async () => {
 onMounted(async () => {
   setWorkspaceMounted(true)
 
+  void registerBuiltInLibrary()
+    .catch((error) => {
+      console.error('Failed to initialize libCellML resources in background:', error)
+    })
+    .finally(markBuiltInLibraryReady)
+
   void hydrateCellmlAndDependents().catch((error) => {
-    console.error('Failed to initialize libCellML resources in background:', error)
+    console.error('Failed to load the resource manifest:', error)
   })
 
   await loadFromUrl(urlLoaders, (message) => {

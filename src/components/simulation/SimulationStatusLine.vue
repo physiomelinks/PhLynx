@@ -89,11 +89,11 @@ const popover = ref(null)
   color: var(--p-red-600);
 }
 
-:global(.p-dark) .simulation-status--warn {
+.p-dark .simulation-status--warn {
   color: var(--p-orange-400);
 }
 
-:global(.p-dark) .simulation-status--error {
+.p-dark .simulation-status--error {
   color: var(--p-red-400);
 }
 

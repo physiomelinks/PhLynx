@@ -598,6 +598,11 @@ function connectionIcon(row) {
       return { icon: 'pi-exclamation-triangle', title: `Coupled only to other boundary conditions (${list}): connect a module that supplies it` }
     case 'conflict':
       return { icon: 'pi-exclamation-triangle', title: `Given a different value by ${list}` }
+    case 'overdetermined':
+      return {
+        icon: 'pi-exclamation-triangle',
+        title: `${list ? `Also set by ${list}` : 'Set more than once'}: only one module can set a connected variable`,
+      }
     default:
       return null
   }

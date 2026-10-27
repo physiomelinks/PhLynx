@@ -26,7 +26,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
   }),
 }))
 
-const port = (portType, label, variables = []) => ({
+const port = (portType, label, variables = ['v']) => ({
   portType,
   label,
   variables,
