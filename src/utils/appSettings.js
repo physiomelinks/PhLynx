@@ -41,6 +41,55 @@ export const SETTING_SECTIONS = [
     ],
   },
   {
+    title: 'CellDL diagrams',
+    settings: [
+      {
+        key: 'arrowStyle',
+        type: 'select',
+        label: 'Bond arrowheads',
+        description: 'How the end of each bond is drawn. Only the display changes; saved diagrams are not altered.',
+        options: [
+          { value: 'classic', label: 'Classic', hint: 'A closed arrowhead' },
+          { value: 'bond', label: 'Bond graph', hint: 'A half arrow (⇀), one barb on the left of the bond' },
+        ],
+        default: 'classic',
+      },
+      {
+        key: 'celldlWheelMode',
+        type: 'select',
+        label: 'Scrolling in CellDL diagrams',
+        description:
+          'What the mouse wheel and two-finger trackpad scrolling do over a diagram. Pinching, or scrolling with Ctrl or Cmd held, always zooms.',
+        options: [
+          { value: 'auto', label: 'Automatic', hint: 'A mouse wheel zooms; a trackpad pans' },
+          { value: 'pan', label: 'Pan', hint: 'Scrolling moves the diagram; hold Shift to move it sideways' },
+          { value: 'zoom', label: 'Zoom', hint: 'Scrolling zooms around the pointer' },
+        ],
+        default: 'auto',
+      },
+      {
+        key: 'celldlLocationShading',
+        type: 'toggle',
+        label: 'Location shading',
+        description:
+          "Shade the regions of a diagram that its elements' locations mark out. Only the display changes; the CellDL tab's status bar has the same switch.",
+        default: true,
+      },
+      {
+        key: 'celldlUnitSystem',
+        type: 'select',
+        label: 'New CellDL modules: unit system',
+        description:
+          "The units a new module's diagram builds its CellML in. Each module keeps its own, which its Parameters tab changes; a diagram saved without one is SI.",
+        options: [
+          { value: 'cellular', label: 'Cellular (fmol, pL)', hint: 'Amounts in fmol and volumes in pL, so cell-sized values are near 1' },
+          { value: 'si', label: 'SI (mol, L)', hint: "The BG-RDF templates' own units" },
+        ],
+        default: 'cellular',
+      },
+    ],
+  },
+  {
     title: 'Image export',
     settings: [
       {

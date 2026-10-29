@@ -504,6 +504,7 @@
     :default-tab="instanceEditorDefaultTab"
     @confirm="onInstanceEditConfirm"
   />
+  <CelldlEditorHost v-if="isCelldlEditorRequested" />
 
   <SaveDialog v-model="saveDialogVisible" :default-name="sessionMetadataStore.lastSaveName" @confirm="onSaveConfirm" />
 
@@ -591,6 +592,7 @@ import { useFlowHistoryStore } from '../stores/historyStore'
 import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
 import { useConnect } from '../composables/useConnect'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
+import { useCelldlImport } from '../composables/useCelldlImport'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -632,6 +634,7 @@ import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'
 import InstanceEditorDialog from '../components/InstanceEditorDialog.vue'
+import CelldlEditorHost from '../components/celldl/CelldlEditorHost.vue'
 import CreateInspectionModuleDialog from '../components/dialogs/CreateInspectionModule.vue'
 import ContextSidebar from '../components/ContextSidebar.vue'
 
@@ -654,9 +657,11 @@ import { useSimSettingsDialog } from '../composables/useSimSettingsDialog'
 import { useProtocolDialog } from '../composables/useProtocolDialog'
 import { useFloatingViewer } from '../composables/useFloatingViewer'
 import { useActiveDocumentListeners } from '../composables/useActiveDocumentListeners'
+import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
 import { useWorkspaceSearch } from '../composables/useWorkspaceSearch'
 import { SEARCH_MODES, variableKindLabel } from '../utils/workspaceSearch'
 import { scopeFlowObject } from '../services/simulation/scopedModel'
+import { collectSnapshotMath, getSnapshotMathSource } from '../services/flowSnapshotMath'
 import { relayoutNodes } from '../services/layouts/physics'
 import { extractSimData as extractSimDataFromSedml } from '../services/import/sedml'
 import { extractSimData as extractSimDataFromSimulationJson } from '../services/import/simulation'
@@ -809,6 +814,8 @@ const omexStore = useOmexStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
+// The CellDL editor mounts once a CellDL tab first asks for it, and stays.
+const { isRequested: isCelldlEditorRequested } = useCelldlEditorHost()
 
 /** MiniMap nodes follow the active node colour theme; uncategorised nodes keep the MiniMap default grey. */
 function miniMapNodeColour(node) {
@@ -1130,6 +1137,8 @@ const loadCellMLData = (
   })
 }
 
+const { loadCelldlFiles } = useCelldlImport({ confirm })
+
 const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dropLoadingMessage } = useCellmlDrop({
   loadCellMLData,
   loadFromCellML,
@@ -1288,6 +1297,7 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
     } else {
       // Put math from the snapshot into the library store.
       if (nodeMathFromSnapshot) {
+        libraryStore.setMathSource(node.data.mathRef, getSnapshotMathSource(flowSnapshot, node.data.mathHash))
         libraryStore.addMath(node.data.mathRef, nodeMathFromSnapshot)
       }
       delete node.data.mathHash
@@ -1551,6 +1561,12 @@ async function onImportConfirm(importPayload, updateProgress) {
       content: data?.payload,
     }))
     await loadCellMLFiles(entries)
+  } else if (currentImportMode.value.key === IMPORT_KEYS.CELLDL_FILE) {
+    const entries = [...importPayload.get(IMPORT_KEYS.CELLDL_FILE)].map(([name, data]) => ({
+      name,
+      content: data?.payload,
+    }))
+    await loadCelldlFiles(entries)
   } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
     const multiFile = importPayload.size > 1
     const results = await Promise.all(
@@ -2021,11 +2037,10 @@ function recomputeMissingCouplings() {
  */
 function snapshotFlowState(nodeIds = null) {
   const flowState = scopeFlowObject(toObject(), nodeIds)
-  const mathLibrary = new Map()
 
   const nodeData = flowState.nodes.map((node) => {
     const { handles, ...restData } = node.data ?? {}
-    const slimNode = {
+    return {
       id: node.id,
       data: {
         ...restData,
@@ -2035,35 +2050,17 @@ function snapshotFlowState(nodeIds = null) {
       dimensions: node.dimensions,
       type: node.type,
     }
-
-    if (slimNode.data?.mathRef) {
-      const mathRef = slimNode.data.mathRef
-      const mathText = libraryStore.availableMath.get(mathRef)
-      if (mathText) {
-        const baseHash = libraryStore.getMathHashByRef(mathRef) ?? libraryStore.createMathHash(mathText)
-        let mathHash = baseHash
-        let collisionIndex = 1
-
-        while (mathLibrary.has(mathHash) && mathLibrary.get(mathHash) !== mathText) {
-          mathHash = `${baseHash}_${collisionIndex++}`
-        }
-
-        mathLibrary.set(mathHash, mathText)
-        slimNode.data.mathHash = mathHash
-      }
-    }
-
-    return slimNode
   })
-
-  const mathLibraryObject = Object.fromEntries([...mathLibrary.entries()].sort(([a], [b]) => a.localeCompare(b)))
+  const { mathLibrary, mathSources } = collectSnapshotMath(nodeData, libraryStore)
 
   return JSON.stringify({
     id: 'phlynx-flow-snapshot',
     version: PHLYNX_PROJECT_VERSION,
     nodeData,
     edges: flowState.edges,
-    mathLibrary: mathLibraryObject,
+    mathLibrary,
+    // Only with math generated from a source, so a CellML-only snapshot reads as before.
+    ...(Object.keys(mathSources).length ? { mathSources } : {}),
     globalParameters: Array.from(libraryStore.globalVariables.entries()),
   })
 }

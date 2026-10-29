@@ -4,15 +4,16 @@
  * Each version's module exports its `version`, a `base()` holding the envelope and what every file of it has,
  * and `cases`: named edge cases its migration handles, each a function returning the part of a workspace (nodes,
  * edges, store entries, settings) that holds it. A case's nodes and store entries are its own, so cases build alone
- * or together. To add a format version, add a module like v1-2-0.js and list it in VERSIONS.
+ * or together. To add a format version, add a module like v1-3-0.js and list it in VERSIONS.
  */
 import { mergeParts } from './builders.js'
 import * as legacy from './legacy.js'
 import * as v1_0_0 from './v1-0-0.js'
 import * as v1_1_0 from './v1-1-0.js'
 import * as v1_2_0 from './v1-2-0.js'
+import * as v1_3_0 from './v1-3-0.js'
 
-const VERSIONS = [legacy, v1_0_0, v1_1_0, v1_2_0]
+const VERSIONS = [legacy, v1_0_0, v1_1_0, v1_2_0, v1_3_0]
 const byVersion = new Map(VERSIONS.map((module) => [module.version, module]))
 
 /** Every format version with a synthetic workspace, oldest first. */

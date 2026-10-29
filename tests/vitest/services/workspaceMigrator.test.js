@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath'
 import { detectVersion, migrateWorkspace, separateNodeParameters } from '../../../src/services/workspaceMigrator'
+import { useLibraryStore } from '../../../src/stores/libraryStore'
 import { PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 import { SYNTHETIC_VERSIONS, syntheticCase, syntheticCaseNames, syntheticWorkspace } from '../helpers/syntheticWorkspaces/index.js'
@@ -453,6 +454,33 @@ describe('loading and saving the synthetic 1.2.0 workspace', () => {
     expect(saved.flow.edges).toEqual(doc.flow.edges)
     expect(new Map(saved.store.availableModules).get('amplifier:stub')).toMatchObject({ isStub: true })
     expect(new Map(saved.store.availableModules).get('amplifier:gain').isStub).toBeUndefined()
+  })
+})
+
+describe('migrating to and loading the synthetic 1.3.0 workspace', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  it('takes a 1.2.0 file to 1.3.0 unchanged, its math all CellML', () => {
+    const doc = syntheticWorkspace('1.2.0')
+    expect(migrateWorkspace(doc)).toEqual({ ...doc, version: '1.3.0' })
+
+    const saved = loadAndSave(doc)
+    expect(saved.store.mathSources).toEqual([])
+  })
+
+  it("celldlSource: keeps the diagram and its element manifest, so the math's format is CellDL", () => {
+    const doc = syntheticCase('1.3.0', 'celldlSource')
+    const saved = loadAndSave(doc)
+    expect(saved.store.mathSources).toEqual(doc.store.mathSources)
+    const [mathRef] = doc.store.mathSources[0]
+    expect(useLibraryStore().getMathFormat(mathRef)).toBe('celldl')
+  })
+
+  it('blankCelldlSource: keeps a CellDL module with no diagram drawn yet', () => {
+    const doc = syntheticCase('1.3.0', 'blankCelldlSource')
+    expect(loadAndSave(doc).store.mathSources).toEqual(doc.store.mathSources)
   })
 })
 

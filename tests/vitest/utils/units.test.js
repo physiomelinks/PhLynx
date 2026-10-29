@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { STANDARD_UNITS } from '../../../src/utils/constants'
 import { processCellMLData } from '../../../src/utils/cellml'
-import { expandUnits, extractUnitDefinitions, formatUnitExpansion } from '../../../src/utils/units'
+import { areUnitsModelsEquivalent, expandUnits, extractUnitDefinitions, formatUnitExpansion } from '../../../src/utils/units'
 import { unitSuggestions } from '../../../src/utils/units'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
@@ -349,5 +349,23 @@ describe('expandUnits on the bundled units library', () => {
     expect(expansions.get('J_per_m4_s')).toBe('J·m⁻⁴·s⁻¹')
     expect(expansions.get('rad_per_s')).toBe('rad·s⁻¹')
     expect(expansions.get('per_mMms')).toBe('10⁶ L·mol⁻¹·s⁻¹')
+  })
+})
+
+describe('areUnitsModelsEquivalent', () => {
+  const A = `<model name="units"><units name="per_s"><unit units="second" exponent="-1"/></units><units name="mM"><unit prefix="milli" units="mole"/></units></model>`
+  const B = `<model name="units">
+  <units name="mM"><unit units="mole" prefix="-3"/></units>
+  <units name="per_s"><unit exponent="-1" units="second"/></units>
+</model>`
+
+  it('ignores the order and writing of the definitions', () => {
+    expect(areUnitsModelsEquivalent(A, B)).toBe(true)
+    expect(areUnitsModelsEquivalent(null, '<model name="units"/>')).toBe(true)
+  })
+
+  it('tells apart different definitions', () => {
+    expect(areUnitsModelsEquivalent(A, B.replace('exponent="-1"', 'exponent="-2"'))).toBe(false)
+    expect(areUnitsModelsEquivalent(A, null)).toBe(false)
   })
 })

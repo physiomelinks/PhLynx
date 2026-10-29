@@ -1,6 +1,6 @@
 <template>
   <ConfirmDialog group="app-confirm">
-    <template #container="{ message, acceptCallback, rejectCallback }">
+    <template #container="{ message, acceptCallback, rejectCallback, closeCallback }">
       <div class="confirm-container">
         <div class="confirm-body">
           <i :class="['confirm-icon', getIcon(message.severity)]" :style="{ color: getIconColor(message.severity) }" />
@@ -13,21 +13,61 @@
             <div class="confirm-message">
               {{ message.message }}
             </div>
+
+            <!-- Issues that name an element link to it: following one closes the dialog first. -->
+            <ul v-if="message.issues?.length" class="confirm-issues">
+              <li v-for="issue in message.issues" :key="issue.key">
+                <button
+                  v-if="issue.elementId && message.onIssue"
+                  type="button"
+                  class="confirm-issue-link"
+                  :data-element-id="issue.elementId"
+                  :title="`Show ${issue.label} in the diagram`"
+                  @click="
+                    () => {
+                      message.onIssue(issue)
+                      closeCallback()
+                    }
+                  "
+                >
+                  {{ issue.label }}
+                </button>
+                <span v-else-if="issue.label" class="confirm-issue-label">{{ issue.label }}</span>
+                {{ issue.message }}
+              </li>
+            </ul>
           </div>
         </div>
 
         <div class="confirm-actions">
+          <!-- With isRejectDefault, rejecting is the primary, focused action, and accepting the secondary one. -->
           <Button
             v-if="message.rejectLabel"
             :label="message.rejectLabel"
-            severity="secondary"
-            outlined
+            :severity="message.isRejectDefault ? undefined : 'secondary'"
+            :outlined="!message.isRejectDefault"
+            :autofocus="!!message.isRejectDefault"
             @click="rejectCallback"
+          />
+
+          <!-- A third action (choose), resolved before the dialog closes, so closing doesn't reject it. It's the
+               primary, focused action, so Enter takes it and never the accept action beside it. -->
+          <Button
+            v-if="message.extraLabel"
+            :label="message.extraLabel"
+            autofocus
+            @click="
+              () => {
+                message.extra?.()
+                closeCallback()
+              }
+            "
           />
 
           <Button
             :label="message.acceptLabel || 'OK'"
             :severity="getButtonSeverity(message.severity)"
+            :outlined="!!message.isRejectDefault || !!message.extraLabel"
             @click="acceptCallback"
           />
         </div>
@@ -131,6 +171,46 @@ function getButtonSeverity(severity?: string) {
   font-size: 0.875rem;
   white-space: pre-wrap;
   color: var(--p-text-muted-color, #52525b);
+}
+
+.confirm-issues {
+  max-height: 14rem;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  overflow-y: auto;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+  color: var(--p-text-muted-color, #52525b);
+}
+
+.confirm-issues li + li {
+  margin-top: 4px;
+}
+
+.confirm-issue-link,
+.confirm-issue-label {
+  margin-right: 6px;
+  font-weight: 600;
+}
+
+.confirm-issue-link {
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--p-primary-color);
+  cursor: pointer;
+}
+
+.confirm-issue-link:hover {
+  text-decoration: underline;
+}
+
+.confirm-issue-link:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: 2px;
 }
 
 .confirm-actions {

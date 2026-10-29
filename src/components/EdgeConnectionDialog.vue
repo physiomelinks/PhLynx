@@ -228,11 +228,13 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Chip from 'primevue/chip'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
-import { isSingleConnection } from '../utils/edges'
+import { carryDrivesState, isSingleConnection } from '../utils/edges'
 import { isCompatible } from '../utils/ports'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
-import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
+import { confirmDrivenStores } from '../services/export/drivenStores'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useLibraryStore } from '../stores/libraryStore'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
@@ -388,12 +390,12 @@ const unitConflicts = computed(() => [...new Set(drawnCouplings.value.flatMap((c
 const { nodes: canvasNodes, edges: canvasEdges } = useVueFlow(FLOW_IDS.MAIN)
 
 /**
- * Variables this edge's couplings set more than once, as edited here against the rest of the canvas (see
- * resolveBoundaryValues' `overdetermined`).
+ * The canvas as this dialog would leave it, with the given couplings on its edge.
+ *
+ * @param {Array} couplings
+ * @returns {{nodes: Array, edges: Array}}
  */
-const overdetermined = computed(() => {
-  const couplings = drawnCouplings.value.map(({ srcUid, tgtUid }) => ({ sourcePort: srcByUid(srcUid), targetPort: tgtByUid(tgtUid) }))
-  if (!couplings.length) return []
+function editedCanvas(couplings) {
   const ports = new Map([
     [props.sourceNode.id, localSrcPorts.value],
     [props.targetNode.id, localTgtPorts.value],
@@ -403,6 +405,19 @@ const overdetermined = computed(() => {
     if (edge.id === props.activeEdge?.id) return { ...edge, data: { ...edge.data, couplings } }
     return localSubgraph.value.get(edge.id) ?? edge
   })
+  return { nodes, edges }
+}
+
+/**
+ * Variables this edge's couplings set more than once, as edited here against the rest of the canvas (see
+ * resolveBoundaryValues' `overdetermined`).
+ */
+const overdetermined = computed(() => {
+  const drawn = drawnCouplings.value.map(({ srcUid, tgtUid }) => ({ sourcePort: srcByUid(srcUid), targetPort: tgtByUid(tgtUid) }))
+  if (!drawn.length) return []
+  // A coupling already set to drive a store keeps doing so.
+  const couplings = carryDrivesState(props.activeEdge?.data?.couplings ?? [], drawn)
+  const { nodes, edges } = editedCanvas(couplings)
   const ownKeys = new Set(
     couplings.flatMap(({ sourcePort, targetPort }) => [
       ...(sourcePort.variables ?? []).map((name) => `${props.sourceNode.id}::${name}`),
@@ -410,7 +425,7 @@ const overdetermined = computed(() => {
     ])
   )
   try {
-    return resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis)
+    return resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
       .overdetermined.filter(({ keys }) => keys.some((key) => ownKeys.has(key)))
       .map(({ message }) => message)
   } catch {
@@ -614,39 +629,50 @@ function buildPayload() {
     }
   }
 
+  const couplings = localCouplings.value.map((c) => {
+    const sp = srcByUid(c.srcUid)
+    const tp = tgtByUid(c.tgtUid)
+    return {
+      sourcePort: {
+        _uid: sp._uid,
+        portType: sp.portType,
+        label: sp.label,
+        variables: sp.variables,
+        multiportType: sp.multiportType,
+        multiplyFactor: sp.multiplyFactor,
+      },
+      targetPort: {
+        _uid: tp._uid,
+        portType: tp.portType,
+        label: tp.label,
+        variables: tp.variables,
+        multiportType: tp.multiportType,
+        multiplyFactor: tp.multiplyFactor,
+      },
+    }
+  })
+
   return {
     sourceNodeId: props.sourceNode.id,
     targetNodeId: props.targetNode.id,
     sourcePorts: detachReactivity(localSrcPorts.value),
     targetPorts: detachReactivity(localTgtPorts.value),
-    couplings: localCouplings.value.map((c) => {
-      const sp = srcByUid(c.srcUid)
-      const tp = tgtByUid(c.tgtUid)
-      return {
-        sourcePort: {
-          _uid: sp._uid,
-          portType: sp.portType,
-          label: sp.label,
-          variables: sp.variables,
-          multiportType: sp.multiportType,
-          multiplyFactor: sp.multiplyFactor,
-        },
-        targetPort: {
-          _uid: tp._uid,
-          portType: tp.portType,
-          label: tp.label,
-          variables: tp.variables,
-          multiportType: tp.multiportType,
-          multiplyFactor: tp.multiplyFactor,
-        },
-      }
-    }),
+    // A coupling already set to drive a store keeps doing so.
+    couplings: carryDrivesState(props.activeEdge?.data?.couplings ?? [], couplings),
     foreignCouplings,
   }
 }
 
-function handleConfirm() {
-  emit('confirm', buildPayload())
+const { confirm } = useConfirmDialog()
+
+/** Saves the connection, first asking about each CellDL store it would set from elsewhere; declining one keeps the dialog open. */
+async function handleConfirm() {
+  const payload = buildPayload()
+  const { nodes, edges } = editedCanvas(payload.couplings)
+  const marked = await confirmDrivenStores({ nodes, edges, edgeIds: new Set([props.activeEdge?.id]), libraryStore, confirm })
+  if (!marked) return
+  if (marked.has(props.activeEdge?.id)) payload.couplings = marked.get(props.activeEdge.id)
+  emit('confirm', payload)
   emit('update:modelValue', false)
 }
 

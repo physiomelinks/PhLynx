@@ -2,10 +2,11 @@ import JSZip from 'jszip'
 import Papa from 'papaparse'
 
 import { notify } from '../../utils/notify'
+import { getModuleFormat } from '../moduleFormats'
 import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { isBlank } from '../../utils/variables'
-import { resolveBoundaryValues } from './boundaryValues'
+import { resolveBoundaryValues, storeOptions } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 
 // CA's placeholder for a value still to be given; it reads an empty cell as NaN.
@@ -16,7 +17,8 @@ const MODULES_DIR = 'modules'
 const PULMONARY_MODULE_REF = 'arterial_simple:vp'
 
 /**
- * Generates a zip blob for the Circulatory Autogen export.
+ * Generates a zip blob for the Circulatory Autogen export. Components of one name in several groupings are renamed in
+ * the export only, with a warning (buildCaCellmlFiles).
  * @param {string} fileName - The name for the exported files.
  * @param {Array} nodes - The array of nodes from Vue Flow.
  * @param {Array} edges - The array of edges from Vue Flow.
@@ -27,6 +29,9 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
  */
 export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
   try {
+    const blocker = findCaExportBlocker(nodes, edges, libraryStore)
+    if (blocker) throw new Error(blocker)
+
     const zip = new JSZip()
 
     // Create maps for quick lookup of node names and objects
@@ -72,7 +77,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       }
 
       if (!uniqueModuleConfigs.has(node.data.moduleRef)) {
-        uniqueModuleConfigs.set(node.data.moduleRef, moduleConfigEntry(node.data))
+        uniqueModuleConfigs.set(node.data.moduleRef, moduleConfigEntry(node.data, libraryStore))
       }
 
       instance_array.push({
@@ -111,7 +116,13 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     const module_config = Array.from(uniqueModuleConfigs.values());
 
     // The config's CellML, edits included; may rename component files so CA finds them.
-    const { files: cellmlFiles, missingUnits } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
+    const { files: cellmlFiles, missingUnits, renamedComponents } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
+    if (renamedComponents.length) {
+      notify.warning({
+        title: 'Components Renamed',
+        message: `CA finds components by name, so the export renames ${renamedComponents.map(({ file, from, to }) => `"${from}" in ${file} to "${to}"`).join(', ')}. The library keeps the original names.`,
+      })
+    }
     if (missingUnits.length) {
       notify.warning({
         title: 'Missing Units',
@@ -148,10 +159,39 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 
     return zipBlob
   } catch (error) {
+    // The caller reports it.
     console.error('Export Error:', error)
-    notify.error({ message: `Failed to export config files: ${error.message}` })
     throw error
   }
+}
+
+/**
+ * Finds what stops the workspace being exported to CA, so it can be checked before asking where to save.
+ *
+ * @param {Array} nodes - The array of nodes from Vue Flow.
+ * @param {Array} edges - The array of edges from Vue Flow.
+ * @param {Object} libraryStore - The Pinia builder store.
+ * @returns {string|null} Why it can't be exported, or null when it can.
+ */
+export function findCaExportBlocker(nodes, edges, libraryStore) {
+  // CA would run the module's own equation for the store, so the export would hold the wrong math.
+  const driven = drivenStoreLabels(nodes, edges, libraryStore)
+  return driven.length ? `Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}` : null
+}
+
+/**
+ * Lists the CellDL stores a connection drives (see resolveBoundaryValues' `driven`), as `instance.variable`.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @param {Object} libraryStore
+ * @returns {string[]}
+ */
+function drivenStoreLabels(nodes, edges, libraryStore) {
+  if (!edges.some((edge) => edge.data?.couplings?.some((coupling) => coupling.drivesState))) return []
+  const nodeNames = new Map(nodes.map((node) => [node.id, node.data.name]))
+  const { driven } = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
+  return [...driven].flatMap(([nodeId, states]) => [...states.keys()].map((name) => `${nodeNames.get(nodeId)}.${name}`))
 }
 
 /**
@@ -178,16 +218,17 @@ function warnMissingBoundaryValues(nodes, edges) {
  * Makes a module's CA config entry.
  *
  * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module.
+ * @param {Object} libraryStore - The library, for the math's format.
  * @returns {Object}
  */
-function moduleConfigEntry(module) {
+function moduleConfigEntry(module, libraryStore) {
   const portsByType = restorePorts(module.ports)
   const { componentFile, componentName } = parseMathRef(module.mathRef)
   const { moduleType, moduleSubtype } = parseModuleRef(module.moduleRef)
   return {
     module_type: moduleType,
     module_subtype: moduleSubtype,
-    module_format: 'cellml', // TODO - will need to generalise
+    module_format: getModuleFormat(libraryStore.getMathFormat(module.mathRef)).caModuleFormat,
     component_file: componentFile,
     component_type: componentName,
     entrance_ports: portsByType.entrance_ports || [],
@@ -203,14 +244,14 @@ function moduleConfigEntry(module) {
  *
  * @param {Array} instanceArray - The module array rows.
  * @param {Map<string, Object>} moduleConfigs - The config entries by module ref, added to.
- * @param {Object} libraryStore - The library, for `availableModules`.
+ * @param {Object} libraryStore - The library, for `availableModules` and the math's format.
  */
 function addPulmonaryModule(instanceArray, moduleConfigs, libraryStore) {
   const hearts = instanceArray.filter((row) => isHeart(row.module_type))
   if (hearts.length !== 1 || hearts[0].out_instances.split(' ').filter(Boolean).length >= 2) return
 
   const module = libraryStore.availableModules.get(PULMONARY_MODULE_REF)
-  if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, moduleConfigEntry(module))
+  if (module && !moduleConfigs.has(PULMONARY_MODULE_REF)) moduleConfigs.set(PULMONARY_MODULE_REF, moduleConfigEntry(module, libraryStore))
   notify.warning({
     title: 'Pulmonary Circuit Added',
     message: `"${hearts[0].name}" has one output, so CA adds a pulmonary artery and vein (par, pvn) and will ask for their values.`,

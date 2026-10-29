@@ -1,6 +1,7 @@
 import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
-import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
+import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues.js'
+import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import { couplingUnitConflicts } from './couplingUnits.js'
 import {
@@ -1240,7 +1241,7 @@ export function generateFlattenedModel(
     model.addComponent(parameterComponent)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis)
+    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
     // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
     // falls back to their own values (see checkScope).
     if (boundaryValues.bcOnly.length && !allowBcOnly) {
@@ -1287,8 +1288,11 @@ export function generateFlattenedModel(
       const modelString = libraryStore.availableMath.get(mathRef)
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
+      // A state a connection drives loses its own equation and initial value, in this instance only.
+      const drivenStates = boundaryValues.driven.get(node.id)
+      const instanceString = drivenStates ? dropDrivenStates(modelString, drivenStates.keys()) : modelString
       // Ids, such as bg2cellml writes, would repeat in each instance of the same math.
-      const modelFromInstance = parser.parseModel(prefixIdAttributes(modelString, node.data.name))
+      const modelFromInstance = parser.parseModel(prefixIdAttributes(instanceString, node.data.name))
 
       const originalComponent = modelFromInstance.componentByIndex(0)
       originalComponent.setName(node.data.name)
@@ -1326,7 +1330,9 @@ export function generateFlattenedModel(
             nodeVariable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name())?.value : nodeVariable.value
           // A connected boundary condition's value is a fallback, and an empty Sum warns below.
           const isEmptySum = !!boundaryValues.emptySums.get(node.id)?.has(nodeVariable.name)
-          if (nodeVariable.type !== 'boundary_condition' && !isEmptySum) {
+          // A driven state's unused initial value says so in the Parameters tab.
+          const isDrivenInitial = [...(drivenStates?.values() ?? [])].some(({ initialiser }) => initialiser === nodeVariable.name)
+          if (nodeVariable.type !== 'boundary_condition' && !isEmptySum && !isDrivenInitial) {
             console.warn(`"${node.data.name}" variable "${variable.name()}" is set by a connection; ignoring its parameter value ${value}.`)
           }
         } else if (nodeVariable) {
@@ -1728,23 +1734,25 @@ export function doesComponentExistInModel(cellmlString, componentName) {
  *
  * @param {string} modelName - The combined model's name.
  * @param {string[]} componentModels - CellML models, each holding one component.
+ * @param {Array<string|undefined>} [names] - A new name for each model's component, where given.
  * @returns {string} The combined model's CellML, one element per line.
  */
-export function combineComponentModels(modelName, componentModels) {
+export function combineComponentModels(modelName, componentModels, names = []) {
   const parser = new _libcellml.Parser(false)
   const printer = new _libcellml.Printer()
   const model = new _libcellml.Model()
   model.setName(modelName)
   try {
-    for (const componentModel of componentModels) {
+    componentModels.forEach((componentModel, index) => {
       const source = parser.parseModel(componentModel)
       const component = source.componentByIndex(0)
       const clone = component.clone()
+      if (names[index]) clone.setName(names[index])
       model.addComponent(clone)
       clone.delete()
       component.delete()
       source.delete()
-    }
+    })
     return printer.printModel(model, false)
   } finally {
     model.delete()
@@ -1808,6 +1816,13 @@ export function mergeModelComponents(targetModelString, sourceModelString, newCo
   return mergedModelString
 }
 
+/**
+ * Checks whether two CellML models are the same, whatever their order or whitespace between tags.
+ *
+ * @param {string} modelAString
+ * @param {string} modelBString
+ * @returns {boolean} False when either is blank.
+ */
 export function areModelsEquivalent(modelAString, modelBString) {
   if (!modelAString || !modelBString) {
     return false
@@ -1816,6 +1831,11 @@ export function areModelsEquivalent(modelAString, modelBString) {
   if (modelAString.trim() === '' || modelBString.trim() === '') {
     return false
   }
+  // libcellml compares math as text, which the browser's build parses with or without its indentation from one parse
+  // to the next, so indentation is dropped first.
+  const collapse = (xml) => xml.replace(/>\s+</g, '><')
+  modelAString = collapse(modelAString)
+  modelBString = collapse(modelBString)
 
   const garbageCollector = new Set() // To track created objects for cleanup
   try {

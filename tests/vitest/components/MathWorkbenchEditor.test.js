@@ -323,6 +323,14 @@ describe('MathWorkbenchEditor', () => {
     expect(wrapper.emitted('variable-click')).toEqual([['x']])
   })
 
+  it('shows the math read-only when asked, and still passes on clicked variables', async () => {
+    await mountEditor({ props: { readonly: true } })
+    expect(workbench().props('readonly')).toBe(true)
+    workbench().vm.$emit('variable-click', { name: 'x', lineId: 'loaded' })
+
+    expect(wrapper.emitted('variable-click')).toEqual([['x']])
+  })
+
   it('round-trips a model through the real workbench', async () => {
     await mountEditor({ stub: false })
     expect(wrapper.findComponent(EquationWorkbench).exists()).toBe(true)

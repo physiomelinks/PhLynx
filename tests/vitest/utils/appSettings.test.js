@@ -49,3 +49,38 @@ describe('app settings registry', () => {
     expect(isValidAppSetting('imageExportWarnings', 'yes')).toBe(false)
   })
 })
+
+describe('bond arrowheads setting', () => {
+  it('defaults to the bond-graph half arrow, offering classic as the other choice', () => {
+    expect(defaultAppSettings().arrowStyle).toBe('classic')
+    expect(APP_SETTINGS.get('arrowStyle').options.map((option) => option.value)).toEqual(['classic', 'bond'])
+    expect(isValidAppSetting('arrowStyle', 'classic')).toBe(true)
+    expect(isValidAppSetting('arrowStyle', 'notched')).toBe(false)
+  })
+})
+
+describe('unit system for new CellDL modules', () => {
+  it('defaults to Cellular, offering SI as the other choice', () => {
+    expect(defaultAppSettings().celldlUnitSystem).toBe('cellular')
+    expect(APP_SETTINGS.get('celldlUnitSystem').options.map((option) => option.value)).toEqual(['cellular', 'si'])
+    expect(APP_SETTINGS.get('celldlUnitSystem').label).toBe('New CellDL modules: unit system')
+    expect(isValidAppSetting('celldlUnitSystem', 'si')).toBe(true)
+    expect(isValidAppSetting('celldlUnitSystem', 'fmol')).toBe(false)
+  })
+})
+
+describe('scrolling in CellDL diagrams', () => {
+  it('defaults to Automatic, offering Pan and Zoom, matching the editor wheel modes', () => {
+    const setting = APP_SETTINGS.get('celldlWheelMode')
+    expect(defaultAppSettings().celldlWheelMode).toBe('auto')
+    expect(setting.label).toBe('Scrolling in CellDL diagrams')
+    expect(setting.options.map((option) => [option.value, option.label])).toEqual([
+      ['auto', 'Automatic'],
+      ['pan', 'Pan'],
+      ['zoom', 'Zoom'],
+    ])
+    expect(SETTING_SECTIONS.find((section) => section.title === 'CellDL diagrams').settings).toContain(setting)
+    expect(isValidAppSetting('celldlWheelMode', 'zoom')).toBe(true)
+    expect(isValidAppSetting('celldlWheelMode', 'scroll')).toBe(false)
+  })
+})

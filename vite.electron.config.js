@@ -5,6 +5,9 @@ import electron from "vite-plugin-electron"
 // https://vite.dev/config/
 export default defineConfig(
   mergeConfig(baseConfig, {
+    define: {
+      __IS_ELECTRON__: JSON.stringify(true),
+    },
     // Add Electron-specific plugins
     plugins: [
       electron({

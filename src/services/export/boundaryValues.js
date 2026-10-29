@@ -11,6 +11,9 @@
  *
  * Only one thing may set a group: two computed variables, or two constants with different values, overdetermine it.
  * libCellML would reject such a model, or accept it as a DAE and drop one of the equations.
+ *
+ * A CellDL store's amount (a state of CellDL math) may instead be driven by what it is coupled to: a coupling marked
+ * `drivesState` drops that instance's own equation and initial value for the state, so the connection sets it.
  */
 import { AFFINE_UNIT_CONVERSIONS, VALUE_REQUIRED_TYPES } from '../../utils/constants'
 import { isBlank } from '../../utils/variables'
@@ -53,9 +56,14 @@ function affineOutputKey(source, target) {
  * @param {(mathRef: string) => (Object|null)} [getMathAnalysis] - libraryStore.getMathAnalysis. With it, a `variable`
  *   row counts towards `overdetermined` only when its math computes it, since a saved row may still call an input
  *   `variable` (see reconcileRows). Without it, or for math it can't analyse, every `variable` row counts.
+ * @param {Object} [options]
+ * @param {(mathRef: string) => boolean} [options.isCelldlMath] - Whether math is drawn in CellDL, so its states are
+ *   stores a connection may drive. Without it, any state on a `drivesState` coupling is driven, and none is offered.
  * @returns {{supplied: Map<string, Set<string>>, missing: Map<string, Set<string>>, conflicts: string[],
  *   emptySums: Map<string, Set<string>>, unsupplied: Set<string>, ignored: Map<string, Set<string>>,
  *   bcOnly: Array<{keys: string[], label: string}>, overdetermined: Array<{keys: string[], message: string}>,
+ *   driven: Map<string, Map<string, {initialiser: string|null, from: string[]}>>,
+ *   drivable: Array<{key: string, nodeId: string, name: string, label: string, from: string[]}>,
  *   status: Map<string, Map<string, {state: string, from: string[]}>>}}
  *   Each map but `status` goes from node id to row names:
  *   - `supplied`: boundary conditions whose values to use; `missing`: those nothing supplies;
@@ -66,16 +74,21 @@ function affineOutputKey(source, target) {
  *   - `bcOnly`: groups of boundary conditions coupled only to each other, which nothing computes;
  *   - `overdetermined`: groups set more than once, by several computed variables or constants with different values,
  *     each with the keys of all its variables;
+ *   - `driven`: node id to the CellDL states a `drivesState` coupling sets, each with its initial value's row, which
+ *     is ignored, and what sets it. A flag is honoured only while something else computes the state's group;
+ *   - `drivable`: CellDL states whose group only their own equation overdetermines, so driving them would settle it,
+ *     each with what else sets it. Found only with `isCelldlMath`;
  *   - `status`: node id to row name to where the row's variable gets its value, with `from` the `instance.name` labels
  *     of the variables involved. `connected`: a connection supplies it, from those variables; `shares`: the row
  *     supplies the variables it's coupled to; `own`: a boundary condition nothing is connected to uses its own value;
  *     `missing`: such a boundary condition has none; `bcOnly`: coupled only to other boundary conditions;
  *     `conflict`: in a group given different values; `overdetermined`: in a group set more than once, with `from` what
- *     else sets it. Rows coupled to nothing, other than boundary conditions, and empty
+ *     else sets it; `drivenInitial`: the initial value of a driven state, with `from` what sets the state. Rows coupled to nothing, other than boundary conditions, and empty
  *     sums have no status.
  */
-export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
+export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { isCelldlMath = null } = {}) {
   const rows = new Map()
+  const mathRefs = new Map(nodes.map((node) => [node.id, node.data?.mathRef]))
   for (const node of nodes) {
     for (const row of node.data?.variables ?? []) {
       rows.set(keyOf(node.id, row.name), { nodeId: node.id, nodeName: node.data.name, row })
@@ -108,8 +121,17 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
     equations.get(key).add(kind === 'sum' ? kind : `${kind}:${fromKey}`)
   }
 
+  // A state a connection may drive: a CellDL store's amount, or any state when the math's format isn't known.
+  const isDrivableRow = (key) => {
+    const member = rows.get(key)
+    if (member?.row.stateRole !== 'state' || member.row.type !== 'variable') return false
+    return isCelldlMath ? !!isCelldlMath(mathRefs.get(member.nodeId)) : true
+  }
+  // States `drivesState` couplings mark, honoured below only where something else computes their group.
+  const drivenCandidates = new Set()
+
   for (const edge of edges) {
-    for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
+    for (const { sourcePort, targetPort, drivesState } of edge.data?.couplings ?? []) {
       const sourceVariables = sourcePort?.variables ?? []
       const targetVariables = targetPort?.variables ?? []
       const sourceTypes = variableTypes(sourcePort ?? {})
@@ -136,6 +158,10 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
         const affineOutput = affineOutputKey(source, target)
         if (affineOutput) compute(affineOutput, affineOutput === source.key ? target.key : source.key, 'conversion')
         else join(source.key, target.key)
+        if (drivesState) {
+          const driven = drivenEnd(source.key, target.key, isDrivableRow)
+          if (driven) drivenCandidates.add(driven)
+        }
       }
     }
   }
@@ -180,6 +206,10 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
   const unsupplied = new Set()
   const bcOnly = []
   const overdetermined = []
+  const driven = new Map()
+  const drivable = []
+  // Driven states whose own equation is dropped.
+  const drivenKeys = new Set()
   const status = new Map()
   const nodeNames = new Map(nodes.map((node) => [node.id, node.data?.name ?? node.id]))
   const label = ({ nodeName, row }) => `${nodeName}.${row.name}`
@@ -201,8 +231,9 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
       return [node.id, analysis ? new Set([...(analysis.stateVariables ?? []), ...(analysis.assigned ?? [])]) : null]
     })
   )
-  /** Whether a member's own math sets it. */
-  const ownMath = ({ nodeId, row }) => row.type === 'variable' && (mathComputed.get(nodeId)?.has(row.name) ?? true)
+  /** Whether a member's own math sets it, unless a connection drives it. */
+  const ownMath = ({ key, nodeId, row }) =>
+    !drivenKeys.has(key) && row.type === 'variable' && (mathComputed.get(nodeId)?.has(row.name) ?? true)
   /** How many equations set a member: its own math's, and each generated component's. */
   const equationsOf = (member) => (equations.get(member.key)?.size ?? 0) + ownMath(member)
   const listed = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0])
@@ -226,13 +257,20 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
       overdetermined.push({ keys, message })
       setters.forEach((member) => setStatus(member, 'overdetermined', othersOf(member, setters)))
     }
+
+    // A driven state lets the rest of its group set it, so long as something there does.
+    const drivenHere = members.filter(({ key }) => drivenCandidates.has(key))
+    if (drivenHere.length) {
+      const othersSet = members.some((member) => !drivenCandidates.has(member.key) && equationsOf(member) > 0)
+      if (othersSet) drivenHere.forEach(({ key }) => drivenKeys.add(key))
+    }
     const shareWithOthers = (member) => {
       const others = othersOf(member)
       if (others.length) setStatus(member, 'shares', others)
     }
 
     // Something computes the group, so no value is used.
-    const suppliers = members.filter(({ key, row }) => computed.has(key) || row.type === 'variable')
+    const suppliers = members.filter(({ key, row }) => !drivenKeys.has(key) && (computed.has(key) || row.type === 'variable'))
     if (suppliers.length) {
       ignoreValues(members)
       // A member its own math and generated components compute counts once for each.
@@ -242,11 +280,26 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
         const described = setters.map(describeComputed)
         const times = equationCount > 2 ? 'more than once' : 'twice'
         const verb = described.length === 1 ? `is computed ${times}` : `are ${described.length > 2 ? 'all' : 'both'} computed`
-        overdetermine(setters, `${listed(described)} ${verb}; only one module can set a connected variable.`)
+        // A CellDL store set only by its own equation may give way to the rest, which must then set it once.
+        const stores = isCelldlMath
+          ? setters.filter((member) => isDrivableRow(member.key) && equationsOf(member) === 1 && equationCount === 2)
+          : []
+        stores.forEach((member) =>
+          drivable.push({ key: member.key, nodeId: member.nodeId, name: member.row.name, label: label(member), from: othersOf(member, setters) })
+        )
+        const hint = stores.length
+          ? ` Confirming the connection can let it drive the store ${listed(stores.map(label))} instead.`
+          : ''
+        overdetermine(setters, `${listed(described)} ${verb}; only one module can set a connected variable.${hint}`)
         continue
       }
       for (const member of members) {
-        if (member.row.type === 'variable') shareWithOthers(member)
+        if (drivenKeys.has(member.key)) {
+          const from = othersOf(member, setters)
+          setStatus(member, 'connected', from)
+          if (!driven.has(member.nodeId)) driven.set(member.nodeId, new Map())
+          driven.get(member.nodeId).set(member.row.name, { initialiser: member.row.initialiser ?? null, from })
+        } else if (member.row.type === 'variable') shareWithOthers(member)
         else if (computedFrom.has(member.key)) setStatus(member, 'connected', [...computedFrom.get(member.key)].map(labelOf))
         // An empty sum is set to 0, which emptySums reports.
         else if (!computed.has(member.key)) setStatus(member, 'connected', othersOf(member, suppliers))
@@ -308,5 +361,52 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null) {
     boundaries.forEach((member) => setStatus(member, boundaries.length > 1 ? 'bcOnly' : 'own', othersOf(member)))
   }
 
-  return { supplied, missing, conflicts, emptySums, unsupplied, ignored, bcOnly, overdetermined, status }
+  // A driven state's initial value goes unused, unless a state the connection doesn't drive shares it.
+  for (const [nodeId, states] of driven) {
+    for (const [name, { initialiser, from }] of states) {
+      const member = initialiser && rows.get(keyOf(nodeId, initialiser))
+      if (!member) continue
+      const sharedWithUndriven = [...rows.values()].some(
+        (other) =>
+          other.nodeId === nodeId &&
+          other.row.stateRole === 'state' &&
+          other.row.initialiser === initialiser &&
+          !states.has(other.row.name)
+      )
+      if (sharedWithUndriven) {
+        states.get(name).initialiser = null
+        continue
+      }
+      if (hasValue(member)) addTo(ignored, member)
+      setStatus(member, 'drivenInitial', from)
+    }
+  }
+
+  return { supplied, missing, conflicts, emptySums, unsupplied, ignored, bcOnly, overdetermined, driven, drivable, status }
+}
+
+/**
+ * Gets resolveBoundaryValues' options from the library: which math is drawn in CellDL, so its states are stores.
+ *
+ * @param {Object} [libraryStore] - With getMathSource; a store without it gives no options.
+ * @returns {{isCelldlMath?: (mathRef: string) => boolean}}
+ */
+export function storeOptions(libraryStore) {
+  if (typeof libraryStore?.getMathSource !== 'function') return {}
+  return { isCelldlMath: (mathRef) => libraryStore.getMathSource(mathRef)?.format === 'celldl' }
+}
+
+/**
+ * Picks which end of a plain coupled pair a `drivesState` coupling drives: the target's state if it is one, as the
+ * connection runs from source to target, else the source's.
+ *
+ * @param {string} sourceKey
+ * @param {string} targetKey
+ * @param {(key: string) => boolean} isDrivable
+ * @returns {string|null}
+ */
+export function drivenEnd(sourceKey, targetKey, isDrivable) {
+  if (isDrivable(targetKey)) return targetKey
+  if (isDrivable(sourceKey)) return sourceKey
+  return null
 }

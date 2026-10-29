@@ -502,3 +502,60 @@ describe('resolveBoundaryValues', () => {
     })
   })
 })
+
+describe('resolveBoundaryValues with a driven CellDL store', () => {
+  const store = (id, mathRef = 'celldl') => ({
+    id,
+    data: {
+      name: id,
+      mathRef,
+      variables: [
+        { name: 'q', type: 'variable', stateRole: 'state', initialiser: 'q_init', units: 'mM' },
+        row('q_init', 'constant', '1'),
+      ],
+    },
+  })
+  const source = (id) => node(id, [row('X', 'variable')])
+  const drive = (from, to, drivesState = true) => ({
+    id: `${from}-${to}`,
+    source: from,
+    target: to,
+    data: { couplings: [{ sourcePort: port(['X']), targetPort: port(['q']), ...(drivesState && { drivesState }) }] },
+  })
+  const options = { isCelldlMath: (mathRef) => mathRef === 'celldl' }
+
+  it('lets a marked coupling drive the store, ignoring its initial value', () => {
+    const result = resolveBoundaryValues([source('src'), store('s')], [drive('src', 's')], null, options)
+    expect(result.overdetermined).toEqual([])
+    expect([...result.driven.get('s')]).toEqual([['q', { initialiser: 'q_init', from: ['src.X'] }]])
+    expect(result.status.get('s').get('q_init')).toEqual({ state: 'drivenInitial', from: ['src.X'] })
+    expect(namesFor(result.ignored, 's')).toEqual(['q_init'])
+  })
+
+  it('still rejects the store set twice without the mark, offering to drive it', () => {
+    const result = resolveBoundaryValues([source('src'), store('s')], [drive('src', 's', false)], null, options)
+    expect(result.driven.size).toBe(0)
+    expect(result.overdetermined[0].message).toMatch(/Confirming the connection can let it drive the store s\.q/)
+    expect(result.drivable.map(({ key }) => key)).toEqual(['s::q'])
+  })
+
+  it('still rejects a group two other modules compute, marked or not', () => {
+    const nodes = [source('a'), source('b'), store('s')]
+    const edges = [drive('a', 's'), { ...drive('b', 's', false), id: 'b-s' }]
+    const result = resolveBoundaryValues(nodes, edges, null, options)
+    expect(result.overdetermined).toHaveLength(1)
+    expect(result.overdetermined[0].message).not.toMatch(/Confirming/)
+  })
+
+  it('leaves other instances of the same math to their own equation', () => {
+    const result = resolveBoundaryValues([source('src'), store('s'), store('other')], [drive('src', 's')], null, options)
+    expect([...result.driven.keys()]).toEqual(['s'])
+    expect(result.status.get('other')?.get('q_init')).toBeUndefined()
+  })
+
+  it('ignores the mark on a state of math not drawn in CellDL', () => {
+    const result = resolveBoundaryValues([source('src'), store('s', 'cellml')], [drive('src', 's')], null, options)
+    expect(result.driven.size).toBe(0)
+    expect(result.overdetermined).toHaveLength(1)
+  })
+})

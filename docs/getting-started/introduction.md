@@ -20,7 +20,7 @@ New here? Start with the [Quick Start Guide](./quick-start-guide.md).
 
 ## Workflow
 
-1. **Start** from the built-in library (e.g. heart and vessel modules), write your own in PhLynx's Instance Editor from the **new_module** template, or bring CellML from elsewhere.
+1. **Start** from the built-in library (e.g. heart and vessel modules), write your own in PhLynx's Instance Editor from the **new_module** template, or bring CellML from elsewhere. You can also draw a module as a bond-graph diagram ([Drawing CellDL Modules](../guides/drawing-celldl-modules.md), in beta).
 2. **Import** any outside modules into PhLynx (CellML files, [COMBINE archives](../reference/file-types.md#combine-archive) or Circulatory Autogen models).
 3. **Assemble** the model by connecting modules and defining their ports.
 4. **Simulate** in the app: plot results, adjust parameters with sliders, compare runs, and run protocols and sweeps.

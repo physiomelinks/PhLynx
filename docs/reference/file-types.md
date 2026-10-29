@@ -3,6 +3,7 @@
 | File | Extension | Used for |
 | :--- | :--- | :--- |
 | [CellML module / units](#cellml-files) | `.cellml` | Module math and units |
+| [CellDL diagram](#celldl-files) (beta) | `.celldl` | A bond-graph module drawn as a diagram |
 | [Parameters](#parameter-file) | `.csv` | Parameter values |
 | [Module configuration](#module-configuration) | `.json` | CA module ports and variables |
 | [Instance array](#instance-array) | `.csv` | CA network topology |
@@ -14,6 +15,10 @@
 ## CellML files {#cellml-files}
 
 A module file holds module math ([CellML Module Format](./cellml-module-format.md)); a units file holds units ([CellML Units File](./cellml-units-file.md)). **Export ▸ CellML** writes the model as one flattened file; **CellML (selection)** writes only the selected instances.
+
+## CellDL files {#celldl-files}
+
+A `.celldl` file is a bond-graph diagram: an SVG drawing with the model's BG-RDF description embedded. **Import ▸ CellDL Diagram** adds it as a module, which PhLynx converts to CellML; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md). CellDL is in beta, so the format may still change. The workspace file and COMBINE archives keep each module's diagram; CellML and Circulatory Autogen exports carry only the generated CellML.
 
 ## Parameter file {#parameter-file}
 
@@ -87,5 +92,5 @@ var_SN,nn,var_SN,axon_SN,
 
 ## Opening files {#opening-files}
 
-- Drop `.cellml` or `.omex` files on the canvas to import them.
+- Drop `.cellml` or `.omex` files on the canvas to import them. Import `.celldl` files with **Import ▸ CellDL Diagram**.
 - A link with `?open=workspace_json#<base64 JSON>` or `?open=omex#<base64 OMEX>` loads a workspace or archive on startup.

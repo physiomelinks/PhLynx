@@ -100,6 +100,7 @@ const menuGroups = [
       { label: 'Building Macros', path: '/docs/guides/macro-build-guide' },
       { label: 'Using Custom Modules', path: '/docs/guides/build-custom-module' },
       { label: 'Writing CellML', path: '/docs/guides/writing-cellml' },
+      { label: 'Drawing CellDL Modules (beta)', path: '/docs/guides/drawing-celldl-modules' },
       { label: 'Simulating Your Model', path: '/docs/guides/simulating-your-model' },
       { label: 'Running Protocols', path: '/docs/guides/running-protocols' },
       { label: 'Using Circulatory Autogen', path: '/docs/guides/use-with-circulatory-autogen' },

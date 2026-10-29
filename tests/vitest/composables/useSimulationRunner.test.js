@@ -125,4 +125,44 @@ describe('useSimulationRunner', () => {
     selected.value = ['b', 'a']
     expect(sidebar.playScopeNodeIds.value).toEqual(['a', 'b'])
   })
+
+  it('suggests running the instance alone when the instance editor’s whole-model run fails', () => {
+    const hint = 'Turn off Whole model to simulate this instance alone.'
+    const editor = setUpRunner({ instanceId: 'b' })
+    editor.store.scopeNodeIds = null
+    editor.store.status = 'error'
+    editor.store.error = { message: 'The solver needed more than 500 steps.' }
+    expect(editor.statusLine.value).toMatchObject({ severity: 'error', hint })
+    editor.store.status = 'blocked'
+    editor.store.report = { errors: ['"a.x" needs a value.'], warnings: [], notes: [] }
+    expect(editor.statusLine.value.hint).toBe(hint)
+
+    // Not once the instance runs alone, nor for a run that didn't fail, nor in the sidebar.
+    editor.store.scopeNodeIds = ['b']
+    expect(editor.statusLine.value.hint).toBeNull()
+    editor.store.scopeNodeIds = null
+    editor.store.status = 'done'
+    editor.store.results = { voi: { values: [0], unit: 's' } }
+    expect(editor.statusLine.value.hint ?? null).toBeNull()
+    const sidebar = setUpRunner()
+    sidebar.store.status = 'error'
+    sidebar.store.error = { message: 'The solver needed more than 500 steps.' }
+    expect(sidebar.statusLine.value.hint).toBeNull()
+  })
+
+  it('doesn’t suggest running the instance alone when it is the whole model, or the switch is already off', () => {
+    const editor = setUpRunner({ instanceId: 'b' })
+    editor.store.scopeNodeIds = null
+    editor.store.status = 'error'
+    editor.store.error = { message: 'The solver needed more than 500 steps.' }
+    nodes.value = [{ id: 'b' }]
+    expect(editor.statusLine.value.hint).toBeNull()
+
+    // A whole-model failure still shown after the switch is turned off.
+    nodes.value = [{ id: 'b' }, { id: 'a' }]
+    editor.scopeMode.value = 'selection'
+    editor.store.status = 'error'
+    editor.store.scopeNodeIds = null
+    expect(editor.statusLine.value.hint).toBeNull()
+  })
 })

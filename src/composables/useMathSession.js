@@ -8,9 +8,12 @@ import { serializeLayout } from 'cellml-text-editor'
 
 import { useLibraryStore } from '../stores/libraryStore'
 import { analyzeMathXml } from '../services/math/analyzeMath'
+import { getModuleFormat } from '../services/moduleFormats'
 import {
   SIMPLE_MODE,
   applyPortTypes,
+  fillBlankValues,
+  keepDefaults,
   findUnusedDeclared,
   getPortVariables,
   modeFor,
@@ -54,7 +57,8 @@ function isSameLayout(layout, otherLayout) {
  * `{ source: 'init'|'edit'|'external', format, text, valid, xml, layout? }` and exposes `format` (what its
  * text is written in), `setText`, `setModel`, `flush`, `getErrors` and `renameVariable` (renames
  * a variable everywhere in its text and reports that as an edit). Editors can be swapped
- * mid-session; a later `init` is the new editor's view of the same math.
+ * mid-session; a later `init` is the new editor's view of the same math. Math generated from a
+ * source (see services/moduleFormats) is locked: editors only show it, and applyGeneratedModel changes it.
  *
  * @param {Object} options
  * @param {Object} options.history - The undo history edits are recorded in.
@@ -64,14 +68,20 @@ function isSameLayout(layout, otherLayout) {
  * @param {Function} [options.beforeInit] - Called just before the first editor's `init` after a load is applied;
  *   its result is passed to onInit.
  * @param {Function} [options.onInit] - Called once the first editor's `init` after a load has been applied.
+ * @param {() => boolean} [options.isLocked] - Whether the math is locked, when that depends on more than its stored
+ *   format, e.g. the template once a diagram is drawn for it.
  * @returns {Object} Session state, queries and actions.
  */
-export function useMathSession({ history, editorRef, ports, plotVariables = null, beforeInit = null, onInit = null }) {
+export function useMathSession({ history, editorRef, ports, plotVariables = null, beforeInit = null, onInit = null, isLocked = null }) {
   const store = useLibraryStore()
 
   const isManaged = ref(true) // Simple Mode: the table owns the declarations
+  const loadedMathRef = ref(null)
+  /** Whether the math is generated from a source, so editor changes are ignored. */
+  const isMathLocked = computed(() => isLocked?.() ?? getModuleFormat(store.getMathFormat(loadedMathRef.value)).isMathLocked)
   const currentModel = ref('') // latest valid XML
-  // Latest editor text, valid or not, with the layout of the last valid CellML text at that point.
+  // Latest editor text, valid or not, with the layout of the last valid CellML text at that point. `isInvalidEdit`
+  // marks a user's edit that doesn't parse, so isn't in currentModel and isDirty can't see it; undo restores it.
   const currentText = ref({ format: null, value: '', layout: null })
   const originalModel = ref('')
   const loadedLayout = shallowRef(null)
@@ -101,8 +111,6 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
   // An editor mounted after a switch also reports 'init', which only moves the baseline if nothing
   // has changed, since each editor writes the same math its own way (e.g. `0.0` as `0`).
   let hasInitialised = false
-  // The user's latest edit doesn't parse, so it isn't in currentModel and isDirty can't see it.
-  let hasInvalidEdit = false
 
   /**
    * Replaces the rows and records the mode that built them.
@@ -213,7 +221,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    * @returns {boolean}
    */
   function hasUnsavedInvalidEdit() {
-    return hasInvalidEdit
+    return !!currentText.value.isInvalidEdit
   }
 
   // Bumped by each load, so an analysis that arrives after a later load started is dropped.
@@ -232,6 +240,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
   async function load({ mathRef, rows, managed }) {
     const requestId = ++loadRequestId
     isManaged.value = managed
+    loadedMathRef.value = mathRef ?? null
     const math = (mathRef && store.availableMath.get(mathRef)) || ''
     currentModel.value = math
     originalModel.value = math
@@ -240,7 +249,6 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     currentText.value = { format: null, value: '', layout: null }
     pendingRename.value = null
     hasInitialised = false
-    hasInvalidEdit = false
     parkedRows.clear()
 
     const nextAnalysis = mathRef ? await store.ensureMathAnalysis(mathRef) : null
@@ -307,6 +315,11 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    * @returns {Promise<void>}
    */
   async function applyEditorChange({ source, format, text, valid, xml, layout }) {
+    // Locked math is the source's: an editor's view of it (even its first) never replaces it.
+    if (isMathLocked.value) {
+      if (source === 'init') hasInitialised = true
+      return
+    }
     const isEditorSwitch = source === 'init' && hasInitialised
     if (isEditorSwitch) source = 'external'
     if (source === 'init') hasInitialised = true
@@ -316,16 +329,14 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
       format: format ?? editorRef.value?.format ?? null,
       value: text,
       layout: layout ?? currentLayout.value,
+      isInvalidEdit: !valid && source === 'edit',
     }
 
     if (!valid) {
-      if (source === 'edit') {
-        hasInvalidEdit = true
-        await recordTextEdit(textState)
-      } else currentText.value = textState
+      if (source === 'edit') await recordTextEdit(textState)
+      else currentText.value = textState
       return
     }
-    hasInvalidEdit = false
 
     const nextAnalysis = analyzeMathXml(xml)
     if (source === 'edit') return handleValidEdit(xml, textState, nextAnalysis)
@@ -532,6 +543,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    * @returns {Promise<void>}
    */
   async function renameEverywhere() {
+    if (isMathLocked.value) return
     await flushPendingChanges()
     const pending = pendingRename.value
     if (!pending || !editorRef.value?.renameVariable) return
@@ -561,9 +573,30 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     setRows(reconcileKeepingRemoved(nextAnalysis, rows, { ...options, defaults: values }))
   }
 
+  /**
+   * Replaces the math with one generated from its source, e.g. a diagram converted on save. Rows keep the instance's
+   * values; rows new or blank take the module's defaults, which keep their values for variables the module already
+   * had (keepDefaults).
+   *
+   * @param {string} xml - The generated model, values included.
+   * @param {{previousDefaults?: Map<string, string>}} [options] - The module's defaults before the save.
+   */
+  function applyGeneratedModel(xml, { previousDefaults = new Map() } = {}) {
+    const { math, values } = separateParameters(xml)
+    const defaults = keepDefaults(values, previousDefaults)
+    const nextAnalysis = analyzeMathXml(math)
+    const rows = reconcileKeepingRemoved(nextAnalysis, parameterRows.value, { ...reconcileOptions(), defaults })
+    currentModel.value = math
+    analysis.value = nextAnalysis
+    unusedDeclared.value = findUnusedDeclared(nextAnalysis)
+    pendingRename.value = null
+    setRows(fillBlankValues(rows, defaults))
+  }
+
   return {
     // state
     isManaged,
+    isMathLocked,
     currentModel,
     currentLayout,
     parameterRows,
@@ -583,6 +616,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     handleEditorChange,
     flushPendingChanges,
     separateTypedValues,
+    applyGeneratedModel,
     renameEverywhere,
     dismissRename,
   }

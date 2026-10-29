@@ -16,11 +16,23 @@ vi.mock('../../../src/utils/cellml', () => ({
   generateFlattenedModel: vi.fn(() => new Blob(['<model/>'])),
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
 }))
+const { getModuleFormat } = vi.hoisted(() => ({ getModuleFormat: vi.fn() }))
+const caExportBlocker = vi.hoisted(() => vi.fn(() => null))
+vi.mock('../../../src/services/export/ca', async (importActual) => ({
+  ...(await importActual()),
+  findCaExportBlocker: caExportBlocker,
+}))
+vi.mock('../../../src/services/moduleFormats', async (importActual) => {
+  const actual = await importActual()
+  getModuleFormat.mockImplementation(actual.getModuleFormat)
+  return { ...actual, getModuleFormat }
+})
 
 const { useImportExportSend } = await import('../../../src/composables/useImportExportSend.js')
 const { generateOmexArchive } = await import('../../../src/services/compress')
 const { generateFlattenedModel } = await import('../../../src/utils/cellml')
 const { notify } = await import('../../../src/utils/notify')
+const { getFileHandle } = await import('../../../src/utils/save')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
 const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
 const { EXPORT_KEYS } = await import('../../../src/utils/constants.js')
@@ -121,6 +133,29 @@ describe('useImportExportSend selection exports', () => {
   it('offers the Circulatory Autogen export once libCellML is ready, as it writes CellML', () => {
     expect(menuItem(setup('loading').exportMenuItems, 'Circulatory Autogen').disabled).toBe(true)
     expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen').disabled).toBe(false)
+  })
+
+  it('stops a Circulatory Autogen export CA can’t take, with one error, before asking where to save', async () => {
+    caExportBlocker.mockReturnValueOnce('Driving a CellDL store from a connection isn’t supported in the CA export yet: b.x')
+    const { exportMenuItems } = setup()
+
+    await menuItem(exportMenuItems, 'Circulatory Autogen').command()
+
+    expect(caExportBlocker).toHaveBeenCalledWith(nodes.value, edges.value, expect.anything())
+    expect(notify.error).toHaveBeenCalledTimes(1)
+    expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('b.x') }))
+    expect(getFileHandle).not.toHaveBeenCalled()
+    expect(onExportConfirm).not.toHaveBeenCalled()
+  })
+
+  it('asks where to save a Circulatory Autogen export CA can take', async () => {
+    const { exportMenuItems } = setup()
+
+    await menuItem(exportMenuItems, 'Circulatory Autogen').command()
+
+    expect(notify.error).not.toHaveBeenCalled()
+    expect(getFileHandle).toHaveBeenCalled()
+    expect(onExportConfirm).toHaveBeenCalled()
   })
 
   it('exports a selection that builds cleanly without asking', async () => {
@@ -241,5 +276,34 @@ describe('useImportExportSend selection exports', () => {
     const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
     expect(flattenedNodes).toHaveLength(3)
     expect(snapshotFlowState).toHaveBeenLastCalledWith(null)
+  })
+})
+
+describe('useImportExportSend import options', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  /** The import menu's labels, with libCellML ready. */
+  const importLabels = () =>
+    useImportExportSend({
+      libcellml: { status: 'ready' },
+      nodes: ref([]),
+      edges: ref([]),
+      importDialogVisible: ref(false),
+      exportDialogVisible: ref(false),
+      currentImportConfig: ref(null),
+      onExportConfirm: vi.fn(),
+      hasModelChanged: ref(false),
+      snapshotFlowState: vi.fn(),
+      selectedNodeIds: ref([]),
+    }).importMenuItems.value.map((item) => item.label)
+
+  it('offers CellDL diagrams in builds that can convert them', () => {
+    expect(importLabels()).toContain('CellDL Diagram')
+    expect(importLabels()).toContain('CellML File')
+  })
+
+  it('leaves CellDL diagrams out of builds that can not, such as Electron', () => {
+    getModuleFormat.mockReturnValueOnce({ id: 'celldl', isAvailable: false })
+    expect(importLabels()).not.toContain('CellDL Diagram')
   })
 })

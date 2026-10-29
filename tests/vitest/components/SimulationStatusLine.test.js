@@ -57,4 +57,14 @@ describe('SimulationStatusLine', () => {
     expect(wrapper.find('button.status-button').exists()).toBe(true)
     expect(wrapper.find('.pi-info-circle').exists()).toBe(true)
   })
+
+  it('shows a hint on a line of its own', () => {
+    const hint = 'Turn off Whole model to simulate this instance alone.'
+    const wrapper = mountLine({ severity: 'error', icon: 'pi-exclamation-circle', text: 'The solver failed.', details: [], hint })
+    expect(wrapper.find('.status-hint').text()).toBe(hint)
+    expect(wrapper.classes()).toContain('simulation-status--hinted')
+
+    const plain = mountLine({ severity: 'error', icon: 'pi-exclamation-circle', text: 'The solver failed.', details: [] })
+    expect(plain.find('.status-hint').exists()).toBe(false)
+  })
 })
