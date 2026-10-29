@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.5.4
+###### Released on 2026-10-29
+
+#### Fixed Bugs
+* Split math too wide for libcellml.js before checking it by [@jmdowrick](https://github.com/jmdowrick) in [#867](https://github.com/physiomelinks/PhLynx/pull/867)
+
+
+#### Contributors
+
+<kbd>
+  <a href="https://github.com/jmdowrick">
+    <img src="https://avatars.githubusercontent.com/u/146781982?u=94c7295b017c61161e81ba34c929524b31a423c2&v=4&s=100" width="50" height="50"><br>
+    <sub>@jmdowrick</sub>
+  </a>
+</kbd>
+
+
+
+---
+
 ## v0.5.3
 ###### Released on 2026-10-27
 

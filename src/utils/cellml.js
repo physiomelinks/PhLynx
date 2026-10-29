@@ -829,6 +829,80 @@ function addEnvironmentComponent(model, voiVariables) {
   }
 }
 
+// libcellml.js's WASM stack overflows on a <math> of several hundred equations, or an operator of a few hundred
+// operands (an "index out of bounds" trap), so splitWideMath keeps both under these.
+const MAX_MATH_EQUATIONS = 100
+const MAX_MATH_OPERANDS = 100
+// Operators whose operands can be grouped without changing the result.
+const GROUPABLE_OPERATORS = new Set(['plus', 'times'])
+
+/**
+ * Splits math too wide for libcellml.js: a sum or product of more than MAX_MATH_OPERANDS operands becomes a sum of
+ * sums (or product of products) in the same order, and a <math> of more than MAX_MATH_EQUATIONS equations becomes
+ * several.
+ *
+ * @param {string} math - A component's math: one or more <math> elements.
+ * @returns {string} The math split, or unchanged when within the limits or unreadable.
+ */
+export function splitWideMath(math) {
+  // Too few elements to exceed either limit.
+  if (!math || (math.match(/<[A-Za-z]/g)?.length ?? 0) <= Math.min(MAX_MATH_EQUATIONS, MAX_MATH_OPERANDS)) return math
+
+  const doc = new DOMParser().parseFromString(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`, 'application/xml')
+  if (doc.querySelector('parsererror')) return math
+  let isChanged = false
+
+  for (const apply of Array.from(doc.getElementsByTagNameNS(MATHML_NS, 'apply'))) {
+    const [operator, ...operands] = Array.from(apply.children)
+    if (operands.length <= MAX_MATH_OPERANDS || !GROUPABLE_OPERATORS.has(operator.localName)) continue
+    let groups = operands
+    while (groups.length > MAX_MATH_OPERANDS) {
+      const grouped = []
+      for (let i = 0; i < groups.length; i += MAX_MATH_OPERANDS) {
+        const group = doc.createElementNS(MATHML_NS, 'apply')
+        group.append(doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS))
+        grouped.push(group)
+      }
+      groups = grouped
+    }
+    apply.replaceChildren(operator, ...groups)
+    isChanged = true
+  }
+
+  for (const mathElement of Array.from(doc.documentElement.children)) {
+    const equations = Array.from(mathElement.children)
+    let last = mathElement
+    for (let i = MAX_MATH_EQUATIONS; i < equations.length; i += MAX_MATH_EQUATIONS) {
+      const next = mathElement.cloneNode(false)
+      next.append(...equations.slice(i, i + MAX_MATH_EQUATIONS))
+      last.after(next)
+      last = next
+      isChanged = true
+    }
+  }
+
+  if (!isChanged) return math
+  const serializer = new XMLSerializer()
+  return Array.from(doc.documentElement.children, (element) => serializer.serializeToString(element)).join('\n')
+}
+
+/**
+ * Splits the math of each of a libcellml model's components, nested ones included, that is too wide for libcellml.js
+ * (see splitWideMath).
+ *
+ * @param {Object} parent - A libcellml Model or Component.
+ */
+function splitWideComponentMath(parent) {
+  for (let i = 0; i < parent.componentCount(); i++) {
+    const component = parent.componentByIndex(i)
+    const math = component.math()
+    const split = splitWideMath(math)
+    if (split !== math) component.setMath(split)
+    splitWideComponentMath(component)
+    component.delete()
+  }
+}
+
 function prioritizeEnvironmentComponent(xmlString) {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlString, 'application/xml')
@@ -1439,6 +1513,9 @@ export function generateFlattenedModel(
       flattenedModel.delete()
       handleLoggerErrors(importer, `Importer error count: ${importer.errorCount()}`)
     }
+
+    // Before anything in libcellml.js reads the math, which wide math crashes.
+    splitWideComponentMath(flattenedModel)
 
     if (check) {
       validator.validateModel(flattenedModel)
