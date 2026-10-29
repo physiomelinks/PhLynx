@@ -374,6 +374,37 @@ const parseCellML = (file) => {
   })
 }
 
+/** The metadata element a CellDL document keeps its BG-RDF Turtle in. */
+const CELLDL_METADATA = /<metadata\b[^>]*\bid\s*=\s*["']celldl-rdf-metadata["']/
+
+/**
+ * Checks whether text is a CellDL document: an SVG with CellDL's RDF metadata. Read as text, as
+ * some DOM parsers drop the CDATA the metadata is in.
+ *
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function isCelldl(content) {
+  return typeof content === 'string' && /<svg\b/.test(content) && CELLDL_METADATA.test(content)
+}
+
+const parseCelldl = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const content = e.target.result
+      if (!isCelldl(content)) {
+        // An SVG without CellDL's metadata is a drawing, not a broken diagram.
+        reject(Object.assign(new Error('Invalid CellDL file: it has no CellDL metadata.'), { unrelated: !/<svg\b/.test(content) }))
+        return
+      }
+      resolve(content)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+}
+
 const parseOMEX = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -467,6 +498,18 @@ const configs = {
         required: true,
         accept: '.cellml, .xml',
         parser: parseCellML,
+      },
+    ],
+  },
+  [IMPORT_KEYS.CELLDL_FILE]: {
+    title: 'Import CellDL Diagram',
+    fields: [
+      {
+        key: IMPORT_KEYS.CELLDL_FILE,
+        label: IMPORT_LABELS.CELLDL_FILE,
+        required: true,
+        accept: '.celldl',
+        parser: parseCelldl,
       },
     ],
   },

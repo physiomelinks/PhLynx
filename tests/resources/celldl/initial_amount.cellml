@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="initial_amount" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <!-- An amount computed from a constant, X = 2 X0, for a diagram's store to start from. -->
+    <component name="initial_amount">
+        <variable initial_value="0.75" name="X0" public_interface="in" units="mole"/>
+        <variable name="X" public_interface="out" units="mole"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>X</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="dimensionless">2</cn>
+                    <ci>X0</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
+</model>

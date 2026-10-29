@@ -4,6 +4,10 @@
 <!-- aliases: basicports -->
 A port that takes only one connection.
 
+### Bond Graph {#bond-graph}
+<!-- aliases: bond graphs, bond-graph -->
+A diagram of a physical system as elements (stores, resistances, reactions, sources) joined by bonds that carry energy, through 0- and 1-junctions. CellDL modules are drawn as bond graphs; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md).
+
 ### Boundary Condition {#boundary-condition}
 <!-- aliases: boundary, boundary conditions, boundary_condition -->
 A variable another instance supplies through a port connection (**boundary** in the Instance Editor's Type column). The value you enter is used only when no connection supplies it.
@@ -11,6 +15,14 @@ A variable another instance supplies through a port connection (**boundary** in 
 ### Category {#category}
 <!-- aliases: categories, key, keys -->
 A user-assigned colour that groups instances. Set it in the Context Sidebar's **Properties** tab; to add your own categories, choose **New from this theme** there.
+
+### CellDL {#celldl}
+<!-- aliases: celldl diagram, celldl module, celldl modules -->
+A diagram format for bond graphs, drawn in the Instance Editor's **CellDL (beta)** tab and converted to CellML. CellDL is in beta: things may change, and diagrams saved now should open in later versions but aren't guaranteed to. See [Drawing CellDL Modules](../guides/drawing-celldl-modules.md).
+
+### Cellular Units {#cellular-units}
+<!-- aliases: cellular, cellular unit system -->
+The unit system new CellDL modules use by default: amounts in fmol and volumes in pL, so cell-sized values are near 1. See [Unit Systems](../guides/drawing-celldl-modules.md#unit-systems).
 
 ### CellML {#cellml}
 An XML-based markup language for describing mathematical models.
@@ -126,6 +138,10 @@ A simulation repeated over a range of one parameter's values; an optional second
 ### Tracked Run {#tracked-run}
 <!-- aliases: tracked runs, track -->
 A run whose lines stay on the charts, dashed, for comparison with later runs.
+
+### Unit System {#unit-system}
+<!-- aliases: unit systems -->
+The units a CellDL module's CellML is built in: **Cellular (fmol, pL)** or **SI (mol, L)**. Set per module in its Parameters tab; changing it rescales the module's values on save. See [Unit Systems](../guides/drawing-celldl-modules.md#unit-systems).
 
 ### Variable (Type) {#variable-type}
 <!-- aliases: computed variable -->

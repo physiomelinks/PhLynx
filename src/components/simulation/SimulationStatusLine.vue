@@ -1,5 +1,5 @@
 <template>
-  <div class="simulation-status" :class="`simulation-status--${status.severity}`" role="status" aria-live="polite">
+  <div class="simulation-status" :class="[`simulation-status--${status.severity}`, { 'simulation-status--hinted': status.hint }]" role="status" aria-live="polite">
     <button v-if="status.details.length" type="button" class="status-text status-button" @click="(event) => popover.toggle(event)">
       <i v-if="status.icon" :class="['pi', status.icon]" aria-hidden="true"></i>
       <span>{{ status.text }}</span>
@@ -9,6 +9,7 @@
       <i v-if="status.icon" :class="['pi', status.icon]" aria-hidden="true"></i>
       <span>{{ status.text }}</span>
     </p>
+    <p v-if="status.hint" class="status-hint">{{ status.hint }}</p>
     <InfoTip v-if="status.notes?.length" class="status-note" :text="status.notes.join('\n')" :label="`Notes: ${status.notes.join(' ')}`" />
     <Popover ref="popover">
       <div class="status-details">
@@ -26,7 +27,7 @@
 <script setup>
 /**
  * One line saying what the simulation is doing or what needs attention, with the full lists a click away, and any
- * notes on what is expected in a tooltip.
+ * notes on what is expected in a tooltip, and a hint on what to try after a failure on a line of its own.
  */
 import { ref } from 'vue'
 
@@ -35,7 +36,7 @@ import Popover from 'primevue/popover'
 import InfoTip from './InfoTip.vue'
 
 defineProps({
-  // { text, severity: 'info' | 'warn' | 'error', icon, details: [{ title, lines }], notes?: string[] }
+  // { text, severity: 'info' | 'warn' | 'error', icon, details: [{ title, lines }], notes?: string[], hint?: string }
   status: { type: Object, required: true },
 })
 
@@ -65,6 +66,18 @@ const popover = ref(null)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.simulation-status--hinted {
+  flex-wrap: wrap;
+}
+
+.status-hint {
+  /* Below the message, after any notes, as the message's line is cut to fit. */
+  flex-basis: 100%;
+  order: 1;
+  margin: 0;
+  color: var(--p-text-muted-color);
 }
 
 .status-button {

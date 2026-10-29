@@ -46,3 +46,4 @@ use_builtin_modules: false
 - **Missing Boundary Values:** an unconnected boundary condition has no value, so CA will ask for it.
 - **Pulmonary Circuit Added:** the only heart has one output, so CA adds a pulmonary artery and vein (`par`, `pvn`) and will ask for their values.
 - **Missing Units:** no library units file defines some units, so they are left out.
+- **Components Renamed:** CA finds components by name, so when components in different groupings share a name, the export keeps the name for one (a CellML grouping first) and renames the others after their grouping, such as `decay` in `User_Modules.celldl` → `decay_celldl` (numbered, `decay_celldl_2`, if that's taken). Only the export changes; the library keeps both names. Importing the export brings the components back as CellML under the exported names, such as `User_CellDL_modules.cellml:decay_celldl`.

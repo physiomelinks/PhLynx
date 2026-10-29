@@ -23,7 +23,7 @@ import { useOmexStore } from '../stores/omexStore'
 import { useProtocolStore } from '../stores/protocolStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
-import { generateExportZip } from '../services/export/ca'
+import { findCaExportBlocker, generateExportZip } from '../services/export/ca'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
 import { buildScopedModel, checkScope, resolveScope, summariseScopeReport } from '../services/simulation/scopedModel'
 import { useConfirmDialog } from './useConfirmDialog'
@@ -32,6 +32,7 @@ import { generateFlattenedModel, extractVoiAndParametersFromModel } from '../uti
 import { readFileAsText } from '../utils/misc'
 import { getFileHandle } from '../utils/save'
 import { getImportConfig } from '../utils/import'
+import { getModuleFormat } from '../services/moduleFormats'
 
 export function useImportExportSend({
   libcellml,
@@ -72,6 +73,17 @@ export function useImportExportSend({
       icon: CellMLIcon,
       disabled: libcellml.status !== 'ready',
     },
+    // Only in builds that can convert CellDL.
+    ...(getModuleFormat('celldl').isAvailable
+      ? [
+          {
+            key: IMPORT_KEYS.CELLDL_FILE,
+            label: 'CellDL Diagram',
+            icon: 'pi pi-sitemap',
+            disabled: libcellml.status !== 'ready',
+          },
+        ]
+      : []),
     {
       key: IMPORT_KEYS.MODULE_CONFIG,
       label: 'Module Config',
@@ -118,6 +130,17 @@ export function useImportExportSend({
       acceptLabel: 'Export',
       rejectLabel: 'Cancel',
     })
+  }
+
+  /**
+   * Checks the workspace can be exported to CA before asking where to save it.
+   *
+   * @returns {boolean} Whether to export.
+   */
+  const confirmCaExport = () => {
+    const blocker = findCaExportBlocker(nodes.value, edges.value, libraryStore)
+    if (blocker) notify.error({ title: 'Export failed', message: blocker })
+    return !blocker
   }
 
   /**
@@ -202,6 +225,7 @@ export function useImportExportSend({
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating and zipping CA files.',
+      preflight: confirmCaExport,
       action: (finalName) => generateExportZip(finalName, nodes.value, edges.value, libraryStore, protocolStore.source?.entry.payload ?? null),
       successMessage: () => 'Circulatory Autogen export zip generated.',
     },

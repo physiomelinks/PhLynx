@@ -10,7 +10,7 @@
           :outputs="false"
           copy
           :history="false"
-          :readonly="isBlocked"
+          :readonly="isBlocked || readonly"
           :issues="blockIssues"
           :variable-units="variableUnits"
           @equations-change="handleEquationsChange"
@@ -54,6 +54,11 @@ const props = defineProps({
   keepVariables: {
     type: Array,
     default: () => [],
+  },
+  // Shows the math without letting it be edited, e.g. math generated from a diagram. Variable clicks still emit.
+  readonly: {
+    type: Boolean,
+    default: false,
   },
 })
 

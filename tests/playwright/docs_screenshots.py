@@ -28,6 +28,20 @@ from test_simulation_tab import (  # noqa: E402
     plot_variable,
     simulate_whole_model,
 )
+from test_celldl import (  # noqa: E402
+    CELLDL_GROUP,
+    DIAGRAM_TIMEOUT,
+    ENZYME,
+    ENZYME_MODULE,
+    PRODUCT,
+    REACTIONS_MODULE,
+    REACTIONS_PANEL,
+    import_diagram,
+    open_editor,
+    place,
+    set_element_field,
+    wait_for_diagram,
+)
 from test_workspace import centre, ghost_handle, node_by_name, wait_for_settled_transform  # noqa: E402
 
 IMAGES = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "assets", "images"))
@@ -402,6 +416,86 @@ def protocol_editor(page):
     save(dialog, "protocol-editor")
 
 
+def open_celldl_module(page, path, module):
+    """Imports a CellDL diagram into an empty workspace, places it and opens its editor on the diagram."""
+    page.goto(BASE_URL, wait_until="commit")
+    page.locator(".file-io-buttons .p-splitbutton").first.wait_for(timeout=APP_MOUNT_TIMEOUT)
+    import_diagram(page, path)
+    expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+    dismiss_toasts(page)
+    place(page, CELLDL_GROUP, module)
+    dialog = open_editor(page, module)
+    wait_for_diagram(page)
+    return dialog
+
+
+def celldl_editor(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    dismiss_toasts(page)
+    save(dialog, "celldl-editor")
+
+
+def celldl_reactions(page):
+    dialog = open_celldl_module(page, REACTIONS_PANEL, REACTIONS_MODULE)
+    page.locator(".celldl-pane .celldl-host #reactions-panel").click()
+    expect(page.locator(".celldl-pane .celldl-host").get_by_label("Equation of r1")).to_be_visible()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    dismiss_toasts(page)
+    save(dialog.locator(".left-pane"), "celldl-reactions")
+
+
+def celldl_parameters(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    dialog.get_by_role("tab", name=re.compile(r"Parameters \(")).click()
+    expect(dialog.locator(".celldl-parameters .unit-system")).to_contain_text("SI (mol, L)")
+    dialog.locator(".celldl-parameters .unit-system .p-select").click()
+    expect(page.locator(".p-select-option").filter(has_text="Cellular (fmol, pL)")).to_be_visible()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    dismiss_toasts(page)
+    save(dialog.locator(".right-pane"), "celldl-parameters")
+
+
+def celldl_issues(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    # Naming the product's store S as well gives two pools named q_S_c, which live conversion warns of.
+    set_element_field(dialog, PRODUCT, "Species", "S")
+    issues = dialog.locator(".celldl-live-issues")
+    expect(issues).to_have_text(re.compile(r"^\s*Converts, with 1 warning"), timeout=DIAGRAM_TIMEOUT)
+    issues.click()
+    popover = page.locator(".p-popover")
+    expect(popover.locator(".celldl-issue-list li")).to_have_count(1)
+    page.wait_for_timeout(400)
+    dismiss_toasts(page)
+    save(page, "celldl-issues", clip=clip_around([dialog.locator(".celldl-live"), popover], margin=16))
+
+
+def celldl_annotations(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    host = page.locator(".celldl-pane .celldl-host")
+    host.locator("#annotations-panel").click()
+    # The panel rereads the diagram as it opens, dropping an entry made first, so it's entered again until kept.
+    chebi = host.get_by_label(re.compile(r"^ChEBI ID of S\b"))
+    apply = host.get_by_role("button", name="Apply", exact=True)
+    for _ in range(5):
+        chebi.fill("17234")
+        chebi.press("Tab")
+        try:
+            expect(apply).to_be_enabled(timeout=1000)
+            break
+        except AssertionError:
+            pass
+    chebi.scroll_into_view_if_needed()
+    page.evaluate("document.activeElement?.blur()")
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    dismiss_toasts(page)
+    save(dialog.locator(".left-pane"), "celldl-annotations")
+
+
 SHOTS = {
     "phlynx_ui": phlynx_ui,
     "toolbar": toolbar,
@@ -421,6 +515,11 @@ SHOTS = {
     "math-editor": math_editor,
     "sweep-view": sweep_view,
     "protocol-editor": protocol_editor,
+    "celldl-editor": celldl_editor,
+    "celldl-reactions": celldl_reactions,
+    "celldl-parameters": celldl_parameters,
+    "celldl-issues": celldl_issues,
+    "celldl-annotations": celldl_annotations,
 }
 
 

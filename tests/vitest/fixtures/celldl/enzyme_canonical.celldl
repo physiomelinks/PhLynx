@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-40 -140 1024 510"><metadata id="celldl-rdf-metadata" data-content-type="text/turtle"><![CDATA[@prefix : <#> .
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix celldl: <http://celldl.org/ontologies/celldl#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+<> a celldl:Document, bgf:BondgraphModel ;
+  dcterms:created "2026-10-22T00:00:00.000Z" ;
+  dcterms:modified "2026-10-22T00:00:00.000Z" ;
+  owl:versionInfo "1.0" ;
+  bgf:hasBondElement :ID-00000001, :ID-00000003, :ID-00000006, :ID-00000008, :ID-00000011, :ID-00000014 ;
+  bgf:hasJunctionStructure :ID-00000002, :ID-00000004, :ID-00000005, :ID-00000007, :ID-00000009, :ID-00000010, :ID-00000012, :ID-00000013 .
+
+:ID-00000001 a celldl:Component, bgf:ChemicalConcentration ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "S" ;
+  bgf:hasSymbol "q" ;
+  bgf:hasValue "1 mol"^^cdt:ucum ;
+  bgf:parameterValue [ bgf:hasValue "1 mol-1"^^cdt:ucum ; bgf:varName "K" ] .
+
+:ID-00000002 a celldl:Component, bgf:ZeroNode ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "S" ;
+  bgf:hasSymbol "u" .
+
+:ID-00000003 a celldl:Component, bgf:ChemicalConcentration ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "E" ;
+  bgf:hasSymbol "q" ;
+  bgf:hasValue "0.1 mol"^^cdt:ucum ;
+  bgf:parameterValue [ bgf:hasValue "1 mol-1"^^cdt:ucum ; bgf:varName "K" ] .
+
+:ID-00000004 a celldl:Component, bgf:ZeroNode ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "E" ;
+  bgf:hasSymbol "u" .
+
+:ID-00000005 a celldl:Component, bgf:OneNode ;
+  bgf:hasLocation "f" ;
+  bgf:hasSpecies "r1" ;
+  bgf:hasSymbol "v" .
+
+:ID-00000006 a celldl:Component, bgf:ChemicalReaction ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "r1" ;
+  bgf:hasSymbol "Rx" ;
+  bgf:parameterValue [ bgf:hasValue "10 mol/s"^^cdt:ucum ; bgf:varName "kappa" ] .
+
+:ID-00000007 a celldl:Component, bgf:OneNode ;
+  bgf:hasLocation "r" ;
+  bgf:hasSpecies "r1" ;
+  bgf:hasSymbol "v" .
+
+:ID-00000008 a celldl:Component, bgf:ChemicalConcentration ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "C" ;
+  bgf:hasSymbol "q" ;
+  bgf:hasValue "0 mol"^^cdt:ucum ;
+  bgf:parameterValue [ bgf:hasValue "1 mol-1"^^cdt:ucum ; bgf:varName "K" ] .
+
+:ID-00000009 a celldl:Component, bgf:ZeroNode ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "C" ;
+  bgf:hasSymbol "u" .
+
+:ID-00000010 a celldl:Component, bgf:OneNode ;
+  bgf:hasLocation "f" ;
+  bgf:hasSpecies "r2" ;
+  bgf:hasSymbol "v" .
+
+:ID-00000011 a celldl:Component, bgf:ChemicalReaction ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "r2" ;
+  bgf:hasSymbol "Rx" ;
+  bgf:parameterValue [ bgf:hasValue "1 mol/s"^^cdt:ucum ; bgf:varName "kappa" ] .
+
+:ID-00000012 a celldl:Component, bgf:OneNode ;
+  bgf:hasLocation "r" ;
+  bgf:hasSpecies "r2" ;
+  bgf:hasSymbol "v" .
+
+:ID-00000013 a celldl:Component, bgf:ZeroNode ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "P" ;
+  bgf:hasSymbol "u" .
+
+:ID-00000014 a celldl:Component, bgf:ChemicalConcentration ;
+  bgf:hasLocation "c" ;
+  bgf:hasSpecies "P" ;
+  bgf:hasSymbol "q" ;
+  bgf:hasValue "0 mol"^^cdt:ucum ;
+  bgf:parameterValue [ bgf:hasValue "0.01 mol-1"^^cdt:ucum ; bgf:varName "K" ] .
+
+:ID-00000015 a celldl:Connection ;
+  celldl:hasSource :ID-00000002 ;
+  celldl:hasTarget :ID-00000001 ;
+  bgf:hasSource :ID-00000002 ;
+  bgf:hasTarget :ID-00000001 .
+
+:ID-00000016 a celldl:Connection ;
+  celldl:hasSource :ID-00000002 ;
+  celldl:hasTarget :ID-00000005 ;
+  bgf:hasSource :ID-00000002 ;
+  bgf:hasTarget :ID-00000005 .
+
+:ID-00000017 a celldl:Connection ;
+  celldl:hasSource :ID-00000004 ;
+  celldl:hasTarget :ID-00000005 ;
+  bgf:hasSource :ID-00000004 ;
+  bgf:hasTarget :ID-00000005 .
+
+:ID-00000018 a celldl:Connection ;
+  celldl:hasSource :ID-00000004 ;
+  celldl:hasTarget :ID-00000003 ;
+  bgf:hasSource :ID-00000004 ;
+  bgf:hasTarget :ID-00000003 .
+
+:ID-00000019 a celldl:Connection ;
+  celldl:hasSource :ID-00000005 ;
+  celldl:hasTarget :ID-00000006 ;
+  bgf:hasSource :ID-00000005 ;
+  bgf:hasTarget :ID-00000006 .
+
+:ID-00000020 a celldl:Connection ;
+  celldl:hasSource :ID-00000006 ;
+  celldl:hasTarget :ID-00000007 ;
+  bgf:hasSource :ID-00000006 ;
+  bgf:hasTarget :ID-00000007 .
+
+:ID-00000021 a celldl:Connection ;
+  celldl:hasSource :ID-00000007 ;
+  celldl:hasTarget :ID-00000009 ;
+  bgf:hasSource :ID-00000007 ;
+  bgf:hasTarget :ID-00000009 .
+
+:ID-00000022 a celldl:Connection ;
+  celldl:hasSource :ID-00000009 ;
+  celldl:hasTarget :ID-00000008 ;
+  bgf:hasSource :ID-00000009 ;
+  bgf:hasTarget :ID-00000008 .
+
+:ID-00000023 a celldl:Connection ;
+  celldl:hasSource :ID-00000009 ;
+  celldl:hasTarget :ID-00000010 ;
+  bgf:hasSource :ID-00000009 ;
+  bgf:hasTarget :ID-00000010 .
+
+:ID-00000024 a celldl:Connection ;
+  celldl:hasSource :ID-00000010 ;
+  celldl:hasTarget :ID-00000011 ;
+  bgf:hasSource :ID-00000010 ;
+  bgf:hasTarget :ID-00000011 .
+
+:ID-00000025 a celldl:Connection ;
+  celldl:hasSource :ID-00000011 ;
+  celldl:hasTarget :ID-00000012 ;
+  bgf:hasSource :ID-00000011 ;
+  bgf:hasTarget :ID-00000012 .
+
+:ID-00000026 a celldl:Connection ;
+  celldl:hasSource :ID-00000012 ;
+  celldl:hasTarget :ID-00000013 ;
+  bgf:hasSource :ID-00000012 ;
+  bgf:hasTarget :ID-00000013 .
+
+:ID-00000027 a celldl:Connection ;
+  celldl:hasSource :ID-00000013 ;
+  celldl:hasTarget :ID-00000014 ;
+  bgf:hasSource :ID-00000013 ;
+  bgf:hasTarget :ID-00000014 .
+
+:ID-00000028 a celldl:Connection ;
+  celldl:hasSource :ID-00000012 ;
+  celldl:hasTarget :ID-00000004 ;
+  bgf:hasSource :ID-00000012 ;
+  bgf:hasTarget :ID-00000004 .
+]]></metadata><defs id="celldl-svg-definitions"><style id="celldl-svg-stylesheet">svg{font-size:16px}.celldl-Conduit{z-index:9999}.celldl-Connection{stroke-linejoin:round;fill:none}.celldl-Compartment&gt;rect.compartment{fill:#CCC;opacity:0.6;stroke:#444;rx:10px;ry:10px}.celldl-InterfacePort{fill:red;r:4px}.celldl-Unconnected{fill:red;fill-opacity:0.1;stroke:red;r:4px}.celldl-Connection.bondgraph.arrow { marker-end:url(#connection-end-arrow-bondgraph) }</style><marker id="connection-end-arrow-bondgraph" viewBox="0 0 5.5 5" class="bondgraph" refX="5" refY="2.5" orient="auto-start-reverse" markerUnits="strokeWidth" markerWidth="4" markerHeight="4"><path fill="context-stroke" stroke="context-stroke" d="M0,0 L5.05,2.2 L5.05,2.8 L0,5 L1,2.5 z"/></marker></defs><g id="celldl-diagram-layer" class="celldl-Layer"><g transform="matrix(1,0,0,1,0,-100)" id="ID-00000001" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+cSBTPC90ZXh0Pjwvc3ZnPg=="/></g><g transform="matrix(1,0,0,1,0,0)" id="ID-00000002" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRkJFNEQ1IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iI0ZGMDkwOSI+dSBTPC90ZXh0Pjwvc3ZnPg=="/></g><g transform="matrix(1,0,0,1,450,300)" id="ID-00000003" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+cSBFPC90ZXh0Pjwvc3ZnPg=="/></g><g transform="matrix(1,0,0,1,450,200)" id="ID-00000004" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRkJFNEQ1IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iI0ZGMDkwOSI+dSBFPC90ZXh0Pjwvc3ZnPg=="/></g><g transform="matrix(1,0,0,1,100,0)" id="ID-00000005" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+diByMWY8L3RleHQ+PC9zdmc+"/></g><g transform="matrix(1,0,0,1,200,0)" id="ID-00000006" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRkZEOTY2IiBzdHJva2U9ImJsYWNrIiBzdHJva2Utd2lkdGg9IjIiLz48dGV4dCB4PSIyMiIgeT0iMjAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzZXJpZiIgZm9udC1zdHlsZT0iaXRhbGljIiBmb250LXNpemU9IjE1IiBmaWxsPSIjNzIzMjlGIj5yMTwvdGV4dD48L3N2Zz4="/></g><g transform="matrix(1,0,0,1,300,0)" id="ID-00000007" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+diByMXI8L3RleHQ+PC9zdmc+"/></g><g transform="matrix(1,0,0,1,450,-100)" id="ID-00000008" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+cSBDPC90ZXh0Pjwvc3ZnPg=="/></g><g transform="matrix(1,0,0,1,450,0)" id="ID-00000009" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRkJFNEQ1IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iI0ZGMDkwOSI+dSBDPC90ZXh0Pjwvc3ZnPg=="/></g><g transform="matrix(1,0,0,1,600,0)" id="ID-00000010" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+diByMmY8L3RleHQ+PC9zdmc+"/></g><g transform="matrix(1,0,0,1,700,0)" id="ID-00000011" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRkZEOTY2IiBzdHJva2U9ImJsYWNrIiBzdHJva2Utd2lkdGg9IjIiLz48dGV4dCB4PSIyMiIgeT0iMjAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzZXJpZiIgZm9udC1zdHlsZT0iaXRhbGljIiBmb250LXNpemU9IjE1IiBmaWxsPSIjNzIzMjlGIj5yMjwvdGV4dD48L3N2Zz4="/></g><g transform="matrix(1,0,0,1,800,0)" id="ID-00000012" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+diByMnI8L3RleHQ+PC9zdmc+"/></g><g transform="matrix(1,0,0,1,900,0)" id="ID-00000013" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRkJFNEQ1IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iI0ZGMDkwOSI+dSBQPC90ZXh0Pjwvc3ZnPg=="/></g><g transform="matrix(1,0,0,1,900,-100)" id="ID-00000014" class="celldl-Component"><image href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0NCIgaGVpZ2h0PSIzMCIgdmlld0JveD0iMCAwIDQ0IDMwIj48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iNDIiIGhlaWdodD0iMjgiIHJ4PSI2IiBmaWxsPSIjRTJGMEQ5IiBzdHJva2U9ImdyZXkiIHN0cm9rZS13aWR0aD0iMC41Ii8+PHRleHQgeD0iMjIiIHk9IjIwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlseT0ic2VyaWYiIGZvbnQtc3R5bGU9Iml0YWxpYyIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzAwQjA1MCI+cSBQPC90ZXh0Pjwvc3ZnPg=="/></g><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M22.00 -2.00L22.00 -68.00" id="ID-00000015"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M46.00 15.00L98.00 15.00" id="ID-00000016"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M448.00 201.29L146.00 28.71" id="ID-00000017"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M472.00 232.00L472.00 298.00" id="ID-00000018"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M146.00 15.00L198.00 15.00" id="ID-00000019"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M246.00 15.00L298.00 15.00" id="ID-00000020"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M346.00 15.00L448.00 15.00" id="ID-00000021"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M472.00 -2.00L472.00 -68.00" id="ID-00000022"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M496.00 15.00L598.00 15.00" id="ID-00000023"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M646.00 15.00L698.00 15.00" id="ID-00000024"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M746.00 15.00L798.00 15.00" id="ID-00000025"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M846.00 15.00L898.00 15.00" id="ID-00000026"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M922.00 -2.00L922.00 -68.00" id="ID-00000027"/><path class="celldl-Connection bondgraph linear arrow" stroke="#567" stroke-width="2" d="M798.00 28.71L496.00 201.29" id="ID-00000028"/></g></svg>

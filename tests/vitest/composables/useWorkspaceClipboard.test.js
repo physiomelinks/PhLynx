@@ -245,6 +245,29 @@ describe('useWorkspaceClipboard', () => {
       }
     })
 
+    it('restores the math source into a fresh library, and drops a source that is not valid', async () => {
+      const source = { format: 'celldl', document: '<svg/>', documentUri: 'https://example.org/decay.celldl', elements: {} }
+      library.setMathSource(MATH_REF, source)
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+      const copied = systemClipboard.text
+
+      for (const [text, expected] of [
+        [copied, source],
+        [copied.replace('"documentUri":', '"otherUri":'), null],
+      ]) {
+        setActivePinia(createPinia())
+        const freshLibrary = useLibraryStore()
+        nodes.value = []
+        edges.value = []
+        systemClipboard.text = text
+
+        await createClipboard().pasteSelection()
+
+        expect(freshLibrary.getMathSource(MATH_REF)).toEqual(expected)
+      }
+    })
+
     it('gives pasted nodes new unique ids and names, and selects only them', async () => {
       select(['dndnode_0', 'dndnode_1'])
       await clipboard.copySelection()

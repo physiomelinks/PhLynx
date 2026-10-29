@@ -2,7 +2,7 @@
  * Scoped models: a selection of instances, the couplings between them, and the inspection modules that
  * reach them, flattened on their own. The whole model is the scope of every node.
  */
-import { resolveBoundaryValues } from '../export/boundaryValues'
+import { resolveBoundaryValues, storeOptions } from '../export/boundaryValues'
 import { generateFlattenedModel } from '../../utils/cellml'
 import { cyrb53 } from '../../utils/misc'
 import { couplingConflicts, variableTypes } from '../../utils/multiport'
@@ -194,7 +194,7 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
   if (!scope.nodes.length) errors.push('Select at least one instance to simulate.')
 
   try {
-    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges, libraryStore.getMathAnalysis)
+    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
     conflicts = [
       ...scoped.conflicts,
       ...scoped.overdetermined.map(({ message }) => message),
@@ -288,6 +288,7 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
         availableMath: libraryStore.availableMath,
         availableUnits: libraryStore.availableUnits,
         getMathAnalysis: libraryStore.getMathAnalysis,
+        getMathSource: libraryStore.getMathSource,
         getGlobalConstant: (name) => {
           const constant = libraryStore.getGlobalConstant(name)
           return globals.has(name) ? { ...constant, value: String(globals.get(name)) } : constant

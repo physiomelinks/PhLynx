@@ -32,6 +32,7 @@ On the right are **Report Issue** and a light/dark switch. Where supported (e.g.
 | Menu item | File | Result |
 | :--- | :--- | :--- |
 | **Instance Array** | `.csv` | Builds a connected model from an [instance array](./file-types.md#instance-array), asking for any missing module files. |
+| **CellDL Diagram** | `.celldl` | Adds a bond-graph diagram as a module under **User Modules (CellDL)**; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md#getting-a-module) (beta). |
 | **CellML File** | `.cellml` | Adds its components to Available Modules and its [units](./cellml-units-file.md) to the units library. If one file's components are connected to each other, it is also built on the canvas; a non-empty canvas asks **Overwrite** or **Add to Workspace**. See [CellML Module Format](./cellml-module-format.md). |
 | **Module Config** | `.json` | Loads [module configurations](./file-types.md#module-configuration). |
 | **Parameters** | `.csv` | Fills parameter values from a [parameter file](./file-types.md#parameter-file). |
@@ -129,13 +130,13 @@ The header holds the **Instance** name (unique), the **Component** name and the 
 
 ![Instance Editor on the Ports tab](../assets/images/edit-module-detail.png){.align-center width="800px"}
 
-* **Left pane:** **CellML Text** or **Math Editor**, two views of the same equations; see [Writing CellML](../guides/writing-cellml.md).
+* **Left pane:** **CellML Text** or **Math Editor**, two views of the same equations; see [Writing CellML](../guides/writing-cellml.md). The **CellDL (beta)** tab draws the module as a bond-graph diagram instead, whose generated CellML the other two tabs show read-only; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md). Its status line shows live conversion (click it to list issues), **Reorganise** with its mode dropdown, and the **Shading** switch; see [Live Conversion](../guides/drawing-celldl-modules.md#live-conversion). It is locked for CellML modules.
 * **Right pane:** **Parameters**, **Ports** and **Plot** tabs (collapsible, resizable).
 * **Footer:** **Cancel**, **Apply** (save and keep editing) and **Save** (Ctrl/Cmd+Enter). **Apply math changes to all N instances** also updates instances sharing the component.
 
 ### Parameters tab {#parameters-tab}
 
-Lists every variable of the instance with its **Name**, **Value**, **Units** and **Type**. The **Instance parameters** tab in the Context Sidebar edits the same values without opening the editor.
+Lists every variable of the instance with its **Name**, **Value**, **Units** and **Type**. A CellDL module's tab lists its diagram's elements instead; see [The Parameters Tab](../guides/drawing-celldl-modules.md#parameters). The **Instance parameters** tab in the Context Sidebar edits the same values without opening the editor.
 
 | Type | Meaning | Value cell |
 | :--- | :--- | :--- |
@@ -217,4 +218,5 @@ Opened with **Settings** (cog icon).
 | :--- | :--- |
 | Units | **Units suggestion format**: CellML built-in or SI base units |
 | Simulation | **Plot inspection modules**; **Show data items** (in Edit obs_data) |
+| CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **Location shading**; **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
 | Image export | **Image format** (PNG or SVG); **Include warning symbols** |

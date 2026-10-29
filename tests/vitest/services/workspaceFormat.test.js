@@ -15,6 +15,9 @@ const UNRECORDED = {
   '1.2.0': new Set(['legacy/domainType', '1.2.0/inspectionPlotSelection', '1.2.0/parameterScanLabel']),
 }
 
+// Objects keyed by data (a diagram's element ids) rather than by field name; their keys aren't part of the format.
+const DATA_KEYED_PATHS = new Set(['store.mathSources[][].elements'])
+
 const SHAPE_CHANGED = `The saved workspace file's shape no longer matches format ${PHLYNX_PROJECT_VERSION}.
 Any change to the saved file needs a new format version: bump PHLYNX_PROJECT_VERSION, add a migration step
 in src/services/workspaceMigrator.js, and add a synthetic case for the change to the new version's workspace in
@@ -24,7 +27,7 @@ Then regenerate the shape with UPDATE_WORKSPACE_SHAPE=1 yarn vitest run tests/vi
 Never edit the shape of a released version.`
 
 /**
- * Collects the key paths of a value. Array elements share one path.
+ * Collects the key paths of a value. Array elements share one path, as do the entries of a data-keyed object (`*`).
  *
  * @param {*} value
  * @param {string} prefix - The path so far.
@@ -38,7 +41,7 @@ function collectPaths(value, prefix, paths) {
   if (!value || typeof value !== 'object') return
 
   for (const [key, child] of Object.entries(value)) {
-    const childPath = prefix ? `${prefix}.${key}` : key
+    const childPath = DATA_KEYED_PATHS.has(prefix) ? `${prefix}.*` : prefix ? `${prefix}.${key}` : key
     paths.add(childPath)
     collectPaths(child, childPath, paths)
   }

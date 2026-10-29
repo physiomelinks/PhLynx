@@ -1,0 +1,608 @@
+{
+ "manifest": {
+  "ID-00000001": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000001",
+   "kind": "element",
+   "symbol": "q_S_c",
+   "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+   "primary": "q_S_c",
+   "variables": [
+    {
+     "name": "v_q_S_c",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    },
+    {
+     "name": "u_q_S_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "K_q_S_c",
+     "role": "parameter",
+     "ucum": "mol-1",
+     "units": "per_mol"
+    },
+    {
+     "name": "q_S_c",
+     "role": "quantity",
+     "ucum": "mol",
+     "units": "mole"
+    }
+   ]
+  },
+  "ID-00000003": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000003",
+   "kind": "element",
+   "symbol": "q_E_c",
+   "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+   "primary": "q_E_c",
+   "variables": [
+    {
+     "name": "v_q_E_c",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    },
+    {
+     "name": "u_q_E_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "K_q_E_c",
+     "role": "parameter",
+     "ucum": "mol-1",
+     "units": "per_mol"
+    },
+    {
+     "name": "q_E_c",
+     "role": "quantity",
+     "ucum": "mol",
+     "units": "mole"
+    }
+   ]
+  },
+  "ID-00000006": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000006",
+   "kind": "element",
+   "symbol": "Rx_r1_c",
+   "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalReaction",
+   "primary": "v_Rx_r1_c",
+   "variables": [
+    {
+     "name": "v_Rx_r1_c",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    },
+    {
+     "name": "u_f_Rx_r1_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "u_r_Rx_r1_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "kappa_Rx_r1_c",
+     "role": "parameter",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    }
+   ]
+  },
+  "ID-00000008": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000008",
+   "kind": "element",
+   "symbol": "q_C_c",
+   "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+   "primary": "q_C_c",
+   "variables": [
+    {
+     "name": "v_q_C_c",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    },
+    {
+     "name": "u_q_C_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "K_q_C_c",
+     "role": "parameter",
+     "ucum": "mol-1",
+     "units": "per_mol"
+    },
+    {
+     "name": "q_C_c",
+     "role": "quantity",
+     "ucum": "mol",
+     "units": "mole"
+    }
+   ]
+  },
+  "ID-00000011": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000011",
+   "kind": "element",
+   "symbol": "Rx_r2_c",
+   "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalReaction",
+   "primary": "v_Rx_r2_c",
+   "variables": [
+    {
+     "name": "v_Rx_r2_c",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    },
+    {
+     "name": "u_f_Rx_r2_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "u_r_Rx_r2_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "kappa_Rx_r2_c",
+     "role": "parameter",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    }
+   ]
+  },
+  "ID-00000014": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000014",
+   "kind": "element",
+   "symbol": "q_P_c",
+   "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+   "primary": "q_P_c",
+   "variables": [
+    {
+     "name": "v_q_P_c",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    },
+    {
+     "name": "u_q_P_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    },
+    {
+     "name": "K_q_P_c",
+     "role": "parameter",
+     "ucum": "mol-1",
+     "units": "per_mol"
+    },
+    {
+     "name": "q_P_c",
+     "role": "quantity",
+     "ucum": "mol",
+     "units": "mole"
+    }
+   ]
+  },
+  "ID-00000013": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000013",
+   "kind": "zero",
+   "symbol": "u_P_c",
+   "primary": "u_P_c",
+   "variables": [
+    {
+     "name": "u_P_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    }
+   ]
+  },
+  "ID-00000012": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000012",
+   "kind": "one",
+   "symbol": "v_r2_r",
+   "primary": "v_r2_r",
+   "variables": [
+    {
+     "name": "v_r2_r",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    }
+   ]
+  },
+  "ID-00000010": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000010",
+   "kind": "one",
+   "symbol": "v_r2_f",
+   "primary": "v_r2_f",
+   "variables": [
+    {
+     "name": "v_r2_f",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    }
+   ]
+  },
+  "ID-00000009": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000009",
+   "kind": "zero",
+   "symbol": "u_C_c",
+   "primary": "u_C_c",
+   "variables": [
+    {
+     "name": "u_C_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    }
+   ]
+  },
+  "ID-00000007": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000007",
+   "kind": "one",
+   "symbol": "v_r1_r",
+   "primary": "v_r1_r",
+   "variables": [
+    {
+     "name": "v_r1_r",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    }
+   ]
+  },
+  "ID-00000005": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000005",
+   "kind": "one",
+   "symbol": "v_r1_f",
+   "primary": "v_r1_f",
+   "variables": [
+    {
+     "name": "v_r1_f",
+     "role": "flow",
+     "ucum": "mol/s",
+     "units": "mol_per_s"
+    }
+   ]
+  },
+  "ID-00000004": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000004",
+   "kind": "zero",
+   "symbol": "u_E_c",
+   "primary": "u_E_c",
+   "variables": [
+    {
+     "name": "u_E_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    }
+   ]
+  },
+  "ID-00000002": {
+   "iri": "https://bg-rdf.org/models/local/phlynx/enzyme.cellml_enzyme.celldl#ID-00000002",
+   "kind": "zero",
+   "symbol": "u_S_c",
+   "primary": "u_S_c",
+   "variables": [
+    {
+     "name": "u_S_c",
+     "role": "potential",
+     "ucum": "J/mol",
+     "units": "J_per_mol"
+    }
+   ]
+  }
+ },
+ "rows": [
+  {
+   "name": "t",
+   "value": "",
+   "units": "second",
+   "type": "variable"
+  },
+  {
+   "name": "q_C_c",
+   "value": "",
+   "units": "mole",
+   "type": "variable",
+   "stateRole": "state",
+   "initialiser": "q_C_c_init"
+  },
+  {
+   "name": "v_q_C_c",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "q_E_c",
+   "value": "",
+   "units": "mole",
+   "type": "variable",
+   "stateRole": "state",
+   "initialiser": "q_E_c_init"
+  },
+  {
+   "name": "v_q_E_c",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "q_P_c",
+   "value": "",
+   "units": "mole",
+   "type": "variable",
+   "stateRole": "state",
+   "initialiser": "q_P_c_init"
+  },
+  {
+   "name": "v_q_P_c",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "q_S_c",
+   "value": "",
+   "units": "mole",
+   "type": "variable",
+   "stateRole": "state",
+   "initialiser": "q_S_c_init"
+  },
+  {
+   "name": "v_q_S_c",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "u_q_C_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "RT",
+   "value": "2578.73058",
+   "units": "J_per_mol",
+   "type": "constant"
+  },
+  {
+   "name": "K_q_C_c",
+   "value": "1",
+   "units": "per_mol",
+   "type": "constant"
+  },
+  {
+   "name": "u_q_E_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "K_q_E_c",
+   "value": "1",
+   "units": "per_mol",
+   "type": "constant"
+  },
+  {
+   "name": "u_q_P_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "K_q_P_c",
+   "value": "0.01",
+   "units": "per_mol",
+   "type": "constant"
+  },
+  {
+   "name": "u_q_S_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "K_q_S_c",
+   "value": "1",
+   "units": "per_mol",
+   "type": "constant"
+  },
+  {
+   "name": "v_Rx_r1_c",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "kappa_Rx_r1_c",
+   "value": "10",
+   "units": "mol_per_s",
+   "type": "constant"
+  },
+  {
+   "name": "u_f_Rx_r1_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "u_r_Rx_r1_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "v_Rx_r2_c",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "kappa_Rx_r2_c",
+   "value": "1",
+   "units": "mol_per_s",
+   "type": "constant"
+  },
+  {
+   "name": "u_f_Rx_r2_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "u_r_Rx_r2_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "u_C_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "u_E_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "u_P_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "u_S_c",
+   "value": "",
+   "units": "J_per_mol",
+   "type": "variable"
+  },
+  {
+   "name": "v_r2_r",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "v_r1_f",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "v_r1_r",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "v_r2_f",
+   "value": "",
+   "units": "mol_per_s",
+   "type": "variable"
+  },
+  {
+   "name": "q_C_c_init",
+   "value": "0",
+   "units": "mole",
+   "type": "constant"
+  },
+  {
+   "name": "q_E_c_init",
+   "value": "0.1",
+   "units": "mole",
+   "type": "constant"
+  },
+  {
+   "name": "q_P_c_init",
+   "value": "0",
+   "units": "mole",
+   "type": "constant"
+  },
+  {
+   "name": "q_S_c_init",
+   "value": "1",
+   "units": "mole",
+   "type": "constant"
+  },
+  {
+   "name": "F",
+   "value": "96485",
+   "units": "C_per_mol",
+   "type": "constant"
+  }
+ ],
+ "defaults": [
+  [
+   "F",
+   "96485"
+  ],
+  [
+   "RT",
+   "2578.73058"
+  ],
+  [
+   "K_q_C_c",
+   "1"
+  ],
+  [
+   "K_q_E_c",
+   "1"
+  ],
+  [
+   "K_q_P_c",
+   "0.01"
+  ],
+  [
+   "K_q_S_c",
+   "1"
+  ],
+  [
+   "kappa_Rx_r1_c",
+   "10"
+  ],
+  [
+   "kappa_Rx_r2_c",
+   "1"
+  ],
+  [
+   "q_C_c_init",
+   "0"
+  ],
+  [
+   "q_E_c_init",
+   "0.1"
+  ],
+  [
+   "q_P_c_init",
+   "0"
+  ],
+  [
+   "q_S_c_init",
+   "1"
+  ]
+ ]
+}

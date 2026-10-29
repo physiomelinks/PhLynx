@@ -104,6 +104,91 @@ describe('libraryStore math layouts', () => {
   })
 })
 
+describe('libraryStore math sources', () => {
+  let store
+  const source = {
+    format: 'celldl',
+    document: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    documentUri: 'https://example.org/decay.celldl',
+    elements: { 'ID-1': { iri: 'https://example.org/decay.celldl#ID-1', kind: 'element', variables: [] } },
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+  })
+
+  it('treats math without a source as CellML', () => {
+    store.addMath(MATH_REF, XML)
+    expect(store.getMathSource(MATH_REF)).toBeNull()
+    expect(store.getMathFormat(MATH_REF)).toBe('cellml')
+  })
+
+  it('gives math the format of its source, until the source is removed', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    expect(store.getMathFormat(MATH_REF)).toBe('celldl')
+
+    store.setMathSource(MATH_REF, null)
+    expect(store.getMathFormat(MATH_REF)).toBe('cellml')
+  })
+
+  it('saves and restores sources with the workspace, skipping malformed ones', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    const state = JSON.parse(JSON.stringify(store.getState()))
+    state.mathSources.push(['file:other', { format: 'celldl', document: 3, documentUri: 'x' }])
+
+    setActivePinia(createPinia())
+    const restored = useLibraryStore()
+    restored.loadState(state)
+    expect(restored.getMathSource(MATH_REF)).toEqual(source)
+    expect(restored.getMathSource('file:other')).toBeNull()
+  })
+
+  it('loads a workspace saved without sources as CellML', () => {
+    store.loadState({ availableMath: [[MATH_REF, XML]] })
+    expect(store.getMathFormat(MATH_REF)).toBe('cellml')
+  })
+
+  it('clears sources when the math is removed or the store reset', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    store.removeMath(MATH_REF)
+    expect(store.getMathSource(MATH_REF)).toBeNull()
+
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    store.loadState({})
+    expect(store.getMathSource(MATH_REF)).toBeNull()
+  })
+
+  it('carries the source in a math entry, kept apart from later changes', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, structuredClone(source))
+    const entry = store.getMathEntry(MATH_REF)
+
+    store.getMathSource(MATH_REF).document = 'changed'
+    expect(entry.source).toEqual(source)
+
+    store.setMathSource(MATH_REF, null)
+    store.restoreMathEntry(MATH_REF, entry)
+    expect(store.getMathSource(MATH_REF)).toEqual(source)
+    store.getMathSource(MATH_REF).document = 'changed again'
+    expect(entry.source).toEqual(source)
+  })
+
+  it('removes a source that the restored entry did not have', () => {
+    store.addMath(MATH_REF, XML)
+    const entry = store.getMathEntry(MATH_REF)
+    expect(entry.source).toBeNull()
+
+    store.setMathSource(MATH_REF, source)
+    store.restoreMathEntry(MATH_REF, entry)
+    expect(store.getMathSource(MATH_REF)).toBeNull()
+  })
+})
+
 describe('libraryStore removing and restoring math', () => {
   let store, layout
   const moduleRef = 'decay:default'

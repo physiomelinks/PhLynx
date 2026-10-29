@@ -16,6 +16,7 @@ import { analyzeMathXml } from '../services/math/analyzeMath'
 import { analyzeBatchInBackground, analyzeInBackground } from '../services/math/mathWorkerClient'
 import { separateParameters } from '../services/math/separateParameters'
 import { detachReactivity } from '../utils/reactivity'
+import { DEFAULT_MODULE_FORMAT, checkMathSource } from '../services/moduleFormats'
 
 function mergeIntoStore(newModules, target) {
   const moduleMap = new Map(target.map((mod) => [mod.componentFile, mod]))
@@ -56,6 +57,9 @@ export const useLibraryStore = defineStore('library', () => {
   
   // mathRef -> TextLayout: the comments, blank lines and typed statements the math XML can't hold.
   const mathLayouts = ref(new Map())
+
+  // mathRef -> MathSource: the document a math's CellML is generated from. A math with none is CellML.
+  const mathSources = ref(new Map())
 
   // mathRef -> MathAnalysis. Non-reactive, since analyses are large and only read imperatively.
   const availableMathAnalysis = markRaw(new Map())
@@ -111,6 +115,7 @@ export const useLibraryStore = defineStore('library', () => {
     availableUnits.value = []
     mathDefaults.value.clear()
     mathLayouts.value.clear()
+    mathSources.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
   }
@@ -324,6 +329,17 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
+   * Replaces the values that came with a math, e.g. to keep a module's defaults when its source regenerates it.
+   *
+   * @param {string} mathRef
+   * @param {Map<string, string>} defaults
+   */
+  function setMathDefaults(mathRef, defaults) {
+    if (defaults.size) mathDefaults.value.set(mathRef, new Map(defaults))
+    else mathDefaults.value.delete(mathRef)
+  }
+
+  /**
    * Gets the text layout saved with a math.
    *
    * @param {string} mathRef
@@ -342,6 +358,37 @@ export const useLibraryStore = defineStore('library', () => {
   function setMathLayout(mathRef, layout) {
     if (layout) mathLayouts.value.set(mathRef, layout)
     else mathLayouts.value.delete(mathRef)
+  }
+
+  /**
+   * Gets the source a math's CellML is generated from.
+   *
+   * @param {string} mathRef
+   * @returns {{ format: string, document: string|null, documentUri: string } | null} Null for CellML math.
+   */
+  function getMathSource(mathRef) {
+    return mathSources.value.get(mathRef) ?? null
+  }
+
+  /**
+   * Saves the source a math's CellML is generated from, or removes it when the source is null.
+   *
+   * @param {string} mathRef
+   * @param {ReturnType<typeof getMathSource>} source
+   */
+  function setMathSource(mathRef, source) {
+    if (source) mathSources.value.set(mathRef, source)
+    else mathSources.value.delete(mathRef)
+  }
+
+  /**
+   * Gets the id of the format a math is authored in (see services/moduleFormats).
+   *
+   * @param {string} mathRef
+   * @returns {string}
+   */
+  function getMathFormat(mathRef) {
+    return mathSources.value.get(mathRef)?.format ?? DEFAULT_MODULE_FORMAT
   }
 
   /**
@@ -364,7 +411,7 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
-   * Removes math with its defaults, layout and analysis, marking its modules as stubs.
+   * Removes math with its defaults, layout, source and analysis, marking its modules as stubs.
    *
    * @param {string} mathRef
    */
@@ -373,6 +420,7 @@ export const useLibraryStore = defineStore('library', () => {
 
     mathDefaults.value.delete(mathRef)
     mathLayouts.value.delete(mathRef)
+    mathSources.value.delete(mathRef)
     pendingAnalysis.delete(mathRef)
     if (!availableMath.value.has(mathRef)) return
 
@@ -387,17 +435,23 @@ export const useLibraryStore = defineStore('library', () => {
    * Gets a copy of everything stored for a math, for restoreMathEntry.
    *
    * @param {string} mathRef
-   * @returns {{ math: string, defaults: Map<string, string>, layout: Object|null } | null} Null if there is no such math.
+   * @returns {{ math: string, defaults: Map<string, string>, layout: Object|null, source: Object|null } | null} Null if there is no such math.
    */
   function getMathEntry(mathRef) {
     const math = availableMath.value.get(mathRef)
     if (math === undefined) return null
     const layout = getMathLayout(mathRef)
-    return { math, defaults: new Map(getMathDefaults(mathRef)), layout: layout && detachReactivity(layout) }
+    const source = getMathSource(mathRef)
+    return {
+      math,
+      defaults: new Map(getMathDefaults(mathRef)),
+      layout: layout && detachReactivity(layout),
+      source: source && detachReactivity(source),
+    }
   }
 
   /**
-   * Puts a math back as getMathEntry found it, replacing its defaults and layout, or removes it
+   * Puts a math back as getMathEntry found it, replacing its defaults, layout and source, or removes it
    * when the entry is null.
    *
    * @param {string} mathRef
@@ -410,6 +464,7 @@ export const useLibraryStore = defineStore('library', () => {
     if (entry.defaults.size) mathDefaults.value.set(mathRef, new Map(entry.defaults))
     else mathDefaults.value.delete(mathRef)
     setMathLayout(mathRef, entry.layout && detachReactivity(entry.layout))
+    setMathSource(mathRef, entry.source && detachReactivity(entry.source))
     addMathHashEntry(mathRef, entry.math)
     updateStubStatus(mathRef)
     scheduleMathAnalysis(mathRef, entry.math)
@@ -526,6 +581,14 @@ export const useLibraryStore = defineStore('library', () => {
       }
     }
 
+    if (state.mathSources) {
+      // A malformed source is skipped, leaving its math as plain CellML.
+      for (const [mathRef, source] of state.mathSources) {
+        const checked = checkMathSource(source)
+        if (checked) mathSources.value.set(mathRef, checked)
+      }
+    }
+
     if (state.availableModules) {
       mergeIn(new Map(state.availableModules), availableModules.value)
     }
@@ -561,6 +624,15 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
+   * Removes a units file.
+   *
+   * @param {string} componentFile
+   */
+  function removeUnitsFile(componentFile) {
+    availableUnits.value = availableUnits.value.filter((f) => f.componentFile !== componentFile)
+  }
+
+  /**
    * Adds a units made from a typed expression, or a new base units, to the generated units file, creating the file
    * if needed.
    *
@@ -589,6 +661,7 @@ export const useLibraryStore = defineStore('library', () => {
       globalConstants: Array.from(globalConstants.value.entries()),
       mathDefaults: Array.from(mathDefaults.value.entries(), ([mathRef, values]) => [mathRef, Array.from(values)]),
       mathLayouts: Array.from(mathLayouts.value.entries()),
+      mathSources: Array.from(mathSources.value.entries()),
     }
   }
 
@@ -647,6 +720,7 @@ export const useLibraryStore = defineStore('library', () => {
     createModuleForMath,
     addMath,
     addUnitsFile,
+    removeUnitsFile,
     addGeneratedUnits,
     assignGlobalConstant,
     createMathHash,
@@ -665,8 +739,12 @@ export const useLibraryStore = defineStore('library', () => {
     getMathAnalysis,
     ensureMathAnalysis,
     getMathDefaults,
+    setMathDefaults,
     getMathLayout,
     setMathLayout,
+    getMathSource,
+    setMathSource,
+    getMathFormat,
 
     // Query
     getGlobalConstant,

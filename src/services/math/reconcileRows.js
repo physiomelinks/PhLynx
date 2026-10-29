@@ -18,6 +18,7 @@ import {
   findVoiNames,
   inferType,
   isBlank,
+  isEmpty,
   isNumericLiteral,
   syncInitialiserUnits,
 } from '../../utils/variables'
@@ -282,8 +283,11 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   }
 
   if (mode === SIMPLE_MODE) {
-    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost.
-    const keptDeclared = analysis.declared.map((variable) => variable.name).filter((name) => previousByName.has(name))
+    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost. So does
+    // one the defaults give a value, e.g. a generated constant, since its declaration has no value of its own.
+    const keptDeclared = analysis.declared
+      .map((variable) => variable.name)
+      .filter((name) => previousByName.has(name) || isNumericLiteral(defaults.get(name)))
     for (const name of new Set([...analysis.referenced, ...initialiserOf.values(), ...keptDeclared])) {
       addRow(buildSimpleModeRow(name, declaredByName.get(name), previousByName.get(name), context))
     }
@@ -302,4 +306,81 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   resolveStateInitialisers(rows, analysis.stateVariables)
   syncInitialiserUnits(rows, { overwrite: mode === SIMPLE_MODE })
   return rows
+}
+
+/**
+ * Fills blank row values from defaults, e.g. the values a locked math's source generates. Rows with
+ * a value keep it.
+ *
+ * @param {Array} rows - Never mutated.
+ * @param {Map<string, string>} defaults
+ * @returns {Array} The rows, with copies for those filled.
+ */
+export function fillBlankValues(rows, defaults) {
+  if (!defaults.size) return rows
+  return rows.map((row) => (isEmpty(row.value) && defaults.has(row.name) ? { ...row, value: defaults.get(row.name) } : row))
+}
+
+/**
+ * Gets the defaults a module keeps when its source regenerates its math, e.g. a diagram saved again: a variable the
+ * module already had keeps its default, and only one new to it takes the source's value.
+ *
+ * @param {Map<string, string>} values - The values the source generates (separateParameters).
+ * @param {Map<string, string>} previousDefaults - The module's defaults before the save (libraryStore.getMathDefaults).
+ * @returns {Map<string, string>}
+ */
+export function keepDefaults(values, previousDefaults) {
+  return new Map([...values].map(([name, value]) => [name, previousDefaults.has(name) ? previousDefaults.get(name) : value]))
+}
+
+/**
+ * Renames rows, e.g. after a diagram edit renamed the variables its elements generate, so their values go with them.
+ * A row a rename leaves under a name another row now takes is dropped.
+ *
+ * @param {Array} rows - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Array} The rows, with copies for those renamed.
+ */
+export function renameRows(rows, renames) {
+  if (!renames?.size) return rows
+  const renamed = rows.map((row) => {
+    const name = renames.get(row.name)
+    const initialiser = row.initialiser && renames.get(row.initialiser)
+    if (!name && !initialiser) return row
+    return { ...row, ...(name && { name }), ...(initialiser && { initialiser }) }
+  })
+  const targets = new Set(renames.values())
+  return renamed.filter((row, index) => !targets.has(row.name) || renames.has(rows[index].name))
+}
+
+/**
+ * Renames a source's values to match renamed rows (renameRows).
+ *
+ * @param {Map<string, string>} values - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Map<string, string>}
+ */
+export function renameValues(values, renames) {
+  if (!renames?.size) return values
+  const renamed = new Map([...values].filter(([name]) => !renames.has(name)))
+  renames.forEach((name, old) => {
+    if (values.has(old)) renamed.set(name, values.get(old))
+  })
+  return renamed
+}
+
+/**
+ * Renames the variables ports carry (renameRows).
+ *
+ * @param {Array} ports - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Array}
+ */
+export function renamePortVariables(ports, renames) {
+  if (!renames?.size || !ports) return ports
+  return ports.map((port) =>
+    (port.variables ?? []).some((name) => renames.has(name))
+      ? { ...port, variables: port.variables.map((name) => renames.get(name) ?? name) }
+      : port
+  )
 }

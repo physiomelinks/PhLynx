@@ -23,7 +23,9 @@ jobs:
 
       - run: pip install -r tests/requirements.txt
 
-      - run: playwright install --with-deps chromium
+      # WebKit too, for the CellDL tests that also run in Safari's engine (test_celldl.py fails, not skips, a
+      # missing WebKit under CI); the rest of the suite runs in Chromium.
+      - run: playwright install --with-deps chromium webkit
 
       - run: yarn dev &
       

@@ -16,7 +16,7 @@ afterEach(() => wrapper?.unmount())
 const NEW_INITIALISER_VALUE = '__new_initialiser__'
 
 /** Mounts the table with state `x` initialised from `k`, and `x_init` free to take over. */
-function mountTable(mathReferences, { kValue = '1', extraRows = [], ignoredNotices = new Map() } = {}) {
+function mountTable(mathReferences, { kValue = '1', extraRows = [], ignoredNotices = new Map(), props = {} } = {}) {
   const rows = reactive([
     { name: 'x', units: 'metre', type: 'variable', stateRole: 'state', initialiser: 'k', access: 'access' },
     { name: 'k', units: 'metre', type: 'constant', value: kValue, access: 'access' },
@@ -31,6 +31,7 @@ function mountTable(mathReferences, { kValue = '1', extraRows = [], ignoredNotic
       issueFilter: { activeKeys: { value: [] }, toggle: () => {}, isShown: () => true },
       mathReferences,
       ignoredNotices,
+      ...props,
     },
     global: { plugins: [PrimeVue] },
   })
@@ -286,5 +287,33 @@ describe('ParameterTable connection status', () => {
     })
     const labels = wrapper.vm.initialiserOptionsFor(rows[0]).map((option) => option.label)
     expect(labels).toEqual(expect.arrayContaining(['b (from axon_SN.V)', 'c (not connected)', 'd']))
+  })
+})
+
+describe('ParameterTable values only', () => {
+  const SanitisedInput = { name: 'SanitisedInput' }
+  const rowSelects = () => wrapper.findAllComponents(Select).filter((select) => !select.classes('search-column'))
+
+  it('lets only values be edited', () => {
+    mountTable(new Set(['t', 'x', 'k']), { props: { valuesOnly: true } })
+
+    // Names and units show as text, and nothing can be selected for a bulk type change.
+    expect(wrapper.findAllComponents(SanitisedInput)).toHaveLength(0)
+    expect(wrapper.find('.p-datatable-column-header-content .p-checkbox').exists()).toBe(false)
+    expect(wrapper.text()).toContain('metre')
+    expect(rowSelects().length).toBeGreaterThan(0)
+    expect(rowSelects().every((select) => select.props('disabled'))).toBe(true)
+
+    const valueInputs = wrapper.findAll('input.p-inputtext').filter((input) => !input.classes('search-input'))
+    expect(valueInputs.map((input) => input.element.value)).toEqual(expect.arrayContaining(['1', '2']))
+    expect(valueInputs.every((input) => !input.element.disabled)).toBe(true)
+  })
+
+  it('edits names, units and types otherwise', () => {
+    mountTable(new Set(['t', 'x', 'k']))
+
+    expect(wrapper.findAllComponents(SanitisedInput).length).toBeGreaterThan(0)
+    expect(wrapper.find('.p-datatable-column-header-content .p-checkbox').exists()).toBe(true)
+    expect(rowSelects().some((select) => !select.props('disabled'))).toBe(true)
   })
 })

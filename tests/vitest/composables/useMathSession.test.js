@@ -262,6 +262,16 @@ describe('useMathSession', () => {
     expect(session.hasUnsavedInvalidEdit()).toBe(false)
   })
 
+  it('follows undo and redo across an edit that leaves the math invalid', async () => {
+    await editorRef.value.report('init', 'ode(x, t) = -k * x;\n', true)
+    await editorRef.value.report('edit', 'ode(x, t) = -k *', true)
+
+    await history.undo()
+    expect(session.hasUnsavedInvalidEdit()).toBe(false)
+    await history.redo()
+    expect(session.hasUnsavedInvalidEdit()).toBe(true)
+  })
+
   describe('when a variable is renamed in the text', () => {
     const SIMPLE_TEXT = 'ode(x, t) = -k * x;\n'
 
@@ -715,6 +725,101 @@ describe('useMathSession', () => {
       expect(pick(session.parameterRows.value)).toEqual(reloaded)
       expect(session.isDirty()).toBe(false)
       expect(unusedRows(save().rows)).toEqual(expected)
+    })
+  })
+
+  describe('locked math', () => {
+    // The decay math as a diagram might generate it, with an extra parameter and new values.
+    const GENERATED_XML = XML.replace('initial_value="0.5"', 'initial_value="0.7"').replace(
+      '<variable name="k"',
+      '<variable name="c" units="metre" initial_value="3"/>\n    <variable name="k"'
+    )
+
+    beforeEach(async () => {
+      useLibraryStore().setMathSource(MATH_REF, { format: 'celldl', document: '', documentUri: 'local:decay.celldl' })
+      await session.load({ mathRef: MATH_REF, rows: [{ name: 'k', value: '2', units: 'per_second', type: 'constant' }], managed: false })
+    })
+
+    it('is locked only for math generated from a source', async () => {
+      expect(session.isMathLocked.value).toBe(true)
+      useLibraryStore().setMathSource(MATH_REF, null)
+      expect(session.isMathLocked.value).toBe(false)
+    })
+
+    it('ignores what the editors report', async () => {
+      const text = new CellMLTextGenerator({ simplified: false }).generate(XML)
+      await editorRef.value.report('init', text, false)
+      await editorRef.value.report('edit', text.replace(/\bk\b/g, 'kk'), false)
+      await editorRef.value.report('external', text.replace(/\bk\b/g, 'kk'), false)
+
+      expect(session.currentModel.value).toBe(useLibraryStore().availableMath.get(MATH_REF))
+      expect(session.isDirty()).toBe(false)
+      expect(byName(session.parameterRows.value).k).toBeDefined()
+      expect(history.canUndo).toBe(false)
+    })
+
+    it('follows a lock its caller gives over the stored format, and reports edits once it lifts', async () => {
+      const isLocked = ref(true)
+      useLibraryStore().setMathSource(MATH_REF, null)
+      session = useMathSession({ history, editorRef, ports, isLocked: () => isLocked.value })
+      editorRef.value = fakeEditor(session)
+      await session.load({ mathRef: MATH_REF, rows: [], managed: false })
+      const text = new CellMLTextGenerator({ simplified: false }).generate(XML)
+      await editorRef.value.report('init', text, false)
+
+      await editorRef.value.report('edit', text.replace(/\bk\b/g, 'kk'), false)
+      expect(session.isMathLocked.value).toBe(true)
+      expect(session.isDirty()).toBe(false)
+
+      isLocked.value = false
+      await editorRef.value.report('edit', text.replace(/\bk\b/g, 'kk'), false)
+      expect(session.isDirty()).toBe(true)
+    })
+
+    it("keeps every generated constant's value, even one no equation uses, on a first save", async () => {
+      await session.load({ mathRef: MATH_REF, rows: [], managed: false })
+      session.applyGeneratedModel(
+        GENERATED_XML.replace('<variable name="k"', '<variable name="F" units="C_per_mol" initial_value="96485"/>\n    <variable name="k"')
+      )
+
+      const rows = byName(session.parameterRows.value)
+      expect(rows.F).toMatchObject({ value: '96485', type: 'constant' })
+      expect(rows.c.value).toBe('3')
+      expect(rows.k.value).toBe('0.7')
+      expect(rows.x0.value).toBe('1')
+    })
+
+    it("keeps the instance's values, and fills blank rows from the module's previous defaults, new ones from the source", async () => {
+      await session.load({
+        mathRef: MATH_REF,
+        rows: [
+          { name: 'k', value: '2', units: 'per_second', type: 'constant' },
+          { name: 'x0', value: '', units: 'metre', type: 'constant' },
+        ],
+        managed: false,
+      })
+      session.applyGeneratedModel(GENERATED_XML, {
+        previousDefaults: new Map([
+          ['k', '0.5'],
+          ['x0', '0.9'],
+        ]),
+      })
+
+      const rows = byName(session.parameterRows.value)
+      expect(rows.x0.value).toBe('0.9')
+      expect(rows.k.value).toBe('2')
+      expect(rows.c.value).toBe('3')
+    })
+
+    it('keeps the instance values and fills the rest from a generated model', () => {
+      session.applyGeneratedModel(GENERATED_XML)
+
+      const rows = byName(session.parameterRows.value)
+      expect(rows.k.value).toBe('2')
+      expect(rows.c.value).toBe('3')
+      expect(rows.x0.value).toBe('1')
+      expect(session.currentModel.value).not.toContain('initial_value="3"')
+      expect(session.isDirty()).toBe(true)
     })
   })
 })

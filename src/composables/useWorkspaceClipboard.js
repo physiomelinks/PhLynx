@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { parseLayout } from 'cellml-text-editor'
 import { useLibraryStore } from '../stores/libraryStore'
+import { checkMathSource } from '../services/moduleFormats'
 import { separateNodeParameters } from '../services/workspaceMigrator'
 import { FLOW_IDS } from '../utils/constants'
 import { getId as getNextEdgeId } from '../utils/edges'
@@ -103,6 +104,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
         mathRef,
         math,
         layout: libraryStore.getMathLayout(mathRef),
+        source: libraryStore.getMathSource(mathRef),
         moduleRef,
         module,
       }
@@ -152,8 +154,9 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
           libraryStore.addModule(entry.module)
         }
         if (!libraryStore.availableMath.has(entry.mathRef)) {
-          // Clipboard text can come from anywhere, so the layout is checked like a saved one.
+          // Clipboard text can come from anywhere, so the layout and source are checked like saved ones.
           const layout = entry.layout ? parseLayout(JSON.stringify(entry.layout)) : null
+          libraryStore.setMathSource(entry.mathRef, checkMathSource(entry.source))
           libraryStore.addMath(entry.mathRef, entry.math, true, layout)
         }
       }

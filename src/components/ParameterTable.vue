@@ -29,7 +29,7 @@
       </div>
 
       <!-- Selecting rows swaps the summary row for the bulk actions, so the toolbar keeps its height -->
-      <div v-if="selectedRows.length" class="toolbar-row bulk-controls">
+      <div v-if="selectedRows.length && !valuesOnly" class="toolbar-row bulk-controls">
         <span class="bulk-label">{{ selectedRows.length }} selected. Set type:</span>
         <Select
           v-model="bulkTypeValue"
@@ -83,12 +83,12 @@
         :rowClass="parameterRowClass"
         class="p-datatable-sm parameters-table"
       >
-        <Column selectionMode="multiple" headerStyle="width: 2rem" />
+        <Column v-if="!valuesOnly" selectionMode="multiple" headerStyle="width: 2rem" />
         <Column field="name" bodyClass="small-text-col" header="Name" sortable style="min-width: 120px">
           <template #body="slotProps">
             <span class="name-cell">
               <SanitisedInput
-                v-if="isRenamableInitialiser(slotProps.data)"
+                v-if="!valuesOnly && isRenamableInitialiser(slotProps.data)"
                 :model-value="displayedName(slotProps.data)"
                 :sanitise="cleanName"
                 :notice="duplicateNameNotice(slotProps.data)"
@@ -131,6 +131,7 @@
               optionValue="value"
               size="small"
               class="w-full"
+              :disabled="valuesOnly"
               title="Which variable supplies this state's initial value"
               @update:model-value="(val) => onInitialiserPick(slotProps.data, val)"
             />
@@ -148,7 +149,7 @@
         <Column field="units" bodyClass="small-text-col" header="Units" sortable style="width: 152px">
           <template #body="slotProps">
             <SanitisedInput
-              v-if="isManaged"
+              v-if="isManaged && !valuesOnly"
               :model-value="slotProps.data.units"
               :sanitise="cleanName"
               :notice="getUnitsNotice(slotProps.data)"
@@ -157,7 +158,11 @@
               placeholder="e.g. mV or mV/ms"
               @update:model-value="(units) => setLinkedUnits(rows, slotProps.data, units)"
             />
-            <span v-else class="cell-static text-muted" title="Edit units in the CellML text">
+            <span
+              v-else
+              class="cell-static text-muted"
+              :title="valuesOnly ? 'Set by the source the math is generated from' : 'Edit units in the CellML text'"
+            >
               <span class="cell-static-text">{{ slotProps.data.units || '—' }}</span>
               <i
                 v-if="getUnitsNotice(slotProps.data)"
@@ -172,7 +177,7 @@
             <Select
               :model-value="slotProps.data.type"
               :options="typeOptionsFor(slotProps.data)"
-              :disabled="isTypeFixed(slotProps.data)"
+              :disabled="valuesOnly || isTypeFixed(slotProps.data)"
               optionLabel="label"
               optionValue="value"
               size="small"
@@ -232,6 +237,8 @@ const props = defineProps({
   mathReferences: { type: Set, default: () => new Set() },
   /** (typed) => units suggestions for the Units field, as SanitisedInput's `suggest`; null for none. */
   suggestUnits: { type: Function, default: null },
+  /** Only values can be edited, as the math (names, units, types, initialisers) is generated from a source. */
+  valuesOnly: { type: Boolean, default: false },
 })
 
 const { confirm } = useConfirmDialog()

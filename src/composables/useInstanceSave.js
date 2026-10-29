@@ -1,24 +1,35 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
-import { getPortVariables, reconcileRows } from '../services/math/reconcileRows'
+import {
+  fillBlankValues,
+  getPortVariables,
+  keepDefaults,
+  reconcileRows,
+  renamePortVariables,
+  renameRows,
+  renameValues,
+} from '../services/math/reconcileRows'
+import { separateParameters } from '../services/math/separateParameters'
+import { rescaleRows } from '../services/math/unitRescale'
+import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
-import { previewCouplings } from '../utils/edges'
+import { carryDrivesState, previewCouplings } from '../utils/edges'
 import { detachReactivity } from '../utils/reactivity'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
 const NODE_KEYS = ['name', 'variables', 'ports', 'mathRef', 'moduleRef']
 
 /**
- * Checks whether two math entries (see libraryStore.getMathEntry) hold the same math, defaults and layout.
+ * Checks whether two math entries (see libraryStore.getMathEntry) hold the same math, defaults, layout and source.
  *
  * @param {Object|null} entry
  * @param {Object|null} otherEntry
  * @returns {boolean}
  */
 function isSameMathEntry(entry, otherEntry) {
-  const serialise = (value) => value && JSON.stringify([value.math, [...value.defaults], value.layout])
+  const serialise = (value) => value && JSON.stringify([value.math, [...value.defaults], value.layout, value.source])
   return serialise(entry) === serialise(otherEntry)
 }
 
@@ -51,7 +62,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
 
   /**
    * Rebuilds a node's rows from its math, keeping their values. A row the math newly needs starts
-   * blank: the math's defaults only seed new instances.
+   * blank: the math's defaults only seed new instances. Locked math (e.g. generated from a diagram)
+   * can't be edited to fill them, so its blank rows take the math's defaults.
    *
    * @param {Object} node
    * @param {string} mathRef - The math the node now uses.
@@ -59,9 +71,13 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   function updateVariablesFromMath(node, mathRef) {
     const analysis = libraryStore.getMathAnalysis(mathRef)
     if (!analysis) return
-    node.data.variables = reconcileRows(analysis, node.data.variables ?? [], {
+    const isLocked = getModuleFormat(libraryStore.getMathFormat(mathRef)).isMathLocked
+    const defaults = isLocked ? libraryStore.getMathDefaults(mathRef) : new Map()
+    const rows = reconcileRows(analysis, node.data.variables ?? [], {
       portVariables: getPortVariables(node.data.ports),
+      defaults,
     })
+    node.data.variables = isLocked ? fillBlankValues(rows, defaults) : rows
   }
 
   /**
@@ -75,17 +91,20 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Recomputes couplings on every edge touching a node from the current ports. Call it after
-   * changing ports on one or more nodes.
+   * Recomputes couplings on every edge touching a node from the current ports, keeping which drive a store. Call it
+   * after changing ports on one or more nodes.
    *
    * @param {string} nodeId
+   * @param {Map<string, Array>} [marked] - Edges' couplings as the save confirmed them, under the old variable names, whose
+   *   `drivesState` marks they keep (InstanceEditorDialog's confirmPortDrives).
    */
-  function recomputeEdgeCouplings(nodeId) {
+  function recomputeEdgeCouplings(nodeId, marked = new Map()) {
     const node = findNode(nodeId)
     if (!node) return
     const couplings = previewCouplings(nodeId, node.data.ports ?? [], nodes.value, edges.value)
     edges.value.forEach((edge) => {
-      if (couplings.has(edge.id)) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
+      if (!couplings.has(edge.id)) return
+      edge.data = { ...edge.data, couplings: carryDrivesState(marked.get(edge.id) ?? [], couplings.get(edge.id), { byLabel: true }) }
     })
   }
 
@@ -108,16 +127,39 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @returns {string|null} The ref of the module made for the math, if one was.
    */
   function applySave(save) {
-    const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, globalConstants, updateAll, siblings } = save
+    const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, source, isSourceChanged, units, globalConstants, updateAll, siblings } =
+      save
+    const renames = new Map(save.renames ?? [])
+    const unitRescales = save.unitRescales ?? []
+    // The module's defaults before its source regenerated the math, under the names the source's edit gave them.
+    const previousDefaults = save.previousDefaults ? renameValues(new Map(save.previousDefaults), renames) : null
     // Keep the shared units and reference, so one node's fields don't replace them.
     globalConstants.forEach(({ name, value, units, data_reference, overwrite }) => {
       const shared = libraryStore.getGlobalConstant(name)
       libraryStore.assignGlobalConstant(name, value, shared?.units ?? units, shared?.data_reference ?? data_reference, !!overwrite)
     })
     const isNewModule = isNewModuleSave(save)
-    if (math !== null) libraryStore.addMath(mathRef, math, true, layout)
-    else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
+    // The source first, so the math's format is known once the math is added.
+    if (isSourceChanged) libraryStore.setMathSource(mathRef, source ?? null)
+    // Units generated with the math, kept in the module's own file, are there before the math is analysed.
+    if (units?.model) libraryStore.addUnitsFile(detachReactivity(units))
+    else if (units) libraryStore.removeUnitsFile(units.componentFile)
+    if (math !== null) {
+      libraryStore.addMath(mathRef, math, true, layout)
+      // A source's math is laid out afresh with each generation, so a layout from its last one is never kept.
+      if (isSourceChanged && !layout) libraryStore.setMathLayout(mathRef, null)
+      // Values are each instance's, so a regenerated math keeps the module's defaults; only new variables take the
+      // source's values.
+      if (previousDefaults) {
+        const kept = keepDefaults(separateParameters(math).values, previousDefaults)
+        libraryStore.setMathDefaults(mathRef, new Map([...libraryStore.getMathDefaults(mathRef), ...kept]))
+      }
+    } else if (isLayoutChanged) libraryStore.setMathLayout(mathRef, layout)
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity({ ports, variables })) : null
+    // The source's renames, and the units its math changed, are its own variables', so they move and rescale only the
+    // rows of nodes that were on the saved math, not those of another module's it overwrote.
+    const previousMathRef = save.previousMathRef ?? mathRef
+    const renamedIds = new Set(nodes.value.filter((node) => node.data?.mathRef === previousMathRef).map((node) => node.id))
 
     // Without its own module, a node would keep its old one's ref, which export keys configs by.
     // Only siblings on the edited node's old module share its ports, so only they move to the new one.
@@ -136,11 +178,18 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     cleanPorts(findNode(id))
     const otherNodes = nodes.value.filter((node) => node.id !== id && node.data?.mathRef === mathRef)
     otherNodes.forEach((node) => {
+      // Values, and ports, follow variables the source's edit renamed.
+      if (renames.size && renamedIds.has(node.id)) {
+        node.data.variables = renameRows(node.data.variables ?? [], renames)
+        node.data.ports = renamePortVariables(node.data.ports, renames)
+      }
+      // Values keep their quantities in the math's new units.
+      if (unitRescales.length && renamedIds.has(node.id)) node.data.variables = rescaleRows(node.data.variables ?? [], unitRescales)
       updateVariablesFromMath(node, mathRef)
       cleanPorts(node)
     })
 
-    recomputeEdgeCouplings(id)
+    recomputeEdgeCouplings(id, new Map(save.drivenCouplings ?? []))
     otherNodes.forEach((node) => recomputeEdgeCouplings(node.id))
     return moduleRef
   }
@@ -183,6 +232,30 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Gets the units file a save replaces or removes, as a recordEdit `library` entry.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {{captureAfter: Function, library: Object}|null} Null when the save writes no units. Call
+   *   `captureAfter` once the save is applied.
+   */
+  function prepareUnitsChange({ units }) {
+    if (!units) return null
+    const { componentFile } = units
+    const current = () => libraryStore.availableUnits.find((file) => file.componentFile === componentFile)?.model ?? null
+    const states = { before: current(), after: null }
+    return {
+      captureAfter: () => (states.after = current()),
+      library: {
+        isAt: (side) => current() === states[side],
+        restore: (side) => {
+          if (states[side] === null) libraryStore.removeUnitsFile(componentFile)
+          else libraryStore.addUnitsFile({ componentFile, model: states[side] })
+        },
+      },
+    }
+  }
+
+  /**
    * Gets the plot config change a save makes, as a recordEdit `library` entry. Only the saved node's
    * selections are compared and restored, so changes to other nodes' plots don't block the undo.
    *
@@ -212,10 +285,10 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * what the save wrote, and keeps math a save created while any node still uses it.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
-   * @returns {Promise<number>} How many nodes now use the saved math reference.
+   * @returns {Promise<number>} How many nodes the save updated.
    */
   async function saveInstanceEdit(save) {
-    const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save
+    const { id, mathRef, previousMathRef, math, isLayoutChanged, isSourceChanged, updateAll, siblings } = save
     const affectedIds = [
       ...new Set([
         id,
@@ -223,13 +296,14 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         ...nodes.value.filter((node) => [mathRef, previousMathRef].includes(node.data?.mathRef)).map((node) => node.id),
       ]),
     ]
-    const writtenMathRef = math !== null || isLayoutChanged ? mathRef : null
+    const writtenMathRef = math !== null || isLayoutChanged || isSourceChanged ? mathRef : null
     const mathBefore = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
     let mathAfter = null
 
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
     const plotChange = preparePlotChange(save)
     const moduleChange = prepareModuleChange(save)
+    const unitsChange = prepareUnitsChange(save)
 
     await recordEdit({
       type: 'edit-instance',
@@ -240,6 +314,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         const moduleRef = applySave(save)
         moduleChange?.created(moduleRef)
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
+        unitsChange?.captureAfter()
         plotChange?.apply()
       },
       library: combineLibraries([
@@ -257,6 +332,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
           },
         },
         moduleChange?.library,
+        unitsChange?.library,
         plotChange?.library,
       ]),
     })
