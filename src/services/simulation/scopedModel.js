@@ -298,13 +298,19 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
 }
 
 /**
+ * buildScopedModel's options for the simulator. libOpenCOR checks the model and reports its issues, so the flatten's
+ * own check is skipped; and a model without ODEs or clock readers stays algebraic, which libOpenCOR solves once.
+ */
+export const SIMULATION_BUILD = Object.freeze({ check: false, keepAlgebraic: true })
+
+/**
  * Flattens a scope into a standalone CellML model. A boundary condition nothing supplies and without a
  * value of its own is set to 0; checkScope lists them in `zeroedBoundaries`.
  *
  * @param {ReturnType<typeof resolveScope>} scope
  * @param {Object} libraryStore
- * @param {{check?: boolean}} [options] - See generateFlattenedModel; a simulation run skips the check, since
- *   libOpenCOR checks the model and reports its issues.
+ * @param {{check?: boolean, keepAlgebraic?: boolean}} [options] - See generateFlattenedModel; the simulator passes
+ *   SIMULATION_BUILD.
  * @returns {Blob} The flattened CellML model.
  * @throws {Error} When the scope can't be flattened; run checkScope first for a readable report.
  */
