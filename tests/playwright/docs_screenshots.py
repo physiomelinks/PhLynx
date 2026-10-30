@@ -267,6 +267,42 @@ def connections_dialog(page):
     save(dialog, "connections-dialog")
 
 
+def edge_routing(page):
+    open_workspace(page)
+    soma = node_by_name(page, "soma_SN")
+    axon = node_by_name(page, "axon_SN")
+    var = node_by_name(page, "var_SN")
+    # Drag soma_SN up against axon_SN, so its arrow into axon_SN's lower handle runs down between them.
+    soma_box = soma.bounding_box()
+    axon_box = axon.bounding_box()
+    grab = (soma_box["x"] + soma_box["width"] / 2, soma_box["y"] + 10)
+    page.mouse.move(*grab)
+    page.mouse.down()
+    page.mouse.move(axon_box["x"] + axon_box["width"] * 1.5 + 40, axon_box["y"] - 30, steps=10)
+    page.mouse.up()
+    page.wait_for_timeout(500)
+    # Route every arrow around the instances from the canvas menu.
+    page.mouse.click(VIEWPORT["width"] - 400, 250)
+    page.mouse.click(VIEWPORT["width"] - 400, 250, button="right")
+    page.locator(".context-menu__item", has_text="Route Edges Around Modules").click()
+    page.wait_for_timeout(300)
+    dismiss_toasts(page)
+    # Select the rerouted arrow to show its segment handles.
+    point = page.evaluate(
+        """() => {
+            const path = document.querySelector('.vue-flow__edge[data-id="dndnode_0--dndnode_1"] .vue-flow__edge-path')
+            const point = path.getPointAtLength(path.getTotalLength() * 0.5)
+            const m = path.getScreenCTM()
+            return { x: point.x * m.a + m.e, y: point.y * m.d + m.f }
+        }"""
+    )
+    page.mouse.click(point["x"], point["y"])
+    expect(page.locator(".edge-route-handle").first).to_be_visible()
+    page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(300)
+    save(page, "edge-routing", clip=clip_around([soma, axon, var, page.locator(".vue-flow__edge").first], margin=40))
+
+
 def macro_builder(page):
     open_workspace(page)
     page.locator("button:has(.pi-hammer)").click()
@@ -510,6 +546,7 @@ SHOTS = {
     "simulation-page": simulation_page,
     "protocol-results": protocol_results,
     "connections-dialog": connections_dialog,
+    "edge-routing": edge_routing,
     "macro-builder": macro_builder,
     "units-create": units_create,
     "math-editor": math_editor,

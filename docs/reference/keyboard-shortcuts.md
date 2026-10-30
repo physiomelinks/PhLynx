@@ -20,6 +20,7 @@ On Mac, use Cmd wherever Ctrl appears. Workspace shortcuts are ignored while you
 | Rename an instance | Click its name; Enter saves, Esc cancels |
 | Open the Instance Editor | Double-click an instance |
 | Open the Connections dialog | Double-click an arrow |
+| [Move a segment](./ui-overview.md#routing) of the selected arrow | Drag its square handle; Alt (Option on Mac) skips snapping, Esc cancels |
 
 ## Search {#search}
 
