@@ -2,10 +2,21 @@ import { ref, computed } from 'vue'
 import { TARGET_COMPATIBLE } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
 import { isSingleConnection } from '../utils/edges'
-import { isCompatible, findPort } from '../utils/ports'
+import { canCouple, findPort, isAnnotatedPort, isCompatible, portDisplayName, portRef, samePort } from '../utils/ports'
+import { notify } from '../utils/notify'
 import { isMultiport } from '../utils/multiport'
+import { mirrorAnnotation, mirroredPort } from '../services/annotations/couple'
 
-export function useEdgeCouplings(props, askSwapIntent) {
+/**
+ * The edge dialog's local ports and couplings.
+ *
+ * @param {Object} props - sourceNode, targetNode, activeEdge and subgraph.
+ * @param {Function} askSwapIntent
+ * @param {Object} [options]
+ * @param {() => Object|undefined} [options.getContext] - The annotation context (see useCouplingContext); without
+ *   one, annotated ports never couple.
+ */
+export function useEdgeCouplings(props, askSwapIntent, { getContext = () => undefined } = {}) {
   const localSrcPorts = ref([])
   const localTgtPorts = ref([])
   const localCouplings = ref([])
@@ -23,6 +34,19 @@ export function useEdgeCouplings(props, askSwapIntent) {
 
   const srcByUid = (uid) => portLookup.value.get(uid)?.port
   const tgtByUid = (uid) => portLookup.value.get(uid)?.port
+
+  /** Whether a new connection may join a source port to a target port. */
+  const canConnect = (sp, tp) => canCouple(sp, props.sourceNode, tp, props.targetNode, getContext())
+
+  /**
+   * Whether a coupling may stay. One with an annotated port is kept while its port types fit, since only its
+   * annotations, not its labels, made it.
+   */
+  const canKeep = (sp, tp) =>
+    !!sp &&
+    !!tp &&
+    isCompatible(sp.portType, tp.portType) &&
+    (isAnnotatedPort(sp) || isAnnotatedPort(tp) || canConnect(sp, tp))
 
   const connectedSrcUids = computed(() => new Set(localCouplings.value.map(c => c.srcUid)))
   const connectedTgtUids = computed(() => new Set(localCouplings.value.map(c => c.tgtUid)))
@@ -101,12 +125,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     const sibling = localSubgraph.value.get(edgeId)
     if (!sibling) return null
 
-    const coupling = sibling.data?.couplings?.find(c => {
-      const portToCheck = side === 'source' ? c.sourcePort : c.targetPort
-      return portToCheck?.label === port.label &&
-             portToCheck?.portType === port.portType &&
-             JSON.stringify(portToCheck?.variables) === JSON.stringify(port.variables)
-    })
+    const coupling = sibling.data?.couplings?.find(c => samePort(side === 'source' ? c.sourcePort : c.targetPort, port))
 
     const partnerPortLabel = side === 'source' ? coupling?.targetPort : coupling?.sourcePort
     const partnerPort = side === 'source'
@@ -177,13 +196,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     const sibling = localSubgraph.value.get(edgeId)
     if (!sibling) return
 
-    const newPort = {
-      label: oldPort.label,
-      portType: oldPort.portType,
-      variables: oldPort.variables,
-      multiportType: oldPort.multiportType,
-      multiplyFactor: oldPort.multiplyFactor,
-    }
+    const newPort = portRef(oldPort)
 
     const newCoupling = side === 'source'
       ? { sourcePort: newPort, targetPort: partnerPort }
@@ -200,9 +213,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
   function connectPorts(srcUid, tgtUid, couplings) {
     const sp = srcByUid(srcUid)
     const tp = tgtByUid(tgtUid)
-    if (!sp || !tp || !sp.label || !tp.label) return couplings
-    if (sp.label !== tp.label) return couplings
-    if (!isCompatible(sp.portType, tp.portType)) return couplings
+    if (!canConnect(sp, tp)) return couplings
     if (couplings.some(c => c.srcUid === srcUid && c.tgtUid === tgtUid)) return couplings
     return [...couplings, { srcUid, tgtUid }]
   }
@@ -211,7 +222,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     localCouplings.value = localCouplings.value.filter(c => {
       const sp = srcByUid(c.srcUid)
       const tp = tgtByUid(c.tgtUid)
-      return sp && tp && sp.label === tp.label && isCompatible(sp.portType, tp.portType)
+      return canKeep(sp, tp)
     })
 
     pruneSingleConnectionSide(localSrcPorts.value, 'source')
@@ -235,13 +246,14 @@ export function useEdgeCouplings(props, askSwapIntent) {
 
   function autoConnect() {
     for (const sp of localSrcPorts.value) {
-      if (!sp.label || !sp.label.trim()) continue
-      
+      // Annotated ports are coupled by suggestion or by hand, never automatically here.
+      if (isAnnotatedPort(sp) || !sp.label || !sp.label.trim()) continue
+
       const srcUsedCount = localCouplings.value.filter(c => c.srcUid === sp._uid).length
       if (isSingleConnection(sp) && (srcUsedCount > 0 || takenElsewhereUids.value.has(sp._uid))) continue
 
       const compatibleTargets = localTgtPorts.value.filter(tp => {
-        if (tp.label !== sp.label || !isCompatible(sp.portType, tp.portType)) return false
+        if (!canConnect(sp, tp)) return false
         
         const tgtUsedCount = localCouplings.value.filter(c => c.tgtUid === tp._uid).length
         if (isSingleConnection(tp) && (tgtUsedCount > 0 || takenElsewhereUids.value.has(tp._uid))) return false
@@ -266,6 +278,13 @@ export function useEdgeCouplings(props, askSwapIntent) {
     }
   }
 
+  /**
+   * Adds a new port on one side, shaped to couple with a partner port on the other. A copy of an annotated
+   * partner mirrors its annotation (see mirrorAnnotation), with no label and its variable left to pick.
+   *
+   * @param {'source'|'target'} side
+   * @param {Object} [inferFrom] - The partner port.
+   */
   function activateGhost(side, inferFrom = null) {
     const uid = `new_${side}_${crypto.randomUUID()}`
     let portType = 'general_ports'
@@ -278,14 +297,29 @@ export function useEdgeCouplings(props, askSwapIntent) {
       return
     }
 
-    const entry = {
-      _uid: uid,
-      portType,
-      label: inferFrom?.label ?? '',
-      variables: [],           
-      // Multiport like its partner, its variables True until chosen: the partner's per-variable types don't fit.
-      multiportType: inferFrom && isMultiport(inferFrom) ? 'True' : 'None',
+    const [node, ports, partnerNode] =
+      side === 'source'
+        ? [props.sourceNode, localSrcPorts.value, props.targetNode]
+        : [props.targetNode, localTgtPorts.value, props.sourceNode]
+    const annotation = isAnnotatedPort(inferFrom)
+      ? mirrorAnnotation(inferFrom, partnerNode, node, getContext(), ports)
+      : null
+    // Before the partner is located (its files still parsing, or it is unbound) a copy would have no place to
+    // couple at, ever, so none is made.
+    if (isAnnotatedPort(inferFrom) && !annotation?.location && !annotation?.absoluteLocation) {
+      notify.warning({ message: `"${portDisplayName(inferFrom)}" isn't located yet, so it can't be copied.` })
+      return
     }
+    const entry = annotation
+      ? { _uid: uid, ...mirroredPort(annotation, portType) }
+      : {
+          _uid: uid,
+          portType,
+          label: inferFrom?.label ?? '',
+          variables: [],
+          // Multiport like its partner, its variables True until chosen: the partner's per-variable types don't fit.
+          multiportType: inferFrom && isMultiport(inferFrom) ? 'True' : 'None',
+        }
 
     if (side === 'source') {
       localSrcPorts.value.push(entry)
@@ -314,6 +348,8 @@ export function useEdgeCouplings(props, askSwapIntent) {
     evictHandle,
     swapConnections,
     connectPorts,
+    canConnect,
+    canKeep,
     deletePort,
     activateGhost,
     onPortConfigChange,

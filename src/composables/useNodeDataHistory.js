@@ -19,29 +19,35 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
   const libraryStore = useLibraryStore()
 
   /**
-   * Copies some data fields of each node.
+   * Copies some data fields of each node, listing the ones it lacks so restoring the copy removes them.
    *
    * @param {Array<string>} ids
    * @param {Array<string>} keys
-   * @returns {Array<{ id: string, fields: Object }>} Missing nodes are left out.
+   * @returns {Array<{ id: string, fields: Object, absent?: Array<string> }>} Missing nodes are left out.
    */
   function captureNodeFields(ids, keys) {
     return ids.flatMap((id) => {
       const data = findNode(id)?.data
       if (!data) return []
-      const fields = Object.fromEntries(keys.filter((key) => key in data).map((key) => [key, data[key]]))
-      return [{ id, fields: detachReactivity(fields) }]
+      const fields = Object.fromEntries(keys.filter((key) => data[key] !== undefined).map((key) => [key, data[key]]))
+      const absent = keys.filter((key) => data[key] === undefined)
+      const copy = { id, fields: detachReactivity(fields) }
+      return [absent.length ? { ...copy, absent } : copy]
     })
   }
 
   /**
-   * Writes copied fields back, skipping nodes that no longer exist.
+   * Writes copied fields back, removing the ones the copy lacked and skipping nodes that no longer exist.
    *
    * @param {ReturnType<typeof captureNodeFields>} snapshot
    */
   function restoreNodeFields(snapshot) {
-    snapshot.forEach(({ id, fields }) => {
-      if (findNode(id)) updateNodeData(id, detachReactivity(fields))
+    snapshot.forEach(({ id, fields, absent }) => {
+      const node = findNode(id)
+      if (!node) return
+      if (!absent?.length) return updateNodeData(id, detachReactivity(fields))
+      const kept = Object.fromEntries(Object.entries(node.data).filter(([key]) => !absent.includes(key)))
+      updateNodeData(id, { ...kept, ...detachReactivity(fields) }, { replace: true })
     })
   }
 
