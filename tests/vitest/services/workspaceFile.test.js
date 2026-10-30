@@ -5,6 +5,8 @@ vi.mock('../../../src/utils/notify', () => ({ notify }))
 
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
 import { takeInputFile } from '../../../src/utils/misc'
+import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
+import { loadAndSave } from '../helpers/workspaceSave.js'
 
 const jsonFile = (text, name = 'workspace.json') => new File([text], name, { type: 'application/json' })
 
@@ -62,5 +64,30 @@ describe('loadWorkspaceFile', () => {
     const apply = vi.fn().mockRejectedValue(new Error('bad flow'))
     expect(await loadWorkspaceFile(jsonFile('{}'), apply)).toBe(false)
     expect(notify.error).toHaveBeenCalledWith({ title: 'Failed to load workflow', message: 'bad flow' })
+  })
+})
+
+describe('buildWorkspaceFile annotations', () => {
+  it('carries sidecars, instance sources, dismissed keys and node annotation fields through load and save', () => {
+    const apiCoord = { subject: 'model#cell', coordIri: 'coord_cell', name: 'cell' }
+    const doc = {
+      id: PHLYNX_PROJECT_IDENTIFIER,
+      version: PHLYNX_PROJECT_VERSION,
+      flow: {
+        nodes: [{ id: 'n1', position: { x: 0, y: 0 }, data: { name: 'cell', apiCoord, annotationOverlay: {} } }],
+        edges: [],
+      },
+      store: { moduleAnnotations: [['pool.cellml:pool', '# sidecar']] },
+      annotations: {
+        instanceSources: [{ location: 'a.ttl', format: 'turtle', text: '# a' }],
+        dismissedSuggestions: ['k'],
+      },
+    }
+
+    const saved = loadAndSave(doc)
+
+    expect(saved.store.moduleAnnotations).toEqual(doc.store.moduleAnnotations)
+    expect(saved.annotations).toEqual(doc.annotations)
+    expect(saved.flow.nodes[0].data).toEqual(doc.flow.nodes[0].data)
   })
 })

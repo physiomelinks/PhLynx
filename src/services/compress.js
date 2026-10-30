@@ -87,6 +87,8 @@ export async function createCellMLDataFragment(cellmlBlob, fileName) {
  * @param {object} flowSnapshot - The current workspace flow snapshot (nodes/edges).
  * @param {object} [simData] - Simulation/plot/parameter-scan config for the SED-ML doc. Currently unused by generateSedmlData.
  * @param {object} [addInfo] - Additional information not carried by the other parameters.
+ * @param {Array<{location: string, format: string, text: string}>} [addInfo.annotationFiles] - The sidecars,
+ *   instance files and combined annotations, from collectAnnotationFiles; each is written as given.
  * @returns {Promise<Blob>} The .omex archive as a zip Blob.
  */
 export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}, addInfo = {}) {
@@ -118,6 +120,12 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
     manifestEntries.push({ location: paramsForIdExport.location, format: 'text/csv' })
   }
 
+  const annotationFiles = (addInfo.annotationFiles ?? []).filter(({ location }) => !reservedLocations.has(location))
+  for (const file of annotationFiles) {
+    reservedLocations.add(file.location)
+    manifestEntries.push({ location: file.location, format: file.format })
+  }
+
   omexStore.preservedExtras.forEach((extra) => {
     if (!reservedLocations.has(extra.location)) {
       manifestEntries.push({ location: extra.location, format: extra.format })
@@ -139,6 +147,11 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
 
   if (paramsForIdExport) {
     zip.file(paramsForIdExport.location, paramsForIdExport.csv)
+  }
+
+  // An instance file goes back exactly as it was loaded.
+  for (const file of annotationFiles) {
+    zip.file(file.location, file.text)
   }
 
   for (const extra of omexStore.preservedExtras) {

@@ -36,6 +36,7 @@ export const FLOW_IDS = {
   MAIN: 'main-flow-editor',
   MACRO: 'macro-builder-editor',
   EDGE: 'edge-conn-flow',
+  BIO: 'bio-flow-editor',
 }
 
 export const PARAMETER_TYPE_OPTIONS = [
@@ -177,6 +178,7 @@ export const IMPORT_KEYS = {
   CELLML_FILE: 'cellMLFile',
   PARAMETER: 'parameter',
   TURTLE: 'turtle',
+  API_COORDS: 'apiCoords',
   OMEX: 'omex',
 }
 
@@ -191,7 +193,8 @@ export const IMPORT_LABELS = {
   MODULE_CONFIG: 'Module Configurations (.json)',
   CELLML_FILE: 'CellML File (.cellml or .xml)',
   PARAMETER: 'Parameters (.csv)',
-  TURTLE: 'Annotations (.ttl)',
+  TURTLE: 'Module Annotations (.ttl)',
+  API_COORDS: 'Instance ApiCoords (.ttl or .rdf)',
   OMEX: 'COMBINE Archive (OMEX)',
 }
 
@@ -208,6 +211,14 @@ export const TTL_FILE_TYPES = [
   {
     description: 'Turtle RDF File',
     accept: { 'application/ttl': ['.ttl'] },
+  },
+]
+
+export const RDF_FILE_TYPES = [
+  ...TTL_FILE_TYPES,
+  {
+    description: 'RDF/XML File',
+    accept: { 'application/rdf+xml': ['.rdf'] },
   },
 ]
 

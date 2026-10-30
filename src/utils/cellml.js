@@ -929,30 +929,64 @@ function addVariableToParameterComponent(model, variable, parameterComponent, pa
 /**
  * Rewrites a CellML string's `id` attributes for one instance, so two instances of one math don't repeat
  * them. Ids made from the component's name, as bg2cellml writes them (`main`, `main-x`), take the
- * instance's name in its place (`decay_1`, `decay_1-x`); any other id is prefixed (`decay_1-<id>`).
+ * instance's name in its place (`decay_1`, `decay_1-x`); any other id is prefixed (`decay_1-<id>`). The
+ * component's id becomes the instance's name, and each named variable without an id gets `<instance>-<variable>`,
+ * so annotations can point at them.
  *
  * @param {string} xmlString
  * @param {string} instanceName - A CellML identifier, so it holds no hyphen and no two instances share a prefix.
- * @returns {string} The rewritten string, or unchanged if it has no ids or doesn't parse.
+ * @param {Iterable<string>} [idVariables] - Variables of the component to give an id when they have none.
+ * @returns {{ xml: string, idMap: Map<string, string>, variableIds: Map<string, string> }} The rewritten string
+ *   (unchanged if it has no ids to write or doesn't parse), each old id's new one, and the component variables' ids.
  */
-function prefixIdAttributes(xmlString, instanceName) {
-  if (!/\sid\s*=/.test(xmlString)) return xmlString
+export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
+  const wanted = new Set(idVariables)
+  const unchanged = { xml: xmlString, idMap: new Map(), variableIds: new Map() }
+  if (!wanted.size && !/\sid\s*=/.test(xmlString)) return unchanged
 
   const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
-  if (doc.querySelector('parsererror')) return xmlString
+  if (doc.querySelector('parsererror')) return unchanged
 
+  const component = [...doc.documentElement.children].find((el) => el.localName === 'component') ?? null
   const elements = [...doc.querySelectorAll('[id]')]
-  const componentName = doc.querySelector('component')?.getAttribute('name')
+  const componentName = component?.getAttribute('name')
+  // The instance's name is the component's id, so no other element may take it.
   const renamed = (id) => {
     if (componentName && id === componentName) return instanceName
     if (componentName && id.startsWith(`${componentName}-`)) return instanceName + id.slice(componentName.length)
     return `${instanceName}-${id}`
   }
+  const prefixed = (id) => `${instanceName}-${id}`
+  const others = elements.filter((el) => el !== component).map((el) => el.getAttribute('id'))
   // Renaming could merge two ids, e.g. "main-x" and "x"; prefixing every id keeps them apart.
-  const ids = elements.map((el) => el.getAttribute('id'))
-  const rename = new Set(ids.map(renamed)).size === ids.length ? renamed : (id) => `${instanceName}-${id}`
-  for (const el of elements) el.setAttribute('id', rename(el.getAttribute('id')))
-  return new XMLSerializer().serializeToString(doc)
+  const renames = others.map(renamed)
+  const rename =
+    new Set(renames).size === renames.length && !renames.includes(instanceName) ? renamed : prefixed
+
+  const idMap = new Map()
+  const used = new Set([instanceName])
+  for (const el of elements) {
+    const id = el.getAttribute('id')
+    const next = el === component ? instanceName : rename(id)
+    idMap.set(id, next)
+    used.add(next)
+    el.setAttribute('id', next)
+  }
+  if (component && !component.hasAttribute('id')) component.setAttribute('id', instanceName)
+
+  const variableIds = new Map()
+  for (const variable of component ? [...component.children].filter((el) => el.localName === 'variable') : []) {
+    const name = variable.getAttribute('name')
+    if (!name) continue
+    if (!variable.hasAttribute('id') && wanted.has(name)) {
+      let id = `${instanceName}-${name}`
+      for (let n = 2; used.has(id); n++) id = `${instanceName}-${name}_${n}`
+      used.add(id)
+      variable.setAttribute('id', id)
+    }
+    if (variable.hasAttribute('id')) variableIds.set(name, variable.getAttribute('id'))
+  }
+  return { xml: new XMLSerializer().serializeToString(doc), idMap, variableIds }
 }
 
 /**
@@ -1052,13 +1086,15 @@ function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariabl
  *   time on large models; a simulator that checks the model itself can skip it.
  * @param {boolean} [options.allowBcOnly=false] - Builds boundary conditions coupled only to each other from their own
  *   values, for a scope that cut them off from what computes them, rather than throwing.
+ * @param {Map} [options.exportedIds] - Filled with each node id's `{ componentId, variableIds }`: the ids its
+ *   component and variables have in the model. A variable its math's sidecar annotates always has one.
  */
 export function generateFlattenedModel(
   nodes,
   edges,
   libraryStore,
   inspectionModules = [],
-  { check = true, allowBcOnly = false } = {}
+  { check = true, allowBcOnly = false, exportedIds = null } = {}
 ) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
@@ -1209,11 +1245,17 @@ export function generateFlattenedModel(
       const modelString = libraryStore.availableMath.get(mathRef)
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
-      // Ids, such as bg2cellml writes, would repeat in each instance of the same math.
-      const modelFromInstance = parser.parseModel(prefixIdAttributes(modelString, node.data.name))
+      // Ids, such as bg2cellml writes, would repeat in each instance of the same math. Annotated variables get
+      // one, so the exported annotations can point at them.
+      const annotated = libraryStore.getParsedModuleAnnotations?.(mathRef)?.variables?.map(({ variable }) => variable)
+      const ids = prefixIdAttributes(modelString, node.data.name, annotated)
+      const modelFromInstance = parser.parseModel(ids.xml)
 
       const originalComponent = modelFromInstance.componentByIndex(0)
       originalComponent.setName(node.data.name)
+      // An annotation's '<./model.cellml#name>' names the instance's component.
+      originalComponent.setId(node.data.name)
+      exportedIds?.set(node.id, { componentId: node.data.name, variableIds: ids.variableIds })
 
       model.addComponent(originalComponent)
 

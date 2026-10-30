@@ -29,9 +29,11 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
       updateNodeInternals: vi.fn(),
       findNode,
       findEdge: () => undefined,
-      updateNodeData: (id, patch) => {
+      updateNodeData: (id, update, options = { replace: false }) => {
         const node = findNode(id)
-        if (node) node.data = { ...node.data, ...patch }
+        if (!node) return
+        const patch = typeof update === 'function' ? update(node) : update
+        node.data = options.replace ? patch : { ...node.data, ...patch }
       },
     }),
   }

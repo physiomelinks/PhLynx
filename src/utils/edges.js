@@ -37,6 +37,8 @@
  * value for multiport means the port is unrestricted.
  */
 
+import { findPort, isAnnotatedPort, portDisplayName, portIdentity } from './portIdentity'
+
 /** portTypes that may appear on the source (outgoing) side of a coupling. */
 const SOURCE_COMPATIBLE_TYPES = new Set(['exit_ports', 'general_ports'])
 
@@ -96,6 +98,8 @@ export function isSingleConnection(port) {
  * For labels that appear only once (the common case), the index is irrelevant
  * and that single entry is always selected.
  *
+ * Annotated ports are skipped: they couple by annotation, never by label.
+ *
  * @param {Array}  sourcePorts node.data.ports of the source node
  * @param {Array}  targetPorts  node.data.ports of the target node
  * @param {number} sourceIndex  position of target in source's out_instances (0-based)
@@ -114,15 +118,15 @@ export function resolvePortCouplings(
   const sourceGroups = groupByTypeAndLabel(sourcePorts, SOURCE_COMPATIBLE_TYPES)
 
   for (const [groupKey, srcSlots] of sourceGroups) {
-    const [srcPortType, label] = groupKey.split('\x00')
+    const [srcPortType, identity] = groupKey.split('\x00')
     const validTargetTypes = TARGET_COMPATIBLE_TYPES[srcPortType]
 
     // Group matching target ports by (portType, label)
     const targetGroups = groupByTypeAndLabel(targetPorts, validTargetTypes)
 
     for (const [tgtGroupKey, tgtSlots] of targetGroups) {
-      const [, tgtLabel] = tgtGroupKey.split('\x00')
-      if (tgtLabel !== label) continue
+      const [, tgtIdentity] = tgtGroupKey.split('\x00')
+      if (tgtIdentity !== identity) continue
 
       // Pick the correct slot by ordinal index, clamped to available slots
       const srcSlot = srcSlots[Math.min(sourceIndex, srcSlots.length - 1)]
@@ -138,7 +142,8 @@ export function resolvePortCouplings(
 /**
  * Recomputes the couplings of every edge touching a node, as they would be with the given ports for that node.
  * Each edge picks its slots by its position among the edges sharing its source and its target (see
- * resolvePortCouplings). Pure: neither the edges nor the nodes are changed.
+ * resolvePortCouplings). A coupling with an annotated port is kept while both its ports are still there, since
+ * labels can't recreate it. Pure: neither the edges nor the nodes are changed.
  *
  * @param {string} nodeId
  * @param {Array} ports - The node's ports.
@@ -160,7 +165,13 @@ export function previewCouplings(nodeId, ports, nodes, edges) {
     if (!sourcePorts || !targetPorts) continue
     const sourceIndex = edges.filter((e) => e.source === edge.source).indexOf(edge)
     const targetIndex = edges.filter((e) => e.target === edge.target).indexOf(edge)
-    couplings.set(edge.id, resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex))
+    const kept = (edge.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
+      if (!isAnnotatedPort(sourcePort) && !isAnnotatedPort(targetPort)) return []
+      const source = findPort(sourcePorts, sourcePort)
+      const target = findPort(targetPorts, targetPort)
+      return source && target ? [{ sourcePort: source, targetPort: target }] : []
+    })
+    couplings.set(edge.id, [...resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex), ...kept])
   }
   return couplings
 }
@@ -192,7 +203,7 @@ export function checkAndClaimCouplings(sourceNodeId, targetNodeId, couplings, us
       const key = portKey(sourceNodeId, sourcePort)
       if (usedPortKeys.has(key)) {
         conflicts.push(
-          `"${sourcePort.label}" (${sourcePort.portType}) on "${sourceNodeId}" ` +
+          `"${portDisplayName(sourcePort)}" (${sourcePort.portType}) on "${sourceNodeId}" ` +
             `is non-multiport and already has a connection.`
         )
       } else {
@@ -204,7 +215,7 @@ export function checkAndClaimCouplings(sourceNodeId, targetNodeId, couplings, us
       const key = portKey(targetNodeId, targetPort)
       if (usedPortKeys.has(key)) {
         conflicts.push(
-          `"${targetPort.label}" (${targetPort.portType}) on "${targetNodeId}" ` +
+          `"${portDisplayName(targetPort)}" (${targetPort.portType}) on "${targetNodeId}" ` +
             `is non-multiport and already has a connection.`
         )
       } else {
@@ -242,19 +253,19 @@ export function buildUsedPortKeys(edges) {
 // --- Internal helpers --------------------------------------------------------
 
 /**
- * Groups portLabel entries by a composite key of `portType\x00label`, but only
+ * Groups unannotated port entries by a composite key of `portType\x00identity` (see portIdentity), but only
  * for portTypes that are in the allowedTypes set. Preserves config-file order
  * within each group (which defines slot assignment).
  *
  * @param {Array}  portLabels
  * @param {Set}    allowedTypes
- * @returns {Map<string, Array>}  key: "portType\x00label", value: ordered array of portLabel entries
+ * @returns {Map<string, Array>}  key: "portType\x00identity", value: ordered array of portLabel entries
  */
 function groupByTypeAndLabel(portLabels, allowedTypes) {
   const groups = new Map()
   for (const pl of portLabels) {
-    if (!allowedTypes.has(pl.portType)) continue
-    const key = `${pl.portType}\x00${pl.label}`
+    if (!allowedTypes.has(pl.portType) || isAnnotatedPort(pl)) continue
+    const key = `${pl.portType}\x00${portIdentity(pl)}`
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(pl)
   }
@@ -262,15 +273,12 @@ function groupByTypeAndLabel(portLabels, allowedTypes) {
 }
 
 /**
- * Canonical key identifying one specific portLabel slot on one specific node.
- * Uses object identity (via the portLabel object reference) to distinguish
- * multiple occurrences of the same label on the same node.
+ * Canonical key identifying one specific port slot on one specific node: its type and identity (see
+ * portIdentity), and for an unannotated port its variables, which tell same-label slots apart.
  *
- * Format: "{nodeId}:{portType}:{label}:{slotIndex}"
- * The slotIndex is the position of this portLabel within its (portType, label) group.
+ * Format: "{nodeId}:{portType}:{identity}" plus ":{variables}" for an unannotated port.
  */
 function portKey(nodeId, port) {
-  // The portLabel object itself is unique per slot — we use its variables array
-  // serialised as a tiebreaker to distinguish same-label slots on the same node.
-  return `${nodeId}:${port.portType}:${port.label}:${JSON.stringify(port.variables ?? [])}`
+  const key = `${nodeId}:${port.portType}:${portIdentity(port)}`
+  return isAnnotatedPort(port) ? key : `${key}:${JSON.stringify(port.variables ?? [])}`
 }

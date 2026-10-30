@@ -226,6 +226,15 @@ describe('useDragAndDrop', () => {
       expect(flow.off).toHaveBeenCalledTimes(1)
     })
 
+    it('leaves a node made at its top-left where it is, and carries extra data on the add', () => {
+      dnd.createInstanceNode(moduleData(), { x: 100, y: 200 }, [], { bioView: { role: 'cytosol' } }, { centre: false })
+
+      expect(flow.addNodes.mock.calls[0][0].data.bioView).toEqual({ role: 'cytosol' })
+      flow.initCallbacks.forEach((cb) => cb())
+      expect(flow.updateNode).not.toHaveBeenCalled()
+      expect(flow.off).toHaveBeenCalledTimes(1)
+    })
+
     it('puts the centred node in the layout frame of a node already laid out', () => {
       const layoutFrame = { xScale: 2, yScale: 4, xCentre: 10, yCentre: 20 }
       flow.nodes.value = [{ id: 'dndnode_0', data: { name: 'laid_out', layoutFrame } }]
