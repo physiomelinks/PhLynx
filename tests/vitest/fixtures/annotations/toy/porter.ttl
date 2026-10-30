@@ -1,0 +1,23 @@
+# Toy transporter sidecar, written with alternative IRI forms on purpose; _i is the cytoplasm, _o outside.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix uniprot: <http://identifiers.org/uniprot/> .
+@prefix m: <./porter.cellml#> .
+
+m:porter bqbiol:is uniprot:Q0TOY1 ;
+    bqbiol:isVersionOf <http://identifiers.org/GO:0005412> .
+
+m:porter.c_A_i bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00340> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://identifiers.org/CHEBI:29101> , <http://purl.obolibrary.org/obo/GO_0005737> ] .
+m:porter.c_A_o bqbiol:isVersionOf <https://identifiers.org/OPB:00340> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://identifiers.org/chebi/CHEBI:29101> , <http://identifiers.org/GO:0005576> ] .
+m:flux_in bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00592> ;
+    bqbiol:isPropertyOf m:entity_A_cytoplasm .
+m:entity_A_cytoplasm bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> , <http://purl.obolibrary.org/obo/GO_0005737> .
+m:porter.v_A_o bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00592> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> , <http://purl.obolibrary.org/obo/GO_0005576> ] .
+m:porter.j_A bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00318> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://purl.obolibrary.org/obo/GO_0005886> ] .
+m:porter.u bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00506> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://purl.obolibrary.org/obo/GO_0005886> ] .
+m:porter.area bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00295> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://purl.obolibrary.org/obo/GO_0005886> ] .

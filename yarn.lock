@@ -5619,6 +5619,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"oxigraph@npm:0.5.11":
+  version: 0.5.11
+  resolution: "oxigraph@npm:0.5.11"
+  checksum: 10c0/3ee7007a242f9a919db82e1e9eccd9a19df719dfe4141afa27296684187ad7a5cfadf70d6fee67d9f3b9648b48069bfab9a6f2640f52cc68f19afe4668f1d536
+  languageName: node
+  linkType: hard
+
 "p-cancelable@npm:^2.0.0":
   version: 2.1.1
   resolution: "p-cancelable@npm:2.1.1"
@@ -5811,6 +5818,7 @@ __metadata:
     markdown-it-attrs: "npm:^4.3.1"
     markdown-it-github-alerts: "npm:^1.0.0"
     markdown-it-link-attributes: "npm:^4.0.1"
+    oxigraph: "npm:0.5.11"
     papaparse: "npm:^5.5.3"
     pinia: "npm:^3.0.3"
     primeicons: "npm:^7.0.0"
