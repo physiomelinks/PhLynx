@@ -29,6 +29,15 @@ from test_simulation_tab import (  # noqa: E402
     simulate_whole_model,
 )
 from test_workspace import centre, ghost_handle, node_by_name, wait_for_settled_transform  # noqa: E402
+from test_annotations import (  # noqa: E402
+    TOY_APICOORDS,
+    TOY_HELD,
+    TOY_MATHS,
+    TOY_SIDECARS,
+    import_files,
+    open_app,
+    toy,
+)
 
 IMAGES = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "assets", "images"))
 VIEWPORT = {"width": 1440, "height": 900}
@@ -402,6 +411,57 @@ def protocol_editor(page):
     save(dialog, "protocol-editor")
 
 
+def open_toy_apply_dialog(page):
+    """Load the synthetic toy maths, then Import ▸ Annotations with its sidecars and ApiCoords, reservoirs ticked."""
+    open_app(page)
+    import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
+    import_files(page, "Annotations", [toy(name) for name in TOY_SIDECARS], toy(TOY_APICOORDS))
+    dialog = page.get_by_role("dialog", name="Apply Annotations")
+    expect(dialog.locator("[data-test=instances]")).to_be_visible()
+    for name in TOY_HELD:
+        dialog.get_by_label(f"Hold {name} constant").check()
+    return dialog
+
+
+def apply_toy(page):
+    dialog = open_toy_apply_dialog(page)
+    dialog.locator("[data-test=apply]").click()
+    expect(dialog).to_be_hidden()
+    expect(page.locator(".suggested-edge__badge").first).to_be_visible()
+    wait_for_settled_transform(page)
+    dismiss_toasts(page)
+
+
+def annotations_apply_dialog(page):
+    dialog = open_toy_apply_dialog(page)
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    dismiss_toasts(page)
+    page.wait_for_timeout(300)
+    save(dialog, "annotations-apply-dialog")
+
+
+def annotations_suggestions(page):
+    apply_toy(page)
+    page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(300)
+    # The nodes and the suggestion panel, without the library sidebar.
+    nodes = page.locator(".vue-flow__node")
+    parts = [nodes.nth(i) for i in range(nodes.count())] + [page.locator(".suggestion-panel")]
+    save(page, "annotations-suggestions", clip=clip_around(parts, margin=40))
+
+
+def annotations_port_chips(page):
+    apply_toy(page)
+    page.locator("[data-test=accept-all]").click()
+    expect(page.locator(".suggested-edge__badge")).to_have_count(0)
+    dialog = open_instance_editor(page, "porter_in")
+    dialog.get_by_role("tab", name=re.compile(r"Ports \(")).click()
+    expect(dialog.locator(".annotation-chips").first).to_be_visible()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    save(dialog, "annotations-port-chips")
+
+
 SHOTS = {
     "phlynx_ui": phlynx_ui,
     "toolbar": toolbar,
@@ -421,6 +481,9 @@ SHOTS = {
     "math-editor": math_editor,
     "sweep-view": sweep_view,
     "protocol-editor": protocol_editor,
+    "annotations-apply-dialog": annotations_apply_dialog,
+    "annotations-suggestions": annotations_suggestions,
+    "annotations-port-chips": annotations_port_chips,
 }
 
 
