@@ -6,8 +6,12 @@ import { prepareCellmlImport, prepareCellmlImports } from '../services/import/pr
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { loadParametersFromCellML } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
+import { offsetEdgeData } from '../utils/edgeRoute'
 import { readFileAsText } from '../utils/misc'
 import { notify } from '../utils/notify'
+
+/** How far right a dropped file's restored workspace is placed, beside the new import. */
+const RESTORE_OFFSET_X = 1500
 
 /**
  * Loads CellML files into the workspace (from OS file drops or the import dialog) and routes
@@ -124,7 +128,7 @@ export function useCellmlDrop({
               return {
                 ...n,
                 id: newId,
-                position: { x: n.position.x + 1500, y: n.position.y },
+                position: { x: n.position.x + RESTORE_OFFSET_X, y: n.position.y },
                 data: { ...n.data },
               }
             })
@@ -135,6 +139,7 @@ export function useCellmlDrop({
               id: `${e.id}_restored_${crypto.randomUUID()}`,
               source: idRemap.get(e.source) ?? e.source,
               target: idRemap.get(e.target) ?? e.target,
+              ...(e.data && { data: offsetEdgeData(e.data, RESTORE_OFFSET_X, 0) }),
             }))
 
             addNodes(restoredNodes)

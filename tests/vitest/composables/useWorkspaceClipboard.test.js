@@ -331,6 +331,17 @@ describe('useWorkspaceClipboard', () => {
       expect(edges.value.filter((edge) => edge.selected).map((edge) => edge.id)).toEqual(['edge_2'])
     })
 
+    it('moves pasted edge routes with their nodes', async () => {
+      edges.value[0].data = { couplings: [], waypoints: [{ x: 120, y: 30 }] }
+      select(['dndnode_0', 'dndnode_1'], ['edge_0'])
+      await clipboard.copySelection()
+
+      await clipboard.pasteSelection()
+
+      expect(edges.value.at(-1).data.waypoints).toEqual([{ x: 170, y: 80 }])
+      expect(edges.value[0].data.waypoints).toEqual([{ x: 120, y: 30 }])
+    })
+
     it('gives every pasted edge its own id', async () => {
       select(['dndnode_0', 'dndnode_1', 'dndnode_2'], ['edge_0', 'edge_1'])
       await clipboard.copySelection()

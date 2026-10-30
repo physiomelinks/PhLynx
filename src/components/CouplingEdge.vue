@@ -44,6 +44,7 @@ import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useVueFlow } from '@vue
 import { useLibraryStore } from '../stores/libraryStore'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
+import { fullPolyline, getEdgeWaypoints, midpointAlong, roundedPath } from '../utils/edgeRoute'
 
 defineOptions({ inheritAttrs: false })
 
@@ -63,9 +64,14 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 })
 
-
-// [path, labelX, labelY, ...], drawn as the default smoothstep edge is.
-const path = computed(() => getSmoothStepPath(props))
+// [path, labelX, labelY]: through the user's waypoints, else drawn as the default smoothstep edge is.
+const path = computed(() => {
+  const waypoints = getEdgeWaypoints(props)
+  if (!waypoints) return getSmoothStepPath(props)
+  const points = fullPolyline(props, waypoints)
+  const label = midpointAlong(points)
+  return [roundedPath(points), label.x, label.y]
+})
 
 const { findNode } = useVueFlow()
 const libraryStore = useLibraryStore()

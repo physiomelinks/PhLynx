@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { nextTick, ref } from 'vue'
 import { mount } from '@vue/test-utils'
+import { getSmoothStepPath } from '@vue-flow/core'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -51,6 +52,29 @@ describe('CouplingEdge', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     useLibraryStore().addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+  })
+
+  describe('route', () => {
+    const geometry = { sourceX: 0, sourceY: 0, targetX: 300, targetY: 120, sourcePosition: 'right', targetPosition: 'left' }
+    const mountRoute = (data) =>
+      mount(CouplingEdge, { props: { id: 'e', source: 'a', target: 'b', ...geometry, data }, global: { directives: { tooltip: {} } } })
+    const drawnPath = (wrapper) => wrapper.findComponent({ name: 'BaseEdge' }).props('path')
+
+    it('draws an edge without waypoints exactly as smoothstep does', () => {
+      expect(drawnPath(mountRoute({ couplings: [] }))).toBe(getSmoothStepPath(geometry)[0])
+    })
+
+    it('draws through the waypoints', () => {
+      const path = drawnPath(mountRoute({ couplings: [], waypoints: [{ x: 150, y: -80 }, { x: 250, y: -80 }] }))
+      expect(path).not.toBe(getSmoothStepPath(geometry)[0])
+      expect(path).toContain('-80')
+      expect(path.startsWith('M0 0')).toBe(true)
+      expect(path.endsWith('L300 120')).toBe(true)
+    })
+
+    it('ignores waypoints that are not points', () => {
+      expect(drawnPath(mountRoute({ couplings: [], waypoints: [{ x: 'a', y: 1 }] }))).toBe(getSmoothStepPath(geometry)[0])
+    })
   })
 
   it('warns about variables whose units have different dimensions', () => {
