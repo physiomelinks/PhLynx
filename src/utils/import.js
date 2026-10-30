@@ -1,7 +1,9 @@
 import Papa from 'papaparse'
 
-import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS } from './constants'
+import { IMPORT_KEYS, IMPORT_LABELS, RDF_FILE_TYPES, RELEVANT_EXTENSIONS, TTL_FILE_TYPES } from './constants'
 import { isCellML, doesComponentExistInModel } from './cellml'
+import { parseApiCoords } from '../services/annotations/apicoord'
+import { rdfFormatOf, readSidecarComponent } from '../services/annotations/generate'
 
 /** Columns an instance array CSV must have. */
 const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
@@ -374,6 +376,58 @@ const parseCellML = (file) => {
   })
 }
 
+const readText = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => resolve(e.target.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+
+const acceptOf = (fileTypes) => fileTypes.flatMap((type) => Object.values(type.accept).flat()).join(', ')
+
+// An ApiCoord instance file uses the ApiNATOMY element vocabulary; a module sidecar does not.
+const mentionsApiCoords = (text) => /apinatomy\.org\/uris\/elements\/|api:ApiCoord\b/.test(text)
+
+/**
+ * Reads a module sidecar: Turtle annotating one math component.
+ *
+ * @param {File} file
+ * @returns {Promise<{ text: string }>}
+ */
+const parseSidecarFile = async (file) => {
+  const text = await readText(file)
+  if (mentionsApiCoords(text)) {
+    throw Object.assign(new Error('This is an ApiCoord instance file, not a module sidecar.'), { unrelated: true })
+  }
+  let component
+  try {
+    component = await readSidecarComponent(text)
+  } catch (error) {
+    throw new Error(`Invalid Turtle: ${error.message}`)
+  }
+  if (!component) throw new Error('No single annotated component (uniprot, GO:0005886 or SBO:0000290) found.')
+  return { text }
+}
+
+/**
+ * Reads an ApiCoord instance file, Turtle or RDF/XML by its extension.
+ *
+ * @param {File} file
+ * @returns {Promise<{ text: string, format: string }>}
+ */
+const parseApiCoordFile = async (file) => {
+  const text = await readText(file)
+  const format = rdfFormatOf(file.name)
+  const { instances, warnings } = await parseApiCoords(text, { format })
+  if (!instances.length) {
+    throw Object.assign(new Error(warnings[0]?.message ?? 'No instance is placed on an ApiCoord.'), {
+      unrelated: !mentionsApiCoords(text),
+    })
+  }
+  return { text, format }
+}
+
 const parseOMEX = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -489,6 +543,26 @@ const configs = {
         label: IMPORT_LABELS.UNITS,
         accept: '.cellml, .xml',
         parser: parseCellML,
+      },
+    ],
+  },
+  [IMPORT_KEYS.TURTLE]: {
+    title: 'Apply Annotations',
+    fields: [
+      {
+        key: IMPORT_KEYS.TURTLE,
+        label: IMPORT_LABELS.TURTLE,
+        accept: acceptOf(TTL_FILE_TYPES),
+        required: false,
+        parser: parseSidecarFile,
+      },
+      {
+        key: IMPORT_KEYS.API_COORDS,
+        label: IMPORT_LABELS.API_COORDS,
+        accept: acceptOf(RDF_FILE_TYPES),
+        limit: 1,
+        required: true,
+        parser: parseApiCoordFile,
       },
     ],
   },

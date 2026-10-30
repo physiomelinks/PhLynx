@@ -1,5 +1,6 @@
 import JSZip from 'jszip'
 import { isModuleConfigFile, isPhlynxFlowSnapshotFile, isSimulationJsonFile } from './omexClassifiers'
+import { classifyAnnotationEntry, isAnnotationCandidate } from './omexAnnotations'
 
 const jsonMimeTypeRegex = /^application\/(?:json|.+\+json)$/i
 const CELLML_FORMAT = 'http://identifiers.org/combine.specifications/cellml'
@@ -82,7 +83,10 @@ export const importOmexFile = async (payload, updateProgress) => {
     simulationJson: null,
     flowSnapshot: null,
     moduleConfig: null,
+    annotations: { sidecars: [], instanceFiles: [] },
   }
+  // Each entry's manifest format, so a file kept as an extra keeps it.
+  const formats = {}
 
   for (const contentElement of rootElement.getElementsByTagNameNS(expectedNamespace, 'content')) {
     let location = contentElement.getAttribute('location')
@@ -104,6 +108,8 @@ export const importOmexFile = async (payload, updateProgress) => {
     if (location !== '.' && !fileObject) {
       throw new Error(`Invalid OMEX file: manifest.xml references missing file "${location}"`)
     }
+
+    formats[location] = format
 
     if (format === CELLML_FORMAT) {
       foundFiles.cellmls.push({ location, isMaster: contentElement.getAttribute('master') === 'true' })
@@ -135,6 +141,20 @@ export const importOmexFile = async (payload, updateProgress) => {
       }
     }
 
+    if (isAnnotationCandidate(location, format)) {
+      const text = await fileObject.async('string')
+      const annotation = await classifyAnnotationEntry(location, format, text)
+      if (annotation?.kind === 'generated') continue
+      if (annotation?.kind === 'sidecar') {
+        foundFiles.annotations.sidecars.push({ location, mathRef: annotation.mathRef, text })
+        continue
+      }
+      if (annotation?.kind === 'instances') {
+        foundFiles.annotations.instanceFiles.push({ location, format: annotation.format, text })
+        continue
+      }
+    }
+
     foundFiles.extras.push({ location, format })
   }
 
@@ -157,6 +177,33 @@ export const importOmexFile = async (payload, updateProgress) => {
       moduleConfig: foundFiles.moduleConfig,
     },
     extras: foundFiles.extras,
+    annotations: foundFiles.annotations,
+    formats,
     fileType: 'omex',
   }
+}
+
+/**
+ * Reads the files importOmexFile found, each with its manifest format, so an extra keeps it on the next export.
+ *
+ * @param {JSZip} archive - The loaded archive.
+ * @param {Object} result - From importOmexFile.
+ * @returns {Promise<Array<{ location: string, format: string, payload: ArrayBuffer }>>}
+ */
+export async function readArchiveEntries(archive, result) {
+  const formats = new Map((result.extras || []).map((entry) => [entry.location, entry.format]))
+  for (const [location, format] of Object.entries(result.formats || {})) if (!formats.has(location)) formats.set(location, format)
+  const locations = new Set([...Object.values(result.files || {}).filter(Boolean), ...(result.extras || []).map((entry) => entry.location)])
+
+  const entries = []
+  for (const location of locations) {
+    const fileObject = archive.file(location)
+    if (!fileObject) continue
+    entries.push({
+      location,
+      format: formats.get(location) ?? 'application/octet-stream',
+      payload: await fileObject.async('arraybuffer'),
+    })
+  }
+  return entries
 }
