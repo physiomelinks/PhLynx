@@ -122,6 +122,7 @@ import { notify } from '../utils/notify'
 import { sanitiseName } from '../utils/identifiers'
 import { detachReactivity } from '../utils/reactivity'
 import { PORT_TYPE_OPTIONS, MULTIPORT_OPTIONS } from '../utils/constants'
+import { isNamedPort, portDisplayName } from '../utils/portIdentity'
 
 const props = defineProps({
   modelValue: {
@@ -191,13 +192,14 @@ function handleConfirm() {
     return
   }
 
-  const finalPorts = editableData.ports.filter((p) => p.variables && p.label && p.label.trim())
+  // An annotated port has no label: its annotation names it.
+  const finalPorts = editableData.ports.filter((p) => p.variables && isNamedPort(p))
 
   const invalidFactor = finalPorts.find((p) => p.multiportType === 'Multiply' && isEmpty(p.multiplyFactor))
 
   if (invalidFactor) {
     notify.error({
-      message: `Port "${invalidFactor.label}" has Multiply selected but the scale factor is missing or zero.`,
+      message: `Port "${portDisplayName(invalidFactor)}" has Multiply selected but the scale factor is missing or zero.`,
     })
     return
   }
