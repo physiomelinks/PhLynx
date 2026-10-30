@@ -1,0 +1,18 @@
+# Toy compartment sidecar: every property is of wherever the instance is.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix chebi: <http://purl.obolibrary.org/obo/CHEBI_> .
+@prefix go: <http://purl.obolibrary.org/obo/GO_> .
+@prefix sbo: <http://purl.obolibrary.org/obo/SBO_> .
+@prefix m: <./pool.cellml#> .
+
+m:pool bqbiol:is sbo:0000290 .
+
+m:pool.c_A bqbiol:isVersionOf opb:00340 ;
+    bqbiol:isPropertyOf [ bqbiol:is chebi:29101 ; bqbiol:isPartOf m:pool ] .
+m:pool.v_A bqbiol:isVersionOf opb:00592 ;
+    bqbiol:isPropertyOf [ bqbiol:is chebi:29101 ; bqbiol:isPartOf m:pool ] .
+m:pool.volume bqbiol:isVersionOf opb:00154 ;
+    bqbiol:isPropertyOf m:pool .
+m:pool.area bqbiol:isVersionOf opb:00295 ;
+    bqbiol:isPropertyOf [ bqbiol:is go:0005886 ; bqbiol:isPartOf m:pool ] .
