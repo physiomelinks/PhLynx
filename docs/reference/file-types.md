@@ -9,6 +9,7 @@
 | [params_for_id](#params_for_idcsv) | `.csv` | Parameter slider ranges |
 | [Workspace](#workspace-file) | `.json` | A saved PhLynx session |
 | [COMBINE archive](#combine-archive) | `.omex` | Model and simulation |
+| [Annotations](#annotation-files) | `.ttl`, `.rdf` | Module sidecars and instance ApiCoords |
 | [CA export](../guides/use-with-circulatory-autogen.md#output) | `.zip` | A Circulatory Autogen model |
 
 ## CellML files {#cellml-files}
@@ -43,6 +44,10 @@ Written by **Save workspace** (floppy-disk icon, Ctrl/Cmd+S), opened by **Load w
 Opened with **Import ▸ COMBINE Archive** (`.omex` or `.zip`); written by **Export ▸ OpenCOR**, **CUFLynx** or **OpenCOR (selection)**. Holds the flattened CellML, `document.sedml`, `flow-snapshot.json` (the PhLynx graph), `simulation.json` (plots and sliders), [`params_for_id.csv`](#params_for_idcsv) and any extra files it was imported with.
 
 If the library already holds a component with the same file and name but different math, importing warns **Math Mismatch** and the instance uses the library's version, so the archive's edits to that component are not kept. Built-in components are always in the library, so to carry edits to one in an archive, give the edited component a new **Component** name in the Instance Editor before exporting.
+
+## Annotation files {#annotation-files}
+
+Opened with **Import ▸ Annotations**: module sidecars (`.ttl`) and one instance ApiCoord file (`.ttl` or `.rdf`). Saved with the workspace, and written into a COMBINE archive (sidecars under `annotations/`, the ApiCoord file as imported, and a combined `annotations.ttl`). See [Coupling with Annotations](../guides/annotation-coupling.md) and the [Annotation Vocabulary](./annotation-vocabulary.md).
 
 ## Circulatory Autogen files
 

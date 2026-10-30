@@ -463,6 +463,14 @@
             <template #edge-smoothstep="edgeProps">
               <CouplingEdge v-bind="edgeProps" />
             </template>
+            <template #zoom-pane>
+              <SuggestionLayer @accept="couplingSuggestions.accept" @dismiss="couplingSuggestions.dismiss" />
+            </template>
+            <SuggestionPanel
+              @accept-all="couplingSuggestions.acceptAll"
+              @dismiss-all="couplingSuggestions.dismissAll"
+              @restore-dismissed="couplingSuggestions.restoreDismissed"
+            />
             <template #node-instanceNode="props">
               <InstanceNode
                 :id="props.id"
@@ -545,6 +553,13 @@
     @confirm="onImportConfirm"
   />
 
+  <ApplyAnnotationsDialog
+    v-model="applyAnnotationsVisible"
+    :prepared="preparedAnnotations"
+    :plan-rows="planAnnotationRows"
+    @apply="onApplyAnnotations"
+  />
+
   <PaneContextMenu ref="contextMenuRef" :items="contextMenuItems" />
 
   <EdgeConnectionDialog
@@ -589,13 +604,18 @@ import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
 import { useConnect } from '../composables/useConnect'
+import { useCouplingSuggestions } from '../composables/useCouplingSuggestions'
+import { useApplyAnnotations } from '../composables/useApplyAnnotations'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useAnnotationStore } from '../stores/annotationStore'
 
-import { importOmexFile, extractOmexArchive } from '../services/import/omex'
+import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
+import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
+import { withAnnotationData } from '../services/annotations/nodeData'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
 
@@ -617,8 +637,11 @@ import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
+import SuggestionLayer from '../components/SuggestionLayer.vue'
+import SuggestionPanel from '../components/SuggestionPanel.vue'
 import InstanceNode from '../components/InstanceNode.vue'
 import ImportDialog from '../components/ImportDialog.vue'
+import ApplyAnnotationsDialog from '../components/ApplyAnnotationsDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
@@ -805,6 +828,7 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
+const annotationStore = useAnnotationStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -818,6 +842,32 @@ function miniMapNodeColour(node) {
 }
 const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
 const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
+const {
+  readAnnotationFiles,
+  planRows: planAnnotationRows,
+  applyAnnotations,
+} = useApplyAnnotations({ fitViewParams })
+const applyAnnotationsVisible = ref(false)
+const preparedAnnotations = ref(null)
+
+/**
+ * Applies the choices made in the Apply Annotations dialog and reports what was done.
+ *
+ * @param {{ targets: Object, rows: Array<Object> }} choices
+ */
+async function onApplyAnnotations(choices) {
+  try {
+    const { added, bound, skipped, unmatchedSidecars } = await applyAnnotations(preparedAnnotations.value, choices)
+    const lines = [`Added ${added.length} and bound ${bound.length} instance${added.length + bound.length === 1 ? '' : 's'}.`]
+    if (skipped.length) lines.push(`Skipped (no module): ${skipped.join(', ')}.`)
+    if (unmatchedSidecars.length) lines.push(`Sidecars not stored (no math): ${unmatchedSidecars.join(', ')}.`)
+    const notice = { title: 'Annotations Applied', message: lines.join('\n') }
+    if (skipped.length || unmatchedSidecars.length) notify.warning(notice)
+    else notify.success(notice)
+  } catch (error) {
+    notify.error({ title: 'Applying Annotations Failed', message: error.message })
+  }
+}
 const { capture, error: captureError } = useScreenshot()
 const { trackEvent } = useGtm()
 const { clearWorkspace } = useClearWorkspace()
@@ -1039,7 +1089,11 @@ useConnect({
   revertHandleIfUnused,
   revertHandlesForEdge,
   reactivateEdgeHandles,
+  recordEdit,
 })
+
+// Annotation-driven suggestions, drawn over the canvas but never edges until accepted.
+const couplingSuggestions = useCouplingSuggestions({ activateHandle, recordEdit, edgeLineOptions })
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
 
@@ -1307,7 +1361,10 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
         ...buildGhostHandles(NUM_GHOST_HANDLES_TOP_BOT, NUM_GHOST_HANDLES_LEFT_RIGHT, node.data.handles),
       ])
 
-      return buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      const instance = buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      // Its ApiCoord binding and reservoir state, which buildInstance doesn't know about.
+      withAnnotationData(instance.data, node.data)
+      return instance
     })
 
     addNodes(newNodes)
@@ -1345,22 +1402,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   const manifestFile = archive.file('manifest.xml')
   const manifestXml = manifestFile ? await manifestFile.async('string') : ''
 
-  const archiveLocations = new Set([
-    ...Object.values(result.files || {}).filter(Boolean),
-    ...(result.extras || []).map((entry) => entry.location),
-  ])
-
-  const archiveEntries = []
-  for (const location of archiveLocations) {
-    const fileObject = archive.file(location)
-    if (!fileObject) continue
-
-    archiveEntries.push({
-      location,
-      format: 'application/octet-stream',
-      payload: await fileObject.async('arraybuffer'),
-    })
-  }
+  const archiveEntries = await readArchiveEntries(archive, result)
 
   const criticalLocations = [
     result.files?.cellml,
@@ -1465,6 +1507,9 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     }
   }
 
+  // The sidecars and instance files; the nodes' bindings came back with the flow snapshot.
+  restoreOmexAnnotations(result.annotations, { libraryStore, annotationStore })
+
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()
   recomputeMissingCouplings()
@@ -1568,6 +1613,19 @@ async function onImportConfirm(importPayload, updateProgress) {
     )
     if (multiFile) {
       notifyMultiFileResults(results, { successTitle: 'Parameters Loaded' })
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.TURTLE) {
+    const filesOf = (key) =>
+      [...(importPayload.get(key) ?? [])].map(([name, data]) => ({ name, text: data?.payload?.text ?? '' }))
+    try {
+      const [instanceFile] = filesOf(IMPORT_KEYS.API_COORDS)
+      preparedAnnotations.value = await readAnnotationFiles({
+        sidecarFiles: filesOf(IMPORT_KEYS.TURTLE),
+        instanceFile,
+      })
+      applyAnnotationsVisible.value = true
+    } catch (error) {
+      notify.error({ title: 'Annotations Import Failed', message: error.message })
     }
   } else if (currentImportMode.value.key === IMPORT_KEYS.OMEX) {
     try {
@@ -2753,8 +2811,10 @@ watch(
   cursor: pointer;
 }
 
-/* While exporting an image: never the edit controls, and warnings only when Settings asks. */
+/* While exporting an image: never the edit controls or coupling suggestions, and warnings only when Settings asks. */
 .image-export .instance-button,
+.image-export .suggestion-layer,
+.image-export .suggestion-panel,
 .image-export .delete-handle-popover-btn,
 .image-export .vue-flow__resize-control,
 .image-export--no-warnings .status-indicator,

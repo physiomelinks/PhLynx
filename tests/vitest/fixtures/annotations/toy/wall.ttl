@@ -1,0 +1,12 @@
+# Toy membrane sidecar.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix go: <http://purl.obolibrary.org/obo/GO_> .
+@prefix m: <./wall.cellml#> .
+
+m:wall bqbiol:is go:0005886 .
+
+m:wall.u bqbiol:isVersionOf opb:00506 ;
+    bqbiol:isPropertyOf m:wall .
+m:wall.i_tot bqbiol:isVersionOf opb:00318 ;
+    bqbiol:isPropertyOf m:wall .

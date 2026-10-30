@@ -1,6 +1,9 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { renameSidecar } from '../services/annotations/sidecarEdit'
+import { analyzeMathXml } from '../services/math/analyzeMath'
+import { carryRenames } from '../services/math/carryRenames'
 import { getPortVariables, reconcileRows } from '../services/math/reconcileRows'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
@@ -208,6 +211,55 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Finds the variables a save's math renamed, as carryRenames carries their rows.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Map<string, string>} Old variable name -> new name.
+   */
+  function findVariableRenames({ mathRef, previousMathRef, math }) {
+    if (math === null) return new Map()
+    const previousAnalysis = libraryStore.getMathAnalysis(previousMathRef ?? mathRef)
+    const rows = [...new Set(previousAnalysis?.references ?? [])].map((name) => ({ name }))
+    const { portRenames } = carryRenames(previousAnalysis, analyzeMathXml(math), rows)
+    return new Map(portRenames.map(({ from, to }) => [from, to]))
+  }
+
+  /**
+   * Gets the sidecar a save writes for its math, as a recordEdit `library` entry: the save's own
+   * annotations, or else the previous math's sidecar moved to the new math and its renamed variables.
+   * The previous math keeps its own.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Promise<{apply: Function, library: Object}|null>} Null when the save leaves the sidecar as it is.
+   */
+  async function prepareAnnotationChange(save) {
+    const { mathRef, annotations } = save
+    const previousMathRef = save.previousMathRef ?? mathRef
+    let text = annotations?.text
+    if (typeof text !== 'string') {
+      const previousText = libraryStore.getModuleAnnotations(previousMathRef)
+      const renames = findVariableRenames(save)
+      if (!previousText || (mathRef === previousMathRef && !renames.size)) return null
+      try {
+        text = await renameSidecar(previousText, previousMathRef, mathRef, renames)
+      } catch (err) {
+        console.warn(`Could not move the annotations of ${previousMathRef} to ${mathRef}:`, err)
+        return null
+      }
+    }
+
+    const states = { before: libraryStore.getModuleAnnotations(mathRef), after: text?.trim() ? text : null }
+    if (states.after === states.before) return null
+    return {
+      apply: () => libraryStore.setModuleAnnotations(mathRef, states.after),
+      library: {
+        isAt: (side) => libraryStore.getModuleAnnotations(mathRef) === states[side],
+        restore: (side) => libraryStore.setModuleAnnotations(mathRef, states[side]),
+      },
+    }
+  }
+
+  /**
    * Applies an instance editor save as one undo step. Undo puts back the math only while it is still
    * what the save wrote, and keeps math a save created while any node still uses it.
    *
@@ -216,6 +268,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    */
   async function saveInstanceEdit(save) {
     const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save
+    const annotationChange = await prepareAnnotationChange(save)
     const affectedIds = [
       ...new Set([
         id,
@@ -237,6 +290,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       keys: NODE_KEYS,
       edgeIds: findIncidentEdgeIds(affectedIds),
       apply: () => {
+        annotationChange?.apply()
         const moduleRef = applySave(save)
         moduleChange?.created(moduleRef)
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
@@ -258,6 +312,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         },
         moduleChange?.library,
         plotChange?.library,
+        annotationChange?.library,
       ]),
     })
 

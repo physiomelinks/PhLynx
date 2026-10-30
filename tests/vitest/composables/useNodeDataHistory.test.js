@@ -18,9 +18,9 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     edges,
     findNode: (id) => nodes.value.find((node) => node.id === id),
     findEdge: (id) => edges.value.find((edge) => edge.id === id),
-    updateNodeData: (id, patch) => {
+    updateNodeData: (id, patch, { replace = false } = {}) => {
       const node = nodes.value.find((candidate) => candidate.id === id)
-      if (node) node.data = { ...node.data, ...patch }
+      if (node) node.data = replace ? patch : { ...node.data, ...patch }
     },
   }),
 }))
@@ -64,6 +64,27 @@ describe('useNodeDataHistory', () => {
 
     await history.redo()
     expect(findNode('a').data.name).toBe('renamed')
+  })
+
+  it('undoing an edit that added a field removes it, and redo puts it back', async () => {
+    const apiCoord = { subject: 'model#a', coordIri: 'coord_a', name: 'a' }
+    const annotationOverlay = { heldConstant: true }
+    const bind = () =>
+      recordEdit({
+        type: 'bind-coord',
+        nodeIds: ['a'],
+        keys: ['apiCoord', 'annotationOverlay'],
+        apply: () => (findNode('a').data = { ...findNode('a').data, apiCoord, annotationOverlay }),
+      })
+    expect(await bind()).toBe(true)
+
+    await history.undo()
+    expect(findNode('a').data).not.toHaveProperty('apiCoord')
+    expect(findNode('a').data).not.toHaveProperty('annotationOverlay')
+    expect(findNode('a').data.name).toBe('a')
+
+    await history.redo()
+    expect(findNode('a').data).toMatchObject({ apiCoord, annotationOverlay: { heldConstant: true } })
   })
 
   it('records nothing when the edit changes nothing', async () => {

@@ -1,5 +1,13 @@
 # Glossary
 
+### Annotation {#annotation}
+<!-- aliases: annotations, annotated, annotated port, annotated ports -->
+What a variable means, in standard ontology terms: its property, species and location. Annotated ports couple by meaning instead of by label. See [Coupling with Annotations](../guides/annotation-coupling.md).
+
+### ApiCoord {#apicoord}
+<!-- aliases: apicoords, apicoord file, instance apicoords -->
+An ApiNATOMY coordinate: where in the body an instance sits (a layer, cell, membrane, membrane protein or vessel). An instance file of ApiCoords places, names and binds instances on **Import ▸ Annotations**. See [Annotation Vocabulary](./annotation-vocabulary.md#apicoord-files).
+
 ### Basicport {#basicport}
 <!-- aliases: basicports -->
 A port that takes only one connection.
@@ -102,7 +110,7 @@ A labelled set of variables an instance shares with connected instances.
 
 ### Port Label {#port-label}
 <!-- aliases: port-labels, vessel-type -->
-A port's name. Ports couple only when labels match.
+A port's name. Ports couple only when labels match. [Annotated](#annotation) ports have no label and couple by meaning.
 
 ### Port Type {#port-type}
 <!-- aliases: port-types -->
@@ -112,12 +120,24 @@ A port's direction: Input (I), Output (O) or General (G, no direction). It sets 
 <!-- aliases: protocols, obs_data -->
 A sequence of experiments, stored in `obs_data.json`, that set parameters and record outputs.
 
+### Reservoir {#reservoir}
+<!-- aliases: reservoirs, held constant -->
+An annotated instance held constant, such as a lumen or blood: its summed fluxes are fixed at 0. See [Reservoirs](../guides/annotation-coupling.md#reservoirs).
+
 ### SED-ML {#sedml}
 An XML format describing how to run and plot a simulation, exportable with the CellML model.
+
+### Sidecar {#sidecar}
+<!-- aliases: sidecars, module sidecar, module annotations -->
+A Turtle file annotating one module math's variables. See [Annotate a Module with a Sidecar](../guides/annotation-coupling.md#write-a-sidecar).
 
 ### Steady State {#steady-state}
 <!-- aliases: steady-state -->
 A model with no differential equations, solved once rather than over the VoI. See [Reading the Status Line](../guides/simulating-your-model.md#status-line).
+
+### Suggested Connection {#suggested-connection}
+<!-- aliases: suggestion, suggestions, suggested connections -->
+A dashed connection the annotations support, not yet made: **Accept** or **Dismiss** it. See [Suggested Connections](../guides/annotation-coupling.md#suggestions).
 
 ### Sweep {#sweep}
 <!-- aliases: sweeps, parameter sweep -->

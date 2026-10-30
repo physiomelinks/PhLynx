@@ -203,6 +203,32 @@ describe('useInstanceSave', () => {
     expect(preview.get('e')).toHaveLength(1)
   })
 
+  it('keeps annotated couplings through a save, while both their ports remain', async () => {
+    const annotated = (subject, variable, multiportType) => ({
+      label: '',
+      portType: 'general_ports',
+      variables: [variable],
+      multiportType,
+      annotation: { subject, variable, role: 'reader', source: { kind: 'sidecar', mathRef: DECAY_REF } },
+    })
+    const reader = annotated('decay.cellml#decay.x', 'x', 'None')
+    const owner = annotated('decay.cellml#decay.k', 'k', 'True')
+    findNode('a').data = { ...findNode('a').data, ports: [...findNode('a').data.ports, reader] }
+    findNode('b').data = { ...findNode('b').data, ports: [...findNode('b').data.ports, owner] }
+    const couplings = [{ sourcePort: reader, targetPort: owner }]
+    edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings } }]
+
+    await saveInstanceEdit(buildSave({ name: 'a' }))
+    const saved = detachReactivity(edges.value[0].data.couplings)
+    expect(saved).toHaveLength(2)
+    expect(saved[0].sourcePort.label).toBe('p')
+    expect(saved[1]).toEqual(detachReactivity({ sourcePort: reader, targetPort: owner }))
+
+    // Removing the annotated port drops its coupling.
+    await saveInstanceEdit(buildSave({ name: 'a', ports: findNode('a').data.ports.filter((port) => !port.annotation) }))
+    expect(edges.value[0].data.couplings.map(({ sourcePort }) => sourcePort.label)).toEqual(['p'])
+  })
+
   it('undoes a save on an instance that was deleted and restored', async () => {
     const before = snapshot()
     await saveInstanceEdit(fork())
@@ -438,6 +464,112 @@ describe('useInstanceSave', () => {
       await saveInstanceEdit(buildSave({ name: 'a', plotVariables: [] }))
       expect(history.canUndo).toBe(false)
       expect(useSimulationSettingsStore().plotConfig).toEqual({})
+    })
+  })
+
+  describe('module annotations', () => {
+    const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix m: <./file#> .
+
+m:decay.x bqbiol:isVersionOf opb:00340 ;
+    bqbiol:isPropertyOf m:decay .
+m:decay.k bqbiol:isVersionOf opb:00592 ;
+    bqbiol:isPropertyOf m:decay .
+`
+    const RENAMED_GROWTH_XML = GROWTH_XML.replaceAll('"k"', '"kd"').replaceAll('<ci>k</ci>', '<ci>kd</ci>')
+
+    beforeEach(() => {
+      library.setModuleAnnotations(DECAY_REF, DECAY_SIDECAR)
+    })
+
+    it('copies the sidecar to forked math, which the old math keeps, and one undo removes the copy', async () => {
+      await saveInstanceEdit(fork())
+      const copied = library.getModuleAnnotations(GROWTH_REF)
+      expect(copied).toContain('m:growth.x')
+      expect(copied).toContain('m:growth.k ')
+      expect(copied).not.toContain('decay')
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+
+      await history.undo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBeNull()
+      expect(findNode('a').data.mathRef).toBe(DECAY_REF)
+
+      await history.redo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBe(copied)
+    })
+
+    it('renames the subjects of variables the new math renamed', async () => {
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: RENAMED_GROWTH_XML }))
+      const copied = library.getModuleAnnotations(GROWTH_REF)
+      expect(copied).toContain('m:growth.kd')
+      expect(copied).toContain('m:growth.x')
+      expect(copied).not.toContain('m:growth.k ')
+    })
+
+    it('renames subjects in place when math is overwritten under its own reference', async () => {
+      await saveInstanceEdit(buildSave({ math: DECAY_XML.replaceAll('"k"', '"kd"').replaceAll('<ci>k</ci>', '<ci>kd</ci>') }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toContain('m:decay.kd')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('writes the annotations a save carries, and one undo puts back the sidecar and the nodes', async () => {
+      const text = DECAY_SIDECAR.replace('opb:00592', 'opb:00318')
+      await saveInstanceEdit(buildSave({ annotations: { text } }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(text)
+      expect(findNode('a').data.name).toBe('a2')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+      expect(findNode('a').data.name).toBe('a')
+    })
+
+    it('clears the sidecar when a save carries empty annotations', async () => {
+      await saveInstanceEdit(buildSave({ annotations: { text: '' } }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toBeNull()
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('records a save that only changes the annotations', async () => {
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      history.clear()
+      await saveInstanceEdit(buildSave({ name: 'a', annotations: { text: DECAY_SIDECAR.replace('opb:00592', 'opb:00318') } }))
+      expect(history.canUndo).toBe(true)
+    })
+
+    it('replaces the sidecar of math a save overwrites, and undo puts it back', async () => {
+      library.addMath(GROWTH_REF, GROWTH_XML)
+      const growthSidecar = DECAY_SIDECAR.replaceAll('decay', 'growth').replace('opb:00592', 'opb:00318')
+      library.setModuleAnnotations(GROWTH_REF, growthSidecar)
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML.replace('<ci>k</ci>', '<cn>2</cn>') }))
+      expect(library.getModuleAnnotations(GROWTH_REF)).toContain('opb:00592')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBe(growthSidecar)
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('still saves, leaving the sidecars as they are, when the old sidecar does not parse', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      library.setModuleAnnotations(DECAY_REF, 'not turtle ;;')
+      await saveInstanceEdit(fork())
+      expect(findNode('a').data.mathRef).toBe(GROWTH_REF)
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBeNull()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe('not turtle ;;')
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
+    it('leaves the sidecar alone when the save keeps the math', async () => {
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      history.clear()
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      expect(history.canUndo).toBe(false)
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
     })
   })
 })

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The toy compartment, as the vitest toy declares it, with equations and values so the model exports and runs. -->
+<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="ToyPool">
+  <component name="pool">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="c_A" units="mM" initial_value="1" interface="public"/>
+    <variable name="v_A" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="volume" units="pL" initial_value="1" interface="public"/>
+    <variable name="area" units="mm2" initial_value="1" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>c_A</ci></apply>
+        <apply><divide/><apply><times/><ci>v_A</ci><ci>area</ci></apply><ci>volume</ci></apply>
+      </apply>
+    </math>
+  </component>
+</model>
