@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useClearWorkspace } from '../../../src/composables/useClearWorkspace.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
+import { useAnnotationStore } from '../../../src/stores/annotationStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
 import { DEFAULT_PROJECT_NAME } from '../../../src/utils/constants.js'
@@ -53,5 +54,23 @@ describe('useClearWorkspace', () => {
     expect(sessionMetadataStore.lastSaveName).toBe(DEFAULT_PROJECT_NAME)
     expect(historyStore.canUndo).toBe(false)
     expect(historyStore.canRedo).toBe(false)
+  })
+
+  it('resets the annotation store, keeps library sidecars, and undo brings the annotation state back', async () => {
+    const libraryStore = useLibraryStore()
+    const annotationStore = useAnnotationStore()
+    const historyStore = useFlowHistoryStore()
+    libraryStore.setModuleAnnotations('math:1', '# sidecar')
+    annotationStore.addInstanceSource({ location: 'apicoords.ttl', text: '# coords' })
+    annotationStore.dismissSuggestion('a|b|x')
+    const before = annotationStore.getState()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    expect(annotationStore.getState()).toEqual({ instanceSources: [], dismissedSuggestions: [] })
+    expect(libraryStore.getModuleAnnotations('math:1')).toBe('# sidecar')
+
+    await historyStore.undo()
+    expect(annotationStore.getState()).toEqual(before)
   })
 })

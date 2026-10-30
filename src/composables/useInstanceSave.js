@@ -1,10 +1,16 @@
 import { useVueFlow } from '@vue-flow/core'
+import { useAnnotationStore } from '../stores/annotationStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { buildCouplingContext } from '../services/annotations/couple'
+import { countDroppedCouplings, findSidecarPortChanges, reconcileNodePorts } from '../services/annotations/reconcileNodes'
+import { parseSidecar } from '../services/annotations/sidecar'
+import { renameSidecar } from '../services/annotations/sidecarEdit'
+import { analyzeMathXml } from '../services/math/analyzeMath'
+import { carryRenames } from '../services/math/carryRenames'
 import { getPortVariables, reconcileRows } from '../services/math/reconcileRows'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
-import { previewCouplings } from '../utils/edges'
 import { detachReactivity } from '../utils/reactivity'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
@@ -41,11 +47,12 @@ function combineLibraries(libraries) {
  * Applies an instance editor save to the workspace as one canvas undo step.
  *
  * @param {string} [flowId=FLOW_IDS.MAIN]
- * @returns {Object} saveInstanceEdit.
+ * @returns {Object} saveInstanceEdit and findDroppedCouplings.
  */
 export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   const { nodes, edges, findNode, updateNodeData } = useVueFlow(flowId)
   const libraryStore = useLibraryStore()
+  const annotationStore = useAnnotationStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
 
@@ -75,15 +82,37 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Recomputes couplings on every edge touching a node from the current ports. Call it after
-   * changing ports on one or more nodes.
+   * Builds the coupling context a save re-checks kept annotated couplings with.
    *
-   * @param {string} nodeId
+   * @param {Function} sidecarFor - From prepareSidecars.
+   * @param {Array<Object>} contextNodes - The nodes as the save leaves them.
+   * @returns {Object} From buildCouplingContext.
    */
-  function recomputeEdgeCouplings(nodeId) {
-    const node = findNode(nodeId)
-    if (!node) return
-    const couplings = previewCouplings(nodeId, node.data.ports ?? [], nodes.value, edges.value)
+  function buildSaveContext(sidecarFor, contextNodes) {
+    return buildCouplingContext({
+      apiCoords: annotationStore.getApiCoords(),
+      sidecarFor: (ref) => sidecarFor(ref) ?? libraryStore.getParsedModuleAnnotations(ref),
+      nodes: contextNodes,
+    })
+  }
+
+  /**
+   * Reconciles the sidecar ports of the given nodes and recomputes the couplings of every edge touching them.
+   *
+   * @param {Array<string>} nodeIds
+   * @param {Function} sidecarFor - From prepareSidecars.
+   * @param {Map<string, Array<Object>>} portChanges - The edited node's sidecar ports the editor replaced.
+   */
+  function reconcileSavedNodes(nodeIds, sidecarFor, portChanges) {
+    const { ports, couplings } = reconcileNodePorts({
+      nodes: nodes.value,
+      edges: edges.value,
+      nodeIds,
+      sidecarFor,
+      context: buildSaveContext(sidecarFor, nodes.value),
+      portChanges,
+    })
+    ports.forEach((nodePorts, nodeId) => updateNodeData(nodeId, { ports: nodePorts }))
     edges.value.forEach((edge) => {
       if (couplings.has(edge.id)) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
     })
@@ -105,9 +134,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * so it shows in the library.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
+   * @param {Array<string>} affectedIds - From findAffectedIds; their sidecar ports are reconciled.
+   * @param {Function} sidecarFor - From prepareSidecars.
    * @returns {string|null} The ref of the module made for the math, if one was.
    */
-  function applySave(save) {
+  function applySave(save, affectedIds, sidecarFor) {
     const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, globalConstants, updateAll, siblings } = save
     // Keep the shared units and reference, so one node's fields don't replace them.
     globalConstants.forEach(({ name, value, units, data_reference, overwrite }) => {
@@ -122,6 +153,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     // Without its own module, a node would keep its old one's ref, which export keys configs by.
     // Only siblings on the edited node's old module share its ports, so only they move to the new one.
     const previousModuleRef = findNode(id)?.data.moduleRef
+    const portChanges = new Map([[id, findSidecarPortChanges(findNode(id)?.data.ports, ports)]])
     const moduleFields = moduleRef ? { moduleRef } : {}
     updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields })
     if (updateAll) {
@@ -140,8 +172,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       cleanPorts(node)
     })
 
-    recomputeEdgeCouplings(id)
-    otherNodes.forEach((node) => recomputeEdgeCouplings(node.id))
+    reconcileSavedNodes(affectedIds, sidecarFor, portChanges)
     return moduleRef
   }
 
@@ -208,6 +239,141 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Finds the variables a save's math renamed, as carryRenames carries their rows.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Map<string, string>} Old variable name -> new name.
+   */
+  function findVariableRenames({ mathRef, previousMathRef, math }) {
+    if (math === null) return new Map()
+    const previousAnalysis = libraryStore.getMathAnalysis(previousMathRef ?? mathRef)
+    const rows = [...new Set(previousAnalysis?.references ?? [])].map((name) => ({ name }))
+    const { portRenames } = carryRenames(previousAnalysis, analyzeMathXml(math), rows)
+    return new Map(portRenames.map(({ from, to }) => [from, to]))
+  }
+
+  /**
+   * Gets the sidecar a save writes for its math, as a recordEdit `library` entry: the save's own
+   * annotations, or else the previous math's sidecar moved to the new math and its renamed variables.
+   * The previous math keeps its own.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Promise<{text: string|null, apply: Function, library: Object}|null>} Null when the save leaves the
+   *   sidecar as it is.
+   */
+  async function prepareAnnotationChange(save) {
+    const { mathRef, annotations } = save
+    const previousMathRef = save.previousMathRef ?? mathRef
+    let text = annotations?.text
+    if (typeof text !== 'string') {
+      const previousText = libraryStore.getModuleAnnotations(previousMathRef)
+      const renames = findVariableRenames(save)
+      if (!previousText || (mathRef === previousMathRef && !renames.size)) return null
+      try {
+        text = await renameSidecar(previousText, previousMathRef, mathRef, renames)
+      } catch (err) {
+        console.warn(`Could not move the annotations of ${previousMathRef} to ${mathRef}:`, err)
+        return null
+      }
+    }
+
+    const states = { before: libraryStore.getModuleAnnotations(mathRef), after: text?.trim() ? text : null }
+    if (states.after === states.before) return null
+    return {
+      text: states.after,
+      apply: () => libraryStore.setModuleAnnotations(mathRef, states.after),
+      library: {
+        isAt: (side) => libraryStore.getModuleAnnotations(mathRef) === states[side],
+        restore: (side) => libraryStore.setModuleAnnotations(mathRef, states[side]),
+      },
+    }
+  }
+
+  /**
+   * Finds the nodes a save writes: the edited node, the siblings it applies to, and every node on its old or new
+   * math.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Array<string>}
+   */
+  function findAffectedIds({ id, mathRef, previousMathRef, updateAll, siblings }) {
+    return [
+      ...new Set([
+        id,
+        ...(updateAll ? siblings : []),
+        ...nodes.value.filter((node) => [mathRef, previousMathRef].includes(node.data?.mathRef)).map((node) => node.id),
+      ]),
+    ]
+  }
+
+  /**
+   * Parses the sidecars the affected nodes' ports follow: the saved math's as the save leaves it, and the others'
+   * as they are.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @param {Object|null} annotationChange - From prepareAnnotationChange.
+   * @param {Array<string>} affectedIds
+   * @returns {Promise<(mathRef: string) => Object|null|undefined>} A math's sidecar, null when the save clears
+   *   it, undefined when there is none to follow.
+   */
+  async function prepareSidecars({ mathRef, math }, annotationChange, affectedIds) {
+    const text = annotationChange ? annotationChange.text : libraryStore.getModuleAnnotations(mathRef)
+    const cellml = math ?? libraryStore.availableMath.get(mathRef)
+    const otherRefs = [
+      ...new Set(affectedIds.map((nodeId) => nodes.value.find((node) => node.id === nodeId)?.data?.mathRef).filter((ref) => ref && ref !== mathRef)),
+    ]
+    const [target, others] = await Promise.all([
+      text ? parseSidecar(text, { mathRef, cellml }) : null,
+      Promise.all(otherRefs.map(async (ref) => [ref, await libraryStore.ensureModuleAnnotations(ref)])),
+      annotationStore.ensureApiCoords(),
+    ])
+    const sidecars = new Map(others.filter(([, sidecar]) => sidecar))
+    const isCleared = !!annotationChange && !text
+    return (ref) => (ref === mathRef ? (target ?? (isCleared ? null : undefined)) : sidecars.get(ref))
+  }
+
+  /**
+   * Builds the nodes as a save would leave them, before their sidecar ports are reconciled.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Array<Object>} Copies; the workspace nodes are not changed.
+   */
+  function previewSavedNodes({ id, name, variables, ports, mathRef, updateAll, siblings }) {
+    const validVariables = new Set(variables.map((row) => row.name))
+    return nodes.value.map((node) => {
+      const data = detachReactivity(node.data ?? {})
+      if (node.id === id) return { id: node.id, data: { ...data, name, variables, ports, mathRef } }
+      const isMoved = updateAll && siblings.includes(node.id)
+      if (!isMoved && data.mathRef !== mathRef) return { id: node.id, data }
+      const nodePorts = (data.ports ?? []).filter((port) => (port.variables ?? []).every((v) => validVariables.has(v)))
+      return { id: node.id, data: { ...data, mathRef, variables, ports: nodePorts } }
+    })
+  }
+
+  /**
+   * Counts the annotated couplings a save would drop, as its sidecar ports are reconciled and their couplings
+   * re-checked, so the editor can ask first.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Promise<{ couplings: number, connections: number }>}
+   */
+  async function findDroppedCouplings(save) {
+    const affectedIds = findAffectedIds(save)
+    const sidecarFor = await prepareSidecars(save, await prepareAnnotationChange(save), affectedIds)
+    const preview = previewSavedNodes(save)
+    const canvasPorts = nodes.value.find((node) => node.id === save.id)?.data?.ports
+    const { couplings } = reconcileNodePorts({
+      nodes: preview,
+      edges: edges.value,
+      nodeIds: affectedIds,
+      sidecarFor,
+      context: buildSaveContext(sidecarFor, preview),
+      portChanges: new Map([[save.id, findSidecarPortChanges(canvasPorts, save.ports)]]),
+    })
+    return countDroppedCouplings(edges.value, couplings)
+  }
+
+  /**
    * Applies an instance editor save as one undo step. Undo puts back the math only while it is still
    * what the save wrote, and keeps math a save created while any node still uses it.
    *
@@ -215,14 +381,10 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @returns {Promise<number>} How many nodes now use the saved math reference.
    */
   async function saveInstanceEdit(save) {
-    const { id, mathRef, previousMathRef, math, isLayoutChanged, updateAll, siblings } = save
-    const affectedIds = [
-      ...new Set([
-        id,
-        ...(updateAll ? siblings : []),
-        ...nodes.value.filter((node) => [mathRef, previousMathRef].includes(node.data?.mathRef)).map((node) => node.id),
-      ]),
-    ]
+    const { mathRef, math, isLayoutChanged, updateAll, siblings } = save
+    const annotationChange = await prepareAnnotationChange(save)
+    const affectedIds = findAffectedIds(save)
+    const sidecarFor = await prepareSidecars(save, annotationChange, affectedIds)
     const writtenMathRef = math !== null || isLayoutChanged ? mathRef : null
     const mathBefore = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
     let mathAfter = null
@@ -237,7 +399,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       keys: NODE_KEYS,
       edgeIds: findIncidentEdgeIds(affectedIds),
       apply: () => {
-        const moduleRef = applySave(save)
+        annotationChange?.apply()
+        const moduleRef = applySave(save, affectedIds, sidecarFor)
         moduleChange?.created(moduleRef)
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
         plotChange?.apply()
@@ -258,11 +421,12 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         },
         moduleChange?.library,
         plotChange?.library,
+        annotationChange?.library,
       ]),
     })
 
     return 1 + (updateAll ? siblings.length : 0)
   }
 
-  return { saveInstanceEdit }
+  return { saveInstanceEdit, findDroppedCouplings }
 }
