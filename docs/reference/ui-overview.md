@@ -130,7 +130,7 @@ The header holds the **Instance** name (unique), the **Component** name and the 
 ![Instance Editor on the Ports tab](../assets/images/edit-module-detail.png){.align-center width="800px"}
 
 * **Left pane:** **CellML Text** or **Math Editor**, two views of the same equations; see [Writing CellML](../guides/writing-cellml.md).
-* **Right pane:** **Parameters**, **Ports** and **Plot** tabs (collapsible, resizable).
+* **Right pane:** **Parameters**, **Ports**, **Plot** and **Annotations** tabs (collapsible, resizable).
 * **Footer:** **Cancel**, **Apply** (save and keep editing) and **Save** (Ctrl/Cmd+Enter). **Apply math changes to all N instances** also updates instances sharing the component.
 
 ### Parameters tab {#parameters-tab}
@@ -175,6 +175,10 @@ Each row on the **Ports** tab exposes variables through a port; hover the dot by
 | **Variables** | The variables the port exposes. On a multiport, click a variable's chip to cycle **True**, **Sum** and **Multiply** (with a factor); see [Ports that take several connections](./valid-port-configurations.md#multiports). |
 
 **Add port** adds a row; the trash icon removes one.
+
+### Annotations tab {#annotations-tab}
+
+Says what each variable means (its property, species and place), shared by every instance of the math. Annotated variables get ports that couple by meaning. Species are looked up online as you type. See [Annotate in the Instance Editor](../guides/annotation-coupling.md#annotations-tab).
 
 ---
 

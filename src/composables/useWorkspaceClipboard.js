@@ -7,6 +7,8 @@ import { FLOW_IDS } from '../utils/constants'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
+import { withoutApiCoord } from '../services/annotations/nodeData'
+import { reconcileNodePorts } from '../services/annotations/reconcileNodes'
 
 /**
  * Whether a workspace keyboard shortcut should be left alone: the user is typing in an input, a dialog is
@@ -103,6 +105,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
         mathRef,
         math,
         layout: libraryStore.getMathLayout(mathRef),
+        annotations: libraryStore.getModuleAnnotations(mathRef),
         moduleRef,
         module,
       }
@@ -120,6 +123,37 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       await navigator.clipboard.writeText(JSON.stringify(payload))
     } catch (err) {
       console.warn('Clipboard write failed', err)
+    }
+  }
+
+  /**
+   * Gives pasted nodes the sidecar ports of their math's sidecar here, and moves the pasted edges' couplings onto
+   * them. Nodes on math without a sidecar keep their ports.
+   *
+   * @param {Array<Object>} newNodes - Changed in place.
+   * @param {Array<Object>} newEdges - Changed in place.
+   */
+  async function reconcilePastedPorts(newNodes, newEdges) {
+    const mathRefs = [...new Set(newNodes.map((node) => node.data?.mathRef))].filter(
+      (mathRef) => mathRef && libraryStore.getModuleAnnotations(mathRef) !== null
+    )
+    if (!mathRefs.length) return
+    const parsed = new Map(
+      await Promise.all(mathRefs.map(async (mathRef) => [mathRef, await libraryStore.ensureModuleAnnotations(mathRef)]))
+    )
+    const { ports, couplings } = reconcileNodePorts({
+      nodes: [...nodes.value, ...newNodes],
+      edges: [...edges.value, ...newEdges],
+      nodeIds: newNodes.map((node) => node.id),
+      sidecarFor: (mathRef) => parsed.get(mathRef) ?? undefined,
+    })
+    for (const node of newNodes) {
+      if (ports.has(node.id)) node.data = { ...node.data, ports: ports.get(node.id) }
+    }
+    for (const edge of newEdges) {
+      if ((ports.has(edge.source) || ports.has(edge.target)) && couplings.has(edge.id)) {
+        edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
+      }
     }
   }
 
@@ -155,6 +189,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
           // Clipboard text can come from anywhere, so the layout is checked like a saved one.
           const layout = entry.layout ? parseLayout(JSON.stringify(entry.layout)) : null
           libraryStore.addMath(entry.mathRef, entry.math, true, layout)
+          if (typeof entry.annotations === 'string') libraryStore.setModuleAnnotations(entry.mathRef, entry.annotations)
         }
       }
     }
@@ -190,12 +225,12 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       const finalName = generateUniqueInstanceName(node.data.name, namesSet)
       namesSet.add(finalName)
 
-      // Create the new node with offset position.
+      // Create the new node with offset position. A copy is unlocated: two instances at one ApiCoord would conflict.
       newNodes.push({
         id: newId,
         type: node.type,
         data: {
-          ...node.data,
+          ...withoutApiCoord(node.data),
           name: finalName,
         },
         position: {
@@ -225,6 +260,8 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
         })
       }
     })
+
+    await reconcilePastedPorts(newNodes, newEdges)
 
     getSelectedNodes.value.forEach((n) => (n.selected = false))
     getSelectedEdges.value.forEach((e) => (e.selected = false))

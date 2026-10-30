@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The toy transporter, as the vitest toy declares it, with a passive flux: _i is into the cytoplasm, _o outside. -->
+<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="ToyPorter">
+  <component name="porter">
+    <variable name="c_A_i" units="mM" interface="public"/>
+    <variable name="c_A_o" units="mM" interface="public"/>
+    <variable id="flux_in" name="v_A_i" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="v_A_o" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="j_A" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="u" units="J_per_C" interface="public"/>
+    <variable name="area" units="mm2" interface="public"/>
+    <variable name="P" units="m_per_s" initial_value="0.1"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <ci>v_A_i</ci>
+        <apply><times/><ci>P</ci><apply><minus/><ci>c_A_o</ci><ci>c_A_i</ci></apply></apply>
+      </apply>
+      <apply><eq/><ci>v_A_o</ci><apply><minus/><ci>v_A_i</ci></apply></apply>
+      <apply><eq/><ci>j_A</ci><apply><times/><cn cellml:units="dimensionless">1</cn><ci>v_A_i</ci></apply></apply>
+    </math>
+  </component>
+</model>

@@ -51,6 +51,15 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
   }
 })
 
+const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix sbo: <http://purl.obolibrary.org/obo/SBO_> .
+@prefix m: <./file#> .
+m:decay bqbiol:is sbo:0000290 .
+m:decay.x bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf m:decay .
+`
+const X_SUBJECT = 'https://phlynx.invalid/modules/file#decay.x'
+
 const moduleData = (overrides = {}) => ({
   moduleRef: 'membrane:basic',
   mathRef: 'membrane.cellml:basic',
@@ -327,6 +336,37 @@ describe('useDragAndDrop', () => {
       expect(flow.flowIds.at(-1)).toBe(FLOW_IDS.MAIN)
       useDragAndDrop(new Set(), FLOW_IDS.MACRO)
       expect(flow.flowIds.at(-1)).toBe(FLOW_IDS.MACRO)
+    })
+  })
+
+  describe('sidecar ports', () => {
+    const DECAY = { moduleRef: 'decay:default', mathRef: 'file:decay', ports: [], variables: [{ name: 'x' }, { name: 'k' }] }
+    const sidecarSubjects = (data) => data.ports.map((port) => port.annotation?.subject)
+
+    it('gives a node from a module whose math has a parsed sidecar one port per annotation', async () => {
+      const store = useLibraryStore()
+      store.setModuleAnnotations(DECAY.mathRef, DECAY_SIDECAR)
+      await store.ensureModuleAnnotations(DECAY.mathRef)
+
+      dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(sidecarSubjects(flow.addNodes.mock.calls[0][0].data)).toEqual([X_SUBJECT])
+      expect(DECAY.ports).toEqual([])
+    })
+
+    it('adds the ports once a sidecar not yet parsed is', async () => {
+      useLibraryStore().setModuleAnnotations(DECAY.mathRef, DECAY_SIDECAR)
+      const { nodeId } = dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(flow.addNodes.mock.calls[0][0].data.ports).toEqual([])
+
+      await vi.waitFor(() => expect(flow.updateNode).toHaveBeenCalled())
+      const [id, update] = flow.updateNode.mock.calls[0]
+      expect(id).toBe(nodeId)
+      expect(sidecarSubjects(update({ data: { ...DECAY, ports: [] } }).data)).toEqual([X_SUBJECT])
+    })
+
+    it('leaves the ports of a node whose math has no sidecar', () => {
+      dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(flow.addNodes.mock.calls[0][0].data.ports).toBe(DECAY.ports)
     })
   })
 })
