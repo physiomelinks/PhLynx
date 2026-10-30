@@ -1,0 +1,39 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 1,
+  "id": "enterocyte",
+  "name": "Enterocyte",
+  "description": "An intestinal absorptive cell between the gut lumen and the interstitium, without a paracellular route.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "cell",
+      "label": "Enterocyte",
+      "membrane": { "label": "Plasma membrane" },
+      "facets": [
+        { "id": "apical", "label": "Brush border membrane", "edge": "top", "annotation": { "facet": "apical" } },
+        { "id": "basolateral", "label": "Basolateral membrane", "edge": "bottom", "annotation": { "facet": "basolateral" } },
+        {
+          "id": "lateral-left",
+          "label": "Lateral membrane (left)",
+          "edge": "left",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "left" }
+        },
+        {
+          "id": "lateral-right",
+          "label": "Lateral membrane (right)",
+          "edge": "right",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "right" }
+        }
+      ],
+      "processes": [{ "id": "metabolism", "label": "Metabolism" }]
+    }
+  ],
+  "compartments": [
+    { "id": "lumen", "label": "Intestinal lumen", "against": ["cell.apical"], "tone": "sky" },
+    { "id": "interstitium", "label": "Interstitium", "against": ["cell.basolateral"], "tone": "rose" }
+  ]
+}

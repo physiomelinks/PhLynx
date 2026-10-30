@@ -88,9 +88,14 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
    *
    * @param {object} moduleData - The module descriptor (ports, mathRef, variables)
    * @param {{x: number, y: number}} position - Flow coordinates to place the node.
+   * @param {Array<Object>} [handles=[]]
+   * @param {Object} [extraData={}] - More node data, e.g. its bioView, so the add carries it.
+   * @param {Object} [options]
+   * @param {boolean} [options.centre=true] - Treat position as where the node's centre goes, as for a
+   *   drop at the mouse; otherwise it is the node's top-left.
    * @returns {{ nodeId: string, nodeType: string }}
    */
-  function createInstanceNode(moduleData, position, handles = []) {
+  function createInstanceNode(moduleData, position, handles = [], extraData = {}, { centre = true } = {}) {
     const nodeId = getNextNodeId(getNodes.value.map((n) => n.id))
     pendingHistoryNodes.add(nodeId)
 
@@ -106,6 +111,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     const mathAnalysis = store.getMathAnalysis(moduleData.mathRef)
     const mathDefaults = store.getMathDefaults(moduleData.mathRef)
     const newNode = buildInstance(nodeId, finalName, nodeType, moduleData, allHandles, position, mathAnalysis, mathDefaults)
+    Object.assign(newNode.data, extraData)
 
     const globalConstants = extractGlobalConstants(newNode.data.variables)
     
@@ -118,6 +124,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
      * We can hook into events even in a callback, and we can remove the event listener after it's been called.
      */
     const { off } = onNodesInitialized(() => {
+      if (!centre) return off()
       updateNode(nodeId, (node) => {
         const centredPosition = {
           x: node.position.x - node.dimensions.width / 2,

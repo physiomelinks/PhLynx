@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="ToyPool">
+  <component name="pool">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="c_A" units="mM" initial_value="1" interface="public"/>
+    <variable name="v_A" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="volume" units="pL" interface="public"/>
+    <variable name="area" units="mm2" interface="public"/>
+  </component>
+</model>
