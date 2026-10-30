@@ -190,6 +190,10 @@
               <i class="pi pi-chart-line tab-icon"></i>
               Plot ({{ plottedCount }})
             </Tab>
+            <Tab value="annotations">
+              <i class="pi pi-tag tab-icon"></i>
+              Annotations ({{ annotationCounts.annotated }}/{{ annotationCounts.annotatable }})
+            </Tab>
           </TabList>
 
           <TabPanels class="tab-panels-container">
@@ -215,9 +219,8 @@
             <!-- TAB 2: PORT EDITOR -->
             <TabPanel value="ports" class="tab-panel-flex">
               <div class="ports-tab-body">
-                <Message v-if="incompletePortCount" class="ports-header" severity="error" size="small" variant="simple">
-                  {{ incompletePortCount }} {{ incompletePortCount === 1 ? 'port needs' : 'ports need' }} a label and at
-                  least one variable.
+                <Message v-if="incompletePortMessage" class="ports-header" severity="error" size="small" variant="simple">
+                  {{ incompletePortMessage }}
                 </Message>
 
                 <div v-if="editablePorts.length" class="table-flex-wrapper">
@@ -233,18 +236,25 @@
                   >
                     <Column header="Type" style="width: 140px">
                       <template #body="slotProps">
-                        <Select
-                          v-model="slotProps.data.portType"
-                          :options="PORT_TYPE_OPTIONS"
-                          optionLabel="label"
-                          optionValue="value"
-                          size="small"
-                          class="w-full"
-                        />
+                        <!-- An annotated port's type, mode and meaning come from its annotation -->
+                        <span
+                          class="port-type-cell"
+                          :title="isAnnotatedPort(slotProps.data) ? fromAnnotationTitle(slotProps.data) : undefined"
+                        >
+                          <Select
+                            v-model="slotProps.data.portType"
+                            :options="PORT_TYPE_OPTIONS"
+                            optionLabel="label"
+                            optionValue="value"
+                            size="small"
+                            class="w-full"
+                            :disabled="isAnnotatedPort(slotProps.data)"
+                          />
+                        </span>
                       </template>
                     </Column>
 
-                    <Column header="Label" style="min-width: 140px">
+                    <Column header="Label" style="min-width: 220px">
                       <template #body="slotProps">
                         <div class="flex items-center gap-2">
                           <!-- Whether the port is connected, as the edge dialog shows it -->
@@ -255,7 +265,15 @@
                             ]"
                             v-tooltip.top="portStatus(slotProps.data)"
                           ></span>
+                          <AnnotationChips
+                            v-if="isAnnotatedPort(slotProps.data)"
+                            :annotation="slotProps.data.annotation"
+                            :quantity="portQuantity(slotProps.data)"
+                            :variable="slotProps.data.variables?.[0] ?? ''"
+                            :is-bound="isNodeBound"
+                          />
                           <InputText
+                            v-else
                             v-model="slotProps.data.label"
                             :invalid="isPortFlagged(slotProps.data) && !slotProps.data.label?.trim()"
                             placeholder="Enter label"
@@ -277,10 +295,13 @@
                           :aria-pressed="isMultiport(slotProps.data)"
                           aria-label="Multiport"
                           :title="
-                            isMultiport(slotProps.data)
-                              ? 'Multiport: takes several connections'
-                              : 'Basicport: takes one connection'
+                            isAnnotatedPort(slotProps.data)
+                              ? fromAnnotationTitle(slotProps.data)
+                              : isMultiport(slotProps.data)
+                                ? 'Multiport: takes several connections'
+                                : 'Basicport: takes one connection'
                           "
+                          :disabled="isAnnotatedPort(slotProps.data)"
                           @click="setMultiport(slotProps.data, !isMultiport(slotProps.data))"
                         >
                           <template #icon>
@@ -293,10 +314,18 @@
 
                     <Column header="Variables" style="min-width: 200px">
                       <template #body="slotProps">
+                        <!-- A sidecar port's variable is the annotated one; a mirrored copy's is picked here -->
+                        <PortVariableChips
+                          v-if="isAnnotatedPort(slotProps.data) && !isMirroredPort(slotProps.data)"
+                          :port="slotProps.data"
+                          locked
+                        />
                         <PortVariableSelect
+                          v-else
                           :port="slotProps.data"
                           :options="parameterRows"
                           :flagged="isPortFlagged(slotProps.data)"
+                          :locked="isAnnotatedPort(slotProps.data)"
                           class="w-full"
                         />
                       </template>
@@ -379,6 +408,23 @@
                   <span v-if="plotNotice" class="plot-tab-auto-notice" role="status" :title="plotNotice">{{ plotNotice }}</span>
                 </template>
               </SimulationPanel>
+            </TabPanel>
+
+            <!-- TAB 4: ANNOTATIONS, shared by every instance of the math -->
+            <TabPanel value="annotations" class="tab-panel-flex">
+              <AnnotationTab
+                v-model:draft="annotationDraft"
+                :rows="parameterRows"
+                :variable-kinds="variableKinds"
+                :sidecar="renamedSidecar"
+                :sidecar-text="store.getModuleAnnotations(mathRef)"
+                :math-ref="mathRef"
+                :cellml="store.availableMath.get(mathRef) ?? ''"
+                :shared-count="siblingCount + 1"
+                :is-bound="isNodeBound"
+                :port-status="annotationPortStatus"
+                :workspace-terms="workspaceSpecies"
+              />
             </TabPanel>
           </TabPanels>
         </Tabs>
@@ -487,6 +533,9 @@ import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
+import PortVariableChips from './PortVariableChips.vue'
+import AnnotationChips from './AnnotationChips.vue'
+import AnnotationTab from './annotations/AnnotationTab.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
@@ -499,9 +548,25 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
+import { useCouplingContext } from '../composables/useCouplingContext'
+import { useInstanceSave } from '../composables/useInstanceSave'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { coordOf, quantityOfPort } from '../services/annotations/couple'
+import { isSidecarPort, reconcileAnnotatedPorts } from '../services/annotations/ports'
+import { fromAnnotationTitle } from '../services/annotations/display'
+import {
+  applyAnnotationDraft,
+  classifyAnnotationRow,
+  createAnnotationDraft,
+  getDraftEntry,
+  getDraftKind,
+  hasDraftEdits,
+  signDraft,
+} from '../services/annotations/draft'
+import { hasPrefix } from '../services/annotations/iris'
+import { editSidecar, renameSidecar } from '../services/annotations/sidecarEdit'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -518,7 +583,7 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
-import { findPort } from '../utils/ports'
+import { findPort, isAnnotatedPort, isMirroredPort, isNamedPort, portDisplayName } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
   isMultiport,
@@ -537,7 +602,7 @@ const props = defineProps({
   variables: { type: Array, default: () => [] },
   initialPorts: { type: Array, default: () => [] },
   existingNames: { type: Array, default: () => [] },
-  defaultTab: { type: String, default: 'parameters' }, // 'parameters', 'ports' or 'plot'
+  defaultTab: { type: String, default: 'parameters' }, // 'parameters', 'ports', 'plot' or 'annotations'
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
@@ -549,6 +614,7 @@ const history = reactive(createHistory())
 const { trackEvent } = useGtm()
 const { nodes, edges } = useVueFlow()
 const { confirm } = useConfirmDialog()
+const { findDroppedCouplings, findVariableRenames } = useInstanceSave()
 const { settings: appSettings } = useAppSettings()
 
 /** Each units name's expansion beside its suggestion, in the units the user chose in Settings. */
@@ -604,6 +670,8 @@ let rejectedName = ''
 // The ports a save rejected. Only these are flagged, so rows added afterwards start clean.
 const flaggedPorts = ref(new Set())
 const portsTableRef = ref(null)
+// The Annotations tab's unsaved edits to the math's sidecar.
+const annotationDraft = ref(createAnnotationDraft())
 
 watch(editableName, (name) => {
   if (name !== rejectedName) nameError.value = ''
@@ -1087,7 +1155,7 @@ function plotClickedVariable(name) {
 }
 
 /**
- * Signs what a run reads from the instance besides its math: its name, rows and ports.
+ * Signs what the editor saves besides its math: the instance's name, rows and ports, and the annotation draft.
  *
  * @returns {string}
  */
@@ -1096,6 +1164,7 @@ const signEditorState = () =>
     name: editableName.value,
     rows: parameterRows.value.map(({ name, value, type, units, initialiser }) => ({ name, value, type, units, initialiser })),
     ports: editablePorts.value,
+    annotations: signDraft(annotationDraft.value),
   })
 // The signature as loaded, so edits to values, the name or the ports count as unsaved.
 const savedEditorState = ref('')
@@ -1123,12 +1192,26 @@ const hasUnsavedEdits = computed(
 const rightTabLabel = computed(() => {
   if (activeTab.value === 'ports') return `Ports (${editablePorts.value.length})`
   if (activeTab.value === 'plot') return `Plot (${plottedCount.value})`
+  if (activeTab.value === 'annotations') {
+    return `Annotations (${annotationCounts.value.annotated}/${annotationCounts.value.annotatable})`
+  }
   return `Parameters (${parameterRows.value.length})`
 })
 
+/**
+ * Gets what the collapsed rail's badges say about the active tab, for screen readers.
+ *
+ * @returns {string}
+ */
+function getRailSummary() {
+  if (activeTab.value === 'parameters') return issueChips.value.map((chip) => chip.label).join(', ')
+  if (activeTab.value === 'annotations' && hasDraftEdits(annotationDraft.value)) return 'Unsaved annotation edits'
+  return ''
+}
+
 // Screen readers get the same information the badges show.
 const railAriaLabel = computed(() => {
-  const summary = activeTab.value === 'parameters' ? issueChips.value.map((chip) => chip.label).join(', ') : ''
+  const summary = getRailSummary()
   return summary ? `Expand panel. ${rightTabLabel.value}. ${summary}` : `Expand panel. ${rightTabLabel.value}`
 })
 
@@ -1176,7 +1259,7 @@ watch(
 // A save that keeps the editor open reloads it from the saved instance, once the workspace has it.
 let reloadAfterSave = false
 watch(
-  () => [props.mathRef, props.variables, props.initialName, props.initialPorts],
+  () => [props.mathRef, props.variables, props.initialName, props.initialPorts, store.getModuleAnnotations(props.mathRef)],
   () => {
     if (!reloadAfterSave || !props.modelValue) return
     reloadAfterSave = false
@@ -1200,8 +1283,10 @@ async function loadEditor({ keepTab = false } = {}) {
   flaggedPorts.value = new Set()
   if (!keepTab) activeTab.value = props.defaultTab
   issueFilter.reset()
+  annotationDraft.value = createAnnotationDraft()
 
   editableName.value = props.initialName
+  ensureAnnotations()
   editableComponentName.value = componentName.value
   componentNameForEditor.value = componentName.value
   editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
@@ -1237,8 +1322,11 @@ async function loadEditor({ keepTab = false } = {}) {
   } catch (e) {
     console.error('Failed to load CellML source', e)
   }
+  await store.ensureModuleAnnotations(props.mathRef)
   if (requestId !== openRequestId) return
+  findWorkspaceSpecies()
 
+  reconcileEditablePorts()
   savedEditorState.value = signEditorState()
   loading.value = false
   await nextTick()
@@ -1263,13 +1351,14 @@ async function handleEditorRedo() {
 }
 
 /**
- * Checks whether a port has nothing filled in, so it can be dropped on save without losing work.
+ * Checks whether a port has nothing filled in, so it can be dropped on save without losing work. An annotated
+ * port is named by its annotation, so never blank.
  *
  * @param {Object} port
  * @returns {boolean}
  */
 function isBlankPort(port) {
-  return !port.label?.trim() && !port.variables?.length
+  return !isNamedPort(port) && !port.variables?.length
 }
 
 /**
@@ -1279,7 +1368,7 @@ function isBlankPort(port) {
  * @returns {boolean}
  */
 function isIncompletePort(port) {
-  return !isBlankPort(port) && (!port.label?.trim() || !port.variables?.length)
+  return !isBlankPort(port) && (!isNamedPort(port) || !port.variables?.length)
 }
 
 /**
@@ -1331,9 +1420,174 @@ const portStatus = (port) => {
   return names.length ? `Connected to ${names.join(', ')}` : 'Not connected'
 }
 
-const incompletePortCount = computed(
-  () => editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)).length
+/**
+ * What incomplete ports still need: an unannotated port a label and a variable, an annotated one (a mirrored
+ * copy) only its variable.
+ *
+ * @param {Array<Object>} ports - Incomplete ports.
+ * @returns {string} Empty when there are none.
+ */
+function describeIncompletePorts(ports) {
+  const annotated = ports.filter(isAnnotatedPort).length
+  const unannotated = ports.length - annotated
+  const parts = []
+  if (unannotated) {
+    parts.push(`${unannotated} ${unannotated === 1 ? 'port needs' : 'ports need'} a label and at least one variable.`)
+  }
+  if (annotated) {
+    parts.push(`${annotated} annotated ${annotated === 1 ? 'port needs' : 'ports need'} a variable.`)
+  }
+  return parts.join(' ')
+}
+
+const incompletePortMessage = computed(() =>
+  describeIncompletePorts(editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)))
 )
+
+// Annotated ports: their places come from the canvas node's ApiCoord, and their sidecar from the library.
+const { getContext, ensureContext } = useCouplingContext()
+const couplingContext = computed(() => getContext(nodes.value))
+const instanceNode = computed(() => nodes.value?.find((node) => node.id === props.id) ?? null)
+const isNodeBound = computed(() => !!coordOf(instanceNode.value, couplingContext.value))
+
+/** An annotated port's located quantity, for its chips' detail. */
+const portQuantity = (port) =>
+  quantityOfPort(port, instanceNode.value ?? { id: props.id, data: { mathRef: props.mathRef } }, couplingContext.value)
+
+/** This instance's math's parsed sidecar, or undefined when it has none or it is not parsed yet. */
+const instanceSidecar = computed(() => store.getParsedModuleAnnotations(props.mathRef) ?? undefined)
+
+/**
+ * Moves each sidecar entry onto the variable its port now reads, where an edit to the math renamed it, as save
+ * renames the sidecar.
+ *
+ * @param {Object|null} sidecar - From parseSidecar.
+ * @param {Set<string>} variables - The math's variable names.
+ * @returns {Object|null}
+ */
+function buildRenamedSidecar(sidecar, variables) {
+  if (!sidecar?.variables) return sidecar
+  const renamedTo = new Map(
+    editablePorts.value
+      .filter((port) => isSidecarPort(port) && variables.has(port.variables?.[0]))
+      .map((port) => [port.annotation.subject, port.variables[0]])
+  )
+  if (!renamedTo.size) return sidecar
+  return {
+    ...sidecar,
+    variables: sidecar.variables.map((entry) =>
+      renamedTo.has(entry.subject) && !variables.has(entry.variable) ? { ...entry, variable: renamedTo.get(entry.subject) } : entry
+    ),
+  }
+}
+
+/**
+ * Gives each complete annotation of the math its sidecar port, as save would. A change made while nothing was
+ * edited joins the baseline, so it never shows as unsaved on its own.
+ */
+function reconcileEditablePorts() {
+  const hasSidecarText = store.getModuleAnnotations(props.mathRef) !== null
+  if (instanceSidecar.value === undefined && (hasSidecarText || !hasDraftEdits(annotationDraft.value))) return
+  const variables = parameterRows.value.map((row) => row.name)
+  const sidecar = applyAnnotationDraft(buildRenamedSidecar(instanceSidecar.value, new Set(variables)), annotationDraft.value, props.mathRef)
+  // A port's variables follow a rename only after the rows do, so they count until then.
+  const portVariables = editablePorts.value.filter(isSidecarPort).flatMap((port) => port.variables ?? [])
+  const { ports, added, removed, changed } = reconcileAnnotatedPorts(editablePorts.value, sidecar, {
+    mathRef: props.mathRef,
+    variables: [...variables, ...portVariables],
+  })
+  if (!added.length && !removed.length && !changed.length) return
+  for (const { before, after } of changed) {
+    originalByPort.set(toRaw(after), originalByPort.get(toRaw(before)))
+    connectionsByPort.set(toRaw(after), connectionsByPort.get(toRaw(before)))
+  }
+  const wasUnchanged = signEditorState() === savedEditorState.value
+  editablePorts.value = ports
+  rebaselineEditorState(wasUnchanged)
+}
+
+const sidecarPortVariables = () =>
+  editablePorts.value
+    .filter(isSidecarPort)
+    .map((port) => (port.variables ?? []).join(','))
+    .join('\n')
+
+watch([instanceSidecar, annotationDraft, () => parameterRows.value.map((row) => row.name).join('\n'), sidecarPortVariables], () => {
+  if (!loading.value) reconcileEditablePorts()
+})
+
+/** The math's sidecar under the editor's variable names, as the Annotations tab edits it. */
+const renamedSidecar = computed(() =>
+  buildRenamedSidecar(instanceSidecar.value ?? null, new Set(parameterRows.value.map((row) => row.name)))
+)
+
+/** How many variables the draft leaves annotated, of those the Annotations tab lists by default. */
+const annotationCounts = computed(() => {
+  let annotated = 0
+  let annotatable = 0
+  for (const row of parameterRows.value) {
+    const role = classifyAnnotationRow(row, variableKinds.value)
+    const isAnnotated = !!getDraftEntry(annotationDraft.value, renamedSidecar.value, row.name)
+    if (isAnnotated) annotated++
+    if (role === 'variable' || (role === 'constant' && isAnnotated)) annotatable++
+  }
+  return { annotated, annotatable }
+})
+
+/** Each variable whose sidecar port this editor opened with: 'connected' or 'exists'. */
+const annotationPortStatus = computed(
+  () =>
+    new Map(
+      editablePorts.value
+        .filter((port) => isSidecarPort(port) && originalByPort.has(toRaw(port)))
+        .map((port) => [port.variables?.[0], portConnections(port).length ? 'connected' : 'exists'])
+    )
+)
+
+// ChEBI species other sidecars in the workspace use, offered first in the Annotations tab.
+const workspaceSpecies = ref([])
+
+/** Collects the species every parsed sidecar in the workspace uses. */
+async function findWorkspaceSpecies() {
+  const refs = [...store.moduleAnnotations.keys()]
+  const sidecars = await Promise.all(refs.map((ref) => store.ensureModuleAnnotations(ref).catch(() => null)))
+  const terms = sidecars.flatMap((sidecar) => (sidecar?.variables ?? []).flatMap((entry) => entry.species ?? []))
+  workspaceSpecies.value = [...new Set(terms)].filter((curie) => hasPrefix(curie, 'CHEBI')).sort()
+}
+
+/**
+ * Builds the sidecar a save writes: the math's sidecar moved to the saved math and its renamed variables, with
+ * the Annotations tab's draft applied.
+ *
+ * @param {string} mathRef - The math the save writes.
+ * @param {string|null} math - The saved math, or null when it is unchanged.
+ * @returns {Promise<string>}
+ * @throws {Error} When the sidecar does not parse, a term is not a known CURIE or a transporter has no accession.
+ */
+async function buildAnnotationText(mathRef, math) {
+  let text = store.getModuleAnnotations(props.mathRef) ?? ''
+  const renames = findVariableRenames({ mathRef, previousMathRef: props.mathRef, math })
+  if (text && (mathRef !== props.mathRef || renames.size)) text = await renameSidecar(text, props.mathRef, mathRef, renames)
+  const draft = annotationDraft.value
+  const { componentKind, transporter } = getDraftKind(draft, null)
+  const hasSavedAccession = (instanceSidecar.value?.component?.is ?? []).some((curie) => hasPrefix(curie, 'uniprot'))
+  if (componentKind === 'transporter' && !transporter && !hasSavedAccession) {
+    throw new Error('a transporter needs a UniProt accession.')
+  }
+  return editSidecar(text, mathRef, {
+    ...(draft.componentKind !== undefined ? { componentKind, transporter: transporter ?? undefined } : {}),
+    variables: draft.variables,
+    cellml: math ?? store.availableMath.get(props.mathRef),
+  })
+}
+
+/** Parses what annotated ports read; their chips fill in when it lands. */
+function ensureAnnotations() {
+  const parse = instanceNode.value
+    ? ensureContext([instanceNode.value])
+    : store.ensureModuleAnnotations(props.mathRef)
+  parse.catch(() => {})
+}
 
 const portRowClass = (port) =>
   isPortFlagged(port) && (isIncompletePort(port) || isMissingFactor(port)) ? 'port-row--invalid' : ''
@@ -1370,7 +1624,8 @@ async function handleCancel() {
   await session.flushPendingChanges()
 
   // Plots and sliders apply as they change, so only the instance's own edits count.
-  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty()) {
+  const isDirty = session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty()
+  if (isDirty || hasDraftEdits(annotationDraft.value)) {
     const confirmed = await confirm({
       header: 'Unsaved Changes',
       message: 'Are you sure you want to discard changes?',
@@ -1447,7 +1702,7 @@ function rejectInstanceName(message) {
 /**
  * Shows a tab of the right panel, expanding the panel if it was collapsed.
  *
- * @param {'parameters'|'ports'} tab
+ * @param {'parameters'|'ports'|'plot'|'annotations'} tab
  */
 function showTab(tab) {
   activeTab.value = tab
@@ -1462,6 +1717,25 @@ function showTab(tab) {
 function renamedPlotEntries() {
   const renamed = new Map(trackedNames.value.map(({ savedName, name }) => [savedName, name]))
   return getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).map((entry) => ({ ...entry, name: renamed.get(entry.name) ?? entry.name }))
+}
+
+/**
+ * Asks before a save that would drop annotated couplings, as its sidecar ports are reconciled.
+ *
+ * @param {Object} save - The `confirm` payload.
+ * @returns {Promise<boolean>} Whether to go on.
+ */
+async function confirmDroppedCouplings(save) {
+  const dropped = await findDroppedCouplings(save)
+  if (!dropped.couplings) return true
+  const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
+  return confirm({
+    header: 'Remove Couplings?',
+    message: `Removes ${plural(dropped.couplings, 'coupling')} on ${plural(dropped.connections, 'connection')}.`,
+    severity: 'warning',
+    acceptLabel: 'Save',
+    rejectLabel: 'Cancel',
+  })
 }
 
 /**
@@ -1504,7 +1778,7 @@ async function handleSave(options) {
   const incompletePorts = editablePorts.value.filter(isIncompletePort)
   if (incompletePorts.length) {
     flaggedPorts.value = new Set(incompletePorts)
-    notify.error({ message: 'Every port needs a label and at least one variable.' })
+    notify.error({ message: describeIncompletePorts(incompletePorts) })
     showTab('ports')
     return
   }
@@ -1512,7 +1786,7 @@ async function handleSave(options) {
   const invalidFactor = finalPorts.find(isMissingFactor)
   if (invalidFactor) {
     flaggedPorts.value = new Set([invalidFactor])
-    notify.error({ message: `Port "${invalidFactor.label}" has Multiply selected but missing scale factor.` })
+    notify.error({ message: `Port "${portDisplayName(invalidFactor)}" has Multiply selected but missing scale factor.` })
     showTab('ports')
     return
   }
@@ -1554,9 +1828,10 @@ async function handleSave(options) {
   // blank initialisers are filled (see syncInitialiserUnits).
   syncInitialiserUnits(parameterRows.value, { overwrite: isManaged.value })
 
-  // 3. Check the math's new reference
+  // 3. Check the math's new reference. Template math keeps no annotations, so they also need a new component.
   let newMathRef = props.mathRef
-  const isMathChanged = session.isDirty()
+  const isAnnotationChanged = hasDraftEdits(annotationDraft.value)
+  const isMathChanged = session.isDirty() || (isAnnotationChanged && PROTECTED_MATH_REFS.has(props.mathRef))
   let mathToSave = currentModel.value
   let layoutToSave = currentLayout.value
   if (isMathChanged) {
@@ -1592,35 +1867,46 @@ async function handleSave(options) {
 
   const wasGlobal = new Set(props.variables.filter((row) => row.type === 'global_constant').map((row) => row.name))
 
-  emit(
-    'confirm',
-    detachReactivity({
-      id: props.id,
-      name: editableName.value,
-      mathRef: newMathRef,
-      previousMathRef: props.mathRef,
-      math: isMathChanged ? mathToSave : null,
-      layout: layoutToSave,
-      isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
-      // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
-      globalConstants: parameterRows.value
-        .filter((row) => row.type === 'global_constant')
-        .map(({ name, value, units, data_reference }) => ({
-          name,
-          value,
-          units,
-          data_reference,
-          overwrite: wasGlobal.has(name),
-        })),
-      variables: parameterRows.value,
-      ports: finalPorts,
-      // The instance's plotted variables, under the names this save gives them.
-      plotVariables: renamedPlotEntries(),
-      updateAll,
-      siblings: updateAll ? siblings.value : [],
-      keepOpen,
-    })
-  )
+  let annotations
+  if (isAnnotationChanged) {
+    try {
+      annotations = { text: await buildAnnotationText(newMathRef, isMathChanged ? mathToSave : null) }
+    } catch (err) {
+      notify.error({ message: `Could not save the annotations: ${err.message}` })
+      showTab('annotations')
+      return
+    }
+  }
+
+  const save = detachReactivity({
+    id: props.id,
+    name: editableName.value,
+    mathRef: newMathRef,
+    previousMathRef: props.mathRef,
+    math: isMathChanged ? mathToSave : null,
+    layout: layoutToSave,
+    isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
+    // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
+    globalConstants: parameterRows.value
+      .filter((row) => row.type === 'global_constant')
+      .map(({ name, value, units, data_reference }) => ({
+        name,
+        value,
+        units,
+        data_reference,
+        overwrite: wasGlobal.has(name),
+      })),
+    variables: parameterRows.value,
+    ports: finalPorts,
+    // The instance's plotted variables, under the names this save gives them.
+    plotVariables: renamedPlotEntries(),
+    ...(annotations ? { annotations } : {}),
+    updateAll,
+    siblings: updateAll ? siblings.value : [],
+    keepOpen,
+  })
+  if (!(await confirmDroppedCouplings(save))) return
+  emit('confirm', save)
 
   if (keepOpen) reloadAfterSave = true
   else emit('update:modelValue', false)
@@ -2099,6 +2385,10 @@ async function handleSave(options) {
 .right-pane :deep(.p-datatable-frozen-column) {
   z-index: 2;
   box-shadow: inset 1px 0 0 var(--p-datatable-body-cell-border-color);
+}
+
+.port-type-cell {
+  display: block;
 }
 
 /* A port's connection state, coloured as in the edge dialog's legend */

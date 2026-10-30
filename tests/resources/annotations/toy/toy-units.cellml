@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The toy maths' units: stand-ins named as the vitest toy names them, in SI base units so the equations balance. -->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="toy_units">
+  <units name="mM"><unit units="mole"/><unit units="metre" exponent="-3"/></units>
+  <units name="fmol_per_mm2_per_s"><unit units="mole"/><unit units="metre" exponent="-2"/><unit units="second" exponent="-1"/></units>
+  <units name="pL"><unit units="metre" exponent="3"/></units>
+  <units name="mm2"><unit units="metre" exponent="2"/></units>
+  <units name="m_per_s"><unit units="metre"/><unit units="second" exponent="-1"/></units>
+  <units name="J_per_C"><unit units="volt"/></units>
+  <units name="toy_capacitance"><unit units="mole"/><unit units="metre" exponent="-2"/><unit units="volt" exponent="-1"/></units>
+</model>

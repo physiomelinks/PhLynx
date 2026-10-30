@@ -36,6 +36,10 @@ const { default: InstanceEditorDialog } = await import('../../../src/components/
 const { default: ComponentSaveAsDialog } = await import('../../../src/components/dialogs/ComponentSaveAsDialog.vue')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
+const { default: AnnotationChips } = await import('../../../src/components/AnnotationChips.vue')
+const { default: PortVariableSelect } = await import('../../../src/components/PortVariableSelect.vue')
+const { default: AnnotationTab } = await import('../../../src/components/annotations/AnnotationTab.vue')
+const { setDraftEntry, setDraftKind } = await import('../../../src/services/annotations/draft.js')
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -213,6 +217,26 @@ describe('InstanceEditorDialog undo (#605)', () => {
     })
     expect(save.math).toContain('<cn>1</cn>')
     expect(save.variables.find((row) => row.name === 'x0')).toMatchObject({ type: 'global_constant' })
+  })
+
+  it('saves an annotated port, which has no label', async () => {
+    const annotated = {
+      portType: 'general_ports',
+      label: '',
+      variables: ['x'],
+      multiportType: 'True',
+      annotation: { subject: 'decay.cellml#decay.x', variable: 'x', role: 'owner', source: { kind: 'sidecar' } },
+    }
+    const blank = { portType: 'general_ports', label: '', variables: [] }
+    mountDialog({ initialPorts: [annotated, blank] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.ports).toEqual([annotated])
   })
 })
 
@@ -732,5 +756,321 @@ describe('InstanceEditorDialog connection status', () => {
     await report(editor, 'init', XML)
 
     expect(wrapper.vm.ignoredNotices.get('k')).toBe('Set by Src.k_src: this value is ignored on export')
+  })
+})
+
+describe('InstanceEditorDialog annotated ports', () => {
+  const SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix chebi: <http://purl.obolibrary.org/obo/CHEBI_> .
+@prefix go: <http://purl.obolibrary.org/obo/GO_> .
+@prefix sbo: <http://purl.obolibrary.org/obo/SBO_> .
+@prefix m: <./file#> .
+m:decay bqbiol:is sbo:0000290 .
+m:decay.x bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi:29101 , go:0005737 ] .
+m:decay.k bqbiol:isVersionOf opb:00592 ; bqbiol:isPropertyOf m:decay .
+`
+  const xPort = () => ({
+    portType: 'general_ports',
+    label: '',
+    variables: ['x'],
+    multiportType: 'None',
+    annotation: {
+      subject: 'https://phlynx.invalid/modules/file#decay.x',
+      variable: 'x',
+      property: 'OPB:00340',
+      species: ['CHEBI:29101'],
+      location: 'GO:0005737',
+      role: 'reader',
+      source: { kind: 'sidecar', mathRef: MATH_REF },
+    },
+  })
+  const copiedPort = () => ({
+    portType: 'general_ports',
+    label: '',
+    variables: [],
+    multiportType: 'Sum',
+    annotation: {
+      subject: 'https://phlynx.invalid/modules/other#other.v',
+      variable: '',
+      property: 'OPB:00592',
+      species: ['CHEBI:29101'],
+      location: 'self',
+      role: 'aggregator',
+      source: { kind: 'copied', mathRef: MATH_REF, copiedFrom: { subject: 'other#other.v', instance: 'Other' } },
+    },
+  })
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    const library = useLibraryStore()
+    library.addMath(MATH_REF, XML)
+    library.setModuleAnnotations(MATH_REF, SIDECAR)
+  })
+
+  it('shows an annotated port as read-only chips with its type and mode locked', async () => {
+    mountDialog({ defaultTab: 'ports', initialPorts: [xPort()] })
+    await open()
+    await flushPromises()
+
+    const row = wrapper.find('.ports-tab-body tbody tr')
+    expect(row.findComponent(AnnotationChips).exists()).toBe(true)
+    expect(row.find('input[placeholder="Enter label"]').exists()).toBe(false)
+    expect(row.find('.port-type-cell').attributes('title')).toMatch(/^From annotation/)
+    expect(row.find('button[aria-label="Multiport"]').attributes('disabled')).toBeDefined()
+    expect(row.findComponent(PortVariableSelect).exists()).toBe(false)
+  })
+
+  it('gives each annotated variable a sidecar port, without counting it as an unsaved edit', async () => {
+    mountDialog({ defaultTab: 'ports', initialPorts: [xPort()] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
+
+    const ports = wrapper.vm.editablePorts
+    expect(ports.map((port) => port.annotation?.variable)).toEqual(['x', 'k'])
+    expect(ports[1]).toMatchObject({ variables: ['k'], multiportType: 'Sum', annotation: { role: 'aggregator' } })
+    expect(wrapper.vm.hasUnsavedEdits).toBe(false)
+    expect(wrapper.find('[data-test="unported-annotation"]').exists()).toBe(false)
+  })
+
+  it('keeps an annotated variable its port when the math renames it', async () => {
+    mountDialog({ defaultTab: 'ports', initialPorts: [xPort()] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
+    await report(editor, 'edit', XML.replaceAll('name="x"', 'name="y"').replaceAll('<ci>x</ci>', '<ci>y</ci>'))
+    await flushPromises()
+
+    const [port] = wrapper.vm.editablePorts
+    expect(port).toMatchObject({ variables: ['y'], annotation: { subject: xPort().annotation.subject } })
+  })
+
+  it('asks before a save that drops a connected annotated port, and saves nothing when cancelled', async () => {
+    const other = { id: 'b', data: { name: 'b', mathRef: 'file:other', ports: [] } }
+    const xPortRef = xPort()
+    const partner = { ...xPort(), annotation: { ...xPort().annotation, subject: 'other#x', role: 'owner' } }
+    flowNodes.value = [{ id: 'a', data: { name: 'a', mathRef: MATH_REF, ports: [xPortRef] } }, other]
+    flowEdges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: xPortRef, targetPort: partner }] } }]
+    useLibraryStore().setModuleAnnotations(MATH_REF, SIDECAR.replace(/m:decay\.x [^\n]*\n/, ''))
+    confirm.mockImplementation(async ({ header }) => header !== 'Remove Couplings?')
+    mountDialog({ defaultTab: 'ports', initialPorts: [xPortRef] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Removes 1 coupling on 1 connection.' }))
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    confirm.mockImplementation(async () => true)
+    flowNodes.value = []
+    flowEdges.value = []
+  })
+
+  it('lets a mirrored port pick its variable, and says it needs one rather than a label', async () => {
+    mountDialog({ defaultTab: 'ports', initialPorts: [copiedPort()] })
+    const editor = await open()
+    await report(editor, 'init', XML)
+
+    expect(wrapper.find('.ports-tab-body tbody tr').findComponent(PortVariableSelect).props('locked')).toBe(true)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    expect(wrapper.find('.ports-header').text()).toBe('1 annotated port needs a variable.')
+  })
+})
+
+describe('InstanceEditorDialog Annotations tab', () => {
+  const SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix chebi: <http://purl.obolibrary.org/obo/CHEBI_> .
+@prefix go: <http://purl.obolibrary.org/obo/GO_> .
+@prefix sbo: <http://purl.obolibrary.org/obo/SBO_> .
+@prefix m: <./file#> .
+m:decay bqbiol:is sbo:0000290 .
+m:decay.x bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi:29101 , go:0005737 ] .
+`
+  const K_ENTRY = { property: 'OPB:00592', species: ['CHEBI:29103'], location: 'self' }
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    const library = useLibraryStore()
+    library.addMath(MATH_REF, XML)
+    library.setModuleAnnotations(MATH_REF, SIDECAR)
+  })
+
+  afterEach(() => {
+    confirm.mockImplementation(async () => true)
+    flowNodes.value = []
+    flowEdges.value = []
+  })
+
+  /**
+   * Opens the dialog on the Annotations tab, once its sidecar ports are in place.
+   *
+   * @param {Object} [props]
+   * @returns {Promise<import('@vue/test-utils').VueWrapper>} The tab.
+   */
+  async function openTab(props = {}) {
+    mountDialog({ defaultTab: 'annotations', ...props })
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await flushPromises()
+    return wrapper.findComponent(AnnotationTab)
+  }
+
+  /**
+   * Edits the draft as the tab would.
+   *
+   * @param {import('@vue/test-utils').VueWrapper} tab
+   * @param {(draft: Object, sidecar: Object) => Object} edit
+   */
+  async function editDraft(tab, edit) {
+    tab.vm.$emit('update:draft', edit(tab.props('draft'), tab.props('sidecar')))
+    await flushPromises()
+  }
+
+  const clickButton = async (label) => {
+    await wrapper.findAll('button').find((button) => button.text() === label).trigger('click')
+    await flushPromises()
+  }
+
+  it('counts annotated of annotatable variables on its tab, leaving out the VoI and constants', async () => {
+    await openTab()
+    expect(wrapper.text()).toContain('Annotations (1/1)')
+  })
+
+  it('saves an edit as the sidecar text, and shows its new port in the Ports tab before saving', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+
+    const kPort = wrapper.vm.editablePorts.find((port) => port.annotation?.variable === 'k')
+    expect(kPort).toMatchObject({ variables: ['k'], multiportType: 'Sum', annotation: { role: 'aggregator', species: ['CHEBI:29103'] } })
+    expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+
+    await clickButton('Save')
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.mathRef).toBe(MATH_REF)
+    expect(save.annotations.text).toMatch(/m:decay\.k bqbiol:isVersionOf opb:00592/)
+    expect(save.annotations.text).toContain('chebi:29103')
+    expect(save.annotations.text).toMatch(/m:decay\.x bqbiol:isVersionOf opb:00340/)
+    expect(save.ports.some((port) => port.annotation?.variable === 'k')).toBe(true)
+  })
+
+  it('sends no annotations when the draft is unchanged, or an edit was put back', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', null))
+    expect(wrapper.vm.hasUnsavedEdits).toBe(false)
+
+    await clickButton('Save')
+    expect(wrapper.emitted('confirm')[0][0]).not.toHaveProperty('annotations')
+  })
+
+  it('saves the module kind', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftKind(draft, sidecar, 'transporter', 'uniprot:P11168'))
+
+    await clickButton('Save')
+    const { text } = wrapper.emitted('confirm')[0][0].annotations
+    expect(text).toContain('P11168')
+    expect(text).not.toContain('sbo:0000290')
+  })
+
+  it('does not save a transporter without a UniProt accession', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftKind(draft, sidecar, 'transporter'))
+
+    await clickButton('Save')
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+  })
+
+  it('asks before clearing an annotation whose port is connected', async () => {
+    const xPort = {
+      portType: 'general_ports',
+      label: '',
+      variables: ['x'],
+      multiportType: 'None',
+      annotation: {
+        subject: 'https://phlynx.invalid/modules/file#decay.x',
+        variable: 'x',
+        property: 'OPB:00340',
+        species: ['CHEBI:29101'],
+        location: 'GO:0005737',
+        role: 'reader',
+        source: { kind: 'sidecar', mathRef: MATH_REF },
+      },
+    }
+    const partner = { ...xPort, annotation: { ...xPort.annotation, subject: 'other#x', role: 'owner' } }
+    flowNodes.value = [
+      { id: 'a', data: { name: 'a', mathRef: MATH_REF, ports: [xPort] } },
+      { id: 'b', data: { name: 'b', mathRef: 'file:other', ports: [] } },
+    ]
+    flowEdges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: xPort, targetPort: partner }] } }]
+    const tab = await openTab({ initialPorts: [xPort] })
+    expect(tab.props('portStatus').get('x')).toBe('connected')
+    confirm.mockImplementation(async ({ header }) => header !== 'Remove Couplings?')
+
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'x', null))
+    await clickButton('Save')
+
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ message: 'Removes 1 coupling on 1 connection.' }))
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+  })
+
+  it('asks before Cancel discards annotation edits', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+    confirm.mockImplementation(async () => false)
+
+    await clickButton('Cancel')
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Unsaved Changes' }))
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('says how many instances share the annotations', async () => {
+    flowNodes.value = [
+      { id: 'a', data: { name: 'a', mathRef: MATH_REF } },
+      { id: 'b', data: { name: 'b', mathRef: MATH_REF } },
+    ]
+    await openTab()
+    expect(wrapper.find('[data-test="shared-banner"]').text()).toContain('Shared by 2 instances')
+  })
+
+  it('saves annotations of template math as a new component', async () => {
+    const templateXml = XML.replace(/"decay"/g, '"new_module"')
+    useLibraryStore().addMath(NEW_MODULE_MATH_REF, templateXml)
+    mountDialog({ defaultTab: 'annotations', mathRef: NEW_MODULE_MATH_REF, initialName: 'my_instance' })
+    const editor = await open()
+    await report(editor, 'init', templateXml)
+    const tab = wrapper.findComponent(AnnotationTab)
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+    expect(wrapper.vm.editablePorts.map((port) => port.annotation?.variable)).toEqual(['k'])
+
+    await clickButton('Save')
+    const saveAs = wrapper.findComponent(ComponentSaveAsDialog)
+    expect(saveAs.exists()).toBe(true)
+    saveAs.vm.$emit('confirm', 'my_comp')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    const file = NEW_MODULE_MATH_REF.split(':')[0]
+    expect(save.mathRef).toBe(`${file}:my_comp`)
+    expect(save.math).toContain('<component name="my_comp"')
+    expect(save.annotations.text).toContain('my_comp.k')
+    expect(save.annotations.text).not.toContain('new_module')
   })
 })
