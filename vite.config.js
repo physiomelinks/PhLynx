@@ -37,8 +37,8 @@ export default defineConfig({
     format: 'es',
   },
   optimizeDeps: {
-    // Exclude the wasm-based library from pre-bundling
-    exclude: ['vue3-libcellml.js'],
+    // Exclude the wasm-based libraries from pre-bundling, which breaks their wasm URLs.
+    exclude: ['vue3-libcellml.js', 'oxigraph'],
     esbuildOptions: {
       target: 'es2020',
     },
