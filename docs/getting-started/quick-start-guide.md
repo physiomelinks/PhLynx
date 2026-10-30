@@ -111,4 +111,5 @@ See [Supported File Formats](../reference/file-types.md) for what each holds.
 - Your own modules: [Using Custom Modules](../guides/build-custom-module.md) and [Writing CellML](../guides/writing-cellml.md).
 - Results: [Simulating Your Model](../guides/simulating-your-model.md) for sliders, tracked runs, sweeps and protocols.
 - Port rules: [Port Logic](../reference/valid-port-configurations.md).
+- Cells and transporters: [Physiological View](../guides/physiological-view.md).
 - Circulatory Autogen models: [Using PhLynx with Circulatory Autogen](../guides/use-with-circulatory-autogen.md).

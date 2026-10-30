@@ -25,7 +25,7 @@ For shortcuts, see [Keyboard Shortcuts](./keyboard-shortcuts.md).
 | **Settings** | Cog | Opens app [Settings](#settings). |
 | **Import** / **Export** / **Send** | Split buttons | Click runs the last-used item (Ctrl/Cmd+I, Ctrl/Cmd+E); the arrow opens the menu. |
 
-On the right are **Report Issue** and a light/dark switch. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
+On the right are **Report Issue**, the **Diagram** / **Physiology** switch and a light/dark switch. **Physiology** draws the workspace as cells, membranes and transporters; see [Physiological View](../guides/physiological-view.md). Where supported (e.g. Chrome), saving and exporting ask where to put the file.
 
 ### Import {#import}
 
@@ -35,6 +35,7 @@ On the right are **Report Issue** and a light/dark switch. Where supported (e.g.
 | **CellML File** | `.cellml` | Adds its components to Available Modules and its [units](./cellml-units-file.md) to the units library. If one file's components are connected to each other, it is also built on the canvas; a non-empty canvas asks **Overwrite** or **Add to Workspace**. See [CellML Module Format](./cellml-module-format.md). |
 | **Module Config** | `.json` | Loads [module configurations](./file-types.md#module-configuration). |
 | **Parameters** | `.csv` | Fills parameter values from a [parameter file](./file-types.md#parameter-file). |
+| **Annotations** | `.ttl` sidecars; `.ttl` or `.rdf` instance file | Applies module sidecars and an instance file in the **Apply Annotations** dialog; they place instances in the [physiological view](../guides/physiological-view.md#roles). |
 | **COMBINE Archive** | `.omex` | Restores a model with any protocol or [`params_for_id.csv`](./file-types.md#params_for_idcsv). |
 
 You can also drop `.cellml` or `.omex` files onto the canvas ([Opening files](./file-types.md#opening-files)).

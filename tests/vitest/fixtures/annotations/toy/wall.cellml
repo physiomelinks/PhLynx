@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="ToyWall">
+  <component name="wall">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="u" units="J_per_C" initial_value="0" interface="public"/>
+    <variable name="i_tot" units="fmol_per_mm2_per_s" interface="public"/>
+  </component>
+</model>

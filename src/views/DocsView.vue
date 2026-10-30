@@ -102,6 +102,7 @@ const menuGroups = [
       { label: 'Writing CellML', path: '/docs/guides/writing-cellml' },
       { label: 'Simulating Your Model', path: '/docs/guides/simulating-your-model' },
       { label: 'Running Protocols', path: '/docs/guides/running-protocols' },
+      { label: 'Physiological View', path: '/docs/guides/physiological-view' },
       { label: 'Using Circulatory Autogen', path: '/docs/guides/use-with-circulatory-autogen' },
       { label: 'Developer Guide', path: '/docs/guides/develop-phlynx' },
     ],

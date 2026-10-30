@@ -402,6 +402,81 @@ def protocol_editor(page):
     save(dialog, "protocol-editor")
 
 
+TOY_ANNOTATIONS = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "vitest", "fixtures", "annotations", "toy")
+)
+
+
+def import_files(page, item, fields):
+    """Run Import ▸ item, giving each of the dialog's file fields its files, in order."""
+    import_menu = page.locator(".file-io-buttons .p-splitbutton").first
+    import_menu.locator(".p-splitbutton-dropdown").click()
+    menu_item = page.get_by_role("menuitem", name=item, exact=True)
+    expect(menu_item).not_to_have_class(re.compile(r"p-disabled"), timeout=APP_MOUNT_TIMEOUT)
+    menu_item.click()
+    dialog = page.get_by_role("dialog").filter(has=page.get_by_role("button", name="Import", exact=True))
+    inputs = dialog.locator("input[type=file]")
+    for index, files in enumerate(fields):
+        inputs.nth(index).set_input_files([os.path.join(TOY_ANNOTATIONS, name) for name in files])
+    import_button = dialog.get_by_role("button", name="Import", exact=True)
+    expect(import_button).to_be_enabled()
+    import_button.click()
+    expect(dialog).to_be_hidden(timeout=30000)
+
+
+def open_toy_physiology(page):
+    """The toy epithelium from the committed annotation fixtures, in the physiological view."""
+    page.goto(BASE_URL, wait_until="commit")
+    import_files(page, "CellML File", [["pool.cellml", "porter.cellml", "wall.cellml"]])
+    import_files(page, "Annotations", [["pool.ttl", "porter.ttl", "wall.ttl"], ["toy-apicoords.ttl"]])
+    apply = page.get_by_role("dialog", name="Apply Annotations")
+    apply.get_by_label("Hold outside constant").click()
+    apply.get_by_label("Hold vessel constant").click()
+    apply.locator("[data-test=apply]").click()
+    expect(apply).to_be_hidden()
+    page.locator("[data-test=accept-all]").click()
+    expect(page.locator("[data-test=accept-all]")).to_be_hidden()
+    page.locator("[data-testid=view-mode]").get_by_text("Physiology", exact=True).click()
+    expect(page.locator("[data-testid=bio-cell]")).to_have_count(1)
+    page.wait_for_timeout(800)
+    page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
+    dismiss_toasts(page)
+
+
+def bio_clip(page):
+    """Around the cell and the regions against it."""
+    parts = page.locator("[data-testid=bio-cell], [data-testid=bio-region]")
+    return clip_around([parts.nth(index) for index in range(parts.count())])
+
+
+def physiology_view(page):
+    open_toy_physiology(page)
+    save(page, "physiology_view")
+
+
+def physiology_couplings(page):
+    open_toy_physiology(page)
+    page.locator("[data-testid=bio-protein]").first.locator(".bio-protein__glyph").click()
+    page.wait_for_timeout(500)
+    page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
+    save(page, "physiology_couplings", clip=bio_clip(page))
+
+
+def physiology_drag(page):
+    open_toy_physiology(page)
+    protein = page.locator("[data-testid=bio-protein]").first
+    start = centre(protein)
+    page.mouse.move(*start)
+    page.mouse.down()
+    # Towards the slot on the cell's right side, which lights up as it comes near.
+    for step in range(1, 21):
+        page.mouse.move(start[0] + 10.7 * step, start[1] + 8.1 * step)
+    expect(page.locator("[data-testid=bio-slot-prompts]")).to_be_visible()
+    page.wait_for_timeout(300)
+    save(page, "physiology_drag", clip=bio_clip(page))
+    page.mouse.up()
+
+
 SHOTS = {
     "phlynx_ui": phlynx_ui,
     "toolbar": toolbar,
@@ -421,6 +496,9 @@ SHOTS = {
     "math-editor": math_editor,
     "sweep-view": sweep_view,
     "protocol-editor": protocol_editor,
+    "physiology_view": physiology_view,
+    "physiology_couplings": physiology_couplings,
+    "physiology_drag": physiology_drag,
 }
 
 

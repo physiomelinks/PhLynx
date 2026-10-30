@@ -1,5 +1,12 @@
 <template>
-  <div :class="['port-row', `port-row--${side}`, rowClass, { 'row--valid-target': isValidTarget }]">
+  <div
+    :class="[
+      'port-row',
+      `port-row--${side}`,
+      rowClass,
+      { 'row--valid-target': isValidTarget, 'port-row--annotated': isAnnotated },
+    ]"
+  >
     <!-- Target Side Handle -->
     <Handle
       v-if="side === 'target'"
@@ -18,17 +25,29 @@
       </template>
 
       <!-- Shared Configuration Fields -->
-      <Select
-        v-model="port.portType"
-        :options="PORT_TYPE_OPTIONS"
-        optionLabel="label"
-        optionValue="value"
-        overlayClass="compact-dropdown-panel"
-        size="small"
-        @change="$emit('change')"
-      />
+      <!-- An annotated port's type, mode and meaning come from its annotation -->
+      <span class="port-type" :title="isAnnotated ? lockTitle : undefined">
+        <Select
+          v-model="port.portType"
+          :options="PORT_TYPE_OPTIONS"
+          optionLabel="label"
+          optionValue="value"
+          overlayClass="compact-dropdown-panel"
+          size="small"
+          :disabled="isAnnotated"
+          @change="$emit('change')"
+        />
+      </span>
 
-      <InputText v-model="port.label" size="small" @input="$emit('change')" />
+      <AnnotationChips
+        v-if="isAnnotated"
+        :annotation="port.annotation"
+        :quantity="quantity"
+        :variable="port.variables?.[0] ?? ''"
+        :is-bound="isBound"
+        :limit="3"
+      />
+      <InputText v-else v-model="port.label" size="small" @input="$emit('change')" />
 
       <!-- One connection with every variable None, or several with each True, Sum or Multiply -->
       <Button
@@ -39,7 +58,14 @@
         :severity="isMultiport(port) ? undefined : 'secondary'"
         :aria-pressed="isMultiport(port)"
         aria-label="Multiport"
-        :title="isMultiport(port) ? 'Multiport: takes several connections' : 'Basicport: takes one connection'"
+        :title="
+          isAnnotated
+            ? lockTitle
+            : isMultiport(port)
+              ? 'Multiport: takes several connections'
+              : 'Basicport: takes one connection'
+        "
+        :disabled="isAnnotated"
         @click="setMultiport(port, !isMultiport(port));$emit('change')"
       >
         <template #icon>
@@ -48,7 +74,17 @@
         </template>
       </Button>
 
-      <PortVariableSelect :port="port" :options="variables" :chipLimit="2" compact @change="$emit('change')" />
+      <!-- A sidecar port's variable is the annotated one; a mirrored copy's is picked here -->
+      <PortVariableChips v-if="isAnnotated && !isMirrored" class="port-variables--fixed" :port="port" :limit="2" locked />
+      <PortVariableSelect
+        v-else
+        :port="port"
+        :options="variables"
+        :chipLimit="2"
+        :locked="isAnnotated"
+        compact
+        @change="$emit('change')"
+      />
 
       <!-- Right actions for Source Row -->
       <template v-if="side === 'source'">
@@ -75,6 +111,10 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import { Handle, Position } from '@vue-flow/core'
 import PortVariableSelect from './PortVariableSelect.vue'
+import PortVariableChips from './PortVariableChips.vue'
+import AnnotationChips from './AnnotationChips.vue'
+import { isAnnotatedPort, isMirroredPort } from '../utils/portIdentity'
+import { fromAnnotationTitle } from '../services/annotations/display'
 import { PORT_TYPE_OPTIONS } from '../utils/constants'
 import { isMultiport, setMultiport } from '../utils/multiport'
 import MultiportIcon from './icons/MultiportIcon.vue'
@@ -106,9 +146,23 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  // An annotated port's located quantity (quantityOfPort), for its chips' detail.
+  quantity: {
+    type: Object,
+    default: null,
+  },
+  // Whether the port's node is bound to an ApiCoord.
+  isBound: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 defineEmits(['change', 'start-drag', 'delete'])
+
+const isAnnotated = computed(() => isAnnotatedPort(props.port))
+const isMirrored = computed(() => isMirroredPort(props.port))
+const lockTitle = computed(() => fromAnnotationTitle(props.port))
 
 const rowClass = computed(() => {
   if (props.isConnected) return 'row--connected'
@@ -158,6 +212,15 @@ const handleClass = computed(() => {
   grid-template-columns: 16px 28px 60px minmax(0, 1fr) 56px minmax(0, 1.6fr);
 }
 
+/* Chips need the room a label would; the variable is one chip */
+.port-row--annotated.port-row--source .port-controls {
+  grid-template-columns: 60px minmax(0, 2fr) 40px minmax(0, 1fr) 16px 28px;
+}
+
+.port-row--annotated.port-row--target .port-controls {
+  grid-template-columns: 16px 28px 60px minmax(0, 2fr) 40px minmax(0, 1fr);
+}
+
 :deep(.p-select),
 :deep(.p-multiselect),
 :deep(.p-inputtext) {
@@ -177,6 +240,14 @@ const handleClass = computed(() => {
 :deep(.p-select-dropdown),
 :deep(.p-multiselect-dropdown) {
   width: 24px !important;
+}
+
+.port-type {
+  min-width: 0;
+}
+
+.port-variables--fixed {
+  padding: 0 4px;
 }
 
 .multiport-toggle {
