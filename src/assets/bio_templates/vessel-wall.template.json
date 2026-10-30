@@ -1,0 +1,26 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 1,
+  "id": "vessel-wall",
+  "name": "Vessel wall",
+  "description": "An endothelial cell lining a blood vessel, between the plasma in the lumen and the interstitium, with an interendothelial junction.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "endothelial",
+      "label": "Endothelial cell",
+      "membrane": { "label": "Plasma membrane" },
+      "facets": [
+        { "id": "luminal", "label": "Luminal membrane", "edge": "top" },
+        { "id": "abluminal", "label": "Abluminal membrane", "edge": "bottom" },
+        { "id": "junction", "label": "Junctional membrane", "edge": "right" }
+      ]
+    }
+  ],
+  "compartments": [
+    { "id": "lumen", "label": "Vessel lumen (plasma)", "against": ["endothelial.luminal"], "tone": "rose" },
+    { "id": "interstitium", "label": "Interstitium", "against": ["endothelial.abluminal"], "tone": "amber" },
+    { "id": "junction-cleft", "label": "Interendothelial cleft", "against": ["endothelial.junction"], "tone": "teal" }
+  ]
+}

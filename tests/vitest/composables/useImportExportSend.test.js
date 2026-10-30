@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const confirm = vi.fn(async () => true)
 vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
-vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn() } }))
+vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn(), warning: vi.fn() } }))
 vi.mock('../../../src/utils/save', () => ({ getFileHandle: vi.fn(async () => ({ success: true, handle: {}, cleanName: 'model' })) }))
 vi.mock('../../../src/services/compress', () => ({
   generateOmexArchive: vi.fn(async () => new Blob(['omex'])),
@@ -24,6 +24,7 @@ const { notify } = await import('../../../src/utils/notify')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
 const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
 const { EXPORT_KEYS } = await import('../../../src/utils/constants.js')
+const { useAnnotationStore } = await import('../../../src/stores/annotationStore.js')
 
 const ODE_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
   <component name="decay">
@@ -120,6 +121,17 @@ describe('useImportExportSend selection exports', () => {
   it('offers the Circulatory Autogen export once libCellML is ready, as it writes CellML', () => {
     expect(menuItem(setup('loading').exportMenuItems, 'Circulatory Autogen').disabled).toBe(true)
     expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen').disabled).toBe(false)
+  })
+
+  it('stops a CA export with annotated couplings before asking where to save', async () => {
+    const annotated = { ...flowPort('general_ports'), label: '', annotation: { subject: 'decay.cellml#v' } }
+    edges.value[0].data.couplings = [{ sourcePort: annotated, targetPort: annotated }]
+    const { exportMenuItems } = setup()
+
+    await menuItem(exportMenuItems, 'Circulatory Autogen').command()
+
+    expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('a → b') }))
+    expect(onExportConfirm).not.toHaveBeenCalled()
   })
 
   it('exports a selection that builds cleanly without asking', async () => {
@@ -240,5 +252,30 @@ describe('useImportExportSend selection exports', () => {
     const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
     expect(flattenedNodes).toHaveLength(3)
     expect(snapshotFlowState).toHaveBeenLastCalledWith(null)
+  })
+
+  it('adds the instance file and the combined annotations, and warns about a renamed instance', async () => {
+    const instanceText = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix api: <https://apinatomy.org/uris/elements/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+<./model.cellml#old_a> bqbiol:is <./coords.rdf#coord_a> .
+<./coords.rdf#coord_a> rdf:type api:ApiCoord ; api:kind "lyph" .
+`
+    useAnnotationStore().addInstanceSource({ location: 'coords.ttl', text: instanceText })
+    nodes.value[0].data.apiCoord = {
+      subject: 'https://phlynx.invalid/apicoords/model.cellml#old_a',
+      coordIri: 'https://phlynx.invalid/apicoords/coords.rdf#coord_a',
+      name: 'old_a',
+    }
+    const { currentExportMode, exportMenuItems } = setup()
+    await menuItem(exportMenuItems, 'OpenCOR').command()
+    await currentExportMode.value.action('model')
+
+    const [, , , addInfo] = generateOmexArchive.mock.calls.at(-1)
+    expect(addInfo.annotationFiles.map(({ location }) => location)).toEqual(['coords.ttl', 'annotations.ttl'])
+    expect(addInfo.annotationFiles[0].text).toBe(instanceText)
+    expect(addInfo.annotationFiles[1].text).toContain('model:a bqbiol:is <./coords.rdf#coord_a>')
+    expect(generateFlattenedModel.mock.calls.at(-1)[4]).toEqual({ exportedIds: expect.any(Map) })
+    expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('old_a (now a)') }))
   })
 })
