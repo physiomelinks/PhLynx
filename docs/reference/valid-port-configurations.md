@@ -1,6 +1,6 @@
 # Port Logic
 
-When you draw a connection, PhLynx **couples** each pair of ports that share a label and have compatible types. The couplings are stored on the connection and used on export.
+When you draw a connection, PhLynx **couples** each pair of ports that share a label and have compatible types. The couplings are stored on the connection and used on export. [Annotated](../guides/annotation-coupling.md) ports have no label: they couple by meaning instead.
 
 ## Port types {#port-types}
 

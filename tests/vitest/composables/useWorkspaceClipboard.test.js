@@ -47,6 +47,15 @@ const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay"
   </component>
 </model>`
 
+const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <http://identifiers.org/opb/OPB_> .
+@prefix sbo: <http://purl.obolibrary.org/obo/SBO_> .
+@prefix m: <./file#> .
+m:decay bqbiol:is sbo:0000290 .
+m:decay.x bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf m:decay .
+`
+const X_SUBJECT = 'https://phlynx.invalid/modules/file#decay.x'
+
 const createNode = (id, name, x, y, extra = {}) => ({
   id,
   type: 'moduleNode',
@@ -245,6 +254,34 @@ describe('useWorkspaceClipboard', () => {
       }
     })
 
+    it('drops the ApiCoord binding from pasted nodes but keeps the annotation overlay', async () => {
+      const apiCoord = { subject: 'model#A', coordIri: 'coord_A', name: 'A' }
+      const overlay = { heldConstant: true }
+      findNode('dndnode_0').data = { ...findNode('dndnode_0').data, apiCoord, annotationOverlay: overlay }
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      await clipboard.pasteSelection()
+
+      const pasted = nodes.value.at(-1)
+      expect(pasted.data).not.toHaveProperty('apiCoord')
+      expect(pasted.data.annotationOverlay).toEqual({ heldConstant: true })
+      expect(findNode('dndnode_0').data.apiCoord).toEqual(apiCoord)
+    })
+
+    it('restores the module sidecar into a fresh library, keeping one already there', async () => {
+      library.setModuleAnnotations(MATH_REF, '# sidecar')
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      setActivePinia(createPinia())
+      const freshLibrary = useLibraryStore()
+      nodes.value = []
+      edges.value = []
+      await createClipboard().pasteSelection()
+      expect(freshLibrary.getModuleAnnotations(MATH_REF)).toBe('# sidecar')
+    })
+
     it('gives pasted nodes new unique ids and names, and selects only them', async () => {
       select(['dndnode_0', 'dndnode_1'])
       await clipboard.copySelection()
@@ -419,6 +456,24 @@ describe('useWorkspaceClipboard', () => {
       expect(shouldIgnoreShortcut(eventOn('INPUT', closest), false)).toBe(true)
       expect(shouldIgnoreShortcut(eventOn('DIV', closest), true)).toBe(true)
       expect(closest).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('sidecar ports', () => {
+    it('gives pasted nodes the sidecar ports of their math here, keeping label ports', async () => {
+      const labelPort = { portType: 'general_ports', label: 'p', variables: ['x'], multiportType: 'None' }
+      findNode('dndnode_0').data = { ...findNode('dndnode_0').data, variables: [{ name: 'x' }], ports: [labelPort] }
+      library.setModuleAnnotations(MATH_REF, DECAY_SIDECAR)
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+      const beforeIds = nodes.value.map((node) => node.id)
+
+      await clipboard.pasteSelection()
+
+      const [pasted] = pastedNodes(beforeIds)
+      expect(pasted.data.ports[0]).toEqual(labelPort)
+      expect(pasted.data.ports.map((port) => port.annotation?.subject)).toEqual([undefined, X_SUBJECT])
+      expect(findNode('dndnode_0').data.ports).toEqual([labelPort])
     })
   })
 })
