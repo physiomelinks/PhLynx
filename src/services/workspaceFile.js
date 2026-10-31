@@ -16,9 +16,17 @@ import { notify } from '../utils/notify'
  * @param {Object} sources.simulation - simulationSettingsStore.
  * @param {Object} sources.inspectionModules - inspectionModuleStore.
  * @param {Object} sources.omex - omexStore.
+ * @param {Object} sources.annotations - annotationStore.
+ * @param {Object} [sources.bioTemplates] - bioTemplateStore.
  * @returns {Object} The workspace, at PHLYNX_PROJECT_VERSION.
  */
-export function buildWorkspaceFile({ flow, library, simulation, inspectionModules, omex }) {
+export function buildWorkspaceFile({ flow, library, simulation, inspectionModules, omex, annotations, bioTemplates }) {
+  // Until the format version that records annotations, a workspace without any saves as before.
+  const annotationState = annotations?.getState()
+  const hasAnnotations =
+    annotationState && (annotationState.instanceSources.length || annotationState.dismissedSuggestions.length)
+  // Likewise templates: older builds ignore the key, and nodes bound to a template's sites fall back to their role.
+  const templateState = bioTemplates?.getState() ?? null
   return {
     id: PHLYNX_PROJECT_IDENTIFIER,
     version: PHLYNX_PROJECT_VERSION,
@@ -27,6 +35,8 @@ export function buildWorkspaceFile({ flow, library, simulation, inspectionModule
     simulation: simulation.getState(),
     inspectionModules: inspectionModules.getState(),
     workspace: omex.getState(),
+    ...(hasAnnotations ? { annotations: annotationState } : {}),
+    ...(templateState ? { bioTemplates: templateState } : {}),
   }
 }
 

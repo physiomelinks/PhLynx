@@ -220,10 +220,6 @@ function onSelectTheme(id) {
 function assignCategory(key) {
   const ids = selectedNodes.value.map((node) => node.id)
   if (!ids.length) return
-  // Give nodes without the field an explicit null first, so undo can put "no category" back.
-  selectedNodes.value.forEach((node) => {
-    if (!('domainType' in (node.data ?? {}))) updateNodeData(node.id, { domainType: null })
-  })
   recordEdit({
     type: 'set-node-category',
     nodeIds: ids,
