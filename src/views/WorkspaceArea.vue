@@ -26,7 +26,7 @@
             v-tooltip.bottom="{ value: 'Save workspace', showDelay: 300 }"
             @click="handleSaveWorkspace"
             style="margin-left: 10px"
-            :disabled="!somethingAvailable"
+            :disabled="!hasWorkspaceContent"
           />
 
           <Divider layout="vertical" style="margin: 0 15px" />
@@ -51,7 +51,7 @@
             v-tooltip.bottom="{ value: 'Clear workspace', showDelay: 300 }"
             @click="handleClearWorkspace"
             style="margin-left: 10px"
-            :disabled="!somethingAvailable"
+            :disabled="!hasWorkspaceContent"
           />
 
           <Divider layout="vertical" style="margin: 0 15px" />
@@ -275,6 +275,8 @@
         >
           Report Issue
         </a>
+        <!-- Beside the theme switch: both change how the workspace is shown, not what is in it -->
+        <ViewModeToggle style="margin-left: 20px" />
         <ThemeToggle style="margin-left: 20px" />
       </div>
     </header>
@@ -297,6 +299,7 @@
         }"
       >
         <div
+          v-show="!viewMode.isBio"
           class="workspace-search-container"
           :class="{ 'search-inactive': !isSearchFocused && !searchQuery, 'search-mode-var': parsedQuery.mode === 'var' }"
         >
@@ -451,6 +454,8 @@
             :connection-line-options="edgeLineOptions"
             :nodes="nodes"
             :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
+            :class="{ 'main-flow--hidden': viewMode.isBio }"
+            :inert="viewMode.isBio || null"
           >
             <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
@@ -463,6 +468,14 @@
             <template #edge-smoothstep="edgeProps">
               <CouplingEdge v-bind="edgeProps" />
             </template>
+            <template #zoom-pane>
+              <SuggestionLayer @accept="couplingSuggestions.accept" @dismiss="couplingSuggestions.dismiss" />
+            </template>
+            <SuggestionPanel
+              @accept-all="couplingSuggestions.acceptAll"
+              @dismiss-all="couplingSuggestions.dismissAll"
+              @restore-dismissed="couplingSuggestions.restoreDismissed"
+            />
             <template #node-instanceNode="props">
               <InstanceNode
                 :id="props.id"
@@ -477,6 +490,13 @@
               <p v-if="isDragOver">Drop here</p>
             </Workbench>
           </VueFlow>
+          <BioFlow
+            v-if="viewMode.isBio"
+            class="bio-flow-layer"
+            :create-instance="createBioInstance"
+            @open-instance-editor="onOpenInstanceEditorDialog"
+            @export-image="exportImageOf"
+          />
         </div>
       </main>
       <ContextSidebar
@@ -545,6 +565,13 @@
     @confirm="onImportConfirm"
   />
 
+  <ApplyAnnotationsDialog
+    v-model="applyAnnotationsVisible"
+    :prepared="preparedAnnotations"
+    :plan-rows="planAnnotationRows"
+    @apply="onApplyAnnotations"
+  />
+
   <PaneContextMenu ref="contextMenuRef" :items="contextMenuItems" />
 
   <EdgeConnectionDialog
@@ -589,13 +616,19 @@ import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory'
 import { useConnect } from '../composables/useConnect'
+import { useCouplingSuggestions } from '../composables/useCouplingSuggestions'
+import { useApplyAnnotations } from '../composables/useApplyAnnotations'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useAnnotationStore } from '../stores/annotationStore'
+import { useBioTemplateStore } from '../stores/bioTemplateStore'
 
-import { importOmexFile, extractOmexArchive } from '../services/import/omex'
+import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
+import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
+import { withAnnotationData } from '../services/annotations/nodeData'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
 
@@ -617,8 +650,11 @@ import LibraryArea from '../components/LibraryArea.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
+import SuggestionLayer from '../components/SuggestionLayer.vue'
+import SuggestionPanel from '../components/SuggestionPanel.vue'
 import InstanceNode from '../components/InstanceNode.vue'
 import ImportDialog from '../components/ImportDialog.vue'
+import ApplyAnnotationsDialog from '../components/ApplyAnnotationsDialog.vue'
 import ModuleReplacementDialog from '../components/ModuleReplacementDialog.vue'
 import SaveDialog from '../components/SaveDialog.vue'
 import MacroBuilderDialog from '../components/MacroBuilderDialog.vue'
@@ -630,6 +666,9 @@ import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'
+import BioFlow from '../components/bio/BioFlow.vue'
+import ViewModeToggle from '../components/bio/ViewModeToggle.vue'
+import { useViewModeStore } from '../stores/viewModeStore'
 import InstanceEditorDialog from '../components/InstanceEditorDialog.vue'
 import CreateInspectionModuleDialog from '../components/dialogs/CreateInspectionModule.vue'
 import ContextSidebar from '../components/ContextSidebar.vue'
@@ -736,6 +775,7 @@ const {
   viewport,
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.MAIN)
+const viewMode = useViewModeStore()
 const { processMacroGeneration } = useMacroGenerator()
 const { confirm } = useConfirmDialog()
 const toast = useToast()
@@ -805,6 +845,8 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
+const annotationStore = useAnnotationStore()
+const bioTemplateStore = useBioTemplateStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -818,6 +860,32 @@ function miniMapNodeColour(node) {
 }
 const { loadFromInstanceArray } = useLoadFromInstanceArray({ fitViewParams })
 const { loadFromCellML } = useLoadFromCellML({ fitViewParams })
+const {
+  readAnnotationFiles,
+  planRows: planAnnotationRows,
+  applyAnnotations,
+} = useApplyAnnotations({ fitViewParams })
+const applyAnnotationsVisible = ref(false)
+const preparedAnnotations = ref(null)
+
+/**
+ * Applies the choices made in the Apply Annotations dialog and reports what was done.
+ *
+ * @param {{ targets: Object, rows: Array<Object> }} choices
+ */
+async function onApplyAnnotations(choices) {
+  try {
+    const { added, bound, skipped, unmatchedSidecars } = await applyAnnotations(preparedAnnotations.value, choices)
+    const lines = [`Added ${added.length} and bound ${bound.length} instance${added.length + bound.length === 1 ? '' : 's'}.`]
+    if (skipped.length) lines.push(`Skipped (no module): ${skipped.join(', ')}.`)
+    if (unmatchedSidecars.length) lines.push(`Sidecars not stored (no math): ${unmatchedSidecars.join(', ')}.`)
+    const notice = { title: 'Annotations Applied', message: lines.join('\n') }
+    if (skipped.length || unmatchedSidecars.length) notify.warning(notice)
+    else notify.success(notice)
+  } catch (error) {
+    notify.error({ title: 'Applying Annotations Failed', message: error.message })
+  }
+}
 const { capture, error: captureError } = useScreenshot()
 const { trackEvent } = useGtm()
 const { clearWorkspace } = useClearWorkspace()
@@ -907,6 +975,8 @@ watch(currentMatchIndex, async () => {
 
 const allNodeNames = computed(() => nodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
+/** Whether there is anything to save or clear: modules, or templates placed in the physiological view. */
+const hasWorkspaceContent = computed(() => somethingAvailable.value || bioTemplateStore.instances.length > 0)
 const somethingSelected = computed(() => getSelectedNodes.value.length > 0)
 const hasModelChanged = computed(() => cyrb53(snapshotFlowState()) !== omexStore.archiveHash)
 
@@ -1039,7 +1109,11 @@ useConnect({
   revertHandleIfUnused,
   revertHandlesForEdge,
   reactivateEdgeHandles,
+  recordEdit,
 })
+
+// Annotation-driven suggestions, drawn over the canvas but never edges until accepted.
+const couplingSuggestions = useCouplingSuggestions({ activateHandle, recordEdit, edgeLineOptions })
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
 
@@ -1307,7 +1381,10 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
         ...buildGhostHandles(NUM_GHOST_HANDLES_TOP_BOT, NUM_GHOST_HANDLES_LEFT_RIGHT, node.data.handles),
       ])
 
-      return buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      const instance = buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      // Its ApiCoord binding and reservoir state, which buildInstance doesn't know about.
+      withAnnotationData(instance.data, node.data)
+      return instance
     })
 
     addNodes(newNodes)
@@ -1345,22 +1422,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   const manifestFile = archive.file('manifest.xml')
   const manifestXml = manifestFile ? await manifestFile.async('string') : ''
 
-  const archiveLocations = new Set([
-    ...Object.values(result.files || {}).filter(Boolean),
-    ...(result.extras || []).map((entry) => entry.location),
-  ])
-
-  const archiveEntries = []
-  for (const location of archiveLocations) {
-    const fileObject = archive.file(location)
-    if (!fileObject) continue
-
-    archiveEntries.push({
-      location,
-      format: 'application/octet-stream',
-      payload: await fileObject.async('arraybuffer'),
-    })
-  }
+  const archiveEntries = await readArchiveEntries(archive, result)
 
   const criticalLocations = [
     result.files?.cellml,
@@ -1465,6 +1527,9 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     }
   }
 
+  // The sidecars and instance files; the nodes' bindings came back with the flow snapshot.
+  restoreOmexAnnotations(result.annotations, { libraryStore, annotationStore })
+
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()
   recomputeMissingCouplings()
@@ -1568,6 +1633,19 @@ async function onImportConfirm(importPayload, updateProgress) {
     )
     if (multiFile) {
       notifyMultiFileResults(results, { successTitle: 'Parameters Loaded' })
+    }
+  } else if (currentImportMode.value.key === IMPORT_KEYS.TURTLE) {
+    const filesOf = (key) =>
+      [...(importPayload.get(key) ?? [])].map(([name, data]) => ({ name, text: data?.payload?.text ?? '' }))
+    try {
+      const [instanceFile] = filesOf(IMPORT_KEYS.API_COORDS)
+      preparedAnnotations.value = await readAnnotationFiles({
+        sidecarFiles: filesOf(IMPORT_KEYS.TURTLE),
+        instanceFile,
+      })
+      applyAnnotationsVisible.value = true
+    } catch (error) {
+      notify.error({ title: 'Annotations Import Failed', message: error.message })
     }
   } else if (currentImportMode.value.key === IMPORT_KEYS.OMEX) {
     try {
@@ -1898,6 +1976,29 @@ function createNewInstanceAtPosition(clientX, clientY) {
   createInstanceNode(module, position)
 }
 
+/**
+ * Adds an instance made in the physiological view. In the diagram it goes right of the other
+ * instances, out of their way; where it goes in the physiological view is its bioView.
+ *
+ * @param {Object} moduleData - A library module.
+ * @param {Object} bioView
+ * @returns {string} The new node's id.
+ */
+function createBioInstance(moduleData, bioView) {
+  // Nodes made a moment ago aren't measured yet, so they count at a card's usual width.
+  const width = (node) => node.dimensions?.width || 220
+  const position = nodes.value.length
+    ? {
+        x: Math.max(...nodes.value.map((node) => node.position.x + width(node))) + 120,
+        y: Math.min(...nodes.value.map((node) => node.position.y)),
+      }
+    : { x: 0, y: 0 }
+  const { nodeId } = createInstanceNode(moduleData, position, [], { bioView }, { centre: false })
+  // Placed where it is meant to stay, so history mustn't re-centre the add once it is measured.
+  historyStore.lastChangeWasAddSetter(false)
+  return nodeId
+}
+
 function handleAutoLayout() {
   relayoutNodes(nodes.value, edges.value)
 }
@@ -2137,8 +2238,17 @@ const imageExportTitle = computed(
  * Exports the canvas in the format chosen in Settings. Edit buttons are always hidden, warning badges
  * unless Settings asks for them; hiding (rather than removing) keeps the rest of each card in place.
  */
-async function doImageExport() {
-  const root = vueFlowRef.value
+function doImageExport() {
+  return exportImageOf({ root: vueFlowRef.value, viewport: viewport.value })
+}
+
+/**
+ * Exports one view's canvas. The physiological view's selection follows the diagram's, so
+ * withoutSelection clears both.
+ *
+ * @param {{root: HTMLElement, viewport: Object}} view
+ */
+async function exportImageOf({ root, viewport: shownViewport }) {
   const format = appSettings.imageExportFormat
   const includeWarnings = appSettings.imageExportWarnings
   return withoutSelection(async () => {
@@ -2146,7 +2256,7 @@ async function doImageExport() {
     root.classList.toggle('image-export--no-warnings', !includeWarnings)
 
     try {
-      await capture(root, { format: format, viewport: viewport.value, includeWarnings, shouldDownload: true })
+      await capture(root, { format: format, viewport: shownViewport, includeWarnings, shouldDownload: true })
       if (captureError.value) {
         notify.error({
           title: 'Screenshot error',
@@ -2170,12 +2280,13 @@ const handleKeyDown = (event) => {
     copySelection()
   }
 
-  if (isCtrl && event.key.toLowerCase() === 'v') {
+  // Pasting places by the diagram's coordinates, so it waits for the diagram.
+  if (isCtrl && event.key.toLowerCase() === 'v' && !viewMode.isBio) {
     event.preventDefault()
     pasteSelection(true)
   }
 
-  if (isCtrl && event.key.toLowerCase() === 'd') {
+  if (isCtrl && event.key.toLowerCase() === 'd' && !viewMode.isBio) {
     event.preventDefault()
     copySelection()
     pasteSelection()
@@ -2188,7 +2299,7 @@ const handleKeyDown = (event) => {
 
   if (isCtrl && event.key.toLowerCase() === 's') {
     event.preventDefault()
-    if (somethingAvailable.value) handleSaveWorkspace()
+    if (hasWorkspaceContent.value) handleSaveWorkspace()
   }
 
   const undoRedoAction = getUndoRedoAction(event)
@@ -2212,7 +2323,7 @@ const handleKeyDown = (event) => {
   }
 
   // Search shortcuts
-  if ((isCtrl && event.key.toLowerCase() === 'f') || (event.key === '/' && !isCtrl && !event.altKey)) {
+  if (!viewMode.isBio && ((isCtrl && event.key.toLowerCase() === 'f') || (event.key === '/' && !isCtrl && !event.altKey))) {
     event.preventDefault()
     focusSearch()
   }
@@ -2474,6 +2585,18 @@ watch(
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* Hidden rather than removed, so its nodes stay measured while the physiological view is shown.
+   Not visibility: vue-flow marks each measured node visible, which would show through. */
+.main-flow--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bio-flow-layer {
+  position: absolute;
+  inset: 0;
 }
 
 /* Tutorial Slate Background for Dark Mode */
@@ -2753,8 +2876,10 @@ watch(
   cursor: pointer;
 }
 
-/* While exporting an image: never the edit controls, and warnings only when Settings asks. */
+/* While exporting an image: never the edit controls or coupling suggestions, and warnings only when Settings asks. */
 .image-export .instance-button,
+.image-export .suggestion-layer,
+.image-export .suggestion-panel,
 .image-export .delete-handle-popover-btn,
 .image-export .vue-flow__resize-control,
 .image-export--no-warnings .status-indicator,

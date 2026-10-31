@@ -1,0 +1,40 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 1,
+  "id": "epithelial-cell",
+  "name": "Epithelial cell",
+  "description": "A polarised epithelial cell between the apical fluid and the interstitium, with the paracellular space beside it.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "cell",
+      "label": "Epithelial cell",
+      "membrane": { "label": "Plasma membrane" },
+      "facets": [
+        { "id": "apical", "label": "Apical membrane", "edge": "top", "annotation": { "facet": "apical" } },
+        { "id": "basolateral", "label": "Basolateral membrane", "edge": "bottom", "annotation": { "facet": "basolateral" } },
+        {
+          "id": "lateral-left",
+          "label": "Lateral membrane (left)",
+          "edge": "left",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "left" }
+        },
+        {
+          "id": "lateral-right",
+          "label": "Lateral membrane (right)",
+          "edge": "right",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "right" }
+        }
+      ],
+      "processes": [{ "id": "metabolism", "label": "Metabolism" }]
+    }
+  ],
+  "compartments": [
+    { "id": "apical-fluid", "label": "Apical fluid (lumen)", "against": ["cell.apical"], "tone": "sky" },
+    { "id": "basolateral-fluid", "label": "Basolateral fluid (interstitium)", "against": ["cell.basolateral"], "tone": "rose" },
+    { "id": "paracellular", "label": "Paracellular space", "against": ["cell.lateral-right"], "tone": "teal" }
+  ]
+}

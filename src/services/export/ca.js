@@ -4,6 +4,7 @@ import Papa from 'papaparse'
 import { notify } from '../../utils/notify'
 import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
+import { isAnnotatedPort } from '../../utils/portIdentity'
 import { isBlank } from '../../utils/variables'
 import { resolveBoundaryValues } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
@@ -27,6 +28,7 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
  */
 export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
   try {
+    assertNoAnnotatedCouplings(nodes, edges)
     const zip = new JSZip()
 
     // Create maps for quick lookup of node names and objects
@@ -152,6 +154,41 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     notify.error({ message: `Failed to export config files: ${error.message}` })
     throw error
   }
+}
+
+/**
+ * The edges with a coupling made by annotations, as 'source → target' names.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @returns {string[]}
+ */
+export function annotatedCouplingEdges(nodes, edges) {
+  const names = new Map(nodes.map((node) => [node.id, node.data?.name ?? node.id]))
+  return edges
+    .filter((edge) =>
+      (edge.data?.couplings ?? []).some(
+        ({ sourcePort, targetPort }) => isAnnotatedPort(sourcePort) || isAnnotatedPort(targetPort)
+      )
+    )
+    .map((edge) => `${names.get(edge.source) ?? edge.source} → ${names.get(edge.target) ?? edge.target}`)
+}
+
+/**
+ * Stops the export when a coupling joins annotated ports: CA pairs ports by their port_type label, which annotated
+ * ports leave empty.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @throws {Error} Naming the edges.
+ */
+function assertNoAnnotatedCouplings(nodes, edges) {
+  const annotated = annotatedCouplingEdges(nodes, edges)
+  if (!annotated.length) return
+  throw new Error(
+    `CA export can't carry couplings made by annotations, which have no port labels for CA to pair: ` +
+      `${listNamed(annotated)}. Export CellML instead.`
+  )
 }
 
 /**
