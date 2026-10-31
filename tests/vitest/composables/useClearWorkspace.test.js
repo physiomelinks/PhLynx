@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useClearWorkspace } from '../../../src/composables/useClearWorkspace.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
+import { useAnnotationStore } from '../../../src/stores/annotationStore.js'
+import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
 import { DEFAULT_PROJECT_NAME } from '../../../src/utils/constants.js'
@@ -53,5 +55,54 @@ describe('useClearWorkspace', () => {
     expect(sessionMetadataStore.lastSaveName).toBe(DEFAULT_PROJECT_NAME)
     expect(historyStore.canUndo).toBe(false)
     expect(historyStore.canRedo).toBe(false)
+  })
+
+  it('resets the annotation store, keeps library sidecars, and undo brings the annotation state back', async () => {
+    const libraryStore = useLibraryStore()
+    const annotationStore = useAnnotationStore()
+    const historyStore = useFlowHistoryStore()
+    libraryStore.setModuleAnnotations('math:1', '# sidecar')
+    annotationStore.addInstanceSource({ location: 'apicoords.ttl', text: '# coords' })
+    annotationStore.dismissSuggestion('a|b|x')
+    const before = annotationStore.getState()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    expect(annotationStore.getState()).toEqual({ instanceSources: [], dismissedSuggestions: [] })
+    expect(libraryStore.getModuleAnnotations('math:1')).toBe('# sidecar')
+
+    await historyStore.undo()
+    expect(annotationStore.getState()).toEqual(before)
+  })
+
+  it('resets the template store, and undo brings the placed templates back', async () => {
+    const bioTemplateStore = useBioTemplateStore()
+    const historyStore = useFlowHistoryStore()
+    bioTemplateStore.addInstance('epithelial-cell', { x: 10, y: 20 }, 'Gut')
+    const before = bioTemplateStore.getState()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    expect(bioTemplateStore.getState()).toBeNull()
+    expect(bioTemplateStore.definitions.size).toBe(0)
+
+    await historyStore.undo()
+    expect(bioTemplateStore.getState()).toEqual(before)
+
+    await historyStore.redo()
+    expect(bioTemplateStore.getState()).toBeNull()
+  })
+
+  it('undoes a clear so that an earlier template edit can still be undone', async () => {
+    const bioTemplateStore = useBioTemplateStore()
+    const historyStore = useFlowHistoryStore()
+    const add = bioTemplateStore.edit(() => bioTemplateStore.addInstance('enterocyte', { x: 0, y: 0 }))
+    add.apply()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    await historyStore.undo()
+
+    expect(add.isAt('after')).toBe(true)
   })
 })

@@ -15,6 +15,8 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal(
 
 import { useWorkspaceSaveLoad } from '../../../src/composables/useWorkspaceSaveLoad'
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
+import { useAnnotationStore } from '../../../src/stores/annotationStore'
+import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore'
 import { useLibraryStore } from '../../../src/stores/libraryStore'
 import { useOmexStore } from '../../../src/stores/omexStore'
@@ -241,6 +243,80 @@ describe('applyWorkspaceState', () => {
       label: 'Nodes: 1, Edges: 0',
       file_type: 'file',
     })
+  })
+
+  it('round trips module sidecars, instance sources, dismissed keys and node annotation fields', async () => {
+    const sidecar = '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n'
+    const source = { location: 'apicoords.ttl', format: 'turtle', text: '# coords\n' }
+    const apiCoord = { subject: 'model.cellml#cell', coordIri: 'apicoords.ttl#coord_cell', name: 'cell' }
+    const data = { name: 'cell', apiCoord, annotationOverlay: { heldConstant: true } }
+    const annotatedFlow = { ...FLOW, nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data }] }
+    flow.toObject.mockReturnValue(annotatedFlow)
+    useLibraryStore().setModuleAnnotations('pool.cellml:pool', sidecar)
+    useAnnotationStore().addInstanceSource(source)
+    useAnnotationStore().dismissSuggestion('outside|cell|c_A')
+    await view.onSaveConfirm('annotated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
+    expect(saved.store.moduleAnnotations).toEqual([['pool.cellml:pool', sidecar]])
+    expect(saved.annotations).toEqual({ instanceSources: [source], dismissedSuggestions: ['outside|cell|c_A'] })
+    expect(saved.flow.nodes[0].data).toMatchObject({ apiCoord, annotationOverlay: { heldConstant: true } })
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved)
+
+    expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: annotatedFlow.nodes }))
+    expect(useLibraryStore().getModuleAnnotations('pool.cellml:pool')).toBe(sidecar)
+    expect(useAnnotationStore().getState()).toEqual(saved.annotations)
+  })
+
+  it('saves a workspace without annotations as before, and loads one with empty annotation state', async () => {
+    fillStores()
+    await view.onSaveConfirm('plain')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved).not.toHaveProperty('annotations')
+    expect(saved.store).not.toHaveProperty('moduleAnnotations')
+
+    useAnnotationStore().addInstanceSource({ location: 'stale.ttl', text: '# stale' })
+    await view.applyWorkspaceState(saved)
+    expect(useAnnotationStore().getState()).toEqual({ instanceSources: [], dismissedSuggestions: [] })
+    expect(useLibraryStore().moduleAnnotations.size).toBe(0)
+  })
+
+  it('round trips placed templates and their embedded definitions', async () => {
+    const bound = { ...FLOW, nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: { bioView: { site: '' } } }] }
+    const instance = useBioTemplateStore().addInstance('two-cell-epithelium', { x: 30, y: 40 }, 'Sheet')
+    bound.nodes[0].data.bioView.site = `${instance.id}/a.apical`
+    flow.toObject.mockReturnValue(bound)
+    await view.onSaveConfirm('templated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
+    expect(saved.bioTemplates.instances).toEqual([instance])
+    expect(Object.keys(saved.bioTemplates.templates)).toEqual(['two-cell-epithelium'])
+    // As if the built-in changed after this workspace was saved: the embedded copy must still win.
+    saved.bioTemplates.templates['two-cell-epithelium'].name = 'Old sheet'
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved)
+
+    expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: bound.nodes }))
+    expect(useBioTemplateStore().getState()).toEqual(saved.bioTemplates)
+    expect(useBioTemplateStore().getDefinition('two-cell-epithelium').name).toBe('Old sheet')
+  })
+
+  it('saves a workspace without templates without the key, and loading one empties the template store', async () => {
+    fillStores()
+    await view.onSaveConfirm('plain')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved).not.toHaveProperty('bioTemplates')
+
+    useBioTemplateStore().addInstance('enterocyte', { x: 0, y: 0 })
+    await view.applyWorkspaceState(saved)
+    expect(useBioTemplateStore().getState()).toBeNull()
   })
 
   it('clears the workspace before it restores the flow', async () => {
