@@ -1,6 +1,7 @@
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from './useClearWorkspace'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import { useFlowHistoryStore } from '../stores/historyStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
@@ -47,9 +48,12 @@ export function useWorkspaceSaveLoad({
   const omexStore = useOmexStore()
   const defaultParametersStore = useDefaultParametersStore()
   const { trackEvent } = useGtm()
+  const historyStore = useFlowHistoryStore()
 
   /**
    * Saves with the native file picker, or opens the save dialog when the browser has none.
+   *
+   * @returns {Promise<'saved'|'cancelled'|'failed'|'dialog'>}
    */
   async function handleSaveWorkspace() {
     const safeName = ensureExtension(sessionMetadataStore.lastSaveName, '.json')
@@ -58,7 +62,7 @@ export function useWorkspaceSaveLoad({
       if (result.handle) {
         const blob = createSaveBlob()
         try {
-          writeFileHandle(result.handle, blob)
+          await writeFileHandle(result.handle, blob)
           sessionMetadataStore.setLastSaveName(result.handle.name)
           trackEvent('save_action', {
             category: 'Save',
@@ -66,7 +70,9 @@ export function useWorkspaceSaveLoad({
             label: `File: ${result.handle.name}`,
             file_type: 'json',
           })
+          historyStore.markSaved()
           notify.success({ title: 'Workflow saved!' })
+          return 'saved'
         } catch (err) {
           trackEvent('save_action', {
             category: 'Save',
@@ -78,11 +84,13 @@ export function useWorkspaceSaveLoad({
             title: 'Error Saving Workflow',
             message: err.message,
           })
+          return 'failed'
         }
       }
-    } else {
-      saveDialogVisible.value = true
+      return 'cancelled'
     }
+    saveDialogVisible.value = true
+    return 'dialog'
   }
 
   /**
@@ -113,6 +121,7 @@ export function useWorkspaceSaveLoad({
     legacyDownload(finalName, blob)
 
     sessionMetadataStore.setLastSaveName(fileName)
+    historyStore.markSaved()
     notify.success({ title: 'Workflow saved!' })
   }
 
@@ -147,6 +156,8 @@ export function useWorkspaceSaveLoad({
       inspectionModuleStore.loadState(migratedState.inspectionModules)
       omexStore.loadState(migratedState.workspace)
       defaultParametersStore.loadState(migratedState.parameters)
+      // A loaded workspace is as saved as its file.
+      historyStore.markSaved()
 
       trackEvent('workflow_load_action', {
         category: 'Workflow',

@@ -624,6 +624,7 @@ import { parseCellMLConnections } from '../services/import/parseCellmlConnection
 import { prepareCellmlImport } from '../services/import/prepareCellml'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
+import { installUnloadGuard, registerWorkspaceSaver, useUnsavedChanges } from '../composables/useUnsavedChanges'
 import { useImportExportSend } from '../composables/useImportExportSend'
 
 import LibraryArea from '../components/LibraryArea.vue'
@@ -2539,7 +2540,19 @@ const onMouseMove = (event) => {
 // Canvas shortcuts act only while the canvas shows, not from another page.
 useActiveDocumentListeners({ keydown: handleKeyDown, mousemove: onMouseMove })
 
-onUnmounted(() => setWorkspaceMounted(false))
+// Asks before a reload or close loses unsaved work; panels outside this view can save it.
+const hasUnsavedChanges = useUnsavedChanges(() => somethingAvailable.value)
+const removeUnloadGuard = installUnloadGuard(() => hasUnsavedChanges.value)
+const unregisterSaver = registerWorkspaceSaver({
+  save: handleSaveWorkspace,
+  hasContent: () => somethingAvailable.value,
+})
+
+onUnmounted(() => {
+  setWorkspaceMounted(false)
+  removeUnloadGuard()
+  unregisterSaver()
+})
 
 watch(
   () => route.path,

@@ -33,7 +33,7 @@ describe('loadLibOpenCOR', () => {
     worker.reply({ type: 'ready', versionString: '1.2.3' })
 
     expect(await loading).toMatchObject({ startSimulation: expect.any(Function), describeModel: expect.any(Function), startProtocol: expect.any(Function) })
-    expect({ ...libopencor }).toEqual({ status: 'ready', reason: null, versionString: '1.2.3' })
+    expect({ ...libopencor }).toEqual({ status: 'ready', reason: null, needsReload: false, versionString: '1.2.3' })
   })
 
   it('loads once, however often it is asked', () => {
@@ -60,7 +60,12 @@ describe('loadLibOpenCOR', () => {
     worker.reply({ type: 'failed', message: 'Failed to fetch' })
 
     expect(await loading).toBeNull()
-    expect({ ...libopencor }).toEqual({ status: 'error', reason: 'Failed to fetch', versionString: null })
+    expect({ ...libopencor }).toEqual({
+      status: 'error',
+      reason: 'Failed to fetch',
+      needsReload: false,
+      versionString: null,
+    })
   })
 
   describe('its client', () => {

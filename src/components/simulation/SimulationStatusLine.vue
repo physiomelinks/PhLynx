@@ -10,6 +10,17 @@
       <span>{{ status.text }}</span>
     </p>
     <p v-if="status.hint" class="status-hint">{{ status.hint }}</p>
+    <div v-if="status.actions?.length" class="status-actions">
+      <Button
+        v-for="action in status.actions"
+        :key="action.label"
+        :label="action.label"
+        :icon="`pi ${action.icon}`"
+        size="small"
+        :severity="action.severity"
+        @click="action.run()"
+      />
+    </div>
     <InfoTip v-if="status.notes?.length" class="status-note" :text="status.notes.join('\n')" :label="`Notes: ${status.notes.join(' ')}`" />
     <Popover ref="popover">
       <div class="status-details">
@@ -26,17 +37,20 @@
 
 <script setup>
 /**
- * One line saying what the simulation is doing or what needs attention, with the full lists a click away, and any
- * notes on what is expected in a tooltip, and a hint on what to try after a failure on a line of its own.
+ * One line saying what the simulation is doing or what needs attention, with the full lists a click away, any
+ * notes on what is expected in a tooltip, a hint on what to try after a failure on a line of its own, and any actions
+ * that fix it.
  */
 import { ref } from 'vue'
 
+import Button from 'primevue/button'
 import Popover from 'primevue/popover'
 
 import InfoTip from './InfoTip.vue'
 
 defineProps({
-  // { text, severity: 'info' | 'warn' | 'error', icon, details: [{ title, lines }], notes?: string[], hint?: string }
+  // { text, severity: 'info' | 'warn' | 'error', icon, details: [{ title, lines }], notes?: string[], hint?: string,
+  //   actions?: [{ label, icon, severity?, run }] }
   status: { type: Object, required: true },
 })
 
@@ -92,6 +106,16 @@ const popover = ref(null)
 
 .status-button:hover span {
   text-decoration: underline;
+}
+
+.simulation-status {
+  flex-wrap: wrap;
+}
+
+.status-actions {
+  display: flex;
+  flex-basis: 100%;
+  gap: 6px;
 }
 
 .simulation-status--warn {

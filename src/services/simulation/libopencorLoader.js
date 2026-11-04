@@ -13,9 +13,10 @@ const LIBOPENCOR_BASE = typeof __LIBOPENCOR_BASE__ === 'undefined' ? null : __LI
 
 /**
  * The simulator's state: `status` is 'idle', 'loading', 'ready', 'unavailable' (it can't load here, with
- * `reason` saying why) or 'error' (it failed to load, with `reason` giving the error).
+ * `reason` saying why, and `needsReload` when a reload fixes it) or 'error' (it failed to load, with `reason` giving
+ * the error).
  */
-export const libopencor = reactive({ status: 'idle', reason: null, versionString: null })
+export const libopencor = reactive({ status: 'idle', reason: null, needsReload: false, versionString: null })
 
 let loading = null
 
@@ -141,7 +142,8 @@ export function loadLibOpenCOR({ scope = globalThis, createWorker = createSimula
   const isolation = getIsolationStatus(scope)
   const reason = !LIBOPENCOR_BASE ? 'The simulator isn’t part of this build.' : isolation.reason
   if (reason) {
-    Object.assign(libopencor, { status: 'unavailable', reason })
+    const needsReload = !!LIBOPENCOR_BASE && !!isolation.needsReload
+    Object.assign(libopencor, { status: 'unavailable', reason, needsReload })
     loading = Promise.resolve(null)
     return loading
   }
@@ -183,5 +185,5 @@ export function whenLibOpenCORReady() {
 /** Forgets the load, so the next call starts again. For tests. */
 export function resetLibOpenCORLoader() {
   loading = null
-  Object.assign(libopencor, { status: 'idle', reason: null, versionString: null })
+  Object.assign(libopencor, { status: 'idle', reason: null, needsReload: false, versionString: null })
 }
