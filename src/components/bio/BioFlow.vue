@@ -152,6 +152,14 @@
       data-testid="bio-template-file-input"
       @change="onTemplateFile"
     />
+    <input
+      ref="glyphFileInput"
+      type="file"
+      accept=".json,application/json"
+      hidden
+      data-testid="bio-glyph-file-input"
+      @change="onGlyphFile"
+    />
     <Dialog
       v-if="renaming"
       :visible="true"
@@ -285,7 +293,8 @@ import {
 import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
-import { GLYPHS } from '../../services/bioView/glyphs'
+import { BUILT_IN_GLYPHS, loadedGlyphs } from '../../services/bioView/glyphs'
+import { glyphLibraryFile } from '../../services/bioView/glyphLibrary'
 import {
   GLYPH_HEIGHT,
   GLYPH_WIDTH,
@@ -319,6 +328,7 @@ import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { useBioTemplateStore } from '../../stores/bioTemplateStore'
+import { useGlyphLibraryStore } from '../../stores/glyphLibraryStore'
 import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
@@ -363,6 +373,7 @@ const libraryDrag = useDragAndDrop()
 const history = useFlowHistoryStore()
 const libraryStore = useLibraryStore()
 const templateStore = useBioTemplateStore()
+const glyphStore = useGlyphLibraryStore()
 const { choose } = useConfirmDialog()
 const {
   applyNodeChanges,
@@ -1357,6 +1368,72 @@ function addTemplateMenu(at) {
   ]
 }
 
+// ── Glyph libraries ────────────────────────────────────────────────────
+const glyphFileInput = ref(null)
+
+/** Adds the chosen glyph library file to the user's own, or says what is wrong with it. */
+async function onGlyphFile(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  const { raw, errors: parseErrors } = await readTemplateFile(file, { what: 'a glyph library' })
+  const { library, errors, warnings } = parseErrors.length
+    ? { library: null, errors: parseErrors, warnings: [] }
+    : glyphStore.addLocalLibrary(raw)
+  if (!library) {
+    notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
+    return
+  }
+  const count = `${library.glyphs.length} cartoon${library.glyphs.length === 1 ? '' : 's'}`
+  if (warnings.length) notify.warning({ title: `Loaded ${library.name}`, message: summariseProblems(warnings) })
+  else notify.success({ title: `Loaded ${library.name}`, message: `${count} added to the Cartoon menu.` })
+}
+
+/** Downloads a glyph library as a file anyone can load. */
+function saveGlyphFile(library) {
+  const { filename, text } = glyphLibraryFile(library)
+  legacyDownload(filename, new Blob([text], { type: 'application/json' }))
+}
+
+/** Loading, saving and removing the user's own glyph libraries. */
+function glyphLibraryMenu() {
+  const own = glyphStore.localLibraries
+  const each = (icon, label, act) => ({
+    label,
+    icon,
+    items: own.map((library) => ({ label: library.name, command: () => act(library) })),
+  })
+  return [
+    { label: 'Load Glyph Library…', icon: 'pi pi-upload', command: () => glyphFileInput.value?.click() },
+    ...(own.length
+      ? [
+          each('pi pi-download', 'Save Glyph Library As File…', saveGlyphFile),
+          each('pi pi-trash', 'Remove Glyph Library', (library) => glyphStore.removeLocalLibrary(library.id)),
+        ]
+      : []),
+  ]
+}
+
+/** The Cartoon submenu for a protein: the built-ins, then the loaded glyphs, then the libraries. */
+function cartoonMenu(nodeId, chosen) {
+  const item = (glyph) => ({
+    label: glyph.name,
+    icon: chosen === glyph.id ? 'pi pi-check' : undefined,
+    command: () => {
+      glyphStore.adoptGlyph(glyph.id)
+      setChoice(nodeId, { glyph: glyph.id }, 'bio-glyph')
+    },
+  })
+  const loaded = loadedGlyphs()
+  return [
+    ...BUILT_IN_GLYPHS.map(item),
+    { separator: true },
+    ...loaded.map(item),
+    ...(loaded.length ? [{ separator: true }] : []),
+    ...glyphLibraryMenu(),
+  ]
+}
+
 /**
  * The menu items for the template instance a piece belongs to.
  *
@@ -1430,11 +1507,7 @@ function onNodeContextMenu({ event, node }) {
     items.push({
       label: 'Cartoon',
       icon: 'pi pi-palette',
-      items: GLYPHS.map((glyph) => ({
-        label: glyph[0].toUpperCase() + glyph.slice(1),
-        icon: role.glyph === glyph ? 'pi pi-check' : undefined,
-        command: () => setChoice(node.id, { glyph }, 'bio-glyph'),
-      })),
+      items: cartoonMenu(node.id, role.glyph),
     })
   }
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
@@ -1529,6 +1602,7 @@ function onPaneContextMenu(event) {
       icon: 'pi pi-objects-column',
       items: addTemplateMenu(at),
     },
+    { label: 'Glyph Libraries', icon: 'pi pi-palette', items: glyphLibraryMenu() },
     { separator: true },
     {
       label: 'Re-layout Physiology',

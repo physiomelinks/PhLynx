@@ -31,15 +31,18 @@ export function parseTemplateText(text) {
 }
 
 /**
- * Reads and parses a template file the user picked, refusing ones too big to be a template unread.
+ * Reads and parses a template file the user picked, refusing ones too big to be a template unread. Glyph
+ * library files are read the same way.
  *
  * @param {Blob} file
+ * @param {Object} [options]
+ * @param {string} [options.what='a template'] - What the file should be, as problems name it.
  * @returns {Promise<{ raw: *, errors: Array<string> }>}
  */
-export async function readTemplateFile(file) {
+export async function readTemplateFile(file, { what = 'a template' } = {}) {
   if (file.size > MAX_TEMPLATE_FILE_BYTES) {
     const limit = `${MAX_TEMPLATE_FILE_BYTES / 1024} KB`
-    return { raw: undefined, errors: [`The file is too big to be a template (over ${limit}).`] }
+    return { raw: undefined, errors: [`The file is too big to be ${what} (over ${limit}).`] }
   }
   let text
   try {

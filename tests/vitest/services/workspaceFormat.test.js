@@ -15,11 +15,12 @@ const UNRECORDED = {
   '1.2.0': new Set(['legacy/domainType', '1.2.0/inspectionPlotSelection', '1.2.0/parameterScanLabel']),
 }
 
-// Objects keyed by data (a diagram's element ids, a parameter's extra columns, physiology templates by id) rather than
-// by field name; their keys aren't part of the format.
+// Objects keyed by data (a diagram's element ids, a parameter's extra columns, physiology templates and glyphs by
+// id) rather than by field name; their keys aren't part of the format.
 const DATA_KEYED_PATHS = new Set([
   'store.mathSources[][].elements',
   'bioTemplates.templates',
+  'bioGlyphs.glyphs',
   'parameters.sets[][].globals[][].extra',
   'parameters.sets[][].values[][].extra',
   'parameters.unlinked[][].globals[][].extra',
