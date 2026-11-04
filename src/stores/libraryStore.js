@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { parseLayout } from 'cellml-text-editor'
-import { ref, computed, markRaw } from 'vue'
+import { ref, computed, markRaw, shallowReactive } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
 import {
   AFFINE_UNIT_CONVERSIONS,
@@ -17,6 +17,7 @@ import { analyzeBatchInBackground, analyzeInBackground } from '../services/math/
 import { separateParameters } from '../services/math/separateParameters'
 import { detachReactivity } from '../utils/reactivity'
 import { DEFAULT_MODULE_FORMAT, checkMathSource } from '../services/moduleFormats'
+import { parseSidecar } from '../services/annotations/sidecar'
 
 function mergeIntoStore(newModules, target) {
   const moduleMap = new Map(target.map((mod) => [mod.componentFile, mod]))
@@ -63,6 +64,17 @@ export const useLibraryStore = defineStore('library', () => {
 
   // mathRef -> MathAnalysis. Non-reactive, since analyses are large and only read imperatively.
   const availableMathAnalysis = markRaw(new Map())
+
+  // mathRef -> the module's sidecar RDF text, saved as written. Its parse is a cache, never saved.
+  const moduleAnnotations = ref(new Map())
+  // mathRef -> { text, math, sidecar }. Non-reactive; annotationParses counts each math's filled entries, so the
+  // sync accessor's readers recompute once that math's parse lands, and only theirs.
+  const parsedModuleAnnotations = markRaw(new Map())
+  // mathRef -> { text, math, promise, settled }
+  const pendingAnnotationParses = new Map()
+  const annotationParses = shallowReactive(new Map())
+  // Maths whose parse has landed but whose readers are not told yet (see announceParses).
+  const landedAnnotationParses = new Set()
 
   // --- ACTIONS ---
   function resetGlobalConstants() {
@@ -118,6 +130,10 @@ export const useLibraryStore = defineStore('library', () => {
     mathSources.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
+    moduleAnnotations.value.clear()
+    parsedModuleAnnotations.clear()
+    pendingAnnotationParses.clear()
+    landedAnnotationParses.clear()
   }
 
   function createMathHash(math) {
@@ -392,6 +408,103 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
+   * Gets a math's sidecar RDF text.
+   *
+   * @param {string} mathRef
+   * @returns {string|null}
+   */
+  function getModuleAnnotations(mathRef) {
+    return moduleAnnotations.value.get(mathRef) ?? null
+  }
+
+  /**
+   * Saves a math's sidecar RDF text, or removes it when the text is empty or null.
+   *
+   * @param {string} mathRef
+   * @param {string|null} text
+   */
+  function setModuleAnnotations(mathRef, text) {
+    if (typeof text === 'string' && text.trim()) moduleAnnotations.value.set(mathRef, text)
+    else moduleAnnotations.value.delete(mathRef)
+    parsedModuleAnnotations.delete(mathRef)
+  }
+
+  /**
+   * Gets a parse cached for the sidecar and math as they are now.
+   *
+   * @param {string} mathRef
+   * @returns {{ text: string, math: string|undefined, sidecar: Object }|null}
+   */
+  function currentAnnotationParse(mathRef) {
+    const cached = parsedModuleAnnotations.get(mathRef)
+    const isCurrent =
+      cached && cached.text === moduleAnnotations.value.get(mathRef) && cached.math === availableMath.value.get(mathRef)
+    return isCurrent ? cached : null
+  }
+
+  /**
+   * Gets a math's parsed sidecar if ensureModuleAnnotations has parsed it for the current text and math.
+   * Reactive: readers recompute when a parse lands.
+   *
+   * @param {string} mathRef
+   * @returns {Object|null} From parseSidecar.
+   */
+  function getParsedModuleAnnotations(mathRef) {
+    void annotationParses.get(mathRef)
+    return currentAnnotationParse(mathRef)?.sidecar ?? null
+  }
+
+  /**
+   * Tells the readers of the maths whose parses have landed, once no other parse is still running: parses started
+   * together, as when a workspace or view loads every sidecar, then recompute what reads them once, not once each.
+   */
+  function announceParses() {
+    if ([...pendingAnnotationParses.values()].some((pending) => !pending.settled)) return
+    for (const mathRef of landedAnnotationParses) annotationParses.set(mathRef, (annotationParses.get(mathRef) ?? 0) + 1)
+    landedAnnotationParses.clear()
+  }
+
+  /**
+   * Parses a math's sidecar against its math and caches the result. A parse that a later edit makes stale is
+   * returned to its caller but not cached.
+   *
+   * @param {string} mathRef
+   * @returns {Promise<Object|null>} From parseSidecar, or null when the math has no sidecar.
+   */
+  async function ensureModuleAnnotations(mathRef) {
+    const text = moduleAnnotations.value.get(mathRef)
+    if (text === undefined) return null
+    const math = availableMath.value.get(mathRef)
+    const cached = currentAnnotationParse(mathRef)
+    if (cached) return cached.sidecar
+
+    const pending = pendingAnnotationParses.get(mathRef)
+    if (pending?.text === text && pending.math === math) return pending.promise
+
+    const entry = { text, math, promise: null, settled: false }
+    const promise = parseSidecar(text, { mathRef, cellml: math }).then(
+      (sidecar) => {
+        entry.settled = true
+        if (pendingAnnotationParses.get(mathRef) === entry) pendingAnnotationParses.delete(mathRef)
+        if (moduleAnnotations.value.get(mathRef) === text && availableMath.value.get(mathRef) === math) {
+          parsedModuleAnnotations.set(mathRef, { text, math, sidecar: markRaw(sidecar) })
+          landedAnnotationParses.add(mathRef)
+        }
+        announceParses()
+        return sidecar
+      },
+      (error) => {
+        entry.settled = true
+        announceParses()
+        throw error
+      }
+    )
+    entry.promise = promise
+    pendingAnnotationParses.set(mathRef, entry)
+    return promise
+  }
+
+  /**
    * Adds math, keeping its layout when given one. Without a layout, any saved layout stays: the
    * text generator rewrites only the statements whose math no longer matches it.
    *
@@ -421,6 +534,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathDefaults.value.delete(mathRef)
     mathLayouts.value.delete(mathRef)
     mathSources.value.delete(mathRef)
+    setModuleAnnotations(mathRef, null)
     pendingAnalysis.delete(mathRef)
     if (!availableMath.value.has(mathRef)) return
 
@@ -435,7 +549,8 @@ export const useLibraryStore = defineStore('library', () => {
    * Gets a copy of everything stored for a math, for restoreMathEntry.
    *
    * @param {string} mathRef
-   * @returns {{ math: string, defaults: Map<string, string>, layout: Object|null, source: Object|null } | null} Null if there is no such math.
+   * @returns {{ math: string, defaults: Map<string, string>, layout: Object|null, source: Object|null,
+   *   annotations: string|null } | null} Null if there is no such math.
    */
   function getMathEntry(mathRef) {
     const math = availableMath.value.get(mathRef)
@@ -447,12 +562,13 @@ export const useLibraryStore = defineStore('library', () => {
       defaults: new Map(getMathDefaults(mathRef)),
       layout: layout && detachReactivity(layout),
       source: source && detachReactivity(source),
+      annotations: getModuleAnnotations(mathRef),
     }
   }
 
   /**
-   * Puts a math back as getMathEntry found it, replacing its defaults, layout and source, or removes it
-   * when the entry is null.
+   * Puts a math back as getMathEntry found it, replacing its defaults, layout, source and sidecar, or removes it
+   * when the entry is null. An entry without an annotations field keeps the sidecar.
    *
    * @param {string} mathRef
    * @param {ReturnType<typeof getMathEntry>} entry
@@ -465,6 +581,7 @@ export const useLibraryStore = defineStore('library', () => {
     else mathDefaults.value.delete(mathRef)
     setMathLayout(mathRef, entry.layout && detachReactivity(entry.layout))
     setMathSource(mathRef, entry.source && detachReactivity(entry.source))
+    if ('annotations' in entry) setModuleAnnotations(mathRef, entry.annotations)
     addMathHashEntry(mathRef, entry.math)
     updateStubStatus(mathRef)
     scheduleMathAnalysis(mathRef, entry.math)
@@ -608,6 +725,15 @@ export const useLibraryStore = defineStore('library', () => {
       }
     }
 
+    if (Array.isArray(state.moduleAnnotations)) {
+      // Only [mathRef, text] entries are kept: anything else can't be a sidecar.
+      for (const entry of state.moduleAnnotations) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string') {
+          setModuleAnnotations(entry[0], entry[1])
+        }
+      }
+    }
+
     if (state.mathSources) {
       // A malformed source is skipped, leaving its math as plain CellML.
       for (const [mathRef, source] of state.mathSources) {
@@ -689,6 +815,8 @@ export const useLibraryStore = defineStore('library', () => {
       mathDefaults: Array.from(mathDefaults.value.entries(), ([mathRef, values]) => [mathRef, Array.from(values)]),
       mathLayouts: Array.from(mathLayouts.value.entries()),
       mathSources: Array.from(mathSources.value.entries()),
+      // Until the format version that records sidecars, a library without any saves as before.
+      ...(moduleAnnotations.value.size ? { moduleAnnotations: Array.from(moduleAnnotations.value.entries()) } : {}),
     }
   }
 
@@ -731,6 +859,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathHashIndex,
     availableModules,
     availableUnits,
+    moduleAnnotations,
 
     // Derived State 
     globalVariables,
@@ -774,6 +903,10 @@ export const useLibraryStore = defineStore('library', () => {
     getMathSource,
     setMathSource,
     getMathFormat,
+    getModuleAnnotations,
+    setModuleAnnotations,
+    ensureModuleAnnotations,
+    getParsedModuleAnnotations,
 
     // Query
     getGlobalConstant,

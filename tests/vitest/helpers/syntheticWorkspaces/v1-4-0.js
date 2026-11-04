@@ -1,6 +1,6 @@
 /**
  * A synthetic workspace at format 1.4.0. The workspace holds the default parameter sets imported for each math,
- * keyed `mathRef:paramRef`, and those waiting for a config to name them.
+ * keyed `mathRef:paramRef`, and those waiting for a config to name them, and each math's side-car of annotations.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
@@ -67,6 +67,16 @@ export const cases = {
         ],
       ],
     }
+    return part
+  },
+
+  /** Node `decay_notes`'s math has a side-car annotating its variable `x` by id. */
+  moduleAnnotations: () => {
+    const part = separatedDecayNode('decay_notes')
+    const [mathRef] = part.store.availableMath[0]
+    part.store.moduleAnnotations = [
+      [mathRef, '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n<#x> bqbiol:is <https://identifiers.org/CHEBI:17234> .\n'],
+    ]
     return part
   },
 

@@ -77,6 +77,61 @@ describe('generateFlattenedModel with values only in the rows', () => {
   it('names the parameters left without a value', () => {
     expect(() => generateFlattenedModel([buildNode({ k: '' })], [], store)).toThrow(/Missing parameter values: decay_1\.k/)
   })
+
+  describe('a coupling naming a variable the math lacks', () => {
+    const port = (variable, multiportType = 'None', label = '') => ({
+      portType: 'general_ports',
+      label,
+      variables: [variable],
+      multiportType,
+    })
+    const edgeOf = (sourcePort, targetPort) => ({
+      id: 'e1',
+      source: 'n1',
+      target: 'n2',
+      data: { couplings: [{ sourcePort, targetPort }] },
+    })
+    const twoNodes = () => {
+      const second = buildNode()
+      return [buildNode(), { ...second, id: 'n2', data: { ...second.data, name: 'decay_2' } }]
+    }
+
+    it('generates from the couplings only, never the manual ones annotated couplings set aside', () => {
+      const edge = edgeOf(port('I_K', 'None', 'potassium'), port('x', 'Sum'))
+      edge.data = { couplings: [], manualCouplings: edge.data.couplings }
+      expect(() => generateFlattenedModel(twoNodes(), [edge], store)).not.toThrow()
+    })
+
+    it('names the instance, variable and port for a Sum term', () => {
+      const edge = edgeOf(port('I_K', 'None', 'potassium'), port('k', 'Sum'))
+      expect(() => generateFlattenedModel(twoNodes(), [edge], store)).toThrow(
+        'Cannot connect "decay_1": it has no variable "I_K" (port "potassium").'
+      )
+    })
+
+    it('names the instance, variable and port for a Sum variable', () => {
+      const edge = edgeOf(port('x'), port('v_tot', 'Sum', 'total'))
+      expect(() => generateFlattenedModel(twoNodes(), [edge], store)).toThrow(
+        'Cannot connect "decay_2": it has no variable "v_tot" (port "total").'
+      )
+    })
+
+    it('names the instance, variable and port for a plain link and a Multiply', () => {
+      expect(() => generateFlattenedModel(twoNodes(), [edgeOf(port('x'), port('y', 'None', 'why'))], store)).toThrow(
+        'Cannot connect "decay_2": it has no variable "y" (port "why").'
+      )
+      const scaled = { ...port('x', 'Multiply'), multiplyFactor: 2 }
+      expect(() => generateFlattenedModel(twoNodes(), [edgeOf(scaled, port('z', 'None', 'zed'))], store)).toThrow(
+        'Cannot connect "decay_2": it has no variable "z" (port "zed").'
+      )
+    })
+
+    it('still connects the variables the math has', async () => {
+      const edges = [edgeOf(port('k'), port('k'))]
+      const text = await (await generateFlattenedModel(twoNodes(), edges, store, [], { check: false })).text()
+      expect(text).toMatch(/<connection component_1="decay_1" component_2="decay_2">/)
+    })
+  })
 })
 
 describe('generateFlattenedModel with math too wide for libcellml.js', () => {
@@ -504,7 +559,7 @@ describe('generateFlattenedModel multiport couplings', () => {
     const leaf = buildNode('leaf', 'file:leaf', [pressure('entrance_ports')])
     leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'u' ? { ...row, type: 'variable' } : row))
     const edges = [connect(hub, leaf)]
-    await expect(flatten([hub, leaf], edges)).resolves.toContain('<component name="leaf">')
+    await expect(flatten([hub, leaf], edges)).resolves.toContain('<component name="leaf" id="leaf">')
     expect(checkScope(resolveScope(null, [hub, leaf], edges), store).conflicts).toEqual([])
   })
 
@@ -676,7 +731,7 @@ describe('scoped models', () => {
     expect(checkScope(scope, store).canBuild).toBe(true)
 
     const text = await buildScopedModel(scope, store).text()
-    expect(text).toMatch(/<component name="hub">/)
+    expect(text).toMatch(/<component name="hub" id="hub">/)
     expect(text).not.toMatch(/<component name="leaf_/)
   })
 

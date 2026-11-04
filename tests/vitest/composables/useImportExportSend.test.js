@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const confirm = vi.fn(async () => true)
 vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
-vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn() } }))
+vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn(), warning: vi.fn() } }))
 vi.mock('../../../src/utils/save', () => ({ getFileHandle: vi.fn(async () => ({ success: true, handle: {}, cleanName: 'model' })) }))
 vi.mock('../../../src/services/compress', () => ({
   generateOmexArchive: vi.fn(async () => new Blob(['omex'])),
@@ -276,6 +276,18 @@ describe('useImportExportSend selection exports', () => {
     const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
     expect(flattenedNodes).toHaveLength(3)
     expect(snapshotFlowState).toHaveBeenLastCalledWith(null)
+  })
+
+  it('adds the module sidecars and asks the flattened model for its ids', async () => {
+    const sidecar = '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n'
+    useLibraryStore().setModuleAnnotations('file:decay', sidecar)
+    const { currentExportMode, exportMenuItems } = setup()
+    await menuItem(exportMenuItems, 'OpenCOR').command()
+    await currentExportMode.value.action('model')
+
+    const [, , , addInfo] = generateOmexArchive.mock.calls.at(-1)
+    expect(addInfo.annotationFiles).toEqual([{ location: 'annotations/file/decay.ttl', format: 'text/turtle', text: sidecar }])
+    expect(generateFlattenedModel.mock.calls.at(-1)[4]).toEqual({ exportedIds: expect.any(Map) })
   })
 })
 

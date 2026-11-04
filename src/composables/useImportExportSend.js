@@ -25,6 +25,7 @@ import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 
 import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { findCaExportBlocker, generateExportZip } from '../services/export/ca'
+import { collectAnnotationFiles } from '../services/export/annotationsRdf'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
 import { buildScopedModel, checkScope, resolveScope, summariseScopeReport } from '../services/simulation/scopedModel'
 import { useConfirmDialog } from './useConfirmDialog'
@@ -146,6 +147,16 @@ export function useImportExportSend({
   }
 
   /**
+   * Parses the sidecars of the nodes' maths, so the flattened model gives their annotated variables ids.
+   *
+   * @param {Array} exportedNodes
+   */
+  const parseModuleAnnotations = async (exportedNodes) => {
+    const mathRefs = new Set(exportedNodes.map((node) => node.data?.mathRef).filter(Boolean))
+    await Promise.all([...mathRefs].map((mathRef) => libraryStore.ensureModuleAnnotations?.(mathRef)))
+  }
+
+  /**
    * Builds the OMEX archive of the whole model, or of a scope on its own: its model, its instances'
    * plotted variables and parameter scans, and a snapshot of just its nodes.
    *
@@ -154,15 +165,28 @@ export function useImportExportSend({
    * @returns {Promise<Blob>}
    */
   const generateOmexArchiveAction = async (finalName, scope = null) => {
+    const exportedNodes = scope?.nodes ?? nodes.value
+    await parseModuleAnnotations(exportedNodes)
+    const exportedIds = new Map()
     const blob = scope
-      ? await buildScopedModel(scope, libraryStore)
-      : await generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules)
+      ? await buildScopedModel(scope, libraryStore, { exportedIds })
+      : await generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules, { exportedIds })
     const inScope = (selection) => !scope || scope.nodeIds.includes(selection.nodeId)
     const scanConfig = { ...parameterScanConfig.value, selections: (parameterScanConfig.value?.selections ?? []).filter(inScope) }
     const rehydratedModel = await readFileAsText(blob)
     const extractedData = extractVoiAndParametersFromModel(rehydratedModel, scanConfig)
     const snapshot = snapshotFlowState(scope?.nodeIds ?? null)
     const cellmlFileName = omexStore.cellmlFileName
+    const annotations = await collectAnnotationFiles({
+      nodes: exportedNodes,
+      exportedIds,
+      cellmlFileName,
+      libraryStore,
+      archiveName: finalName,
+    })
+    if (annotations.warnings.length) {
+      notify.warning({ title: 'Annotations in the OMEX archive', message: annotations.warnings.join(' ') })
+    }
 
     return generateOmexArchive(
       { blob },
@@ -173,7 +197,7 @@ export function useImportExportSend({
         parameterScanConfig: scanConfig,
       },
       // A selection is never the model as imported.
-      { extractedData, modified: scope ? true : hasModelChanged.value, cellmlFileName }
+      { extractedData, modified: scope ? true : hasModelChanged.value, cellmlFileName, annotationFiles: annotations.files }
     )
   }
 
@@ -201,7 +225,10 @@ export function useImportExportSend({
       suffix: '.cellml',
       fileTypes: CELLML_FILE_TYPES,
       message: 'Generating flattened CellML model.',
-      action: () => generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules),
+      action: async () => {
+        await parseModuleAnnotations(nodes.value)
+        return generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules)
+      },
       successMessage: async (blob, finalName) => {
         const dataUri = await createCellMLDataFragment(blob, finalName)
         return h('div', null, [
@@ -298,7 +325,11 @@ export function useImportExportSend({
       fileTypes: CELLML_FILE_TYPES,
       message: 'Generating flattened CellML model of the selection.',
       preflight: confirmSelectionExport,
-      action: () => buildScopedModel(resolveSelectionScope(), libraryStore),
+      action: async () => {
+        const scope = resolveSelectionScope()
+        await parseModuleAnnotations(scope.nodes)
+        return buildScopedModel(scope, libraryStore)
+      },
       successMessage: () => 'Selection exported to CellML.',
     },
     selectionOmexOption(EXPORT_KEYS.OMEX_SELECTION),

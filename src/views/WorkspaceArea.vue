@@ -605,7 +605,8 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 
-import { importOmexFile, extractOmexArchive } from '../services/import/omex'
+import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
+import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
 
@@ -1420,22 +1421,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   const manifestFile = archive.file('manifest.xml')
   const manifestXml = manifestFile ? await manifestFile.async('string') : ''
 
-  const archiveLocations = new Set([
-    ...Object.values(result.files || {}).filter(Boolean),
-    ...(result.extras || []).map((entry) => entry.location),
-  ])
-
-  const archiveEntries = []
-  for (const location of archiveLocations) {
-    const fileObject = archive.file(location)
-    if (!fileObject) continue
-
-    archiveEntries.push({
-      location,
-      format: 'application/octet-stream',
-      payload: await fileObject.async('arraybuffer'),
-    })
-  }
+  const archiveEntries = await readArchiveEntries(archive, result)
 
   const criticalLocations = [
     result.files?.cellml,
@@ -1539,6 +1525,9 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
       })
     }
   }
+
+  // The module side-cars go back to the library.
+  restoreOmexAnnotations(result.annotations, { libraryStore })
 
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()
