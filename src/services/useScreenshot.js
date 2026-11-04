@@ -3,6 +3,51 @@ import { ref } from 'vue'
 
 import { buildFlowSvg } from './export/svg'
 
+/** The paint an inline SVG's shapes and text take from stylesheets, which a bitmap export must carry inline. */
+const SVG_PAINT = [
+  'fill',
+  'fill-opacity',
+  'stroke',
+  'stroke-width',
+  'stroke-dasharray',
+  'stroke-dashoffset',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'stroke-opacity',
+  'opacity',
+  'visibility',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'text-anchor',
+  'dominant-baseline',
+]
+
+/**
+ * Writes the computed paint of every shape inside an inline SVG onto its style. html-to-image copies an `<svg>`
+ * whole without the styles of what is in it, so shapes styled by a stylesheet would come out black.
+ *
+ * @param {HTMLElement} el
+ * @returns {() => void} Puts each shape's own style back.
+ */
+export function inlineSvgPaint(el) {
+  const saved = []
+  for (const shape of el.querySelectorAll?.('svg *') ?? []) {
+    const computed = getComputedStyle(shape)
+    saved.push([shape, shape.getAttribute('style')])
+    for (const property of SVG_PAINT) {
+      const value = computed.getPropertyValue?.(property)
+      if (value) shape.style.setProperty(property, value)
+    }
+  }
+  return () => {
+    for (const [shape, style] of saved) {
+      if (style === null) shape.removeAttribute('style')
+      else shape.setAttribute('style', style)
+    }
+  }
+}
+
 export function useScreenshot() {
   const dataUrl = ref('')
   const imgType = ref('png')
@@ -28,19 +73,24 @@ export function useScreenshot() {
     const fileName = options.fileName ?? defaultFileName()
     const format = options.format ?? 'png'
 
-    switch (format) {
-      case 'jpeg':
-        data = await toJpeg(el, options)
-        break
-      case 'png':
-        data = await toPng(el, options)
-        break
-      case 'svg':
-        data = toSvg(el, options)
-        break
-      default:
-        data = await toPng(el, options)
-        break
+    const restore = format === 'svg' ? () => {} : inlineSvgPaint(el)
+    try {
+      switch (format) {
+        case 'jpeg':
+          data = await toJpeg(el, options)
+          break
+        case 'png':
+          data = await toPng(el, options)
+          break
+        case 'svg':
+          data = toSvg(el, options)
+          break
+        default:
+          data = await toPng(el, options)
+          break
+      }
+    } finally {
+      restore()
     }
 
     if (options.shouldDownload && fileName !== '') {

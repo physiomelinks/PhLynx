@@ -1,7 +1,8 @@
 /**
  * A synthetic workspace at format 1.4.0. The workspace holds the default parameter sets imported for each math,
  * keyed `mathRef:paramRef`, and those waiting for a config to name them, each math's side-car of annotations, and
- * the ports and couplings those annotations give.
+ * the ports and couplings those annotations give, and the physiological view: each node's place in it and the
+ * templates placed there, with a copy of each.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
@@ -109,6 +110,52 @@ export const cases = {
     b.flow.nodes[0].data.annotationOverlay = { heldConstant: true }
     const coupled = { flow: { edges: [edge('pool_a', 'pool_b', [{ sourcePort: port('pool_a'), targetPort: port('pool_b') }])] } }
     return mergeParts(a, b, coupled)
+  },
+
+  /**
+   * Node `pump` sits in the apical membrane of the epithelial cell template placed as `Villus`, drawn as a pump; node
+   * `lumen` is a region against that membrane, placed by hand.
+   */
+  physiologyView: () => {
+    const pump = separatedDecayNode('pump')
+    const lumen = separatedDecayNode('lumen')
+    pump.flow.nodes[0].data.bioView = { role: 'membraneProtein', glyph: 'pump', facet: 'apical', cell: 'cell', order: 0, site: 'bt-a1/cell.apical' }
+    lumen.flow.nodes[0].data.bioView = {
+      role: 'region',
+      at: 'left',
+      adjacent: [{ cell: 'cell', facet: 'lateral', at: 'left' }],
+      position: { x: 40, y: 60 },
+      rect: { x: 40, y: 60, width: 200, height: 80 },
+    }
+    const template = {
+      schemaVersion: 1,
+      id: 'epithelial-cell',
+      name: 'Epithelial cell',
+      description: 'A polarised epithelial cell.',
+      author: 'PhLynx',
+      license: 'CC0-1.0',
+      cells: [
+        {
+          id: 'cell',
+          label: 'Epithelial cell',
+          row: 0,
+          membrane: { label: 'Plasma membrane' },
+          facets: [
+            { id: 'apical', label: 'Apical membrane', edge: 'top', annotation: { facet: 'apical' } },
+            { id: 'lateral-left', label: 'Lateral membrane (left)', edge: 'left', group: 'lateral', annotation: { facet: 'lateral', at: 'left' } },
+          ],
+          processes: [{ id: 'metabolism', label: 'Metabolism' }],
+        },
+      ],
+      compartments: [{ id: 'apical-fluid', label: 'Apical fluid (lumen)', against: ['cell.apical'], tone: 'sky' }],
+    }
+    const placed = {
+      bioTemplates: {
+        templates: { 'epithelial-cell': template },
+        instances: [{ id: 'bt-a1', template: 'epithelial-cell', at: { x: 0, y: 0 }, label: 'Villus' }],
+      },
+    }
+    return mergeParts(pump, lumen, placed)
   },
 
   /** The set `glut5` waits for a config to name it. */

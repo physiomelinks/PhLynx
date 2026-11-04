@@ -304,15 +304,19 @@ describe('useWorkspaceClipboard', () => {
       }
     })
 
-    it('keeps the annotation overlay on pasted nodes', async () => {
+    it('keeps the reservoir state and role of pasted nodes, not their place', async () => {
       const overlay = { heldConstant: true }
-      findNode('dndnode_0').data = { ...findNode('dndnode_0').data, annotationOverlay: overlay }
+      const bioView = { role: 'membraneProtein', glyph: 'pump', site: 'bt-1/cell.apical', order: 0 }
+      findNode('dndnode_0').data = { ...findNode('dndnode_0').data, annotationOverlay: overlay, bioView }
       select(['dndnode_0'])
       await clipboard.copySelection()
 
       await clipboard.pasteSelection()
 
-      expect(nodes.value.at(-1).data.annotationOverlay).toEqual({ heldConstant: true })
+      const pasted = nodes.value.at(-1)
+      expect(pasted.data.annotationOverlay).toEqual({ heldConstant: true })
+      expect(pasted.data.bioView).toEqual({ role: 'membraneProtein', glyph: 'pump' })
+      expect(findNode('dndnode_0').data.bioView).toEqual(bioView)
     })
 
     it('restores the module side-car into a fresh library', async () => {

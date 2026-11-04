@@ -20,15 +20,9 @@
         </div>
 
         <div class="node-names" v-if="sourceNode && targetNode">
-          <Chip
-            :label="sourceNode.data.name"
-            style="background: color-mix(in srgb, var(--p-primary-color, #409eff) 15%, transparent); color: var(--p-primary-color, #409eff); border: 1px solid color-mix(in srgb, var(--p-primary-color, #409eff) 30%, transparent);"
-          />
+          <NodeSideChip :label="sourceNode.data.name" side="source" />
           <span class="arrow-sep">→</span>
-          <Chip
-            :label="targetNode.data.name"
-            style="background: color-mix(in srgb, var(--p-secondary-color, #409eff) 15%, transparent); color: var(--p-secondary-color, #409eff); border: 1px solid color-mix(in srgb, var(--p-secondary-color, #409eff) 30%, transparent);"
-          />
+          <NodeSideChip :label="targetNode.data.name" side="target" />
         </div>
       </div>
     </template>
@@ -243,7 +237,6 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { VueFlow, Position, Handle, useVueFlow } from '@vue-flow/core'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
-import Chip from 'primevue/chip'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
 import { carryDrivesState, isSingleConnection } from '../utils/edges'
 import { isAnnotatedPort } from '../utils/ports'
@@ -258,6 +251,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { waitUntilStable } from '../utils/layout'
 
 import MultiportKey from './MultiportKey.vue'
+import NodeSideChip from './NodeSideChip.vue'
 import PortRow from './PortRow.vue'
 import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
 import { useEdgeCouplings } from '../composables/useEdgeCouplings'

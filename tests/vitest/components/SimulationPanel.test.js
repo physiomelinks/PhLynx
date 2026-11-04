@@ -13,6 +13,7 @@ vi.mock('../../../src/composables/useSimulation', async () => {
 vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
 
 const SimulationPanel = (await import('../../../src/components/simulation/SimulationPanel.vue')).default
+const { useViewModeStore } = await import('../../../src/stores/viewModeStore.js')
 
 const PAGE_BUTTON = 'button[aria-label="Open the simulation page"]'
 
@@ -91,6 +92,42 @@ describe('SimulationPanel', () => {
     isPanelShown.value = true
     await flushPromises()
     expect(document.activeElement).toBe(button)
+    wrapper.unmount()
+  })
+
+  it('shows the selection plot only in the physiological view, and never in the instance editor', async () => {
+    const router = await buildRouter()
+    const wrapper = mountWith(SimulationPanel, { router })
+    expect(wrapper.find('#panel-selection-plot-title').exists()).toBe(false)
+
+    useViewModeStore().mode = 'bio'
+    await nextTick()
+    expect(wrapper.find('#panel-selection-plot-title').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="auto-plot-selection"]').exists()).toBe(true)
+    expect(wrapper.find('.panel-selection-hint').text()).toMatch(/^Select a protein/)
+    wrapper.unmount()
+
+    const editor = mountWith(SimulationPanel, { props: { instanceId: 'a' }, router })
+    expect(editor.find('#panel-selection-plot-title').exists()).toBe(false)
+    editor.unmount()
+  })
+
+  it('hides the workspace’s plots while the physiological view plots its selection', async () => {
+    const router = await buildRouter()
+    const wrapper = mountWith(SimulationPanel, { router })
+    expect(wrapper.find('.panel-empty').exists()).toBe(true)
+
+    useViewModeStore().mode = 'bio'
+    await nextTick()
+    expect(wrapper.find('.panel-empty').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="auto-plot-selection"] input').setValue(false)
+    await nextTick()
+    expect(wrapper.find('.panel-empty').exists()).toBe(true)
+
+    useViewModeStore().mode = 'diagram'
+    await nextTick()
+    expect(wrapper.find('.panel-empty').exists()).toBe(true)
     wrapper.unmount()
   })
 })

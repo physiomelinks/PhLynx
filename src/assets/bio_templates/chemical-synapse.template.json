@@ -1,0 +1,34 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 1,
+  "id": "chemical-synapse",
+  "name": "Chemical synapse",
+  "description": "A presynaptic terminal above a postsynaptic cell, with the synaptic cleft between them.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "pre",
+      "label": "Presynaptic terminal",
+      "row": 0,
+      "membrane": { "label": "Presynaptic membrane" },
+      "facets": [
+        { "id": "perisynaptic", "label": "Perisynaptic membrane", "edge": "top" },
+        { "id": "active-zone", "label": "Active zone", "edge": "bottom" }
+      ],
+      "processes": [{ "id": "vesicle-cycle", "label": "Vesicle cycle" }]
+    },
+    {
+      "id": "post",
+      "label": "Postsynaptic cell",
+      "row": 1,
+      "membrane": { "label": "Postsynaptic membrane" },
+      "facets": [{ "id": "psd", "label": "Postsynaptic density", "edge": "top" }],
+      "processes": [{ "id": "ca-signalling", "label": "Ca²⁺ signalling" }]
+    }
+  ],
+  "compartments": [
+    { "id": "cleft", "label": "Synaptic cleft", "against": ["pre.active-zone", "post.psd"], "tone": "amber", "depth": 60 },
+    { "id": "ecs", "label": "Extracellular space", "against": ["pre.perisynaptic"], "tone": "sky" }
+  ]
+}

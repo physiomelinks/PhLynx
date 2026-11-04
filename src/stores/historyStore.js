@@ -25,6 +25,20 @@ export const STEP_LABELS = {
   'clear-workspace': 'Clear workspace',
   'update-cellml-code': 'Edit maths',
   'update-cellml-text-only': 'Edit maths',
+  'bio-layout': 'Move',
+  'bio-add': 'Add module',
+  'bio-role': 'Show As',
+  'bio-glyph': 'Cartoon',
+  'bio-adjacent': 'Lies Against',
+  'bio-take-out': 'Take out of membrane',
+  'bio-unbind': 'Unbind',
+  'bio-reset': 'Reset to annotations',
+  'bio-relayout': 'Re-layout physiology',
+  'bio-template-add': 'Add template',
+  'bio-template-move': 'Move template',
+  'bio-template-rename': 'Rename template',
+  'bio-template-relayout': 'Re-layout template',
+  'bio-template-remove': 'Remove template',
 }
 
 /** Types that only go along with an edit, so never name a batch. */

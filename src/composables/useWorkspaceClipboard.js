@@ -10,6 +10,7 @@ import { offsetEdgeData } from '../utils/edgeRoute'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
+import { nodeDataForCopy } from '../services/annotations/nodeData'
 import { reconcileNodePorts } from '../services/annotations/reconcileNodes'
 
 /**
@@ -230,12 +231,12 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       const finalName = generateUniqueInstanceName(node.data.name, namesSet)
       namesSet.add(finalName)
 
-      // Create the new node with offset position.
+      // Create the new node with offset position. A copy keeps its role and look, not its place (see nodeDataForCopy).
       newNodes.push({
         id: newId,
         type: node.type,
         data: {
-          ...node.data,
+          ...nodeDataForCopy(node.data),
           name: finalName,
         },
         position: {

@@ -16,6 +16,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal(
 import { useWorkspaceSaveLoad } from '../../../src/composables/useWorkspaceSaveLoad'
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
 import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore'
+import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore'
 import { useLibraryStore } from '../../../src/stores/libraryStore'
 import { useOmexStore } from '../../../src/stores/omexStore'
@@ -280,6 +281,40 @@ describe('applyWorkspaceState', () => {
     useLibraryStore().setModuleAnnotations('stale.cellml:stale', '# stale')
     await view.applyWorkspaceState(saved)
     expect(useLibraryStore().moduleAnnotations.size).toBe(0)
+  })
+
+  it('round trips placed templates and their embedded definitions', async () => {
+    const bound = { ...FLOW, nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: { bioView: { site: '' } } }] }
+    const instance = useBioTemplateStore().addInstance('two-cell-epithelium', { x: 30, y: 40 }, 'Sheet')
+    bound.nodes[0].data.bioView.site = `${instance.id}/a.apical`
+    flow.toObject.mockReturnValue(bound)
+    await view.onSaveConfirm('templated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
+    expect(saved.bioTemplates.instances).toEqual([instance])
+    expect(Object.keys(saved.bioTemplates.templates)).toEqual(['two-cell-epithelium'])
+    // As if the built-in changed after this workspace was saved: the embedded copy must still win.
+    saved.bioTemplates.templates['two-cell-epithelium'].name = 'Old sheet'
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved)
+
+    expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: bound.nodes }))
+    expect(useBioTemplateStore().getState()).toEqual(saved.bioTemplates)
+    expect(useBioTemplateStore().getDefinition('two-cell-epithelium').name).toBe('Old sheet')
+  })
+
+  it('saves a workspace without templates without the key, and loading one empties the template store', async () => {
+    fillStores()
+    await view.onSaveConfirm('plain')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved).not.toHaveProperty('bioTemplates')
+
+    useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 })
+    await view.applyWorkspaceState(saved)
+    expect(useBioTemplateStore().getState()).toBeNull()
   })
 
   it('clears the workspace before it restores the flow', async () => {
