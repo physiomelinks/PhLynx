@@ -122,6 +122,32 @@ describe('physiological view edits', () => {
     expect(templates.getInstance(id).label).toBeUndefined()
   })
 
+  it('adds to one placement of a template as one step, which undo takes back', async () => {
+    await edits.placeTemplate('epithelial-cell', { x: 0, y: 0 })
+    const { id } = templates.instances[0]
+    const added = { added: { processes: [{ cell: 'cell', id: 'zone-1', label: 'Zone' }] } }
+    expect(await edits.editTemplate(id, added)).toBe(true)
+    expect(templates.getInstance(id).edits).toEqual(added)
+    expect(history.undoLabel).toBe('Add to template')
+    await history.undo()
+    expect(templates.getInstance(id).edits).toBeUndefined()
+    await history.redo()
+    expect(templates.getInstance(id).edits).toEqual(added)
+  })
+
+  it('removes a piece of one placement, unbinding what was on it, as one step', async () => {
+    const id = await placeAndBind()
+    const edits_ = { removed: ['cell.apical'] }
+    expect(edits.strandedBy(id, edits_).map((n) => n.id)).toEqual(['p'])
+    expect(await edits.editTemplate(id, edits_, 'bio-template-remove-piece')).toBe(true)
+    expect(bioView('p')).toEqual({ role: 'membraneProtein', glyph: 'pump', facet: null })
+    expect(bioView('card').site).toBe(`${id}/cell.metabolism`)
+    expect(history.undoLabel).toBe('Remove from template')
+    await history.undo()
+    expect(templates.getInstance(id).edits).toBeUndefined()
+    expect(bioView('p').site).toBe(`${id}/cell.apical`)
+  })
+
   it('re-lays out what is bound to an instance, keeping its sites', async () => {
     const id = await placeAndBind()
     expect(await edits.relayoutTemplate(id)).toBe(true)

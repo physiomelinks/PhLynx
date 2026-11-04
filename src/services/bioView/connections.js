@@ -70,7 +70,7 @@ export function connectionsMenu(id, nodes, edges, open) {
     icon: 'pi pi-arrow-right-arrow-left',
     items: connections.length
       ? connections.map((connection) => ({
-          label: `${connection.name} (${connection.couplings.length})`,
+          label: `${connection.name} (${connection.couplings.length || 'no couplings'})`,
           command: open ? () => open(connection.edgeIds[0]) : undefined,
           items: [
             {

@@ -1,6 +1,10 @@
 <template>
   <!-- A selected instance's coupling, straight from the face it's on; hover it to read what it couples -->
-  <BaseEdge :id="id" :path="path[0]" class="bio-coupling-edge" />
+  <BaseEdge
+    :id="id"
+    :path="path[0]"
+    :class="['bio-coupling-edge', { 'bio-coupling-edge--uncoupled': data?.uncoupled }]"
+  />
   <path class="bio-coupling-edge__hover" :d="path[0]">
     <title>{{ (data?.names ?? []).join('\n') }}</title>
   </path>
@@ -28,6 +32,12 @@ const path = computed(() => getStraightPath(props))
 :global(.vue-flow__edge-path.bio-coupling-edge) {
   stroke: var(--p-primary-color);
   stroke-width: 2.5;
+}
+
+/* Placed next to it, but nothing couples them */
+:global(.vue-flow__edge-path.bio-coupling-edge--uncoupled) {
+  stroke: var(--p-amber-500);
+  stroke-dasharray: 6 4;
 }
 
 /* Wide and invisible, so the line is easy to hover */

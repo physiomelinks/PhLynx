@@ -566,3 +566,258 @@ export function parseSiteRef(ref) {
   const path = ref.slice(slash + 1)
   return siteRef(instance, path) ? { instance, path } : null
 }
+
+/**
+ * The pairs of a template's sites that sit next to each other: each facet with its cell's inside and
+ * membrane and with every compartment against it, each process area with its cell's inside, and each
+ * cell's inside with its membrane. Only offered sites count.
+ *
+ * @param {Object} template - A validated template.
+ * @returns {Array<[string, string, string, string]>} [path, its neighbour, how the neighbour lies to the first,
+ *   and how the first lies to it].
+ */
+function neighbourPairs(template) {
+  const offered = new Set(sitesOf(template).map((site) => site.path))
+  const pairs = []
+  const pair = (a, b, toA, toB) => offered.has(a) && offered.has(b) && pairs.push([a, b, toA, toB])
+  for (const cell of template.cells) {
+    const membrane = `${cell.id}.${MEMBRANE}`
+    if (cell.membrane) pair(cell.id, membrane, 'membrane', 'inside')
+    for (const facet of cell.facets) {
+      const path = `${cell.id}.${facet.id}`
+      pair(path, cell.id, 'inside', 'protein')
+      if (cell.membrane) pair(path, membrane, 'membrane', 'protein')
+      for (const compartment of template.compartments) {
+        if (compartment.against.includes(path)) pair(path, compartment.id, 'outside', 'protein')
+      }
+    }
+    for (const process of cell.processes) pair(`${cell.id}.${process.id}`, cell.id, 'inside', 'process')
+  }
+  return pairs
+}
+
+/**
+ * The sites next to one of a template's sites, which a module dropped there connects to: a facet's cell
+ * inside, membrane and the compartments against it; a process area's cell inside; a cell's membrane,
+ * facets and process areas; a membrane's cell and facets; a compartment's facets. The relation holds both
+ * ways, so modules dropped in any order end up joined the same.
+ *
+ * @param {Object} template - A validated template.
+ * @param {string} path - One of its site paths.
+ * @returns {Array<{path: string, relation: 'inside'|'outside'|'membrane'|'protein'|'process'}>} relation:
+ *   how the neighbour lies to the site; empty for a path the template doesn't offer.
+ */
+export function siteNeighbours(template, path) {
+  const neighbours = []
+  for (const [a, b, toA, toB] of neighbourPairs(template)) {
+    if (a === path) neighbours.push({ path: b, relation: toA })
+    else if (b === path) neighbours.push({ path: a, relation: toB })
+  }
+  return neighbours
+}
+
+/** The pieces a placed template can add to its template's own, by the key its edits list them under. */
+const ADDED_KINDS = ['facets', 'processes', 'compartments']
+
+/**
+ * Copies a placed template's own changes to its template, or gives null when there are none. Each added piece
+ * is a template piece as written in a template file, a facet or process with the `cell` it belongs to; the
+ * template's validation checks them once merged (see editedTemplate). Each removed path is a piece of the
+ * template's own: a cell, a cell's membrane, facet or process, or a compartment.
+ *
+ * @param {*} raw - From a saved instance.
+ * @returns {{ added?: { facets?: Array<Object>, processes?: Array<Object>, compartments?: Array<Object> },
+ *   removed?: string[] }|null}
+ */
+export function normaliseEdits(raw) {
+  if (!isObject(raw)) return null
+  const edits = {}
+  const added = {}
+  for (const kind of ADDED_KINDS) {
+    const pieces = Array.isArray(raw.added?.[kind]) ? raw.added[kind].filter(isObject) : []
+    if (pieces.length) added[kind] = JSON.parse(JSON.stringify(pieces))
+  }
+  if (Object.keys(added).length) edits.added = added
+  const removed = Array.isArray(raw.removed) ? raw.removed.filter((path) => typeof path === 'string' && SITE_PATH.test(path)) : []
+  if (removed.length) edits.removed = [...new Set(removed)]
+  return Object.keys(edits).length ? edits : null
+}
+
+/**
+ * Takes pieces out of a raw template: a cell takes its facets and processes with it, and a compartment stops lying
+ * against a facet that goes, going too when it lay against nothing else.
+ *
+ * @param {Object} raw - A template's plain copy, changed in place.
+ * @param {string[]} paths
+ */
+function removePieces(raw, paths) {
+  const gone = (entry) => paths.includes(entry) || paths.includes(entry.split('.')[0])
+  for (const path of paths) {
+    const [first, second] = path.split('.')
+    if (second === undefined) {
+      raw.cells = raw.cells.filter((cell) => cell.id !== first)
+      raw.compartments = (raw.compartments ?? []).filter((compartment) => compartment.id !== first)
+      continue
+    }
+    const cell = raw.cells.find((entry) => entry.id === first)
+    if (!cell) continue
+    if (second === MEMBRANE) cell.membrane = false
+    cell.facets = cell.facets.filter((facet) => facet.id !== second)
+    cell.processes = (cell.processes ?? []).filter((process) => process.id !== second)
+  }
+  raw.compartments = (raw.compartments ?? []).flatMap((compartment) => {
+    const against = compartment.against ?? []
+    const kept = against.filter((entry) => !gone(entry))
+    if (kept.length === against.length) return [compartment]
+    return kept.length ? [{ ...compartment, against: kept }] : []
+  })
+}
+
+/**
+ * Merges a placed template's own changes into its template.
+ *
+ * @param {Object} template - A validated template.
+ * @param {Object|null} edits - From normaliseEdits.
+ * @returns {{ template: Object|null, errors: Array<string> }} The validated result; null when it has errors.
+ */
+export function editedTemplate(template, edits) {
+  if (!edits) return { template, errors: [] }
+  const raw = JSON.parse(JSON.stringify(template))
+  const { facets = [], processes = [], compartments = [] } = edits.added ?? {}
+  for (const [pieces, key] of [
+    [facets, 'facets'],
+    [processes, 'processes'],
+    [compartments, null],
+  ]) {
+    for (const { cell: cellId, ...piece } of pieces) {
+      if (!key) {
+        raw.compartments = [...(raw.compartments ?? []), piece]
+        continue
+      }
+      const cell = raw.cells.find((entry) => entry.id === cellId)
+      if (cell) cell[key] = [...(cell[key] ?? []), piece]
+      else return { template: null, errors: [`There is no cell "${cellId}" to add "${piece.id}" to.`] }
+    }
+  }
+  removePieces(raw, edits.removed ?? [])
+  const { template: edited, errors } = validateTemplate(raw, { allowLocalId: true })
+  return { template: edited, errors }
+}
+
+/** An instance's edits object -> the template they were put on and the result: no JSON for edits seen before. */
+const editedByEdits = new WeakMap()
+/**
+ * Template -> edits as JSON -> that template with them, for an equal copy of edits seen before (an undo or a move
+ * copies an instance's edits). The most recently used few are kept.
+ */
+const editedCache = new WeakMap()
+const EDITED_KEPT = 16
+
+/**
+ * The template a placed instance draws: its template with the instance's own changes, or the template alone when
+ * those no longer fit it.
+ *
+ * @param {{ template: string, edits?: Object }} instance - Its edits are never changed in place (see
+ *   setInstanceEdits), so they are known by their identity.
+ * @param {Map<string, Object>} definitions - Template id -> its validated template.
+ * @returns {Object|null}
+ */
+export function instanceTemplate(instance, definitions) {
+  const template = definitions.get(instance.template) ?? null
+  const { edits } = instance
+  if (!template || !edits) return template
+  const known = editedByEdits.get(edits)
+  if (known?.template === template) return known.edited
+  const key = JSON.stringify(edits)
+  let byEdits = editedCache.get(template)
+  if (!byEdits) editedCache.set(template, (byEdits = new Map()))
+  let edited = byEdits.get(key)
+  // Taken out and put back, so the Map's order says which were used last.
+  if (edited) byEdits.delete(key)
+  else {
+    const result = editedTemplate(template, edits)
+    if (!result.template) console.warn(`Ignoring the changes to template instance ${instance.id}:`, result.errors)
+    edited = result.template ?? template
+  }
+  byEdits.set(key, edited)
+  if (byEdits.size > EDITED_KEPT) byEdits.delete(byEdits.keys().next().value)
+  editedByEdits.set(edits, { template, edited })
+  return edited
+}
+
+/**
+ * Picks an id for a piece added to a template: `base` and the first number free among the ids it must differ
+ * from, a cell's own pieces for a facet or process, else every cell and compartment.
+ *
+ * @param {Object} template - A validated template.
+ * @param {string} base - e.g. 'site'.
+ * @param {string} [cellId] - The cell a facet or process goes in.
+ * @param {string[]} [removed] - Paths removed from the template, which a restore would bring back.
+ * @returns {string}
+ */
+export function freePieceId(template, base, cellId, removed = []) {
+  const cell = cellId && template.cells.find((entry) => entry.id === cellId)
+  const taken = new Set(
+    cell
+      ? [MEMBRANE, ...cell.facets.map((facet) => facet.id), ...cell.processes.map((process) => process.id)]
+      : [...template.cells, ...template.compartments].map((piece) => piece.id)
+  )
+  for (const path of removed) {
+    const [first, second] = path.split('.')
+    if (cell ? first === cellId && second : second === undefined) taken.add(second ?? first)
+  }
+  for (let n = 1; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`
+}
+
+/**
+ * Adds a piece to a placed template's changes, checked against its template.
+ *
+ * @param {Object} template - The instance's validated template, without its changes.
+ * @param {Object|null} edits - Its changes so far.
+ * @param {'facets'|'processes'|'compartments'} kind
+ * @param {Object} piece - As in a template file, with `cell` for a facet or process.
+ * @returns {{ edits: Object|null, errors: Array<string> }} The new changes; null when the piece doesn't fit.
+ */
+export function addToEdits(template, edits, kind, piece) {
+  const added = { ...edits?.added, [kind]: [...(edits?.added?.[kind] ?? []), piece] }
+  const next = { ...edits, added }
+  const { template: edited, errors } = editedTemplate(template, next)
+  return edited ? { edits: normaliseEdits(next), errors: [] } : { edits: null, errors }
+}
+
+/**
+ * Takes a piece out of a placed template's changes: one it added goes from its additions, and one of the
+ * template's own is listed as removed. Additions in what goes go with it, and so do added compartments against
+ * it alone. Checked against its template.
+ *
+ * @param {Object} template - The instance's validated template, without its changes.
+ * @param {Object|null} edits - Its changes so far.
+ * @param {string} path - The piece's path.
+ * @returns {{ edits: Object|null, errors: Array<string> }} The new changes, null for none; errors, and the
+ *   changes as they were, when the template can't do without the piece, as with its last cell or a cell's last facet.
+ */
+export function removeFromEdits(template, edits, path) {
+  const [first, second] = path.split('.')
+  // Whether a piece goes: the path's own, and with a cell everything in it.
+  const goes = (cellId, id) => (second === undefined ? (cellId ? cellId === first : id === first) : cellId === first && id === second)
+  const added = JSON.parse(JSON.stringify(edits?.added ?? {}))
+  const isAddition =
+    second === undefined
+      ? (added.compartments ?? []).some((piece) => piece.id === first)
+      : [...(added.facets ?? []), ...(added.processes ?? [])].some((piece) => piece.cell === first && piece.id === second)
+  for (const kind of ['facets', 'processes']) {
+    if (added[kind]) added[kind] = added[kind].filter((piece) => !goes(piece.cell, piece.id))
+  }
+  if (added.compartments) {
+    added.compartments = added.compartments.flatMap((piece) => {
+      if (goes(undefined, piece.id)) return []
+      const against = piece.against ?? []
+      const kept = against.filter((entry) => !goes(...entry.split('.')))
+      if (kept.length === against.length) return [piece]
+      return kept.length ? [{ ...piece, against: kept }] : []
+    })
+  }
+  const next = normaliseEdits({ added, removed: [...(edits?.removed ?? []), ...(isAddition ? [] : [path])] })
+  const { template: edited, errors } = editedTemplate(template, next)
+  return edited ? { edits: next, errors: [] } : { edits: edits ?? null, errors }
+}

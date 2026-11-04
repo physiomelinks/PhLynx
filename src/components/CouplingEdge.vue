@@ -25,7 +25,7 @@
     :path="path[0]"
     :marker-end="ownMarker ? `url(#${markerId})` : markerEnd"
     :style="style"
-    :class="{ 'coupling-edge--conflict': conflicts.length }"
+    :class="{ 'coupling-edge--conflict': conflicts.length, 'coupling-edge--uncoupled': !data?.couplings?.length }"
   />
   <!-- Like an instance's missing-parameter warning: these couplings can't be exported, as their ports or units don't pair -->
   <EdgeLabelRenderer v-if="conflicts.length">
@@ -121,6 +121,12 @@ const markerId = `coupling-edge-arrow-${props.id}`
 :global(.vue-flow__edge-path.coupling-edge--conflict),
 :global(.vue-flow__edge.selected .vue-flow__edge-path.coupling-edge--conflict) {
   stroke: var(--p-orange-500);
+}
+
+/* An edge nothing couples yet: it generates no connections until ports are paired on it */
+:global(.vue-flow__edge-path.coupling-edge--uncoupled) {
+  stroke: var(--p-amber-500);
+  stroke-dasharray: 6 4;
 }
 
 /* Matches the selected line (WorkspaceArea.vue) */

@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-import { HEAD_OFFSET, leafletPath } from '../../services/bioView/geometry'
+import { MEMBRANE_BAND_HALF, leafletPath } from '../../services/bioView/geometry'
 import BioBilayer from './BioBilayer.vue'
 import BioHandles from './BioHandles.vue'
 
@@ -31,8 +31,8 @@ defineProps({
   selected: { type: Boolean, default: false },
 })
 
-/** How wide the band that selects the membrane is: both leaflets' head groups, and a little more. */
-const BAND_WIDTH = 2 * HEAD_OFFSET + 6
+/** How wide the band that selects the membrane is: the same band a drop on the membrane takes. */
+const BAND_WIDTH = 2 * MEMBRANE_BAND_HALF
 </script>
 
 <style scoped>

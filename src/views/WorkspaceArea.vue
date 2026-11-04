@@ -501,6 +501,8 @@
             ref="bioFlowRef"
             class="bio-flow-layer"
             :create-instance="createBioInstance"
+            :connect-instances="connectBioInstances"
+            :disconnect-instances="disconnectBioInstances"
             :fit-view-params="fitViewParams"
             :parameter-set-menu="parameterSetMenuFor"
             @open-instance-editor="onOpenInstanceEditorDialog"
@@ -714,6 +716,7 @@ import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { shouldIgnoreShortcut, useWorkspaceClipboard } from '../composables/useWorkspaceClipboard'
+import { isDeleteKey } from '../services/bioView/deletion'
 import { useColorScheme } from '../composables/useColorScheme'
 import { useAppSettings } from '../composables/useAppSettings'
 import { shownToolbarDividers } from '../utils/appSettings'
@@ -1107,7 +1110,7 @@ const { onNodeChange, onEdgeChange } = useFlowHistory({
   reactivateEdgeHandles,
 })
 
-useConnect({
+const { connectNodes } = useConnect({
   suppressedEdgeIds,
   confirm,
   edgeLineOptions,
@@ -1891,16 +1894,17 @@ function onEdgeConnectionConfirm({
     configs,
     drivenCouplings,
     apply: () => {
+      // Couplings edited by hand: a physiology view move never takes these edges away (see isPlacementEdge).
       const activeEdge = findEdge(edgeDialogActiveEdge.value?.id)
       if (activeEdge) {
-        activeEdge.data = { ...activeEdge.data, couplings }
+        activeEdge.data = { ...activeEdge.data, couplings, placement: false }
       }
 
       // Sibling edges displaced by the user swapping a "taken elsewhere" port.
       for (const [edgeId, updatedCouplings] of Object.entries(foreignCouplings ?? {})) {
         const edge = findEdge(edgeId)
         if (edge) {
-          edge.data = { ...edge.data, couplings: updatedCouplings }
+          edge.data = { ...edge.data, couplings: updatedCouplings, placement: false }
         }
       }
     },
@@ -2121,6 +2125,39 @@ function createBioInstance(moduleData, bioView) {
   // Placed where it is meant to stay, so history mustn't re-centre the add once it is measured.
   historyStore.lastChangeWasAddSetter(false)
   return nodeId
+}
+
+/**
+ * Joins instances by the links a physiological view drop makes, each edge coupled as its link is (see
+ * linkCouplings). Run inside the drop's history batch; the edges land in it before this resolves.
+ *
+ * @param {Array<{from: string, to: string, kind: string}>} links - Node ids, from siteLinks.
+ * @returns {Promise<number>} How many edges were added.
+ */
+async function connectBioInstances(links) {
+  let added = 0
+  for (const { from, to, kind } of links) {
+    if (await connectNodes({ source: from, target: to }, { link: kind })) added += 1
+  }
+  // The edge changes are recorded on the next tick.
+  await nextTick()
+  return added
+}
+
+/**
+ * Removes the edges a physiological view move left behind (see staleLinks), recorded like any edge removal. Run
+ * inside the move's history batch.
+ *
+ * @param {Array<string>} edgeIds
+ * @returns {Promise<void>}
+ */
+async function disconnectBioInstances(edgeIds) {
+  const gone = edges.value.filter((edge) => edgeIds.includes(edge.id))
+  if (!gone.length) return
+  removeEdges(gone.map((edge) => edge.id))
+  // The removal is recorded on the next tick, and each end's handle turns ghost a tick or two after it: wait them
+  // all out, so they land in the move's step and one undo takes the whole move back.
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 function handleAutoLayout() {
@@ -2439,6 +2476,13 @@ const handleKeyDown = (event) => {
   if (isCtrl && event.key.toLowerCase() === 'i' && !currentImportDisabled.value) {
     event.preventDefault()
     triggerCurrentImport()
+  }
+
+  // The hidden diagram never deletes (see its delete-key-code); in the physiology view the view deletes its
+  // selection the diagram's way, unless its menu is open.
+  if (viewMode.isBio && isDeleteKey(event) && !bioFlowRef.value?.isMenuOpen) {
+    event.preventDefault()
+    bioFlowRef.value?.deleteSelection()
   }
 
   // Search shortcuts

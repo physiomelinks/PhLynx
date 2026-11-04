@@ -39,3 +39,9 @@ export const CELL_RADIUS = 40
 
 /** Smallest a cell is drawn. */
 export const MIN_CELL = { width: 320, height: 240 }
+
+/**
+ * How far inside a cell's edge a drop goes to the facet along that edge, past the membrane's band, so membrane
+ * slots win over the cell.
+ */
+export const FACET_BAND = 40

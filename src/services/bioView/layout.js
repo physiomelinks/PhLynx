@@ -18,6 +18,7 @@ import {
   proteinLabelWidth,
   proteinPlacement,
 } from './geometry.js'
+import { FACET_BAND } from './metrics.js'
 import { byName, cellFinder, inSlotOrder, scaffoldFromNodes, scaffoldFromTemplates } from './scaffold.js'
 import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetOfAnnotation, facetsInGroup } from './shape.js'
 
@@ -176,6 +177,29 @@ export function processZone(rect, area) {
 }
 
 /**
+ * How far below a cell's process areas its inside reaches, at least: an empty cell's name and hint (36), with
+ * clearance, above the reach of a bottom-facet protein (half its glyph) and its two-line name (32).
+ */
+const HINT_ROOM = 36 + 8 + GLYPH_HEIGHT / 2 + 32
+
+/** The bottom of a cell's last process area, or its top facet's band, from the cell's top. */
+const processZoneBottom = (count) =>
+  count ? processZone({ x: 0, y: 0, width: 0 }, count - 1).y + CARD.height + 16 : FACET_BAND
+
+/**
+ * Gives where an empty template cell's name and hint go: the middle of its inside below its process areas and
+ * above the reach of its bottom facet, so a drop on the hint goes to the cell itself.
+ *
+ * @param {Object} rect - The cell.
+ * @param {Array<{rect: Object}>} zones - Its process areas.
+ * @returns {{x: number, y: number}} In the cell's own coordinates.
+ */
+export function cellHint(rect, zones) {
+  const top = Math.max(FACET_BAND, ...zones.map((zone) => zone.rect.y + zone.rect.height - rect.y))
+  return { x: rect.width / 2, y: (top + rect.height - FACET_BAND) / 2 }
+}
+
+/**
  * Grows a template cell so each of its process areas has a row for its cards and a spare one, clear of the
  * proteins on its facets.
  *
@@ -184,11 +208,13 @@ export function processZone(rect, area) {
  * @returns {{width: number, height: number}}
  */
 function fitProcesses(size, processes) {
-  if (!processes.length) return size
+  // Below the process areas, room for an empty cell's name and hint clear of a bottom protein's two-line name.
+  const hinted = { ...size, height: Math.max(size.height, processZoneBottom(processes.length) + HINT_ROOM) }
+  if (!processes.length) return hinted
   const most = Math.max(...processes.map((process) => process.members.length)) + 1
   return {
     width: Math.max(size.width, 2 * CELL_RADIUS + most * (CARD.width + 16) - 16),
-    height: Math.max(size.height, 2 * (GLYPH_HEIGHT + 24) + processes.length * (CARD.height + 16) - 16),
+    height: Math.max(hinted.height, 2 * (GLYPH_HEIGHT + 24) + processes.length * (CARD.height + 16) - 16),
   }
 }
 
@@ -307,10 +333,12 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       }))
       zones.set(cell.key, cellZones)
       layout.set(cell.key, {
+        hintAt: cellHint(rect, cellZones),
         kind: 'cell',
         rect,
         membrane: cell.membrane,
         instance: instanceId,
+        path: cell.owner.cell,
         site: cell.site,
         empty: !cell.node,
         tone: null,
@@ -362,6 +390,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         adjacent: null,
         rect,
         instance: instanceId,
+        path: piece.owner.compartment,
         site: piece.site,
         empty: !piece.node,
         tone: piece.tone,
@@ -412,7 +441,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
  *   neighbours along a top or bottom edge are spaced for both.
  * @returns {{places: Map<string, Object>, sites: Array<Object>}}
  *   - places: see layoutBioView; a template piece's place, keyed by its node or 'tpl:<instance>/<path>' while
- *     empty, also has { instance, site, empty, tone, edge?, form, label }, a cell's facetLabels: [{ facetId, label,
+ *     empty, also has { instance, path, site, empty, tone, edge?, form, label }, a cell's facetLabels: [{ facetId, label,
  *     edge }] and zones: [{ processId, label, rect }]; a node bound to a site has { instance, site }; a node-owned
  *     cell's has its proteins' name widths per part, in slot order;
  *   - sites: every template site, empty or not: { ref, instance, path, role, kind, label, occupant } with, for

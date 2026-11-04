@@ -2,16 +2,19 @@ import { useVueFlow } from '@vue-flow/core'
 import { confirmDrivenStores } from '../services/export/drivenStores'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import { linkCouplings } from '../services/bioView/links'
 import { FLOW_IDS } from '../utils/constants'
+import { facingSides, nodeRect } from '../utils/edgeGeometry'
 import { resolvePortCouplings } from '../utils/edges'
-import { getHandleUidFromHandleId } from '../utils/handles'
+import { freeHandle, getHandleId, getHandleUidFromHandleId } from '../utils/handles'
 import { detachReactivity } from '../utils/reactivity'
 
 /**
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
  * asks before replacing an existing connection between the same instances, and adds the edge
  * with its resolved port couplings, after asking about each CellDL store they would set from
- * elsewhere (see confirmDrivenStores).
+ * elsewhere (see confirmDrivenStores). Gives connectNodes, which joins two nodes the same way without a handle
+ * drag.
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -38,6 +41,86 @@ export function useConnect({
   const { addEdges, edges, nodes, findNode, onConnect, removeEdges } = useVueFlow(flowId)
   const historyStore = useFlowHistoryStore()
   const libraryStore = useLibraryStore()
+
+  /**
+   * The couplings an edge from one node to another gets by label, picking each label's slot by how many edges the
+   * nodes already have (see resolvePortCouplings).
+   */
+  function labelCouplings(source, target) {
+    // The Nth edge out of the source and into the target, as in out_modules / inp_modules.
+    const sourceIndex = edges.value.filter((e) => e.source === source.id).length
+    const targetIndex = edges.value.filter((e) => e.target === target.id).length
+    return resolvePortCouplings(source.data?.ports ?? [], target.data?.ports ?? [], sourceIndex, targetIndex)
+  }
+
+  /** A node as linkCouplings reads it. */
+  const nodeEnd = (node) => ({ id: node.id, ports: node.data?.ports ?? [] })
+
+  /**
+   * Joins two nodes that aren't joined yet, on free handles on the sides facing each other, the way round that
+   * couples more ports (the given way on a tie); an edge nothing couples is left empty. With a link kind, the
+   * edge runs the given way and couples as the link does (see linkCouplings), and is marked placement-made
+   * (data.placement). Asks about each CellDL store the
+   * couplings would set from elsewhere, as a handle drag does, and adds nothing when one is declined. Run it
+   * inside a history batch to make it part of one undo step.
+   *
+   * @param {{source: string, target: string}} pair - Node ids.
+   * @param {{couplings?: 'labels'|'none', link?: 'flow'|'across'|'exchange'}} [options] - 'none' adds the edge
+   *   with no couplings.
+   * @returns {Promise<Object|null>} The edge added, or null when the nodes are missing or already joined, or a
+   *   store was declined.
+   */
+  async function connectNodes({ source, target }, { couplings: mode = 'labels', link } = {}) {
+    const first = findNode(source)
+    const second = findNode(target)
+    if (!first || !second || first === second) return null
+    const isJoined = edges.value.some(
+      (e) => (e.source === source && e.target === target) || (e.source === target && e.target === source)
+    )
+    if (isJoined) return null
+
+    const byLink = !!link && mode === 'labels'
+    const given = byLink
+      ? linkCouplings(nodeEnd(first), nodeEnd(second), link, edges.value)
+      : mode === 'labels'
+        ? labelCouplings(first, second)
+        : []
+    let chosen = { from: first, to: second, couplings: given }
+    if (mode === 'labels' && !byLink) {
+      const reversed = labelCouplings(second, first)
+      if (reversed.length > given.length) chosen = { from: second, to: first, couplings: reversed }
+    }
+
+    const { from, to } = chosen
+    const edge = {
+      ...edgeLineOptions,
+      id: `${from.id}--${to.id}`,
+      source: from.id,
+      target: to.id,
+      // A placement edge says so, so a later move can take it away again (see isPlacementEdge).
+      data: { couplings: chosen.couplings, ...(link ? { placement: link } : {}) },
+    }
+    const marked = await confirmDrivenStores({
+      nodes: nodes.value,
+      edges: [...edges.value, edge],
+      edgeIds: new Set([edge.id]),
+      libraryStore,
+      confirm,
+    })
+    if (!marked) return null
+    if (marked.has(edge.id)) edge.data = { ...edge.data, couplings: marked.get(edge.id) }
+
+    const { sourceSide, targetSide } = facingSides(nodeRect(from), nodeRect(to))
+    const sourceHandle = freeHandle(from, sourceSide)
+    const targetHandle = freeHandle(to, targetSide)
+    // Activated untracked: the edge's own history step reverts them to ghosts on undo and back on redo.
+    if (sourceHandle) await activateHandle(from.id, sourceHandle.uid, { trackHistory: false })
+    if (targetHandle) await activateHandle(to.id, targetHandle.uid, { trackHistory: false })
+    if (sourceHandle) edge.sourceHandle = getHandleId(sourceHandle)
+    if (targetHandle) edge.targetHandle = getHandleId(targetHandle)
+    addEdges(edge)
+    return edge
+  }
 
   onConnect(async (connection) => {
     const sourceNode = findNode(connection.source)
@@ -139,8 +222,10 @@ export function useConnect({
       ...connection,
       ...edgeLineOptions,
       id: `${connection.source}--${connection.target}`,
+      // Drawn by hand, so a physiology view move never takes it away (see isPlacementEdge).
       data: {
         couplings,
+        placement: false,
       },
     }
 
@@ -156,7 +241,7 @@ export function useConnect({
       discard(pendingEdge)
       return
     }
-    if (marked.has(newEdge.id)) newEdge.data = { couplings: marked.get(newEdge.id) }
+    if (marked.has(newEdge.id)) newEdge.data = { ...newEdge.data, couplings: marked.get(newEdge.id) }
 
     if (duplicate) {
       suppressedEdgeIds.add(duplicateSnapshot.id)
@@ -195,4 +280,6 @@ export function useConnect({
       addEdges(newEdge)
     }
   })
+
+  return { connectNodes }
 }

@@ -9,6 +9,10 @@ import {
   facetOfPart,
   facetSlots,
   fitCellRect,
+  leafletCorners,
+  leafletDistance,
+  leafletPath,
+  leafletSides,
   nearestSlot,
   partOf,
   pitchBetween,
@@ -117,6 +121,34 @@ describe('physiological view geometry', () => {
     expect(row.at(-1).x).toBeLessThanOrEqual(fitted.width - FACET_INSET)
     const held = { rect: fitted, counts: { apical: 2 }, held: 'apical', widths: { apical: widths } }
     expect(cellSlots(held, 'apical').map(({ x }) => x)).toEqual(row.slice(0, 3).map(({ x }) => x))
+  })
+
+  it('measures how far a point is from a cell’s rounded outline, negative inside', () => {
+    expect(leafletDistance(cell, { x: 200, y: -5 })).toBe(5)
+    expect(leafletDistance(cell, { x: 200, y: 6 })).toBe(-6)
+    expect(leafletDistance(cell, { x: 200, y: 150 })).toBe(-150)
+    // At a rect corner, outside the rounded one by the radius' diagonal.
+    expect(leafletDistance(cell, { x: 0, y: 0 })).toBeCloseTo(40 * Math.SQRT2 - 40)
+  })
+
+  it('splits a leaflet into straight sides of whole lipids and the corner arcs between them', () => {
+    const sides = leafletSides(203, 100)
+    // 123 of straight top and bottom hold 24 lipids, centred; 20 of left and right hold 4.
+    expect(sides.map(({ edge, length }) => [edge, length])).toEqual([
+      ['top', 120],
+      ['right', 20],
+      ['bottom', 120],
+      ['left', 20],
+    ])
+    expect(sides[0].transform).toBe('translate(40 0) rotate(0) translate(1.5 0)')
+    expect(sides[1].transform).toBe('translate(203 40) rotate(90) translate(0 0)')
+    // The arcs are the outline's own corners, grown with it.
+    const arcs = (path) => path.match(/A [^A-Z]*/g).map((arc) => arc.trim()).sort()
+    expect(arcs(leafletCorners(203, 100, 7))).toEqual(arcs(leafletPath(203, 100, 7)))
+    expect(leafletCorners(203, 100, 7)).toMatch(/^M -7 40 A 47 47 0 0 1 40 -7 /)
+    // Too small a corner for the inner leaflet: none.
+    expect(leafletCorners(10, 10, -7)).toBe('')
+    expect(leafletSides(60, 60)).toEqual([])
   })
 
   it('outlines a rounded cell', () => {

@@ -114,6 +114,31 @@ describe('bioTemplateStore', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('keeps a placement’s own additions apart from its template, through undo and a save', () => {
+    const { id } = store.addInstance('epithelial-cell', { x: 0, y: 0 })
+    const edits = { added: { processes: [{ cell: 'cell', id: 'zone-1', label: 'Zone' }] } }
+    const change = store.edit(() => store.setInstanceEdits(id, edits))
+    change.apply()
+    expect(store.getInstance(id).edits).toEqual(edits)
+    expect(store.definitions.get('epithelial-cell')).toBe(getBuiltInTemplate('epithelial-cell'))
+    // A copy: changing what was passed in changes nothing.
+    edits.added.processes[0].label = 'Changed'
+    expect(store.getInstance(id).edits.added.processes[0].label).toBe('Zone')
+
+    const state = plain(store.getState())
+    change.restore('before')
+    expect(store.getInstance(id).edits).toBeUndefined()
+    change.restore('after')
+    expect(change.isAt('after')).toBe(true)
+
+    setActivePinia(createPinia())
+    const loaded = useBioTemplateStore()
+    loaded.loadState(state)
+    expect(loaded.getInstance(id).edits.added.processes[0]).toEqual({ cell: 'cell', id: 'zone-1', label: 'Zone' })
+    loaded.setInstanceEdits(id, null)
+    expect(loaded.getInstance(id).edits).toBeUndefined()
+  })
+
   it('skips invalid templates, and instances whose template is missing or that are malformed', () => {
     store.loadState({
       templates: {

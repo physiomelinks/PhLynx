@@ -9,7 +9,7 @@
 import { DEFAULT_TEMPLATE_ID, getBuiltInTemplate } from './builtInTemplates.js'
 import { partOf } from './geometry.js'
 import { EPITHELIAL_SHAPE, facetById, facetOfAnnotation, facetsInGroup, shapeFromTemplateCell } from './shape.js'
-import { MEMBRANE, compartmentForm, parseSiteRef, siteRef, sitesOf } from './templates.js'
+import { MEMBRANE, compartmentForm, instanceTemplate, parseSiteRef, siteRef, sitesOf } from './templates.js'
 
 /** The tone of a compartment against nothing the epithelial template colours. */
 export const DEFAULT_TONE = 'sky'
@@ -163,7 +163,7 @@ export function boundSites(instances, definitions, nodes) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const offered = new Map()
   for (const instance of instances) {
-    const template = definitions.get(instance.template)
+    const template = instanceTemplate(instance, definitions)
     if (!template) continue
     for (const site of sitesOf(template)) offered.set(siteRef(instance.id, site.path), site)
   }
@@ -186,7 +186,8 @@ export function boundSites(instances, definitions, nodes) {
  * keyed by the node bound to its one-module site or 'tpl:<instance>/<path>' while that is empty, with the
  * nodes bound to each facet and process area.
  *
- * @param {Array<{id: string, template: string, at: {x: number, y: number}, label?: string}>} instances
+ * @param {Array<{id: string, template: string, at: {x: number, y: number}, label?: string, edits?: Object}>} instances
+ *   - Each drawn with its own changes to its template (see instanceTemplate).
  * @param {Map<string, Object>} definitions - Template id -> its validated template.
  * @param {Array<{id: string, data?: Object}>} [nodes] - The flow's nodes, to find the ones bound to sites.
  * @returns {{cells: Array<Object>, compartments: Array<Object>, sites: Map<string, Object>, bound: Map<string, string>}}
@@ -206,7 +207,7 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
   for (const [ref, ids] of occupied) for (const id of ids) scaffold.bound.set(id, ref)
 
   for (const instance of instances) {
-    const template = definitions.get(instance.template)
+    const template = instanceTemplate(instance, definitions)
     if (!template) continue
     const offered = new Map(sitesOf(template).map((site) => [site.path, site]))
     // A piece's own site, if it offers one, and the nodes bound to it.

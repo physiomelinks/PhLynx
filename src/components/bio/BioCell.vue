@@ -91,8 +91,13 @@ const facetLabels = computed(() => {
   })
 })
 
-/** A template cell's name goes just under its process zones, clear of them; any other's as before. */
+/**
+ * A template cell's name goes just under its process zones, clear of them; any other's as before. An empty
+ * template cell's name and hint are centred where a drop goes to the cell (see cellHint).
+ */
 const labelStyle = computed(() => {
+  const hint = props.data.empty && props.data.hintAt
+  if (hint) return { left: `${hint.x}px`, top: `${hint.y}px`, bottom: 'auto', transform: 'translate(-50%, -50%)' }
   const zones = props.data.zones ?? []
   if (!zones.length) return undefined
   return { top: `${Math.max(...zones.map(({ rect }) => rect.y + rect.height)) + 6}px`, bottom: 'auto' }

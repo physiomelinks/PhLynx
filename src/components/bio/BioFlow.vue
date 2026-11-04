@@ -23,6 +23,7 @@
       @node-drag-stop="onNodeDragStop"
       @node-double-click="onNodeDoubleClick"
       @node-context-menu="onNodeContextMenu"
+      @edge-context-menu="onEdgeContextMenu"
       @pane-context-menu="onPaneContextMenu"
       @nodes-initialized="onNodesInitialized"
       @pane-ready="onPaneReady"
@@ -37,27 +38,39 @@
           <i class="pi pi-image"></i>
         </ControlButton>
       </Controls>
-      <!-- While something is dragged: the membrane slots and template sites it can go to -->
       <template #zoom-pane>
+        <!-- While something is dragged: the slots and sites of the piece under the pointer, the drop's own marked -->
         <svg
           v-if="sitePrompts.slots.length || sitePrompts.areas.length"
           class="bio-slot-prompts"
           data-testid="bio-slot-prompts"
         >
+          <!-- A compartment's outline stops where a cell lies over it -->
+          <mask id="bio-site-prompt-cells" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
+            <rect v-bind="EVERYWHERE" fill="white" />
+            <rect
+              v-for="(cell, index) in sitePrompts.cells"
+              :key="index"
+              v-bind="cell"
+              :rx="CELL_RADIUS"
+              fill="black"
+            />
+          </mask>
           <g
             v-for="prompt in sitePrompts.areas"
             :key="prompt.key"
             :class="['bio-site-prompt', `bio-site-prompt--${prompt.area}`, { 'bio-site-prompt--active': prompt.active }]"
             data-testid="bio-site-prompt"
             :data-site="prompt.ref"
+            :mask="prompt.area === 'compartment' ? 'url(#bio-site-prompt-cells)' : undefined"
           >
-            <rect v-bind="prompt.rect" :rx="prompt.area === 'membrane' ? 14 : 10" />
-            <text :x="prompt.text.x" :y="prompt.text.y" :text-anchor="prompt.text.anchor">
-              {{ prompt.label }}
-              <tspan v-if="prompt.replace" :x="prompt.text.x" dy="15" class="bio-site-prompt__replace">
-                Replace {{ prompt.replace }}
-              </tspan>
-            </text>
+            <!-- A membrane is a band along its cell's outline; a cell's inside stops where that band starts -->
+            <path
+              v-if="prompt.path"
+              :d="prompt.path"
+              :style="prompt.area === 'membrane' ? { strokeWidth: 2 * MEMBRANE_BAND_HALF } : undefined"
+            />
+            <rect v-else v-bind="prompt.rect" rx="10" />
           </g>
           <!-- A slot's prompt sits on what is there now; the spare one, past the last, shows a plus -->
           <g
@@ -107,7 +120,21 @@
         <BioTemplateTitle :data="props.data" />
       </template>
     </VueFlow>
-    <ContextMenu ref="contextMenu" :model="menuItems">
+    <div
+      v-if="pointerLabel"
+      class="bio-drop-label"
+      data-testid="bio-drop-label"
+      :style="{ left: `${pointerLabel.left}px`, top: `${pointerLabel.top}px` }"
+    >
+      <div>{{ pointerLabel.text }}</div>
+      <div v-if="pointerLabel.replace" class="bio-drop-label__replace">{{ pointerLabel.replace }}</div>
+    </div>
+    <ContextMenu
+      ref="contextMenu"
+      :model="menuItems"
+      @show="isMenuOpen = true"
+      @hide="isMenuOpen = false"
+    >
       <template #item="{ item, props: menu, hasSubmenu, label }">
         <BioConnectionPanel v-if="item.connection" :connection="item.connection" />
         <a v-else v-bind="menu.action">
@@ -117,6 +144,14 @@
         </a>
       </template>
     </ContextMenu>
+    <input
+      ref="templateFileInput"
+      type="file"
+      accept=".json,application/json"
+      hidden
+      data-testid="bio-template-file-input"
+      @change="onTemplateFile"
+    />
     <Dialog
       v-if="renaming"
       :visible="true"
@@ -171,6 +206,29 @@
         />
       </template>
     </Dialog>
+    <Dialog
+      v-if="naming"
+      :visible="true"
+      modal
+      header="Add Compartment"
+      :style="{ width: '360px' }"
+      class="compact-dialog"
+      data-testid="bio-template-name"
+      @update:visible="(visible) => !visible && (naming = null)"
+    >
+      <InputText
+        v-model="naming.label"
+        class="w-full"
+        autofocus
+        placeholder="Compartment"
+        data-testid="bio-template-name-input"
+        @keydown.enter="onNamingConfirm"
+      />
+      <template #footer>
+        <Button label="Cancel" severity="secondary" text @click="naming = null" />
+        <Button label="Add" data-testid="bio-template-name-confirm" @click="onNamingConfirm" />
+      </template>
+    </Dialog>
     <BioPlaceDialog
       v-if="placing"
       :mode="placing.mode"
@@ -206,33 +264,57 @@ import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
 import {
   STRUCTURE_TYPES,
+  cellSites,
   dragCompanions,
   dropSites,
   dropTargets,
   nearestSite,
+  neighbourNodes,
+  ownedNeighbours,
+  replacedOccupant,
   patchBioView,
+  planCellArea,
   planCellMove,
   planRelayout,
   planSiteBind,
   planSlotDrop,
   planUnbind,
   planUnplace,
-  replacedOccupant,
   whole,
 } from '../../services/bioView/drop'
+import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { GLYPHS } from '../../services/bioView/glyphs'
 import {
   GLYPH_HEIGHT,
   GLYPH_WIDTH,
+  MEMBRANE_BAND_HALF,
   MIN_CELL,
-  cellSlots,
-  nearestSlot,
   partOf,
+  roundedRectPath,
 } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shape'
+import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
+import {
+  EDGES,
+  LIMITS,
+  MEMBRANE,
+  TONES,
+  addToEdits,
+  editedTemplate,
+  freePieceId,
+  instanceTemplate,
+  isLocalTemplateId,
+  normaliseEdits,
+  parseSiteRef,
+  removeFromEdits,
+  siteNeighbours,
+  siteRef,
+} from '../../services/bioView/templates'
+import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
+import { CELL_RADIUS } from '../../services/bioView/metrics'
 import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
@@ -241,11 +323,17 @@ import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
 import { BACKGROUND_DOTS, FLOW_IDS, NEW_INSTANCE_MODULE_REF } from '../../utils/constants'
+import { notify } from '../../utils/notify'
+import { legacyDownload } from '../../utils/save'
 import { sanitiseName } from '../../utils/identifiers'
 
 const props = defineProps({
   /** Adds an instance of a library module with this bioView, and gives its node id (see WorkspaceArea). */
   createInstance: { type: Function, default: null },
+  /** Joins pairs of instances, [{ source, target }], with label-matched edges, in the current step. */
+  connectInstances: { type: Function, default: null },
+  /** Removes edges by id, in the current step, re-deriving the couplings left at their ends (see WorkspaceArea). */
+  disconnectInstances: { type: Function, default: null },
   /** Gives an instance's "Apply Parameter Set" submenu as the diagram's node menu builds it (see WorkspaceArea). */
   parameterSetMenu: { type: Function, default: null },
   /** How the view is fitted, as the diagram's is: clear of the library panel over its left. */
@@ -296,6 +384,8 @@ const {
   renameTemplate,
   nameError,
   renameInstance,
+  editTemplate,
+  strandedBy,
   relayoutTemplate,
   removeTemplate,
 } = useBioEdits(roles)
@@ -377,29 +467,179 @@ watch(
 const draggingId = ref(null)
 // A selection's coupling lines end where things were laid out, so they wait for a drag to end.
 const shownCouplings = computed(() => (draggingId.value ? [] : couplingEdges.value))
-/** Where the drag would go: { slot } in a node-owned cell's membrane, or { site } of a template. */
+/**
+ * Where the drag would go: { slot } in a node-owned cell's membrane, { area } of a node-owned cell (its membrane
+ * or inside), or { site } of a template.
+ */
 const activeTarget = ref(null)
 const targets = computed(() => dropTargets(layout.value, draggingId.value))
+const ownedTargets = computed(() => cellSites(targets.value))
 const siteTargets = computed(() => dropSites(sites.value, draggingId.value))
 
 /**
- * Finds where a point drops: the nearer of a node-owned cell's slot and a template's slot, else the template
- * area holding it.
+ * Finds where a point drops: the nearer of a node-owned cell's slot and a template's slot, else a node-owned
+ * cell's membrane or inside, found as on a template's cell, else the template area holding it.
  *
  * @param {{x: number, y: number}} point
- * @returns {{slot: Object}|{site: Object}|null}
+ * @param {{ membrane?: boolean }} [options] - For nearestSite.
+ * @returns {{slot: Object}|{area: Object}|{site: Object}|null}
  */
-function targetAt(point) {
-  const slot = nearestSlot(targets.value, point, SNAP_DISTANCE)
-  const site = nearestSite(siteTargets.value, point, SNAP_DISTANCE)
-  const slotDistance = slot ? Math.hypot(slot.x - point.x, slot.y - point.y) : Infinity
+function targetAt(point, options) {
+  const owned = nearestSite(ownedTargets.value, point, SNAP_DISTANCE, options)
+  const site = nearestSite(siteTargets.value, point, SNAP_DISTANCE, options)
+  const slotDistance = owned?.type === 'slot' ? owned.distance : Infinity
   if (site?.type === 'slot' && site.distance < slotDistance) return { site }
-  if (slot) return { slot }
+  if (owned?.type === 'slot') return { slot: owned.slot }
+  // A hand-added cell lies over any template compartment under it.
+  if (owned && (!site || site.area === 'compartment')) return { area: owned }
   return site ? { site } : null
 }
 
 /** Names a node for a prompt. */
 const nameOf = (id) => main.findNode(id)?.data?.name ?? id
+
+/** Where the drag is, in flow coordinates, for the label that follows it. */
+const pointer = ref(null)
+
+/** Says which drop target a target is, so the same one found again on the next frame is known as the same. */
+function targetKey(target) {
+  if (!target) return ''
+  if (target.slot) return `slot ${target.slot.cellId} ${target.slot.part} ${target.slot.order}`
+  if (target.area) return `area ${target.area.cellId} ${target.area.area}`
+  const { ref, type, order, area } = target.site
+  return `site ${ref} ${type} ${order ?? ''} ${area ?? ''}`
+}
+
+/**
+ * Follows a drag: where the pointer is, and the target under it. The target is replaced only when it is another
+ * one, so what is drawn for it isn't worked out again on every frame of a drag.
+ *
+ * @param {{x: number, y: number}} point
+ * @param {Object|null} target - From targetAt.
+ */
+function trackDrag(point, target) {
+  // A dragover repeats while the pointer rests.
+  if (point.x !== pointer.value?.x || point.y !== pointer.value?.y) pointer.value = point
+  if (targetKey(target) !== targetKey(activeTarget.value)) activeTarget.value = target
+}
+
+/** The node-owned cells near the pointer, as their ids: unchanged while the pointer moves within reach of them. */
+const nearCells = computed(() => {
+  const at = pointer.value
+  if (!at) return ''
+  return targets.value
+    .filter((cell) => isNear(cell.rect, at, SNAP_DISTANCE))
+    .map((cell) => cell.id)
+    .join('\n')
+})
+
+/**
+ * The template sites next to a site, which a module dropped there connects to.
+ *
+ * @param {Object} site - A drop target.
+ * @returns {Array<{ref: string, relation: string}>}
+ */
+function neighbourSites(site) {
+  const parsed = parseSiteRef(site.ref)
+  const instance = parsed && templateStore.getInstance(parsed.instance)
+  const template = instance && instanceTemplate(instance, templateStore.definitions)
+  if (!template) return []
+  return siteNeighbours(template, parsed.path).map(({ path, relation }) => ({
+    ref: siteRef(parsed.instance, path),
+    relation,
+  }))
+}
+
+/** The nodes a node dropped on a site connects to: those on the sites next to it not joined to it yet. */
+const neighboursAt = (site, id) =>
+  neighbourNodes(siteTargets.value, neighbourSites(site), { id, edges: main.edges.value })
+
+/**
+ * Joins a node just bound to a template site to the nodes on the sites next to it, in the current step, by the
+ * links the site's relationships make (see siteLinks).
+ *
+ * @param {string} id
+ * @param {Object} site - The drop target it was bound to.
+ * @returns {Promise<void>}
+ */
+async function connectToNeighbours(id, site) {
+  if (!props.connectInstances) return
+  const links = siteLinks(id, site.role, neighboursAt(site, id))
+  if (links.length) await props.connectInstances(links)
+}
+
+/**
+ * Joins a node just placed on a node-owned cell (not a template's) to its neighbours there, in the current step,
+ * as connectToNeighbours does on a template: a membrane and the cell's proteins, a protein and its cell, membrane
+ * and the compartments against it, in whichever order they came (see ownedNeighbours).
+ *
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+async function connectToCellNeighbours(id) {
+  if (!props.connectInstances || !id) return
+  // The layout as the plan just applied leaves it.
+  await nextTick()
+  const { role, neighbours } = ownedNeighbours(layout.value, id, { edges: main.edges.value })
+  const links = role ? siteLinks(id, role, neighbours) : []
+  if (links.length) await props.connectInstances(links)
+}
+
+/**
+ * Every node a node lies next to where it is placed now, joined to it or not: those on the sites next to its
+ * template site, or its neighbours on a node-owned cell (see ownedNeighbours).
+ *
+ * @param {string} id
+ * @returns {Array<string>}
+ */
+function placedNeighbours(id) {
+  const place = layout.value.get(id)
+  if (place?.instance) {
+    if (!place.site) return []
+    return neighbourNodes(siteTargets.value, neighbourSites({ ref: place.site }), { id }).map((n) => n.id)
+  }
+  return ownedNeighbours(layout.value, id).neighbours.map((n) => n.id)
+}
+
+/**
+ * Where some nodes lie before they move: each one's neighbours (see placedNeighbours).
+ *
+ * @param {Array<string>} ids
+ * @returns {Map<string, Array<string>>}
+ */
+const neighboursOf = (ids) => new Map(ids.map((id) => [id, placedNeighbours(id)]))
+
+/**
+ * Takes away, in the current step, the edges placement made between nodes just moved and the neighbours they
+ * left, so a protein moved to another facet no longer joins the fluid it left. An edge to such a neighbour drawn
+ * or edited by hand stays, and the user is told (see staleLinks). Run once the move is applied; a fresh drop's
+ * links follow it.
+ *
+ * @param {Map<string, Array<string>>} before - From neighboursOf, taken before the move.
+ * @returns {Promise<void>}
+ */
+async function dropStaleLinks(before) {
+  if (!props.disconnectInstances || !before.size) return
+  // The layout as the move leaves it.
+  await nextTick()
+  const remove = new Map()
+  const keep = new Map()
+  for (const [id, was] of before) {
+    const stale = staleLinks(id, was, placedNeighbours(id), main.edges.value)
+    stale.remove.forEach((edge) => remove.set(edge.id, edge))
+    stale.keep.forEach((edge) => keep.set(edge.id, edge))
+  }
+  if (remove.size) await props.disconnectInstances([...remove.keys()])
+  if (!keep.size) return
+  const names = [...keep.values()].map((edge) => `${nameOf(edge.source)} → ${nameOf(edge.target)}`).join(', ')
+  const many = keep.size > 1
+  notify.info({
+    title: many ? 'Connections kept' : 'Connection kept',
+    message:
+      `${names} ${many ? 'were' : 'was'} drawn or edited by hand, so ${many ? 'they stay' : 'it stays'} ` +
+      'though its modules are no longer neighbours.',
+  })
+}
 
 /** Whether a replace confirmation is open, so the workspace's shortcuts wait. */
 const isConfirming = ref(false)
@@ -432,40 +672,70 @@ async function confirmReplace(site, id, name) {
   }
 }
 
-/**
- * Where an area's name goes, clear of the cells and of the names drawn on them: a cell's at its bottom right,
- * a compartment's on its side away from the cells it lies against.
- */
-function promptText({ area, rect, key }) {
-  if (area === 'membrane') return { x: rect.x + rect.width / 2, y: rect.y + 18, anchor: 'middle' }
-  if (area === 'cell') return { x: rect.x + rect.width - 16, y: rect.y + rect.height - 36, anchor: 'end' }
-  if (area === 'process') return { x: rect.x + rect.width - 8, y: rect.y + 14, anchor: 'end' }
-  const { edge, form } = layout.value.get(key) ?? {}
-  if (form === 'gap') return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 + 4, anchor: 'middle' }
-  if (edge === 'bottom') return { x: rect.x + 10, y: rect.y + rect.height - 26, anchor: 'start' }
-  if (edge === 'right') return { x: rect.x + rect.width - 6, y: rect.y + 18, anchor: 'end' }
-  return { x: rect.x + 10, y: rect.y + 18, anchor: 'start' }
+/** The template piece a site belongs to, '<instance>/<cell or compartment>', so prompts show only its sites. */
+function pieceOfRef(ref) {
+  const parsed = parseSiteRef(ref)
+  return parsed ? `${parsed.instance}/${parsed.path.split('.')[0]}` : null
 }
 
-/** While something is dragged: every membrane slot, and every template area, named and outlined. */
+const isNear = (rect, { x, y }, margin) =>
+  x >= rect.x - margin &&
+  x <= rect.x + rect.width + margin &&
+  y >= rect.y - margin &&
+  y <= rect.y + rect.height + margin
+
+/**
+ * The outline a cell's membrane or inside is prompted with: the membrane along the cell's outline, drawn as wide
+ * as the band a drop takes, and the inside within that band. Other areas are their rects.
+ *
+ * @param {Object} target - An area drop target.
+ * @returns {string|null} An SVG path, or null for a rect.
+ */
+function areaPath({ area, rect }) {
+  if (area === 'membrane') return roundedRectPath(rect, CELL_RADIUS)
+  if (area !== 'cell') return null
+  const inset = MEMBRANE_BAND_HALF
+  const inner = { x: rect.x + inset, y: rect.y + inset, width: rect.width - 2 * inset, height: rect.height - 2 * inset }
+  return roundedRectPath(inner, CELL_RADIUS - inset)
+}
+
+/** A mask's rect over the whole view. */
+const EVERYWHERE = { x: -1e5, y: -1e5, width: 2e5, height: 2e5 }
+
+/**
+ * While something is dragged: the slots and areas of the piece under the pointer, the one the drop would go to
+ * marked, and the cells' rects, which compartment outlines leave out.
+ */
 const sitePrompts = computed(() => {
-  if (!draggingId.value) return { slots: [], areas: [] }
+  const empty = { slots: [], areas: [], cells: [] }
+  if (!draggingId.value) return empty
   const active = activeTarget.value
   const glyph = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
-  const slots = targets.value.flatMap((cell) =>
-    (cell.shape ?? EPITHELIAL_SHAPE).facets.flatMap(({ id: part }) =>
-      cellSlots(cell, part).map(({ order, ...slot }) => ({
-        key: `${cell.id}/${part}/${order}`,
-        ...slot,
-        ...glyph,
-        active: active?.slot?.cellId === cell.id && active.slot.part === part && active.slot.order === order,
-      }))
-    )
-  )
-  const isActive = ({ ref, type, order }) =>
-    !!active?.site && active.site.ref === ref && active.site.type === type && active.site.order === order
+  // A node-owned cell's slots, membrane and inside, while the pointer is over or near that cell.
+  const near = new Set(nearCells.value ? nearCells.value.split('\n') : [])
+  const activeCell = (active?.slot ?? active?.area)?.cellId
+  if (activeCell !== undefined && targets.value.some((cell) => cell.id === activeCell)) near.add(activeCell)
+  const slots = []
   const areas = []
+  for (const target of ownedTargets.value) {
+    if (!near.has(target.cellId)) continue
+    if (target.type === 'slot') {
+      const { cellId, part, order } = target.slot
+      const isActive = active?.slot?.cellId === cellId && active.slot.part === part && active.slot.order === order
+      const { x, y, spare } = target
+      slots.push({ key: `${cellId}/${part}/${order}`, x, y, spare, ...glyph, active: isActive })
+      continue
+    }
+    const { cellId, area, rect } = target
+    const isActive = active?.area?.cellId === cellId && active.area.area === area
+    areas.push({ key: `${cellId}#${area}`, ref: cellId, area, rect, path: areaPath(target), active: isActive })
+  }
+  const piece = active?.site ? pieceOfRef(active.site.ref) : null
+  if (!piece) return { ...empty, slots, areas: sortAreas(areas) }
+  const isActive = ({ ref, type, order }) =>
+    active.site.ref === ref && active.site.type === type && active.site.order === order
   for (const target of siteTargets.value) {
+    if (pieceOfRef(target.ref) !== piece) continue
     if (target.type === 'slot') {
       const size = target.role === 'cytosolic' ? CARD : glyph
       const { ref, x, y, order, spare } = target
@@ -477,15 +747,48 @@ const sitePrompts = computed(() => {
       ref: target.ref,
       area: target.area,
       rect: target.rect,
-      label: `${target.label} · ${target.area}`,
-      replace: target.kind === 'single' && target.occupant ? nameOf(target.occupant) : null,
-      text: promptText(target),
+      path: areaPath(target),
       active: isActive(target),
     })
   }
-  // The biggest underneath, so smaller areas inside them stay visible.
-  areas.sort((a, b) => b.rect.width * b.rect.height - a.rect.width * a.rect.height)
-  return { slots, areas }
+  const cells = [...layout.value.values()].filter((place) => place.kind === 'cell').map((place) => place.rect)
+  return { slots, areas: sortAreas(areas), cells }
+})
+
+/** Area prompts, the biggest underneath, so smaller areas inside them stay visible; the active one on top. */
+const sortAreas = (areas) =>
+  areas.sort((a, b) => a.active - b.active || b.rect.width * b.rect.height - a.rect.width * a.rect.height)
+
+/**
+ * The label that follows the pointer: where the drop goes and what it connects to, and what it would replace.
+ */
+const dropText = computed(() => {
+  const owned = activeTarget.value?.area
+  // A node-owned cell's area is said by the cell's name.
+  const site = owned ? { ...owned, label: nameOf(owned.cellId) } : activeTarget.value?.site
+  if (!draggingId.value || !site) return null
+  const id = draggingId.value === 'library' ? null : draggingId.value
+  const labels = new Map(siteTargets.value.map((target) => [target.ref, target.label]))
+  const dragged = id ? main.findNode(id)?.data : libraryDrag.draggedType.value
+  // A library module's annotated ports are only made when it is added.
+  const isPorted = (data) => hasPorts(data) || (!id && !!libraryStore.getModuleAnnotations(data?.mathRef))
+  const text = dropLabel(
+    siteLabel(site, nameOf),
+    { name: id ? nameOf(id) : (dragged?.moduleRef?.split(':')[0] ?? 'the module'), hasPorts: isPorted(dragged) },
+    (owned ? [] : neighboursAt(site, id)).map(({ id: other, ref }) => ({
+      label: labels.get(ref) ?? ref,
+      name: nameOf(other),
+      hasPorts: hasPorts(main.findNode(other)?.data),
+    }))
+  )
+  const replaced = owned ? null : replacedOccupant(site, id)
+  return { text, replace: replaced ? `Replaces ${nameOf(replaced)}` : null }
+})
+/** The label that follows the pointer, where it is: only its place changes as the pointer moves. */
+const pointerLabel = computed(() => {
+  if (!dropText.value || !pointer.value) return null
+  const { x, y, zoom } = viewport.value
+  return { left: pointer.value.x * zoom + x + 18, top: pointer.value.y * zoom + y + 18, ...dropText.value }
 })
 
 /** Where a node's parent sits, so a child's position can be made absolute and back. */
@@ -508,8 +811,9 @@ function snapToSlot(change) {
     x: offset.x + change.position.x + width / 2,
     y: offset.y + change.position.y + height / 2,
   }
-  const target = targetAt(centre)
-  activeTarget.value = target
+  // A protein moved along its membrane keeps finding slots, not the membrane between them.
+  const target = targetAt(centre, { membrane: roles.value.get(change.id)?.role !== 'membraneProtein' })
+  trackDrag(centre, target)
   const slot = target?.slot ?? (target?.site?.type === 'slot' ? target.site : null)
   if (slot)
     change.position = {
@@ -613,8 +917,8 @@ function putBack(nodes) {
 
 /**
  * Keeps dragged nodes where they were put: in a membrane slot or on a template site, out of one, or just
- * moved. A dragged template piece moves its whole instance, in the same step. A node dropped on an occupied
- * one-module site goes there only once the user agrees to the replace.
+ * moved. A dragged template piece moves its whole instance, in the same step. A node bound to a template site
+ * is joined to the nodes on the sites next to it in that step too, once the user agrees to any replace.
  */
 async function onNodeDragStop({ nodes: dragged }) {
   // A membrane dragged moved its cell; a structure grabbed on its own left the rest of the selection alone.
@@ -627,9 +931,12 @@ async function onNodeDragStop({ nodes: dragged }) {
   const dropped = draggingId.value
   draggingId.value = null
   activeTarget.value = null
+  pointer.value = null
 
   const plan = new Map()
   const moves = new Map()
+  // The nodes that leave their place, whose placement edges to the neighbours they leave go.
+  const relocated = []
   const add = (entries) => entries.forEach((bioView, id) => plan.set(id, bioView))
   const positionOf = (moved) => {
     const node = findNode(moved.id) ?? moved
@@ -654,10 +961,14 @@ async function onNodeDragStop({ nodes: dragged }) {
     const place = layout.value.get(moved.id)
     // A template's name and pieces, and nodes bound to a template dragged with them, go with the template's move.
     if (moved.type === 'bioTemplateTitle' || moves.has(place?.instance)) continue
+    const isPlaced = moved.id === dropped && !!(target?.site || target?.slot || target?.area)
+    if (isPlaced || place?.instance || place?.kind === 'protein') relocated.push(moved.id)
     if (moved.id === dropped && target?.site) {
       add(planSiteBind({ id: moved.id, site: target.site, ...planContext() }))
     } else if (moved.id === dropped && target?.slot) {
       add(planSlotDrop({ id: moved.id, slot: target.slot, ...planContext() }))
+    } else if (moved.id === dropped && target?.area) {
+      add(planCellArea({ id: moved.id, area: target.area, layout: layout.value, bioViews: bioViews() }))
     } else if (place?.instance) {
       // Out of its template site, to where it was dropped.
       add(planUnbind({ id: moved.id, position: { x: at.x, y: at.y }, ...planContext() }))
@@ -682,7 +993,22 @@ async function onNodeDragStop({ nodes: dragged }) {
       }
     }
   }
-  applyPlan(plan, moves.size ? 'bio-template-move' : 'bio-layout', templateMoves(moves))
+  const type = moves.size ? 'bio-template-move' : 'bio-layout'
+  const owned = !binds && !!(target?.slot || target?.area) && nodes.some((moved) => moved.id === dropped)
+  const before = neighboursOf(relocated)
+  if (!binds && !owned && !before.size) return applyPlan(plan, type, templateMoves(moves))
+  // Out of the places they left, and onto a template site or node-owned cell joined to the neighbours there, in
+  // the same step.
+  history.startBatch()
+  try {
+    if (await applyPlan(plan, type, templateMoves(moves))) {
+      await dropStaleLinks(before)
+      if (binds) await connectToNeighbours(dropped, target.site)
+      else if (owned) await connectToCellNeighbours(dropped)
+    }
+  } finally {
+    history.endBatch(moves.size ? type : binds ? 'bio-bind' : 'bio-layout')
+  }
 }
 
 function onNodeDoubleClick({ node }) {
@@ -703,6 +1029,8 @@ function onNodeDoubleClick({ node }) {
 // ── Menus ──────────────────────────────────────────────────────────────
 const contextMenu = ref(null)
 const menuItems = ref([])
+/** Whether the view's menu is open, so Delete and Backspace leave the selection alone. */
+const isMenuOpen = ref(false)
 
 /** Sets some of a node's bioView fields, as one undo step. */
 function setChoice(id, patch, type) {
@@ -718,6 +1046,24 @@ function trayPosition() {
   return {
     x: left - 2 * GAP - GLYPH_WIDTH,
     y: top + loose * (GLYPH_HEIGHT + 32),
+  }
+}
+
+/**
+ * Takes a node out of its place by a plan, without the placement edges to the neighbours it leaves, as one step.
+ *
+ * @param {string} id
+ * @param {Map<string, Object>} plan - From planUnbind or planUnplace.
+ * @param {string} type - The command type.
+ * @returns {Promise<void>}
+ */
+async function takeOut(id, plan, type) {
+  const before = neighboursOf([id])
+  history.startBatch()
+  try {
+    if (await applyPlan(plan, type)) await dropStaleLinks(before)
+  } finally {
+    history.endBatch(type)
   }
 }
 
@@ -779,29 +1125,272 @@ async function onRenameNodeConfirm() {
   renamingNode.value = null
 }
 
-/** The Add Template submenu: the built-in templates. */
-function addTemplateMenu(at) {
-  return templateStore.library.map((template) => ({
-    label: template.name,
-    command: () => placeTemplate(template.id, at),
-  }))
+// ── Adding to a placed template ────────────────────────────────────────
+/** How the edges a protein site can be added along read in the menu. */
+const EDGE_LABELS = { top: 'Top', bottom: 'Bottom', left: 'Left', right: 'Right' }
+
+/** Naming a compartment added to a placed template: { instance, against, label }. */
+const naming = ref(null)
+
+/** The template a placed instance draws, with its own changes. */
+const placedTemplate = (instanceId) => {
+  const instance = templateStore.getInstance(instanceId)
+  return instance ? instanceTemplate(instance, templateStore.definitions) : null
 }
 
-/** The menu items for the template instance a piece belongs to. */
-function templateMenu(instanceId) {
+/**
+ * Adds an empty piece to one placed template, as one step, or says why it doesn't fit.
+ *
+ * @param {string} instanceId
+ * @param {'facets'|'processes'|'compartments'} kind
+ * @param {Object} piece - As in a template file, with `cell` for a facet or process.
+ * @returns {Promise<boolean>|undefined}
+ */
+function addPiece(instanceId, kind, piece) {
+  const instance = templateStore.getInstance(instanceId)
+  const template = instance && templateStore.definitions.get(instance.template)
+  if (!template) return
+  const { edits, errors } = addToEdits(template, instance.edits ?? null, kind, piece)
+  if (!edits) return notify.error({ title: 'Could not add it to the template', message: summariseProblems(errors) })
+  return editTemplate(instanceId, edits)
+}
+
+function onNamingConfirm() {
+  const { instance, against, label } = naming.value
+  naming.value = null
+  const template = placedTemplate(instance)
+  if (!template) return
+  const used = new Set(template.compartments.map((compartment) => compartment.tone))
+  addPiece(instance, 'compartments', {
+    id: freePieceId(template, 'compartment', undefined, templateStore.getInstance(instance)?.edits?.removed),
+    label: label.trim() || 'Compartment',
+    against: [against],
+    tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
+  })
+}
+
+/** What can be added to a placed template's cell: a protein site on a free edge, a compartment, a process zone. */
+function addToCellMenu(instanceId, cellId) {
+  const template = placedTemplate(instanceId)
+  const cell = template?.cells.find((entry) => entry.id === cellId)
+  if (!cell) return []
+  const free = EDGES.filter((edge) => !cell.facets.some((facet) => facet.edge === edge))
+  const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
+  const zone = freePieceId(template, 'zone', cellId, removed)
+  return [
+    {
+      label: 'Add Protein Site',
+      icon: 'pi pi-plus',
+      disabled: !free.length,
+      items: free.map((edge) => ({
+        label: EDGE_LABELS[edge],
+        command: () =>
+          addPiece(instanceId, 'facets', {
+            cell: cellId,
+            id: freePieceId(template, 'site', cellId, removed),
+            label: `Protein site (${edge})`,
+            edge,
+          }),
+      })),
+    },
+    {
+      label: 'Add Compartment…',
+      icon: 'pi pi-stop',
+      items: cell.facets.map((facet) => ({
+        label: facet.label,
+        command: () => (naming.value = { instance: instanceId, against: `${cellId}.${facet.id}`, label: '' }),
+      })),
+    },
+    {
+      label: 'Add Process Zone',
+      icon: 'pi pi-box',
+      disabled: cell.processes.length >= LIMITS.processes,
+      command: () =>
+        addPiece(instanceId, 'processes', { cell: cellId, id: zone, label: `Process zone ${zone.split('-')[1]}` }),
+    },
+  ]
+}
+
+// ── Removing from a placed template ────────────────────────────────────
+/**
+ * Removes a piece from one placed template, as one step, asking first when modules are bound to it or to what
+ * goes with it. They stay in the diagram: proteins go to the tray, the rest where their roles put them.
+ *
+ * @param {string} instanceId
+ * @param {string} path - The piece's path in the template.
+ * @param {string} label - What the piece is called.
+ * @returns {Promise<void>}
+ */
+async function removePiece(instanceId, path, label) {
+  const instance = templateStore.getInstance(instanceId)
+  const template = instance && templateStore.definitions.get(instance.template)
+  if (!template) return
+  const { edits, errors } = removeFromEdits(template, instance.edits ?? null, path)
+  if (errors.length) {
+    notify.error({ title: `Could not remove ${label}`, message: summariseProblems(errors) })
+    return
+  }
+  const stranded = strandedBy(instanceId, edits)
+  if (stranded.length) {
+    const names = stranded.map((node) => nameOf(node.id)).join(', ')
+    isConfirming.value = true
+    try {
+      const answer = await choose({
+        header: 'Remove from template?',
+        message:
+          `Modules are placed on ${label}: ${names}. They stay in the diagram, without the connections ` +
+          'their places there made; proteins go to the tray.',
+        severity: 'warning',
+        acceptLabel: 'Remove',
+        rejectLabel: 'Cancel',
+      })
+      if (answer !== 'accept') return
+    } finally {
+      isConfirming.value = false
+    }
+  }
+  // The modules it strands lose the placement edges to the neighbours they had there, in the same step.
+  const before = neighboursOf(stranded.map((node) => node.id))
+  history.startBatch()
+  try {
+    if (await editTemplate(instanceId, edits, 'bio-template-remove-piece')) await dropStaleLinks(before)
+  } finally {
+    history.endBatch('bio-template-remove-piece')
+  }
+}
+
+/** Brings back what was removed from a placed template, keeping what was added, as one step. */
+function restorePieces(instanceId) {
+  const instance = templateStore.getInstance(instanceId)
+  const template = instance && templateStore.definitions.get(instance.template)
+  if (!template) return
+  const edits = normaliseEdits({ added: instance.edits?.added })
+  const { errors } = editedTemplate(template, edits)
+  if (errors.length) {
+    notify.error({ title: 'Could not restore the removed elements', message: summariseProblems(errors) })
+    return
+  }
+  editTemplate(instanceId, edits, 'bio-template-restore')
+}
+
+/** What can be removed from a placed template's piece: a compartment, or a cell or any of its parts. */
+function removeFromTemplateMenu(instanceId, place) {
+  const template = placedTemplate(instanceId)
+  const remove = (path, label) => ({ label, command: () => removePiece(instanceId, path, label) })
+  const item = { label: 'Remove from This Template', icon: 'pi pi-minus-circle' }
+  if (place.kind === 'region') {
+    const compartment = template?.compartments.find((entry) => entry.id === place.path)
+    return compartment ? [{ ...item, command: remove(place.path, compartment.label).command }] : []
+  }
+  const cell = template?.cells.find((entry) => entry.id === place.path)
+  if (!cell) return []
+  const part = (piece) => remove(`${cell.id}.${piece.id}`, piece.label)
+  return [
+    {
+      ...item,
+      items: [
+        remove(cell.id, `${cell.label} (whole cell)`),
+        ...(cell.membrane ? [remove(`${cell.id}.${MEMBRANE}`, cell.membrane.label)] : []),
+        ...cell.facets.map(part),
+        ...cell.processes.map(part),
+      ],
+    },
+  ]
+}
+
+// ── Template files ─────────────────────────────────────────────────────
+const templateFileInput = ref(null)
+/** Where a template loaded from a file goes, in flow coordinates. */
+let templateFileAt = null
+
+function loadTemplateFile(at) {
+  templateFileAt = at
+  templateFileInput.value?.click()
+}
+
+/** Adds the chosen template file to the user's templates and places it, or says what is wrong with it. */
+async function onTemplateFile(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  const at = templateFileAt ?? { x: 0, y: 0 }
+  const { raw, errors: parseErrors } = await readTemplateFile(file)
+  const { template, errors, warnings } = parseErrors.length
+    ? { template: null, errors: parseErrors, warnings: [] }
+    : templateStore.addLocalTemplate(raw)
+  if (!template) {
+    notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
+    return
+  }
+  placeTemplate(template.id, at)
+  if (warnings.length) notify.warning({ title: `Loaded ${template.name}`, message: summariseProblems(warnings) })
+}
+
+/** Downloads a template as a file anyone can load. */
+function saveTemplateFile(template) {
+  const { filename, text } = templateFile(template)
+  legacyDownload(filename, new Blob([text], { type: 'application/json' }))
+}
+
+/** The Add Template submenu: built-ins, then the user's own, then loading and removing theirs. */
+function addTemplateMenu(at) {
+  const place = (template) => ({ label: template.name, command: () => placeTemplate(template.id, at) })
+  const builtIn = templateStore.library.filter((template) => !isLocalTemplateId(template.id))
+  const own = templateStore.localTemplates
+  return [
+    ...builtIn.map(place),
+    { separator: true },
+    ...own.map(place),
+    { label: 'Load Template File…', icon: 'pi pi-upload', command: () => loadTemplateFile(at) },
+    ...(own.length
+      ? [
+          {
+            label: 'Remove from My Templates',
+            icon: 'pi pi-trash',
+            items: own.map((template) => ({
+              label: template.name,
+              command: () => templateStore.removeLocalTemplate(template.id),
+            })),
+          },
+        ]
+      : []),
+  ]
+}
+
+/**
+ * The menu items for the template instance a piece belongs to.
+ *
+ * @param {string} instanceId
+ * @param {Object} [place] - The piece's place, for what can be added to it.
+ * @returns {Array<Object>}
+ */
+function templateMenu(instanceId, place = null) {
   const instance = templateStore.getInstance(instanceId)
   if (!instance) return []
-  const definition = templateStore.getDefinition(instance.template)
+  const definition = placedTemplate(instanceId)
   const name = definition?.name ?? instance.template
+  const isPiece = place?.instance === instanceId && !!place.path
   return [
     { separator: true },
+    ...(place?.kind === 'cell' && isPiece ? addToCellMenu(instanceId, place.path) : []),
+    ...(isPiece ? removeFromTemplateMenu(instanceId, place) : []),
+    ...(instance.edits?.removed?.length
+      ? [{ label: 'Restore Removed Elements', icon: 'pi pi-undo', command: () => restorePieces(instanceId) }]
+      : []),
+    ...(isPiece || instance.edits?.removed?.length ? [{ separator: true }] : []),
     {
       label: 'Rename Template…',
       icon: 'pi pi-pencil',
       command: () => (renaming.value = { id: instanceId, label: instance.label ?? '', placeholder: name }),
     },
     { label: 'Re-layout Template', icon: 'pi pi-th-large', command: () => relayoutTemplate(instanceId) },
-    { label: 'Remove Template', icon: 'pi pi-trash', command: () => removeTemplate(instanceId) },
+    {
+      label: 'Save Template As File…',
+      icon: 'pi pi-download',
+      disabled: !definition,
+      command: () => saveTemplateFile(definition),
+    },
+    { label: 'Delete Template', icon: 'pi pi-trash', command: () => removeTemplate(instanceId) },
   ]
 }
 
@@ -809,10 +1398,11 @@ function onNodeContextMenu({ event, node }) {
   event.preventDefault()
   const instance = pieceOf(node.id) ?? (node.type === 'bioTemplateTitle' ? node.data.instance : null)
   // An empty template piece, or a template's name, is no diagram node: only its template's menu.
+  const place = layout.value.get(node.id)
   if (!main.findNode(node.id)) {
     if (!instance) return
     const here = newModuleItem(event)
-    menuItems.value = [...here, ...templateMenu(instance).slice(here.length ? 0 : 1)]
+    menuItems.value = [...here, ...templateMenu(instance, place).slice(here.length ? 0 : 1)]
     contextMenu.value.show(event)
     return
   }
@@ -850,11 +1440,10 @@ function onNodeContextMenu({ event, node }) {
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
   if (role?.role === 'region' && !role.site) items.push(liesAgainstMenu(node.id, role))
-  const place = layout.value.get(node.id)
   // Bound to a template site that is there: unbinding goes where its role puts it, a protein to the tray.
   const site = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
   const unbind = (type) =>
-    applyPlan(planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), type)
+    takeOut(node.id, planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), type)
   if (place?.kind === 'protein') {
     items.push({
       label: 'Take Out of Membrane',
@@ -862,7 +1451,7 @@ function onNodeContextMenu({ event, node }) {
       command: () =>
         site
           ? unbind('bio-unbind')
-          : applyPlan(planUnplace({ id: node.id, position: trayPosition(), ...planContext() }), 'bio-take-out'),
+          : takeOut(node.id, planUnplace({ id: node.id, position: trayPosition(), ...planContext() }), 'bio-take-out'),
     })
   }
   if (site) {
@@ -878,8 +1467,45 @@ function onNodeContextMenu({ event, node }) {
       }
     )
   }
-  if (instance) items.push(...templateMenu(instance))
+  items.push(
+    { separator: true },
+    {
+      label: deletionLabel(node.id, main.nodes.value),
+      icon: 'pi pi-trash',
+      command: () => deleteNodes(deletionScope(node.id, main.nodes.value)),
+    }
+  )
+  if (instance) items.push(...templateMenu(instance, place))
   menuItems.value = items
+  contextMenu.value.show(event)
+}
+
+/**
+ * Deletes instances from the workspace, with their edges, as the diagram's Delete does: one undo step.
+ *
+ * @param {Array<string>} ids - Diagram node ids.
+ * @returns {Promise<boolean>} Whether anything was asked to go.
+ */
+const deleteNodes = (ids) =>
+  deleteInstances(
+    ids.filter((id) => main.findNode(id)),
+    { removeNodes: main.removeNodes, history }
+  )
+
+/** Deletes the selected instances, for the workspace's Delete and Backspace keys. */
+const deleteSelection = () => deleteNodes(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
+
+/** A shown connection's menu: delete it, as the diagram would. */
+function onEdgeContextMenu({ event, edge }) {
+  event.preventDefault()
+  if (!props.disconnectInstances || !main.findEdge(edge.id)) return
+  menuItems.value = [
+    {
+      label: 'Delete Connection',
+      icon: 'pi pi-trash',
+      command: () => deleteConnection(edge.id, { disconnectInstances: props.disconnectInstances, history }),
+    },
+  ]
   contextMenu.value.show(event)
 }
 
@@ -948,12 +1574,12 @@ function onModuleDragOver(event) {
   event.preventDefault()
   const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   draggingId.value = 'library'
-  activeTarget.value = targetAt(point)
+  trackDrag(point, targetAt(point))
 }
 
 function onModuleDragLeave(event) {
   if (event.currentTarget.contains(event.relatedTarget)) return
-  if (draggingId.value === 'library') draggingId.value = activeTarget.value = null
+  if (draggingId.value === 'library') draggingId.value = activeTarget.value = pointer.value = null
 }
 
 /**
@@ -971,7 +1597,7 @@ async function onModuleDrop(event) {
   libraryDrag.isDragOver.value = false
   const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   const target = targetAt(point)
-  draggingId.value = activeTarget.value = null
+  draggingId.value = activeTarget.value = pointer.value = null
 
   if (target) {
     const { site } = target
@@ -1001,23 +1627,30 @@ async function onModuleDrop(event) {
 }
 
 /**
- * Adds an instance of a library module on a template site or in a node-owned cell's slot, as one step.
+ * Adds an instance of a library module on a template site, or in a node-owned cell's slot, membrane or inside,
+ * joined to its neighbours there, as one step.
  *
  * @param {Object} module - A library module.
- * @param {{site: Object}|{slot: Object}} target - From targetAt.
+ * @param {{site: Object}|{slot: Object}|{area: Object}} target - From targetAt.
  * @returns {Promise<void>}
  */
-async function addModuleAt(module, { site, slot }) {
+async function addModuleAt(module, { site, slot, area }) {
   history.startBatch()
   try {
-    if (site) {
+    if (area) {
+      // A node-owned cell's membrane, or a process in it.
+      const id = props.createInstance(module, { role: area.role, cell: area.cellId })
+      await connectToCellNeighbours(id)
+    } else if (site) {
       // An instance of the module, bound to the site; planned against the sites as they were drawn.
       const id = props.createInstance(module, { role: site.role, facet: null })
       await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
+      await connectToNeighbours(id, site)
     } else {
       // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
       const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
       await applyPlan(slotPlan(id, slot), 'bio-add')
+      await connectToCellNeighbours(id)
     }
   } finally {
     history.endBatch('bio-add')
@@ -1068,8 +1701,10 @@ onBeforeUnmount(() => {
 })
 
 /** Whether one of the view's dialogs is open, so the workspace's shortcuts wait. */
-const isDialogOpen = computed(() => !!placing.value || !!renaming.value || !!renamingNode.value || isConfirming.value)
-defineExpose({ isDialogOpen })
+const isDialogOpen = computed(
+  () => !!placing.value || !!renaming.value || !!renamingNode.value || !!naming.value || isConfirming.value
+)
+defineExpose({ isDialogOpen, isMenuOpen, deleteSelection })
 
 /** A new cell's rect, centred where it was put. */
 const cellRectAt = (at) => ({ x: at.x - MIN_CELL.width / 2, y: at.y - MIN_CELL.height / 2, ...MIN_CELL })
@@ -1082,7 +1717,11 @@ async function onPlaceConfirm(choice) {
   if (mode === 'assign') {
     const { id, at } = placing.value
     placing.value = null
-    return endAssign(() => assignRole(id, at, choice))
+    return endAssign(async () => {
+      await assignRole(id, at, choice)
+      // Put on a node-owned cell, it joins its neighbours there in the same step.
+      if (choice.cell || choice.placement) await connectToCellNeighbours(id)
+    })
   }
   const { moduleRef, membraneRef, placement } = choice
   const { at } = placing.value
@@ -1095,8 +1734,13 @@ async function onPlaceConfirm(choice) {
         rect: cellRectAt(at),
         added: true,
       })
-      if (membraneRef)
-        props.createInstance(libraryStore.availableModules.get(membraneRef), { role: 'membrane', cell: cellId })
+      if (membraneRef) {
+        const membraneId = props.createInstance(libraryStore.availableModules.get(membraneRef), {
+          role: 'membrane',
+          cell: cellId,
+        })
+        await connectToCellNeighbours(membraneId)
+      }
     } finally {
       history.endBatch()
     }
@@ -1162,16 +1806,9 @@ function assignRole(id, at, { role, cell, placement }) {
 .bio-slot-prompt rect {
   fill: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
   stroke: var(--p-primary-color);
-  stroke-width: 2;
+  stroke-width: 1.5;
   stroke-dasharray: 6 4;
-  opacity: 0.6;
-}
-
-.bio-slot-prompt--active rect {
-  fill: color-mix(in srgb, var(--bio-drop-active) 25%, transparent);
-  stroke: var(--bio-drop-active);
-  stroke-dasharray: none;
-  opacity: 1;
+  opacity: 0.55;
 }
 
 .bio-slot-prompt__plus {
@@ -1181,7 +1818,12 @@ function assignRole(id, at, { role, cell, placement }) {
   stroke-linecap: round;
 }
 
-.bio-site-prompt rect {
+.bio-slot-prompt--active .bio-slot-prompt__plus {
+  stroke: var(--bio-drop-active);
+}
+
+.bio-site-prompt rect,
+.bio-site-prompt path {
   fill: none;
   stroke: var(--p-primary-color);
   stroke-width: 1.5;
@@ -1189,46 +1831,68 @@ function assignRole(id, at, { role, cell, placement }) {
   opacity: 0.45;
 }
 
-.bio-site-prompt text {
-  font-size: 12px;
-  fill: var(--p-primary-color);
-  opacity: 0.7;
+/* A cell's membrane is a striped band along its outline, as wide as a drop on it reaches (set inline) */
+.bio-site-prompt--membrane path {
+  stroke-dasharray: 3 3;
+  opacity: 0.35;
 }
 
-.bio-site-prompt--membrane rect {
-  fill: var(--p-content-background);
-  opacity: 0.8;
+/* A cell's inside is a tint within the membrane's band */
+.bio-site-prompt--cell path {
+  fill: color-mix(in srgb, var(--p-primary-color) 6%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
 }
 
-.bio-site-prompt--membrane text {
-  font-size: 11px;
-}
-
-.bio-site-prompt--active rect {
+/* The one the drop goes to: solid, in a colour of its own */
+.bio-slot-prompt--active rect,
+.bio-site-prompt--active rect,
+.bio-site-prompt--active path {
   fill: color-mix(in srgb, var(--bio-drop-active) 14%, transparent);
   stroke: var(--bio-drop-active);
-  stroke-width: 2.5;
+  stroke-width: 3;
   stroke-dasharray: none;
   opacity: 1;
 }
 
-.bio-site-prompt--active text {
-  fill: var(--bio-drop-active);
-  font-weight: 600;
-  opacity: 1;
+.bio-site-prompt--membrane.bio-site-prompt--active path {
+  fill: none;
+  opacity: 0.6;
 }
 
-/* The drop's own target, in green: adding goes here */
+.bio-site-prompt--cell.bio-site-prompt--active path {
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+/* The drop's own target, in green: adding goes here. The workspace places the root absolutely, so the drop label
+   is placed in it. */
 .bio-flow-root {
   --bio-drop-active: var(--p-green-600);
+}
+
+.bio-drop-label {
+  position: absolute;
+  z-index: 10;
+  max-width: 360px;
+  padding: 4px 8px;
+  border: 1px solid var(--bio-drop-active);
+  border-radius: 6px;
+  background: var(--p-content-background);
+  color: var(--p-text-color);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 15%);
 }
 
 .bio-rename-error {
   color: var(--p-red-500);
 }
 
-.bio-site-prompt__replace {
+.bio-drop-label__replace {
   font-style: italic;
+  color: var(--p-text-muted-color);
 }
 </style>
 
