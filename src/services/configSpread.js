@@ -2,12 +2,14 @@
  * What updating a module does to its other instances: the edited instance's ports and variable kinds spread to them.
  * Kept apart from moduleConfig, which imports the node builders, so the save composable can use it.
  */
+import { isAnnotatedPort } from '../utils/portIdentity'
 import { detachReactivity } from '../utils/reactivity'
 
 /**
  * Gets the ports and rows another instance takes when updating a module spreads an instance's config to it: the
- * config's ports, without the connection dialog's per-node ids, and its own rows with the config's units, access and
- * types, plus the config's rows it lacks, blank. Its values stay its own.
+ * config's manual ports, without the connection dialog's per-node ids, with its own annotated ports, which its
+ * side-car gives it, and its own rows with the config's units, access and types, plus the config's rows it lacks,
+ * blank. Its values stay its own.
  *
  * @param {Object} node - The instance the config spreads to.
  * @param {{ports: Array, variables: Array}} config - The edited instance's ports and rows.
@@ -23,7 +25,11 @@ export function spreadConfig(node, { ports, variables }) {
   const added = variables
     .filter((row) => !names.has(row.name))
     .map(({ name, units, access, type }) => ({ name, value: null, units, access, type, data_reference: null }))
-  return { ports: detachReactivity(ports ?? []).map(({ _uid, ...port }) => port), variables: [...rows, ...added] }
+  const manual = detachReactivity(ports ?? [])
+    .filter((port) => !isAnnotatedPort(port))
+    .map(({ _uid, ...port }) => port)
+  const annotated = detachReactivity(node.data?.ports ?? []).filter(isAnnotatedPort)
+  return { ports: [...manual, ...annotated], variables: [...rows, ...added] }
 }
 
 /**

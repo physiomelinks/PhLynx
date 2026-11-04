@@ -4,6 +4,7 @@ import { resolveBoundaryValues, storeOptions } from '../services/export/boundary
 import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import { couplingUnitConflicts } from './couplingUnits.js'
+import { portDisplayName } from './portIdentity.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -1133,7 +1134,7 @@ function stripCelsiusToArbitraryUnit(xmlString) {
 function requireVariable(component, varName, port) {
   const variable = component.variableByName(varName)
   if (variable) return variable
-  const portName = port ? port.label || varName : ''
+  const portName = port ? portDisplayName(port) || varName : ''
   throw new Error(
     `Cannot connect "${component.name()}": it has no variable "${varName}"${portName ? ` (port "${portName}")` : ''}.`
   )

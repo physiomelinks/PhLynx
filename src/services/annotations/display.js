@@ -1,5 +1,6 @@
 /**
- * What annotation chips and their detail show: chip texts from the label provider, never stored as a port label.
+ * What annotation chips and their detail show: chip texts from the label provider (never stored as a port
+ * label), and readable places for resolved quantities.
  */
 
 import { canonicalCurie, expandCurie } from './iris.js'
@@ -57,7 +58,7 @@ export function termDetail(iriOrCurie) {
 /**
  * The chips of an annotation, in order: its species, its property, then its location.
  *
- * @param {{ property?: string, species?: string[], location?: string|null }} annotation
+ * @param {{ property?: string, species?: string[], location?: string|null, absoluteLocation?: Object }} annotation
  * @param {Object} [options]
  * @param {string} [options.selfName] - What the module is, for its own place (see locationText).
  * @returns {Array<{ kind: 'species'|'property'|'location', text: string, curie?: string }>}
@@ -72,9 +73,38 @@ export function annotationChips(annotation, { selfName } = {}) {
   const property = annotation.property
     ? [{ kind: 'property', text: displayLabel(annotation.property), curie: canonicalCurie(annotation.property) }]
     : []
-  const location = { kind: 'location', text: locationText(annotation.location, selfName) }
+  const location =
+    annotation.location || !annotation.absoluteLocation
+      ? { kind: 'location', text: locationText(annotation.location, selfName) }
+      : { kind: 'location', text: placeText(annotation.absoluteLocation) }
   if (annotation.location && !annotation.location.startsWith('self')) location.curie = annotation.location
   return [...species, ...property, location]
+}
+
+/**
+ * A resolved place as text: its label, else its key, with its facets, e.g. 'apical fluid (apical)'.
+ *
+ * @param {{ key: string, label?: string, facets?: string[] }} place
+ * @returns {string}
+ */
+export function placeText(place) {
+  const text = place?.label ?? place?.key ?? 'unresolved'
+  return place?.facets?.length ? `${text} (${place.facets.join(', ')})` : text
+}
+
+/**
+ * The places a resolved quantity has, for its detail.
+ *
+ * @param {{ locations?: Array<{ key: string, label?: string, facets?: string[], path?: string[],
+ *   unresolved?: boolean }> }|null} quantity - From quantityOfPort.
+ * @returns {Array<{ text: string, path: string, unresolved: boolean }>}
+ */
+export function resolvedPlaces(quantity) {
+  return (quantity?.locations ?? []).map((place) => ({
+    text: placeText(place),
+    path: (place.path ?? []).join(' → '),
+    unresolved: !!place.unresolved,
+  }))
 }
 
 /**

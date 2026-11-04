@@ -17,6 +17,8 @@ import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { seedInstance, seedRefFor } from '../utils/parameters/seed'
 import { NO_PARAMETER_SET } from '../utils/parameters/sets'
 import { extractGlobalConstants } from '../utils/variables'
+import { variableNamesOf } from '../services/annotations/nodeData'
+import { reconcileAnnotatedPorts } from '../services/annotations/ports'
 
 /**
  * In a real world scenario you'd want to avoid creating refs in a global scope like this as they might not be cleaned up properly.
@@ -53,6 +55,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
 
     draggedType.value = module
     isDragging.value = true
+    if (module?.mathRef) store.ensureModuleAnnotations(module.mathRef).catch(() => {})
 
     document.addEventListener('drop', onDragEnd)
   }
@@ -83,6 +86,18 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     isDragOver.value = false
     draggedType.value = null
     document.removeEventListener('drop', onDragEnd)
+  }
+
+  /**
+   * Gives a new node's ports one side-car port per complete annotation of its math.
+   *
+   * @param {Object} data - The node's data.
+   * @param {Object} sidecar - From parseSidecar.
+   * @returns {Array<Object>} The ports.
+   */
+  function buildSidecarPorts(data, sidecar) {
+    const variables = variableNamesOf(data)
+    return reconcileAnnotatedPorts(data.ports ?? [], sidecar, { mathRef: data.mathRef, variables }).ports
   }
 
   /**
@@ -117,6 +132,15 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     if (moduleData.parameterisation === NO_PARAMETER_SET && flowId === FLOW_IDS.MAIN && nodeType === MAIN_NODE_TYPE) {
       const set = defaultParameters.addInstanceSet(moduleData.mathRef, nodeId, finalName, newNode.data.variables)
       newNode.data.parameterisation = set.ref
+    }
+
+    const hasSidecar = store.getModuleAnnotations(moduleData.mathRef) !== null
+    const sidecar = hasSidecar ? store.getParsedModuleAnnotations(moduleData.mathRef) : null
+    if (sidecar) newNode.data.ports = buildSidecarPorts(newNode.data, sidecar)
+    else if (hasSidecar) {
+      store.ensureModuleAnnotations(moduleData.mathRef).then((parsed) => {
+        if (parsed) updateNode(nodeId, (node) => ({ data: { ...node.data, ports: buildSidecarPorts(node.data, parsed) } }))
+      })
     }
 
     const globalConstants = extractGlobalConstants(newNode.data.variables)

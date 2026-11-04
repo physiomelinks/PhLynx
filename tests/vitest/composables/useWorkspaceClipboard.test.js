@@ -36,7 +36,7 @@ const MODULE_REF = 'mod:decay'
 const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
   <component name="decay">
     <variable name="t" units="second" interface="public_and_private"/>
-    <variable name="x" units="metre" initial_value="1"/>
+    <variable name="x" units="metre" initial_value="1" id="vdecayx01"/>
     <variable name="k" units="per_second" initial_value="0.5"/>
     <math xmlns="http://www.w3.org/1998/Math/MathML">
       <apply><eq/>
@@ -46,6 +46,18 @@ const DECAY_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay"
     </math>
   </component>
 </model>`
+
+const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix sbo: <https://identifiers.org/sbo/SBO:> .
+@prefix m: <./file#> .
+@prefix local: <./decay.ttl#> .
+m:decay bqbiol:is sbo:0000290 .
+local:entity_self bqbiol:is sbo:0000290 .
+m:vdecayx01 bqbiol:isVersionOf opb:00154 ; bqbiol:isPropertyOf local:entity_self .
+`
+const X_SUBJECT = 'https://phlynx.invalid/modules/file#vdecayx01'
 
 const createNode = (id, name, x, y, extra = {}) => ({
   id,
@@ -292,6 +304,30 @@ describe('useWorkspaceClipboard', () => {
       }
     })
 
+    it('keeps the annotation overlay on pasted nodes', async () => {
+      const overlay = { heldConstant: true }
+      findNode('dndnode_0').data = { ...findNode('dndnode_0').data, annotationOverlay: overlay }
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      await clipboard.pasteSelection()
+
+      expect(nodes.value.at(-1).data.annotationOverlay).toEqual({ heldConstant: true })
+    })
+
+    it('restores the module side-car into a fresh library', async () => {
+      library.setModuleAnnotations(MATH_REF, '# side-car')
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      setActivePinia(createPinia())
+      const freshLibrary = useLibraryStore()
+      nodes.value = []
+      edges.value = []
+      await createClipboard().pasteSelection()
+      expect(freshLibrary.getModuleAnnotations(MATH_REF)).toBe('# side-car')
+    })
+
     it('gives pasted nodes new unique ids and names, and selects only them', async () => {
       select(['dndnode_0', 'dndnode_1'])
       await clipboard.copySelection()
@@ -477,6 +513,24 @@ describe('useWorkspaceClipboard', () => {
       expect(shouldIgnoreShortcut(eventOn('INPUT', closest), false)).toBe(true)
       expect(shouldIgnoreShortcut(eventOn('DIV', closest), true)).toBe(true)
       expect(closest).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('side-car ports', () => {
+    it('gives pasted nodes the side-car ports of their math here, keeping label ports', async () => {
+      const labelPort = { portType: 'general_ports', label: 'p', variables: ['x'], multiportType: 'None' }
+      findNode('dndnode_0').data = { ...findNode('dndnode_0').data, variables: [{ name: 'x' }], ports: [labelPort] }
+      library.setModuleAnnotations(MATH_REF, DECAY_SIDECAR)
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+      const beforeIds = nodes.value.map((node) => node.id)
+
+      await clipboard.pasteSelection()
+
+      const [pasted] = pastedNodes(beforeIds)
+      expect(pasted.data.ports[0]).toEqual(labelPort)
+      expect(pasted.data.ports.map((port) => port.annotation?.subject)).toEqual([undefined, X_SUBJECT])
+      expect(findNode('dndnode_0').data.ports).toEqual([labelPort])
     })
   })
 })

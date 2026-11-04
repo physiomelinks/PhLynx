@@ -6,7 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { generateOmexArchive } from '../../../../src/services/compress.js'
 import { COMBINED_ANNOTATIONS_LOCATION, OMEX_METADATA_FORMAT, collectAnnotationFiles } from '../../../../src/services/export/annotationsRdf.js'
 import { importOmexFile, readArchiveEntries } from '../../../../src/services/import/omex.js'
-import { restoreOmexAnnotations } from '../../../../src/services/import/omexAnnotations.js'
+import { buildRestoredPorts, restoreOmexAnnotations } from '../../../../src/services/import/omexAnnotations.js'
 import { useLibraryStore } from '../../../../src/stores/libraryStore.js'
 import { PHLYNX_PROJECT_VERSION } from '../../../../src/utils/constants.js'
 import { generateFlattenedModel } from '../../../../src/utils/cellml.js'
@@ -89,5 +89,27 @@ describe('OMEX export and import of annotations', () => {
     expect(formatOf('notes/readme.txt')).toBe('text/plain')
     expect(formatOf('metadata/other.ttl')).toBe('text/turtle')
     expect(formatOf('flow-snapshot.json')).toBe('application/x.vnd.phlynx-flow+json')
+  })
+})
+
+describe('buildRestoredPorts', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  it('gives nodes on a restored side-car math its side-car ports, and leaves the rest', async () => {
+    const library = useLibraryStore()
+    library.addMath('pool.cellml:pool', readToy('pool.cellml'))
+    library.setModuleAnnotations('pool.cellml:pool', readToy('pool.ttl'))
+    const variables = ['c_A', 'v_A', 'volume', 'area'].map((name) => ({ name }))
+    const nodes = [
+      { id: 'p', data: { mathRef: 'pool.cellml:pool', variables, ports: [] } },
+      { id: 'w', data: { mathRef: 'wall.cellml:wall', variables: [{ name: 'u' }], ports: [] } },
+    ]
+
+    const ports = await buildRestoredPorts(nodes, [{ mathRef: 'pool.cellml:pool' }], library)
+
+    expect([...ports.keys()]).toEqual(['p'])
+    expect(ports.get('p').every((port) => port.annotation.source.kind === 'sidecar')).toBe(true)
+    expect(ports.get('p').length).toBeGreaterThan(0)
+    expect(nodes[0].data.ports).toEqual([])
   })
 })

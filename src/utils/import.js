@@ -436,7 +436,7 @@ const acceptOf = (fileTypes) => fileTypes.flatMap((type) => Object.values(type.a
  * Reads a module sidecar: Turtle annotating one math component.
  *
  * @param {File} file
- * @returns {Promise<{ text: string }>}
+ * @returns {Promise<{ text: string, mathRef: string }>} mathRef is the component the sidecar annotates.
  */
 const parseSidecarFile = async (file) => {
   const text = await readText(file)
@@ -447,7 +447,7 @@ const parseSidecarFile = async (file) => {
     throw new Error(`Invalid Turtle: ${error.message}`)
   }
   if (!component) throw new Error('No single annotated component (uniprot, GO:0005886 or SBO:0000290) found.')
-  return { text }
+  return { text, mathRef: component.mathRef }
 }
 
 const parseOMEX = (file) => {

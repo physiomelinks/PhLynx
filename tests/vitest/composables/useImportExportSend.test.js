@@ -314,6 +314,11 @@ describe('useImportExportSend import options', () => {
     expect(importLabels()).toContain('CellML File')
   })
 
+  it('offers module annotations next to the archive import', () => {
+    const labels = importLabels()
+    expect(labels.indexOf('Module Annotations')).toBe(labels.indexOf('COMBINE Archive') - 1)
+  })
+
   it('leaves CellDL diagrams out of builds that can not, such as Electron', () => {
     getModuleFormat.mockReturnValueOnce({ id: 'celldl', isAvailable: false })
     expect(importLabels()).not.toContain('CellDL Diagram')

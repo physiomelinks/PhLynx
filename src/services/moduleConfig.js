@@ -1,4 +1,5 @@
 import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../utils/config'
+import { isAnnotatedPort } from '../utils/portIdentity'
 import { detachReactivity } from '../utils/reactivity'
 import { syncInitialiserUnits } from '../utils/variables'
 import { isSoleOwnConfig } from './configOwnership'
@@ -6,7 +7,8 @@ import { buildInstance } from './import/buildWorkflow'
 import { getModuleFormat } from './moduleFormats'
 
 /**
- * Makes a module's CA config entry.
+ * Makes a module's CA config entry. Annotated ports are left out: each instance's side-car gives them, and CA pairs
+ * ports by label, which they have none of, so they are never part of a config.
  *
  * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module;
  *   its library module gives `default_parameterisation` when it names none.
@@ -14,7 +16,7 @@ import { getModuleFormat } from './moduleFormats'
  * @returns {Object}
  */
 export function moduleConfigEntry(module, libraryStore) {
-  const portsByType = restorePorts(module.ports)
+  const portsByType = restorePorts((module.ports ?? []).filter((port) => !isAnnotatedPort(port)))
   const { componentFile, componentName } = parseMathRef(module.mathRef)
   const { moduleType, moduleSubtype } = parseModuleRef(module.moduleRef)
   const defaultParameterisation =

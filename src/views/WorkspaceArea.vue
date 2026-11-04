@@ -606,13 +606,15 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 
 import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
-import { restoreOmexAnnotations } from '../services/import/omexAnnotations'
+import { buildRestoredPorts, restoreOmexAnnotations } from '../services/import/omexAnnotations'
+import { withAnnotationData } from '../services/annotations/nodeData'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
 
 import useDragAndDrop from '../composables/useDnD'
 import { useHandleManagement } from '../composables/useHandleManagement'
 import { useInstanceSave } from '../composables/useInstanceSave'
+import { useSidecarImport } from '../composables/useSidecarImport'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useParametersImport } from '../composables/useParametersImport'
 import { useLinkedSetsReport } from '../composables/useLinkedSetsReport'
@@ -795,6 +797,7 @@ const { importParameterFile, importParameterFiles, applyLinkedSets, applySetToNo
 // Sets a config links as it arrives are offered to the instances named after them and reported then, or at the end
 // of the import that brought it.
 const { holdLinkReports } = useLinkedSetsReport((report) => notify(report), applyLinkedSets)
+const { importSidecars } = useSidecarImport(FLOW_IDS.MAIN)
 
 const dialogVisible = computed(() => {
   return (
@@ -1383,7 +1386,10 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
         ...buildGhostHandles(NUM_GHOST_HANDLES_TOP_BOT, NUM_GHOST_HANDLES_LEFT_RIGHT, node.data.handles),
       ])
 
-      return buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      const instance = buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
+      // Its annotation state, which buildInstance doesn't know about.
+      withAnnotationData(instance.data, node.data)
+      return instance
     })
 
     addNodes(newNodes)
@@ -1526,8 +1532,12 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     }
   }
 
-  // The module side-cars go back to the library.
+  // The module side-cars go back to the library; a saved workspace's nodes came back with their ports.
   restoreOmexAnnotations(result.annotations, { libraryStore })
+  if (!result.files?.flowSnapshot) {
+    const restoredPorts = await buildRestoredPorts(nodes.value, result.annotations?.sidecars, libraryStore)
+    restoredPorts.forEach((ports, nodeId) => updateNodeData(nodeId, { ports }))
+  }
 
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()
@@ -1667,6 +1677,9 @@ async function runImportConfirm(importPayload, updateProgress) {
       }
     }
     if (files.size > 1 || sets.length) await notifyParametersReport(results)
+  } else if (currentImportMode.value.key === IMPORT_KEYS.TURTLE) {
+    const files = [...importPayload.get(IMPORT_KEYS.TURTLE)].map(([name, data]) => ({ name, ...data?.payload }))
+    await importSidecars(files)
   } else if (currentImportMode.value.key === IMPORT_KEYS.OMEX) {
     try {
       const archivePayload = await extractOmexArchive(importPayload, updateProgress)

@@ -10,6 +10,7 @@ import {
   NUM_GHOST_HANDLES_TOP_BOT,
   NUM_GHOST_HANDLES_LEFT_RIGHT,
 } from './constants'
+import { sidesByPreference } from './edgeGeometry'
 
 export function randomHandleSide() {
   return HANDLE_SIDES[Math.floor(Math.random() * HANDLE_SIDES.length)]
@@ -116,6 +117,21 @@ export function findMostCentralGhostHandle(side, allHandles) {
   })
 
   return mostCentral
+}
+
+/**
+ * A free ghost handle on a node, on the given side if it has one, else the nearest side that does.
+ *
+ * @param {Object} node - A flow node.
+ * @param {'top'|'bottom'|'left'|'right'} side
+ * @returns {Object|null}
+ */
+export function freeHandle(node, side) {
+  for (const candidate of sidesByPreference(side)) {
+    const handle = findMostCentralGhostHandle(candidate, node.data?.handles ?? [])
+    if (handle) return handle
+  }
+  return null
 }
 
 export function buildHandles(instanceRef, ghostHandles) {

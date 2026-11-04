@@ -6,6 +6,7 @@ toy model in tests/resources/annotations/toy.
 
 import os
 import re
+import tempfile
 import unittest
 from urllib.parse import parse_qs, urlparse
 
@@ -151,6 +152,34 @@ class TestAnnotationsTab(unittest.TestCase):
         # The saved annotation is the module's, so the editor opens with it.
         editor = self.open_editor()
         expect(editor.get_by_role("tab", name=re.compile(r"Annotations \("))).to_have_text(re.compile(r"Annotations \(1/"))
+        editor.get_by_role("button", name="Cancel").click()
+        expect(editor).to_be_hidden()
+
+    def test_flags_malformed_and_unknown_terms_without_changing_them(self):
+        page = self.page
+        open_app(page)
+        import_files(page, "CellML File", [toy(name) for name in POOL_FILES])
+        place(page, "pool")
+        # The volume's OPB id has a GO id's digits, and the sodium is a ChEBI id the mocked OLS doesn't know.
+        with open(toy("pool.ttl")) as source:
+            pool = source.read().replace("opb:00154", "opb:0006096").replace("chebi:29101", "chebi:99999999")
+        folder = tempfile.mkdtemp()
+        with open(os.path.join(folder, "pool.ttl"), "w") as target:
+            target.write(pool)
+        import_files(page, "Module Annotations", [os.path.join(folder, "pool.ttl")])
+
+        toasts = page.locator(".p-toast")
+        expect(toasts).to_contain_text("volume: OPB:0006096 doesn’t fit OPB’s ids, such as OPB:00340")
+        expect(toasts).to_contain_text("c_A: OLS has no term CHEBI:99999999", timeout=10000)
+
+        editor = self.open_editor()
+        editor.get_by_role("tab", name=re.compile(r"Annotations \(")).click()
+        warning = editor.locator(".annotation-row[data-variable=volume] [data-test=term-warning]")
+        expect(warning).to_have_attribute("aria-label", "OPB:0006096 doesn’t fit OPB’s ids, such as OPB:00340")
+        expect(editor.locator(".annotation-row[data-variable=c_A] [data-test=term-warning]")).to_have_attribute(
+            "aria-label", "OLS has no term CHEBI:99999999"
+        )
+        expect(editor.locator(".annotation-row[data-variable=area] [data-test=term-warning]")).to_have_count(0)
         editor.get_by_role("button", name="Cancel").click()
         expect(editor).to_be_hidden()
 

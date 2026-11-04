@@ -10,6 +10,8 @@ import {
   TURTLE_FORMAT,
   mathRefFromSidecarLocation,
 } from '../export/annotationsRdf.js'
+import { variableNamesOf } from '../annotations/nodeData.js'
+import { reconcileAnnotatedPorts } from '../annotations/ports.js'
 
 const RDF_FORMATS = new Set([TURTLE_FORMAT, RDF_XML_FORMAT, OMEX_METADATA_FORMAT])
 
@@ -50,4 +52,30 @@ export function restoreOmexAnnotations(annotations, { libraryStore }) {
   const sidecars = annotations?.sidecars ?? []
   for (const { mathRef, text } of sidecars) libraryStore.setModuleAnnotations(mathRef, text)
   return { sidecars: sidecars.length }
+}
+
+/**
+ * The side-car ports of nodes built from an archive's CellML, from the side-cars it restored. A saved workspace's
+ * nodes keep the ports they were saved with.
+ *
+ * @param {Array<Object>} nodes - Workspace nodes.
+ * @param {Array<{ mathRef: string }>} sidecars - The restored side-cars, from importOmexFile.
+ * @param {{ ensureModuleAnnotations: (mathRef: string) => Promise<Object|null> }} libraryStore
+ * @returns {Promise<Map<string, Array<Object>>>} The ports of each node that changed.
+ */
+export async function buildRestoredPorts(nodes, sidecars, libraryStore) {
+  const mathRefs = [...new Set((sidecars ?? []).map((sidecar) => sidecar.mathRef))]
+  const parsed = new Map(
+    await Promise.all(mathRefs.map(async (mathRef) => [mathRef, await libraryStore.ensureModuleAnnotations(mathRef)]))
+  )
+  const ports = new Map()
+  for (const node of nodes) {
+    const mathRef = node.data?.mathRef
+    const sidecar = parsed.get(mathRef)
+    if (!sidecar) continue
+    const variables = variableNamesOf(node.data)
+    const result = reconcileAnnotatedPorts(node.data.ports ?? [], sidecar, { mathRef, variables })
+    if (result.added.length || result.removed.length || result.changed.length) ports.set(node.id, result.ports)
+  }
+  return ports
 }
