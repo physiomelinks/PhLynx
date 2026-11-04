@@ -374,6 +374,7 @@ export function useFlowHistory({
       const edgesToRestore = addChanges.map((change) => change.edge)
       const idsToRemove = addChanges.map((change) => change.edge.id)
       historyStore.addCommand({
+        type: 'add-edge',
         undo: () => {
           removeEdges(idsToRemove)
           edgesToRestore.forEach((edge) => revertHandlesForEdge(edge, idsToRemove, { trackHistory: false }))
@@ -395,6 +396,7 @@ export function useFlowHistory({
       edgesToRestore.forEach((edge) => revertHandlesForEdge(edge, idsToRemove))
 
       historyStore.addCommand({
+        type: 'remove-edge',
         undo: () => {
           addEdges(edgesToRestore)
           edgesToRestore.forEach((edge) => reactivateEdgeHandles(edge, { trackHistory: false }))

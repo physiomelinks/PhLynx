@@ -2,7 +2,7 @@ import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createHistory, useFlowHistoryStore } from '../../../src/stores/historyStore.js'
+import { createHistory, stepLabel, useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 
 /**
  * Creates a command that logs its undo and redo calls.
@@ -105,5 +105,106 @@ describe('createHistory', () => {
     await workspace.undo()
     await workspace.redo()
     expect(log).toEqual(['undo b', 'undo a', 'redo a', 'redo b'])
+  })
+})
+
+describe('naming and rolling back steps', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('names a batch by the type it is given, else by the last labelled command in it', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('add', log))
+    await history.executeAndAddCommand(loggedCommand('rename-node', log))
+    history.endBatch('add-edge')
+    expect(history.undoLabel).toBe('Connect')
+
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('edit-instance', log))
+    await history.executeAndAddCommand(loggedCommand('select', log))
+    history.endBatch()
+    expect(history.undoLabel).toBe('Edit module')
+    expect(history.redoLabel).toBeNull()
+
+    await history.undo()
+    expect(history.undoLabel).toBe('Connect')
+    expect(history.redoLabel).toBe('Edit module')
+  })
+
+  it('falls back to a plain name for a step of no known type', () => {
+    expect(stepLabel({ type: 'something-new' })).toBe('Edit')
+    expect(stepLabel({ type: 'apply-parameter-set' })).toBe('Apply parameter set')
+    expect(stepLabel(undefined)).toBeNull()
+  })
+
+  it('rolls back a batch, leaving no step', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('a', log))
+    history.addCommand(loggedCommand('b', log))
+    await history.rollbackBatch()
+    expect(log).toEqual(['redo a', 'undo b', 'undo a'])
+    expect(history.canUndo).toBe(false)
+
+    // Batching is over: the next command is a step of its own.
+    await history.executeAndAddCommand(loggedCommand('c', log))
+    expect(history.pointerIndex).toBe(0)
+  })
+
+  it('records nothing while rolling back', async () => {
+    const history = reactive(createHistory())
+    history.startBatch()
+    await history.executeAndAddCommand({
+      type: 'a',
+      redo: () => {},
+      undo: () => history.addCommand({ type: 'echo', undo: () => {}, redo: () => {} }),
+    })
+    await history.rollbackBatch()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(history.canUndo).toBe(false)
+  })
+
+  it('keeps commands pending from before a batch when rolling it back', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.addCommand(loggedCommand('before', log))
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('in', log))
+    await history.rollbackBatch()
+    expect(log).toEqual(['redo in', 'undo in'])
+    expect(history.pointerIndex).toBe(0)
+    expect(history.undoLabel).toBe('Edit')
+  })
+
+  it('keeps commands pending before a batch starts as their own step', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.addCommand(loggedCommand('remove', log))
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('add', log))
+    await history.executeAndAddCommand(loggedCommand('add-edge', log))
+    history.endBatch()
+    expect(history.pointerIndex).toBe(1)
+    expect(history.undoLabel).toBe('Connect')
+
+    await history.undo()
+    expect(log).toEqual(['redo add', 'redo add-edge', 'undo add-edge', 'undo add'])
+    expect(history.undoLabel).toBe('Delete')
+  })
+
+  it('is replaying only during an undo or redo, not while a new command runs', async () => {
+    const history = reactive(createHistory())
+    const seen = []
+    const look = () => seen.push(history.isReplaying)
+    const command = { type: 'a', undo: look, redo: look }
+    await history.executeAndAddCommand(command)
+    await history.undo()
+    await history.redo()
+    expect(seen).toEqual([false, true, true])
+    expect(history.isReplaying).toBe(false)
   })
 })
