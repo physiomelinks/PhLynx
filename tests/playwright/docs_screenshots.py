@@ -47,6 +47,12 @@ from test_workspace import centre, ghost_handle, node_by_name, wait_for_settled_
 IMAGES = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "assets", "images"))
 VIEWPORT = {"width": 1440, "height": 900}
 LIGHT_THEME = "localStorage.setItem('phlynx-color-scheme', 'light')"
+# The guide shows and documents every toolbar button, including those hidden by default.
+ALL_TOOLBAR_BUTTONS = (
+    "localStorage.setItem('phlynx-settings', JSON.stringify(Object.assign("
+    "JSON.parse(localStorage.getItem('phlynx-settings') || '{}'),"
+    " { toolbarAddHandles: true, toolbarMacroBuilder: true, toolbarSendTo: true })))"
+)
 # A new workspace's settings (BASELINE_SIMULATION_SETTINGS), as a reader following the quick start has. The fixture
 # predates saved settings, so it loads with the coarser ones older files get, between which the solver gives up.
 APP_DEFAULT_SIMULATION = (
@@ -573,6 +579,7 @@ def main(names):
             context = browser.new_context(viewport=VIEWPORT, device_scale_factor=2, color_scheme="light")
             context.add_init_script(OPT_IN_TO_ISOLATION)
             context.add_init_script(LIGHT_THEME)
+            context.add_init_script(ALL_TOOLBAR_BUTTONS)
             page = context.new_page()
             try:
                 SHOTS[name](page)

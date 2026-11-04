@@ -12,6 +12,7 @@
             @change="handleLoadWorkspace"
           />
           <Button
+            v-if="appSettings.toolbarLoad"
             icon="pi pi-folder-open"
             size="small"
             variant="text"
@@ -20,18 +21,20 @@
           />
 
           <Button
+            v-if="appSettings.toolbarSave"
             icon="pi pi-save"
             size="small"
             variant="text"
             v-tooltip.bottom="{ value: 'Save workspace', showDelay: 300 }"
             @click="handleSaveWorkspace"
-            style="margin-left: 10px"
+            :style="{ marginLeft: appSettings.toolbarLoad ? '10px' : 0 }"
             :disabled="!somethingAvailable"
           />
 
-          <Divider layout="vertical" style="margin: 0 15px" />
+          <Divider v-if="toolbarDividers.cleanUp" layout="vertical" style="margin: 0 15px" />
 
           <Button
+            v-if="appSettings.toolbarCleanUp"
             iconOnly
             size="small"
             variant="text"
@@ -44,93 +47,99 @@
           </Button>
 
           <Button
+            v-if="appSettings.toolbarClear"
             icon="pi pi-eraser"
             size="small"
             variant="text"
             severity="danger"
             v-tooltip.bottom="{ value: 'Clear workspace', showDelay: 300 }"
             @click="handleClearWorkspace"
-            style="margin-left: 10px"
+            :style="{ marginLeft: appSettings.toolbarCleanUp ? '10px' : 0 }"
             :disabled="!somethingAvailable"
           />
 
-          <Divider layout="vertical" style="margin: 0 15px" />
+          <template v-if="appSettings.toolbarUndoRedo">
+            <Divider v-if="toolbarDividers.undoRedo" layout="vertical" style="margin: 0 15px" />
+
+            <Button
+              iconOnly
+              icon="pi pi-undo"
+              size="small"
+              variant="text"
+              severity="secondary"
+              v-tooltip.bottom="{ value: 'Undo', showDelay: 300 }"
+              @click="handleUndo"
+              :disabled="!historyStore.canUndo"
+            />
+
+            <Button
+              iconOnly
+              icon="pi pi-refresh"
+              size="small"
+              variant="text"
+              severity="secondary"
+              v-tooltip.bottom="{ value: 'Redo', showDelay: 300 }"
+              @click="handleRedo"
+              style="margin-left: 10px"
+              :disabled="!historyStore.canRedo"
+            />
+          </template>
+
+          <template v-if="appSettings.toolbarAddHandles">
+            <Divider v-if="toolbarDividers.addHandles" layout="vertical" style="margin: 0 15px" />
+
+            <Button
+              iconOnly
+              variant="text"
+              severity="secondary"
+              v-tooltip.bottom="{ value: 'Add left handle', showDelay: 300 }"
+              :disabled="!somethingSelected"
+              @click="addHandle('left')"
+            >
+              <AddHandleLeft />
+            </Button>
+
+            <Button
+              iconOnly
+              style="margin-left: 5px"
+              variant="text"
+              severity="secondary"
+              v-tooltip.bottom="{ value: 'Add top handle', showDelay: 300 }"
+              :disabled="!somethingSelected"
+              @click="addHandle('top')"
+            >
+              <AddHandleTop />
+            </Button>
+
+            <Button
+              iconOnly
+              style="margin-left: 5px"
+              variant="text"
+              severity="secondary"
+              v-tooltip.bottom="{ value: 'Add right handle', showDelay: 300 }"
+              :disabled="!somethingSelected"
+              @click="addHandle('right')"
+            >
+              <AddHandleRight />
+            </Button>
+
+            <Button
+              iconOnly
+              style="margin-left: 5px"
+              variant="text"
+              severity="secondary"
+              v-tooltip.bottom="{ value: 'Add bottom handle', showDelay: 300 }"
+              :disabled="!somethingSelected"
+              @click="addHandle('bottom')"
+            >
+              <AddHandleBottom />
+            </Button>
+          </template>
+
+          <Divider v-if="toolbarDividers.tools" layout="vertical" style="margin: 0 15px" />
 
           <Button
-            iconOnly
-            icon="pi pi-undo"
-            size="small"
-            variant="text"
-            severity="secondary"
-            v-tooltip.bottom="{ value: 'Undo', showDelay: 300 }"
-            @click="handleUndo"
-            :disabled="!historyStore.canUndo"
-          />
-
-          <Button
-            iconOnly
-            icon="pi pi-refresh"
-            size="small"
-            variant="text"
-            severity="secondary"
-            v-tooltip.bottom="{ value: 'Redo', showDelay: 300 }"
-            @click="handleRedo"
-            style="margin-left: 10px"
-            :disabled="!historyStore.canRedo"
-          />
-
-          <Divider layout="vertical" style="margin: 0 15px" />
-
-          <Button
-            iconOnly
-            variant="text"
-            severity="secondary"
-            v-tooltip.bottom="{ value: 'Add left handle', showDelay: 300 }"
-            :disabled="!somethingSelected"
-            @click="addHandle('left')"
-          >
-            <AddHandleLeft />
-          </Button>
-
-          <Button
-            iconOnly
-            style="margin-left: 5px"
-            variant="text"
-            severity="secondary"
-            v-tooltip.bottom="{ value: 'Add top handle', showDelay: 300 }"
-            :disabled="!somethingSelected"
-            @click="addHandle('top')"
-          >
-            <AddHandleTop />
-          </Button>
-
-          <Button
-            iconOnly
-            style="margin-left: 5px"
-            variant="text"
-            severity="secondary"
-            v-tooltip.bottom="{ value: 'Add right handle', showDelay: 300 }"
-            :disabled="!somethingSelected"
-            @click="addHandle('right')"
-          >
-            <AddHandleRight />
-          </Button>
-
-          <Button
-            iconOnly
-            style="margin-left: 5px"
-            variant="text"
-            severity="secondary"
-            v-tooltip.bottom="{ value: 'Add bottom handle', showDelay: 300 }"
-            :disabled="!somethingSelected"
-            @click="addHandle('bottom')"
-          >
-            <AddHandleBottom />
-          </Button>
-
-          <Divider layout="vertical" style="margin: 0 15px" />
-
-          <Button
+            v-if="appSettings.toolbarMacroBuilder"
             iconOnly
             icon="pi pi-hammer"
             size="small"
@@ -141,8 +150,9 @@
           />
 
           <Button
+            v-if="appSettings.toolbarSimulationSettings"
             iconOnly
-            style="margin-left: 10px"
+            :style="{ marginLeft: appSettings.toolbarMacroBuilder ? '10px' : 0 }"
             size="small"
             variant="text"
             severity="info"
@@ -154,9 +164,10 @@
             <SimulationSettingsIcon />
           </Button>
 
+          <!-- Always shown: it is where hidden toolbar buttons are brought back. -->
           <Button
             iconOnly
-            style="margin-left: 10px"
+            :style="{ marginLeft: toolbarDividers.toolsLead ? '10px' : 0 }"
             icon="pi pi-cog"
             size="small"
             variant="text"
@@ -166,10 +177,11 @@
             @click="onOpenSettingsDialog"
           />
 
-          <Divider layout="vertical" style="margin: 0 15px" />
+          <Divider v-if="toolbarDividers.transfer" layout="vertical" style="margin: 0 15px" />
 
           <!-- Import Dropdown / SplitButton -->
           <SplitButton
+            v-if="appSettings.toolbarImport"
             text
             size="small"
             :model="importMenuItems"
@@ -201,11 +213,12 @@
 
           <!-- Export Dropdown / SplitButton -->
           <SplitButton
+            v-if="appSettings.toolbarExport"
             text
             size="small"
             :model="exportMenuItems"
             severity="primary"
-            style="margin-left: 10px"
+            :style="{ marginLeft: appSettings.toolbarImport ? '10px' : 0 }"
             @click="triggerCurrentExport"
             :disabled="!somethingAvailable || currentExportDisabled"
             v-tooltip.bottom="{
@@ -234,6 +247,7 @@
 
           <!-- Send Dropdown / SplitButton -->
           <SplitButton
+            v-if="appSettings.toolbarSendTo"
             text
             size="small"
             icon="pi pi-send"
@@ -267,14 +281,6 @@
       </div>
 
       <div class="header-right-actions">
-        <a
-          href="https://github.com/physiomelinks/phlynx/issues/new"
-          style="font-size: 13px"
-          target="_blank"
-          class="report-link"
-        >
-          Report Issue
-        </a>
         <ThemeToggle style="margin-left: 20px" />
       </div>
     </header>
@@ -676,6 +682,7 @@ import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { shouldIgnoreShortcut, useWorkspaceClipboard } from '../composables/useWorkspaceClipboard'
 import { useColorScheme } from '../composables/useColorScheme'
 import { useAppSettings } from '../composables/useAppSettings'
+import { shownToolbarDividers } from '../utils/appSettings'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { categoryColour } from '../utils/nodeThemes'
 import { cyrb53, takeInputFile } from '../utils/misc'
@@ -817,6 +824,9 @@ const omexStore = useOmexStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
+
+const toolbarDividers = computed(() => shownToolbarDividers(appSettings))
+
 // The CellDL editor mounts once a CellDL tab first asks for it, and stays.
 const { isRequested: isCelldlEditorRequested } = useCelldlEditorHost()
 
@@ -2477,16 +2487,6 @@ watch(
 .header-right-actions {
   display: flex;
   align-items: center;
-}
-
-.report-link {
-  color: var(--p-primary-color);
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.report-link:hover {
-  text-decoration: underline;
 }
 
 .app-body-container {
