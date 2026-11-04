@@ -1,8 +1,9 @@
 import Papa from 'papaparse'
 
-import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS } from './constants'
+import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS, TTL_FILE_TYPES } from './constants'
 import { isCellML, doesComponentExistInModel } from './cellml'
 import { csvToParameterFile, parseParametersJson } from './parameters/parse'
+import { readSidecarComponent } from '../services/annotations/sidecarFiles'
 
 /** Columns an instance array CSV must have. */
 const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
@@ -421,6 +422,34 @@ const parseCelldl = (file) => {
   })
 }
 
+const readText = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => resolve(e.target.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+
+const acceptOf = (fileTypes) => fileTypes.flatMap((type) => Object.values(type.accept).flat()).join(', ')
+
+/**
+ * Reads a module sidecar: Turtle annotating one math component.
+ *
+ * @param {File} file
+ * @returns {Promise<{ text: string }>}
+ */
+const parseSidecarFile = async (file) => {
+  const text = await readText(file)
+  let component
+  try {
+    component = await readSidecarComponent(text)
+  } catch (error) {
+    throw new Error(`Invalid Turtle: ${error.message}`)
+  }
+  if (!component) throw new Error('No single annotated component (uniprot, GO:0005886 or SBO:0000290) found.')
+  return { text }
+}
+
 const parseOMEX = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -548,6 +577,18 @@ const configs = {
         label: IMPORT_LABELS.UNITS,
         accept: '.cellml, .xml',
         parser: parseCellML,
+      },
+    ],
+  },
+  [IMPORT_KEYS.TURTLE]: {
+    title: 'Import Module Annotations',
+    fields: [
+      {
+        key: IMPORT_KEYS.TURTLE,
+        label: IMPORT_LABELS.TURTLE,
+        accept: acceptOf(TTL_FILE_TYPES),
+        required: true,
+        parser: parseSidecarFile,
       },
     ],
   },
