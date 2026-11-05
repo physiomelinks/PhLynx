@@ -96,7 +96,7 @@ const props = defineProps({
   glyph: { type: String, default: 'generic' },
   /** How far the cartoon is turned, so its text can stay upright. */
   rotation: { type: Number, default: 0 },
-  /** What it carries: [{ label, direction: 'in'|'out'|null }], null when the way isn't known. */
+  /** What it carries: [{ species, label, direction: 'in'|'out'|null }], null when the way isn't known. */
   arrows: { type: Array, default: () => [] },
   /** A glow round it: 'selected', 'coupled' (softer) or none. */
   halo: { type: String, default: null },

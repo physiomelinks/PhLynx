@@ -154,6 +154,7 @@
     "flow.nodes[].data.bioView.rect.y",
     "flow.nodes[].data.bioView.role",
     "flow.nodes[].data.bioView.site",
+    "flow.nodes[].data.bioView.speciesOrder",
     "flow.nodes[].data.domainType",
     "flow.nodes[].data.handles",
     "flow.nodes[].data.handles[].name",

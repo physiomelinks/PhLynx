@@ -10,8 +10,21 @@ export const useViewModeStore = defineStore('viewMode', () => {
   const mode = ref('diagram')
   /** The physiological view's pan and zoom, kept while the diagram is shown. */
   const bioViewport = ref(null)
+  /** Whether the physiological view shows species mode; null follows the setting. */
+  const speciesOverlay = ref(null)
+  /**
+   * Which species species mode shows: 'coupled' (those coupled to their compartment), 'fluxes' (those coupled with
+   * a path through a protein) or 'all' annotated.
+   */
+  const speciesScope = ref('coupled')
+  /**
+   * The species token clicked, which the selection plot shows in place of the selection:
+   * { nodeId, species, label, scope } (scope: the instances a Selection run needs). Cleared when the selection
+   * changes or the view goes.
+   */
+  const focusedSpecies = ref(null)
 
   const isBio = computed(() => mode.value === 'bio')
 
-  return { mode, bioViewport, isBio }
+  return { mode, bioViewport, speciesOverlay, speciesScope, focusedSpecies, isBio }
 })

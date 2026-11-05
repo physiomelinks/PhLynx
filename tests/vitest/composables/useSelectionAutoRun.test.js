@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { defineComponent, ref } from 'vue'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const selected = ref([])
@@ -18,6 +19,7 @@ const store = vi.hoisted(() => ({ scopeMode: 'selection', scopeNodeIds: ['a'], r
 vi.mock('../../../src/stores/simulationResultsStore', () => ({ useSimulationResultsStore: () => store }))
 
 const { useSelectionAutoRun } = await import('../../../src/composables/useSelectionAutoRun.js')
+const { useViewModeStore } = await import('../../../src/stores/viewModeStore.js')
 
 const Host = defineComponent({
   setup() {
@@ -30,6 +32,7 @@ describe('useSelectionAutoRun', () => {
   let wrapper
   beforeEach(() => {
     vi.useFakeTimers()
+    setActivePinia(createPinia())
     run.mockClear()
     selected.value = ['a']
     Object.assign(store, { scopeMode: 'selection', scopeNodeIds: ['a'], results: {} })
@@ -60,5 +63,17 @@ describe('useSelectionAutoRun', () => {
     store.results = { isSweep: true, isSteadyState: true }
     await select(['c'])
     expect(run).toHaveBeenCalledWith(['c'])
+  })
+
+  it('runs a clicked species token’s compartment and the proteins coupled to it in the physiological view', async () => {
+    const viewMode = useViewModeStore()
+    viewMode.focusedSpecies = { nodeId: 'cell', species: 'CHEBI:29101', scope: ['porter', 'cell'] }
+    await select([])
+    expect(run).not.toHaveBeenCalled()
+
+    viewMode.mode = 'bio'
+    await wrapper.vm.$nextTick()
+    vi.advanceTimersByTime(200)
+    expect(run).toHaveBeenCalledWith(['cell', 'porter'])
   })
 })

@@ -38,6 +38,13 @@ describe('template artwork', () => {
     expect(labels[3].attributes('style')).toContain('top: 50%')
   })
 
+  it('puts a facet’s name where the layout placed it, outside the membrane clear of the proteins', () => {
+    const placed = [{ facetId: 'apical', label: 'Apical membrane', edge: 'top', x: 30, y: -26, width: 94, height: 12 }]
+    const label = cell({ instance: 'bt-1', facetLabels: placed }).find('[data-testid=bio-facet-label]')
+    const style = label.attributes('style')
+    for (const part of ['left: 30px', 'top: -26px', 'width: 94px', 'height: 12px']) expect(style).toContain(part)
+  })
+
   it('draws a template cell’s process areas as labelled zones, and still its bilayer once bound', () => {
     const bound = cell({ instance: 'bt-1', zones })
     const zone = bound.find('[data-testid=bio-process-zone]')

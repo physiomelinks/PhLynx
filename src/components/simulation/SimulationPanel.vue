@@ -166,6 +166,7 @@ const emit = defineEmits(['update:plotConfig'])
 const router = useRouter()
 const {
   nodes,
+  edges,
   store,
   scopeNodes,
   selectedNodeIds,
@@ -284,7 +285,7 @@ const { rerunForSliders } = useSliderReruns()
 const { xAxis, charts, predictionPlotCharts } = useSimulationCharts(scopeNodes, { plotConfig: toRef(props, 'plotConfig') })
 
 // The physiological view's selection, plotted on a chart of its own (the instance editor has none).
-const selectionPlot = props.instanceId ? null : useSelectionPlot(nodes)
+const selectionPlot = props.instanceId ? null : useSelectionPlot(nodes, edges)
 /** The physiological view is plotting its selection, so the workspace's plots are hidden. */
 const isSelectionMode = computed(() => !!(selectionPlot?.isShown.value && selectionPlot.isOn.value))
 const { charts: selectionPlotCharts } = useSimulationCharts(scopeNodes, {

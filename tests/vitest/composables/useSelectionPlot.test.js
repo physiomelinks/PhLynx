@@ -109,4 +109,28 @@ describe('the physiological view’s selection plot', () => {
     expect(selection.plotConfig.value.selections).toEqual([])
     expect(useAppSettings().settings.autoPlotSelection).toBe(false)
   })
+
+  it('plots a clicked species token in place of the selection: its concentration and the flows into it', () => {
+    const viewMode = useViewModeStore()
+    viewMode.mode = 'bio'
+    const edges = ref([
+      {
+        id: 'e',
+        source: 'p',
+        target: 'c',
+        data: { couplings: [{ sourcePort: { variables: ['v_Na_i'] }, targetPort: { variables: ['c_Na'] } }] },
+      },
+    ])
+    const selection = useSelectionPlot(nodes, edges)
+    const { charts } = useSimulationCharts(nodes, { plotConfig: selection.plotConfig })
+    // Its concentration is coupled; a flow coupled to a concentration is no flow into it.
+    viewMode.focusedSpecies = { nodeId: 'c', species: CHEBI.sodium, label: 'Na⁺', scope: ['c'] }
+    expect(charts.value.flatMap(({ series }) => series.map(({ label }) => label))).toEqual([
+      'epithelial · Na⁺ concentration',
+    ])
+
+    viewMode.focusedSpecies = { nodeId: 'c', species: CHEBI.potassium, label: 'K⁺', scope: ['c'] }
+    expect(selection.plotConfig.value.selections).toEqual([])
+    expect(selection.hint.value).toBe('K⁺ has nothing annotated to plot.')
+  })
 })

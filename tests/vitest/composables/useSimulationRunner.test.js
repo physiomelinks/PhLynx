@@ -66,6 +66,18 @@ describe('useSimulationRunner', () => {
     expect(run).toHaveBeenCalledWith(['a', 'b'])
   })
 
+  it('runs a clicked species token’s compartment and its proteins in the physiological view, not in an editor', async () => {
+    const { useViewModeStore } = await import('../../../src/stores/viewModeStore.js')
+    const viewMode = useViewModeStore()
+    viewMode.focusedSpecies = { nodeId: 'a', species: 'CHEBI:29101', scope: ['a', 'b'] }
+    const runner = setUpRunner()
+    runner.store.scopeMode = 'selection'
+    expect(runner.selectedNodeIds.value).toEqual([])
+    viewMode.mode = 'bio'
+    expect(runner.selectedNodeIds.value).toEqual(['a', 'b'])
+    expect(setUpRunner({ instanceId: 'b' }).selectedNodeIds.value).toEqual([])
+  })
+
   it('runs the whole model at once when switched to it', () => {
     const runner = setUpRunner()
     runner.store.scopeMode = 'selection'

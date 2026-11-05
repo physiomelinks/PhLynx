@@ -12,6 +12,7 @@ import { libopencor } from '../services/simulation/libopencorLoader'
 import { READOUTS } from '../services/simulation/sweepReadouts'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { useViewModeStore } from '../stores/viewModeStore'
 import { FLOW_IDS } from '../utils/constants'
 
 /**
@@ -24,7 +25,7 @@ import { FLOW_IDS } from '../utils/constants'
  *   simulates) and `statusLine`; `isOtherRun` says an instance editor shows another scope's results.
  */
 export function useSimulationRunner({ instanceId = null, isWholeModelOnly = false } = {}) {
-  const { nodes, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
+  const { nodes, edges, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
   const store = useSimulationResultsStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const { run, stop, keepCurrent, isStale } = useSimulation()
@@ -35,7 +36,13 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   const hasScope = computed(() => store.status !== 'idle')
   const isLoading = computed(() => libopencor.status === 'loading')
   const isSimulatorMissing = computed(() => ['unavailable', 'error'].includes(libopencor.status))
-  const selectedNodeIds = computed(() => getSelectedNodes.value.map((node) => node.id))
+  const viewMode = useViewModeStore()
+  // A species token clicked in the physiological view stands for its compartment and the proteins coupled to it.
+  const selectedNodeIds = computed(() =>
+    viewMode.isBio && viewMode.focusedSpecies && !getInstanceId()
+      ? viewMode.focusedSpecies.scope
+      : getSelectedNodes.value.map((node) => node.id)
+  )
 
   const scopeNodes = computed(() =>
     store.scopeNodeIds ? nodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : nodes.value
@@ -219,6 +226,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
 
   return {
     nodes,
+    edges,
     store,
     scopeNodes,
     selectedNodeIds,

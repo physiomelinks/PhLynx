@@ -34,8 +34,8 @@ describe('the arrows on a physiological view’s proteins', () => {
   it('shows what each protein carries both ways before a run, and which way after one', () => {
     const protein = () => useBioNodes(nodes).bioNodes.value.find((n) => n.id === 'n1')
     expect(protein().data.arrows).toEqual([
-      { label: 'Na⁺', direction: null },
-      { label: 'K⁺', direction: null },
+      { species: CHEBI.sodium, label: 'Na⁺', direction: null },
+      { species: CHEBI.potassium, label: 'K⁺', direction: null },
     ])
 
     // Na⁺ leaving the cell and K⁺ entering it at the end of the run.
@@ -51,8 +51,8 @@ describe('the arrows on a physiological view’s proteins', () => {
       [mappingKey('n1', 'v_K_i'), 'pump/v_K_i'],
     ])
     expect(protein().data.arrows).toEqual([
-      { label: 'Na⁺', direction: 'out' },
-      { label: 'K⁺', direction: 'in' },
+      { species: CHEBI.sodium, label: 'Na⁺', direction: 'out' },
+      { species: CHEBI.potassium, label: 'K⁺', direction: 'in' },
     ])
   })
 

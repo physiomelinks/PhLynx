@@ -9,7 +9,8 @@ import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 
 const TOY = resolve(__dirname, '../fixtures/annotations/toy')
 const read = (name) => readFileSync(resolve(TOY, name), 'utf8')
-const MATH_REF = 'porter.cellml:porter'
+const MATH_REF = 'pool.cellml:pool'
+
 
 describe('useBioNodes sidecars', () => {
   let library
@@ -17,19 +18,19 @@ describe('useBioNodes sidecars', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     library = useLibraryStore()
-    library.addMath(MATH_REF, read('porter.cellml'))
+    library.addMath(MATH_REF, read('pool.cellml'))
   })
 
-  it('parses a sidecar set after mount, so its role appears without a remount', async () => {
-    const nodes = ref([{ id: 'porter', data: { name: 'porter', mathRef: MATH_REF } }])
-    const { roles } = useBioNodes(nodes)
-    expect(roles.value.get('porter').role).toBe('none')
+  it('parses a sidecar set after mount, so species mode appears without a remount', async () => {
+    const nodes = ref([{ id: 'lumen', data: { name: 'lumen', mathRef: MATH_REF, bioView: { role: 'region' } } }])
+    const { hasSpecies } = useBioNodes(nodes)
+    expect(hasSpecies.value).toBe(false)
 
-    library.setModuleAnnotations(MATH_REF, read('porter.ttl'))
-    await vi.waitFor(() => expect(roles.value.get('porter').role).toBe('membraneProtein'))
+    library.setModuleAnnotations(MATH_REF, read('pool.ttl'))
+    await vi.waitFor(() => expect(hasSpecies.value).toBe(true))
 
     library.setModuleAnnotations(MATH_REF, null)
     await nextTick()
-    expect(roles.value.get('porter').role).toBe('none')
+    expect(hasSpecies.value).toBe(false)
   })
 })

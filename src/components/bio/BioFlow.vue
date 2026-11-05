@@ -27,6 +27,7 @@
       @pane-context-menu="onPaneContextMenu"
       @nodes-initialized="onNodesInitialized"
       @pane-ready="onPaneReady"
+      @pane-click="clearSpeciesFocus"
     >
       <Background v-bind="BACKGROUND_DOTS" />
       <MiniMap :pannable="true" :zoomable="true" class="mini-map" />
@@ -37,8 +38,118 @@
         >
           <i class="pi pi-image"></i>
         </ControlButton>
+        <ControlButton
+          v-if="hasSpecies"
+          :class="{ 'bio-species-toggle--on': isSpeciesOn }"
+          :title="isSpeciesOn ? 'Hide species' : SPECIES_TOGGLE_TITLE"
+          :aria-pressed="isSpeciesOn"
+          data-testid="bio-species-toggle"
+          @click="toggleSpecies"
+        >
+          <i class="pi pi-share-alt"></i>
+        </ControlButton>
       </Controls>
       <template #zoom-pane>
+        <!-- Species mode: each compartment's species, and the paths they take through proteins; only tokens are hit -->
+        <svg
+          v-if="drawnSpecies && !draggingId"
+          :class="['bio-species', { 'bio-species--reordering': draggingChip }]"
+          data-testid="bio-species"
+        >
+          <!-- Keyed by direction too, so a run that turns a path round runs its dashes again -->
+          <g
+            v-for="(path, index) in drawnSpecies.paths"
+            :key="`${path.key}:${path.direction ?? ''}`"
+            :class="[
+              'bio-species-path',
+              {
+                'bio-species-path--moving': path.direction,
+                'bio-species-path--focused': path.direction && viewMode.focusedSpecies?.species === path.species,
+                'bio-species--dimmed': isDimmed(path.species),
+              },
+            ]"
+            :style="{ '--species': colourOf(path.species) }"
+            data-testid="bio-species-path"
+            :data-protein="path.protein"
+            :data-species="path.species"
+            :data-direction="path.direction ?? ''"
+          >
+            <!-- Its own arrowhead, sized to its width: the leg stops at the head's base -->
+            <marker
+              v-if="path.head"
+              :id="`bio-species-arrow-${index}`"
+              viewBox="0 0 10 10"
+              refX="0"
+              refY="5"
+              :markerWidth="path.head"
+              :markerHeight="path.head"
+              markerUnits="userSpaceOnUse"
+              orient="auto"
+            >
+              <path d="M0,0 L10,5 L0,10 z" :style="{ fill: colourOf(path.species) }" />
+            </marker>
+            <path
+              v-for="(d, side) in path.legs"
+              :key="side"
+              :d="d"
+              :stroke-width="path.width"
+              :marker-end="path.head ? `url(#bio-species-arrow-${index})` : undefined"
+            />
+          </g>
+          <!-- What a protein reads only the amount of: a faint dashed line ending in an open circle (SBGN modulation) -->
+          <g
+            v-for="dependence in drawnSpecies.dependences"
+            :key="dependence.key"
+            :class="[
+              'bio-species-dependence',
+              {
+                'bio-species-dependence--focused': viewMode.focusedSpecies?.species === dependence.species,
+                'bio-species--dimmed': isDimmed(dependence.species),
+              },
+            ]"
+            :style="{ '--species': colourOf(dependence.species) }"
+            data-testid="bio-species-dependence"
+            :data-protein="dependence.protein"
+            :data-node="dependence.compartment"
+            :data-species="dependence.species"
+          >
+            <path :d="dependence.d" />
+            <circle :cx="dependence.end.x" :cy="dependence.end.y" :r="dependence.end.r" />
+          </g>
+          <g
+            v-for="token in shownTokens"
+            :key="token.key"
+            :class="[
+              'bio-species-token',
+              'nopan',
+              'nodrag',
+              {
+                'bio-species-token--focused': isFocused(token),
+                'bio-species-token--dragging': draggingChip === token.key,
+                'bio-species--dimmed': isDimmed(token.species),
+              },
+            ]"
+            :style="{ '--species': colourOf(token.species), transform: offsetOf(token) }"
+            role="button"
+            data-testid="bio-species-token"
+            :data-node="token.nodeId"
+            :data-species="token.species"
+            @click.stop="onTokenClick(token)"
+            @pointerdown="onChipPointerDown($event, token)"
+          >
+            <title>
+              {{ `${token.label} in ${nameOf(token.nodeId)}: click to plot it and the flows into it, drag to reorder` }}
+            </title>
+            <rect
+              :x="token.x - token.width / 2"
+              :y="token.y - token.height / 2"
+              :width="token.width"
+              :height="token.height"
+              :rx="token.height / 2"
+            />
+            <text :x="token.x" :y="token.y" text-anchor="middle" dominant-baseline="central">{{ token.label }}</text>
+          </g>
+        </svg>
         <!-- While something is dragged: the slots and sites of the piece under the pointer, the drop's own marked -->
         <svg
           v-if="sitePrompts.slots.length || sitePrompts.areas.length"
@@ -250,7 +361,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
@@ -290,6 +401,8 @@ import {
   planUnplace,
   whole,
 } from '../../services/bioView/drop'
+import { speciesFocus } from '../../services/bioView/species'
+import { chipOrder, driftSpecies } from '../../services/bioView/speciesLayout'
 import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
@@ -327,6 +440,7 @@ import { CELL_RADIUS } from '../../services/bioView/metrics'
 import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
+import { useAppSettings } from '../../composables/useAppSettings'
 import { useBioTemplateStore } from '../../stores/bioTemplateStore'
 import { useGlyphLibraryStore } from '../../stores/glyphLibraryStore'
 import { useFlowHistoryStore } from '../../stores/historyStore'
@@ -387,7 +501,29 @@ const {
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.BIO)
 const viewMode = useViewModeStore()
-const { bioNodes, couplingEdges, layout, roles, sites, loadSidecars } = useBioNodes(main.nodes, main.edges)
+const { settings } = useAppSettings()
+/** Whether species mode is on: as the user last set it here, else as Settings opens the view. */
+const isSpeciesOn = computed(() => viewMode.speciesOverlay ?? !!settings.speciesOverlay)
+/** The focused token, kept by Species with Fluxes even where it has no path. */
+const keptSpecies = computed(() => {
+  const focus = viewMode.speciesScope === 'fluxes' ? viewMode.focusedSpecies : null
+  return focus ? `${focus.nodeId}\n${focus.species}` : ''
+})
+const speciesMode = computed(() => {
+  if (!isSpeciesOn.value) return null
+  const [nodeId, curie] = keptSpecies.value.split('\n')
+  return {
+    all: viewMode.speciesScope === 'all',
+    fluxes: viewMode.speciesScope === 'fluxes',
+    keep: keptSpecies.value ? { nodeId, species: curie } : null,
+  }
+})
+const { bioNodes, couplingEdges, layout, roles, sites, hasSpecies, species, speciesOrderPreview, loadSidecars } =
+  useBioNodes(
+  main.nodes,
+  main.edges,
+  { speciesMode }
+)
 const {
   applyPlan,
   templateMoves,
@@ -897,8 +1033,14 @@ function onNodeDragStart({ event, node, nodes }) {
   }
 }
 
-/** Moves the rest of a dragged structure with it, as the drag goes. */
-function onNodeDrag({ event, node }) {
+/** Moves the rest of a dragged structure with it, as the drag goes, and the species drawn over what moved. */
+function onNodeDrag({ event, node, nodes }) {
+  moveStructure(event, node)
+  driftWithDrag(nodes ?? [node])
+}
+
+/** Moves the rest of a dragged structure with the node dragged. */
+function moveStructure(event, node) {
   if (!structureDrag) return
   const { lead, from, starts } = structureDrag
   let delta
@@ -918,6 +1060,23 @@ function onNodeDrag({ event, node }) {
   )
 }
 
+/**
+ * Shifts the species of the cells and regions a drag has moved by as far as each has gone, redrawing only the legs
+ * to what moved, so they keep with their compartments and proteins without laying the species out again.
+ */
+function driftWithDrag(nodes) {
+  if (!species.value) return
+  const moved = new Map()
+  for (const id of new Set([...(structureDrag?.starts.keys() ?? []), ...nodes.map((moving) => moving.id)])) {
+    const place = layout.value.get(id)
+    const position = findNode(id)?.position
+    if ((place?.kind !== 'cell' && place?.kind !== 'region') || !position) continue
+    const shift = { x: position.x - place.rect.x, y: position.y - place.rect.y }
+    if (shift.x || shift.y) moved.set(id, shift)
+  }
+  speciesDrift.value = moved.size ? { moved } : null
+}
+
 /** Puts dragged nodes back where their drag started. */
 function putBack(nodes) {
   const changes = nodes
@@ -931,7 +1090,17 @@ function putBack(nodes) {
  * moved. A dragged template piece moves its whole instance, in the same step. A node bound to a template site
  * is joined to the nodes on the sites next to it in that step too, once the user agrees to any replace.
  */
-async function onNodeDragStop({ nodes: dragged }) {
+async function onNodeDragStop(event) {
+  try {
+    await settleNodeDrag(event)
+  } finally {
+    // The species keep where the drag left them until the layout they follow has caught up, so they never jump.
+    await nextTick()
+    speciesDrift.value = null
+  }
+}
+
+async function settleNodeDrag({ nodes: dragged }) {
   // A membrane dragged moved its cell; a structure grabbed on its own left the rest of the selection alone.
   const alone = structureDrag?.alone
   const nodes = dragged
@@ -1035,6 +1204,233 @@ function onNodeDoubleClick({ node }) {
     handles,
     defaultTab: 'parameters',
   })
+}
+
+// ── Species mode ───────────────────────────────────────────────────────
+/**
+ * How the species drawn are moved while something is dragged (see driftSpecies): the cells and regions moved, and
+ * the tokens put somewhere of their own.
+ */
+const speciesDrift = shallowRef(null)
+/** The species as drawn: as laid out, moved with a drag under way. */
+const drawnSpecies = computed(() => driftSpecies(species.value, layout.value, speciesDrift.value ?? undefined))
+/** A moved token's translation from where it was laid out, as CSS. */
+const offsetOf = (token) => (token.offset ? `translate(${token.offset.x}px, ${token.offset.y}px)` : undefined)
+const SPECIES_TOGGLE_TITLE = 'Show species: each compartment’s, and the paths through its proteins'
+/** One colour per species, the same in every compartment; paths take their species' colour. */
+const SPECIES_COLOURS = [
+  'var(--p-sky-600)',
+  'var(--p-amber-600)',
+  'var(--p-violet-600)',
+  'var(--p-emerald-600)',
+  'var(--p-rose-600)',
+  'var(--p-orange-600)',
+  'var(--p-lime-700)',
+  'var(--p-indigo-600)',
+]
+const shownSpecies = computed(() => [...new Set((species.value?.tokens ?? []).map((token) => token.species))].sort())
+const colourIndex = (curie) => Math.max(0, shownSpecies.value.indexOf(curie)) % SPECIES_COLOURS.length
+const colourOf = (curie) => SPECIES_COLOURS[colourIndex(curie)]
+const isFocused = (token) =>
+  viewMode.focusedSpecies?.nodeId === token.nodeId && viewMode.focusedSpecies?.species === token.species
+/** Whether a species is set back while another is focused. */
+const isDimmed = (curie) => !!viewMode.focusedSpecies && viewMode.focusedSpecies.species !== curie
+
+/** Forgets the species token clicked, so the selection plot follows the selection again. */
+function clearSpeciesFocus() {
+  viewMode.focusedSpecies = null
+}
+
+/** Turns species mode on or off, for as long as the app is open. */
+function toggleSpecies() {
+  viewMode.speciesOverlay = !isSpeciesOn.value
+  if (!viewMode.speciesOverlay) clearSpeciesFocus()
+}
+
+/**
+ * Shows only the species coupled to their compartments, only those with a path through a protein, or every one
+ * annotated, turning species mode on. A focused token stays focused into Species with Fluxes, which keeps it.
+ */
+function setSpeciesScope(scope) {
+  viewMode.speciesScope = scope
+  viewMode.speciesOverlay = true
+  if (scope !== 'fluxes') clearSpeciesFocus()
+}
+
+/** How far, in screen pixels, a species chip must be dragged before it moves: less is a click. */
+const CHIP_DRAG_THRESHOLD = 4
+/** The key of the species chip being dragged along its row, if any. */
+const draggingChip = ref(null)
+/**
+ * A chip drag under way: the token, where the pointer started (on screen and in the flow), where its centre is along
+ * its row, whether it has moved, the order of its compartment's species it started in and the one it would leave
+ * now, and where the other chips go in that. It moves the species drawn only, never the view's nodes.
+ */
+let chipDrag = null
+/** The species tokens, a dragged one last so it is drawn over the rest of its row. */
+const shownTokens = computed(() => {
+  const tokens = drawnSpecies.value?.tokens ?? []
+  const dragged = tokens.find((token) => token.key === draggingChip.value)
+  return dragged ? [...tokens.filter((token) => token !== dragged), dragged] : tokens
+})
+/** Whether the click that ends a chip drag is to be ignored. */
+let isChipClickDropped = false
+
+/** Starts a possible drag of a species chip along its compartment's row. */
+function onChipPointerDown(event, token) {
+  if (event.button !== 0 || !token.row) return
+  const from = pointerAt(event)
+  if (!from) return
+  const order = chipOrder(species.value?.tokens ?? [], token.key)?.join('\n')
+  chipDrag = {
+    token,
+    screen: { x: event.clientX, y: event.clientY },
+    from,
+    along: token[token.row.axis],
+    moved: false,
+    order,
+    previewed: order,
+    slots: null,
+  }
+  window.addEventListener('pointermove', onChipPointerMove)
+  window.addEventListener('pointerup', onChipPointerUp)
+  window.addEventListener('pointercancel', onChipPointerCancel)
+  window.addEventListener('keydown', onChipKeyDown, true)
+}
+
+/**
+ * Moves the dragged chip along its row, within its compartment, its paths with it, and slides the others into the
+ * places they would take were it let go here. Their places are worked out again only when that order changes.
+ */
+function onChipPointerMove(event) {
+  if (!chipDrag) return
+  const { token, screen, from } = chipDrag
+  if (!chipDrag.moved && Math.hypot(event.clientX - screen.x, event.clientY - screen.y) < CHIP_DRAG_THRESHOLD) return
+  const at = pointerAt(event)
+  if (!at) return
+  if (!chipDrag.moved) {
+    chipDrag.moved = true
+    draggingChip.value = token.key
+  }
+  const { axis, low, high } = token.row
+  const half = (axis === 'x' ? token.width : token.height) / 2
+  const start = token[axis]
+  chipDrag.along = Math.min(Math.max(start + at[axis] - from[axis], low + half), Math.max(low + half, high - half))
+  const order = chipOrder(species.value?.tokens ?? [], token.key, chipDrag.along)
+  const key = order?.join('\n')
+  if (key !== chipDrag.previewed) {
+    chipDrag.previewed = key
+    chipDrag.slots =
+      key === chipDrag.order
+        ? null
+        : new Map(speciesOrderPreview(token.nodeId, order).map((slot) => [slot.key, { x: slot.x, y: slot.y }]))
+  }
+  const placed = new Map(chipDrag.slots ?? [])
+  placed.set(token.key, { ...token, [axis]: chipDrag.along })
+  speciesDrift.value = { placed }
+}
+
+/** Ends a chip drag, giving it back. */
+function endChipDrag() {
+  window.removeEventListener('pointermove', onChipPointerMove)
+  window.removeEventListener('pointerup', onChipPointerUp)
+  window.removeEventListener('pointercancel', onChipPointerCancel)
+  window.removeEventListener('keydown', onChipKeyDown, true)
+  const drag = chipDrag
+  chipDrag = null
+  draggingChip.value = null
+  return drag
+}
+
+/** Puts every chip back where it was, keeping the order. */
+function onChipPointerCancel() {
+  const drag = endChipDrag()
+  speciesDrift.value = null
+  // A drag let go after Escape is no click on the chip.
+  if (drag?.moved) {
+    isChipClickDropped = true
+    setTimeout(() => (isChipClickDropped = false))
+  }
+}
+
+/** Escape during a chip drag cancels it. */
+function onChipKeyDown(event) {
+  if (event.key !== 'Escape' || !chipDrag?.moved) return
+  event.preventDefault()
+  event.stopPropagation()
+  onChipPointerCancel()
+}
+
+/** Keeps the order a chip was dragged into, for its compartment, as one undo step. */
+async function onChipPointerUp() {
+  const drag = endChipDrag()
+  if (!drag?.moved) return
+  // The click this release makes is no click on the chip.
+  isChipClickDropped = true
+  setTimeout(() => (isChipClickDropped = false))
+  const { token, along } = drag
+  const tokens = species.value?.tokens ?? []
+  const order = chipOrder(tokens, token.key, along)
+  try {
+    if (order && order.join('\n') !== drag.order) {
+      const stored = main.findNode(token.nodeId)?.data?.bioView?.speciesOrder ?? []
+      // Species not shown now, as under another scope, keep their place after these.
+      const speciesOrder = [...order, ...stored.filter((curie) => !order.includes(curie))]
+      await setChoice(token.nodeId, { speciesOrder }, 'bio-species-order')
+    }
+  } finally {
+    // The chips keep where the drag showed them until the order kept has laid them out there.
+    await nextTick()
+    speciesDrift.value = null
+  }
+}
+onBeforeUnmount(() => endChipDrag())
+
+/**
+ * Plots a species token in place of the selection, which it clears: its compartment's amount of the species and
+ * the flows into it (see useSelectionPlot). A Selection run covers the compartment and the proteins coupled to it.
+ */
+function onTokenClick({ nodeId, species: curie, label }) {
+  if (isChipClickDropped) {
+    isChipClickDropped = false
+    return
+  }
+  for (const node of main.nodes.value) if (node.selected) node.selected = false
+  const { scope } = speciesFocus(
+    species.value.network,
+    { nodeId, species: curie },
+    {
+      nameOf,
+      sidecarOf: (id) => {
+        const mathRef = main.findNode(id)?.data?.mathRef
+        return mathRef ? libraryStore.getParsedModuleAnnotations(mathRef) : null
+      },
+    }
+  )
+  viewMode.focusedSpecies = { nodeId, species: curie, label: `${label} in ${nameOf(nodeId)}`, scope }
+}
+
+// Selecting an instance plots it instead; so does leaving the view.
+watch(
+  () => main.nodes.value.some((node) => node.selected),
+  (isSelected) => isSelected && clearSpeciesFocus()
+)
+onBeforeUnmount(clearSpeciesFocus)
+
+/** The pane menu's species mode items. */
+function speciesMenu() {
+  const scopeItem = (label, scope) => ({
+    label,
+    icon: viewMode.speciesScope === scope ? 'pi pi-check' : 'pi pi-fw',
+    command: () => setSpeciesScope(scope),
+  })
+  return [
+    { label: isSpeciesOn.value ? 'Hide Species' : 'Show Species', command: toggleSpecies },
+    { separator: true },
+    scopeItem('Coupled Species', 'coupled'),
+    scopeItem('Species with Fluxes', 'fluxes'),
+    scopeItem('All Annotated Species', 'all'),
+  ]
 }
 
 // ── Menus ──────────────────────────────────────────────────────────────
@@ -1530,6 +1926,13 @@ function onNodeContextMenu({ event, node }) {
   if (site) {
     items.push({ label: `Unbind from "${site.label}"`, icon: 'pi pi-link', command: () => unbind('bio-unbind') })
   }
+  if (main.findNode(node.id)?.data?.bioView?.speciesOrder) {
+    items.push({
+      label: 'Reset Species Order',
+      icon: 'pi pi-sort-alt',
+      command: () => setChoice(node.id, { speciesOrder: undefined }, 'bio-species-order'),
+    })
+  }
   if (main.findNode(node.id)?.data?.bioView && !role?.site) {
     items.push(
       { separator: true },
@@ -1603,6 +2006,7 @@ function onPaneContextMenu(event) {
       items: addTemplateMenu(at),
     },
     { label: 'Glyph Libraries', icon: 'pi pi-palette', items: glyphLibraryMenu() },
+    ...(hasSpecies.value ? [{ label: 'Species Mode', icon: 'pi pi-share-alt', items: speciesMenu() }] : []),
     { separator: true },
     {
       label: 'Re-layout Physiology',
@@ -1864,6 +2268,130 @@ function assignRole(id, at, { role, cell, placement }) {
 /* Each piece draws its own selection: no dark-theme ring round its box, which for a membrane is the whole cell's */
 .bio-flow :deep(.vue-flow__node.selected) {
   box-shadow: none;
+}
+
+/* Species mode: over the cells and regions (-10, -20), under the proteins and their names; only its tokens are hit */
+.bio-species {
+  position: absolute;
+  z-index: -5;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bio-species-path > path {
+  fill: none;
+  stroke: var(--species);
+  stroke-linecap: round;
+  stroke-dasharray: 2 6;
+  opacity: 0.55;
+}
+
+/* A path whose flow is known after a run: solid, with its dashes running the way the species goes; square ends, so
+   none pokes past the base of its arrowhead. The dashes run a few times when the flow is shown, then rest on the
+   arrowheads: an endless dash animation repaints the view every frame (Firefox can't run it off the main thread).
+   A focused species' paths keep running. */
+.bio-species-path--moving > path {
+  stroke-linecap: butt;
+  stroke-dasharray: 10 6;
+  opacity: 0.9;
+  animation: bio-species-flow 1.2s linear 4;
+}
+
+.bio-species-path--focused > path {
+  animation-iteration-count: infinite;
+}
+
+/* No dashes run while the view is panned (paths hide while a node is dragged). */
+.vue-flow__pane.dragging .bio-species-path--moving > path {
+  animation-play-state: paused;
+}
+
+@keyframes bio-species-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bio-species-path--moving > path {
+    animation: none;
+  }
+}
+
+/* A dependence: fainter than a path, its circle open; it firms up while its species is focused */
+.bio-species-dependence path,
+.bio-species-dependence circle {
+  stroke: var(--species);
+  stroke-width: 1.25;
+  opacity: 0.45;
+}
+
+.bio-species-dependence path {
+  fill: none;
+  stroke-dasharray: 3 3;
+}
+
+.bio-species-dependence circle {
+  fill: var(--p-content-background);
+}
+
+.bio-species-dependence--focused path,
+.bio-species-dependence--focused circle {
+  stroke-width: 2;
+  opacity: 0.95;
+}
+
+.bio-species-token {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.bio-species-token rect {
+  fill: color-mix(in srgb, var(--species) 16%, var(--p-content-background));
+  stroke: var(--species);
+  stroke-width: 1.5;
+}
+
+.bio-species-token text {
+  fill: var(--p-text-color);
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.bio-species-token--dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+}
+
+/* While a chip is dragged, the others slide to where its drop would put them */
+.bio-species--reordering .bio-species-token:not(.bio-species-token--dragging) {
+  transition: transform 0.15s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bio-species--reordering .bio-species-token:not(.bio-species-token--dragging) {
+    transition: none;
+  }
+}
+
+.bio-species-token:hover rect,
+.bio-species-token--focused rect {
+  stroke-width: 3;
+}
+
+.bio-species-token--focused rect {
+  fill: color-mix(in srgb, var(--species) 32%, var(--p-content-background));
+}
+
+/* While a species is focused, the others step back */
+.bio-species--dimmed {
+  opacity: 0.2;
+}
+
+.bio-species-toggle--on {
+  color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
 }
 
 /* The selection's coupling lines are hidden while dragging, and so are their ends. */

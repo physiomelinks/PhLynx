@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { CARD, layoutBioView, layoutPhysiology } from '../../../../src/services/bioView/layout.js'
-import { proteinLabelWidth } from '../../../../src/services/bioView/geometry.js'
+import { proteinBoxes } from '../../../../src/services/bioView/speciesLayout.js'
 import { resolveBioRole } from '../../../../src/services/bioView/roles.js'
 
 const node = (id, bioView) => ({ id, data: { name: id, ...(bioView && { bioView }) } })
@@ -59,10 +59,9 @@ describe('physiological view layout', () => {
     )
     const detailOf = (id) => (id === 'p1' ? 'Na⁺ · K⁺ · Cl⁻ · HCO₃⁻ · H⁺' : '')
     const { places } = layoutPhysiology(named, roles, { detailOf })
-    // Each label is centred under its protein.
     const label = (id) => {
-      const width = proteinLabelWidth(named.find((each) => each.id === id).data.name, detailOf(id))
-      return { x: places.get(id).x - width / 2, width }
+      const name = named.find((each) => each.id === id).data.name
+      return proteinBoxes(places.get(id), { name, detail: detailOf(id) })[1]
     }
     const [a, b, c] = ['p1', 'p2', 'p3'].map(label)
     expect(a.x + a.width).toBeLessThanOrEqual(b.x)

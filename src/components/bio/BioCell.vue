@@ -34,7 +34,7 @@
         <text v-if="zone.label" :x="zone.rect.x + 8" :y="zone.rect.y + 12">{{ zone.label }}</text>
       </g>
     </svg>
-    <!-- A template's names for its facets, just inside each edge -->
+    <!-- A template's names for its facets, just inside each edge, clear of its proteins -->
     <span
       v-for="label in facetLabels"
       :key="label.facetId"
@@ -74,10 +74,17 @@ const SELECTION_INSET = 6
 /** How far in from the outline a facet's name sits, clear of the bilayer drawn over the edge. */
 const FACET_INSET = 14
 
-/** Each facet's name, spread along its edge when an edge has more than one. */
+/**
+ * Each facet's name: where the layout found room along its edge (see facetLabelBoxes), else spread along its edge
+ * when an edge has more than one.
+ */
 const facetLabels = computed(() => {
   const labels = props.data.facetLabels ?? []
   return labels.map((label) => {
+    if (Number.isFinite(label.x) && Number.isFinite(label.y)) {
+      const style = { left: `${label.x}px`, top: `${label.y}px`, width: `${label.width}px`, height: `${label.height}px` }
+      return { ...label, style }
+    }
     const along = labels.filter((other) => other.edge === label.edge)
     const share = `${(100 * along.indexOf(label)) / along.length}%`
     const span = `${100 / along.length}%`
@@ -92,15 +99,15 @@ const facetLabels = computed(() => {
 })
 
 /**
- * A template cell's name goes just under its process zones, clear of them; any other's as before. An empty
- * template cell's name and hint are centred where a drop goes to the cell (see cellHint).
+ * The name goes where the layout found room, in a corner clear of the proteins (see cellNameBox). An empty
+ * template cell's name and hint are centred where a drop goes to the cell (see cellHint); else centred low.
  */
 const labelStyle = computed(() => {
   const hint = props.data.empty && props.data.hintAt
   if (hint) return { left: `${hint.x}px`, top: `${hint.y}px`, bottom: 'auto', transform: 'translate(-50%, -50%)' }
-  const zones = props.data.zones ?? []
-  if (!zones.length) return undefined
-  return { top: `${Math.max(...zones.map(({ rect }) => rect.y + rect.height)) + 6}px`, bottom: 'auto' }
+  const at = props.data.nameAt
+  if (!at) return undefined
+  return { left: `${at.x}px`, top: `${at.y}px`, bottom: 'auto', transform: 'none', whiteSpace: 'nowrap' }
 })
 
 /** The cell's outline grown by an offset, outward when positive. */

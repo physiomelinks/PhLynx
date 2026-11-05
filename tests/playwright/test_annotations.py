@@ -165,6 +165,48 @@ def place(page, name, x=700, y=450):
     expect(page.locator(NODE)).to_have_count(1)
 
 
+def pool_with_glucose():
+    """The pool's side-car with glucose too, uncoupled: its area stands in for its concentration. Gives its path."""
+    with open(toy("pool.ttl")) as source:
+        pool = source.read().replace(
+            "m:v1l1fufqx bqbiol:isVersionOf opb:00295 ;\n    bqbiol:isPropertyOf local:membrane .",
+            "m:v1l1fufqx bqbiol:isVersionOf opb:00340 ;\n    bqbiol:isPropertyOf local:Glc_self .\n"
+            "local:Glc_self bqbiol:is chebi:17634 ;\n    bqbiol:isPartOf local:entity_self .",
+        )
+    assert "Glc_self" in pool
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, "pool.ttl")
+    with open(path, "w") as target:
+        target.write(pool)
+    return path
+
+
+# A main-canvas node's stored species order, whichever view is shown.
+READ_SPECIES_ORDER = """(id) => {
+    let c = [...document.querySelectorAll('.vue-flow')].find((el) => !el.closest('.bio-flow')).__vueParentComponent
+    while (c && !c.exposed?.edges) c = c.parent
+    return c.exposed.nodes.value.find((n) => n.id === id)?.data.bioView?.speciesOrder ?? null
+}"""
+
+
+# The ends of a species' paths' legs on screen, those nearest the given compartment's token first.
+LEG_ENDS_JS = """([species, nodeId]) => {
+    const token = document.querySelector(`[data-testid=bio-species-token][data-node="${nodeId}"][data-species="${species}"]`)
+    const box = token.getBoundingClientRect()
+    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    const ends = []
+    for (const leg of document.querySelectorAll(`[data-testid=bio-species-path][data-species="${species}"] > path`)) {
+        const matrix = leg.getScreenCTM()
+        for (const at of [0, leg.getTotalLength()]) {
+            const point = leg.getPointAtLength(at).matrixTransform(matrix)
+            ends.push({ x: point.x, y: point.y })
+        }
+    }
+    const away = (point) => Math.hypot(point.x - centre.x, point.y - centre.y)
+    return ends.sort((a, b) => away(a) - away(b))
+}"""
+
+
 class TestAnnotationsTab(unittest.TestCase):
     """The instance editor's Annotations tab, on the toy pool."""
 
@@ -345,7 +387,7 @@ class TestAnnotationCoupling(unittest.TestCase):
             self.drop_module(module, point)
             expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count)
 
-    def test_imports_module_side_cars_from_the_menu_and_couples_them(self):
+    def test_imports_module_side_cars_from_the_menu_and_shows_species_mode(self):
         page = self.page
         self.open_physiology_with_template()
         self.place_toys()
@@ -361,6 +403,325 @@ class TestAnnotationCoupling(unittest.TestCase):
                 "porter_out.c_A_o - vessel.c_A",
                 "porter_out.v_A_o - vessel.v_A",
             ],
+        )
+
+        # Species mode is offered without leaving the view.
+        page.mouse.click(450, 200, button="right")
+        expect(page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True)).to_be_visible()
+
+    def show_species(self, scope, at=(450, 200)):
+        """Turn species mode on from the pane menu, showing the coupled species, those with fluxes, or every one."""
+        page = self.page
+        page.mouse.click(*at, button="right")
+        menu = page.locator(".p-contextmenu")
+        menu.get_by_text("Species Mode", exact=True).hover()
+        menu.get_by_text(scope, exact=True).click()
+        expect(menu).to_be_hidden()
+
+    def test_focusing_a_species_sets_the_others_back(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        # The pools also hold glucose, uncoupled.
+        import_files(page, "Module Annotations", [pool_with_glucose(), toy("porter.ttl")])
+        self.show_species("All Annotated Species")
+
+        tokens = page.locator("[data-testid=bio-species-token]")
+        sodium = tokens.and_(page.locator('[data-species="CHEBI:29101"]'))
+        glucose = tokens.and_(page.locator('[data-species="CHEBI:17634"]'))
+        expect(sodium).to_have_count(2)
+        expect(glucose).to_have_count(2)
+        dimmed = page.locator(".bio-species--dimmed")
+        expect(dimmed).to_have_count(0)
+
+        # Focusing the lumen's sodium sets glucose back everywhere, but not sodium elsewhere.
+        sodium.first.click()
+        expect(page.locator(".bio-species-token--focused")).to_have_count(1)
+        expect(glucose.and_(dimmed)).to_have_count(2)
+        expect(sodium.and_(dimmed)).to_have_count(0)
+
+        # Clearing the focus brings everything back.
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        page.mouse.click(pane["x"] + pane["width"] - 80, pane["y"] + 80)
+        expect(page.locator(".bio-species-token--focused")).to_have_count(0)
+        expect(dimmed).to_have_count(0)
+
+    def test_a_held_reservoir_shows_as_a_dependence_of_its_protein(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        self.show_species("Coupled Species")
+        expect(page.locator("[data-testid=bio-species-token]")).to_have_count(2)
+        dependences = page.locator("[data-testid=bio-species-dependence]")
+        # Amount and flow are coupled both sides: what the porters carry, not what they depend on.
+        expect(dependences).to_have_count(0)
+
+        # Held, the lumen's sodium is only read by the porter facing it.
+        editor = self.open_editor("outside")
+        editor.locator("[data-test=hold-constant-checkbox]").click()
+        self.save_editor(editor, removes_couplings=True)
+        ids = {toy_names(self.flow())[n["name"]]: n["id"] for n in self.flow()["nodes"]}
+        expect(dependences).to_have_count(1)
+        expect(dependences).to_have_attribute("data-node", ids["outside"])
+        expect(dependences).to_have_attribute("data-protein", ids["porter_in"])
+        expect(dependences.locator("circle")).to_have_count(1)
+
+        # Focusing its species firms it up.
+        page.locator(f'[data-testid=bio-species-token][data-node="{ids["outside"]}"]').click()
+        expect(dependences).to_have_class(re.compile(r"bio-species-dependence--focused"))
+        expect(dependences).not_to_have_class(re.compile(r"bio-species--dimmed"))
+
+    def place_cell_pool(self):
+        """Drop a pool inside the cell, under its name, so the porters carry species between it and the fluids."""
+        page = self.page
+        hint = piece(page, "cell").get_by_text("Drop a module").bounding_box()
+        count = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])').count()
+        self.drop_module("pool", (hint["x"] + hint["width"] / 2, hint["y"] + hint["height"] / 2))
+        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count + 1)
+
+    def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        self.place_cell_pool()
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        tokens = page.locator("[data-testid=bio-species-token]")
+        # The pane's right, clear of the template and the minimap.
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        spare = (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2)
+        self.show_species("Coupled Species", spare)
+        expect(tokens).to_have_count(3)
+        expect(page.locator("[data-testid=bio-species-path]")).to_have_count(2)
+
+        # Held, the lumen is only read by the porter facing it: a dependence, which is no flux.
+        editor = self.open_editor("outside")
+        editor.locator("[data-test=hold-constant-checkbox]").click()
+        self.save_editor(editor, removes_couplings=True)
+        ids = {toy_names(self.flow())[n["name"]]: n["id"] for n in self.flow()["nodes"]}
+        lumen = tokens.and_(page.locator(f'[data-node="{ids["outside"]}"]'))
+        expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(1)
+        expect(lumen).to_have_count(1)
+
+        self.show_species("Species with Fluxes", spare)
+        expect(tokens).to_have_count(2)
+        expect(lumen).to_have_count(0)
+        expect(page.locator("[data-testid=bio-species-path]")).to_have_count(1)
+        expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(0)
+
+        # Focused, it stays: from Coupled Species into Species with Fluxes, until the focus is cleared.
+        self.show_species("Coupled Species", spare)
+        lumen.click()
+        expect(page.locator(".bio-species-token--focused")).to_have_count(1)
+        self.show_species("Species with Fluxes", spare)
+        expect(tokens).to_have_count(3)
+        expect(lumen).to_have_class(re.compile(r"bio-species-token--focused"))
+        expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(1)
+        page.mouse.click(*spare)
+        expect(tokens).to_have_count(2)
+
+    def chip_order(self, node_id):
+        """The species of a compartment's chips, left to right."""
+        chips = self.page.locator(f'[data-testid=bio-species-token][data-node="{node_id}"]')
+        found = [(chips.nth(i).bounding_box(), chips.nth(i).get_attribute("data-species")) for i in range(chips.count())]
+        return [species for box, species in sorted(found, key=lambda entry: entry[0]["x"])]
+
+    def drag_chip(self, chip, dx, dy=0):
+        page = self.page
+        box = chip.bounding_box()
+        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        page.mouse.move(x, y)
+        page.mouse.down()
+        for step in range(1, 11):
+            page.mouse.move(x + dx * step / 10, y + dy * step / 10)
+        page.mouse.up()
+
+    def test_dragging_a_species_chip_reorders_its_compartment_in_one_undo_step(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        import_files(page, "Module Annotations", [pool_with_glucose(), toy("porter.ttl")])
+        self.show_species("All Annotated Species")
+        ids = {toy_names(self.flow())[n["name"]]: n["id"] for n in self.flow()["nodes"]}
+        lumen = ids["outside"]
+        chips = page.locator(f'[data-testid=bio-species-token][data-node="{lumen}"]')
+        expect(chips).to_have_count(2)
+        auto = self.chip_order(lumen)
+        first = chips.and_(page.locator(f'[data-species="{auto[0]}"]'))
+        second = chips.and_(page.locator(f'[data-species="{auto[1]}"]'))
+        y = first.bounding_box()["y"]
+
+        # Dragged past its neighbour, the first chip goes second, and the order is kept on the compartment.
+        reach = second.bounding_box()["x"] + second.bounding_box()["width"] - first.bounding_box()["x"]
+        self.drag_chip(first, reach)
+        self.wait_for_order(lumen, auto[::-1])
+        expect(page.locator(".bio-species-token--focused")).to_have_count(0)
+        self.assertEqual(self.chip_order(lumen), auto[::-1])
+        # It stays in its row: no transform is left behind.
+        self.assertAlmostEqual(first.bounding_box()["y"], y, delta=1)
+        self.assertIsNone(first.get_attribute("transform"))
+
+        # Dragged down, out of its compartment, it stays in its row there, and nothing changes.
+        self.drag_chip(first, 0, 300)
+        self.assertEqual(self.chip_order(lumen), auto[::-1])
+        self.assertAlmostEqual(first.bounding_box()["y"], y, delta=1)
+        expect(chips).to_have_count(2)
+
+        # One undo puts the automatic order back.
+        page.locator("button:has(.pi-undo)").first.click()
+        self.wait_for_order(lumen, None)
+        self.assertEqual(self.chip_order(lumen), auto)
+
+        # Reordered again, Reset Species Order on the compartment's menu restores the automatic order.
+        self.drag_chip(first, reach)
+        self.wait_for_order(lumen, auto[::-1])
+        region = page.locator(f'{BIO_NODE}[data-id="{lumen}"]')
+        region.click(button="right", position={"x": 12, "y": 12})
+        menu = page.locator(".p-contextmenu")
+        menu.get_by_text("Reset Species Order", exact=True).click()
+        self.wait_for_order(lumen, None)
+        self.assertEqual(self.chip_order(lumen), auto)
+
+        # A click without a drag still focuses it.
+        first.click()
+        expect(page.locator(".bio-species-token--focused")).to_have_count(1)
+
+    def species_with_glucose(self):
+        """An epithelial cell with the toys placed, glucose in the pools, and every annotated species shown."""
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        self.place_cell_pool()
+        import_files(page, "Module Annotations", [pool_with_glucose(), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        self.show_species("All Annotated Species", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
+        return {toy_names(self.flow())[n["name"]]: n["id"] for n in self.flow()["nodes"]}
+
+    def centre(self, locator):
+        box = locator.bounding_box()
+        return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+    def leg_ends(self, species, node_id):
+        """The screen points a species' paths' legs end at, nearest the given compartment's token first."""
+        return self.page.evaluate(LEG_ENDS_JS, [species, node_id])
+
+    def test_species_move_with_a_template_while_it_is_dragged(self):
+        page = self.page
+        ids = self.species_with_glucose()
+        lumen = ids["outside"]
+        # Its token with a path through the porter, into the cell.
+        species = page.locator("[data-testid=bio-species-path]").first.get_attribute("data-species")
+        token = page.locator(f'[data-testid=bio-species-token][data-node="{lumen}"][data-species="{species}"]')
+        expect(page.locator("[data-testid=bio-species-path]")).not_to_have_count(0)
+        path = page.locator(f'[data-testid=bio-species-path][data-species="{species}"] > path').first
+        token_at, path_at = self.centre(token), self.centre(path)
+
+        # Partway through a drag of the template's name, the tokens and their paths have gone with it.
+        title = page.locator("[data-testid=bio-template-title]")
+        x, y = self.centre(title)
+        dx, dy = 120, 60
+        page.mouse.move(x, y)
+        page.mouse.down()
+        for step in range(1, 11):
+            page.mouse.move(x + dx * step / 10, y + dy * step / 10)
+        page.wait_for_timeout(100)
+        # As far as the template's name went (the drag's threshold takes a little of the pointer's way).
+        title_now = self.centre(title)
+        dx, dy = title_now[0] - x, title_now[1] - y
+        self.assertGreater(dx, 60)
+        moved, path_moved = self.centre(token), self.centre(path)
+        self.assertAlmostEqual(moved[0] - token_at[0], dx, delta=2)
+        self.assertAlmostEqual(moved[1] - token_at[1], dy, delta=2)
+        self.assertAlmostEqual(path_moved[0] - path_at[0], dx, delta=2)
+        self.assertAlmostEqual(path_moved[1] - path_at[1], dy, delta=2)
+        self.assertEqual(token.get_attribute("data-species"), species)
+
+        # Let go, the layout takes over where the drag left them.
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        dropped = self.centre(token)
+        self.assertAlmostEqual(dropped[0], moved[0], delta=4)
+        self.assertAlmostEqual(dropped[1], moved[1], delta=4)
+        self.assertIsNone(token.evaluate("(el) => el.style.transform || null"))
+
+        # One undo puts the template, and its species, back.
+        page.locator("button:has(.pi-undo)").first.click()
+        page.wait_for_timeout(300)
+        back = self.centre(token)
+        self.assertAlmostEqual(back[0], token_at[0], delta=4)
+        self.assertAlmostEqual(back[1], token_at[1], delta=4)
+
+    def test_a_dragged_chip_takes_its_paths_and_the_others_make_room(self):
+        page = self.page
+        ids = self.species_with_glucose()
+        lumen = ids["outside"]
+        chips = page.locator(f'[data-testid=bio-species-token][data-node="{lumen}"]')
+        expect(chips).to_have_count(2)
+        auto = self.chip_order(lumen)
+        # The chip with a path through the porter, and the other.
+        with_path = next(s for s in auto if page.locator(f'[data-testid=bio-species-path][data-species="{s}"]').count())
+        other = next(s for s in auto if s != with_path)
+        moving = chips.and_(page.locator(f'[data-species="{with_path}"]'))
+        neighbour = chips.and_(page.locator(f'[data-species="{other}"]'))
+        neighbour_at = self.centre(neighbour)
+        x, y = self.centre(moving)
+        # Over the neighbour's far side, so the order would swap.
+        reach = (neighbour_at[0] - x) + (1 if neighbour_at[0] > x else -1) * neighbour.bounding_box()["width"] * 0.6
+
+        page.mouse.move(x, y)
+        page.mouse.down()
+        for step in range(1, 11):
+            page.mouse.move(x + reach * step / 10, y)
+        page.wait_for_timeout(400)
+        # The chip's leg ends where the chip now is, and its neighbour has slid the other way.
+        chip_now = self.centre(moving)
+        self.assertAlmostEqual(chip_now[0], x + reach, delta=4)
+        end = self.leg_ends(with_path, lumen)[0]
+        self.assertLess(abs(end["x"] - chip_now[0]), moving.bounding_box()["width"] / 2 + 2)
+        self.assertLess(abs(end["y"] - chip_now[1]), 60)
+        shifted = self.centre(neighbour)[0] - neighbour_at[0]
+        self.assertGreater(abs(shifted), 10)
+        self.assertEqual(shifted > 0, reach < 0)
+        # Nothing is kept yet.
+        self.assertIsNone(page.evaluate(f"({READ_SPECIES_ORDER})('{lumen}')"))
+
+        # Let go, the swapped order is kept, with the chips where the drag showed them.
+        neighbour_shown = self.centre(neighbour)
+        page.mouse.up()
+        self.wait_for_order(lumen, auto[::-1])
+        page.wait_for_timeout(300)
+        self.assertEqual(self.chip_order(lumen), auto[::-1])
+        self.assertAlmostEqual(self.centre(neighbour)[0], neighbour_shown[0], delta=4)
+        self.assertIsNone(neighbour.evaluate("(el) => el.style.transform || null"))
+        end = self.leg_ends(with_path, lumen)[0]
+        self.assertLess(abs(end["x"] - self.centre(moving)[0]), moving.bounding_box()["width"] / 2 + 2)
+
+        # One undo puts the automatic order back.
+        page.locator("button:has(.pi-undo)").first.click()
+        self.wait_for_order(lumen, None)
+        self.assertEqual(self.chip_order(lumen), auto)
+
+        # Escape partway through a drag puts everything back and keeps nothing.
+        start = self.centre(neighbour)
+        x, y = self.centre(moving)
+        page.mouse.move(x, y)
+        page.mouse.down()
+        for step in range(1, 11):
+            page.mouse.move(x + reach * step / 10, y)
+        page.wait_for_timeout(300)
+        page.keyboard.press("Escape")
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        self.assertAlmostEqual(self.centre(neighbour)[0], start[0], delta=1)
+        self.assertAlmostEqual(self.centre(moving)[0], x, delta=1)
+        self.assertIsNone(page.evaluate(f"({READ_SPECIES_ORDER})('{lumen}')"))
+        expect(page.locator(".bio-species-token--focused")).to_have_count(0)
+
+    def wait_for_order(self, node_id, order):
+        """Wait until a compartment's stored species order is as given (None: none stored)."""
+        self.page.wait_for_function(
+            f"([id, want]) => JSON.stringify(({READ_SPECIES_ORDER})(id)) === JSON.stringify(want)",
+            arg=[node_id, order],
         )
 
     def test_placed_modules_couple_by_their_annotations_and_a_held_reservoir_sums_nothing(self):
@@ -388,6 +749,13 @@ class TestAnnotationCoupling(unittest.TestCase):
 
         # With the side-cars, the placed instances couple by property, species and place.
         self.import_sidecar("outside", "pool.ttl")
+        # A side-car saved from the editor shows in the view at once: species mode is offered.
+        page.mouse.click(450, 200, button="right")
+        expect(page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True)).to_be_visible()
+        page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True).hover()
+        expect(page.locator(".p-contextmenu").get_by_text("Show Species", exact=True)).to_be_visible()
+        page.locator(".p-contextmenu").get_by_text("Show Species", exact=True).click()
+        expect(page.locator(".p-contextmenu")).to_be_hidden()
         self.import_sidecar("porter_in", "porter.ttl")
         flow = self.flow()
         self.assertEqual(
