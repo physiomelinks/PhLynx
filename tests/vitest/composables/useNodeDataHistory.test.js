@@ -202,6 +202,21 @@ describe('useNodeDataHistory', () => {
     expect(findNode('a').data.ports).toEqual([{ label: 'p', variables: ['k'] }])
   })
 
+  it('brings back the placement mark an edit by hand clears, and clears it again on redo', async () => {
+    edges.value[0].data = { ...edges.value[0].data, placement: 'across' }
+    await recordEdit({
+      type: 'edit-connection',
+      nodeIds: ['a', 'b'],
+      keys: ['ports'],
+      edgeIds: ['e'],
+      apply: () => (edges.value[0].data = { ...edges.value[0].data, couplings: [], placement: false }),
+    })
+    await history.undo()
+    expect(edges.value[0].data).toEqual({ couplings: [{ from: 'k', to: 'k' }], placement: 'across' })
+    await history.redo()
+    expect(edges.value[0].data).toEqual({ couplings: [], placement: false })
+  })
+
   it('undoes a constant an edit added only while no row uses it', async () => {
     const library = useLibraryStore()
     const makeGlobal = (id) => {

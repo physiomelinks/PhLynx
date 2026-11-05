@@ -22,8 +22,8 @@ describe('canCouple', () => {
   })
 
   it('never couples an annotated port to an unannotated one', () => {
-    const cell = toy.node('cell')
-    const porterIn = toy.node('porter_in')
+    const cell = toy.unplaced('cell')
+    const porterIn = toy.unplaced('porter_in')
     const context = toy.context()
     expect(canCouple(toy.port('cell', 'c_A'), cell, labelled(''), porterIn, context)).toBe(false)
     expect(canCouple(labelled('c_A'), cell, toy.port('porter_in', 'c_A_i'), porterIn, context)).toBe(false)
@@ -31,7 +31,7 @@ describe('canCouple', () => {
 
   it('does not couple annotated ports while their nodes have no place', () => {
     const context = toy.context()
-    expect(canCouple(toy.port('cell', 'c_A'), toy.node('cell'), toy.port('porter_in', 'c_A_i'), toy.node('porter_in'), context)).toBe(false)
+    expect(canCouple(toy.port('cell', 'c_A'), toy.unplaced('cell'), toy.port('porter_in', 'c_A_i'), toy.unplaced('porter_in'), context)).toBe(false)
   })
 })
 
@@ -44,7 +44,7 @@ describe('canKeepCoupling', () => {
 
   it('keeps a coupling of unplaced nodes whose annotations still agree', () => {
     const context = toy.context()
-    const [cell, porterIn] = [toy.node('cell'), toy.node('porter_in')]
+    const [cell, porterIn] = [toy.unplaced('cell'), toy.unplaced('porter_in')]
     expect(canKeepCoupling(toy.port('cell', 'c_A'), cell, toy.port('porter_in', 'c_A_i'), porterIn, context)).toBe(true)
     // Outside, too: the places are not told apart until the nodes are placed.
     expect(canKeepCoupling(toy.port('cell', 'c_A'), cell, toy.port('porter_in', 'c_A_o'), porterIn, context)).toBe(true)
@@ -52,14 +52,37 @@ describe('canKeepCoupling', () => {
 
   it('drops a coupling whose property or roles no longer agree', () => {
     const context = toy.context()
-    const [cell, porterIn] = [toy.node('cell'), toy.node('porter_in')]
+    const [cell, porterIn] = [toy.unplaced('cell'), toy.unplaced('porter_in')]
     expect(canKeepCoupling(toy.port('cell', 'volume'), cell, toy.port('porter_in', 'c_A_i'), porterIn, context)).toBe(false)
-    const outside = toy.node('outside')
+    const outside = toy.unplaced('outside')
     expect(canKeepCoupling(toy.port('cell', 'c_A'), cell, toy.port('outside', 'c_A'), outside, context)).toBe(false)
   })
 
   it('drops a coupling between an annotated and an unannotated port', () => {
     const context = toy.context()
-    expect(canKeepCoupling(toy.port('cell', 'c_A'), toy.node('cell'), labelled('c_A'), toy.node('porter_in'), context)).toBe(false)
+    expect(canKeepCoupling(toy.port('cell', 'c_A'), toy.unplaced('cell'), labelled('c_A'), toy.unplaced('porter_in'), context)).toBe(false)
+  })
+})
+
+describe('canCouple and canKeepCoupling between placed nodes', () => {
+  let toy
+
+  beforeAll(async () => {
+    toy = await loadToyNodes()
+  })
+
+  it('couples annotated ports only at one place', () => {
+    const [cell, porterIn] = [toy.node('cell'), toy.node('porter_in')]
+    const context = toy.context([cell, porterIn])
+    expect(canCouple(toy.port('cell', 'c_A'), cell, toy.port('porter_in', 'c_A_i'), porterIn, context)).toBe(true)
+    // The porter's outside is the apical fluid, not the cell.
+    expect(canCouple(toy.port('cell', 'c_A'), cell, toy.port('porter_in', 'c_A_o'), porterIn, context)).toBe(false)
+  })
+
+  it('keeps a coupling only while its ports still meet at one place', () => {
+    const [cell, porterIn] = [toy.node('cell'), toy.node('porter_in')]
+    const context = toy.context([cell, porterIn])
+    expect(canKeepCoupling(toy.port('cell', 'c_A'), cell, toy.port('porter_in', 'c_A_i'), porterIn, context)).toBe(true)
+    expect(canKeepCoupling(toy.port('cell', 'c_A'), cell, toy.port('porter_in', 'c_A_o'), porterIn, context)).toBe(false)
   })
 })

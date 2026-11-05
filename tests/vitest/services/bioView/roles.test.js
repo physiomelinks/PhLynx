@@ -12,6 +12,20 @@ const readToy = (name) => readFileSync(resolve(TOY, name), 'utf8')
 const toySidecar = (name) => parseSidecar(readToy(`${name}.ttl`), { mathRef: `${name}.cellml:${name}`, cellml: readToy(`${name}.cellml`) })
 
 describe('physiological roles', () => {
+  it('takes a role the location source worked out over the sidecar’s, and the user’s over both', async () => {
+    const sidecar = await toySidecar('porter')
+    const worked = { role: 'membraneProtein', facet: 'basolateral', cell: 'c1' }
+    expect(resolveBioRole({ name: 'p' }, { sidecar, worked })).toMatchObject({
+      role: 'membraneProtein',
+      facet: 'basolateral',
+      cell: 'c1',
+      annotatedFacet: 'basolateral',
+      source: 'location',
+    })
+    expect(resolveBioRole({ bioView: { role: 'region' } }, { sidecar, worked })).toMatchObject({ role: 'region', source: 'override' })
+    expect(resolveBioRole({}, { sidecar, worked: null }).source).toBe('sidecar')
+  })
+
   it('reads the role from the module’s sidecar', async () => {
     const roleOf = async (name) => resolveBioRole({ name }, { sidecar: await toySidecar(name) })
     expect(await roleOf('porter')).toMatchObject({ role: 'membraneProtein', facet: null, cell: null, glyph: 'symporter', source: 'sidecar' })

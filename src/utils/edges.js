@@ -258,13 +258,16 @@ export function edgeOrdinals(edge, edges) {
   }
 }
 
+// Whether a node holds its summed flows at 0.
+const isHeld = (node) => !!node?.data?.annotationOverlay?.heldConstant
+
 /**
  * Recomputes the couplings of every edge touching a node, as they would be with the given ports for that node.
  * Each edge keeps the single-connection slots its couplings name, and otherwise picks its slots by its position
  * among the edges sharing its source and its target, past those other edges hold (see resolvePortCouplings).
  * A coupling with an annotated port is kept while both its ports are still there, since labels can't recreate
- * it; with a context, a coupling whose port's annotation changed is kept only while it still couples (see
- * canKeepCoupling). A coupling through a manual port that annotated ports now hide is kept as stored while both
+ * it; with a context, a coupling whose port's annotation changed, or at a node holding its sums at 0, is kept
+ * only while it still couples (see canKeepCoupling). A coupling through a manual port that annotated ports now hide is kept as stored while both
  * its ports are there, so it still generates. Pure: neither the edges nor the nodes are changed.
  *
  * @param {string} nodeId
@@ -314,7 +317,9 @@ export function previewCouplings(nodeId, ports, nodes, edges, { context, portCha
       const source = findCurrentPort(edge.source, sourcePorts, sourcePort)
       const target = findCurrentPort(edge.target, targetPorts, targetPort)
       if (!source || !target) return []
-      const isChanged = isReannotated(edge.source, sourcePort) || isReannotated(edge.target, targetPort)
+      // A node holding its sums at 0 re-checks them too, so they couple nothing (see annotatedCompatible).
+      const isChanged =
+        isReannotated(edge.source, sourcePort) || isReannotated(edge.target, targetPort) || isHeld(sourceNode) || isHeld(targetNode)
       if (context && isChanged && !canKeepCoupling(source, sourceNode, target, targetNode, context)) return []
       return [{ ...rest, sourcePort: source, targetPort: target }]
     })

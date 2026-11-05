@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 import {
   buildUsedPortKeys,
@@ -9,6 +9,7 @@ import {
   previewCouplings,
   resolvePortCouplings,
 } from '../../../src/utils/edges.js'
+import { loadToyNodes } from '../services/annotations/toyNodes.js'
 
 const port = (label, portType, variables) => ({ label, portType, variables, multiportType: 'None' })
 const node = (id, ports) => ({ id, data: { name: id, ports } })
@@ -246,3 +247,32 @@ describe('comparableCouplings', () => {
 function owner() {
   return annotated('m#c.v', ['v'], 'Sum')
 }
+
+describe('previewCouplings at a node holding its sums at 0', () => {
+  let toy
+
+  beforeAll(async () => {
+    toy = await loadToyNodes()
+  })
+
+  it('drops the couplings into its held sums and keeps the rest', () => {
+    const outsidePorts = [toy.port('outside', 'c_A'), toy.port('outside', 'v_A')]
+    const porterPorts = [toy.port('porter_in', 'c_A_o'), toy.port('porter_in', 'v_A_o')]
+    const porterIn = toy.node('porter_in', porterPorts)
+    const couplings = [
+      { sourcePort: outsidePorts[0], targetPort: porterPorts[0] },
+      { sourcePort: outsidePorts[1], targetPort: porterPorts[1] },
+    ]
+    const edges = [{ id: 'e', source: 'node_outside', target: 'node_porter_in', data: { couplings } }]
+    const variables = (result) => result.get('e').map(({ sourcePort }) => sourcePort.variables[0])
+
+    const free = toy.node('outside', outsidePorts)
+    expect(variables(previewCouplings(free.id, outsidePorts, [free, porterIn], edges, { context: toy.context([free, porterIn]) }))).toEqual([
+      'c_A',
+      'v_A',
+    ])
+    const held = toy.node('outside', outsidePorts, { annotationOverlay: { heldConstant: true } })
+    const nodes = [held, porterIn]
+    expect(variables(previewCouplings(held.id, outsidePorts, nodes, edges, { context: toy.context(nodes) }))).toEqual(['c_A'])
+  })
+})

@@ -1,20 +1,25 @@
+import { nextTick } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { confirmDrivenStores } from '../services/export/drivenStores'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import { annotatedCouplingsBetween, placesOf } from '../services/annotations/couple'
 import { linkCouplings } from '../services/bioView/links'
+import { useCouplingContext } from './useCouplingContext'
 import { FLOW_IDS } from '../utils/constants'
 import { facingSides, nodeRect } from '../utils/edgeGeometry'
 import { resolvePortCouplings } from '../utils/edges'
 import { freeHandle, getHandleId, getHandleUidFromHandleId } from '../utils/handles'
 import { detachReactivity } from '../utils/reactivity'
+import { notify } from '../utils/notify'
 
 /**
  * Registers the Vue Flow connect handler: validates a new connection, activates its handles,
  * asks before replacing an existing connection between the same instances, and adds the edge
  * with its resolved port couplings, after asking about each CellDL store they would set from
- * elsewhere (see confirmDrivenStores). Gives connectNodes, which joins two nodes the same way without a handle
- * drag.
+ * elsewhere (see confirmDrivenStores). Between two placed nodes with annotated math, the matcher's couplings are
+ * added too, with any ports they need, in the same undo step. Gives connectNodes, which joins two nodes the same
+ * way without a handle drag.
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -25,6 +30,7 @@ import { detachReactivity } from '../utils/reactivity'
  * @param {Function} options.revertHandleIfUnused - From useHandleManagement.
  * @param {Function} options.revertHandlesForEdge - From useHandleManagement.
  * @param {Function} options.reactivateEdgeHandles - From useHandleManagement.
+ * @param {Function} [options.recordEdit] - From useNodeDataHistory, to record the ports annotated couplings add.
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  */
 export function useConnect({
@@ -36,21 +42,81 @@ export function useConnect({
   revertHandleIfUnused,
   revertHandlesForEdge,
   reactivateEdgeHandles,
+  recordEdit,
   flowId = FLOW_IDS.MAIN,
 }) {
   const { addEdges, edges, nodes, findNode, onConnect, removeEdges } = useVueFlow(flowId)
   const historyStore = useFlowHistoryStore()
   const libraryStore = useLibraryStore()
+  const { getContext, ensureContext } = useCouplingContext()
+
+  /** Whether a node's math has a side-car and the node is placed (see isLocatedNode). */
+  const isAnnotatedNode = (node) =>
+    !!libraryStore.getModuleAnnotations(node.data?.mathRef) && placesOf(node, getContext(nodes.value)).length > 0
 
   /**
-   * The couplings an edge from one node to another gets by label, picking each label's slot by how many edges the
-   * nodes already have (see resolvePortCouplings).
+   * The matcher's couplings between two annotated nodes (see isAnnotatedNode), and the ports they add. A file
+   * that fails to parse leaves the edge to its label couplings.
+   *
+   * @returns {Promise<ReturnType<typeof annotatedCouplingsBetween>|null>} Null when there are none, or either node
+   *   is not annotated.
    */
-  function labelCouplings(source, target) {
+  async function annotatedCouplings(sourceNode, targetNode) {
+    if (!isAnnotatedNode(sourceNode) || !isAnnotatedNode(targetNode)) return null
+    const allNodes = nodes.value
+    try {
+      const context = await ensureContext(allNodes)
+      const result = annotatedCouplingsBetween(sourceNode, targetNode, allNodes, context)
+      return result.couplings.length ? result : null
+    } catch (error) {
+      console.warn('Annotated couplings unavailable:', error)
+      notify.warning({ message: `Couldn't read the annotations, so only labels coupled this edge: ${error.message}` })
+      return null
+    }
+  }
+
+  /**
+   * Adds ports to nodes, as one recorded edit when recordEdit is given.
+   *
+   * @param {Map<string, Array<Object>>} addedPorts
+   */
+  async function addPorts(addedPorts) {
+    const nodeIds = [...addedPorts.keys()].filter((id) => addedPorts.get(id).length)
+    if (!nodeIds.length) return
+    const apply = () =>
+      nodeIds.forEach((id) => {
+        const node = findNode(id)
+        if (node) node.data = { ...node.data, ports: [...(node.data.ports ?? []), ...addedPorts.get(id)] }
+      })
+    if (recordEdit) await recordEdit({ type: 'add-annotated-ports', nodeIds, keys: ['ports'], apply })
+    else apply()
+  }
+
+  /**
+   * The couplings an edge from one node to another gets: by label, picking each label's slot by how many edges
+   * the nodes already have (see resolvePortCouplings), and, between annotated nodes, the matcher's, with the ports
+   * those add. Annotated ports never couple by label. The matcher is awaited first, so the slots and ports are
+   * read as they are once it settles.
+   *
+   * @param {Object} sourceNode
+   * @param {Object} targetNode
+   * @param {Array<Object>} [otherEdges] - The edges the new one joins; every edge by default.
+   * @returns {Promise<{couplings: Array<Object>, addedPorts: Map<string, Array<Object>>}>}
+   */
+  async function couplingsFor(sourceNode, targetNode, otherEdges = null) {
+    const annotated = await annotatedCouplings(sourceNode, targetNode)
+    const source = findNode(sourceNode.id) ?? sourceNode
+    const target = findNode(targetNode.id) ?? targetNode
+    const joined = otherEdges ?? edges.value
     // The Nth edge out of the source and into the target, as in out_modules / inp_modules.
-    const sourceIndex = edges.value.filter((e) => e.source === source.id).length
-    const targetIndex = edges.value.filter((e) => e.target === target.id).length
-    return resolvePortCouplings(source.data?.ports ?? [], target.data?.ports ?? [], sourceIndex, targetIndex)
+    const sourceIndex = joined.filter((e) => e.source === source.id).length
+    const targetIndex = joined.filter((e) => e.target === target.id).length
+    const addedPorts = annotated?.addedPorts ?? new Map()
+    // With the annotated ports this edge adds, which hide a node's manual ones.
+    const portsOf = (node) => [...(node.data?.ports ?? []), ...(addedPorts.get(node.id) ?? [])]
+    const couplings = resolvePortCouplings(portsOf(source), portsOf(target), sourceIndex, targetIndex)
+    if (annotated) couplings.push(...annotated.couplings)
+    return { couplings, addedPorts }
   }
 
   /** A node as linkCouplings reads it. */
@@ -59,8 +125,8 @@ export function useConnect({
   /**
    * Joins two nodes that aren't joined yet, on free handles on the sides facing each other, the way round that
    * couples more ports (the given way on a tie); an edge nothing couples is left empty. With a link kind, the
-   * edge runs the given way and couples as the link does (see linkCouplings), and is marked placement-made
-   * (data.placement). Asks about each CellDL store the
+   * edge runs the given way and couples as the link does (see linkCouplings), unless both nodes are annotated,
+   * which the matcher couples instead, and is marked placement-made (data.placement). Asks about each CellDL store the
    * couplings would set from elsewhere, as a handle drag does, and adds nothing when one is declined. Run it
    * inside a history batch to make it part of one undo step.
    *
@@ -79,16 +145,17 @@ export function useConnect({
     )
     if (isJoined) return null
 
-    const byLink = !!link && mode === 'labels'
+    const none = { couplings: [], addedPorts: new Map() }
+    const byLink = !!link && mode === 'labels' && !(isAnnotatedNode(first) && isAnnotatedNode(second))
     const given = byLink
-      ? linkCouplings(nodeEnd(first), nodeEnd(second), link, edges.value)
+      ? { couplings: linkCouplings(nodeEnd(first), nodeEnd(second), link, edges.value), addedPorts: new Map() }
       : mode === 'labels'
-        ? labelCouplings(first, second)
-        : []
-    let chosen = { from: first, to: second, couplings: given }
+        ? await couplingsFor(first, second)
+        : none
+    let chosen = { from: first, to: second, ...given }
     if (mode === 'labels' && !byLink) {
-      const reversed = labelCouplings(second, first)
-      if (reversed.length > given.length) chosen = { from: second, to: first, couplings: reversed }
+      const reversed = await couplingsFor(second, first)
+      if (reversed.couplings.length > given.couplings.length) chosen = { from: second, to: first, ...reversed }
     }
 
     const { from, to } = chosen
@@ -109,6 +176,7 @@ export function useConnect({
     })
     if (!marked) return null
     if (marked.has(edge.id)) edge.data = { ...edge.data, couplings: marked.get(edge.id) }
+    await addPorts(chosen.addedPorts)
 
     const { sourceSide, targetSide } = facingSides(nodeRect(from), nodeRect(to))
     const sourceHandle = freeHandle(from, sourceSide)
@@ -200,23 +268,10 @@ export function useConnect({
     // The edges the new one joins: a replaced edge and the pending one go.
     const otherEdges = edges.value.filter((e) => e.id !== duplicateSnapshot?.id && e.id !== pendingEdge?.id)
 
-    // Derive ordinal indices from the existing edge graph:
-    //   sourceIndex = how many edges already leave from this source node
-    //                 (i.e. this is the Nth output being connected)
-    //   targetIndex = how many edges already arrive at this target node
-    //                 (i.e. this is the Nth input being connected)
-    // These mirror the positional semantics of out_modules / inp_modules.
-    const sourceIndex = otherEdges.filter((e) => e.source === connection.source).length
-    const targetIndex = otherEdges.filter((e) => e.target === connection.target).length
-
-    // Resolve which port labels are coupled across this conduit, using ordinal
-    // indices to select the correct slot when a label appears multiple times.
-    const couplings = resolvePortCouplings(
-      sourceNode.data.ports ?? [],
-      targetNode.data.ports ?? [],
-      sourceIndex,
-      targetIndex,
-    )
+    // Resolve which port labels are coupled across this conduit, using ordinal indices (how many edges already
+    // leave the source and arrive at the target, as in out_modules / inp_modules) to select the correct slot when a
+    // label appears multiple times; between annotated nodes, the matcher's couplings too.
+    const { couplings, addedPorts } = await couplingsFor(sourceNode, targetNode, otherEdges)
 
     const newEdge = {
       ...connection,
@@ -243,7 +298,29 @@ export function useConnect({
     }
     if (marked.has(newEdge.id)) newEdge.data = { ...newEdge.data, couplings: marked.get(newEdge.id) }
 
-    if (duplicate) {
+    const isBatched = !!addedPorts.size
+    if (isBatched) historyStore.startBatch()
+    try {
+      if (isBatched) await addPorts(addedPorts)
+      await addConnection(newEdge, duplicateSnapshot, pendingEdge)
+    } finally {
+      // A failed edit still closes the batch, so later edits aren't swallowed into it.
+      if (isBatched) {
+        await nextTick()
+        historyStore.endBatch()
+      }
+    }
+  })
+
+  /**
+   * Adds a new connection's edge, in place of the edge it replaces, if any, as one step.
+   *
+   * @param {Object} newEdge
+   * @param {Object|null} duplicateSnapshot - The edge it replaces.
+   * @param {Object|null} pendingEdge - The marker drawn while the replacement was asked about.
+   */
+  async function addConnection(newEdge, duplicateSnapshot, pendingEdge) {
+    if (duplicateSnapshot) {
       suppressedEdgeIds.add(duplicateSnapshot.id)
       await revertHandlesForEdge(duplicateSnapshot, [duplicateSnapshot.id], {
         trackHistory: false,
@@ -279,7 +356,7 @@ export function useConnect({
     } else {
       addEdges(newEdge)
     }
-  })
+  }
 
   return { connectNodes }
 }

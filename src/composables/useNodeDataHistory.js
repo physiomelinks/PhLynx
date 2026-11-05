@@ -67,15 +67,20 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Copies the couplings of each edge.
+   * Copies the couplings of each edge, the manual ones annotated couplings set aside (see edgeCouplings.js), and
+   * whether placement made it (see isPlacementEdge), which an edit by hand clears.
    *
    * @param {Array<string>} edgeIds
-   * @returns {Array<{ id: string, couplings: Array|undefined }>} Missing edges are left out.
+   * @returns {Array<{ id: string, couplings: Array|undefined, manualCouplings?: Array, placement?: string|false }>}
+   *   Missing edges are left out.
    */
   function captureEdgeCouplings(edgeIds) {
     return edgeIds.flatMap((id) => {
       const edge = findEdge(id)
-      return edge ? [{ id, couplings: edge.data?.couplings && detachReactivity(edge.data.couplings) }] : []
+      if (!edge) return []
+      const { couplings, manualCouplings, placement } = edge.data ?? {}
+      const copy = { id, couplings: couplings && detachReactivity(couplings), placement }
+      return [manualCouplings ? { ...copy, manualCouplings: detachReactivity(manualCouplings) } : copy]
     })
   }
 
@@ -85,9 +90,16 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
    * @param {ReturnType<typeof captureEdgeCouplings>} snapshot
    */
   function restoreEdgeCouplings(snapshot) {
-    snapshot.forEach(({ id, couplings }) => {
+    snapshot.forEach(({ id, couplings, manualCouplings, placement }) => {
       const edge = findEdge(id)
-      if (edge) edge.data = { ...edge.data, couplings: couplings && detachReactivity(couplings) }
+      if (!edge) return
+      const { manualCouplings: _current, placement: _placement, ...data } = edge.data ?? {}
+      edge.data = {
+        ...data,
+        couplings: couplings && detachReactivity(couplings),
+        ...(manualCouplings ? { manualCouplings: detachReactivity(manualCouplings) } : {}),
+        ...(placement !== undefined ? { placement } : {}),
+      }
     })
   }
 

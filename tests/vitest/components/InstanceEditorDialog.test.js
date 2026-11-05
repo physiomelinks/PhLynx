@@ -3058,6 +3058,32 @@ m:vdecayx01 bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi
     await flushPromises()
   }
 
+  it('holds the summed flows at 0 from the tab, saving the rows and the reservoir state together', async () => {
+    useLibraryStore().setModuleAnnotations(
+      MATH_REF,
+      SIDECAR.replace(
+        'm:vdecayx01 bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi:29101 ; bqbiol:isPartOf go:0005737 ] .',
+        'm:vdecayx01 bqbiol:isVersionOf opb:00592 ; bqbiol:isPropertyOf local:Na_self .\n' +
+          'local:Na_self bqbiol:is chebi:29101 ; bqbiol:isPartOf local:entity_self .'
+      )
+    )
+    const tab = await openTab()
+    expect(tab.props('heldConstant')).toBe(false)
+    tab.vm.$emit('update:heldConstant', true)
+    await flushPromises()
+    expect(tab.props('heldConstant')).toBe(true)
+    expect(wrapper.vm.parameterRows.find((row) => row.name === 'x')).toMatchObject({ type: 'constant', value: '0' })
+
+    await clickButton('Save')
+    const [held] = wrapper.emitted('confirm')[0]
+    expect(held.annotationOverlay).toEqual({ heldConstant: true })
+    expect(held.variables.find((row) => row.name === 'x')).toMatchObject({ type: 'constant', value: '0' })
+
+    tab.vm.$emit('update:heldConstant', false)
+    await flushPromises()
+    expect(wrapper.vm.parameterRows.find((row) => row.name === 'x').type).toBe('boundary_condition')
+  })
+
   it('counts annotated of annotatable variables on its tab, leaving out the VoI and constants', async () => {
     await openTab()
     expect(wrapper.text()).toContain('Annotations (1/1)')

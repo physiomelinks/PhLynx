@@ -3,7 +3,8 @@
  * keyed `mathRef:paramRef`, and those waiting for a config to name them, each math's side-car of annotations, and
  * the ports and couplings those annotations give, and the physiological view: each node's place in it and the
  * templates placed there, with a copy of each, the edges a drop there made, which a later move may take away, and a
- * copy of each of the user's own cartoons the nodes are drawn as.
+ * copy of each of the user's own cartoons the nodes are drawn as. An edge whose ends are placed there keeps its
+ * manual couplings aside while their annotations couple it.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
@@ -185,6 +186,15 @@ export const cases = {
       },
     }
     return part
+  },
+
+  /** The edge from `left_pool` to `right_pool` keeps its coupling through the label `q` aside. */
+  setAsideCouplings: () => {
+    const [left, right] = ['left_pool', 'right_pool'].map(separatedDecayNode)
+    const port = { portType: 'general_ports', label: 'q', variables: ['x'], multiportType: 'None' }
+    const placed = edge('left_pool', 'right_pool', [])
+    placed.data.manualCouplings = [{ sourcePort: port, targetPort: port }]
+    return mergeParts(left, right, { flow: { edges: [placed] } })
   },
 
   /** The set `glut5` waits for a config to name it. */

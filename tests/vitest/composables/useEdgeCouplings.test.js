@@ -99,8 +99,8 @@ describe('useEdgeCouplings with annotated ports', () => {
    * @returns {ReturnType<typeof useEdgeCouplings>}
    */
   function openToy({ sourcePorts, targetPorts, couplings = [], siblings = [], withContext = true }) {
-    const sourceNode = toy.node('porter_in', sourcePorts)
-    const targetNode = toy.node('cell', targetPorts)
+    const sourceNode = toy.unplaced('porter_in', sourcePorts)
+    const targetNode = toy.unplaced('cell', targetPorts)
     const activeEdge = { id: 'e', source: sourceNode.id, target: targetNode.id, data: { couplings } }
     const subgraph = new Map([['e', activeEdge], ...siblings.map((edge) => [edge.id, edge])])
     const context = toy.context([sourceNode, targetNode])

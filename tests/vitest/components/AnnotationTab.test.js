@@ -11,6 +11,7 @@ import { LookupUnavailableError } from '../../../src/services/ontology/ols.js'
 import { rememberTerms, resetTermCache } from '../../../src/services/ontology/termCache.js'
 import { notify } from '../../../src/utils/notify.js'
 import { createMemoryStorage } from '../helpers/memoryStorage.js'
+import { readToy } from '../services/annotations/toyModel.js'
 
 vi.mock('../../../src/utils/notify.js', () => {
   const notify = vi.fn()
@@ -696,5 +697,58 @@ describe('AnnotationTab', () => {
     expect(other.find('summary').text()).toBe('More (1)')
     expect(other.attributes('open')).toBeUndefined()
     expect(other.text()).toContain('dcterms:description "A pool"')
+  })
+})
+
+describe('AnnotationTab placement and held flows', () => {
+  const POOL_ROWS = [
+    { name: 'c_A', units: 'mM', type: 'constant', value: '1' },
+    { name: 'v_A', units: 'fmol_per_mm2_per_s', type: 'boundary_condition', value: '' },
+    { name: 'volume', units: 'pL', type: 'constant', value: '2' },
+  ]
+
+  /** Mounts the tab on the toy pool, whose v_A sums the flows into it. */
+  async function mountPool(props = {}) {
+    const cellml = readToy('pool.cellml')
+    const text = readToy('pool.ttl')
+    const sidecar = await parseSidecar(text, { mathRef: 'pool.cellml:pool', cellml })
+    wrapper = mount(AnnotationTab, {
+      props: { rows: POOL_ROWS, sidecar, sidecarText: text, cellml, draft: createAnnotationDraft(), mathRef: 'pool.cellml:pool', ...props },
+      global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  const holdBox = () => wrapper.findComponent('[data-test="hold-constant-checkbox"]')
+
+  it('asks for the instance to be placed until it is', async () => {
+    await mountPool()
+    expect(wrapper.find('[data-test="unplaced-hint"]').text()).toContain('Place this instance in the physiology view')
+    await wrapper.setProps({ isPlaced: true })
+    expect(wrapper.find('[data-test="unplaced-hint"]').exists()).toBe(false)
+  })
+
+  it('offers to hold the summed flows at 0 only when the side-car sums some', async () => {
+    await mountTab()
+    expect(wrapper.find('[data-test="hold-constant"]').exists()).toBe(false)
+    wrapper.unmount()
+    await mountPool()
+    expect(wrapper.find('[data-test="hold-constant"]').text()).toContain('Hold summed flows at 0')
+    expect(holdBox().props('modelValue')).toBe(false)
+  })
+
+  it('holds and releases the flows through update:heldConstant', async () => {
+    await mountPool()
+    holdBox().vm.$emit('update:modelValue', true)
+    await wrapper.setProps({ heldConstant: true })
+    expect(holdBox().props('modelValue')).toBe(true)
+    holdBox().vm.$emit('update:modelValue', false)
+    expect(wrapper.emitted('update:heldConstant')).toEqual([[true], [false]])
+  })
+
+  it('shows the flows as held only when the instance holds them, whatever their rows', async () => {
+    await mountPool({ rows: POOL_ROWS.map((row) => (row.name === 'v_A' ? { ...row, type: 'constant', value: '0' } : row)) })
+    expect(holdBox().props('modelValue')).toBe(false)
   })
 })

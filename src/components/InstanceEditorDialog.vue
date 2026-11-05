@@ -489,6 +489,9 @@
                 :workspace-terms="workspaceSpecies"
                 :unit-definitions="store.unitDefinitions"
                 :port-status="annotationPortStatus"
+                :is-placed="isNodePlaced"
+                :held-constant="heldConstant"
+                @update:held-constant="setHeldConstant"
               />
             </TabPanel>
           </TabPanels>
@@ -655,6 +658,7 @@ import { prepareSavedMath, variableIdsOf } from '../services/math/variableIds'
 import { placesOf, quantityOfPort } from '../services/annotations/couple'
 import { isSidecarPort, reconcileAnnotatedPorts } from '../services/annotations/ports'
 import { fromAnnotationTitle } from '../services/annotations/display'
+import { aggregatorVariables, asBoundaryConditions, holdAtZero } from '../services/annotations/heldConstant'
 import {
   applyAnnotationDraft,
   classifyAnnotationRow,
@@ -828,6 +832,8 @@ const flaggedPorts = ref(new Set())
 const portsTableRef = ref(null)
 // The Annotations tab's unsaved edits to the math's sidecar.
 const annotationDraft = ref(createAnnotationDraft())
+// Whether this instance's summed flows are held at 0 (annotationOverlay.heldConstant), as the save leaves it.
+const heldConstant = ref(false)
 
 watch(editableName, (name) => {
   if (name !== rejectedName) nameError.value = ''
@@ -1873,6 +1879,7 @@ async function loadEditor({ keepTab = false } = {}) {
   }
   issueFilter.reset()
   annotationDraft.value = createAnnotationDraft()
+  heldConstant.value = !!instanceNode.value?.data?.annotationOverlay?.heldConstant
   pendingValues.value = new Map()
   // The diagram opens as the tab first shows, so a dialog that never shows it never loads the editor.
   if (isDiagramEditable.value) celldlHost.prepare(store.getMathSource(props.mathRef))
@@ -2048,6 +2055,31 @@ const isNodePlaced = computed(() => placesOf(instanceNode.value, couplingContext
 /** An annotated port's quantity, for its chips' detail. */
 const portQuantity = (port) =>
   quantityOfPort(port, instanceNode.value ?? { id: props.id, data: { mathRef: props.mathRef } }, couplingContext.value)
+
+/**
+ * Holds this instance's summed flows at 0, making their rows constant 0, or lets connected instances supply them
+ * again as boundary conditions that keep their values (see services/annotations/heldConstant.js).
+ *
+ * @param {boolean} isHeld
+ */
+function setHeldConstant(isHeld) {
+  const aggregators = aggregatorVariables(renamedSidecar.value)
+  heldConstant.value = isHeld
+  parameterRows.value = isHeld
+    ? holdAtZero(parameterRows.value, aggregators)
+    : asBoundaryConditions(parameterRows.value, aggregators)
+}
+
+/**
+ * The instance's annotationOverlay as the save leaves it.
+ *
+ * @returns {Object|null} Null when it has nothing left.
+ */
+function overlayToSave() {
+  const { heldConstant: _held, ...rest } = instanceNode.value?.data?.annotationOverlay ?? {}
+  const overlay = heldConstant.value ? { ...rest, heldConstant: true } : rest
+  return Object.keys(overlay).length ? overlay : null
+}
 
 /** Parses what annotated ports read; their chips fill in when it lands. */
 function ensureAnnotations() {
@@ -3174,6 +3206,7 @@ async function saveInstance(options) {
     // The instance's plotted variables, under the names this save gives them.
     plotVariables: renamedPlotEntries(),
     ...(annotations ? { annotations } : {}),
+    annotationOverlay: overlayToSave(),
     updateAll,
     siblings: updateAll ? siblings.value : [],
     config,

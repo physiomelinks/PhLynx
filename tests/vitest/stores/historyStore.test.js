@@ -149,6 +149,7 @@ describe('naming and rolling back steps', () => {
     history.endBatch()
     expect(history.undoLabel).toBe('Cartoon')
     expect(stepLabel({ type: 'bio-template-move' })).toBe('Move template')
+    expect(stepLabel({ type: 'add-annotated-ports' })).toBe('Add annotated ports')
   })
 
   it('falls back to a plain name for a step of no known type', () => {

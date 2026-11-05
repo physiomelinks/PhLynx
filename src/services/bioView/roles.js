@@ -83,22 +83,26 @@ function fromSidecar(sidecar) {
 }
 
 /**
- * Works out what an instance is in the physiological view. The user's bioView choices win, then its module's
- * sidecar.
+ * Works out what an instance is in the physiological view. The user's bioView choices win, then a role the
+ * location source worked out, then its module's sidecar.
  *
  * @param {Object} data - The node's data.
  * @param {Object} [context]
  * @param {Object|null} [context.sidecar] - The parsed sidecar of the node's math.
+ * @param {Object|null} [context.worked] - A role the location source worked out (see locationSources.js), as
+ *   { role, facet?, cell?, side? }.
  * @returns {{ role: string, facet: string|null, at: string|null, annotatedFacet: string|null, cell: string|null,
- *   side: string|null, adjacent: Array<Object>|null, glyph: string|null, source: 'override'|'sidecar'|'none',
+ *   side: string|null, adjacent: Array<Object>|null, glyph: string|null,
+ *   source: 'override'|'location'|'sidecar'|'none',
  *   site?: string }}
  *   annotatedFacet is the facet the annotations give, whatever the user chose, and null for a node bound to a
  *   template site, which the template places; side is the facet a region faces as the annotations give it, and
  *   adjacent what the user said it lies against; site, only there when set, the template site it is bound to.
  */
-export function resolveBioRole(data, { sidecar = null } = {}) {
-  const worked = sidecar ? fromSidecar(sidecar) : null
-  const source = worked ? 'sidecar' : 'none'
+export function resolveBioRole(data, { sidecar = null, worked: located = null } = {}) {
+  const fromModule = !located && sidecar ? fromSidecar(sidecar) : null
+  const worked = located ?? fromModule
+  const source = located ? 'location' : fromModule ? 'sidecar' : 'none'
   const override = data?.bioView ?? {}
 
   const role = ROLES.includes(override.role) ? override.role : (worked?.role ?? 'none')
