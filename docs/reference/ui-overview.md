@@ -12,20 +12,22 @@ For shortcuts, see [Keyboard Shortcuts](./keyboard-shortcuts.md).
 
 ![The main toolbar](../assets/images/toolbar.png){.align-center width="800px"}
 
+The add-handle, macro builder and Send buttons are hidden by default; [Settings ▸ Toolbar](#settings) shows or hides each button.
+
 | Button (tooltip) | Icon | What it does |
 | :--- | :--- | :--- |
 | **Load workspace** | Folder | Opens a saved `.json` [workspace file](./file-types.md#workspace-file), replacing the canvas without asking. |
 | **Save workspace** | Floppy disk | Saves to `.json`, including simulation settings (Ctrl/Cmd+S). PhLynx doesn't autosave. |
 | **Clean up workspace** | Dustpan | Auto-arranges the instances and clears [arrow routes](#routing). |
 | **Clear workspace** | Eraser | Removes everything from the canvas (undoable). |
-| **Undo** / **Redo** | Arrows | Edit history. |
+| **Undo** / **Redo** | Arrows | Edit history. A notice names the step undone or redone, e.g. **Undid: Connect**. |
 | **Add left / top / right / bottom handle** | Box with a dot on that side | Adds a handle (where arrows attach) on that side of the selected instances. |
 | **Open macro builder** | Hammer | Opens the [Macro Builder](../guides/macro-build-guide.md). |
 | **Configure simulation settings** | Chart with cog | Opens [Simulation Settings](./simulation-ui-overview.md#simulation-settings). |
 | **Settings** | Cog | Opens app [Settings](#settings). |
 | **Import** / **Export** / **Send** | Split buttons | Click runs the last-used item (Ctrl/Cmd+I, Ctrl/Cmd+E); the arrow opens the menu. |
 
-On the right are **Report Issue** and a light/dark switch. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
+On the right are the **Diagram** / **Physiology** switch (see [The Physiology View](../guides/physiology-view.md)) and a light/dark switch. To report a bug, use the bug icon beside **About** at the top of every page. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
 
 ### Import {#import}
 
@@ -64,6 +66,8 @@ Modules are grouped by source file. **Search Library…** filters them; drag a c
 ---
 
 ## Workspace canvas {#workspace}
+
+The canvas shows the model as a diagram, or as physiology when the header is switched to **Physiology**; see [The Physiology View](../guides/physiology-view.md).
 
 | Action | How |
 | :--- | :--- |
@@ -114,7 +118,7 @@ To fill many at once, use Import ▸ **Parameters** ([parameter file](./file-typ
 
 Handles are the dots where arrows attach. They don't decide which variables an arrow shares; ports do, set on the [Ports tab](#port-definitions) or in the Connections dialog.
 
-* **Add a handle:** hover a node's edge and drag from the green placeholder handle, or use the toolbar's **Add … handle** buttons.
+* **Add a handle:** hover a node's edge and drag from the green placeholder handle, or use the toolbar's **Add … handle** buttons (shown from [Settings ▸ Toolbar](#settings)).
 * **Connect:** drag from one handle to another. The arrow's direction is used in instance array exports.
 * **Edit couplings:** double-click an arrow to open the [Connections dialog](./valid-port-configurations.md#connections-dialog).
 * **Delete:** select an arrow and press Delete or Backspace. Hover a handle and click its trash icon to remove it and its arrows.
@@ -156,7 +160,7 @@ The header holds the **Instance** name (unique), the **Component** name and the 
 ![Instance Editor on the Ports tab](../assets/images/edit-module-detail.png){.align-center width="800px"}
 
 * **Left pane:** **CellML Text** or **Math Editor**, two views of the same equations; see [Writing CellML](../guides/writing-cellml.md). The **CellDL (beta)** tab draws the module as a bond-graph diagram instead, whose generated CellML the other two tabs show read-only; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md). Its status line shows live conversion (click it to list issues), **Reorganise** with its mode dropdown, and the **Shading** switch; see [Live Conversion](../guides/drawing-celldl-modules.md#live-conversion). It is locked for CellML modules.
-* **Right pane:** **Parameters**, **Ports** and **Plot** tabs (collapsible, resizable).
+* **Right pane:** **Parameters**, **Ports**, **Plot** and **Annotations** tabs (collapsible, resizable).
 * **Footer:** **Cancel**, **Apply** (save and keep editing) and **Save** (Ctrl/Cmd+Enter). **Apply math changes to all N instances** also updates instances sharing the component.
 
 ### Parameters tab {#parameters-tab}
@@ -200,7 +204,11 @@ Each row on the **Ports** tab exposes variables through a port; hover the dot by
 | **Mode** | Toggles **Basicport** (one connection) and **Multiport** (several). |
 | **Variables** | The variables the port exposes. On a multiport, click a variable's chip to cycle **True**, **Sum** and **Multiply** (with a factor); see [Ports that take several connections](./valid-port-configurations.md#multiports). |
 
-**Add port** adds a row; the trash icon removes one.
+**Add port** adds a row; the trash icon removes one. [Annotated ports](../guides/annotation-coupling.md#annotated-ports) show chips in place of a label and can't be edited; while an instance has them, its manual ports are hidden.
+
+### Annotations tab {#annotations-tab}
+
+Says what each variable means (its property, species and place), shared by every instance of the math. Annotated variables get ports that couple by meaning and place. Species and proteins are looked up online as you type. See [Annotate in the Instance Editor](../guides/annotation-coupling.md#annotations-tab).
 
 ---
 
@@ -242,6 +250,7 @@ Opened with **Settings** (cog icon).
 | Section | Settings |
 | :--- | :--- |
 | Units | **Units suggestion format**: CellML built-in or SI base units |
-| Simulation | **Plot inspection modules**; **Show data items** (in Edit obs_data) |
+| Simulation | **Plot inspection modules**; **Auto-plot selection** (in the [physiology view](../guides/physiology-view.md#roles)); **Species mode** (open the physiology view in [species mode](../guides/physiology-view.md#species-mode)); **Show data items** (in Edit obs_data) |
 | CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **Location shading**; **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
 | Image export | **Image format** (PNG or SVG); **Include warning symbols** |
+| Toolbar | Show or hide each toolbar button. **Add handles**, **Macro builder** and **Send to** are hidden until turned on; **Settings** is always shown |

@@ -43,6 +43,22 @@ from test_celldl import (  # noqa: E402
     wait_for_diagram,
 )
 from test_workspace import centre, ghost_handle, node_by_name, wait_for_settled_transform  # noqa: E402
+from test_annotations import (  # noqa: E402
+    BIO,
+    BIO_NODE,
+    DRAG_OVER_AND_DROP_JS,
+    LIBRARY_CARD,
+    POOL_FILES,
+    READ_FLOW,
+    TOY_MATHS,
+    import_files,
+    mock_ontology_services,
+    open_app,
+    piece,
+    toy,
+    toy_names,
+)
+from test_annotations import place as place_module  # noqa: E402
 
 IMAGES = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "assets", "images"))
 VIEWPORT = {"width": 1440, "height": 900}
@@ -538,6 +554,118 @@ def celldl_annotations(page):
     save(dialog.locator(".left-pane"), "celldl-annotations")
 
 
+def annotations_tab(page):
+    # On the context, not the page: the isolation service worker would hide its requests from page routes.
+    mock_ontology_services(page.context, [])
+    open_app(page)
+    import_files(page, "CellML File", [toy(name) for name in POOL_FILES])
+    place_module(page, "pool")
+    wait_for_settled_transform(page)
+    dismiss_toasts(page)
+    page.locator(".vue-flow__node").first.dblclick()
+    dialog = page.locator(".module-editor-dialog")
+    dialog.get_by_role("tab", name=re.compile(r"Annotations \(")).click()
+    dialog.locator("[data-test=module-kind]").get_by_text("Compartment", exact=True).click()
+    row = dialog.locator(".annotation-row[data-variable=c_A]")
+    row.locator("[data-test=what]").click()
+    page.get_by_role("option", name="Concentration", exact=True).click()
+    row.locator("[data-test=species] input").fill("sodium")
+    options = page.locator(".p-autocomplete-option")
+    expect(options.filter(has_text="CHEBI:26708")).to_be_visible(timeout=10000)
+    options.filter(has_text="CHEBI:29101").first.click()
+    row.locator("[data-test=whose]").click()
+    page.get_by_role("option", name="This compartment", exact=True).click()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    save(dialog, "annotations-tab")
+
+
+def drop_toy_module(page, name, point):
+    """Drag the named toy module from the library onto a screen point of the physiology view."""
+    card = page.locator(LIBRARY_CARD).filter(has_text=f"{name}:default").first
+    if not card.is_visible():
+        page.locator(".mlc__group-header").filter(has_text=re.compile(re.escape(name), re.IGNORECASE)).first.click()
+    expect(card).to_be_visible()
+    transfer = page.evaluate_handle("() => new DataTransfer()")
+    card.dispatch_event("dragstart", {"dataTransfer": transfer})
+    page.evaluate(DRAG_OVER_AND_DROP_JS, [point[0], point[1], transfer])
+    card.dispatch_event("dragend", {"dataTransfer": transfer})
+
+
+def open_toy_editor(page, toy_name):
+    """Open the Instance Editor of the placed instance standing for a toy instance (outside, porter_in, ...)."""
+    flow = page.evaluate(READ_FLOW)
+    names = toy_names(flow)
+    node_id = next(n["id"] for n in flow["nodes"] if names[n["name"]] == toy_name)
+    page.locator(f'{BIO_NODE}[data-id="{node_id}"]').dispatch_event("dblclick")
+    dialog = page.locator(".module-editor-dialog")
+    expect(dialog.get_by_role("tab", name=re.compile(r"Ports \(")).first).to_be_visible(timeout=30000)
+    return dialog
+
+
+def import_toy_sidecar(page, toy_name, sidecar):
+    """Import a module's sidecar on one of its instances' Annotations tab, and save it."""
+    dialog = open_toy_editor(page, toy_name)
+    dialog.get_by_role("tab", name=re.compile(r"Annotations \(")).click()
+    dialog.locator("[data-test=import-file]").set_input_files(toy(sidecar))
+    confirm = page.locator(".p-confirmdialog").filter(has_text="Import annotations")
+    confirm.get_by_role("button", name="Import", exact=True).click()
+    expect(dialog.get_by_role("tab", name=re.compile(r"Annotations \("))).not_to_have_text(re.compile(r"\(0/"))
+    dialog.get_by_role("button", name="Save", exact=True).click()
+    expect(dialog).to_be_hidden(timeout=30000)
+
+
+def place_toy_on_epithelial_cell(page):
+    """Load the synthetic toy maths and place them on the epithelial-cell template, then annotate them."""
+    open_app(page)
+    import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
+    page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
+    expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
+    page.mouse.click(450, 200, button="right")
+    menu = page.locator(".p-contextmenu")
+    menu.get_by_text("Add Template", exact=True).hover()
+    menu.get_by_text("Epithelial cell", exact=True).click()
+    expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+    page.keyboard.press("Escape")
+    page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
+    page.wait_for_timeout(400)
+    # Pools in the apical and basolateral fluids, porters on the apical and basolateral membranes.
+    cell = piece(page, "cell").bounding_box()
+    lumen = piece(page, "apical-fluid").bounding_box()
+    interstitium = piece(page, "basolateral-fluid").bounding_box()
+    drops = [
+        ("pool", (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3)),
+        ("pool", (interstitium["x"] + 20, interstitium["y"] + interstitium["height"] * 2 / 3)),
+        ("porter", (cell["x"] + cell["width"] / 2, cell["y"])),
+        ("porter", (cell["x"] + cell["width"] / 2, cell["y"] + cell["height"])),
+    ]
+    for count, (module, point) in enumerate(drops, start=1):
+        drop_toy_module(page, module, point)
+        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count)
+    import_toy_sidecar(page, "outside", "pool.ttl")
+    import_toy_sidecar(page, "porter_in", "porter.ttl")
+    wait_for_settled_transform(page)
+    dismiss_toasts(page)
+
+
+def physiology_view(page):
+    place_toy_on_epithelial_cell(page)
+    page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+    page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    save(page.locator(BIO), "physiology-view")
+
+
+def annotations_port_chips(page):
+    place_toy_on_epithelial_cell(page)
+    dialog = open_toy_editor(page, "porter_in")
+    dialog.get_by_role("tab", name=re.compile(r"Ports \(")).click()
+    expect(dialog.locator(".annotation-chips").first).to_be_visible()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    save(dialog, "annotations-port-chips")
+
+
 SHOTS = {
     "phlynx_ui": phlynx_ui,
     "toolbar": toolbar,
@@ -563,6 +691,9 @@ SHOTS = {
     "celldl-parameters": celldl_parameters,
     "celldl-issues": celldl_issues,
     "celldl-annotations": celldl_annotations,
+    "annotations-tab": annotations_tab,
+    "physiology-view": physiology_view,
+    "annotations-port-chips": annotations_port_chips,
 }
 
 
