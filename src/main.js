@@ -29,12 +29,16 @@ import { useNodeThemeStore } from './stores/nodeThemeStore'
 import App from './App.vue'
 import { waitForIsolationReload } from './utils/isolation'
 import { libopencor, loadLibOpenCOR } from './services/simulation/libopencorLoader'
+import { initAnalytics } from './composables/useGtm'
 
 // The first visit reloads once to install the isolation service worker; starting the app before that
 // would load anything it was opened with twice.
 waitForIsolationReload().then(() => {
   const app = createApp(App)
   const pinia = createPinia()
+
+  // Setup GTag before the first page view.
+  initAnalytics()
 
   app.use(pinia)
   app.use(router)
