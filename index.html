@@ -16,23 +16,12 @@
       window.coi = {
         // Automated browsers (Playwright) skip it unless a test opts in, since page.route can't see requests
         // that go through a service worker.
-        shouldRegister: () => !navigator.userAgent.includes('Electron') && (!navigator.webdriver || isolatesUnderAutomation()),
+        shouldRegister: () =>
+          !navigator.userAgent.includes('Electron') && (!navigator.webdriver || isolatesUnderAutomation()),
         coepCredentialless: () => !!(window.chrome || window.netscape),
       }
     </script>
     <script src="/coi-serviceworker.js"></script>
-    <script>
-      ;(function (w, d, s, l, i) {
-        w[l] = w[l] || []
-        w[l].push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' })
-        var f = d.getElementsByTagName(s)[0],
-          j = d.createElement(s),
-          dl = l != 'dataLayer' ? '&l=' + l : ''
-        j.async = true
-        j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl
-        f.parentNode.insertBefore(j, f)
-      })(window, document, 'script', 'dataLayer', 'GTM-P4W97ZNG')
-    </script>
     <link rel="icon" type="image/svg+xml" href="/phlynxlogo.svg" />
     <link rel="icon" sizes="32x32" href="/favicon.ico" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
