@@ -10,7 +10,9 @@ vi.mock('../../../src/composables/useGtm', () => ({ useGtm: () => ({ trackPageVi
 
 vi.mock('../../../src/views/WorkspaceArea.vue', () => ({ default: { name: 'WorkspaceAreaStub', render: () => null } }))
 vi.mock('../../../src/views/AboutView.vue', () => ({ default: { name: 'AboutViewStub', render: () => null } }))
-vi.mock('../../../src/views/SimulationView.vue', () => ({ default: { name: 'SimulationViewStub', render: () => null } }))
+vi.mock('../../../src/views/SimulationView.vue', () => ({
+  default: { name: 'SimulationViewStub', render: () => null },
+}))
 vi.mock('../../../src/views/DocsView.vue', () => ({ default: { name: 'DocsViewStub', render: () => null } }))
 
 const { default: router } = await import('../../../src/router/index.js')
@@ -125,12 +127,8 @@ describe('router', () => {
   })
 
   describe('page view tracking', () => {
-    it('tracks the page view 100ms after navigation with the resolved title', async () => {
+    it('tracks the page view with the resolved title', async () => {
       await router.push('/')
-      expect(trackPageView).not.toHaveBeenCalled()
-      vi.advanceTimersByTime(99)
-      expect(trackPageView).not.toHaveBeenCalled()
-      vi.advanceTimersByTime(1)
       expect(trackPageView).toHaveBeenCalledTimes(1)
       const [to, title] = trackPageView.mock.calls[0]
       expect(to.path).toBe('/')
@@ -139,8 +137,12 @@ describe('router', () => {
 
     it('passes the computed docs title to tracking', async () => {
       await router.push('/docs/a-b/c')
-      vi.advanceTimersByTime(100)
       expect(trackPageView).toHaveBeenCalledWith(expect.objectContaining({ path: '/docs/a-b/c' }), 'A B | C')
+    })
+
+    it('does not track a navigation to the current page', async () => {
+      await router.push('/about')
+      expect(trackPageView).not.toHaveBeenCalled()
     })
   })
 })

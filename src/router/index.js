@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, START_LOCATION } from 'vue-router'
 import { useGtm } from '../composables/useGtm'
 
 import WorkspaceArea from '../views/WorkspaceArea.vue'
@@ -81,7 +81,7 @@ function formatSlug(slug) {
     .join(' | ')
 }
 
-router.afterEach((to) => {
+router.afterEach((to, from, failure) => {
   let pageTitle = ''
 
   if (typeof to.meta.title === 'function') {
@@ -92,9 +92,8 @@ router.afterEach((to) => {
 
   document.title = pageTitle ? `${pageTitle} - PhLynx` : 'PhLynx'
 
-  setTimeout(() => {
-    trackPageView(to, pageTitle)
-  }, 100)
+  if (failure || (from !== START_LOCATION && to.path === from.path)) return
+  trackPageView(to, pageTitle)
 })
 
 export default router
