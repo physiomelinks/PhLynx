@@ -442,6 +442,7 @@
             @nodes-change="onNodeChange"
             @edges-change="onEdgeChange"
             @edge-double-click="onEdgeDoubleClick"
+            @edge-context-menu="onEdgeContextMenu"
             @pane-context-menu="onPaneContextMenu"
             @pane-click="onPaneClick"
             class="main-flow"
@@ -633,6 +634,7 @@ import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'
+import { setEdgeRoute } from '../composables/useEdgeRouteEditing'
 import InstanceEditorDialog from '../components/InstanceEditorDialog.vue'
 import CelldlEditorHost from '../components/celldl/CelldlEditorHost.vue'
 import CreateInspectionModuleDialog from '../components/dialogs/CreateInspectionModule.vue'
@@ -689,7 +691,7 @@ import {
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
 import { edgeOrdinals, resolvePortCouplings } from '../utils/edges'
-import { clearWaypoints } from '../utils/edgeRoute'
+import { clearWaypoints, getEdgeWaypoints } from '../utils/edgeRoute'
 import { parseParametersFile } from '../utils/import'
 import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
@@ -1870,6 +1872,19 @@ function onNodeContextMenu({ clientX, clientY, id }) {
     },
   ]
   contextMenuRef.value.open(clientX, clientY)
+}
+
+function onEdgeContextMenu({ event, edge }) {
+  event.preventDefault()
+  // Otherwise the menu's own document listener takes this right-click as one outside it and closes it.
+  event.stopPropagation()
+  contextMenuItems.value = [
+    { label: 'Edit Couplings', action: () => onEdgeDoubleClick({ edge }) },
+    ...(getEdgeWaypoints(edge)
+      ? [{ label: 'Reset Route', action: () => setEdgeRoute({ findEdge, history: historyStore }, edge.id, undefined) }]
+      : []),
+  ]
+  contextMenuRef.value.open(event.clientX, event.clientY)
 }
 
 /**

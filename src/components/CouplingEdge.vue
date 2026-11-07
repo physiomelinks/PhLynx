@@ -36,6 +36,18 @@
       <i class="pi pi-exclamation-triangle" v-tooltip.top="conflicts.join(' ')"></i>
     </div>
   </EdgeLabelRenderer>
+  <!-- draw.io-style handles: drag a segment's midpoint to move the segment across -->
+  <EdgeLabelRenderer v-if="handles.length">
+    <div
+      v-for="handle in handles"
+      :key="handle.index"
+      :class="['edge-route-handle', `edge-route-handle--${handle.axis}`, 'nodrag', 'nopan']"
+      :style="{ transform: `translate(${handle.x}px, ${handle.y}px) scale(${1 / viewport.zoom}) translate(-50%, -50%)` }"
+      :data-testid="`edge-route-handle-${handle.index}`"
+      @pointerdown="startDrag($event, handle)"
+      @contextmenu.prevent
+    ></div>
+  </EdgeLabelRenderer>
 </template>
 
 <script setup>
@@ -44,7 +56,9 @@ import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useVueFlow } from '@vue
 import { useLibraryStore } from '../stores/libraryStore'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
-import { fullPolyline, getEdgeWaypoints, midpointAlong, roundedPath } from '../utils/edgeRoute'
+import { fullPolyline, getEdgeWaypoints, midpointAlong, roundedPath, translateWaypoints } from '../utils/edgeRoute'
+import { useEdgeDragOffsets } from '../composables/useEdgeDragOffsets'
+import { useEdgeRouteEditing } from '../composables/useEdgeRouteEditing'
 
 defineOptions({ inheritAttrs: false })
 
@@ -64,16 +78,23 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 })
 
-// [path, labelX, labelY]: through the user's waypoints, else drawn as the default smoothstep edge is.
+const { findNode, viewport } = useVueFlow()
+const { route: draftRoute, handles, startDrag } = useEdgeRouteEditing(props)
+const { edgeDragOffsets } = useEdgeDragOffsets()
+
+// [path, labelX, labelY]: the route being dragged, else through the user's waypoints (carried along
+// while both nodes are dragged together), else drawn as the default smoothstep edge is.
 const path = computed(() => {
-  const waypoints = getEdgeWaypoints(props)
-  if (!waypoints) return getSmoothStepPath(props)
-  const points = fullPolyline(props, waypoints)
+  let points = draftRoute.value
+  if (!points) {
+    const waypoints = getEdgeWaypoints(props)
+    if (!waypoints) return getSmoothStepPath(props)
+    const offset = edgeDragOffsets.value.get(props.id)
+    points = fullPolyline(props, offset ? translateWaypoints(waypoints, offset.x, offset.y) : waypoints)
+  }
   const label = midpointAlong(points)
   return [roundedPath(points), label.x, label.y]
 })
-
-const { findNode } = useVueFlow()
 const libraryStore = useLibraryStore()
 
 // One resolveUnits cache per set of definitions.
@@ -138,6 +159,30 @@ const markerId = `coupling-edge-arrow-${props.id}`
   font-size: 12px;
   line-height: 1;
   transform: translateY(-1px);
+}
+
+/* A segment handle, like draw.io's: a small square on the selected line, kept the same size at any zoom */
+.edge-route-handle {
+  position: absolute;
+  pointer-events: all;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 2px solid var(--p-primary-color);
+  background: var(--p-content-background);
+  transform-origin: 0 0;
+}
+
+.edge-route-handle--x {
+  cursor: ew-resize;
+}
+
+.edge-route-handle--y {
+  cursor: ns-resize;
+}
+
+.edge-route-handle:hover {
+  background: var(--p-primary-color);
 }
 
 .coupling-edge-warning:hover {

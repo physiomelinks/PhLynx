@@ -20,6 +20,7 @@ export const SVG_EXCLUDE_SELECTOR = [
   '.delete-handle-popover-btn',
   '.vue-flow__resize-control',
   '.vue-flow__handle.handle--ghost',
+  '.edge-route-handle',
 ].join(', ')
 
 /** Warning badges: an instance's missing-parameter marker and an edge's coupling conflict. */

@@ -2,7 +2,9 @@ import { useVueFlow } from '@vue-flow/core'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { FLOW_IDS } from '../utils/constants'
+import { enclosedEdgeOffsets, getEdgeWaypoints, translateWaypoints, withEdgeWaypoints } from '../utils/edgeRoute'
 import { detachReactivity } from '../utils/reactivity'
+import { useEdgeDragOffsets } from './useEdgeDragOffsets'
 
 /**
  * Maps a keydown event to an undo or redo request: Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z and
@@ -44,8 +46,9 @@ export function useFlowHistory({
   reactivateEdgeHandles,
   flowId = FLOW_IDS.MAIN,
 }) {
-  const { addEdges, addNodes, applyNodeChanges, applyEdgeChanges, findEdge, findNode, nodes, removeEdges, removeNodes } =
+  const { addEdges, addNodes, applyNodeChanges, applyEdgeChanges, edges, findEdge, findNode, nodes, removeEdges, removeNodes } =
     useVueFlow(flowId)
+  const { edgeDragOffsets } = useEdgeDragOffsets()
   const historyStore = useFlowHistoryStore()
   const libraryStore = useLibraryStore()
 
@@ -170,6 +173,63 @@ export function useFlowHistory({
   }
 
   /**
+   * Shows routed edges between nodes dragged together moving with them, until the drag ends.
+   *
+   * @param {Array<Object>} changes - Position changes of a drag in progress.
+   */
+  const carryRoutesWhileDragging = (changes) => {
+    const offsets = new Map()
+    changes.forEach((c) => {
+      const start = activeInteractionBuffer.get(c.id)
+      if (start) offsets.set(c.id, { x: c.position.x - start.position.x, y: c.position.y - start.position.y })
+    })
+    edgeDragOffsets.value = enclosedEdgeOffsets(edges.value, offsets)
+  }
+
+  /**
+   * Moves the waypoints of routed edges whose two nodes moved together, as one undo step that
+   * batches with the move.
+   *
+   * @param {Array<{start: Object, end: Object}>} moveChanges
+   */
+  const carryRoutesAfterMove = (moveChanges) => {
+    if (edgeDragOffsets.value.size) edgeDragOffsets.value = new Map()
+    const offsets = new Map(
+      moveChanges.map(({ start, end }) => [start.id, { x: end.position.x - start.position.x, y: end.position.y - start.position.y }])
+    )
+    const moved = [...enclosedEdgeOffsets(edges.value, offsets)].map(([id, offset]) => {
+      const before = getEdgeWaypoints(findEdge(id))
+      return { id, before, after: translateWaypoints(before, offset.x, offset.y) }
+    })
+    if (!moved.length) return
+
+    const apply = (side) =>
+      moved.forEach((m) => {
+        const edge = findEdge(m.id)
+        if (edge) edge.data = withEdgeWaypoints(edge.data, m[side])
+      })
+    apply('after')
+    historyStore.addCommand({ type: 'edge-route', undo: () => apply('before'), redo: () => apply('after') })
+  }
+
+  /**
+   * Moves the waypoints of routed edges whose two nodes were nudged together by the arrow keys.
+   *
+   * @param {Array<Object>} changes - Position changes outside a drag.
+   */
+  const carryRoutesWhileNudging = (changes) => {
+    const offsets = new Map()
+    changes.forEach((c) => {
+      const node = findNode(c.id)
+      if (node) offsets.set(c.id, { x: c.position.x - node.position.x, y: c.position.y - node.position.y })
+    })
+    enclosedEdgeOffsets(edges.value, offsets).forEach((offset, id) => {
+      const edge = findEdge(id)
+      edge.data = withEdgeWaypoints(edge.data, translateWaypoints(getEdgeWaypoints(edge), offset.x, offset.y))
+    })
+  }
+
+  /**
    * Records node changes as undo steps, then applies them to the flow.
    *
    * @param {Array<Object>} changes - Vue Flow node changes.
@@ -187,9 +247,15 @@ export function useFlowHistory({
     const removeChanges = []
     const moveChanges = []
     const selectChanges = []
+    // Arrow-key moves come as one position change each, with no drag around them.
+    const nudges = changes.filter((c) => c.type === 'position' && c.position && !c.dragging)
+    if (nudges.length) carryRoutesWhileNudging(nudges)
+
     changes.forEach((c) => {
       // Deal with the changes that we need to buffer first, which are the posiiton and dimension type changes.
-      if (c.type === 'position') {
+      if (c.type === 'position' && c.position && !c.dragging) {
+        // A nudge has no end to wait for.
+      } else if (c.type === 'position') {
         processPositionChange(c, activeInteractionBuffer, moveChanges)
       } else if (c.type === 'dimensions') {
         processDimensionChange(c, activeInteractionBuffer)
@@ -209,7 +275,11 @@ export function useFlowHistory({
       }
     })
 
+    const dragging = changes.filter((c) => c.type === 'position' && c.position && c.dragging)
+    if (dragging.length > 1) carryRoutesWhileDragging(dragging)
+
     if (moveChanges.length) {
+      carryRoutesAfterMove(moveChanges)
       historyStore.addCommand({
         type: 'move',
         undo: () => {

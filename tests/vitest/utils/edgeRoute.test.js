@@ -4,6 +4,12 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_WAYPOINTS,
   clearWaypoints,
+  editableRoute,
+  enclosedEdgeOffsets,
+  moveSegment,
+  routeWaypoints,
+  segmentAxis,
+  snapCoordinate,
   STUB,
   fullPolyline,
   getEdgeWaypoints,
@@ -140,5 +146,77 @@ describe('waypoint data', () => {
     const edges = [{ data: { couplings: [1], waypoints: [{ x: 1, y: 2 }] } }, { data: { couplings: [] } }, {}]
     clearWaypoints(edges)
     expect(edges).toEqual([{ data: { couplings: [1] } }, { data: { couplings: [] } }, {}])
+  })
+})
+
+describe('route editing', () => {
+  const props = { ...edge(0, 0, Position.Right, 300, 120, Position.Left), data: {} }
+
+  it('edits an unrouted edge along its smoothstep route', () => {
+    const route = editableRoute(props)
+    expect(roundedPath(route)).toBe(getSmoothStepPath(props)[0])
+    expect(route[1]).toEqual({ x: STUB, y: 0 })
+    expect(route.at(-2)).toEqual({ x: 300 - STUB, y: 120 })
+  })
+
+  it('stores a route as waypoints that draw it again', () => {
+    const route = moveSegment(editableRoute(props), 2, 200)
+    const waypoints = routeWaypoints(route)
+    expect(fullPolyline(props, waypoints)).toEqual([route[0], ...simplify(route.slice(1, -1)), route.at(-1)])
+    expect(editableRoute({ ...props, data: { waypoints } })).toEqual(fullPolyline(props, waypoints))
+  })
+
+  it('moves a middle segment across itself', () => {
+    const route = editableRoute(props) // S, S', (150,0), (150,120), T', T
+    expect(segmentAxis(route, 2)).toBe('x')
+    const moved = moveSegment(route, 2, 200)
+    expect(moved.slice(2, 4)).toEqual([{ x: 200, y: 0 }, { x: 200, y: 120 }])
+    expect(moved[1]).toEqual(route[1])
+    expect(moved.at(-2)).toEqual(route.at(-2))
+  })
+
+  it('splits off the stub when the segment leaving a handle moves', () => {
+    const route = editableRoute(props)
+    const moved = moveSegment(route, 1, -40)
+    expect(moved[1]).toEqual({ x: STUB, y: 0 })
+    expect(moved.slice(2, 4)).toEqual([{ x: STUB, y: -40 }, { x: 150, y: -40 }])
+    expect(fullPolyline(props, routeWaypoints(moved)).every((p, i, all) => !i || p.x === all[i - 1].x || p.y === all[i - 1].y)).toBe(true)
+  })
+
+  it('splits both stubs when a straight edge’s only segment moves', () => {
+    const straight = { ...edge(0, 0, Position.Right, 300, 0, Position.Left), data: {} }
+    const moved = moveSegment(editableRoute(straight), 1, 50)
+    expect(moved).toEqual([
+      { x: 0, y: 0 },
+      { x: STUB, y: 0 },
+      { x: STUB, y: 50 },
+      { x: 300 - STUB, y: 50 },
+      { x: 300 - STUB, y: 0 },
+      { x: 300, y: 0 },
+    ])
+  })
+
+  it('edits a route whose stub smoothstep shortened as it will be stored, so a commit draws the draft', () => {
+    const close = { ...edge(0, 0, Position.Right, 10, 100, Position.Right), data: {} }
+    const draft = moveSegment(editableRoute(close), 1, 50)
+    expect(fullPolyline(close, routeWaypoints(draft))).toEqual([draft[0], ...simplify(draft.slice(1, -1)), draft.at(-1)])
+  })
+
+  it('snaps to the nearest target within the tolerance', () => {
+    expect(snapCoordinate(103, [0, 100, 105], 6)).toBe(105)
+    expect(snapCoordinate(103, [0, 120], 6)).toBe(103)
+  })
+
+  it('finds routed edges whose two ends moved together', () => {
+    const edges = [
+      { id: 'both', source: 'a', target: 'b', data: { waypoints: [{ x: 0, y: 0 }] } },
+      { id: 'one', source: 'a', target: 'c', data: { waypoints: [{ x: 0, y: 0 }] } },
+      { id: 'unrouted', source: 'a', target: 'b', data: {} },
+    ]
+    const offsets = new Map([
+      ['a', { x: 10, y: 5 }],
+      ['b', { x: 10, y: 5 }],
+    ])
+    expect([...enclosedEdgeOffsets(edges, offsets)]).toEqual([['both', { x: 10, y: 5 }]])
   })
 })

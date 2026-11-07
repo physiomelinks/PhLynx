@@ -358,3 +358,99 @@ export function clearWaypoints(edges) {
     if (edge.data && 'waypoints' in edge.data) edge.data = withEdgeWaypoints(edge.data, undefined)
   })
 }
+
+/**
+ * Gives the route an edge is drawn along, through its waypoints or as smoothstep, with full-length
+ * stubs at indices 1 and length - 2 so it can be edited.
+ *
+ * @param {Object} edge - Edge props, with `data`.
+ * @returns {Array<{x: number, y: number}>}
+ */
+export function editableRoute(edge) {
+  // Rebuilt from smoothstep's bends, so a stub smoothstep shortened is full length, as after a commit.
+  return fullPolyline(edge, getEdgeWaypoints(edge) ?? routeWaypoints(smoothstepPoints(edge)))
+}
+
+/**
+ * Gives the waypoints that reproduce a route: its points between the two stubs.
+ *
+ * @param {Array<{x: number, y: number}>} route - As from editableRoute.
+ * @returns {Array<{x: number, y: number}>}
+ */
+export function routeWaypoints(route) {
+  const inner = simplify(route.slice(1, -1))
+  return inner.slice(1, -1).map(({ x, y }) => ({ x, y }))
+}
+
+/**
+ * Tells which way a segment moves when dragged: a horizontal segment moves up and down.
+ *
+ * @param {Array<{x: number, y: number}>} route
+ * @param {number} i - The segment from route[i] to route[i + 1].
+ * @returns {'x'|'y'} The coordinate that changes.
+ */
+export function segmentAxis(route, i) {
+  return route[i].y === route[i + 1].y ? 'y' : 'x'
+}
+
+/**
+ * Moves one segment of a route across itself, as draw.io does. A segment that starts or ends at a
+ * stub is split there first, so the stub stays on its handle.
+ *
+ * @param {Array<{x: number, y: number}>} route - As from editableRoute.
+ * @param {number} i - The segment from route[i] to route[i + 1], 1 <= i <= route.length - 3.
+ * @param {number} value - The new x of a vertical segment, or y of a horizontal one.
+ * @returns {Array<{x: number, y: number}>} A new route.
+ */
+export function moveSegment(route, i, value) {
+  const axis = segmentAxis(route, i)
+  const out = route.map((point) => ({ ...point }))
+  let start = i
+  if (start === 1) {
+    out.splice(1, 0, { ...out[1] })
+    start++
+  }
+  if (start + 1 === out.length - 2) out.splice(start + 1, 0, { ...out[start + 1] })
+  out[start][axis] = value
+  out[start + 1][axis] = value
+  return out
+}
+
+/**
+ * Snaps a dragged coordinate to the nearest of some others, within a tolerance.
+ *
+ * @param {number} value
+ * @param {Array<number>} targets
+ * @param {number} tolerance
+ * @returns {number}
+ */
+export function snapCoordinate(value, targets, tolerance) {
+  let best = value
+  let bestDistance = tolerance
+  targets.forEach((target) => {
+    const d = Math.abs(target - value)
+    if (d <= bestDistance) {
+      best = target
+      bestDistance = d
+    }
+  })
+  return best
+}
+
+/**
+ * Finds the routed edges whose two ends were moved by the same offset, so their waypoints can move too.
+ *
+ * @param {Array<Object>} edges
+ * @param {Map<string, {x: number, y: number}>} offsets - How far each moved node went.
+ * @returns {Map<string, {x: number, y: number}>} Edge id to offset.
+ */
+export function enclosedEdgeOffsets(edges, offsets) {
+  const result = new Map()
+  edges.forEach((edge) => {
+    if (!edge.data?.waypoints) return
+    const a = offsets.get(edge.source)
+    const b = offsets.get(edge.target)
+    if (a && b && a.x === b.x && a.y === b.y && (a.x || a.y)) result.set(edge.id, a)
+  })
+  return result
+}
