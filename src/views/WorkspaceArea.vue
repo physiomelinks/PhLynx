@@ -689,6 +689,7 @@ import {
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
 import { edgeOrdinals, resolvePortCouplings } from '../utils/edges'
+import { clearWaypoints } from '../utils/edgeRoute'
 import { parseParametersFile } from '../utils/import'
 import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
 import { detachReactivity } from '../utils/reactivity'
@@ -1919,6 +1920,8 @@ function createNewInstanceAtPosition(clientX, clientY) {
 
 function handleAutoLayout() {
   relayoutNodes(nodes.value, edges.value)
+  // Every node moved, so hand-placed routes no longer fit.
+  clearWaypoints(edges.value)
 }
 
 /**

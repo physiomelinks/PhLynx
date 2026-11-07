@@ -5,6 +5,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { checkMathSource } from '../services/moduleFormats'
 import { separateNodeParameters } from '../services/workspaceMigrator'
 import { FLOW_IDS } from '../utils/constants'
+import { offsetEdgeData } from '../utils/edgeRoute'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
@@ -224,6 +225,8 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
           id: newEdgeId,
           source: newSource,
           target: newTarget,
+          // Both ends moved by the paste offset, so the route moves with them.
+          data: offsetEdgeData(edge.data, dx, dy),
           selected: true,
         })
       }
