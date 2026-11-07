@@ -634,7 +634,7 @@ import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'
-import { setEdgeRoute } from '../composables/useEdgeRouteEditing'
+import { routeEdgesAroundModules, setEdgeRoute } from '../composables/useEdgeRouteEditing'
 import InstanceEditorDialog from '../components/InstanceEditorDialog.vue'
 import CelldlEditorHost from '../components/celldl/CelldlEditorHost.vue'
 import CreateInspectionModuleDialog from '../components/dialogs/CreateInspectionModule.vue'
@@ -1843,6 +1843,10 @@ const paneContextMenuItems = [
     action: () => fitView(fitViewParams.value),
   },
   {
+    label: 'Route Edges Around Modules',
+    action: () => routeAroundModules(getSelectedEdges.value.length ? getSelectedEdges.value : edges.value),
+  },
+  {
     label: 'Clear Workspace',
     action: () => handleClearWorkspace(),
   },
@@ -1874,12 +1878,28 @@ function onNodeContextMenu({ clientX, clientY, id }) {
   contextMenuRef.value.open(clientX, clientY)
 }
 
+/**
+ * Routes edges around the modules in one undo step, saying when some had no way through.
+ *
+ * @param {Array<Object>} edgeList
+ */
+function routeAroundModules(edgeList) {
+  const { unrouted } = routeEdgesAroundModules({ findEdge, findNode, nodes: nodes.value, history: historyStore }, edgeList)
+  if (unrouted) {
+    notify.info({
+      title: 'Some Edges Kept Their Route',
+      message: `${unrouted === 1 ? 'One edge has' : `${unrouted} edges have`} no way around the modules.`,
+    })
+  }
+}
+
 function onEdgeContextMenu({ event, edge }) {
   event.preventDefault()
   // Otherwise the menu's own document listener takes this right-click as one outside it and closes it.
   event.stopPropagation()
   contextMenuItems.value = [
     { label: 'Edit Couplings', action: () => onEdgeDoubleClick({ edge }) },
+    { label: 'Route Around Modules', action: () => routeAroundModules([edge]) },
     ...(getEdgeWaypoints(edge)
       ? [{ label: 'Reset Route', action: () => setEdgeRoute({ findEdge, history: historyStore }, edge.id, undefined) }]
       : []),

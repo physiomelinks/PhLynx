@@ -1,5 +1,6 @@
 import { useVueFlow } from '@vue-flow/core'
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { getRouter, nodeObstacles, routeRequests } from '../services/routing'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useEdgeDragOffsets } from './useEdgeDragOffsets'
 import {
@@ -47,6 +48,34 @@ export function setEdgeRoute({ findEdge, history }, edgeId, waypoints) {
   apply(after)
   history.addCommand({ type: 'edge-route', undo: () => apply(before), redo: () => apply(after) })
   return true
+}
+
+/**
+ * Routes edges around the modules, as one undo step. An edge whose plain line is already clear
+ * goes back to it; one with no way through keeps its route.
+ *
+ * @param {Object} options
+ * @param {Function} options.findEdge
+ * @param {Function} options.findNode
+ * @param {Array<Object>} options.nodes - The flow's nodes, as obstacles.
+ * @param {Object} options.history - The flow history store.
+ * @param {Array<Object>} edges - The edges to route.
+ * @param {string} [routerName] - A registered router; the default otherwise.
+ * @returns {{ changed: number, unrouted: number }} How many routes changed, and how many edges had no way through.
+ */
+export function routeEdgesAroundModules({ findEdge, findNode, nodes, history }, edges, routerName) {
+  const requests = routeRequests(edges, findNode)
+  const routes = getRouter(routerName).routeAll(requests, { obstacles: nodeObstacles(nodes) })
+  let changed = 0
+  history.startBatch()
+  try {
+    routes.forEach((waypoints, id) => {
+      if (setEdgeRoute({ findEdge, history }, id, waypoints)) changed++
+    })
+  } finally {
+    history.endBatch()
+  }
+  return { changed, unrouted: requests.length - routes.size }
 }
 
 /**

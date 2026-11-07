@@ -17,6 +17,23 @@ POINT_ALONG = """(fraction) => {
     return { x: point.x * m.a + m.e, y: point.y * m.d + m.f }
 }"""
 
+# How many points along the edges, away from their ends, lie inside a module.
+CROSSINGS = """() => {
+    const rects = [...document.querySelectorAll('.vue-flow__node')].map((n) => n.getBoundingClientRect())
+    let hits = 0
+    document.querySelectorAll('.vue-flow__edge-path').forEach((path) => {
+        const m = path.getScreenCTM()
+        const length = path.getTotalLength()
+        for (let t = 30; t < length - 30; t += 4) {
+            const p = path.getPointAtLength(t)
+            const x = p.x * m.a + m.e
+            const y = p.y * m.d + m.f
+            if (rects.some((r) => x > r.left + 2 && x < r.right - 2 && y > r.top + 2 && y < r.bottom - 2)) hits++
+        }
+    })
+    return hits
+}"""
+
 
 class TestEdgeRouting(unittest.TestCase):
 
@@ -80,6 +97,34 @@ class TestEdgeRouting(unittest.TestCase):
             expect(edge_path).not_to_have_attribute("d", part_way)
             page.mouse.up()
             expect(page.locator(".edge-route-handle").first).to_be_visible()
+
+            browser.close()
+
+    def test_route_edges_around_a_module_in_the_way(self):
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=HEADLESS_MODE)
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+
+            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
+                workspace_json = f.read().strip()
+            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
+            expect(page.locator(".vue-flow__edge-path").first).to_be_visible(timeout=60000)
+            page.wait_for_timeout(1500)
+
+            # Drag var_SN over the edges, so they run beneath it.
+            box = page.locator(".vue-flow__node", has_text="var_SN").bounding_box()
+            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 10)
+            page.mouse.down()
+            page.mouse.move(610, 540, steps=10)
+            page.mouse.up()
+            page.wait_for_timeout(500)
+            self.assertGreater(page.evaluate(CROSSINGS), 0)
+
+            page.mouse.click(1100, 250)
+            page.mouse.click(1100, 250, button="right")
+            page.locator(".context-menu__item", has_text="Route Edges Around Modules").click()
+            page.wait_for_timeout(300)
+            self.assertEqual(page.evaluate(CROSSINGS), 0)
 
             browser.close()
 
