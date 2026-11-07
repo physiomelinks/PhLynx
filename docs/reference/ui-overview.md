@@ -16,7 +16,7 @@ For shortcuts, see [Keyboard Shortcuts](./keyboard-shortcuts.md).
 | :--- | :--- | :--- |
 | **Load workspace** | Folder | Opens a saved `.json` [workspace file](./file-types.md#workspace-file), replacing the canvas without asking. |
 | **Save workspace** | Floppy disk | Saves to `.json`, including simulation settings (Ctrl/Cmd+S). PhLynx doesn't autosave. |
-| **Clean up workspace** | Dustpan | Auto-arranges the instances. |
+| **Clean up workspace** | Dustpan | Auto-arranges the instances and clears [arrow routes](#routing). |
 | **Clear workspace** | Eraser | Removes everything from the canvas (undoable). |
 | **Undo** / **Redo** | Arrows | Edit history. |
 | **Add left / top / right / bottom handle** | Box with a dot on that side | Adds a handle (where arrows attach) on that side of the selected instances. |
@@ -71,8 +71,9 @@ Modules are grouped by source file. **Search Library…** filters them; drag a c
 | Select | Click; Ctrl+click (Cmd+click on Mac) adds; Shift+drag draws a box |
 | Rename an instance | Click its name |
 | Open the Instance Editor | Double-click an instance, or click **Edit instance** (pencil icon) |
-| Right-click the canvas | **Create Module**, **Select All**, **Fit View**, **Clear Workspace** |
+| Right-click the canvas | **Create Module**, **Select All**, **Fit View**, **Route Edges Around Modules**, **Clear Workspace** |
 | Right-click an instance | **Replace Module**, **Simulate Instance** (or **Simulate Selection (N)**) |
+| Right-click an arrow | **Edit Couplings**, **Route Around Modules**, **Reset Route** ([Routing connections](#routing)) |
 
 **Replace Module** swaps an instance's math and variables for another module's, keeping its name, position and arrows. Pick the module in the list and click **Confirm**. Parameter values become the new module's. Ports are dropped unless you tick **Retain matching ports?**, which keeps each port whose variables all exist in the new module; double-click the arrows afterwards to check their couplings. Undo (Ctrl/Cmd+Z) reverses it.
 
@@ -121,6 +122,30 @@ Handles are the dots where arrows attach. They don't decide which variables an a
 One arrow runs in each direction between two instances, and it holds all their couplings. Drawing a second arrow from A to B asks whether to replace the first (**Connection already exists**). To share more variables, double-click the existing arrow and couple more ports there.
 
 An orange arrow with a warning badge has couplings that can't be exported: for example, Sum or Multiply ports with different numbers of variables, a pair that is Sum (or Multiply) on both ends, or a pair of variables whose units have different dimensions (e.g. second and metre; millisecond and second is fine, as it only differs in scale). Hover the badge for the reason, then double-click the arrow to fix it: the Connections dialog draws a pair with incompatible units as an orange line and lists why below it. Until then the model won't export or simulate. See [Ports that take several connections](./valid-port-configurations.md#multiports).
+
+### Routing connections {#routing}
+
+Arrows run in straight lines with right-angle bends. You can reshape one by hand, or let PhLynx route arrows around the instances in their way.
+
+![A selected arrow routed around axon_SN, with a square handle on each segment](../assets/images/edge-routing.png){.align-center width="500px"}
+
+**Reshape an arrow:**
+
+1. Click an arrow so it is the only one selected. A square handle appears in the middle of each segment between its ends.
+2. Drag a handle to move that segment sideways; the segments either side stretch to follow. It snaps into line with the arrow's ends and other bends. Hold Alt (Option on Mac) to place it freely, or press Esc to cancel.
+
+Each change is one undo step (Ctrl/Cmd+Z). Moving both instances of a routed arrow together carries its route with them.
+
+| Right-click | Item | What it does |
+| :--- | :--- | :--- |
+| An arrow | **Edit Couplings** | Opens the Connections dialog, as double-clicking does. |
+| An arrow | **Route Around Modules** | Routes this arrow around the instances in its way. |
+| An arrow | **Reset Route** | Clears the arrow's route, so it is drawn the default way again. Shown only on a routed arrow. |
+| The canvas | **Route Edges Around Modules** | Routes the selected arrows, or every arrow when none is selected. |
+
+A route keeps a gap from the instances and turns as few times as it can. An arrow whose default line is already clear goes back to it. An arrow with no way through keeps its current route, and a notification (**Some Edges Kept Their Route**) says how many. Routing is one undo step, however many arrows it changes.
+
+**Clean up workspace** (dustpan) clears every arrow's route as it rearranges the instances.
 
 ---
 
