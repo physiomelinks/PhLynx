@@ -1,6 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { nextTick } from 'vue'
 
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
@@ -23,6 +24,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
   const sessionMetadataStore = useSessionMetadataStore()
+  const defaultParametersStore = useDefaultParametersStore()
 
   const clearWorkspace = async ({ recordHistory = true } = {}) => {
     const oldNodes = nodes.value
@@ -33,6 +35,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
     const oldSessionMetadata = sessionMetadataStore.getState()
+    const oldParameters = defaultParametersStore.getState()
 
     const undoState = () => {
       nodes.value = oldNodes
@@ -42,6 +45,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         inspectionStore.loadState(oldInspectStore)
         sessionMetadataStore.loadState(oldSessionMetadata)
         simStore.loadState(oldSimStore)
+        defaultParametersStore.loadState(oldParameters)
         for (const [name, data] of oldGlobalConstants) {
           libraryStore.assignGlobalConstant(name, data.value, data.units, data.data_reference)
         }
@@ -49,7 +53,9 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       }
     }
 
-    const resetState = () => {
+    // A load clears without history and keeps the parameter sets: a workspace load replaces them itself, and a
+    // folder import adds its sets before the model it holds clears the canvas.
+    const resetState = ({ keepParameters = false } = {}) => {
       nodes.value = []
       edges.value = []
       if (flowId === FLOW_IDS.MAIN) {
@@ -63,12 +69,13 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         omexStore.resetState()
         sessionMetadataStore.resetState()
         libraryStore.resetGlobalConstants()
+        if (!keepParameters) defaultParametersStore.resetState()
       }
       setViewport({ x: 0, y: 0, zoom: 1 })
     }
 
     if (!recordHistory) {
-      resetState()
+      resetState({ keepParameters: true })
       await nextTick()
       return
     }
@@ -76,7 +83,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     history.executeAndAddCommand({
       type: 'clear-workspace',
       undo: undoState,
-      redo: resetState,
+      redo: () => resetState(),
     })
 
     await nextTick()

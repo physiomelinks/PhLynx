@@ -1,0 +1,223 @@
+[
+  {
+    "module_type": "NKA",
+    "module_subtype": "NKA",
+    "module_format": "cellml",
+    "component_file": "NKA.cellml",
+    "component_type": "NKA",
+    "default_parameterisation": "NKA",
+    "licence": "Apache-2.0",
+    "creator": [],
+    "required_citations": [],
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [
+      {
+        "port_type": "c_Na_int",
+        "variables": [
+          "c_Na_i"
+        ]
+      },
+      {
+        "port_type": "c_K_int",
+        "variables": [
+          "c_K_i"
+        ]
+      },
+      {
+        "port_type": "c_H_int",
+        "variables": [
+          "c_H"
+        ]
+      },
+      {
+        "port_type": "c_ATP_int",
+        "variables": [
+          "c_ATP"
+        ]
+      },
+      {
+        "port_type": "v_K_int",
+        "variables": [
+          "v_K_NKA_i"
+        ]
+      },
+      {
+        "port_type": "c_ADP_int",
+        "variables": [
+          "c_ADP"
+        ]
+      },
+      {
+        "port_type": "c_Pi_int",
+        "variables": [
+          "c_Pi"
+        ]
+      },
+      {
+        "port_type": "v_Na_int",
+        "variables": [
+          "v_Na_NKA_i"
+        ]
+      },
+      {
+        "port_type": "u_e_m",
+        "variables": [
+          "u_e"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "v_tot",
+        "variables": [
+          "v_e_NKA"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "area",
+        "variables": [
+          "area"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "c_Na_cap",
+        "variables": [
+          "c_Na_o"
+        ]
+      },
+      {
+        "port_type": "c_K_cap",
+        "variables": [
+          "c_K_o"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "W_cap",
+        "variables": [
+          "W_o"
+        ]
+      },
+      {
+        "port_type": "W_int",
+        "variables": [
+          "W_i"
+        ]
+      },
+      {
+        "port_type": "v_Glc_int",
+        "variables": [
+          "v_Glc_NKA"
+        ]
+      }
+    ],
+    "variables_and_units": [
+      ["q_Na_o", "fmol", "no_access", "variable"],
+      ["c_Na_o", "mM", "access", "boundary_condition"],
+      ["W_o", "pL", "access", "boundary_condition"],
+      ["q_Na_i", "fmol", "no_access", "variable"],
+      ["c_Na_i", "mM", "access", "boundary_condition"],
+      ["W_i", "pL", "access", "boundary_condition"],
+      ["q_K_o", "fmol", "no_access", "variable"],
+      ["c_K_o", "mM", "access", "boundary_condition"],
+      ["q_K_i", "fmol", "no_access", "variable"],
+      ["c_K_i", "mM", "access", "boundary_condition"],
+      ["q_ATP", "fmol", "no_access", "variable"],
+      ["c_ATP", "mM", "access", "boundary_condition"],
+      ["q_ADP", "fmol", "no_access", "variable"],
+      ["c_ADP", "mM", "access", "boundary_condition"],
+      ["q_Pi", "fmol", "no_access", "variable"],
+      ["c_Pi", "mM", "access", "boundary_condition"],
+      ["q_H", "fmol", "no_access", "variable"],
+      ["c_H", "mM", "access", "boundary_condition"],
+      ["q_bar_Na_o", "dim", "no_access", "variable"],
+      ["K_Na_o", "per_fmol", "access", "constant"],
+      ["q_bar_Na_i", "dim", "no_access", "variable"],
+      ["K_Nai", "per_fmol", "access", "constant"],
+      ["q_bar_K_o", "dim", "no_access", "variable"],
+      ["K_K_o", "per_fmol", "access", "constant"],
+      ["q_bar_K_i", "dim", "no_access", "variable"],
+      ["K_Ki", "per_fmol", "access", "constant"],
+      ["q_bar_ATP", "dim", "no_access", "variable"],
+      ["K_ATP", "per_fmol", "access", "constant"],
+      ["q_bar_ADP", "dim", "no_access", "variable"],
+      ["K_ADP", "per_fmol", "access", "constant"],
+      ["q_bar_Pi", "dim", "no_access", "variable"],
+      ["K_Pi", "per_fmol", "access", "constant"],
+      ["q_bar_H", "dim", "no_access", "variable"],
+      ["K_H", "per_fmol", "access", "constant"],
+      ["gamma_1", "dim", "no_access", "variable"],
+      ["K_6", "per_fmol", "access", "constant"],
+      ["K_1", "per_fmol", "access", "constant"],
+      ["gamma_2", "dim", "no_access", "variable"],
+      ["K_2", "per_fmol", "access", "constant"],
+      ["gamma_3", "dim", "no_access", "variable"],
+      ["K_3", "per_fmol", "access", "constant"],
+      ["gamma_4", "dim", "no_access", "variable"],
+      ["K_4", "per_fmol", "access", "constant"],
+      ["gamma_5", "dim", "no_access", "variable"],
+      ["K_5", "per_fmol", "access", "constant"],
+      ["Q_ATP_ratio", "dim", "no_access", "variable"],
+      ["Delta_G", "J_per_mol", "no_access", "variable"],
+      ["RT", "J_per_mol", "access", "global_constant"],
+      ["A_NKA", "dim", "no_access", "variable"],
+      ["u_e", "J_per_C", "access", "boundary_condition"],
+      ["RTF", "J_per_C", "access", "global_constant"],
+      ["B_NKA", "dim", "no_access", "variable"],
+      ["z1_NKA", "dim", "access", "constant"],
+      ["C_NKA", "dim", "no_access", "variable"],
+      ["lambda_1", "dim", "no_access", "variable"],
+      ["lambda_2", "dim", "no_access", "variable"],
+      ["lambda_3", "dim", "no_access", "variable"],
+      ["lambda_4", "dim", "no_access", "variable"],
+      ["lambda_5", "dim", "no_access", "variable"],
+      ["D_NKA", "dim", "no_access", "variable"],
+      ["kappa_NKA", "fmol_per_mm2_per_s", "access", "variable"],
+      ["kappa_6_NKA", "fmol_per_s", "access", "constant"],
+      ["q_tot", "fmol", "access", "constant"],
+      ["area", "mm2", "access", "boundary_condition"],
+      ["PHI_NKA", "dim", "no_access", "variable"],
+      ["kappa_1_NKA", "fmol_per_s", "access", "constant"],
+      ["kappa_2_NKA", "fmol_per_s", "access", "constant"],
+      ["kappa_3_NKA", "fmol_per_s", "access", "constant"],
+      ["kappa_4_NKA", "fmol_per_s", "access", "constant"],
+      ["kappa_5_NKA", "fmol_per_s", "access", "constant"],
+      ["vv", "dim", "no_access", "variable"],
+      ["v_NKA", "fmol_per_mm2_per_s", "access", "variable"],
+      ["q_bar_1", "dim", "no_access", "variable"],
+      ["q_bar_2", "dim", "no_access", "variable"],
+      ["q_bar_3", "dim", "no_access", "variable"],
+      ["q_bar_4", "dim", "no_access", "variable"],
+      ["q_bar_5", "dim", "no_access", "variable"],
+      ["q_bar_6", "dim", "no_access", "variable"],
+      ["u_f_ATP", "J_per_mol", "no_access", "variable"],
+      ["u_r_ATP", "J_per_mol", "no_access", "variable"],
+      ["Delta_G_ATP", "J_per_mol", "no_access", "variable"],
+      ["q_1", "fmol", "no_access", "variable"],
+      ["q_2", "fmol", "no_access", "variable"],
+      ["q_3", "fmol", "no_access", "variable"],
+      ["q_4", "fmol", "no_access", "variable"],
+      ["q_5", "fmol", "no_access", "variable"],
+      ["q_6", "fmol", "no_access", "variable"],
+      ["v_1", "fmol_per_mm2_per_s", "no_access", "variable"],
+      ["v_2", "fmol_per_mm2_per_s", "no_access", "variable"],
+      ["v_3", "fmol_per_mm2_per_s", "no_access", "variable"],
+      ["v_4", "fmol_per_mm2_per_s", "no_access", "variable"],
+      ["v_5", "fmol_per_mm2_per_s", "no_access", "variable"],
+      ["v_6", "fmol_per_mm2_per_s", "no_access", "variable"],
+      ["z2_NKA", "dim", "no_access", "variable"],
+      ["v_NKA_raw", "fmol_per_mm2_per_s", "no_access", "variable"],
+      ["Scale_NKA", "dim", "access", "constant"],
+      ["v_K_NKA_o", "fmol_per_mm2_per_s", "access", "variable"],
+      ["v_K_NKA_i", "fmol_per_mm2_per_s", "access", "variable"],
+      ["v_Na_NKA_o", "fmol_per_mm2_per_s", "access", "variable"],
+      ["v_Na_NKA_i", "fmol_per_mm2_per_s", "access", "variable"],
+      ["v_e_NKA", "pA_per_mm2", "access", "variable"],
+      ["F", "C_per_mol", "access", "global_constant"],
+      ["v_Glc_NKA", "fmol_per_mm2_per_s", "access", "variable"],
+      ["u_rev_NKA", "J_per_C", "no_access", "variable"]
+    ]
+  }
+]

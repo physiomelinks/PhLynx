@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useClearWorkspace } from '../../../src/composables/useClearWorkspace.js'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
@@ -21,6 +22,13 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
     }),
   }
 })
+
+const SET = {
+  ref: 'NKA',
+  source: { file: 'NKA_parameters.json', importedAt: 'now' },
+  globals: new Map(),
+  values: new Map([['K', { value: '1', units: 'mM', data_reference: '', extra: {} }]]),
+}
 
 describe('useClearWorkspace', () => {
   beforeEach(() => {
@@ -53,5 +61,25 @@ describe('useClearWorkspace', () => {
     expect(sessionMetadataStore.lastSaveName).toBe(DEFAULT_PROJECT_NAME)
     expect(historyStore.canUndo).toBe(false)
     expect(historyStore.canRedo).toBe(false)
+  })
+
+  it('keeps the parameter sets on a clear without history, as a load replaces them itself', async () => {
+    const parameters = useDefaultParametersStore()
+    parameters.addSet(SET, { mathRef: 'NKA.cellml:NKA' })
+
+    await useClearWorkspace().clearWorkspace({ recordHistory: false })
+    expect(parameters.getSet('NKA.cellml:NKA', 'NKA')).not.toBeNull()
+  })
+
+  it('clears the parameter sets, and undo brings them back', async () => {
+    const parameters = useDefaultParametersStore()
+    const history = useFlowHistoryStore()
+    parameters.addSet(SET, { mathRef: 'NKA.cellml:NKA' })
+
+    await useClearWorkspace().clearWorkspace()
+    expect(parameters.getState().sets).toEqual([])
+
+    await history.undo()
+    expect(parameters.getSet('NKA.cellml:NKA', 'NKA').values.get('K').value).toBe('1')
   })
 })

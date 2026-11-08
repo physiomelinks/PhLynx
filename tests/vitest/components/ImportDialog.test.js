@@ -145,6 +145,16 @@ describe('ImportDialog instance-array folder drop', () => {
     expect(importButton().attributes('disabled')).toBeUndefined()
   })
 
+  it('puts a parameters JSON in the parameters field', async () => {
+    mountDialog()
+    const parameters = JSON.stringify({ schema_version: 1, k: { value: 1, units: 'second', data_reference: 'ref' } })
+    await drop(dropEvent(folderEntry('model', { ...FOLDER_FILES, 'heart_parameters.json': parameters })))
+
+    expect(fileNames(IMPORT_KEYS.PARAMETER)).toEqual(['heart_parameters.json', 'parameters.csv'])
+    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['config.json'])
+    expect(wrapper.vm.formState[IMPORT_KEYS.PARAMETER].files.get('heart_parameters.json').payload.kind).toBe('module')
+  })
+
   it.each([IMPORT_KEYS.INSTANCE_ARRAY, IMPORT_KEYS.PARAMETER])(
     'sorts a folder dropped on the %s box like a background drop',
     async (key) => {

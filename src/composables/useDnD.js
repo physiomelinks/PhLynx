@@ -13,6 +13,9 @@ import { attachNewNodeToFrame, findAnyNode, generateUniqueInstanceName } from '.
 import { buildInstance } from '../services/import/buildWorkflow'
 import { buildGhostHandles } from '../utils/handles'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import { seedInstance, seedRefFor } from '../utils/parameters/seed'
+import { NO_PARAMETER_SET } from '../utils/parameters/sets'
 import { extractGlobalConstants } from '../utils/variables'
 
 /**
@@ -33,6 +36,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
 
   const { addNodes, getNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
   const store = useLibraryStore()
+  const defaultParameters = useDefaultParametersStore()
 
   const isGhostSetupOpen = ref(false)
   const pendingGhostNodeId = ref(null)
@@ -86,7 +90,9 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
    * Returns the new node's id and type so the caller can handle any
    * post-creation logic (e.g. opening the ghost setup dialog).
    *
-   * @param {object} moduleData - The module descriptor (ports, mathRef, variables)
+   * @param {object} moduleData - The module descriptor (ports, mathRef, variables); its `parameterisation`, else its
+   *   `defaultParameterisation`, names the parameter set the instance is seeded with. A workspace instance dropped
+   *   with NO_PARAMETER_SET makes a new set of its math's values, named as the instance (see addInstanceSet).
    * @param {{x: number, y: number}} position - Flow coordinates to place the node.
    * @returns {{ nodeId: string, nodeType: string }}
    */
@@ -106,6 +112,12 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     const mathAnalysis = store.getMathAnalysis(moduleData.mathRef)
     const mathDefaults = store.getMathDefaults(moduleData.mathRef)
     const newNode = buildInstance(nodeId, finalName, nodeType, moduleData, allHandles, position, mathAnalysis, mathDefaults)
+    const seedRef = seedRefFor(moduleData, moduleData.parameterisation)
+    seedInstance(newNode, seedRef && defaultParameters.getSet(moduleData.mathRef, seedRef))
+    if (moduleData.parameterisation === NO_PARAMETER_SET && flowId === FLOW_IDS.MAIN && nodeType === MAIN_NODE_TYPE) {
+      const set = defaultParameters.addInstanceSet(moduleData.mathRef, nodeId, finalName, newNode.data.variables)
+      newNode.data.parameterisation = set.ref
+    }
 
     const globalConstants = extractGlobalConstants(newNode.data.variables)
     

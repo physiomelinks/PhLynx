@@ -138,4 +138,13 @@ describe('moduleConfig', () => {
       expect(portEditConfig({ id: 'a', data: { ...dropped, moduleRef: 'none:x' } }, [], nodes, library())).toBeNull()
     })
   })
+
+  it("names the library module's default parameter set, which the signature leaves out", () => {
+    const library = { availableModules: new Map([[MODULE.moduleRef, { ...MODULE, defaultParameterisation: 'slow' }]]) }
+    const entry = moduleConfigEntry(dropped, library)
+    expect(entry.default_parameterisation).toBe('slow')
+    expect(moduleConfigEntry({ ...dropped, defaultParameterisation: 'fast' }, library).default_parameterisation).toBe('fast')
+    expect(configSignature(entry)).toBe(configSignature(moduleConfigEntry(dropped)))
+    expect(isModuleConfig(dropped, { ...MODULE, defaultParameterisation: 'slow' }, analysis)).toBe(true)
+  })
 })

@@ -41,10 +41,12 @@ const { default: InstanceEditorDialog } = await import('../../../src/components/
 const { default: ComponentSaveAsDialog } = await import('../../../src/components/dialogs/ComponentSaveAsDialog.vue')
 const { default: ModuleConfigSaveDialog } = await import('../../../src/components/dialogs/ModuleConfigSaveDialog.vue')
 const { buildInstance } = await import('../../../src/services/import/buildWorkflow.js')
+const { default: ParameterSetSaveDialog } = await import('../../../src/components/dialogs/ParameterSetSaveDialog.vue')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
 const { useCelldlEditorHost } = await import('../../../src/composables/useCelldlEditorHost.js')
 const { useLiveCelldlConvert } = await import('../../../src/composables/useLiveCelldlConvert.js')
+const { useDefaultParametersStore } = await import('../../../src/stores/defaultParametersStore.js')
 
 const MATH_REF = 'file:decay'
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -608,6 +610,59 @@ describe('InstanceEditorDialog module config', () => {
       await flushPromises()
       expect(drivesQuestions()).toHaveLength(1)
       expect(wrapper.emitted('confirm')).toBeUndefined()
+    })
+  })
+
+  describe('with values changed from a shared parameter set', () => {
+    const setPrompt = () => wrapper.findComponent(ParameterSetSaveDialog)
+    const sharedSet = { ref: 'slow', source: { file: 'slow_parameters.json', importedAt: '' }, globals: new Map(), values: new Map([['k', { value: '0.5', units: '', data_reference: '', extra: {} }]]) }
+    const portDeletedValueChanged = () => ({
+      initialPorts: [],
+      variables: rows.map((row) => (row.name === 'k' ? { ...row, value: '3' } : row)),
+    })
+
+    beforeEach(() => {
+      useDefaultParametersStore().addSet(sharedSet, { mathRef: MATH_REF })
+      flowNodes.value.forEach((node) => Object.assign(node.data, { parameterisation: 'slow', variables: rows }))
+    })
+
+    it('asks about the config first, then the parameter set, and saves both choices together', async () => {
+      await save(portDeletedValueChanged())
+      expect(configDialog().exists()).toBe(true)
+      expect(setPrompt().exists()).toBe(false)
+
+      configDialog().vm.$emit('confirm', { action: 'new', moduleRef: 'decay:base_a' })
+      await flushPromises()
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+      expect(setPrompt().props()).toMatchObject({ paramRef: 'slow', otherCount: 1 })
+
+      setPrompt().vm.$emit('confirm', { action: 'update' })
+      await flushPromises()
+      const [saved] = wrapper.emitted('confirm')[0]
+      expect(saved).toMatchObject({
+        ports: [],
+        config: { action: 'new', moduleRef: 'decay:base_a' },
+        parameterSet: { action: 'update' },
+        parameterisation: 'slow',
+      })
+    })
+
+    it('saves nothing, and never asks about the set, when the config prompt is cancelled', async () => {
+      await save(portDeletedValueChanged())
+      configDialog().vm.$emit('cancel')
+      await flushPromises()
+      expect(setPrompt().exists()).toBe(false)
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+    })
+
+    it('saves nothing when the parameter set prompt is cancelled after the config prompt', async () => {
+      await save(portDeletedValueChanged())
+      configDialog().vm.$emit('confirm', { action: 'update' })
+      await flushPromises()
+      setPrompt().vm.$emit('cancel')
+      await flushPromises()
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     })
   })
 })
@@ -2695,5 +2750,214 @@ describe('InstanceEditorDialog locked math', () => {
     expect(wrapper.find('.header-group--secondary input').exists()).toBe(true)
     expect(wrapper.find('.apply-all-note').exists()).toBe(false)
     expect(wrapper.find('.apply-all-checkbox').exists()).toBe(true)
+  })
+})
+
+describe('InstanceEditorDialog parameter set', () => {
+  // The math as the library holds it, its values in the rows; a value typed in the text would win over the rows'.
+  const BARE_XML = XML.replace(' initial_value="0.5"', '').replace(' initial_value="1"', '')
+  const param = (value) => ({ value, units: '', data_reference: 'paper', extra: {} })
+  const paramSet = (ref, values) => ({ ref, source: { file: `${ref}_parameters.json`, importedAt: '' }, globals: new Map(), values: new Map(values) })
+  const rows = () => [
+    { name: 'k', value: '0.5', units: 'per_second', type: 'constant' },
+    { name: 'x0', value: '1', units: 'metre', type: 'constant' },
+  ]
+  const tableRows = () => wrapper.findComponent(ParameterTableStub).vm.$attrs.rows
+  const valueOf = (name) => tableRows().find((row) => row.name === name).value
+  const setSelect = () => wrapper.findAllComponents({ name: 'Select' }).find((select) => select.props('ariaLabel') === 'Parameter set')
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useLibraryStore().addMath(MATH_REF, BARE_XML)
+    const parameters = useDefaultParametersStore()
+    parameters.addSet(paramSet('slow', [['k', param('0.5')]]), { mathRef: MATH_REF })
+    parameters.addSet(paramSet('fast', [['k', param('2')], ['x0', param('1')]]), { mathRef: MATH_REF })
+    flowNodes.value = [{ id: 'a', data: { name: 'a', mathRef: MATH_REF, parameterisation: 'slow', variables: rows() } }]
+  })
+
+  afterEach(() => {
+    flowNodes.value = []
+  })
+
+  /** Opens the dialog on the instance seeded with `slow`. */
+  async function openSeeded() {
+    mountDialog({ variables: rows() })
+    const editor = await open()
+    await report(editor, 'init', BARE_XML)
+    return editor
+  }
+
+  async function pick(ref) {
+    setSelect().vm.$emit('update:modelValue', ref)
+    await flushPromises()
+  }
+
+  it("lists the math's sets, showing the instance's own", async () => {
+    await openSeeded()
+
+    expect(setSelect().props('options').map((option) => option.value)).toEqual(['slow', 'fast'])
+    expect(setSelect().props('modelValue')).toBe('slow')
+  })
+
+  it('lists the values a set changes, then applies it and saves it with the instance', async () => {
+    await openSeeded()
+
+    await pick('fast')
+
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ issues: [{ key: 'k', message: 'k: 0.5 → 2' }], acceptLabel: 'Apply' })
+    )
+    expect(valueOf('k')).toBe('2')
+    expect(setSelect().props('modelValue')).toBe('fast')
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.parameterisation).toBe('fast')
+    expect(save.variables.find((row) => row.name === 'k')).toMatchObject({ value: '2', data_reference: 'paper' })
+  })
+
+  it('leaves the values as they are when cancelled', async () => {
+    await openSeeded()
+    confirm.mockResolvedValueOnce(false)
+
+    await pick('fast')
+
+    expect(valueOf('k')).toBe('0.5')
+    expect(setSelect().props('modelValue')).toBe('slow')
+  })
+
+  it('shows the instance\'s set again once a pick is cancelled', async () => {
+    await openSeeded()
+    confirm.mockResolvedValueOnce(false)
+
+    // As a click on an option does, the picker shows the option before the dialog hears of it.
+    setSelect().vm.updateModel(null, 'fast')
+    expect(setSelect().vm.d_value).toBe('fast')
+    await flushPromises()
+
+    expect(setSelect().vm.d_value).toBe('slow')
+  })
+
+  it('undoes the whole apply in one step', async () => {
+    const editor = await openSeeded()
+    await pick('fast')
+
+    editor.vm.$emit('undo')
+    await flushPromises()
+
+    expect(valueOf('k')).toBe('0.5')
+    expect(setSelect().props('modelValue')).toBe('slow')
+
+    editor.vm.$emit('redo')
+    await flushPromises()
+    expect(valueOf('k')).toBe('2')
+  })
+
+  describe('saving changed values on a shared set', () => {
+    const editK = (value) => (wrapper.vm.parameterRows.find((row) => row.name === 'k').value = value)
+    const setPrompt = () => wrapper.findComponent(ParameterSetSaveDialog)
+    async function save() {
+      await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+      await flushPromises()
+    }
+
+    beforeEach(() => {
+      flowNodes.value.push({ id: 'b', data: { name: 'b', mathRef: MATH_REF, parameterisation: 'slow', variables: rows() } })
+    })
+
+    it("asks, listing the other instances' changes, and saves the choice", async () => {
+      await openSeeded()
+      editK('3')
+      await save()
+
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+      expect(setPrompt().props()).toMatchObject({
+        paramRef: 'slow',
+        ownerName: '',
+        newRef: 'a',
+        otherCount: 1,
+        changes: [{ nodeId: 'b', nodeName: 'b', name: 'k', from: '0.5', to: '3' }],
+      })
+
+      setPrompt().vm.$emit('confirm', { action: 'update' })
+      await flushPromises()
+      const [saved] = wrapper.emitted('confirm')[0]
+      expect(saved.parameterSet).toEqual({ action: 'update' })
+      expect(saved.parameterisation).toBe('slow')
+    })
+
+    it('saves nothing when cancelled', async () => {
+      await openSeeded()
+      editK('3')
+      await save()
+
+      setPrompt().vm.$emit('cancel')
+      await flushPromises()
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    })
+
+    it("names the instance that made a set it shares", async () => {
+      const parameters = useDefaultParametersStore()
+      parameters.addInstanceSet(MATH_REF, 'b', 'b', rows())
+      flowNodes.value[0].data.parameterisation = 'b'
+      await openSeeded()
+      editK('3')
+      await save()
+
+      expect(setPrompt().props()).toMatchObject({ paramRef: 'b', ownerName: 'b', otherCount: 0, changes: [] })
+    })
+
+    it("asks about the instance's own set once another instance uses it", async () => {
+      useDefaultParametersStore().addInstanceSet(MATH_REF, 'a', 'mine', rows())
+      flowNodes.value[0].data.parameterisation = 'mine'
+      flowNodes.value[1].data.parameterisation = 'mine'
+      await openSeeded()
+      editK('3')
+      await save()
+
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+      expect(setPrompt().props()).toMatchObject({
+        paramRef: 'mine',
+        isOwn: true,
+        ownerName: '',
+        newRef: 'a',
+        otherCount: 1,
+        changes: [{ nodeId: 'b', nodeName: 'b', name: 'k', from: '0.5', to: '3' }],
+      })
+      setPrompt().vm.$emit('confirm', { action: 'new' })
+      await flushPromises()
+      expect(wrapper.emitted('confirm')[0][0].parameterSet).toEqual({ action: 'new' })
+    })
+
+    it("never asks for the instance's own set, nor for edits that change no value", async () => {
+      useDefaultParametersStore().addInstanceSet(MATH_REF, 'a', 'mine', rows())
+      flowNodes.value[0].data.parameterisation = 'mine'
+      await openSeeded()
+      editK('3')
+      await save()
+      expect(setPrompt().exists()).toBe(false)
+      expect(wrapper.emitted('confirm')[0][0].parameterSet).toBeNull()
+
+      flowNodes.value[0].data.parameterisation = 'slow'
+      wrapper.unmount()
+      await openSeeded()
+      await save()
+      expect(setPrompt().exists()).toBe(false)
+      expect(wrapper.emitted('confirm')[0][0].parameterSet).toBeNull()
+    })
+  })
+
+  it('hides the picker for a math with no sets', async () => {
+    useDefaultParametersStore().resetState()
+    await openSeeded()
+
+    expect(setSelect()).toBeUndefined()
   })
 })

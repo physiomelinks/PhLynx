@@ -15,8 +15,15 @@ const UNRECORDED = {
   '1.2.0': new Set(['legacy/domainType', '1.2.0/inspectionPlotSelection', '1.2.0/parameterScanLabel']),
 }
 
-// Objects keyed by data (a diagram's element ids) rather than by field name; their keys aren't part of the format.
-const DATA_KEYED_PATHS = new Set(['store.mathSources[][].elements'])
+// Objects keyed by data (a diagram's element ids, a parameter's extra columns) rather than by field name; their keys
+// aren't part of the format.
+const DATA_KEYED_PATHS = new Set([
+  'store.mathSources[][].elements',
+  'parameters.sets[][].globals[][].extra',
+  'parameters.sets[][].values[][].extra',
+  'parameters.unlinked[][].globals[][].extra',
+  'parameters.unlinked[][].values[][].extra',
+])
 
 const SHAPE_CHANGED = `The saved workspace file's shape no longer matches format ${PHLYNX_PROJECT_VERSION}.
 Any change to the saved file needs a new format version: bump PHLYNX_PROJECT_VERSION, add a migration step

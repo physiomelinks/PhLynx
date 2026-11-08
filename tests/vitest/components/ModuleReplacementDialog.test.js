@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../../src/composables/useGtm', () => ({ useGtm: () => ({ trackEvent: vi.fn() }) }))
 
 import ModuleReplacementDialog from '../../../src/components/ModuleReplacementDialog.vue'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore'
 
 const DialogStub = { template: '<div><slot /><slot name="footer" /></div>' }
 const LibraryAreaStub = { name: 'LibraryArea', template: '<div />', emits: ['select'] }
@@ -36,12 +37,12 @@ let wrapper
 beforeEach(() => setActivePinia(createPinia()))
 afterEach(() => wrapper?.unmount())
 
-async function confirmWith(retain) {
+async function confirmWith(retain, module = MODULE) {
   wrapper = mount(ModuleReplacementDialog, {
     props: { modelValue: true, currentInstance: INSTANCE },
     global: { plugins: [PrimeVue], stubs: { Dialog: DialogStub, LibraryArea: LibraryAreaStub } },
   })
-  wrapper.findComponent(LibraryAreaStub).vm.$emit('select', MODULE)
+  wrapper.findComponent(LibraryAreaStub).vm.$emit('select', module)
   await wrapper.vm.$nextTick()
   if (retain) await wrapper.find('#retainMatches').setValue(true)
   await wrapper.findAll('button').find((b) => b.text() === 'Confirm').trigger('click')
@@ -55,11 +56,21 @@ describe('ModuleReplacementDialog', () => {
     expect(data.mathRef).toBe('file:new')
     expect(data.ports).toEqual(MODULE.ports)
     expect(data.variables.map((row) => row.name)).toEqual(['a', 'b'])
+    expect(data).toHaveProperty('parameterisation', undefined)
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 
   it('adds the old ports the new module has variables for when Retain is ticked', async () => {
     const data = await confirmWith(true)
     expect(data.ports).toEqual([...MODULE.ports, { label: 'old_b', portType: 'general_ports', variables: ['b'] }])
+  })
+
+  it("seeds the instance from the new module's default set and names it", async () => {
+    const values = new Map([['k', { value: '5', units: 'metre', data_reference: 'paper', extra: {} }]])
+    useDefaultParametersStore().addSet({ ref: 'calib', source: {}, globals: new Map(), values }, { mathRef: 'file:new' })
+    const k = { name: 'k', value: '1', units: 'metre', access: 'access', type: 'constant' }
+    const data = await confirmWith(false, { ...MODULE, variables: [...MODULE.variables, k], defaultParameterisation: 'calib' })
+    expect(data.parameterisation).toBe('calib')
+    expect(data.variables.find((row) => row.name === 'k').value).toBe('5')
   })
 })

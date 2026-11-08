@@ -228,6 +228,126 @@ describe('generateExportZip', () => {
     })
   })
 
+  it("writes the module's default parameterisation, from the library when the node has none", async () => {
+    library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
+    const [entry] = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entry.default_parameterisation).toBe('vp')
+  })
+
+  it('names a non-default parameter set on the instance\'s module array row only', async () => {
+    library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
+    const nodes = [nodeWith('a', []), nodeWith('b', []), nodeWith('c', [])]
+    nodes[0].data.parameterisation = 'vp'
+    nodes[1].data.parameterisation = 'vp_calibrated'
+    const files = await readZip(await generateExportZip('heart', nodes, [], library))
+    const { data: rows } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+    expect(rows.map((row) => row.parameterisation)).toEqual(['', 'vp_calibrated', ''])
+  })
+
+  it('writes no parameterisation column when every instance uses its default', async () => {
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
+    expect(files['heart_module_array.csv'].split('\n')[0]).not.toContain('parameterisation')
+  })
+
+  it('writes no default parameterisation when the module names none', async () => {
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
+    const [entry] = JSON.parse(files['modules/heart_module_config.json'])
+    expect(entry).not.toHaveProperty('default_parameterisation')
+  })
+
+  it('writes each parameter set an instance uses, default or chosen, as CA reads it', async () => {
+    library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
+    const param = (value, extra = {}) => ({ value, units: 'J_per_m3', data_reference: 'paper', extra })
+    const sets = {
+      vp: { ref: 'vp', globals: new Map([['rho', param('1e-07')]]), values: new Map([['E', param('30250.0', { sourced: 'no' })], ['C', param(null)]]) },
+      vp_calibrated: { ref: 'vp_calibrated', globals: new Map(), values: new Map([['E', param('7')], ['note', param('n/a')]]) },
+      unused: { ref: 'unused', globals: new Map(), values: new Map() },
+    }
+    const getParameterSet = vi.fn((mathRef, ref) => (mathRef === BG_MATH_REF ? (sets[ref] ?? null) : null))
+    const nodes = [nodeWith('a', []), nodeWith('b', []), nodeWith('c', [])]
+    nodes[1].data.parameterisation = 'vp_calibrated'
+    nodes[2].data.parameterisation = 'gone'
+
+    const files = await readZip(await generateExportZip('heart', nodes, [], library, null, { getParameterSet }))
+
+    expect(Object.keys(files).filter((name) => name.startsWith('parameters/')).sort()).toEqual([
+      'parameters/vp_calibrated_parameters.json',
+      'parameters/vp_parameters.json',
+    ])
+    expect(files['parameters/vp_parameters.json']).toBe(
+      [
+        '{',
+        ' "schema_version": 1,',
+        ' "global": {',
+        '  "rho": {"value": 1e-07, "units": "J_per_m3", "data_reference": "paper"}',
+        ' },',
+        ' "E": {"value": 30250.0, "units": "J_per_m3", "data_reference": "paper", "sourced": "no"},',
+        ' "C": {"value": "EMPTY_MUST_BE_FILLED", "units": "J_per_m3", "data_reference": "paper"}',
+        '}',
+        '',
+      ].join('\n')
+    )
+    const calibrated = JSON.parse(files['parameters/vp_calibrated_parameters.json'])
+    expect(calibrated).toEqual({
+      schema_version: 1,
+      E: { value: 7, units: 'J_per_m3', data_reference: 'paper' },
+      note: { value: 'n/a', units: 'J_per_m3', data_reference: 'paper' },
+    })
+    // The module array's ref names the file written.
+    const { data: rows } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+    expect(files[`parameters/${rows[1].parameterisation}_parameters.json`]).toBeDefined()
+  })
+
+  it("writes a set an instance made from its current values, and names it on the instance's row", async () => {
+    library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
+    const stored = (value) => new Map([['E', { value, units: 'J_per_m3', data_reference: '', extra: {} }]])
+    const sets = {
+      vp: { ref: 'vp', source: { file: 'vp_parameters.json', importedAt: '' }, globals: new Map(), values: stored('1') },
+      a: { ref: 'a', source: { file: '', importedAt: '', kind: 'instance', nodeId: 'a' }, globals: new Map(), values: stored('2') },
+    }
+    const getParameterSet = (mathRef, ref) => sets[ref] ?? null
+    const rows = [
+      { name: 'E', type: 'constant', value: '5', units: 'J_per_m3', data_reference: 'mine' },
+      { name: 'C', type: 'constant', value: '', units: 'm3_per_J' },
+      { name: 'q', type: 'variable', value: '', units: 'm3' },
+    ]
+    const nodes = [nodeWith('a', rows), nodeWith('b', [{ ...rows[0], value: '8' }])]
+    nodes[0].data.parameterisation = 'a'
+    nodes[1].data.parameterisation = 'vp'
+
+    const files = await readZip(await generateExportZip('heart', nodes, [], library, null, { getParameterSet }))
+
+    expect(JSON.parse(files['parameters/a_parameters.json'])).toEqual({
+      schema_version: 1,
+      E: { value: 5, units: 'J_per_m3', data_reference: 'mine' },
+      C: { value: 'EMPTY_MUST_BE_FILLED', units: 'm3_per_J', data_reference: '' },
+    })
+    // An imported set is written as imported, whatever its instance holds.
+    expect(JSON.parse(files['parameters/vp_parameters.json']).E.value).toBe(1)
+    const { data: array } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+    expect(array.map((row) => row.parameterisation)).toEqual(['a', ''])
+  })
+
+  it("writes the set an instance made as its own config's default, naming it on the config, not the row", async () => {
+    library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'a'
+    const own = { ref: 'a', source: { file: '', importedAt: '', kind: 'instance', nodeId: 'a' }, globals: new Map(), values: new Map() }
+    const node = nodeWith('a', [{ name: 'E', type: 'constant', value: '5', units: 'J_per_m3' }])
+    node.data.parameterisation = 'a'
+
+    const files = await readZip(await generateExportZip('heart', [node], [], library, null, { getParameterSet: (_, ref) => (ref === 'a' ? own : null) }))
+
+    expect(JSON.parse(files['modules/heart_module_config.json'])[0].default_parameterisation).toBe('a')
+    expect(files['heart_module_array.csv'].split('\n')[0]).not.toContain('parameterisation')
+    expect(JSON.parse(files['parameters/a_parameters.json']).E.value).toBe(5)
+  })
+
+  it('writes no parameters folder without a parameter set lookup', async () => {
+    library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
+    const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
+    expect(Object.keys(files).some((name) => name.startsWith('parameters/'))).toBe(false)
+  })
+
   it('writes a module generated from another format as CellML, the math CA gets', async () => {
     library.setMathSource(BG_MATH_REF, { format: 'celldl', document: null, documentUri: 'https://example.org/vp.celldl' })
     const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
@@ -508,6 +628,53 @@ describe('generateExportZip', () => {
       library.addModule({ moduleRef: 'arterial_simple:vp_B', mathRef: BG_MATH_REF, ports: [], variables: [] })
       const { subtypes } = await exportNodes([nodeWith('A', []), nodeWith('B', [C('m3_per_J')])])
       expect(subtypes.B).toBe('vp_B_2')
+    })
+
+    describe("with the module's default parameter set", () => {
+      const sets = { vp: { ref: 'vp', globals: new Map(), values: new Map() }, vp_fast: { ref: 'vp_fast', globals: new Map(), values: new Map() } }
+      const getParameterSet = (mathRef, ref) => sets[ref] ?? null
+      const rowsOf = (files) => Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true }).data
+
+      beforeEach(() => {
+        library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
+      })
+
+      it('gives a split config the default set too, naming only a set other than it on the rows', async () => {
+        const b = nodeWith('B', [])
+        b.data.ports = [port('p')]
+        const c = { ...b, id: 'C', data: { ...b.data, name: 'C', parameterisation: 'vp_fast' } }
+        const nodes = [nodeWith('A', []), { ...b, data: { ...b.data, parameterisation: 'vp' } }, c]
+        const files = await readZip(await generateExportZip('heart', nodes, [], library, null, { getParameterSet }))
+        const config = JSON.parse(files['modules/heart_module_config.json'])
+        expect(config.map((entry) => [entry.module_subtype, entry.default_parameterisation])).toEqual([['vp', 'vp'], ['vp_B', 'vp']])
+        expect(rowsOf(files).map((row) => [row.name, row.module_subtype, row.parameterisation])).toEqual([
+          ['A', 'vp', ''],
+          ['B', 'vp_B', ''],
+          ['C', 'vp_B', 'vp_fast'],
+        ])
+        expect(Object.keys(files).filter((name) => name.startsWith('parameters/')).sort()).toEqual([
+          'parameters/vp_fast_parameters.json',
+          'parameters/vp_parameters.json',
+        ])
+      })
+
+      it('still keeps the subtype for untouched instances', async () => {
+        const module = library.availableModules.get(BG_MODULE_REF)
+        const node = buildInstance('A', 'A', 'moduleNode', module, [], null, library.getMathAnalysis(BG_MATH_REF), library.getMathDefaults(BG_MATH_REF))
+        const { config, subtypes } = await exportNodes([node])
+        expect(subtypes).toEqual({ A: 'vp' })
+        expect(config[0]).toMatchObject({ module_subtype: 'vp', default_parameterisation: 'vp' })
+      })
+
+      it('writes the default set of a config saved from the instance editor as new', async () => {
+        library.addModule({ ...library.availableModules.get(BG_MODULE_REF), moduleRef: 'arterial_simple:vp_own', ports: [port('p')] })
+        const b = nodeWith('B', [])
+        Object.assign(b.data, { moduleRef: 'arterial_simple:vp_own', ports: [port('p')] })
+        const files = await readZip(await generateExportZip('heart', [b], [], library, null, { getParameterSet }))
+        const [entry] = JSON.parse(files['modules/heart_module_config.json'])
+        expect(entry).toMatchObject({ module_subtype: 'vp_own', default_parameterisation: 'vp' })
+        expect(files['parameters/vp_parameters.json']).toBeDefined()
+      })
     })
 
     it("keeps the library's config for the pulmonary circuit, which CA builds from the module's subtype", async () => {

@@ -2,7 +2,7 @@ import { MarkerType } from '@vue-flow/core'
 
 export const DEFAULT_PROJECT_NAME = 'phlynx-project'
 export const PHLYNX_PROJECT_IDENTIFIER = 'phlynx-project'
-export const PHLYNX_PROJECT_VERSION = '1.3.0'
+export const PHLYNX_PROJECT_VERSION = '1.4.0'
 
 export const SOURCE_HANDLE_TYPE = 'source'
 export const TARGET_HANDLE_TYPE = 'target'
@@ -194,7 +194,7 @@ export const IMPORT_LABELS = {
   MODULE_CONFIG: 'Module Configurations (.json)',
   CELLML_FILE: 'CellML File (.cellml or .xml)',
   CELLDL_FILE: 'CellDL Diagram (.celldl)',
-  PARAMETER: 'Parameters (.csv)',
+  PARAMETER: 'Parameters (.json, .csv)',
   TURTLE: 'Annotations (.ttl)',
   OMEX: 'COMBINE Archive (OMEX)',
 }

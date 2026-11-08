@@ -2,6 +2,7 @@ import Papa from 'papaparse'
 
 import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS } from './constants'
 import { isCellML, doesComponentExistInModel } from './cellml'
+import { csvToParameterFile, parseParametersJson } from './parameters/parse'
 
 /** Columns an instance array CSV must have. */
 const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
@@ -354,6 +355,21 @@ export const parseParametersFile = (file) => {
   })
 }
 
+/**
+ * Reads a parameters file, JSON or CSV, into one shape.
+ *
+ * @param {File|string} input - The file, or its text.
+ * @param {string} [fileName] - The file's name, when `input` is text.
+ * @returns {Promise<import('./parameters/parse').ParameterFile>} A `<variable>_<instance>` CSV keeps its rows.
+ */
+export const parseParameters = async (input, fileName) => {
+  // An import field's parser is also given the library store, after the file.
+  const name = typeof fileName === 'string' ? fileName : (input?.name ?? '')
+  return extensionOf(name) === '.json'
+    ? parseParametersJson(input, name)
+    : csvToParameterFile(await parseParametersFile(input), name)
+}
+
 const parseCellML = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -472,9 +488,9 @@ const configs = {
       {
         key: IMPORT_KEYS.PARAMETER,
         label: IMPORT_LABELS.PARAMETER,
-        accept: '.csv',
+        accept: '.json, .csv',
         required: false,
-        parser: parseParametersFile,
+        parser: parseParameters,
       },
     ],
   },
@@ -519,8 +535,8 @@ const configs = {
       {
         key: IMPORT_KEYS.PARAMETER,
         label: IMPORT_LABELS.PARAMETER,
-        accept: '.csv',
-        parser: parseParametersFile,
+        accept: '.json, .csv',
+        parser: parseParameters,
       },
     ],
   },
