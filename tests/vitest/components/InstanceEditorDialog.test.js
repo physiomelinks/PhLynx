@@ -419,6 +419,64 @@ describe('InstanceEditorDialog new module template (#634)', () => {
     expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ source: null, isSourceChanged: false, units: null })
   })
 
+  describe('with other instances on the template', () => {
+    beforeEach(() => {
+      flowNodes.value = [
+        { id: 'a', data: { name: 'a', mathRef: NEW_MODULE_MATH_REF } },
+        { id: 'b', data: { name: 'b', mathRef: NEW_MODULE_MATH_REF } },
+      ]
+    })
+
+    afterEach(() => {
+      flowNodes.value = []
+    })
+
+    it('leaves Apply to all unticked, so only this instance moves to the new component', async () => {
+      const saveAs = await saveEditedTemplate()
+      expect(wrapper.find('#applyToAll').element.checked).toBe(false)
+      saveAs.vm.$emit('confirm', 'my_comp')
+      await flushPromises()
+
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({
+        mathRef: 'User_Modules.cellml:my_comp',
+        updateAll: false,
+        siblings: [],
+      })
+    })
+
+    it('moves the other instances too once ticked', async () => {
+      mountDialog({ mathRef: NEW_MODULE_MATH_REF, initialName: 'my_instance' })
+      const editor = await open()
+      await report(editor, 'init', TEMPLATE_XML)
+      await report(editor, 'edit', EDITED_TEMPLATE_XML)
+      await wrapper.find('#applyToAll').setValue(true)
+      await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+      await flushPromises()
+      wrapper.findComponent(ComponentSaveAsDialog).vm.$emit('confirm', 'my_comp')
+      await flushPromises()
+
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ updateAll: true, siblings: ['b'] })
+    })
+
+    it('unticks it again on each open of the template, but ticks it for other math', async () => {
+      useLibraryStore().addMath(MATH_REF, XML)
+      mountDialog({ mathRef: NEW_MODULE_MATH_REF, initialName: 'my_instance' })
+      await open()
+      await wrapper.find('#applyToAll').setValue(true)
+      await wrapper.setProps({ modelValue: false })
+      await open()
+      expect(wrapper.find('#applyToAll').element.checked).toBe(false)
+
+      flowNodes.value = [
+        { id: 'a', data: { name: 'a', mathRef: MATH_REF } },
+        { id: 'b', data: { name: 'b', mathRef: MATH_REF } },
+      ]
+      await wrapper.setProps({ modelValue: false, mathRef: MATH_REF })
+      await open()
+      expect(wrapper.find('#applyToAll').element.checked).toBe(true)
+    })
+  })
+
   describe('whichever editor is used first', () => {
     const DOCUMENT = '<svg>drawn</svg>'
     const GENERATED_XML = XML.replace(/"decay"/g, '"my_rc"')

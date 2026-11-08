@@ -643,7 +643,9 @@ function suggestUnitsFor(typed) {
 const loading = ref(false)
 const activeTab = ref('parameters')
 
-const applyToAll = ref(true)
+// Ticked by default, so math edits reach the other instances, except on the template: a new module made from it
+// is this instance's alone.
+const applyToAll = ref(props.mathRef !== NEW_MODULE_MATH_REF)
 // The editor mounts after the table paints, so its synchronous parse doesn't delay the table.
 const isEditorReady = ref(false)
 const editorWrapperRef = ref(null)
@@ -1596,7 +1598,7 @@ async function loadEditor({ keepTab = false } = {}) {
   loading.value = true
   isDiagramSaved.value = false
   isEditorReady.value = false
-  applyToAll.value = true
+  applyToAll.value = !isTemplate.value
   nameError.value = ''
   rejectedName = ''
   flaggedPorts.value = new Set()
