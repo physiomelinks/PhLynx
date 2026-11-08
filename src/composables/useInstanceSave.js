@@ -10,6 +10,7 @@ import {
   renameRows,
   renameValues,
 } from '../services/math/reconcileRows'
+import { spreadConfig } from '../services/configSpread'
 import { separateParameters } from '../services/math/separateParameters'
 import { rescaleRows } from '../services/math/unitRescale'
 import { getModuleFormat } from '../services/moduleFormats'
@@ -127,8 +128,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * after changing ports on one or more nodes.
    *
    * @param {string} nodeId
-   * @param {Map<string, Array>} [marked] - Edges' couplings as the save confirmed them, under the old variable names, whose
-   *   `drivesState` marks they keep (InstanceEditorDialog's confirmPortDrives).
+   * @param {Map<string, Array>} [marked] - Edges' couplings as the save confirmed them, whose `drivesState` marks they
+   *   keep, matched by port label (see confirmPortEditDrives).
    */
   function recomputeEdgeCouplings(nodeId, marked = new Map()) {
     const node = findNode(nodeId)
@@ -157,15 +158,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @param {Object} node
    * @param {{ports: Array, variables: Array}} config
    */
-  function applyConfigTo(node, { ports, variables }) {
-    const kinds = new Map(variables.map((row) => [row.name, row]))
-    const rows = node.data.variables.map((row) => {
-      const kind = kinds.get(row.name)
-      return kind ? { ...row, units: kind.units, access: kind.access, type: kind.type } : row
-    })
-    const names = new Set(rows.map((row) => row.name))
-    const added = toModuleRows(variables.filter((row) => !names.has(row.name)), [])
-    updateNodeData(node.id, { ports: toModulePorts(ports), variables: [...rows, ...added] })
+  function applyConfigTo(node, config) {
+    updateNodeData(node.id, spreadConfig(node, config))
     updateVariablesFromMath(findNode(node.id), node.data.mathRef)
     cleanPorts(findNode(node.id))
   }
@@ -295,8 +289,10 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     })
 
     const configured = applyConfig(save)
-    recomputeEdgeCouplings(id, new Map(save.drivenCouplings ?? []))
-    new Set([...otherNodes.map((node) => node.id), ...configured]).forEach((nodeId) => recomputeEdgeCouplings(nodeId))
+    // Marks confirmed for edges of the instances an update spread the ports to are kept as theirs are recomputed.
+    const marked = new Map(save.drivenCouplings ?? [])
+    recomputeEdgeCouplings(id, marked)
+    new Set([...otherNodes.map((node) => node.id), ...configured]).forEach((nodeId) => recomputeEdgeCouplings(nodeId, marked))
     return moduleRef
   }
 
@@ -528,10 +524,12 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @param {string} edit.type - The command type.
    * @param {Array<[string, Array]>} edit.ports - Each node's id and ports after the edit, in the order resolved.
    * @param {Map<string, Object>} [edit.configs] - Each changed node's config by id.
+   * @param {Map<string, Array>} [edit.drivenCouplings] - Couplings, by edge, confirmed to drive a store, whose marks the
+   *   edges of instances an update rewrote keep (see confirmPortEditDrives).
    * @param {Function} [edit.apply] - Makes the rest of the edit once the ports are written, such as edges' couplings.
    * @returns {Promise<boolean>} Whether a step was recorded.
    */
-  async function savePortEdit({ type, ports, configs = new Map(), apply = () => {} }) {
+  async function savePortEdit({ type, ports, configs = new Map(), drivenCouplings = new Map(), apply = () => {} }) {
     const ids = ports.map(([id]) => id)
     const updatedRefs = new Set(
       [...configs].filter(([, config]) => config.action === 'update').map(([id]) => findNode(id)?.data.moduleRef)
@@ -558,7 +556,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         })
         apply()
         configChanges.forEach((change) => change?.changed())
-        rewritten.forEach((id) => recomputeEdgeCouplings(id))
+        rewritten.forEach((id) => recomputeEdgeCouplings(id, drivenCouplings))
       },
       library: combineLibraries(configChanges.map((change) => change?.library ?? null)),
     })

@@ -245,7 +245,8 @@ import { isCompatible } from '../utils/ports'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
-import { confirmDrivenStores } from '../services/export/drivenStores'
+import { confirmPortEditDrives } from '../services/export/drivenStores'
+import { spreadPortEdits } from '../services/configSpread'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useLibraryStore } from '../stores/libraryStore'
 import { detachReactivity } from '../utils/reactivity'
@@ -681,16 +682,13 @@ const { confirm } = useConfirmDialog()
 const { configPrompt, resolveConfigPrompt, resolvePortEdits } = useModuleConfigPrompt()
 
 /**
- * Saves the connection, first asking about each CellDL store it would set from elsewhere, then, for each instance
- * whose ports no longer match its module, whether to update the module or save a new config. Declining or cancelling
- * either keeps the dialog open. `configs` holds each instance's choice by id.
+ * Saves the connection, first asking, for each instance whose ports no longer match its module, whether to update the
+ * module or save a new config, then asking once about every CellDL store the edit would set from elsewhere: on this
+ * edge, and on the edges of other instances an updated module gives the ports. Declining or cancelling either keeps
+ * the dialog open. `configs` holds each instance's choice by id, and `drivenCouplings` the edges' confirmed marks.
  */
 async function handleConfirm() {
   const payload = buildPayload()
-  const { nodes, edges } = editedCanvas(payload.couplings)
-  const marked = await confirmDrivenStores({ nodes, edges, edgeIds: new Set([props.activeEdge?.id]), libraryStore, confirm })
-  if (!marked) return
-  if (marked.has(props.activeEdge?.id)) payload.couplings = marked.get(props.activeEdge.id)
   // A loop's target side is written last, so it is the one checked.
   const portEdits = [
     { node: props.sourceNode, ports: payload.sourcePorts },
@@ -698,7 +696,20 @@ async function handleConfirm() {
   ].filter(({ node }, index) => index === 1 || node.id !== props.targetNode.id)
   const configs = await resolvePortEdits(portEdits, canvasNodes.value ?? [])
   if (!configs) return
+  const { nodes, edges } = editedCanvas(payload.couplings)
+  const activeId = props.activeEdge?.id
+  const marked = await confirmPortEditDrives({
+    nodes,
+    edges,
+    edits: spreadPortEdits(portEdits, configs, canvasNodes.value ?? []),
+    edgeIds: new Set([activeId]),
+    libraryStore,
+    confirm,
+  })
+  if (!marked) return
+  if (marked.has(activeId)) payload.couplings = marked.get(activeId)
   payload.configs = configs
+  payload.drivenCouplings = marked
   emit('confirm', payload)
   emit('update:modelValue', false)
 }

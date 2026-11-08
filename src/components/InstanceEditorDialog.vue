@@ -551,7 +551,8 @@ import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
-import { confirmDrivenStores } from '../services/export/drivenStores'
+import { confirmPortEditDrives } from '../services/export/drivenStores'
+import { spreadConfig } from '../services/configSpread'
 import { isModuleConfig } from '../services/moduleConfig'
 import {
   createSinglePlotConfig,
@@ -1949,6 +1950,23 @@ function resolveConfigPrompt(config) {
 }
 
 /**
+ * Gets the instance's module and the other instances that would follow a change to it: every other instance on the
+ * module, or, for math no module uses yet, those of them moving to that math with this instance.
+ *
+ * @param {{mathRef: string, math: string|null, updateAll: boolean}} save - As resolveModuleConfig takes it.
+ * @returns {{moduleRef: string, module: Object, isNewModule: boolean, followers: Array}|null} Null without a module.
+ */
+function moduleFollowers({ mathRef, math, updateAll }) {
+  const moduleRef = nodes.value.find((n) => n.id === props.id)?.data?.moduleRef
+  const module = moduleRef && store.availableModules.get(moduleRef)
+  if (!module) return null
+  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
+  const others = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef)
+  const followers = isNewModule ? others.filter((n) => updateAll && n.data.mathRef === props.mathRef) : others
+  return { moduleRef, module, isNewModule, followers }
+}
+
+/**
  * Works out what a save does to the instance's module, asking when the ports or variable units, access or types no
  * longer match it and other instances would follow. Values never count. A module no other instance uses is updated
  * without asking, and math saved for every instance on the module's math takes the module along. Math no module uses
@@ -1962,13 +1980,9 @@ function resolveConfigPrompt(config) {
  * @returns {Promise<Object|null|false>} The save's `config`, null when the module needs no change, or false if cancelled.
  */
 async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
-  const moduleRef = nodes.value.find((n) => n.id === props.id)?.data?.moduleRef
-  const module = moduleRef && store.availableModules.get(moduleRef)
-  if (!module) return null
-
-  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
-  const others = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef)
-  const followers = isNewModule ? others.filter((n) => updateAll && n.data.mathRef === props.mathRef) : others
+  const found = moduleFollowers({ mathRef, math, updateAll })
+  if (!found) return null
+  const { moduleRef, module, isNewModule, followers } = found
   if (isNewModule && !followers.length) return null
 
   const isFollowing = isNewModule || (updateAll && props.mathRef === module.mathRef)
@@ -2425,31 +2439,19 @@ async function resolveMathTarget(math, layout) {
 }
 
 /**
- * Asks, for each CellDL store the edited ports would newly couple to what another instance computes, whether the
- * connection should drive it (see confirmDrivenStores). Only edges whose couplings the ports change are asked about.
+ * Asks once about each CellDL store the saved ports would newly couple to what another instance computes, whether the
+ * connection should drive it (see confirmPortEditDrives). When the save updates the module, the ports spread to its
+ * other instances, whose edges are asked about too.
  *
  * @param {Array} ports - The ports to save.
- * @returns {Promise<Map<string, Array>|null>} Each edge's couplings as they will be, marked where they drive a store,
- *   under the variable names before any rename; null when one was declined.
+ * @param {Array} spreadTo - The other instances the module update gives the ports to.
+ * @returns {Promise<Map<string, Array>|null>} Each previewed edge's couplings as they will be, marked where they drive
+ *   a store; null when declined.
  */
-async function confirmPortDrives(ports) {
-  const canvasNodes = (nodes.value ?? []).map((node) =>
-    node.id === props.id ? { ...node, data: { ...node.data, variables: parameterRows.value, ports } } : node
-  )
-  const canvasEdges = edges.value ?? []
-  const couplings = previewCouplings(props.id, ports, canvasNodes, canvasEdges)
-  const unmarked = (list) => JSON.stringify((list ?? []).map(({ drivesState, ...coupling }) => coupling))
-  const changed = new Set(
-    [...couplings]
-      .filter(([edgeId, next]) => unmarked(canvasEdges.find((edge) => edge.id === edgeId)?.data?.couplings) !== unmarked(next))
-      .map(([edgeId]) => edgeId)
-  )
-  if (!changed.size) return couplings
-  const edited = canvasEdges.map((edge) =>
-    couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
-  )
-  const marked = await confirmDrivenStores({ nodes: canvasNodes, edges: edited, edgeIds: changed, libraryStore: store, confirm })
-  return marked && new Map([...couplings, ...marked])
+async function confirmPortDrives(ports, spreadTo) {
+  const config = { ports, variables: parameterRows.value }
+  const edits = new Map([[props.id, config], ...spreadTo.map((node) => [node.id, spreadConfig(node, config)])])
+  return confirmPortEditDrives({ nodes: nodes.value ?? [], edges: edges.value ?? [], edits, libraryStore: store, confirm })
 }
 
 /**
@@ -2537,10 +2539,6 @@ async function saveInstance(options) {
     return
   }
 
-  // 2c. A port change that couples a CellDL store to what another instance computes asks first.
-  const drivenCouplings = await confirmPortDrives(finalPorts)
-  if (!drivenCouplings) return
-
   const textErrors = getEditorErrors()
   if (textErrors.length > 0) {
     const proceed = await confirm({
@@ -2614,6 +2612,13 @@ async function saveInstance(options) {
     updateAll,
   })
   if (config === false) return
+
+  // 5. A port change that couples a CellDL store to what another instance computes asks, once for every instance an
+  // update gives the ports.
+  const followers = moduleFollowers({ mathRef: newMathRef, math: isMathChanged ? mathToSave : null, updateAll })?.followers
+  const spreadTo = config?.action === 'update' ? (followers ?? []) : []
+  const drivenCouplings = await confirmPortDrives(renamePortVariables(finalPorts, renames), spreadTo)
+  if (!drivenCouplings) return
 
   trackEvent('editor_action', {
     category: 'Editor',

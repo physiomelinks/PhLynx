@@ -499,6 +499,91 @@ describe('InstanceEditorDialog module config', () => {
     expect(wrapper.emitted('confirm')).toBeUndefined()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
+
+  describe('when the ports would set a CellDL store from another instance', () => {
+    const SOURCE_REF = 'file:source'
+    const LINK = [{ label: 'link', portType: 'general_ports', variables: ['x'], multiportType: 'None' }]
+    const drivesQuestions = () =>
+      confirm.mock.calls.map(([options]) => options).filter((options) => /^Set (a store|stores) from/.test(options.header))
+
+    beforeEach(() => {
+      const library = useLibraryStore()
+      library.addMath(
+        SOURCE_REF,
+        `<model xmlns="http://www.cellml.org/cellml/2.0#" name="source"><component name="source">
+          <variable name="t" units="second" interface="public_and_private"/>
+          <variable name="X" units="metre"/>
+          <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+            <apply><eq/><ci>X</ci><apply><times/><ci>t</ci><cn cellml:units="metre_per_second">1</cn></apply></apply>
+          </math></component></model>`.replace('<component', '<units name="metre_per_second"><unit units="metre"/><unit units="second" exponent="-1"/></units><component')
+      )
+      const sourcePort = { label: 'link', portType: 'general_ports', variables: ['X'], multiportType: 'None' }
+      const source = (id) => ({
+        id,
+        data: { name: id, mathRef: SOURCE_REF, moduleRef: 'source:base', ports: [sourcePort], variables: [{ name: 'X', units: 'metre', type: 'variable' }] },
+      })
+      flowNodes.value = [
+        ...['a', 'b'].map((id) => ({ id, data: { name: id, mathRef: MATH_REF, moduleRef: MODULE_REF, ports: PORTS, variables: rows } })),
+        source('s1'),
+        source('s2'),
+      ]
+      flowEdges.value = [
+        { id: 's1--a', source: 's1', target: 'a', data: { couplings: [] } },
+        { id: 's2--b', source: 's2', target: 'b', data: { couplings: [] } },
+      ]
+    })
+
+    afterEach(() => {
+      flowEdges.value = []
+    })
+
+    /** Saves instance `a` with a port on its store, its math a diagram's by then, as one opened on the text editor. */
+    async function saveLink() {
+      mountDialog({ variables: rows, initialPorts: LINK })
+      const editor = await open()
+      await report(editor, 'init', XML)
+      useLibraryStore().setMathSource(MATH_REF, { format: 'celldl', document: '<svg/>', documentUri: 'urn:test' })
+      await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+      await flushPromises()
+    }
+
+    it("asks once, listing every instance's edge, when updating the module spreads the ports", async () => {
+      await saveLink()
+      expect(drivesQuestions()).toHaveLength(0)
+      configDialog().vm.$emit('confirm', { action: 'update' })
+      await flushPromises()
+
+      expect(drivesQuestions()).toEqual([
+        expect.objectContaining({
+          header: 'Set stores from connections',
+          issues: [
+            expect.objectContaining({ label: 'x of a', message: expect.stringContaining('s1 → a') }),
+            expect.objectContaining({ label: 'x of b', message: expect.stringContaining('s2 → b') }),
+          ],
+        }),
+      ])
+      const save_ = wrapper.emitted('confirm')[0][0]
+      expect(new Map(save_.drivenCouplings).get('s2--b')).toEqual([expect.objectContaining({ drivesState: true })])
+    })
+
+    it("asks only about this instance's edge when it saves a new config", async () => {
+      await saveLink()
+      configDialog().vm.$emit('confirm', { action: 'new', moduleRef: 'decay:base_a' })
+      await flushPromises()
+
+      expect(drivesQuestions()).toEqual([expect.objectContaining({ header: 'Set a store from a connection', message: expect.stringContaining('Set x of a') })])
+      expect(new Map(wrapper.emitted('confirm')[0][0].drivenCouplings).has('s2--b')).toBe(false)
+    })
+
+    it('saves nothing when the question is declined', async () => {
+      confirm.mockImplementationOnce(async () => false)
+      await saveLink()
+      configDialog().vm.$emit('confirm', { action: 'update' })
+      await flushPromises()
+      expect(drivesQuestions()).toHaveLength(1)
+      expect(wrapper.emitted('confirm')).toBeUndefined()
+    })
+  })
 })
 
 describe('InstanceEditorDialog new module template (#634)', () => {

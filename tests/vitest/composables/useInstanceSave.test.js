@@ -953,6 +953,17 @@ describe('useInstanceSave', () => {
       })
     })
 
+    it("keeps a store mark the save confirmed on the edge of another instance its update reaches", async () => {
+      nodes.value.push(createNode('s'))
+      findNode('s').data.ports = ports
+      // b's port is held by this edge alone.
+      edges.value = [{ id: 's--b', source: 's', target: 'b', data: { couplings: [] } }]
+      const marked = [{ sourcePort: ports[0], targetPort: ports[0], drivesState: true }]
+      await saveInstanceEdit(buildSave({ ports, variables: variables(), config: { action: 'update' }, drivenCouplings: [['s--b', marked]] }))
+      expect(findNode('b').data.ports).toEqual(ports)
+      expect(edges.value[0].data.couplings).toEqual([expect.objectContaining({ drivesState: true })])
+    })
+
     it('leaves the module alone without a config', async () => {
       await saveInstanceEdit(buildSave({ ports }))
       expect(module()).toEqual(baseModule())
@@ -1011,6 +1022,22 @@ describe('useInstanceSave', () => {
         expect(snapshot()).toEqual(before)
         expect(library.availableModules.has('decay:a_only')).toBe(false)
         expect(history.canUndo).toBe(false)
+      })
+
+      it("keeps a store mark confirmed on another instance's edge the update reaches", async () => {
+        nodes.value.push(createNode('c'), createNode('s'))
+        nodes.value[2].data.moduleRef = BASE_REF
+        findNode('s').data.ports = ports
+        edges.value.push({ id: 's--c', source: 's', target: 'c', data: { couplings: [] } })
+        const marked = [{ sourcePort: ports[0], targetPort: ports[0], drivesState: true }]
+        await savePortEdit({
+          type: 'edit-connection',
+          ports: [['a', ports]],
+          configs: new Map([['a', { action: 'update' }]]),
+          drivenCouplings: new Map([['s--c', marked]]),
+        })
+        expect(findNode('c').data.ports).toEqual(ports)
+        expect(edges.value[1].data.couplings).toEqual([expect.objectContaining({ drivesState: true })])
       })
 
       it('leaves the modules alone for a couplings-only edit, still one undo step', async () => {

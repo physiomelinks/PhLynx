@@ -1745,7 +1745,7 @@ function onEdgeDoubleClick({ edge }) {
 
 /**
  * Applies the connection dialog's edit as one undo step, with the module changes its `configs` chose for instances
- * whose ports no longer match their modules.
+ * whose ports no longer match their modules, and the store-driving marks it confirmed for the instances they reach.
  */
 function onEdgeConnectionConfirm({
   sourceNodeId,
@@ -1755,6 +1755,7 @@ function onEdgeConnectionConfirm({
   couplings,
   foreignCouplings,
   configs,
+  drivenCouplings,
 }) {
   savePortEdit({
     type: 'edit-connection',
@@ -1763,6 +1764,7 @@ function onEdgeConnectionConfirm({
       [targetNodeId, targetPorts],
     ],
     configs,
+    drivenCouplings,
     apply: () => {
       const activeEdge = findEdge(edgeDialogActiveEdge.value?.id)
       if (activeEdge) {
