@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { parseParametersJson } from '../../../src/utils/parameters/parse.js'
-import { parametersFileName, parametersJson } from '../../../src/utils/parameters/write.js'
+import { modelParametersJson, parametersFileName, parametersJson } from '../../../src/utils/parameters/write.js'
 
 describe('parametersJson', () => {
   it('reads back as the set it was written from', async () => {
@@ -23,5 +23,39 @@ describe('parametersJson', () => {
 
   it('names the file as a ref resolves', () => {
     expect(parametersFileName('lumen_calibrated')).toBe('lumen_calibrated_parameters.json')
+  })
+})
+
+describe('modelParametersJson', () => {
+  const param = (value, extra = {}) => ({ value, units: 'J_per_m3', data_reference: 'paper', extra })
+
+  it('reads back as the model it was written from, sub-instances nested', async () => {
+    const model = {
+      globals: new Map([['T', param('1')]]),
+      instances: new Map([
+        ['aortic_root', new Map([['C', param('1.2e-8', { origin: 'measured' })]])],
+        ['heart', new Map([['T', param(null)]])],
+        ['heart/lv', new Map([['E_A', param('366575000')]])],
+      ]),
+    }
+    const text = modelParametersJson(model)
+    expect(JSON.parse(text).heart.lv.E_A.value).toBe(366575000)
+    expect(text).toContain('"C": {"value": 1.2e-8, "units": "J_per_m3", "data_reference": "paper", "origin": "measured"}')
+
+    const written = await parseParametersJson(text, 'model_parameters.json')
+    expect(written.kind).toBe('model')
+    expect(written.globals).toEqual(model.globals)
+    expect(written.instances).toEqual(model.instances)
+  })
+
+  it('keeps the first of an entry and a sub-instance of one name', () => {
+    const instances = new Map([
+      ['a', new Map([['lv', param('1')]])],
+      ['a/lv', new Map([['E', param('2')]])],
+    ])
+    expect(JSON.parse(modelParametersJson({ globals: new Map(), instances }))).toEqual({
+      schema_version: 1,
+      a: { lv: { value: 1, units: 'J_per_m3', data_reference: 'paper' } },
+    })
   })
 })

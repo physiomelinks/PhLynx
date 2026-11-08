@@ -35,7 +35,7 @@ For an export named `<name>`:
 | File | Contents |
 | :--- | :--- |
 | `<name>_module_array.csv` | Instances and their connections. |
-| `<name>_parameters.csv` | Constants, boundary conditions and global constants. |
+| `<name>_parameters.json` | Constants and boundary conditions by instance and variable, global constants under `global`. Blank values are written `EMPTY_MUST_BE_FILLED`. |
 | `<name>_obs_data.json` | The protocol, if the workspace has one. |
 | `modules/<name>_module_config.json` | Ports, variables and units of every module used. |
 | `modules/*modules.cellml` | One per CellML file used, with PhLynx edits, renamed to end in `modules.cellml` (`my_math.cellml` → `my_math_modules.cellml`). With a heart, also `zero_flow`, plus `arterial_simple:vp` when CA adds a pulmonary circuit. |
@@ -46,7 +46,7 @@ To run it, unzip it and set these entries in `user_inputs.yaml`, CA's settings f
 ```yaml
 file_prefix: <name>
 resources_dir: <unzipped folder>
-input_param_file: <name>_parameters.csv
+input_param_file: <name>_parameters.json
 external_modules_dir: <unzipped folder>/modules
 use_builtin_modules: false
 ```
