@@ -115,7 +115,7 @@ const fork = () =>
   })
 
 describe('useInstanceSave', () => {
-  let history, library, saveInstanceEdit
+  let history, library, saveInstanceEdit, savePortEdit
 
   beforeAll(async () => {
     await ensureLibCellmlReady()
@@ -128,7 +128,7 @@ describe('useInstanceSave', () => {
     library.addMath(DECAY_REF, DECAY_XML)
     nodes.value = [createNode('a'), createNode('b')]
     edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [] } }]
-    ;({ saveInstanceEdit } = useInstanceSave())
+    ;({ saveInstanceEdit, savePortEdit } = useInstanceSave())
   })
 
   it('undoes a fork applied to every instance as one step, and redoes it exactly', async () => {
@@ -957,6 +957,71 @@ describe('useInstanceSave', () => {
       await saveInstanceEdit(buildSave({ ports }))
       expect(module()).toEqual(baseModule())
       expect(findNode('b').data.ports).not.toEqual(ports)
+    })
+
+    describe('from a ports edit outside the editor', () => {
+      // The connection dialog's ports carry ids of their own.
+      const dialogPorts = (id, list) => list.map((port, index) => ({ ...port, _uid: `${id}_${index}` }))
+      const coupling = { sourcePort: { label: 'p' }, targetPort: { label: 'p' } }
+      const portEdit = (configs, aPorts = [], bPorts = findNode('b').data.ports) =>
+        savePortEdit({
+          type: 'edit-connection',
+          ports: [
+            ['a', dialogPorts('a', aPorts)],
+            ['b', dialogPorts('b', bPorts)],
+          ],
+          configs: new Map(configs),
+          apply: () => (edges.value[0].data = { ...edges.value[0].data, couplings: [coupling] }),
+        })
+
+      it('updates the module and every other instance, without the dialog’s ids, as one undo step', async () => {
+        nodes.value.push(createNode('c'))
+        nodes.value[2].data.moduleRef = BASE_REF
+        const before = snapshot()
+        await portEdit([['a', { action: 'update' }]])
+        const after = snapshot()
+        expect(module().ports).toEqual([])
+        expect(findNode('c').data.ports).toEqual([])
+        expect(findNode('a').data.ports).toEqual([])
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(module()).toEqual(baseModule())
+        expect(history.canUndo).toBe(false)
+
+        await history.redo()
+        expect(snapshot()).toEqual(after)
+        expect(module().ports).toEqual([])
+      })
+
+      it('gives an instance at the other end on the same module the update, not the ports it was shown with', async () => {
+        await portEdit([['a', { action: 'update' }]])
+        expect(findNode('b').data.ports).toEqual([])
+      })
+
+      it('saves a new config for this instance alone, and undo removes it', async () => {
+        const before = snapshot()
+        await portEdit([['a', { action: 'new', moduleRef: 'decay:a_only' }]], ports)
+        expect(findNode('a').data.moduleRef).toBe('decay:a_only')
+        expect(module('decay:a_only').ports).toEqual(ports)
+        expect(findNode('b').data.ports).toEqual(dialogPorts('b', before.nodes[1].data.ports))
+        expect(module()).toEqual(baseModule())
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(library.availableModules.has('decay:a_only')).toBe(false)
+        expect(history.canUndo).toBe(false)
+      })
+
+      it('leaves the modules alone for a couplings-only edit, still one undo step', async () => {
+        const before = snapshot()
+        await portEdit([], findNode('a').data.ports)
+        expect(edges.value[0].data.couplings).toEqual([coupling])
+        expect(module()).toEqual(baseModule())
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+      })
     })
   })
 

@@ -91,3 +91,28 @@ export function isModuleConfig(config, module, analysis) {
     return configSignature(moduleConfigEntry({ ...dropped, variables })) === signature
   })
 }
+
+/**
+ * Works out what an edit to an instance's ports outside the instance editor, such as in the connection dialog, does
+ * to its module. Couplings don't count: an edit that leaves the instance's config as it was, or makes it its
+ * module's again, needs no change. A module no other instance uses is updated without asking.
+ *
+ * @param {{id: string, data: Object}} node - The instance as it was.
+ * @param {Array} ports - Its ports after the edit.
+ * @param {Array} nodes - Every node, for the module's other instances.
+ * @param {Object} libraryStore - The library, for the module and its math's analysis.
+ * @param {Object} [module] - The module as earlier choices in the same edit leave it, the stored one by default.
+ * @returns {{action: 'update'}|{prompt: {moduleRef: string, otherCount: number, canUpdate: boolean}}|null} The
+ *   module change, what to ask about it, or null when the module needs no change.
+ */
+export function portEditConfig(node, ports, nodes, libraryStore, module = libraryStore.availableModules.get(node.data?.moduleRef)) {
+  if (!module) return null
+  const edited = { ...node.data, ports }
+  const signature = (config) => configSignature(moduleConfigEntry(config))
+  if (signature(node.data) === signature(edited)) return null
+  if (isModuleConfig(edited, module, libraryStore.getMathAnalysis?.(module.mathRef) ?? null)) return null
+
+  const otherCount = nodes.filter((other) => other.id !== node.id && other.data?.moduleRef === module.moduleRef).length
+  if (!otherCount) return { action: 'update' }
+  return { prompt: { moduleRef: module.moduleRef, otherCount, canUpdate: node.data.mathRef === module.mathRef } }
+}

@@ -55,6 +55,17 @@ function toModuleRows(rows, moduleRows = rows) {
 }
 
 /**
+ * Copies a node's ports for its module or another node, without the ids the connection dialog gives them, which are
+ * each node's own.
+ *
+ * @param {Array} ports
+ * @returns {Array}
+ */
+function toModulePorts(ports) {
+  return detachReactivity(ports ?? []).map(({ _uid, ...port }) => port)
+}
+
+/**
  * Combines the library states an edit changes into one recordEdit `library` option.
  *
  * @param {Array<Object|null>} libraries - Each `{ isAt(side), restore(side) }`, or null when unchanged.
@@ -154,7 +165,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     })
     const names = new Set(rows.map((row) => row.name))
     const added = toModuleRows(variables.filter((row) => !names.has(row.name)), [])
-    updateNodeData(node.id, { ports: detachReactivity(ports), variables: [...rows, ...added] })
+    updateNodeData(node.id, { ports: toModulePorts(ports), variables: [...rows, ...added] })
     updateVariablesFromMath(findNode(node.id), node.data.mathRef)
     cleanPorts(findNode(node.id))
   }
@@ -182,7 +193,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     }
     if (config.action === 'new') {
       if ((config.follow || stayer) && module) libraryStore.replaceModule({ ...detachReactivity(module), mathRef, ...stayerConfig })
-      const newModule = { moduleRef: config.moduleRef, mathRef, ports, variables: toModuleRows(variables) }
+      const newModule = { moduleRef: config.moduleRef, mathRef, ports: toModulePorts(ports), variables: toModuleRows(variables) }
       libraryStore.addModule(detachReactivity(newModule))
       updateNodeData(id, { moduleRef: config.moduleRef })
       return []
@@ -196,7 +207,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     libraryStore.replaceModule({
       ...detachReactivity(module),
       mathRef,
-      ports: detachReactivity(ports),
+      ports: toModulePorts(ports),
       variables: toModuleRows(variables, module.variables ?? []),
     })
     const others = nodes.value.filter((other) => other.id !== id && other.data?.moduleRef === moduleRef)
@@ -508,5 +519,50 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     return 1 + (updateAll ? siblings.length : 0)
   }
 
-  return { saveInstanceEdit }
+  /**
+   * Applies a ports edit made outside the instance editor, such as in the connection dialog, as one undo step, with
+   * the module change each node's `configs` entry chooses (see useModuleConfigPrompt's resolvePortEdits). An
+   * instance an earlier node's update gave that node's ports keeps them unless its own config changed too.
+   *
+   * @param {Object} edit
+   * @param {string} edit.type - The command type.
+   * @param {Array<[string, Array]>} edit.ports - Each node's id and ports after the edit, in the order resolved.
+   * @param {Map<string, Object>} [edit.configs] - Each changed node's config by id.
+   * @param {Function} [edit.apply] - Makes the rest of the edit once the ports are written, such as edges' couplings.
+   * @returns {Promise<boolean>} Whether a step was recorded.
+   */
+  async function savePortEdit({ type, ports, configs = new Map(), apply = () => {} }) {
+    const ids = ports.map(([id]) => id)
+    const updatedRefs = new Set(
+      [...configs].filter(([, config]) => config.action === 'update').map(([id]) => findNode(id)?.data.moduleRef)
+    )
+    const affectedIds = [
+      ...new Set([...ids, ...nodes.value.filter((node) => updatedRefs.has(node.data?.moduleRef)).map((node) => node.id)]),
+    ]
+    const configChanges = [...configs].map(([id, config]) => prepareConfigChange({ id, config }))
+
+    return recordEdit({
+      type,
+      nodeIds: affectedIds,
+      keys: NODE_KEYS,
+      edgeIds: findIncidentEdgeIds(affectedIds),
+      apply: () => {
+        // Instances whose ports an update rewrote after the edit's own, whose couplings follow them.
+        const rewritten = new Set()
+        ports.forEach(([id, nodePorts]) => {
+          const config = configs.get(id)
+          if (rewritten.has(id) && !config) return
+          updateNodeData(id, { ports: nodePorts })
+          rewritten.delete(id)
+          applyConfig({ id, config, math: null }).forEach((other) => rewritten.add(other))
+        })
+        apply()
+        configChanges.forEach((change) => change?.changed())
+        rewritten.forEach((id) => recomputeEdgeCouplings(id))
+      },
+      library: combineLibraries(configChanges.map((change) => change?.library ?? null)),
+    })
+  }
+
+  return { saveInstanceEdit, savePortEdit }
 }

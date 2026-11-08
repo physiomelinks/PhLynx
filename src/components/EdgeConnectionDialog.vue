@@ -212,6 +212,18 @@
       </template>
     </Dialog>
 
+    <ModuleConfigSaveDialog
+      v-if="configPrompt.visible"
+      v-model="configPrompt.visible"
+      :module-ref="configPrompt.moduleRef"
+      :other-count="configPrompt.otherCount"
+      :can-update="configPrompt.canUpdate"
+      :initial-name="configPrompt.initialName"
+      :existing-refs="configPrompt.existingRefs"
+      @confirm="(config) => resolveConfigPrompt(config)"
+      @cancel="resolveConfigPrompt(null)"
+    />
+
     <template #footer>
       <div class="dialog-footer">
         <Button label="Cancel" severity="secondary" text @click="handleCancel" />
@@ -241,7 +253,9 @@ import { waitUntilStable } from '../utils/layout'
 
 import MultiportKey from './MultiportKey.vue'
 import PortRow from './PortRow.vue'
+import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
 import { useEdgeCouplings } from '../composables/useEdgeCouplings'
+import { useModuleConfigPrompt } from '../composables/useModuleConfigPrompt'
 import { usePortDrag } from '../composables/usePortDrag'
 import { useConnectionAutoscroll } from '../composables/useConnectionAutoscroll'
 
@@ -664,14 +678,27 @@ function buildPayload() {
 }
 
 const { confirm } = useConfirmDialog()
+const { configPrompt, resolveConfigPrompt, resolvePortEdits } = useModuleConfigPrompt()
 
-/** Saves the connection, first asking about each CellDL store it would set from elsewhere; declining one keeps the dialog open. */
+/**
+ * Saves the connection, first asking about each CellDL store it would set from elsewhere, then, for each instance
+ * whose ports no longer match its module, whether to update the module or save a new config. Declining or cancelling
+ * either keeps the dialog open. `configs` holds each instance's choice by id.
+ */
 async function handleConfirm() {
   const payload = buildPayload()
   const { nodes, edges } = editedCanvas(payload.couplings)
   const marked = await confirmDrivenStores({ nodes, edges, edgeIds: new Set([props.activeEdge?.id]), libraryStore, confirm })
   if (!marked) return
   if (marked.has(props.activeEdge?.id)) payload.couplings = marked.get(props.activeEdge.id)
+  // A loop's target side is written last, so it is the one checked.
+  const portEdits = [
+    { node: props.sourceNode, ports: payload.sourcePorts },
+    { node: props.targetNode, ports: payload.targetPorts },
+  ].filter(({ node }, index) => index === 1 || node.id !== props.targetNode.id)
+  const configs = await resolvePortEdits(portEdits, canvasNodes.value ?? [])
+  if (!configs) return
+  payload.configs = configs
   emit('confirm', payload)
   emit('update:modelValue', false)
 }

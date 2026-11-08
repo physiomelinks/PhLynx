@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { buildInstance } from '../../../src/services/import/buildWorkflow.js'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath.js'
-import { isModuleConfig, librarySignatures, moduleConfigEntry, configSignature } from '../../../src/services/moduleConfig.js'
+import { isModuleConfig, librarySignatures, moduleConfigEntry, configSignature, portEditConfig } from '../../../src/services/moduleConfig.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
@@ -77,5 +77,46 @@ describe('moduleConfig', () => {
     const signatures = librarySignatures(MODULE, library)
     expect(signatures).toContain(configSignature(moduleConfigEntry(dropped)))
     expect(signatures).toContain(configSignature(moduleConfigEntry(MODULE)))
+  })
+
+  describe('portEditConfig', () => {
+    const library = () => ({ availableModules: new Map([[MODULE.moduleRef, MODULE]]), getMathAnalysis: () => analysis })
+    const node = (id) => ({ id, data: { ...structuredClone(dropped), name: id } })
+    let nodes
+    const relabelled = [{ ...MODULE.ports[0], label: 'q', _uid: 'a_1' }]
+
+    beforeAll(() => {
+      nodes = [node('a'), node('b')]
+    })
+
+    it('asks when the ports no longer match a module others use', () => {
+      expect(portEditConfig(nodes[0], relabelled, nodes, library())).toEqual({
+        prompt: { moduleRef: MODULE.moduleRef, otherCount: 1, canUpdate: true },
+      })
+    })
+
+    it('updates a module no other instance uses without asking', () => {
+      expect(portEditConfig(nodes[0], relabelled, [nodes[0]], library())).toEqual({ action: 'update' })
+    })
+
+    it('leaves the module alone when only the ports’ ids change', () => {
+      const ports = dropped.ports.map((port, index) => ({ ...port, _uid: `a_${index}` }))
+      expect(portEditConfig(nodes[0], ports, nodes, library())).toBeNull()
+    })
+
+    it('leaves the module alone when the edit makes the instance its module’s again', () => {
+      const drifted = { id: 'a', data: { ...structuredClone(dropped), ports: relabelled } }
+      expect(portEditConfig(drifted, MODULE.ports, nodes, library())).toBeNull()
+    })
+
+    it('checks a deleted port against the module as an earlier choice left it', () => {
+      const updated = { ...MODULE, ports: [] }
+      expect(portEditConfig(nodes[0], [], nodes, library())).not.toBeNull()
+      expect(portEditConfig(nodes[0], [], nodes, library(), updated)).toBeNull()
+    })
+
+    it('needs a module', () => {
+      expect(portEditConfig({ id: 'a', data: { ...dropped, moduleRef: 'none:x' } }, [], nodes, library())).toBeNull()
+    })
   })
 })
