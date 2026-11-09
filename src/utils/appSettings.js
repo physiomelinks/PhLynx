@@ -43,6 +43,15 @@ export const SETTING_SECTIONS = [
         default: false,
       },
       {
+        key: 'autoPlotSelection',
+        type: 'toggle',
+        label: 'Auto-plot selection',
+        description:
+          'In the physiological view, plot what is selected from its annotations: a protein’s flows, ' +
+          'a compartment’s concentrations, a membrane’s potential.',
+        default: true,
+      },
+      {
         key: 'showDataItems',
         type: 'toggle',
         label: 'Show data items',

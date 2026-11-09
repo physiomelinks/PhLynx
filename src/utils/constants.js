@@ -38,7 +38,11 @@ export const FLOW_IDS = {
   MAIN: 'main-flow-editor',
   MACRO: 'macro-builder-editor',
   EDGE: 'edge-conn-flow',
+  BIO: 'bio-flow-editor',
 }
+
+/** The faded dot grid behind the diagram and physiological views. */
+export const BACKGROUND_DOTS = { size: 2, gap: 20, patternColor: '#BDBDBD' }
 
 export const PARAMETER_TYPE_OPTIONS = [
   { value: 'constant', label: 'constant' },

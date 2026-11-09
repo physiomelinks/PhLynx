@@ -28,7 +28,7 @@
             v-tooltip.bottom="{ value: 'Save workspace', showDelay: 300 }"
             @click="handleSaveWorkspace"
             :style="{ marginLeft: appSettings.toolbarLoad ? '10px' : 0 }"
-            :disabled="!somethingAvailable"
+            :disabled="!hasWorkspaceContent"
           />
 
           <Divider v-if="toolbarDividers.cleanUp" layout="vertical" style="margin: 0 15px" />
@@ -55,7 +55,7 @@
             v-tooltip.bottom="{ value: 'Clear workspace', showDelay: 300 }"
             @click="handleClearWorkspace"
             :style="{ marginLeft: appSettings.toolbarCleanUp ? '10px' : 0 }"
-            :disabled="!somethingAvailable"
+            :disabled="!hasWorkspaceContent"
           />
 
           <template v-if="appSettings.toolbarUndoRedo">
@@ -281,6 +281,8 @@
       </div>
 
       <div class="header-right-actions">
+        <!-- Beside the theme switch: both change how the workspace is shown, not what is in it -->
+        <ViewModeToggle style="margin-left: 20px" />
         <ThemeToggle style="margin-left: 20px" />
       </div>
     </header>
@@ -303,6 +305,7 @@
         }"
       >
         <div
+          v-show="!viewMode.isBio"
           class="workspace-search-container"
           :class="{ 'search-inactive': !isSearchFocused && !searchQuery, 'search-mode-var': parsedQuery.mode === 'var' }"
         >
@@ -457,11 +460,20 @@
             :default-edge-options="edgeLineOptions"
             :connection-line-options="edgeLineOptions"
             :nodes="nodes"
-            :delete-key-code="dialogVisible ? [] : ['Backspace', 'Delete']"
+            :delete-key-code="dialogVisible || viewMode.isBio ? [] : ['Backspace', 'Delete']"
+            :class="{ 'main-flow--hidden': viewMode.isBio }"
+            :inert="viewMode.isBio || null"
           >
             <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
-            <MiniMap :pannable="true" :zoomable="true" :node-color="miniMapNodeColour" class="mini-map" />
+            <!-- Not kept while the diagram is hidden: it would redraw every node for each edit in the physiology view -->
+            <MiniMap
+              v-if="!viewMode.isBio"
+              :pannable="true"
+              :zoomable="true"
+              :node-color="miniMapNodeColour"
+              class="mini-map"
+            />
             <Controls :fit-view-params="fitViewParams">
               <ControlButton :disabled="screenshotDisabled" :title="imageExportTitle" @click="doImageExport">
                 <i class="pi pi-image"></i>
@@ -484,6 +496,17 @@
               <p v-if="isDragOver">Drop here</p>
             </Workbench>
           </VueFlow>
+          <BioFlow
+            v-if="viewMode.isBio"
+            ref="bioFlowRef"
+            class="bio-flow-layer"
+            :create-instance="createBioInstance"
+            :fit-view-params="fitViewParams"
+            :parameter-set-menu="parameterSetMenuFor"
+            @open-instance-editor="onOpenInstanceEditorDialog"
+            @open-edge-dialog="(edgeId) => onEdgeDoubleClick({ edge: findEdge(edgeId) })"
+            @export-image="exportImageOf"
+          />
         </div>
       </main>
       <ContextSidebar
@@ -587,6 +610,9 @@ import InputIcon from 'primevue/inputicon'
 import Tag from 'primevue/tag'
 import ConfirmDialog from 'primevue/confirmdialog'
 import ThemeToggle from '../components/ThemeToggle.vue'
+import BioFlow from '../components/bio/BioFlow.vue'
+import ViewModeToggle from '../components/bio/ViewModeToggle.vue'
+import { useViewModeStore } from '../stores/viewModeStore'
 import { Toast } from 'primevue'
 import { useToast } from 'primevue/usetoast'
 
@@ -604,6 +630,7 @@ import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useBioTemplateStore } from '../stores/bioTemplateStore'
 
 import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
 import { buildRestoredPorts, restoreOmexAnnotations } from '../services/import/omexAnnotations'
@@ -799,8 +826,12 @@ const { importParameterFile, importParameterFiles, applyLinkedSets, applySetToNo
 const { holdLinkReports } = useLinkedSetsReport((report) => notify(report), applyLinkedSets)
 const { importSidecars } = useSidecarImport(FLOW_IDS.MAIN)
 
+/** The physiological view, while shown: its own dialogs hold the workspace's shortcuts too. */
+const bioFlowRef = ref(null)
+
 const dialogVisible = computed(() => {
   return (
+    !!bioFlowRef.value?.isDialogOpen ||
     saveDialogVisible.value ||
     importDialogVisible.value ||
     exportDialogVisible.value ||
@@ -841,6 +872,8 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
+const bioTemplateStore = useBioTemplateStore()
+const viewMode = useViewModeStore()
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -949,6 +982,8 @@ watch(currentMatchIndex, async () => {
 
 const allNodeNames = computed(() => nodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
+/** Whether there is anything to save or clear: modules, or templates placed in the physiological view. */
+const hasWorkspaceContent = computed(() => somethingAvailable.value || bioTemplateStore.instances.length > 0)
 const somethingSelected = computed(() => getSelectedNodes.value.length > 0)
 const hasModelChanged = computed(() => cyrb53(snapshotFlowState()) !== omexStore.archiveHash)
 
@@ -1975,7 +2010,8 @@ function onNodeContextMenu({ clientX, clientY, id }) {
 }
 
 /**
- * Gives a node's "Apply Parameter Set" submenu: its math's sets, its own checked; none when the math has none.
+ * Gives a node's "Apply Parameter Set" submenu, in the diagram's menu and the physiology view's: its math's sets, its
+ * own checked; none when the math has none.
  *
  * @param {string} id
  * @returns {Array<Object>}
@@ -2062,6 +2098,29 @@ function createNewInstanceAtPosition(clientX, clientY) {
 
   const position = screenToFlowCoordinate({ x: clientX, y: clientY })
   createInstanceNode(module, position)
+}
+
+/**
+ * Adds an instance made in the physiological view. In the diagram it goes right of the other
+ * instances, out of their way; where it goes in the physiological view is its bioView.
+ *
+ * @param {Object} moduleData - A library module.
+ * @param {Object} bioView
+ * @returns {string} The new node's id.
+ */
+function createBioInstance(moduleData, bioView) {
+  // Nodes made a moment ago aren't measured yet, so they count at a card's usual width.
+  const width = (node) => node.dimensions?.width || 220
+  const position = nodes.value.length
+    ? {
+        x: Math.max(...nodes.value.map((node) => node.position.x + width(node))) + 120,
+        y: Math.min(...nodes.value.map((node) => node.position.y)),
+      }
+    : { x: 0, y: 0 }
+  const { nodeId } = createInstanceNode(moduleData, position, [], { bioView }, { centre: false })
+  // Placed where it is meant to stay, so history mustn't re-centre the add once it is measured.
+  historyStore.lastChangeWasAddSetter(false)
+  return nodeId
 }
 
 function handleAutoLayout() {
@@ -2298,8 +2357,17 @@ const imageExportTitle = computed(
  * Exports the canvas in the format chosen in Settings. Edit buttons are always hidden, warning badges
  * unless Settings asks for them; hiding (rather than removing) keeps the rest of each card in place.
  */
-async function doImageExport() {
-  const root = vueFlowRef.value
+function doImageExport() {
+  return exportImageOf({ root: vueFlowRef.value, viewport: viewport.value })
+}
+
+/**
+ * Exports one view's canvas. The physiological view's selection follows the diagram's, so
+ * withoutSelection clears both.
+ *
+ * @param {{root: HTMLElement, viewport: Object}} view
+ */
+async function exportImageOf({ root, viewport: shownViewport }) {
   const format = appSettings.imageExportFormat
   const includeWarnings = appSettings.imageExportWarnings
   return withoutSelection(async () => {
@@ -2307,7 +2375,7 @@ async function doImageExport() {
     root.classList.toggle('image-export--no-warnings', !includeWarnings)
 
     try {
-      await capture(root, { format: format, viewport: viewport.value, includeWarnings, shouldDownload: true })
+      await capture(root, { format: format, viewport: shownViewport, includeWarnings, shouldDownload: true })
       if (captureError.value) {
         notify.error({
           title: 'Screenshot error',
@@ -2331,12 +2399,13 @@ const handleKeyDown = (event) => {
     copySelection()
   }
 
-  if (isCtrl && event.key.toLowerCase() === 'v') {
+  // Pasting places by the diagram's coordinates, so it waits for the diagram.
+  if (isCtrl && event.key.toLowerCase() === 'v' && !viewMode.isBio) {
     event.preventDefault()
     pasteSelection(true)
   }
 
-  if (isCtrl && event.key.toLowerCase() === 'd') {
+  if (isCtrl && event.key.toLowerCase() === 'd' && !viewMode.isBio) {
     event.preventDefault()
     copySelection()
     pasteSelection()
@@ -2349,7 +2418,7 @@ const handleKeyDown = (event) => {
 
   if (isCtrl && event.key.toLowerCase() === 's') {
     event.preventDefault()
-    if (somethingAvailable.value) handleSaveWorkspace()
+    if (hasWorkspaceContent.value) handleSaveWorkspace()
   }
 
   const undoRedoAction = getUndoRedoAction(event)
@@ -2373,7 +2442,7 @@ const handleKeyDown = (event) => {
   }
 
   // Search shortcuts
-  if ((isCtrl && event.key.toLowerCase() === 'f') || (event.key === '/' && !isCtrl && !event.altKey)) {
+  if (!viewMode.isBio && ((isCtrl && event.key.toLowerCase() === 'f') || (event.key === '/' && !isCtrl && !event.altKey))) {
     event.preventDefault()
     focusSearch()
   }
@@ -2543,11 +2612,11 @@ const onMouseMove = (event) => {
 useActiveDocumentListeners({ keydown: handleKeyDown, mousemove: onMouseMove })
 
 // Asks before a reload or close loses unsaved work; panels outside this view can save it.
-const hasUnsavedChanges = useUnsavedChanges(() => somethingAvailable.value)
+const hasUnsavedChanges = useUnsavedChanges(() => hasWorkspaceContent.value)
 const removeUnloadGuard = installUnloadGuard(() => hasUnsavedChanges.value)
 const unregisterSaver = registerWorkspaceSaver({
   save: handleSaveWorkspace,
-  hasContent: () => somethingAvailable.value,
+  hasContent: () => hasWorkspaceContent.value,
 })
 
 onUnmounted(() => {
@@ -2637,6 +2706,18 @@ watch(
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* Hidden rather than removed, so its nodes stay measured while the physiological view is shown.
+   Not visibility: vue-flow marks each measured node visible, which would show through. */
+.main-flow--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bio-flow-layer {
+  position: absolute;
+  inset: 0;
 }
 
 /* Tutorial Slate Background for Dark Mode */

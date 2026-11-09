@@ -134,6 +134,23 @@ describe('naming and rolling back steps', () => {
     expect(history.redoLabel).toBe('Edit module')
   })
 
+  it('names the physiological view’s steps, a drop by the type it ends with', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('add', log))
+    await history.executeAndAddCommand(loggedCommand('bio-role', log))
+    history.endBatch('bio-add')
+    expect(history.undoLabel).toBe('Add module')
+
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('bio-glyph', log))
+    await history.executeAndAddCommand(loggedCommand('select', log))
+    history.endBatch()
+    expect(history.undoLabel).toBe('Cartoon')
+    expect(stepLabel({ type: 'bio-template-move' })).toBe('Move template')
+  })
+
   it('falls back to a plain name for a step of no known type', () => {
     expect(stepLabel({ type: 'something-new' })).toBe('Edit')
     expect(stepLabel({ type: 'apply-parameter-set' })).toBe('Apply parameter set')

@@ -106,6 +106,33 @@ describe('useScreenshot', () => {
     })
   })
 
+  describe('inline SVG paint', () => {
+    it('carries each shape’s computed paint while capturing, then puts its own style back', async () => {
+      const el = document.createElement('div')
+      el.innerHTML = '<svg><g><rect style="opacity: 0.5"/><text>Na</text></g></svg>'
+      const style = document.createElement('style')
+      style.textContent = 'rect { fill: rgb(1, 2, 3); stroke: rgb(4, 5, 6) }'
+      document.head.append(style)
+      document.body.append(el)
+      let during
+      toPng.mockImplementation(async (node) => {
+        const { fill, stroke } = node.querySelector('rect').style
+        during = { fill, stroke }
+        return 'data:image/png;base64,AAA'
+      })
+      try {
+        await useScreenshot().capture(el)
+        expect(during.fill).toBe('rgb(1, 2, 3)')
+        expect(during.stroke).toBe('rgb(4, 5, 6)')
+        expect(el.querySelector('rect').getAttribute('style')).toBe('opacity: 0.5')
+        expect(el.querySelector('text').hasAttribute('style')).toBe(false)
+      } finally {
+        el.remove()
+        style.remove()
+      }
+    })
+  })
+
   describe('jpeg capture', () => {
     it('uses toJpeg and downloads with a .jpeg extension', async () => {
       const { capture, dataUrl } = useScreenshot()

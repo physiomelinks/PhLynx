@@ -1,0 +1,67 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 1,
+  "id": "two-cell-epithelium",
+  "name": "Two-cell epithelium",
+  "description": "Two neighbouring epithelial cells sharing apical and basolateral fluids, with the paracellular space between them.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "a",
+      "label": "Epithelial cell A",
+      "membrane": { "label": "Plasma membrane (A)" },
+      "facets": [
+        { "id": "apical", "label": "Apical membrane (A)", "edge": "top", "annotation": { "facet": "apical" } },
+        { "id": "basolateral", "label": "Basolateral membrane (A)", "edge": "bottom", "annotation": { "facet": "basolateral" } },
+        {
+          "id": "lateral-left",
+          "label": "Lateral membrane (A, left)",
+          "edge": "left",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "left" }
+        },
+        {
+          "id": "lateral-right",
+          "label": "Lateral membrane (A, right)",
+          "edge": "right",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "right" }
+        }
+      ]
+    },
+    {
+      "id": "b",
+      "label": "Epithelial cell B",
+      "membrane": { "label": "Plasma membrane (B)" },
+      "facets": [
+        { "id": "apical", "label": "Apical membrane (B)", "edge": "top", "annotation": { "facet": "apical" } },
+        { "id": "basolateral", "label": "Basolateral membrane (B)", "edge": "bottom", "annotation": { "facet": "basolateral" } },
+        {
+          "id": "lateral-left",
+          "label": "Lateral membrane (B, left)",
+          "edge": "left",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "left" }
+        },
+        {
+          "id": "lateral-right",
+          "label": "Lateral membrane (B, right)",
+          "edge": "right",
+          "group": "lateral",
+          "annotation": { "facet": "lateral", "at": "right" }
+        }
+      ]
+    }
+  ],
+  "compartments": [
+    { "id": "apical-fluid", "label": "Apical fluid (lumen)", "against": ["a.apical", "b.apical"], "tone": "sky" },
+    {
+      "id": "basolateral-fluid",
+      "label": "Basolateral fluid (interstitium)",
+      "against": ["a.basolateral", "b.basolateral"],
+      "tone": "rose"
+    },
+    { "id": "paracellular", "label": "Paracellular space", "against": ["a.lateral-right", "b.lateral-left"], "tone": "teal" }
+  ]
+}
