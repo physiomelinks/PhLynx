@@ -247,4 +247,50 @@ describe('buildModularModel', () => {
     expect(parsed.unresolved).toEqual([])
     expect(parsed.warnings).toEqual([])
   })
+  it('renames the ids two modules of one file share, and their sidecars follow', async () => {
+    store.addMathFile('pair.cellml', [
+      { name: 'tank', math: TANK },
+      { name: 'source', math: SOURCE },
+    ])
+    store.setModuleAnnotations('pair.cellml:source', TANK_TTL.replaceAll('tank', 'source').replace('./source.cellml', './pair.cellml'))
+    store.setModuleAnnotations('pair.cellml:tank', TANK_TTL.replaceAll('./tank.cellml', './pair.cellml'))
+    const tank = buildNode('tank_1', 'pair.cellml:tank', { values: { q_init: '1', k: '0.5' }, ports: [port('flow', 'v')], boundaries: ['v'] })
+    const source = buildNode('source_1', 'pair.cellml:source', { values: { k_v: '1' }, ports: [port('flow', 'v')] })
+    const modular = await expectEquivalent([tank, source], [connect(source, tank)])
+
+    expect(modular.files.map(({ location }) => location)).toEqual(['pair.cellml'])
+    const [{ text }] = modular.files
+    expect(text).toMatch(/<component [^>]*name="tank"/)
+    expect(text).toMatch(/<component [^>]*name="source"/)
+    const ids = [...text.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const name of ['tank', 'source']) {
+      const sidecar = modular.sidecars.find(({ location }) => location === `annotations/pair.cellml/${name}.ttl`)
+      const parsed = await parseSidecar(sidecar.text, { mathRef: `pair.cellml:${name}`, cellml: text })
+      expect(parsed.unresolved).toEqual([])
+    }
+  })
+
+  it('names a module component as its mathRef does, so component_ref finds it', async () => {
+    store.addMathFile('copy.cellml', [{ name: 'tank_copy', math: TANK }])
+    const nodes = [buildNode('tank_a', 'copy.cellml:tank_copy', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
+    const modular = await expectEquivalent(nodes, [])
+    expect(modular.main).toMatch(/<component component_ref="tank_copy" name="tank_a"\/>/)
+    expect(modular.files[0].text).toMatch(/<component [^>]*name="tank_copy"/)
+  })
+
+  it('puts the module files beside a main model in a folder', async () => {
+    const nodes = [buildNode('tank_a', 'tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
+    const modular = await buildModularModel(nodes, [], store, [], { mainFileName: 'models/main.cellml' })
+    expect(modular.files.map(({ location }) => location)).toEqual(['models/tank.cellml'])
+    expect(modular.main).toMatch(/xlink:href="tank\.cellml"/)
+  })
+
+  it('leaves out the units ids, which could repeat a component one', async () => {
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS.replace('<units name="mM">', '<units name="mM" id="b4da56">') })
+    const nodes = [buildNode('tank_a', 'tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
+    const { files } = await buildModularModel(nodes, [], store)
+    expect(files[0].text).toMatch(/<units name="mM">/)
+    expect(files[0].text.match(/id="b4da56"/g)).toHaveLength(1)
+  })
 })

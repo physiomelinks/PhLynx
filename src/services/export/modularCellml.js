@@ -40,7 +40,9 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
   const flatDoc = new DOMParser().parseFromString(flat, 'application/xml')
   const flatUnits = new Map(childrenNamed(flatDoc.documentElement, 'units').map((el) => [el.getAttribute('name'), el]))
 
-  const taken = new Set([mainFileName.toLowerCase()])
+  // Module files sit beside the main model, which imports them by name.
+  const folder = mainFileName.slice(0, mainFileName.lastIndexOf('/') + 1)
+  const taken = new Set([mainFileName.slice(folder.length).toLowerCase()])
   const claim = (name) => {
     const stem = name.replace(/\.cellml$/i, '')
     let location = `${stem}.cellml`
@@ -91,7 +93,7 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
     locationOf.set(componentFile, location)
     const names = [...maths.keys()]
     const { models, idMaps } = uniqueComponentIds([...maths.values()])
-    files.push({ location, text: moduleFile(location, models, flatUnits) })
+    files.push({ location: folder + location, text: moduleFile(location, models, flatUnits, names) })
     for (const [i, name] of names.entries()) await addSidecar(`${componentFile}:${name}`, `${location}:${name}`, idMaps[i])
   }
   for (const { name, componentFile, componentName } of sharedInstances) {
@@ -99,7 +101,7 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
   }
   for (const source of own) {
     const location = claim(`${source.componentName}_${source.name}`)
-    files.push({ location, text: moduleFile(location, [source.xml], flatUnits) })
+    files.push({ location: folder + location, text: moduleFile(location, [source.xml], flatUnits, [source.componentName]) })
     imports.set(source.name, { href: location, componentRef: source.componentName })
     await addSidecar(source.mathRef, `${location}:${source.componentName}`)
   }
@@ -134,20 +136,22 @@ function childrenNamed(parent, localName) {
 }
 
 /**
- * Writes a module file: the maths' components, each variable public so the main model can connect it, and the units
- * they use, as the flattened model defines them.
+ * Writes a module file: the maths' components, named as their mathRefs name them (which component_ref uses), each
+ * variable public so the main model can connect it, and the units they use, as the flattened model defines them.
  *
  * @param {string} location - Names the file's model.
  * @param {string[]} maths - One-component models whose ids don't repeat across them.
  * @param {Map<string, Element>} flatUnits - The flattened model's units, by name.
+ * @param {string[]} names - Each math's component name.
  * @returns {string}
  */
-function moduleFile(location, maths, flatUnits) {
+function moduleFile(location, maths, flatUnits, names) {
   const libcellml = getLibCellML()
   const serializer = new XMLSerializer()
-  const components = maths.map((math) => {
+  const components = maths.map((math, index) => {
     const doc = new DOMParser().parseFromString(math, 'application/xml')
     const component = childrenNamed(doc.documentElement, 'component')[0]
+    component.setAttribute('name', names[index])
     for (const variable of childrenNamed(component, 'variable')) {
       const type = variable.getAttribute('interface')
       if (type !== 'public' && type !== 'public_and_private') variable.setAttribute('interface', 'public')
@@ -162,7 +166,10 @@ function moduleFile(location, maths, flatUnits) {
     if (units.has(name) || STANDARD.has(name)) continue
     const definition = flatUnits.get(name)
     if (definition) {
-      units.set(name, serializer.serializeToString(definition))
+      // Units' ids, which no module sidecar points at, could repeat the components' ones.
+      const copy = definition.cloneNode(true)
+      for (const el of [copy, ...copy.querySelectorAll('[id]')]) el.removeAttribute('id')
+      units.set(name, serializer.serializeToString(copy))
       pending.push(...childrenNamed(definition, 'unit').map((unit) => unit.getAttribute('units')))
     } else if (AFFINE_UNIT_CONVERSIONS[name]) {
       // As the flattened model masks it, before stripCelsiusToArbitraryUnit.
