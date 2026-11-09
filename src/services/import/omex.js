@@ -6,7 +6,16 @@ const jsonMimeTypeRegex = /^application\/(?:json|.+\+json)$/i
 const CELLML_FORMAT = 'http://identifiers.org/combine.specifications/cellml'
 const SEDML_FORMAT = 'http://identifiers.org/combine.specifications/sed-ml'
 
-export function validateCellmlEntries(cellmlEntries) {
+/**
+ * Picks an archive's model: its only CellML file, its master one, or else the one its SED-ML runs, as a modular
+ * archive's module files are CellML too.
+ *
+ * @param {Array<{location: string, isMaster: boolean}>} cellmlEntries
+ * @param {string|null} [sedmlSource] - The location the SED-ML's model reads.
+ * @returns {string}
+ * @throws {Error} When none of these picks one.
+ */
+export function validateCellmlEntries(cellmlEntries, sedmlSource = null) {
   if (!Array.isArray(cellmlEntries) || cellmlEntries.length === 0) {
     throw new Error('Invalid OMEX file: no CellML files found.')
   }
@@ -16,11 +25,23 @@ export function validateCellmlEntries(cellmlEntries) {
   }
 
   const masters = cellmlEntries.filter((entry) => entry.isMaster)
+  if (!masters.length && cellmlEntries.some((entry) => entry.location === sedmlSource)) return sedmlSource
   if (masters.length !== 1) {
     throw new Error('Invalid OMEX file: multiple CellML files require exactly one master CellML file.')
   }
 
   return masters[0].location
+}
+
+/**
+ * The location a SED-ML document's first model reads.
+ *
+ * @param {string} sedml
+ * @returns {string|null}
+ */
+function sedmlModelSource(sedml) {
+  const source = /<(?:\w+:)?model\b[^>]*\bsource\s*=\s*"([^"]*)"/.exec(sedml)?.[1]
+  return source ? source.replace(/^\.\//, '') : null
 }
 
 export const extractOmexArchive = async (importPayload, updateProgress) => {
@@ -158,7 +179,8 @@ export const importOmexFile = async (payload, updateProgress) => {
     updateProgress('Importing OMEX file... (70/100)')
   }
 
-  const cellmlLocation = validateCellmlEntries(foundFiles.cellmls)
+  const sedmlSource = foundFiles.sedml ? sedmlModelSource(await archive.file(foundFiles.sedml).async('string')) : null
+  const cellmlLocation = validateCellmlEntries(foundFiles.cellmls, sedmlSource)
 
   if (typeof updateProgress === 'function') {
     updateProgress('Importing OMEX file... (100/100)')

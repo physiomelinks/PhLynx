@@ -4,18 +4,12 @@ import { resolve } from 'path'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { BQBIOL } from '../../../../src/services/annotations/iris.js'
-import { parseRdf } from '../../../../src/services/annotations/rdf.js'
 import { parseSidecar } from '../../../../src/services/annotations/sidecar.js'
 import { editSidecar } from '../../../../src/services/annotations/sidecarEdit.js'
-import { COMBINED_ANNOTATIONS_LOCATION, collectAnnotationFiles } from '../../../../src/services/export/annotationsRdf.js'
+import { buildModularModel } from '../../../../src/services/export/modularCellml.js'
 import { listElementIds, prepareSavedMath, stripIds, variableIdsOf } from '../../../../src/services/math/variableIds.js'
 import { useLibraryStore } from '../../../../src/stores/libraryStore.js'
-import {
-  extractComponentsFromCellmlString,
-  generateFlattenedModel,
-  prefixIdAttributes,
-} from '../../../../src/utils/cellml.js'
+import { extractComponentsFromCellmlString, prefixIdAttributes } from '../../../../src/utils/cellml.js'
 import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 import { unitsFor } from '../export/toyWorkspace.js'
 
@@ -79,7 +73,7 @@ describe('mixed v… and b4da… variable ids', () => {
     expect(a.variableIds.get('c_A')).toBe(a.idMap.get('v4rjndoly'))
   })
 
-  it('resolves the flattened annotations of two instances', async () => {
+  it('resolves the annotations of two instances against their shared module file', async () => {
     setActivePinia(createPinia())
     const library = useLibraryStore()
     library.addUnitsFile({ componentFile: 'units.cellml', model: unitsFor([CELLML]) })
@@ -91,26 +85,13 @@ describe('mixed v… and b4da… variable ids', () => {
       position: { x: 0, y: 0 },
       data: { name, mathRef: MATH_REF, variables: [], ports: [] },
     }))
-    await library.ensureModuleAnnotations(MATH_REF)
-    const exportedIds = new Map()
-    const cellml = await (await generateFlattenedModel(nodes, [], library, [], { check: false, exportedIds })).text()
-    const { files, warnings } = await collectAnnotationFiles({
-      nodes,
-      exportedIds,
-      cellmlFileName: 'model.cellml',
-      libraryStore: library,
-    })
+    const { main, files, sidecars, warnings } = await buildModularModel(nodes, [], library, [], { check: false })
     expect(warnings).toEqual([])
-    const combined = files.find((file) => file.location === COMBINED_ANNOTATIONS_LOCATION)
-    const modelPrefix = 'http://omex-library.org/model.omex/model.cellml#'
-    const triples = await parseRdf(combined.text, { baseIri: 'https://example.org/archive/' })
-    const annotated = new Set(
-      triples
-        .filter((t) => t.predicate.value === BQBIOL.isVersionOf && t.subject.value.startsWith(modelPrefix))
-        .map((t) => t.subject.value.slice(modelPrefix.length))
-    )
-    expect(annotated.size).toBe(4)
-    const ids = new Set([...cellml.matchAll(/\bid="([^"]*)"/g)].map((m) => m[1]))
-    for (const id of annotated) expect(ids.has(id)).toBe(true)
+    expect(main.match(/component_ref="tank"/g)).toHaveLength(2)
+    expect(files.map(({ location }) => location)).toEqual(['tank.cellml'])
+    expect(sidecars).toEqual([{ location: 'annotations/tank.cellml/tank.ttl', format: 'text/turtle', text: TTL }])
+    const sidecar = await parseSidecar(sidecars[0].text, { mathRef: MATH_REF, cellml: files[0].text })
+    expect(sidecar.unresolved).toEqual([])
+    expect(sidecar.variables.map(({ id }) => id)).toEqual(['v4rjndoly', 'b4da57'])
   })
 })

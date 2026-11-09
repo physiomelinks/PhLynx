@@ -3,7 +3,6 @@ import { storeToRefs } from 'pinia'
 
 import {
   ZIP_FILE_TYPES,
-  CELLML_FILE_TYPES,
   OMEX_FILE_TYPES,
   IMPORT_KEYS,
   EXPORT_KEYS,
@@ -23,15 +22,14 @@ import { useOmexStore } from '../stores/omexStore'
 import { useProtocolStore } from '../stores/protocolStore'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 
-import { createCellMLDataFragment, generateOmexArchive, createOmexDataFragment } from '../services/compress'
+import { generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { findCaExportBlocker, generateExportZip } from '../services/export/ca'
-import { collectAnnotationFiles } from '../services/export/annotationsRdf'
+import { buildModularModel, zipModularModel } from '../services/export/modularCellml'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
-import { buildScopedModel, checkScope, resolveScope, summariseScopeReport } from '../services/simulation/scopedModel'
+import { checkScope, resolveScope, scopedModelInputs, summariseScopeReport } from '../services/simulation/scopedModel'
 import { useConfirmDialog } from './useConfirmDialog'
 import { notify } from '../utils/notify'
-import { generateFlattenedModel, extractVoiAndParametersFromModel } from '../utils/cellml'
-import { readFileAsText } from '../utils/misc'
+import { extractVoiAndParametersFromModel } from '../utils/cellml'
 import { getFileHandle } from '../utils/save'
 import { getImportConfig } from '../utils/import'
 import { getModuleFormat } from '../services/moduleFormats'
@@ -153,17 +151,26 @@ export function useImportExportSend({
   }
 
   /**
-   * Parses the sidecars of the nodes' maths, so the flattened model gives their annotated variables ids.
+   * Builds the modular CellML of the model, or of a scope on its own, and warns of any sidecar it leaves out.
    *
-   * @param {Array} exportedNodes
+   * @param {ReturnType<typeof resolveScope>|null} [scope]
+   * @param {Object} [options] - See buildModularModel.
+   * @returns {Promise<Object>} From buildModularModel.
    */
-  const parseModuleAnnotations = async (exportedNodes) => {
-    const mathRefs = new Set(exportedNodes.map((node) => node.data?.mathRef).filter(Boolean))
-    await Promise.all([...mathRefs].map((mathRef) => libraryStore.ensureModuleAnnotations?.(mathRef)))
+  const buildModular = async (scope = null, options = {}) => {
+    const inputs = scope
+      ? scopedModelInputs(scope)
+      : { nodes: nodes.value, edges: edges.value, inspectionModules: inspectionModuleStore.modules, options: {} }
+    const modular = await buildModularModel(inputs.nodes, inputs.edges, libraryStore, inputs.inspectionModules, {
+      ...inputs.options,
+      ...options,
+    })
+    if (modular.warnings.length) notify.warning({ title: 'Module annotations', message: modular.warnings.join(' ') })
+    return modular
   }
 
   /**
-   * Builds the OMEX archive of the whole model, or of a scope on its own: its model, its instances'
+   * Builds the OMEX archive of the whole model, or of a scope on its own: its modular model, its instances'
    * plotted variables and parameter scans, and a snapshot of just its nodes.
    *
    * @param {string} finalName
@@ -171,31 +178,15 @@ export function useImportExportSend({
    * @returns {Promise<Blob>}
    */
   const generateOmexArchiveAction = async (finalName, scope = null) => {
-    const exportedNodes = scope?.nodes ?? nodes.value
-    await parseModuleAnnotations(exportedNodes)
-    const exportedIds = new Map()
-    const blob = scope
-      ? await buildScopedModel(scope, libraryStore, { exportedIds })
-      : await generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules, { exportedIds })
+    const cellmlFileName = omexStore.cellmlFileName
+    const modular = await buildModular(scope, { mainFileName: cellmlFileName })
     const inScope = (selection) => !scope || scope.nodeIds.includes(selection.nodeId)
     const scanConfig = { ...parameterScanConfig.value, selections: (parameterScanConfig.value?.selections ?? []).filter(inScope) }
-    const rehydratedModel = await readFileAsText(blob)
-    const extractedData = extractVoiAndParametersFromModel(rehydratedModel, scanConfig)
+    const extractedData = extractVoiAndParametersFromModel(modular.flat, scanConfig)
     const snapshot = snapshotFlowState(scope?.nodeIds ?? null)
-    const cellmlFileName = omexStore.cellmlFileName
-    const annotations = await collectAnnotationFiles({
-      nodes: exportedNodes,
-      exportedIds,
-      cellmlFileName,
-      libraryStore,
-      archiveName: finalName,
-    })
-    if (annotations.warnings.length) {
-      notify.warning({ title: 'Annotations in the OMEX archive', message: annotations.warnings.join(' ') })
-    }
 
     return generateOmexArchive(
-      { blob },
+      { blob: new Blob([modular.main], { type: 'application/x.vnd.cellml+xml' }), flat: modular.flat },
       snapshot,
       {
         simulationSettings: simulationSettings.value,
@@ -203,7 +194,13 @@ export function useImportExportSend({
         parameterScanConfig: scanConfig,
       },
       // A selection is never the model as imported.
-      { extractedData, modified: scope ? true : hasModelChanged.value, cellmlFileName, annotationFiles: annotations.files }
+      {
+        extractedData,
+        modified: scope ? true : hasModelChanged.value,
+        cellmlFileName,
+        moduleFiles: modular.files,
+        annotationFiles: modular.sidecars,
+      }
     )
   }
 
@@ -228,29 +225,11 @@ export function useImportExportSend({
       label: 'CellML',
       icon: CellMLIcon,
       disabled: libcellml.status !== 'ready',
-      suffix: '.cellml',
-      fileTypes: CELLML_FILE_TYPES,
-      message: 'Generating flattened CellML model.',
-      action: async () => {
-        await parseModuleAnnotations(nodes.value)
-        return generateFlattenedModel(nodes.value, edges.value, libraryStore, inspectionModuleStore.modules)
-      },
-      successMessage: async (blob, finalName) => {
-        const dataUri = await createCellMLDataFragment(blob, finalName)
-        return h('div', null, [
-          'Model exported to CellML. Open this model directly in ',
-          h(
-            'a',
-            {
-              href: `https://opencor.ws/app/?opencor://openFile/#${dataUri}`,
-              rel: 'noopener noreferrer',
-              style: { color: 'var(--p-primary-color)', fontWeight: 'bold' },
-              target: '_blank',
-            },
-            'OpenCOR'
-          ),
-        ])
-      },
+      suffix: '.zip',
+      fileTypes: ZIP_FILE_TYPES,
+      message: 'Generating the CellML model and its modules.',
+      action: async () => zipModularModel(await buildModular()),
+      successMessage: () => 'Model exported to CellML: a zip of model.cellml and the modules it imports.',
     },
     {
       key: EXPORT_KEYS.CA,
@@ -327,16 +306,12 @@ export function useImportExportSend({
       icon: CellMLIcon,
       disabled: libcellml.status !== 'ready' || !hasSelection.value,
       isSelection: true,
-      suffix: '.cellml',
-      fileTypes: CELLML_FILE_TYPES,
-      message: 'Generating flattened CellML model of the selection.',
+      suffix: '.zip',
+      fileTypes: ZIP_FILE_TYPES,
+      message: 'Generating the CellML model of the selection and its modules.',
       preflight: confirmSelectionExport,
-      action: async () => {
-        const scope = resolveSelectionScope()
-        await parseModuleAnnotations(scope.nodes)
-        return buildScopedModel(scope, libraryStore)
-      },
-      successMessage: () => 'Selection exported to CellML.',
+      action: async () => zipModularModel(await buildModular(resolveSelectionScope())),
+      successMessage: () => 'Selection exported to CellML: a zip of model.cellml and the modules it imports.',
     },
     selectionOmexOption(EXPORT_KEYS.OMEX_SELECTION),
   ])
