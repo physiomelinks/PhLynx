@@ -353,6 +353,13 @@ def answer_overwrite(page, choice):
     prompt.get_by_role("button", name=choice, exact=True).click()
 
 
+def untick_apply_to_all(dialog):
+    """Unticks "Apply math changes to all", so a save moves only this instance to new math."""
+    box = dialog.locator(".apply-all-checkbox")
+    box.locator("label").click()
+    expect(box.locator("input")).not_to_be_checked()
+
+
 def save_as_new(page, taken, name):
     """Names a new component in Save As, which refuses taken names, each with why."""
     save_as = page.get_by_role("dialog", name="Save As New Component")
@@ -1175,11 +1182,12 @@ class TestCelldl(unittest.TestCase):
             dialog.get_by_role("button", name="Cancel").click()
             expect(dialog).to_be_hidden()
 
-            # Renamed, the first's diagram edit is a new module for it alone, with its own copy of the diagram: no
-            # prompt, and the second stays on the old module and diagram.
+            # Renamed and unticked, the first's diagram edit is a new module for it alone, with its own copy of the
+            # diagram: no prompt, and the second stays on the old module and diagram.
             instances.first.dblclick()
             wait_for_diagram(page)
             expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("2")
+            untick_apply_to_all(dialog)
             component = dialog.locator(".header-group--secondary input")
             component.fill("enzyme_fast")
             component.press("Tab")
@@ -1224,21 +1232,21 @@ class TestCelldl(unittest.TestCase):
             expect(instances).to_have_count(2)
             dialog = page.locator(".module-editor-dialog")
 
-            # Not overwriting, the first's edit is saved as a new component under an unused name, with its own copy of
-            # the diagram; the second stays on the shared module and diagram.
+            # Unticked, the first's edit doesn't overwrite the shared module: it's saved as a new component under an
+            # unused name, with its own copy of the diagram; the second stays on the shared module and diagram.
             instances.first.dblclick()
             wait_for_diagram(page)
             name, file = component_of(dialog)
             math_ref = f"{file}:{name}"
             shared = stored_document(page, math_ref)
+            untick_apply_to_all(dialog)
             set_element_field(dialog, REACTION_R1, "Location", "cyt")
             expect(element_row(dialog, REACTION_R1).locator(".element-names")).to_contain_text("kappa_Rx_r1_cyt", timeout=DIAGRAM_TIMEOUT)
             dialog.get_by_role("button", name="Save").click()
-            answer_overwrite(page, "Save as new component")
             save_as_new(
                 page,
                 [
-                    (name, f'A component named "{name}" already exists.'),
+                    (name, f'"{name}" is used by the other instances.'),
                     ("new_module", '"new_module" is a template and can\'t be overwritten.'),
                 ],
                 "enzyme_mine",
@@ -1292,9 +1300,10 @@ class TestCelldl(unittest.TestCase):
             dialog = page.locator(".module-editor-dialog")
             prompt = page.locator(".confirm-container").filter(has_text="Overwrite Math?")
 
-            # The first's edit, renamed, is a new component "enzyme_other" for it alone.
+            # The first's edit, renamed and unticked, is a new component "enzyme_other" for it alone.
             instances.first.dblclick()
             wait_for_diagram(page)
+            untick_apply_to_all(dialog)
             component = dialog.locator(".header-group--secondary input")
             component.fill("enzyme_other")
             component.press("Tab")
