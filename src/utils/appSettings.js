@@ -61,6 +61,15 @@ export const SETTING_SECTIONS = [
         default: false,
       },
       {
+        key: 'speciesFlowContinuous',
+        type: 'toggle',
+        label: 'Keep species flows moving',
+        description:
+          'In species mode, keep the dashes on each path running the way its species flows. Off, they run a few ' +
+          'times and then rest, which is lighter on slower machines; a selected species’ paths always run.',
+        default: true,
+      },
+      {
         key: 'showDataItems',
         type: 'toggle',
         label: 'Show data items',
