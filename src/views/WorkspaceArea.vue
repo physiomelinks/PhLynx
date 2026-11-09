@@ -2248,11 +2248,23 @@ const urlLoaders = createUrlLoaders({
 
 const { load: loadFromUrl, isLoading: isUrlLoading } = useLoadFromUrl()
 
+/**
+ * Says briefly which step an undo or redo took.
+ *
+ * @param {string} verb
+ * @param {string|null} label
+ */
+function notifyStep(verb, label) {
+  if (label) notify.info({ title: `${verb}: ${label}` })
+}
+
 const handleUndo = () => {
+  notifyStep('Undid', historyStore.undoLabel)
   historyStore.undo()
 }
 
 const handleRedo = () => {
+  notifyStep('Redid', historyStore.redoLabel)
   historyStore.redo()
 }
 
