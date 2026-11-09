@@ -4,7 +4,7 @@
 | :--- | :--- | :--- |
 | [CellML module / units](#cellml-files) | `.cellml` | Module math and units |
 | [CellDL diagram](#celldl-files) (beta) | `.celldl` | A bond-graph module drawn as a diagram |
-| [Parameters](#parameter-file) | `.csv` | Parameter values |
+| [Parameters](#parameter-file) | `.json`, `.csv` | Parameter values |
 | [Module configuration](#module-configuration) | `.json` | CA module ports and variables |
 | [Instance array](#instance-array) | `.csv` | CA network topology |
 | [params_for_id](#params_for_idcsv) | `.csv` | Parameter slider ranges |
@@ -37,7 +37,7 @@ g_Na_soma_SN,microS,2.3,user_defined
 Cm_soma_SN,picoF,30,Davis2021Transcriptomic
 ```
 
-Loading never changes a variable's type. Rows starting with `#` are ignored; values for computed variables are skipped.
+Loading never changes a variable's type. Rows starting with `#` are ignored; values for computed variables are skipped. For parameter sets in JSON, see [Parameter files](../guides/use-with-circulatory-autogen.md#parameter-files).
 
 ## Workspace file {#workspace-file}
 

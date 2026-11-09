@@ -209,7 +209,24 @@
 
           <TabPanels class="tab-panels-container">
             <!-- TAB 1: PARAMETER EDITOR -->
-            <TabPanel value="parameters" class="tab-panel-flex">
+            <TabPanel value="parameters" class="tab-panel-flex parameters-tab">
+              <!-- Re-applies one of the math's imported parameter sets to the instance's values -->
+              <div v-if="parameterSets.length" class="parameter-set-row">
+                <label class="parameter-set-label" for="instance-parameter-set">Parameter set</label>
+                <Select
+                  :key="parameterSetPickerKey"
+                  input-id="instance-parameter-set"
+                  :model-value="shownParameterRef"
+                  :options="parameterSetOptions(parameterSets, moduleDefaultRef)"
+                  option-label="label"
+                  option-value="value"
+                  placeholder="Choose a set to apply"
+                  size="small"
+                  class="parameter-set-select"
+                  aria-label="Parameter set"
+                  @update:model-value="applyParameterSet"
+                />
+              </div>
               <!-- A diagram's elements, whose structure is the diagram's and values this instance's -->
               <CelldlParametersTab
                 v-if="isCelldlModule"
@@ -468,6 +485,19 @@
       @cancel="resolveConfigPrompt(null)"
     />
 
+    <ParameterSetSaveDialog
+      v-if="setPrompt.visible"
+      v-model="setPrompt.visible"
+      :param-ref="setPrompt.paramRef"
+      :is-own="setPrompt.isOwn"
+      :owner-name="setPrompt.ownerName"
+      :new-ref="setPrompt.newRef"
+      :other-count="setPrompt.otherCount"
+      :changes="setPrompt.changes"
+      @confirm="(choice) => resolveSetPrompt(choice)"
+      @cancel="resolveSetPrompt(null)"
+    />
+
     <!-- DIALOG FOOTER -->
     <template #footer>
       <div class="dialog-footer" v-if="!loading && !isScreenTooSmall">
@@ -531,12 +561,14 @@ import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
+import ParameterSetSaveDialog from './dialogs/ParameterSetSaveDialog.vue'
 import CelldlPane from './celldl/CelldlPane.vue'
 import CelldlParametersTab from './celldl/CelldlParametersTab.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
 import { useLibraryStore } from '../stores/libraryStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useIssueFilter } from '../composables/useIssueFilter'
 import { createHistory } from '../stores/historyStore'
@@ -610,6 +642,16 @@ import {
   variableFactor,
 } from '../utils/multiport'
 import { suggestUnits } from '../utils/unitExpression'
+import { planSetApply, planSharedSetUpdate, setApplyConfirmation } from '../utils/parameters/apply'
+import {
+  changedSetEntries,
+  hasSetEntries,
+  isInstanceSet,
+  isOwnInstanceSet,
+  isSharedSet,
+  otherSetUsers,
+} from '../utils/parameters/instanceSet'
+import { parameterSetOptions, pickedRef } from '../utils/parameters/sets'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -625,6 +667,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const store = useLibraryStore()
+const defaultParameters = useDefaultParametersStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const history = reactive(createHistory())
 
@@ -682,6 +725,8 @@ const DIALOG_PT = {
 
 // Port & Instance State
 const editableName = ref('')
+/** The parameter set the instance's values were last seeded or re-applied from; saved as its `parameterisation`. */
+const chosenParameterRef = ref(null)
 const editablePorts = ref([])
 // The plotted variables' names as the math session renames them, so a save can rename the plots.
 const trackedNames = ref([])
@@ -1494,6 +1539,7 @@ const signEditorState = () =>
     name: editableName.value,
     rows: parameterRows.value.map(({ name, value, type, units, initialiser }) => ({ name, value, type, units, initialiser })),
     ports: editablePorts.value,
+    parameterisation: chosenParameterRef.value,
   })
 // The signature as loaded, so edits to values, the name or the ports count as unsaved.
 const savedEditorState = ref('')
@@ -1560,6 +1606,100 @@ const siblingCount = computed(() => siblings.value.length)
  */
 function otherNodesOn(mathRef) {
   return nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === mathRef).map((n) => n.id)
+}
+
+// ── Parameter Sets ───────────────────────────────────────────────────────────
+/** The node being edited, as the workspace holds it. */
+const editedNode = () => nodes.value.find((node) => node.id === props.id)
+
+/** The parameter sets imported for the math. */
+const parameterSets = computed(() => defaultParameters.setsFor(props.mathRef))
+/** The default parameterisation of the node's config. */
+const moduleDefaultRef = computed(() => store.availableModules.get(editedNode()?.data?.moduleRef)?.defaultParameterisation ?? null)
+/** The set the picker shows: the instance's own, while the math still has it. */
+const shownParameterRef = computed(() => pickedRef(parameterSets.value, chosenParameterRef.value, null))
+/** Remakes the picker, which shows what was picked until its value changes, so a cancelled pick shows the set again. */
+const parameterSetPickerKey = ref(0)
+
+/**
+ * Re-applies a parameter set to the instance's values, as one undo step. Values it would change are listed to
+ * confirm first; a global constant already set keeps its shared value.
+ *
+ * @param {string} paramRef
+ */
+async function applyParameterSet(paramRef) {
+  const set = defaultParameters.getSet(props.mathRef, paramRef)
+  if (!set) {
+    parameterSetPickerKey.value++
+    return
+  }
+  // An edit still in flight reaches the rows first, so the set applies over it.
+  await session.flushPendingChanges()
+  const { rows, changes } = planSetApply(parameterRows.value, set)
+  if (changes.length) {
+    const proceed = await confirm(setApplyConfirmation(paramRef, changes))
+    if (!proceed) {
+      parameterSetPickerKey.value++
+      return
+    }
+  }
+  const before = { rows: parameterRows.value, ref: chosenParameterRef.value }
+  const after = { rows, ref: set.ref }
+  const restore = (state) => {
+    parameterRows.value = state.rows
+    chosenParameterRef.value = state.ref
+  }
+  await history.executeAndAddCommand({
+    type: 'apply-parameter-set',
+    undo: async () => restore(before),
+    redo: async () => restore(after),
+  })
+}
+
+/** The prompt a save of changed values on a shared parameter set shows (ParameterSetSaveDialog). */
+const setPrompt = ref({ visible: false, paramRef: '', isOwn: false, ownerName: '', newRef: '', otherCount: 0, changes: [] })
+let setPromptResolver = null
+
+function resolveSetPrompt(choice) {
+  setPromptResolver?.(choice)
+  setPromptResolver = null
+}
+
+/**
+ * Asks what a save does to the parameter set the instance shares with others (an imported set, one another instance
+ * made, or its own once another instance is tagged with it) when it changes values the set holds otherwise: update
+ * the set, which the other instances tagged with it follow, or make a set of the instance's own, as Parameters "None"
+ * does. An instance's own set that no other instance uses, or none, never asks; nor do edits to anything but values.
+ *
+ * @param {string} mathRef - The math the save writes to.
+ * @returns {Promise<{action: 'update'|'new'}|null|false>} The choice, null when nothing asks, or false if cancelled.
+ */
+async function resolveParameterSet(mathRef) {
+  const node = editedNode()
+  const paramRef = chosenParameterRef.value
+  const set = node && paramRef ? defaultParameters.getSet(mathRef, paramRef) : null
+  const target = { nodeId: props.id, mathRef, paramRef }
+  const users = set ? otherSetUsers(nodes.value, target) : []
+  if (!isSharedSet(set, props.id, users)) return null
+  const entries = changedSetEntries(set, node.data.variables, parameterRows.value)
+  if (!hasSetEntries(entries)) return null
+
+  const isOwn = isOwnInstanceSet(set, props.id)
+  const owner = isInstanceSet(set) ? nodes.value.find((other) => other.id === set.source.nodeId) : null
+  resolveSetPrompt(null)
+  setPrompt.value = {
+    visible: true,
+    paramRef,
+    isOwn,
+    ownerName: isInstanceSet(set) && !isOwn ? (owner?.data?.name ?? 'another instance') : '',
+    newRef: defaultParameters.instanceSetRef(mathRef, editableName.value),
+    otherCount: users.length,
+    changes: planSharedSetUpdate(nodes.value, target, entries).changes,
+  }
+  const choice = await new Promise((resolve) => {
+    setPromptResolver = resolve
+  })
+  return choice ?? false
 }
 
 // ── Watchers & Handlers ──────────────────────────────────────────────────────
@@ -1631,6 +1771,7 @@ async function loadEditor({ keepTab = false } = {}) {
   if (isDiagramEditable.value) celldlHost.prepare(store.getMathSource(props.mathRef))
 
   editableName.value = props.initialName
+  chosenParameterRef.value = editedNode()?.data?.parameterisation ?? null
   editableComponentName.value = componentName.value
   componentNameForEditor.value = componentName.value
   editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
@@ -2621,6 +2762,10 @@ async function saveInstance(options) {
   const drivenCouplings = await confirmPortDrives(renamePortVariables(finalPorts, renames), spreadTo)
   if (!drivenCouplings) return
 
+  // 6. Changed values on a parameter set others share ask whether to update it or make the instance its own.
+  const parameterSet = await resolveParameterSet(newMathRef)
+  if (parameterSet === false) return
+
   trackEvent('editor_action', {
     category: 'Editor',
     action: 'save_unified_module',
@@ -2659,6 +2804,9 @@ async function saveInstance(options) {
           overwrite: wasGlobal.has(name),
         })),
       variables: parameterRows.value,
+      parameterisation: chosenParameterRef.value,
+      // What the save does to a parameter set the instance shares, as asked; null when nothing asked.
+      parameterSet,
       ports: renamePortVariables(finalPorts, renames),
       // Edges' couplings set to drive a CellDL store, which they keep once recomputed from the ports.
       drivenCouplings: [...drivenCouplings],
@@ -3010,6 +3158,33 @@ async function saveInstance(options) {
   flex: 1;
   min-height: 0;
   height: 100%;
+}
+
+.parameters-tab {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The table fills what the set picker leaves. */
+.parameters-tab > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.parameter-set-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0 0.5rem;
+}
+
+.parameter-set-label {
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color);
+}
+
+.parameter-set-select {
+  min-width: 14rem;
 }
 
 .right-pane-tabs :deep(.p-tabpanel) {

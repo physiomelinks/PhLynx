@@ -8,11 +8,18 @@ import { isBlank } from '../../utils/variables'
 import { configSignature, librarySignatures, moduleConfigEntry } from '../moduleConfig'
 import { resolveBoundaryValues, storeOptions } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
+import { modelParametersJson, parametersFileName, parametersJson } from '../../utils/parameters/write'
+import { setAsUsedBy } from '../../utils/parameters/instanceSet'
 
-// CA's placeholder for a value still to be given; it reads an empty cell as NaN.
-const EMPTY_VALUE = 'EMPTY_MUST_BE_FILLED'
+// The variable types the model's parameters file gives values for. CA needs one for every boundary condition, and
+// uses it only while nothing is connected to it.
+const PARAMETER_TYPES = new Set(['constant', 'boundary_condition'])
+// Keys the model parameters file reserves, so no instance or parameter it lists may have one as its name.
+const RESERVED_PARAMETER_NAMES = new Set(['global', 'value', 'schema_version'])
 // The folder for CA's external_modules_dir, which reads every JSON file in it as a module config, so obs_data stays out.
 const MODULES_DIR = 'modules'
+// The folder the parameter sets the instances use are written to, each as `<ref>_parameters.json`.
+const PARAMETERS_DIR = 'parameters'
 // The module CA adds as a pulmonary artery and vein ('par', 'pvn') when the heart has one output.
 const PULMONARY_MODULE_REF = 'arterial_simple:vp'
 
@@ -25,9 +32,12 @@ const PULMONARY_MODULE_REF = 'arterial_simple:vp'
  * @param {Object} libraryStore - The Pinia builder store.
  * @param {ArrayBuffer|string|null} [obsData] - The workspace's obs_data.json, with its protocol, written as
  *   `<fileName>_obs_data.json` beside the config, as CA names it.
+ * @param {Object} [options]
+ * @param {(mathRef: string, paramRef: string) => Object|null} [options.getParameterSet] - Gives a loaded parameter
+ *   set; each one an instance uses, chosen or its module's default, is written to `parameters/`.
  * @returns {Promise<Blob>} A promise that resolves with the zip file blob.
  */
-export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null) {
+export async function generateExportZip(fileName, nodes, edges, libraryStore, obsData = null, { getParameterSet } = {}) {
   try {
     const blocker = findCaExportBlocker(nodes, edges, libraryStore)
     if (blocker) throw new Error(blocker)
@@ -45,7 +55,10 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     // Each node's config entry, by module ref and then by signature (the entry less its subtype).
     const configsByRef = new Map()
     const instance_array = []
-    const allParameters = new Set()
+    // Instance path -> its parameters, for `<fileName>_parameters.json`.
+    const instanceParameters = new Map()
+    // File name -> {mathRef, text}: the parameter sets the instances use.
+    const parameterFiles = new Map()
 
     // --- 1. PROCESS NODES FOR CONFIG AND TOPOLOGY ---
     for (const node of nodes) {
@@ -78,40 +91,31 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       const configs = configsByRef.get(node.data.moduleRef)
       if (!configs.has(signature)) configs.set(signature, { entry, rows: [] })
 
+      // An instance seeded with a set other than its module's default names it.
+      const parameterisation = node.data.parameterisation
+      const defaultSet = configs.get(signature).entry.default_parameterisation
       const row = {
         name: node.data.name,
         module_subtype: moduleSubtype,
         module_type: moduleType,
         inp_instances: inp_instances.join(' '),
         out_instances: out_instances.join(' '),
+        ...(parameterisation && parameterisation !== defaultSet && { parameterisation }),
       }
       configs.get(signature).rows.push(row)
       instance_array.push(row)
-
-      // Collect parameters for this node's module. CA needs a row for every boundary condition, and uses it only
-      // while nothing is connected to it.
-      for (const variable of node.data.variables || []) {
-        if (variable.type === 'constant') {
-          allParameters.add(JSON.stringify({
-            variable_name: `${variable.name}_${node.data.name}`,
-            units: variable.units || '',
-            value: isBlank(variable.value) ? '' : variable.value,
-            data_reference: variable.data_reference || 'phlynx',
-          }))
-        } else if (variable.type === 'boundary_condition') {
-          allParameters.add(JSON.stringify({
-            variable_name: `${variable.name}_${node.data.name}`,
-            units: variable.units || '',
-            value: isBlank(variable.value) ? EMPTY_VALUE : variable.value,
-            data_reference: variable.data_reference || 'phlynx',
-          }))
-        }
-      }
+      addParameterFile(parameterFiles, node, parameterisation || defaultSet, getParameterSet)
+      const params = nodeParameters(node, parameterisation || defaultSet, getParameterSet)
+      if (params.size) instanceParameters.set(node.data.name, params)
     }
 
     warnMissingBoundaryValues(nodes, edges)
     const module_config = assignSubtypes(configsByRef, libraryStore)
     addPulmonaryModule(instance_array, module_config, libraryStore)
+    // The CSV's columns are the first row's keys, so every row has the column once any does.
+    if (instance_array.some((row) => row.parameterisation)) {
+      for (const row of instance_array) row.parameterisation ??= ''
+    }
 
     // The config's CellML, edits included; may rename component files so CA finds them.
     const { files: cellmlFiles, missingUnits, renamedComponents } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
@@ -128,25 +132,18 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       })
     }
 
-    // --- 2. CONSOLIDATE PARAMETER FILES INTO ONE CSV ---
-    const globalConstants = libraryStore.globalVariables
-
-    for (const variable of globalConstants) {
-      allParameters.add(JSON.stringify({
-        variable_name: variable[0],
-        units: variable[1].units || '',
-        value: isBlank(variable[1].value) ? '' : variable[1].value,
-        data_reference: 'phlynx',
-      }))
-    }
-
-    const consolidatedParameters = Array.from(allParameters).map((paramStr) => JSON.parse(paramStr))
+    // --- 2. THE MODEL'S PARAMETERS FILE ---
+    const globals = new Map(
+      [...libraryStore.globalVariables].map(([name, { value, units, data_reference }]) => [name, toParam(value, units, data_reference)])
+    )
+    const parametersText = modelParametersJson({ globals, instances: instanceParameters })
 
     // --- 3. FINALIZING AND COMPRESSING ZIP ---
     zip.file(`${MODULES_DIR}/${fileName}_module_config.json`, JSON.stringify(module_config, null, 2))
     zip.file(`${fileName}_module_array.csv`, Papa.unparse(instance_array))
-    zip.file(`${fileName}_parameters.csv`, Papa.unparse(consolidatedParameters))
+    zip.file(parametersFileName(fileName), parametersText)
     if (obsData != null) zip.file(`${fileName}_obs_data.json`, obsData)
+    for (const [name, { text }] of parameterFiles) zip.file(`${PARAMETERS_DIR}/${name}`, text)
     for (const [name, text] of cellmlFiles) zip.file(`${MODULES_DIR}/${name}`, text)
 
     const zipBlob = await zip.generateAsync({
@@ -164,6 +161,46 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 }
 
 /**
+ * Makes a model parameters file entry from a value, blank ones left to be filled.
+ *
+ * @param {*} value
+ * @param {string} [units]
+ * @param {string} [dataReference] - `phlynx` when blank.
+ * @param {Object<string, string>} [extra]
+ * @returns {import('../../utils/parameters/parse').Param}
+ */
+function toParam(value, units, dataReference, extra = {}) {
+  return {
+    value: isBlank(value) ? null : String(value).trim(),
+    units: units || '',
+    data_reference: dataReference || 'phlynx',
+    extra,
+  }
+}
+
+/**
+ * Gives an instance's constants and boundary conditions as model parameters file entries. An entry keeps the extra
+ * keys (such as `sourced`) of the set the instance uses while its value is still that set's.
+ *
+ * @param {Object} node
+ * @param {string|null|undefined} paramRef - The set the instance uses.
+ * @param {Function} [getParameterSet]
+ * @returns {Map<string, import('../../utils/parameters/parse').Param>}
+ */
+function nodeParameters(node, paramRef, getParameterSet) {
+  const set = paramRef ? getParameterSet?.(node.data.mathRef, paramRef) : null
+  const params = new Map()
+  for (const variable of node.data.variables || []) {
+    if (!PARAMETER_TYPES.has(variable.type) || params.has(variable.name)) continue
+    const param = toParam(variable.value, variable.units, variable.data_reference)
+    const stored = set?.values?.get(variable.name)
+    if (stored?.extra && stored.value === param.value) param.extra = { ...stored.extra }
+    params.set(variable.name, param)
+  }
+  return params
+}
+
+/**
  * Finds what stops the workspace being exported to CA, so it can be checked before asking where to save.
  *
  * @param {Array} nodes - The array of nodes from Vue Flow.
@@ -174,7 +211,33 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 export function findCaExportBlocker(nodes, edges, libraryStore) {
   // CA would run the module's own equation for the store, so the export would hold the wrong math.
   const driven = drivenStoreLabels(nodes, edges, libraryStore)
-  return driven.length ? `Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}` : null
+  if (driven.length) return `Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}`
+  const reserved = reservedNameLabels(nodes, libraryStore)
+  return reserved.length
+    ? `The CA parameters file reserves the names ${[...RESERVED_PARAMETER_NAMES].join(', ')}, so rename: ${reserved.join(', ')}`
+    : null
+}
+
+/**
+ * Lists the instances, and the parameters the model parameters file would write, that have a name the file reserves.
+ *
+ * @param {Array} nodes
+ * @param {Object} libraryStore
+ * @returns {string[]} As `instance`, `instance.variable` or `global.name`.
+ */
+function reservedNameLabels(nodes, libraryStore) {
+  const labels = []
+  for (const node of nodes) {
+    const name = node.data.name
+    if (name.split('/').some((level) => RESERVED_PARAMETER_NAMES.has(level))) labels.push(name)
+    for (const variable of node.data.variables || []) {
+      if (PARAMETER_TYPES.has(variable.type) && RESERVED_PARAMETER_NAMES.has(variable.name)) labels.push(`${name}.${variable.name}`)
+    }
+  }
+  for (const [name] of libraryStore.globalVariables ?? []) {
+    if (RESERVED_PARAMETER_NAMES.has(name)) labels.push(`global.${name}`)
+  }
+  return labels
 }
 
 /**
@@ -210,6 +273,33 @@ function warnMissingBoundaryValues(nodes, edges) {
     title: 'Missing Boundary Values',
     message: `${count} no value and nothing connected, so CA will ask for ${missing.length === 1 ? 'it' : 'them'}: ${listNamed(missing)}.`,
   })
+}
+
+/**
+ * Adds the parameter set an instance uses to the files to write, once per ref; a set the instance made holds its
+ * current values, blank ones written as EMPTY_MUST_BE_FILLED. CA finds a set by its ref alone, so a
+ * second math's set of the same ref is left out, with a warning.
+ *
+ * @param {Map<string, {mathRef: string, text: string}>} parameterFiles - Added to.
+ * @param {Object} node
+ * @param {string|null|undefined} paramRef
+ * @param {Function} [getParameterSet]
+ */
+function addParameterFile(parameterFiles, node, paramRef, getParameterSet) {
+  const stored = paramRef && getParameterSet?.(node.data.mathRef, paramRef)
+  if (!stored) return
+  // A set an instance made is written as that instance's values are now.
+  const set = setAsUsedBy(stored, node)
+  const name = parametersFileName(set.ref)
+  const written = parameterFiles.get(name)
+  if (!written) {
+    parameterFiles.set(name, { mathRef: node.data.mathRef, text: parametersJson(set) })
+  } else if (written.mathRef !== node.data.mathRef) {
+    notify.warning({
+      title: 'Parameter Set Not Exported',
+      message: `${node.data.mathRef} and ${written.mathRef} each have a parameter set named "${set.ref}", and CA finds sets by name, so only the one for ${written.mathRef} is written.`,
+    })
+  }
 }
 
 /**

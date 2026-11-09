@@ -1,0 +1,39 @@
+[
+  {
+    "module_type": "membrane",
+    "module_subtype": "Membrane",
+    "module_format": "cellml",
+    "component_file": "membrane.cellml",
+    "component_type": "membrane",
+    "default_parameterisation": "Membrane",
+    "licence": "Apache-2.0",
+    "creator": [],
+    "required_citations": [],
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [
+      {
+        "port_type": "v_tot",
+        "variables": [
+          "v_e_tot"
+        ],
+        "multi_port": "Sum"
+      },
+      {
+        "port_type": "u_e_m",
+        "variables": [
+          "u_e"
+        ],
+        "multi_port": "True"
+      }
+    ],
+    "variables_and_units": [
+      ["t", "second", "access", "variable"],
+      ["u_e", "J_per_C", "access", "variable"],
+      ["v_e_tot", "pA_per_mm2", "access", "boundary_condition"],
+      ["scale", "A_per_pA", "access", "constant"],
+      ["C_m", "C2_per_J_per_mm2", "access", "constant"],
+      ["u_e_init", "J_per_C", "access", "constant"]
+    ]
+  }
+]

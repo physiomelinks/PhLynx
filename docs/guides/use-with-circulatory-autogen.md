@@ -12,6 +12,18 @@ PhLynx reads and writes [Circulatory Autogen](https://physiomelinks.github.io/ci
 
 Optional `x`/`y` columns set node positions. To load values later, use **Import ▸ Parameters**; values for computed variables are skipped with a notice.
 
+## Parameter files {#parameter-files}
+
+**Import ▸ Parameters** reads parameter values as JSON (`"schema_version": 1`) or CSV:
+
+- **A module's parameter set**, such as `NKA_parameters.json`: one entry per variable, plus a `global` group for global constants. Its name without `_parameters` (`NKA`) is the set's name, and it belongs to every module whose config names it as `default_parameterisation`. Imported before such a config, it waits until one arrives. Importing a set with a name already in use asks whether to **Keep both** (the new one becomes `NKA_2`), **Replace** or **Skip**.
+- **A model's values**, nested by instance name: applied to those instances. Global constants it would change are listed to confirm first.
+- **A CA parameters CSV** (`<variable>_<instance>` rows), as before. A CSV with a `sourced` column is read as a module's set.
+
+New instances take their module's set over the math's own values; a set's global constants only fill ones not yet set. Entries left empty or `EMPTY_MUST_BE_FILLED` are reported as needing a value and never applied. Where the config gives a variable another type than the file does (a `Scale_*` under `global` but typed `constant`), the config's type wins and the import warns.
+
+To use another set, choose it in **Parameters** on the module's library card before dragging; the card's preview lists its values. For a placed instance, choose it in **Parameter set** at the top of the Instance Editor's Parameters tab: PhLynx lists the values it changes, then overwrites them as one undo step; a global constant already set keeps its value. The workspace keeps the imported sets, and the CA export records each module's default and any instance's other set.
+
 ## Exporting to CA {#export}
 
 Open the **Export** menu, choose **Circulatory Autogen**, then name the zip.
@@ -23,7 +35,7 @@ For an export named `<name>`:
 | File | Contents |
 | :--- | :--- |
 | `<name>_module_array.csv` | Instances and their connections. |
-| `<name>_parameters.csv` | Constants, boundary conditions and global constants. |
+| `<name>_parameters.json` | Constants and boundary conditions by instance and variable, global constants under `global`. Blank values are written `EMPTY_MUST_BE_FILLED`. |
 | `<name>_obs_data.json` | The protocol, if the workspace has one. |
 | `modules/<name>_module_config.json` | Ports, variables and units of every module used. |
 | `modules/*modules.cellml` | One per CellML file used, with PhLynx edits, renamed to end in `modules.cellml` (`my_math.cellml` → `my_math_modules.cellml`). With a heart, also `zero_flow`, plus `arterial_simple:vp` when CA adds a pulmonary circuit. |
@@ -34,7 +46,7 @@ To run it, unzip it and set these entries in `user_inputs.yaml`, CA's settings f
 ```yaml
 file_prefix: <name>
 resources_dir: <unzipped folder>
-input_param_file: <name>_parameters.csv
+input_param_file: <name>_parameters.json
 external_modules_dir: <unzipped folder>/modules
 use_builtin_modules: false
 ```

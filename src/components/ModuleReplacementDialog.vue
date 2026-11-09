@@ -60,6 +60,8 @@ import { useGtm } from '../composables/useGtm'
 import LibraryArea from './LibraryArea.vue'
 import { replacementData } from '../services/moduleReplacement'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import { seedRefFor, seedVariables } from '../utils/parameters/seed'
 
 const props = defineProps({
   modelValue: {
@@ -78,6 +80,7 @@ const selectedModule = ref(null)
 const retainMatches = ref(false)
 const { trackEvent } = useGtm()
 const libraryStore = useLibraryStore()
+const defaultParameters = useDefaultParametersStore()
 
 const dialogVisible = computed({
   get: () => props.modelValue,
@@ -104,6 +107,11 @@ function handleConfirm() {
     analysis: libraryStore.getMathAnalysis(module.mathRef) ?? null,
     defaults: libraryStore.getMathDefaults(module.mathRef) ?? new Map(),
   })
+  // As a fresh drop: seeded from the new module's set, and no longer naming the old math's.
+  const seedRef = seedRefFor(module, module.parameterisation)
+  const set = seedRef ? defaultParameters.getSet(module.mathRef, seedRef) : null
+  if (set) data.variables = seedVariables(data.variables, set)
+  data.parameterisation = set?.ref
 
   trackEvent('module_replacement_action', {
     category: 'ModuleReplacement',

@@ -1,5 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import { extractGlobalConstants } from '../utils/variables'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
@@ -14,6 +16,7 @@ import { useWorkflowLayout } from './useWorkflowLayout'
 export function useLoadFromInstanceArray({ fitViewParams } = {}) {
   const { nodes, addNodes } = useVueFlow()
   const store = useLibraryStore()
+  const defaultParameters = useDefaultParametersStore()
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
@@ -32,8 +35,16 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         store.getMathAnalysis,
         nodes.value,
         progressCallback,
-        store.getMathDefaults
+        store.getMathDefaults,
+        defaultParameters.getSet
       )
+
+      // A parameter set's globals seed the constants not yet set.
+      for (const node of result.pendingInstances.filter((instance) => instance.data.parameterisation)) {
+        for (const g of extractGlobalConstants(node.data.variables)) {
+          store.assignGlobalConstant(g.name, g.value, g.units, g.data_reference)
+        }
+      }
 
       if (progressCallback) {
         progressCallback(

@@ -15,6 +15,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal(
 
 import { useWorkspaceSaveLoad } from '../../../src/composables/useWorkspaceSaveLoad'
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore'
 import { useLibraryStore } from '../../../src/stores/libraryStore'
 import { useOmexStore } from '../../../src/stores/omexStore'
@@ -24,6 +25,7 @@ import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../../../src/
 
 const FLOW = { nodes: [{ id: 'n1', position: { x: 1, y: 2 } }], edges: [], viewport: { x: 5, y: 6, zoom: 2 } }
 const COLLECTIONS = [['parts.cellml', ['modA', 'modB']]]
+const PARAM = { value: '1.0', units: 'mM', data_reference: '', extra: {} }
 
 const nodes = ref([])
 const edges = ref([])
@@ -51,6 +53,10 @@ function fillStores() {
   useSimulationSettingsStore().setSimulationSettings({ endingPoint: 42, maxSteps: 77 })
   useInspectionModuleStore().addModule({ id: 'insp-1', name: 'Flow probe', units: 'mL', variables: [] })
   useOmexStore().setArchive({ archiveName: 'model.omex', cellmlFileName: 'model.cellml' })
+  useDefaultParametersStore().addSet(
+    { ref: 'NKA', source: { file: 'NKA_parameters.json', importedAt: 'now' }, globals: new Map(), values: new Map([['K', PARAM]]) },
+    { mathRef: 'NKA.cellml:NKA' }
+  )
 }
 
 beforeEach(() => {
@@ -79,6 +85,7 @@ describe('onSaveConfirm', () => {
     expect(saved.simulation.simulationSettings).toMatchObject({ endingPoint: 42, maxSteps: 77 })
     expect(saved).toHaveProperty('inspectionModules')
     expect(saved).toHaveProperty('workspace')
+    expect(saved.parameters.sets.map(([key]) => key)).toEqual(['NKA.cellml:NKA:NKA'])
   })
 
   it('notifies and remembers the name', async () => {
@@ -234,6 +241,7 @@ describe('applyWorkspaceState', () => {
     expect(useInspectionModuleStore().getState()[0]).toMatchObject({ id: 'insp-1', name: 'Flow probe' })
     expect(saved.workspace.archiveName).toBe('model.omex')
     expect(useOmexStore().getState()).toEqual(saved.workspace)
+    expect(useDefaultParametersStore().getSet('NKA.cellml:NKA', 'NKA').values.get('K')).toEqual(PARAM)
     expect(notify.success).toHaveBeenCalledWith({ title: 'Workflow loaded successfully!' })
     expect(trackEvent).toHaveBeenCalledWith('workflow_load_action', {
       category: 'Workflow',

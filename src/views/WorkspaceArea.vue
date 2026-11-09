@@ -607,6 +607,9 @@ import useDragAndDrop from '../composables/useDnD'
 import { useHandleManagement } from '../composables/useHandleManagement'
 import { useInstanceSave } from '../composables/useInstanceSave'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
+import { useParametersImport } from '../composables/useParametersImport'
+import { useLinkedSetsReport } from '../composables/useLinkedSetsReport'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useLoadFromInstanceArray } from '../composables/useLoadFromInstanceArray'
 import { useLoadFromCellML } from '../composables/useLoadFromCellml'
 import { useLoadFromUrl } from '../composables/useLoadFromUrl'
@@ -692,8 +695,10 @@ import {
 } from '../utils/constants'
 import { edgeOrdinals, resolvePortCouplings } from '../utils/edges'
 import { clearWaypoints, getEdgeWaypoints } from '../utils/edgeRoute'
-import { parseParametersFile } from '../utils/import'
+import { parseParameters } from '../utils/import'
 import { applyParameterValues, applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
+import { buildParametersReport } from '../utils/parameters/apply'
+import { parameterSetMenu } from '../utils/parameters/sets'
 import { detachReactivity } from '../utils/reactivity'
 import { saveWithDialog, stripExtension } from '../utils/save'
 
@@ -746,7 +751,7 @@ const {
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.MAIN)
 const { processMacroGeneration } = useMacroGenerator()
-const { confirm } = useConfirmDialog()
+const { confirm, choose } = useConfirmDialog()
 const toast = useToast()
 const route = useRoute()
 
@@ -769,8 +774,18 @@ const {
   reactivateEdgeHandles,
   revertHandleIfUnused,
 } = useHandleManagement()
-const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
+const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(FLOW_IDS.MAIN)
 const { saveInstanceEdit, savePortEdit } = useInstanceSave(FLOW_IDS.MAIN)
+const defaultParametersStore = useDefaultParametersStore()
+const { importParameterFile, importParameterFiles, applyLinkedSets, applySetToNode, retryCsvAsModule } = useParametersImport({
+  nodes,
+  recordEdit,
+  confirm,
+  choose,
+})
+// Sets a config links as it arrives are offered to the instances named after them and reported then, or at the end
+// of the import that brought it.
+const { holdLinkReports } = useLinkedSetsReport((report) => notify(report), applyLinkedSets)
 
 const dialogVisible = computed(() => {
   return (
@@ -1153,7 +1168,41 @@ const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dr
   onDropModule,
 })
 
-const loadParametersData = async (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
+/**
+ * Loads a parsed parameters file: a parameterisation into the default sets, a model file by instance, and a
+ * `<variable>_<instance>` CSV (or its rows) onto the nodes it names.
+ *
+ * @returns {Promise<{fileName: string, ok: boolean, count: number}>} With the stored sets and warnings for the report.
+ */
+const loadParametersData = async (content, filename, options = {}) => {
+  const file = Array.isArray(content) ? { rows: content } : retryCsvAsModule(content ?? { rows: [] })
+  if (file.rows) return { fileName: filename, ...(await loadParameterRows(file.rows, filename, options)) }
+
+  const { notify: shouldNotify = true, record = true } = options
+  let result
+  try {
+    result = await importParameterFile(file, filename, { record })
+  } catch (error) {
+    result = { fileName: filename, ok: false, count: 0, error: error.message }
+  }
+  if (shouldNotify) await notifyParametersReport([result])
+  return result
+}
+
+/**
+ * Shows one report for loaded parameter files, with the sets linked as configs arrived, once those are offered to the
+ * instances named after them.
+ *
+ * @param {Array<Object>} results - From loadParametersData.
+ */
+async function notifyParametersReport(results) {
+  const links = defaultParametersStore.takeRecentLinks()
+  const applied = links.length ? await applyLinkedSets(links) : null
+  const report = buildParametersReport(results, links, applied)
+  if (report) notify(report)
+}
+
+const loadParameterRows = async (content, filename, { notify: shouldNotify = true, trackEvents = true } = {}) => {
   try {
     const variableCatalogue = new Set(nodes.value.flatMap((node) => node.data.variables.map((v) => v.name.trim())))
 
@@ -1519,7 +1568,16 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   })
 }
 
-async function onImportConfirm(importPayload, updateProgress) {
+/**
+ * Runs an import from the import dialog, reporting the parameter sets its configs link once it ends.
+ *
+ * @param {Map<string, Map<string, Object>>} importPayload - Files by field.
+ * @param {(text: string) => void} updateProgress
+ */
+const onImportConfirm = (importPayload, updateProgress) =>
+  holdLinkReports(() => runImportConfirm(importPayload, updateProgress))
+
+async function runImportConfirm(importPayload, updateProgress) {
   if (currentImportMode.value.key === IMPORT_KEYS.INSTANCE_ARRAY) {
     const instanceArrayFiles = importPayload.get(IMPORT_KEYS.INSTANCE_ARRAY)
     const [[, instanceData]] = instanceArrayFiles
@@ -1535,18 +1593,26 @@ async function onImportConfirm(importPayload, updateProgress) {
     }
 
     try {
+      // Parameterisations go to the default sets before the instances are built from them; values by instance after.
+      const parameterResults = []
+      const files = [...(parametersFiles ?? [])]
+      const isModuleFile = ([, data]) => data?.payload?.kind === 'module'
+      for (const [filename, data] of files.filter(isModuleFile)) {
+        parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false }))
+      }
+
       await loadFromInstanceArray({ instances }, (current, total, statusMessage) => {
         if (updateProgress) {
           updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
         }
       })
 
-      if (parametersFiles) {
-        for (const [filename, data] of parametersFiles) {
-          loadParametersData(data.payload, filename, { notify: false })
-        }
+      for (const [filename, data] of files.filter((entry) => !isModuleFile(entry))) {
+        parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false }))
       }
       rebuildNodeEdgeIndex()
+      // With no parameter files, still reports the sets the configs linked.
+      await notifyParametersReport(parameterResults)
 
       notify.success({
         title: 'Import Complete',
@@ -1581,15 +1647,26 @@ async function onImportConfirm(importPayload, updateProgress) {
       notifyMultiFileResults(results, { successTitle: 'Configurations Loaded' })
     }
   } else if (currentImportMode.value.key === IMPORT_KEYS.PARAMETER) {
-    const multiFile = importPayload.get(IMPORT_KEYS.PARAMETER).size > 1
-    const results = await Promise.all(
-      [...importPayload.get(IMPORT_KEYS.PARAMETER)].map(([filename, data]) =>
-        loadParametersData(data?.payload, filename, { notify: !multiFile })
-      )
-    )
-    if (multiFile) {
-      notifyMultiFileResults(results, { successTitle: 'Parameters Loaded' })
+    // `<variable>_<instance>` CSVs one at a time; the parameterisations together, so the instances they change are
+    // confirmed once, as one undo step.
+    const files = importPayload.get(IMPORT_KEYS.PARAMETER)
+    const results = []
+    const sets = []
+    for (const [filename, data] of files) {
+      const content = data?.payload
+      const file = Array.isArray(content) ? { rows: content } : retryCsvAsModule(content ?? { rows: [] })
+      if (file.rows) {
+        results.push({ fileName: filename, ...(await loadParameterRows(file.rows, filename, { notify: files.size === 1 })) })
+      } else sets.push({ file, fileName: filename })
     }
+    if (sets.length) {
+      try {
+        results.push(...(await importParameterFiles(sets)))
+      } catch (error) {
+        results.push(...sets.map(({ fileName }) => ({ fileName, ok: false, count: 0, error: error.message })))
+      }
+    }
+    if (files.size > 1 || sets.length) await notifyParametersReport(results)
   } else if (currentImportMode.value.key === IMPORT_KEYS.OMEX) {
     try {
       const archivePayload = await extractOmexArchive(importPayload, updateProgress)
@@ -1879,8 +1956,24 @@ function onNodeContextMenu({ clientX, clientY, id }) {
       label: simulateLabelFor(id),
       action: () => simulateFromNode(id),
     },
+    ...parameterSetMenuFor(id),
   ]
   contextMenuRef.value.open(clientX, clientY)
+}
+
+/**
+ * Gives a node's "Apply Parameter Set" submenu: its math's sets, its own checked; none when the math has none.
+ *
+ * @param {string} id
+ * @returns {Array<Object>}
+ */
+function parameterSetMenuFor(id) {
+  const data = findNode(id)?.data
+  if (!data?.mathRef) return []
+  const defaultRef = libraryStore.availableModules.get(data.moduleRef)?.defaultParameterisation
+  return parameterSetMenu(defaultParametersStore.setsFor(data.mathRef), data.parameterisation, defaultRef, (ref) =>
+    applySetToNode(id, ref)
+  )
 }
 
 /**
@@ -2284,8 +2377,8 @@ async function fetchAndLoadResource(entry, resourceType) {
       // const jsonContent = JSON.parse(content)
       // libraryStore.addConfigFile(jsonContent, entry.name, false)
     } else if (resourceType === 'parameter file') {
-      const parsed = await parseParametersFile(content)
-      await loadParametersData(parsed, entry.name, { notify: false })
+      const parsed = await parseParameters(content, entry.name)
+      await loadParametersData(parsed, entry.name, { notify: false, record: false })
     }
 
     return true

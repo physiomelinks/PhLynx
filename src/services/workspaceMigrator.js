@@ -373,6 +373,7 @@ const MIGRATIONS = [
   { from: '1.0.0', to: '1.1.0', migrate: migrate1_0_0To1_1_0 },
   { from: '1.1.0', to: '1.2.0', migrate: migrate1_1_0To1_2_0 },
   { from: '1.2.0', to: '1.3.0', migrate: migrate1_2_0To1_3_0 },
+  { from: '1.3.0', to: '1.4.0', migrate: migrate1_3_0To1_4_0 },
 ]
 
 /**
@@ -518,6 +519,16 @@ export function migrateWorkspace(doc) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
   return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated), version: step.to }), current)
+}
+
+/**
+ * 1.3.0 -> 1.4.0: older files have no default parameter sets.
+ *
+ * @param {Object} doc - A 1.3.0 workspace.
+ * @returns {Object}
+ */
+function migrate1_3_0To1_4_0(doc) {
+  return { ...doc, parameters: doc.parameters ?? { sets: [], unlinked: [] } }
 }
 
 /**

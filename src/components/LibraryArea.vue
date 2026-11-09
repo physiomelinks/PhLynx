@@ -99,14 +99,34 @@
                       class="mlc__config-row"
                       @click.stop
                     >
+                      <span class="mlc__row-label">Config</span>
                       <Select
-                        :modelValue="selectedModuleIndex[card.cardKey] ?? 0"
+                        :modelValue="moduleIndex(card)"
                         @update:modelValue="(val) => selectedModuleIndex[card.cardKey] = val"
                         :options="card.modules.map((m, idx) => ({ label: m.moduleRef, value: idx }))"
                         optionLabel="label"
                         optionValue="value"
                         size="small"
                         class="mlc__config-select"
+                      />
+                    </div>
+
+                    <!-- Parameter set selector - None or one of the math's sets, following the config's default until one is chosen -->
+                    <div
+                      v-if="!selectable && parameterSets(activeModule(card)).length"
+                      class="mlc__config-row"
+                      @click.stop
+                    >
+                      <span class="mlc__row-label">Parameters</span>
+                      <Select
+                        :modelValue="chosenParameterRef(activeModule(card))"
+                        @update:modelValue="(ref) => selectedParameterRefs[activeModule(card).moduleRef] = ref"
+                        :options="cardParameterSetOptions(parameterSets(activeModule(card)), activeModule(card).defaultParameterisation)"
+                        optionLabel="label"
+                        optionValue="value"
+                        size="small"
+                        class="mlc__config-select"
+                        aria-label="Parameter set"
                       />
                     </div>
 
@@ -164,6 +184,14 @@ import vTooltip from 'primevue/tooltip'
 import { useLibraryProxyStore } from '../stores/libraryProxyStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore.js'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import {
+  cardParameterSetOptions,
+  NO_PARAMETER_SET,
+  parameterSetRows,
+  pickedRef,
+  preferredModuleIndex,
+} from '../utils/parameters/sets'
 import useDragAndDrop from '../composables/useDnD'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
 import { GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
@@ -177,6 +205,7 @@ const emit = defineEmits(['select'])
 const view = useLibraryProxyStore()
 const store = useLibraryStore()
 const history = useFlowHistoryStore()
+const defaultParameters = useDefaultParametersStore()
 
 const { onDragStart } = useDragAndDrop()
 
@@ -184,6 +213,8 @@ const filterText = ref('')
 const activeCollapseNames = ref([])
 const selectedModuleIndex = reactive({})
 const selectedConfigs = reactive({})
+/** moduleRef -> the parameter set chosen for it; one not chosen follows the config's default. */
+const selectedParameterRefs = reactive({})
 const showPreview = ref(false)
 const previewTarget = ref(null)
 const isDragging = ref(false)
@@ -258,9 +289,28 @@ function configLabel(config) {
 
 // ─── Module helpers ────────────────────────────────────────────────────────────
 
+/** The index of the config a card shows: the one chosen, else the first whose default parameter set is loaded. */
+function moduleIndex(card) {
+  return selectedModuleIndex[card.cardKey] ?? preferredModuleIndex(card.modules, defaultParameters.getSet)
+}
+
 function activeModule(card) {
-  const index = selectedModuleIndex[card.cardKey] ?? 0
-  return card.modules[index] ?? card.modules[0]
+  return card.modules[moduleIndex(card)] ?? card.modules[0]
+}
+
+/** The parameter sets imported for a module's math. */
+function parameterSets(module) {
+  return defaultParameters.setsFor(module.mathRef)
+}
+
+/**
+ * The parameter set a module's instances are seeded with: the one chosen, else its config's default, else None (the
+ * math's own values).
+ */
+function chosenParameterRef(module) {
+  const chosen = selectedParameterRefs[module.moduleRef]
+  if (chosen === NO_PARAMETER_SET) return NO_PARAMETER_SET
+  return pickedRef(parameterSets(module), chosen, module.defaultParameterisation) ?? NO_PARAMETER_SET
 }
 
 function deleteModule(card) {
@@ -285,7 +335,9 @@ function handleDragStart(event, module) {
   isDragging.value = true
   event.dataTransfer.effectAllowed = 'copy'
   const configIndex = selectedConfigs[module.moduleRef] ?? 0
-  onDragStart(event, { ...module, configIndex })
+  // "None" makes a new set of the math's values, so only when the card offers a choice; else the default applies.
+  const parameterisation = parameterSets(module).length ? chosenParameterRef(module) : undefined
+  onDragStart(event, { ...module, configIndex, parameterisation })
 }
 
 function handleDragEnd() {
@@ -295,10 +347,13 @@ function handleDragEnd() {
 // ─── Preview ──────────────────────────────────────────────────────────────────
 
 function openPreview(module) {
+  const parameterRef = chosenParameterRef(module)
+  const set = parameterRef !== NO_PARAMETER_SET && defaultParameters.getSet(module.mathRef, parameterRef)
   previewTarget.value = {
     moduleRef: module.moduleRef,
     ports: module.ports,
     variables: module.variables,
+    parameters: set ? { ref: set.ref, file: set.source.file, rows: parameterSetRows(set) } : null,
   }
   showPreview.value = true
 }
@@ -519,9 +574,20 @@ function handleSelect(module) {
 }
 
 /* ── Config row ──────────────────────────────────────────────────────────────── */
-.mlc__config-row { margin-top: 6px; }
+.mlc__config-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
 
-.mlc__config-select { width: 100%; }
+.mlc__row-label {
+  flex: 0 0 4.5rem;
+  font-size: 0.75rem;
+  color: var(--mlc-text-muted);
+}
+
+.mlc__config-select { flex: 1; min-width: 0; }
 
 /* ── Empty State ─────────────────────────────────────────────────────────────── */
 .mlc__empty {

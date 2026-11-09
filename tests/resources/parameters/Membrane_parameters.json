@@ -1,0 +1,7 @@
+{
+ "schema_version": 1,
+ "v_e_tot": {"value": 0, "units": "pA_per_mm2", "data_reference": "phlynx; EMPTY_MUST_BE_FILLED in the PhLynx export; set to 0 (supplied by the coupled currents)", "sourced": "no"},
+ "scale": {"value": 1e-12, "units": "A_per_pA", "data_reference": "phlynx", "sourced": "no"},
+ "C_m": {"value": 0.01, "units": "C2_per_J_per_mm2", "data_reference": "phlynx", "sourced": "no"},
+ "u_e_init": {"value": -0.06, "units": "J_per_C", "data_reference": "phlynx", "sourced": "no"}
+}

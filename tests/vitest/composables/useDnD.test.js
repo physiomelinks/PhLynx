@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import useDragAndDrop from '../../../src/composables/useDnD.js'
 import { buildGhostHandles } from '../../../src/utils/handles.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
+import { NO_PARAMETER_SET } from '../../../src/utils/parameters/sets.js'
 import {
   FLOW_IDS,
   GHOST_MODULE_FILENAME,
@@ -92,6 +94,99 @@ describe('useDragAndDrop', () => {
         moduleRef: 'membrane:basic',
         mathRef: 'membrane.cellml:basic',
         ports,
+      })
+    })
+
+    describe('parameter sets', () => {
+      const param = (value, units = 'mM') => ({ value, units, data_reference: 'paper', extra: {} })
+      const rows = () => [
+        { name: 'K', type: 'constant', value: '1', units: 'mM' },
+        { name: 'Scale', type: 'constant', value: '1', units: 'dim' },
+        { name: 'F', type: 'global_constant', value: '9', units: 'C_per_mol' },
+        { name: 'v', type: 'variable', value: null, units: 'mM' },
+      ]
+      const addSet = (ref, k) =>
+        useDefaultParametersStore().addSet(
+          {
+            ref,
+            source: { file: `${ref}.json`, importedAt: '' },
+            globals: new Map([['F', param('96485')], ['Scale', param('2', 'dim')]]),
+            values: new Map([['K', param(k)], ['v', param('3')], ['missing', param(null)]]),
+          },
+          { mathRef: 'membrane.cellml:basic' }
+        )
+      const created = () => flow.addNodes.mock.calls.at(-1)[0]
+      const values = () => created().data.variables.map((row) => row.value)
+
+      beforeEach(() => {
+        addSet('basic', '5')
+        addSet('calibrated', '7')
+      })
+
+      it("seeds from the module's default set, each row by its own type, and records the set", () => {
+        dnd.createInstanceNode(moduleData({ variables: rows(), defaultParameterisation: 'basic' }), { x: 0, y: 0 })
+
+        expect(created().data.parameterisation).toBe('basic')
+        expect(values()).toEqual(['5', '2', '96485', null])
+        expect(useLibraryStore().getGlobalConstant('F').value).toBe('96485')
+      })
+
+      it('seeds from the set chosen over the default, leaving a global already set', () => {
+        useLibraryStore().assignGlobalConstant('F', '1', 'C_per_mol', '')
+        const module = moduleData({ variables: rows(), defaultParameterisation: 'basic', parameterisation: 'calibrated' })
+        dnd.createInstanceNode(module, { x: 0, y: 0 })
+
+        expect(created().data.parameterisation).toBe('calibrated')
+        expect(values()[0]).toBe('7')
+        expect(useLibraryStore().getGlobalConstant('F').value).toBe('1')
+      })
+
+      it('keeps the math values when the set is not loaded or none is named', () => {
+        dnd.createInstanceNode(moduleData({ variables: rows(), defaultParameterisation: 'gone' }), { x: 0, y: 0 })
+        expect(created().data).not.toHaveProperty('parameterisation')
+        expect(values()).toEqual(['1', '1', '9', null])
+
+        dnd.createInstanceNode(moduleData({ variables: rows() }), { x: 0, y: 0 })
+        expect(created().data).not.toHaveProperty('parameterisation')
+      })
+
+      it("makes a new set of the math's values, named as the instance, when None is chosen", () => {
+        const module = moduleData({ variables: rows(), defaultParameterisation: 'basic', parameterisation: NO_PARAMETER_SET })
+        const { nodeId } = dnd.createInstanceNode(module, { x: 0, y: 0 })
+
+        const { name, parameterisation } = created().data
+        expect(parameterisation).toBe(name)
+        expect(values()).toEqual(['1', '1', '9', null])
+        const set = useDefaultParametersStore().getSet('membrane.cellml:basic', name)
+        expect(set.source).toMatchObject({ kind: 'instance', nodeId })
+        expect(set.values.get('K').value).toBe('1')
+        expect(set.values.has('v')).toBe(false)
+        expect(set.globals.get('F').value).toBe('9')
+      })
+
+      it('gives each None instance its own set, by its own name', () => {
+        const module = () => moduleData({ variables: rows(), parameterisation: NO_PARAMETER_SET })
+        dnd.createInstanceNode(module(), { x: 0, y: 0 })
+        const first = created()
+        flow.nodes.value.push(first)
+        dnd.createInstanceNode(module(), { x: 0, y: 0 })
+        const second = created()
+
+        expect(first.data.name).not.toBe(second.data.name)
+        expect([first.data.parameterisation, second.data.parameterisation]).toEqual([first.data.name, second.data.name])
+        expect(useDefaultParametersStore().setsFor('membrane.cellml:basic').map((set) => set.ref)).toEqual([
+          'basic',
+          'calibrated',
+          first.data.name,
+          second.data.name,
+        ])
+      })
+
+      it('makes no set for a None drop outside the workspace', () => {
+        const macro = useDragAndDrop(new Set(), FLOW_IDS.MACRO)
+        macro.createInstanceNode(moduleData({ variables: rows(), parameterisation: NO_PARAMETER_SET }), { x: 0, y: 0 })
+        expect(created().data).not.toHaveProperty('parameterisation')
+        expect(useDefaultParametersStore().setsFor('membrane.cellml:basic')).toHaveLength(2)
       })
     })
 

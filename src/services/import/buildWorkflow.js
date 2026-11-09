@@ -4,6 +4,7 @@ import { resolvePortCouplings, checkAndClaimCouplings } from '../../utils/edges'
 import { getId as getNextNodeId } from '../../utils/nodes'
 import { getPortVariables, reconcileRows } from '../math/reconcileRows'
 import { isBlank } from '../../utils/variables'
+import { seedInstance, seedRefFor } from '../../utils/parameters/seed'
 
 /**
  * Builds an instance's variables from its math analysis, keeping the module's configured values
@@ -60,7 +61,19 @@ export function buildInstance(
   }
 }
 
-function buildInstances(instanceRefs, availableModules, getMathAnalysis, currentNodes, progressCallback, getMathDefaults) {
+/**
+ * Builds an instance node for each instance array row, seeded with its parameter set: the row's `parameterisation`,
+ * else its module's default.
+ */
+function buildInstances(
+  instanceRefs,
+  availableModules,
+  getMathAnalysis,
+  currentNodes,
+  progressCallback,
+  getMathDefaults,
+  getParameterSet
+) {
   const pendingInstances = []
   let nodeId = getNextNodeId(currentNodes.map((n) => n.id))
 
@@ -92,9 +105,9 @@ function buildInstances(instanceRefs, availableModules, getMathAnalysis, current
 
     const mathAnalysis = module ? getMathAnalysis?.(module.mathRef) ?? null : null
     const mathDefaults = (module && getMathDefaults?.(module.mathRef)) ?? new Map()
-    pendingInstances.push(
-      buildInstance(nodeId, instanceRef.name, nodeType, module, handles, position, mathAnalysis, mathDefaults)
-    )
+    const instance = buildInstance(nodeId, instanceRef.name, nodeType, module, handles, position, mathAnalysis, mathDefaults)
+    const seedRef = module && seedRefFor(module, instanceRef.parameterisation)
+    pendingInstances.push(seedInstance(instance, (seedRef && getParameterSet?.(module.mathRef, seedRef)) || null))
 
     nodeId = getNextNodeId([nodeId])
   })
@@ -200,13 +213,26 @@ function buildEdges(instanceRefs, pendingInstances) {
   return pendingEdges
 }
 
+/**
+ * Builds the nodes and edges an instance array describes.
+ *
+ * @param {Array<Object>} instanceRefs - Instance array rows.
+ * @param {Map<string, Object>} availableModules
+ * @param {Function} getMathAnalysis
+ * @param {Array} currentNodes
+ * @param {Function} [progressCallback]
+ * @param {(mathRef: string) => Map<string, string>} [getMathDefaults]
+ * @param {(mathRef: string, ref: string) => Object|null} [getParameterSet] - Gives the set an instance is seeded with.
+ * @returns {{pendingInstances: Array, pendingEdges: Array}}
+ */
 export function buildWorkflowGraph(
   instanceRefs,
   availableModules,
   getMathAnalysis,
   currentNodes,
   progressCallback = null,
-  getMathDefaults = null
+  getMathDefaults = null,
+  getParameterSet = null
 ) {
   const pendingInstances = buildInstances(
     instanceRefs,
@@ -214,7 +240,8 @@ export function buildWorkflowGraph(
     getMathAnalysis,
     currentNodes,
     progressCallback,
-    getMathDefaults
+    getMathDefaults,
+    getParameterSet
   )
   const pendingEdges = buildEdges(instanceRefs, pendingInstances)
   return { pendingInstances, pendingEdges }

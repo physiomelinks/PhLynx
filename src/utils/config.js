@@ -34,13 +34,21 @@ export function uniqueModuleRef(moduleRef, mathRef, getModule) {
   return ref
 }
 
+/**
+ * Makes a library module from a CA module config.
+ *
+ * @param {Object} config - One entry of a module config file.
+ * @returns {Object} The module, with `defaultParameterisation` when the config names one.
+ */
 export function normaliseConfig(config) {
-  return {
+  const module = {
     moduleRef: `${config.module_type}:${config.module_subtype}`,
     mathRef: `${config.component_file}:${config.component_type}`,
     ports: normalisePorts(config),
     variables: normaliseVariables(config.variables_and_units),
   }
+  if (config.default_parameterisation) module.defaultParameterisation = config.default_parameterisation
+  return module
 }
 
 export function buildModule(moduleRef, mathRef, math, defaults) {

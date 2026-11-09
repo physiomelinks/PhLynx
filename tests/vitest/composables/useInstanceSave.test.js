@@ -7,6 +7,7 @@ import { useInstanceSave } from '../../../src/composables/useInstanceSave.js'
 import { useNodeDataHistory } from '../../../src/composables/useNodeDataHistory.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
 import { NEW_MODULE_FILENAME, NEW_MODULE_REF } from '../../../src/utils/constants.js'
 import { previewCouplings } from '../../../src/utils/edges.js'
@@ -161,6 +162,231 @@ describe('useInstanceSave', () => {
     await history.undo()
     expect(snapshot()).toEqual(before)
     expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
+  })
+
+  it('records the parameter set the editor applied, which undo takes off again', async () => {
+    const variables = [findNode('a').data.variables[0], { ...findNode('a').data.variables[1], value: '2' }]
+    await saveInstanceEdit(buildSave({ variables, parameterisation: 'fast' }))
+    expect(findNode('a').data).toMatchObject({ parameterisation: 'fast', variables: [{}, { value: '2' }] })
+
+    await history.undo()
+    expect(findNode('a').data).not.toHaveProperty('parameterisation')
+    expect(findNode('a').data.variables[1].value).toBe('0.5')
+  })
+
+  describe('instance parameter sets', () => {
+    const editK = (value) => [findNode('a').data.variables[0], { ...findNode('a').data.variables[1], value }]
+    const kOf = (ref) => useDefaultParametersStore().getSet(DECAY_REF, ref).values.get('k').value
+
+    it('writes the edits of an instance dropped with None to its own set, which undo and redo follow', async () => {
+      const parameters = useDefaultParametersStore()
+      parameters.addInstanceSet(DECAY_REF, 'a', 'a', findNode('a').data.variables)
+      findNode('a').data.parameterisation = 'a'
+
+      await saveInstanceEdit(buildSave({ variables: editK('2') }))
+      expect(kOf('a')).toBe('2')
+      // A rename keeps the set's name.
+      expect(findNode('a').data).toMatchObject({ name: 'a2', parameterisation: 'a' })
+
+      await history.undo()
+      expect(kOf('a')).toBe('0.5')
+      await history.redo()
+      expect(kOf('a')).toBe('2')
+    })
+
+    it('never writes to an imported set, nor to a set another instance made', async () => {
+      const parameters = useDefaultParametersStore()
+      const param = (value) => ({ value, units: 'per_second', data_reference: '', extra: {} })
+      parameters.addSet(
+        { ref: 'fast', source: { file: 'fast_parameters.json', importedAt: '' }, globals: new Map(), values: new Map([['k', param('9')]]) },
+        { mathRef: DECAY_REF }
+      )
+      parameters.addInstanceSet(DECAY_REF, 'b', 'b', findNode('b').data.variables)
+
+      findNode('a').data.parameterisation = 'fast'
+      await saveInstanceEdit(buildSave({ variables: editK('2') }))
+      expect(kOf('fast')).toBe('9')
+
+      findNode('a').data.parameterisation = 'b'
+      await saveInstanceEdit(buildSave({ variables: editK('3') }))
+      expect(kOf('b')).toBe('0.5')
+    })
+
+    describe('a set others share, as the editor asked', () => {
+      const param = (value) => ({ value, units: 'per_second', data_reference: 'paper', extra: {} })
+      let parameters
+      // Other instances' rows are rebuilt from the math, so k is found by name.
+      const kAt = (id) => findNode(id).data.variables.find((row) => row.name === 'k').value
+
+      beforeEach(() => {
+        parameters = useDefaultParametersStore()
+        parameters.addSet(
+          { ref: 'fast', source: { file: 'fast_parameters.json', importedAt: '' }, globals: new Map(), values: new Map([['k', param('0.5')]]) },
+          { mathRef: DECAY_REF }
+        )
+        nodes.value.push(createNode('c'))
+        findNode('a').data.parameterisation = 'fast'
+        findNode('b').data.parameterisation = 'fast'
+      })
+
+      it('updates the set and every other instance tagged with it, all undone as one step', async () => {
+        const before = snapshot()
+        const setBefore = parameters.getSet(DECAY_REF, 'fast')
+        await saveInstanceEdit(buildSave({ variables: editK('2'), parameterSet: { action: 'update' } }))
+
+        expect(kOf('fast')).toBe('2')
+        expect(parameters.getSet(DECAY_REF, 'fast').values.get('k').units).toBe('per_second')
+        expect(kAt('b')).toBe('2')
+        // Not tagged with the set.
+        expect(kAt('c')).toBe('0.5')
+        expect(findNode('a').data.parameterisation).toBe('fast')
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(parameters.getSet(DECAY_REF, 'fast')).toBe(setBefore)
+        expect(history.canUndo).toBe(false)
+
+        await history.redo()
+        expect(kOf('fast')).toBe('2')
+        expect(kAt('b')).toBe('2')
+      })
+
+      it("makes a set of the instance's own, named after it, which later edits follow", async () => {
+        parameters.addInstanceSet(DECAY_REF, 'x', 'a2', [])
+        await saveInstanceEdit(buildSave({ variables: editK('3'), parameterSet: { action: 'new' } }))
+
+        const own = parameters.getSet(DECAY_REF, 'a2_2')
+        expect(own).toMatchObject({ source: { kind: 'instance', nodeId: 'a' } })
+        expect(kOf('a2_2')).toBe('3')
+        expect(findNode('a').data.parameterisation).toBe('a2_2')
+        expect(kOf('fast')).toBe('0.5')
+        expect(kAt('b')).toBe('0.5')
+
+        await saveInstanceEdit(buildSave({ variables: editK('4') }))
+        expect(kOf('a2_2')).toBe('4')
+
+        await history.undo()
+        await history.undo()
+        expect(parameters.getSet(DECAY_REF, 'a2_2')).toBeNull()
+        expect(findNode('a').data.parameterisation).toBe('fast')
+        await history.redo()
+        expect(kOf('a2_2')).toBe('3')
+        expect(findNode('a').data.parameterisation).toBe('a2_2')
+      })
+
+      it('changes no set when the save changes no value the set holds otherwise', async () => {
+        const setBefore = parameters.getSet(DECAY_REF, 'fast')
+        await saveInstanceEdit(buildSave({ parameterSet: { action: 'update' } }))
+        expect(parameters.getSet(DECAY_REF, 'fast')).toBe(setBefore)
+      })
+    })
+
+    describe("the instance's own set once another instance uses it", () => {
+      const kAt = (id) => findNode(id).data.variables.find((row) => row.name === 'k').value
+      let parameters
+
+      beforeEach(() => {
+        parameters = useDefaultParametersStore()
+        parameters.addInstanceSet(DECAY_REF, 'a', 'a', findNode('a').data.variables)
+        findNode('a').data.parameterisation = 'a'
+        findNode('b').data.parameterisation = 'a'
+      })
+
+      it('never writes the set without being asked', async () => {
+        await saveInstanceEdit(buildSave({ variables: editK('2') }))
+        expect(kOf('a')).toBe('0.5')
+        expect(kAt('b')).toBe('0.5')
+      })
+
+      it('updates the set and the other instances when asked, as one step', async () => {
+        const before = snapshot()
+        const setBefore = parameters.getSet(DECAY_REF, 'a')
+        await saveInstanceEdit(buildSave({ variables: editK('2'), parameterSet: { action: 'update' } }))
+        expect(kOf('a')).toBe('2')
+        expect(kAt('b')).toBe('2')
+        expect(parameters.getSet(DECAY_REF, 'a')).toMatchObject({ source: { kind: 'instance', nodeId: 'a' } })
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(parameters.getSet(DECAY_REF, 'a')).toBe(setBefore)
+        expect(history.canUndo).toBe(false)
+      })
+
+      it('moves the instance to a new set of its own, leaving the old one to the others', async () => {
+        await saveInstanceEdit(buildSave({ variables: editK('3'), parameterSet: { action: 'new' } }))
+        expect(findNode('a').data.parameterisation).toBe('a2')
+        expect(kOf('a2')).toBe('3')
+        expect(kOf('a')).toBe('0.5')
+        expect(kAt('b')).toBe('0.5')
+
+        // Its new set is its own alone, so later edits follow without asking.
+        await saveInstanceEdit(buildSave({ variables: editK('4') }))
+        expect(kOf('a2')).toBe('4')
+        expect(kOf('a')).toBe('0.5')
+      })
+    })
+
+    describe('an instance with no set', () => {
+      it('makes a set of its own, named after it, once a save gives it a value, and undo takes both off', async () => {
+        const parameters = useDefaultParametersStore()
+        await saveInstanceEdit(buildSave({ variables: editK('2') }))
+        expect(findNode('a').data.parameterisation).toBe('a2')
+        expect(parameters.getSet(DECAY_REF, 'a2')).toMatchObject({ source: { kind: 'instance', nodeId: 'a' } })
+        expect(kOf('a2')).toBe('2')
+
+        await history.undo()
+        expect(parameters.getSet(DECAY_REF, 'a2')).toBeNull()
+        expect(findNode('a').data).not.toHaveProperty('parameterisation')
+        expect(history.canUndo).toBe(false)
+        await history.redo()
+        expect(findNode('a').data.parameterisation).toBe('a2')
+        expect(kOf('a2')).toBe('2')
+      })
+
+      it('numbers the set past one of the same name', async () => {
+        useDefaultParametersStore().addInstanceSet(DECAY_REF, 'x', 'a2', [])
+        await saveInstanceEdit(buildSave({ variables: editK('2') }))
+        expect(findNode('a').data.parameterisation).toBe('a2_2')
+      })
+
+      it('makes no set when the save gives no value: unchanged, or cleared', async () => {
+        const parameters = useDefaultParametersStore()
+        await saveInstanceEdit(buildSave({ name: 'a' }))
+        await saveInstanceEdit(buildSave({ variables: editK('') }))
+        expect(parameters.setsFor(DECAY_REF)).toEqual([])
+        expect(findNode('a').data).not.toHaveProperty('parameterisation')
+      })
+
+      it("makes no set for a global constant's shared value, which the editor shows on the row", async () => {
+        library.assignGlobalConstant('g', '2', 'second', null)
+        findNode('a').data.variables.push({ name: 'g', units: 'second', type: 'global_constant' })
+        const variables = findNode('a').data.variables.map((row) => (row.name === 'g' ? { ...row, value: '2' } : row))
+        await saveInstanceEdit(buildSave({ variables }))
+        expect(findNode('a').data).not.toHaveProperty('parameterisation')
+
+        await saveInstanceEdit(buildSave({ variables: variables.map((row) => (row.name === 'g' ? { ...row, value: '3' } : row)) }))
+        expect(findNode('a').data.parameterisation).toBe('a2')
+      })
+
+      it("makes no set while its config's default set is loaded", async () => {
+        const parameters = useDefaultParametersStore()
+        parameters.addSet({ ref: 'fast', source: { file: '', importedAt: '' }, globals: new Map(), values: new Map() }, { mathRef: DECAY_REF })
+        library.addModule({ moduleRef: 'decay:lib', mathRef: DECAY_REF, ports: [], variables: [], defaultParameterisation: 'fast' })
+        findNode('a').data.moduleRef = 'decay:lib'
+        await saveInstanceEdit(buildSave({ variables: editK('2') }))
+        expect(parameters.setsFor(DECAY_REF).map((set) => set.ref)).toEqual(['fast'])
+      })
+    })
+
+    it("writes to the instance's own set only while it keeps it, not to a set the editor applied", async () => {
+      const parameters = useDefaultParametersStore()
+      parameters.addInstanceSet(DECAY_REF, 'a', 'a', findNode('a').data.variables)
+      parameters.addInstanceSet(DECAY_REF, 'b', 'b', findNode('b').data.variables)
+      findNode('a').data.parameterisation = 'a'
+
+      await saveInstanceEdit(buildSave({ variables: editK('4'), parameterisation: 'b' }))
+      expect([kOf('a'), kOf('b')]).toEqual(['0.5', '0.5'])
+    })
   })
 
   it('undoes a layout-only save back to no layout', async () => {
@@ -981,6 +1207,126 @@ describe('useInstanceSave', () => {
       await saveInstanceEdit(buildSave({ ports }))
       expect(module()).toEqual(baseModule())
       expect(findNode('b').data.ports).not.toEqual(ports)
+    })
+
+    describe("the default set of the instance's own config", () => {
+      const editK = (value) => findNode('a').data.variables.map((row) => (row.name === 'k' ? { ...row, value } : row))
+      const own = { kind: 'instance', nodeId: 'a' }
+
+      it('is the set a value saved on the instance makes, undone with it', async () => {
+        library.replaceModule({ ...baseModule(), source: own })
+        findNode('b').data.moduleRef = NEW_MODULE_REF
+        const moduleBefore = module()
+        await saveInstanceEdit(buildSave({ variables: editK('2'), config: { action: 'update' } }))
+        expect(module()).toMatchObject({ defaultParameterisation: 'a2' })
+
+        await history.undo()
+        expect(module()).toEqual(moduleBefore)
+        expect(useDefaultParametersStore().getSet(DECAY_REF, 'a2')).toBeNull()
+        expect(history.canUndo).toBe(false)
+        await history.redo()
+        expect(module()).toMatchObject({ defaultParameterisation: 'a2' })
+      })
+
+      it("is the instance's own set once it creates a new config, which undo removes", async () => {
+        useDefaultParametersStore().addInstanceSet(DECAY_REF, 'a', 'a', findNode('a').data.variables)
+        findNode('a').data.parameterisation = 'a'
+        await saveInstanceEdit(buildSave({ ports, config: { action: 'new', moduleRef: 'decay:a_only' } }))
+        expect(module('decay:a_only')).toMatchObject({ source: own, defaultParameterisation: 'a' })
+        expect(module()).toEqual(baseModule())
+
+        await history.undo()
+        expect(library.availableModules.has('decay:a_only')).toBe(false)
+        await history.redo()
+        expect(module('decay:a_only')).toMatchObject({ defaultParameterisation: 'a' })
+      })
+
+      it('is given from a ports edit outside the editor too', async () => {
+        useDefaultParametersStore().addInstanceSet(DECAY_REF, 'a', 'a', findNode('a').data.variables)
+        findNode('a').data.parameterisation = 'a'
+        await savePortEdit({ type: 'edit-connection', ports: [['a', []]], configs: new Map([['a', { action: 'new', moduleRef: 'decay:a_only' }]]) })
+        expect(module('decay:a_only')).toMatchObject({ defaultParameterisation: 'a' })
+      })
+
+      it('stays empty on a library config, and on an own config another instance uses', async () => {
+        await saveInstanceEdit(buildSave({ variables: editK('2'), config: { action: 'update' } }))
+        expect(findNode('a').data.parameterisation).toBe('a2')
+        expect(module()).not.toHaveProperty('defaultParameterisation')
+
+        library.replaceModule({ ...module(), source: own })
+        await saveInstanceEdit(buildSave({ variables: editK('3'), config: { action: 'update' } }))
+        expect(module()).not.toHaveProperty('defaultParameterisation')
+      })
+
+      it('keeps a default the config already names', async () => {
+        library.replaceModule({ ...baseModule(), source: own, defaultParameterisation: 'slow' })
+        findNode('b').data.moduleRef = NEW_MODULE_REF
+        await saveInstanceEdit(buildSave({ variables: editK('2'), config: { action: 'update' } }))
+        expect(findNode('a').data.parameterisation).toBe('a2')
+        expect(module().defaultParameterisation).toBe('slow')
+      })
+    })
+
+    describe('in the same save as values changed from a shared parameter set', () => {
+      const param = (value) => ({ value, units: 'per_second', data_reference: '', extra: {} })
+      // A port deleted and k changed, in one save.
+      const portDeleted = () => buildSave({ ports: [], variables: editK('3') })
+      const editK = (value) => findNode('a').data.variables.map((row) => (row.name === 'k' ? { ...row, value } : row))
+      const kAt = (id) => findNode(id).data.variables.find((row) => row.name === 'k').value
+      let parameters
+
+      beforeEach(() => {
+        parameters = useDefaultParametersStore()
+        parameters.addSet(
+          { ref: 'fast', source: { file: 'fast_parameters.json', importedAt: '' }, globals: new Map(), values: new Map([['k', param('0.5')]]) },
+          { mathRef: DECAY_REF }
+        )
+        library.replaceModule({ ...baseModule(), defaultParameterisation: 'fast' })
+        findNode('b').data.variables[1].value = '0.5'
+        nodes.value.forEach((node) => (node.data.parameterisation = 'fast'))
+      })
+
+      it('saves a new config carrying the default set and updates the set, all undone as one step', async () => {
+        const before = snapshot()
+        const setBefore = parameters.getSet(DECAY_REF, 'fast')
+        const config = { action: 'new', moduleRef: 'decay:a_only' }
+        await saveInstanceEdit({ ...portDeleted(), config, parameterSet: { action: 'update' } })
+
+        expect(findNode('a').data).toMatchObject({ moduleRef: 'decay:a_only', ports: [], parameterisation: 'fast' })
+        expect(module('decay:a_only')).toMatchObject({ ports: [], defaultParameterisation: 'fast' })
+        expect(parameters.getSet(DECAY_REF, 'fast').values.get('k').value).toBe('3')
+        expect(findNode('b').data).toMatchObject({ moduleRef: BASE_REF, ports: before.nodes[1].data.ports })
+        expect(kAt('b')).toBe('3')
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(library.availableModules.has('decay:a_only')).toBe(false)
+        expect(parameters.getSet(DECAY_REF, 'fast')).toBe(setBefore)
+        expect(history.canUndo).toBe(false)
+
+        await history.redo()
+        expect(findNode('a').data.moduleRef).toBe('decay:a_only')
+        expect(parameters.getSet(DECAY_REF, 'fast').values.get('k').value).toBe('3')
+      })
+
+      it("updates the module's config and gives the instance a set of its own, all undone as one step", async () => {
+        const before = snapshot()
+        const moduleBefore = module()
+        await saveInstanceEdit({ ...portDeleted(), config: { action: 'update' }, parameterSet: { action: 'new' } })
+
+        expect(module()).toMatchObject({ ports: [], defaultParameterisation: 'fast' })
+        expect(findNode('b').data.ports).toEqual([])
+        expect(kAt('b')).toBe('0.5')
+        expect(findNode('a').data.parameterisation).toBe('a2')
+        expect(parameters.getSet(DECAY_REF, 'a2').values.get('k').value).toBe('3')
+        expect(parameters.getSet(DECAY_REF, 'fast').values.get('k').value).toBe('0.5')
+
+        await history.undo()
+        expect(snapshot()).toEqual(before)
+        expect(module()).toEqual(moduleBefore)
+        expect(parameters.getSet(DECAY_REF, 'a2')).toBeNull()
+        expect(history.canUndo).toBe(false)
+      })
     })
 
     describe('from a ports edit outside the editor', () => {

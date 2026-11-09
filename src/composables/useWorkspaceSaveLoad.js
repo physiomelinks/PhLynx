@@ -1,5 +1,6 @@
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from './useClearWorkspace'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
@@ -44,6 +45,7 @@ export function useWorkspaceSaveLoad({
   const inspectionModuleStore = useInspectionModuleStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
+  const defaultParametersStore = useDefaultParametersStore()
   const { trackEvent } = useGtm()
 
   /**
@@ -93,6 +95,7 @@ export function useWorkspaceSaveLoad({
       simulation: simulationSettingsStore,
       inspectionModules: inspectionModuleStore,
       omex: omexStore,
+      parameters: defaultParametersStore,
     })
 
     const jsonString = JSON.stringify(saveState, null, 2)
@@ -143,6 +146,7 @@ export function useWorkspaceSaveLoad({
       simulationSettingsStore.loadState(migratedState.simulation)
       inspectionModuleStore.loadState(migratedState.inspectionModules)
       omexStore.loadState(migratedState.workspace)
+      defaultParametersStore.loadState(migratedState.parameters)
 
       trackEvent('workflow_load_action', {
         category: 'Workflow',

@@ -8,20 +8,24 @@ import { getModuleFormat } from './moduleFormats'
 /**
  * Makes a module's CA config entry.
  *
- * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module.
- * @param {Object} [libraryStore] - The library, for the math's format; without it, the default format's.
+ * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module;
+ *   its library module gives `default_parameterisation` when it names none.
+ * @param {Object} [libraryStore] - The library, for the math's format and default set; without it, the default format's.
  * @returns {Object}
  */
 export function moduleConfigEntry(module, libraryStore) {
   const portsByType = restorePorts(module.ports)
   const { componentFile, componentName } = parseMathRef(module.mathRef)
   const { moduleType, moduleSubtype } = parseModuleRef(module.moduleRef)
+  const defaultParameterisation =
+    module.defaultParameterisation ?? libraryStore?.availableModules?.get(module.moduleRef)?.defaultParameterisation
   return {
     module_type: moduleType,
     module_subtype: moduleSubtype,
     module_format: getModuleFormat(libraryStore?.getMathFormat?.(module.mathRef)).caModuleFormat,
     component_file: componentFile,
     component_type: componentName,
+    ...(defaultParameterisation && { default_parameterisation: defaultParameterisation }),
     entrance_ports: portsByType.entrance_ports || [],
     exit_ports: portsByType.exit_ports || [],
     general_ports: portsByType.general_ports || [],
@@ -30,14 +34,14 @@ export function moduleConfigEntry(module, libraryStore) {
 }
 
 /**
- * Identifies a config entry by everything but its subtype and its variables' order, so instances with the same edits
- * share one.
+ * Identifies a config entry by everything but its subtype, its default parameter set and its variables' order, so
+ * instances with the same edits share one.
  *
  * @param {Object} entry - A config entry (see moduleConfigEntry).
  * @returns {string}
  */
 export function configSignature(entry) {
-  const { module_subtype, variables_and_units, ...rest } = entry
+  const { module_subtype, default_parameterisation, variables_and_units, ...rest } = entry
   const variables = [...variables_and_units].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   return JSON.stringify({ ...rest, variables_and_units: variables })
 }

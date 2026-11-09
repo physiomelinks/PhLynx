@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath'
 import { detectVersion, migrateWorkspace, separateNodeParameters } from '../../../src/services/workspaceMigrator'
 import { useLibraryStore } from '../../../src/stores/libraryStore'
+import { splitKey, useDefaultParametersStore } from '../../../src/stores/defaultParametersStore'
 import { PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 import { SYNTHETIC_VERSIONS, syntheticCase, syntheticCaseNames, syntheticWorkspace } from '../helpers/syntheticWorkspaces/index.js'
@@ -464,7 +465,9 @@ describe('migrating to and loading the synthetic 1.3.0 workspace', () => {
 
   it('takes a 1.2.0 file to 1.3.0 unchanged, its math all CellML', () => {
     const doc = syntheticWorkspace('1.2.0')
-    expect(migrateWorkspace(doc)).toEqual({ ...doc, version: '1.3.0' })
+    const { parameters, ...migrated } = migrateWorkspace(doc)
+    expect(migrated).toEqual({ ...doc, version: '1.4.0' })
+    expect(parameters).toEqual({ sets: [], unlinked: [] })
 
     const saved = loadAndSave(doc)
     expect(saved.store.mathSources).toEqual([])
@@ -481,6 +484,36 @@ describe('migrating to and loading the synthetic 1.3.0 workspace', () => {
   it('blankCelldlSource: keeps a CellDL module with no diagram drawn yet', () => {
     const doc = syntheticCase('1.3.0', 'blankCelldlSource')
     expect(loadAndSave(doc).store.mathSources).toEqual(doc.store.mathSources)
+  })
+})
+
+describe('migrating to and loading the synthetic 1.4.0 workspace', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  it('takes a 1.3.0 file to 1.4.0 with no parameter sets', () => {
+    const doc = syntheticWorkspace('1.3.0')
+    expect(migrateWorkspace(doc)).toEqual({ ...doc, version: '1.4.0', parameters: { sets: [], unlinked: [] } })
+    expect(loadAndSave(doc).parameters).toEqual({ sets: [], unlinked: [] })
+  })
+
+  it("linkedSet: keeps a math's set, its values' text, empty values and extra columns", () => {
+    const doc = syntheticCase('1.4.0', 'linkedSet')
+    const saved = loadAndSave(doc)
+    expect(saved.parameters).toEqual(doc.parameters)
+    const [key] = doc.parameters.sets[0]
+    const { mathRef } = splitKey(key)
+    const set = useDefaultParametersStore().getSet(mathRef, 'decay')
+    expect(set.values.get('k')).toMatchObject({ value: '0.25', extra: { sourced: 'yes' } })
+    expect(set.values.get('x_init').value).toBeNull()
+    expect(set.globals.get('F').value).toBe('96485.0')
+  })
+
+  it('unlinkedSet: keeps a set no config names yet', () => {
+    const doc = syntheticCase('1.4.0', 'unlinkedSet')
+    expect(loadAndSave(doc).parameters).toEqual({ sets: [], ...doc.parameters })
+    expect(useDefaultParametersStore().getSet(null, 'glut5').values.get('Km').value).toBe('1e-3')
   })
 })
 

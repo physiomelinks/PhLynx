@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { buildWorkspaceFile } from '../../../src/services/workspaceFile.js'
 import { migrateWorkspace } from '../../../src/services/workspaceMigrator.js'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useOmexStore } from '../../../src/stores/omexStore.js'
@@ -19,12 +20,14 @@ export function loadAndSave(doc) {
   const simulation = useSimulationSettingsStore()
   const inspectionModules = useInspectionModuleStore()
   const omex = useOmexStore()
+  const parameters = useDefaultParametersStore()
 
   const migrated = migrateWorkspace(doc)
   library.loadState(migrated.store)
   simulation.loadState(migrated.simulation)
   inspectionModules.loadState(migrated.inspectionModules)
   omex.loadState(migrated.workspace)
+  parameters.loadState(migrated.parameters)
 
-  return JSON.parse(JSON.stringify(buildWorkspaceFile({ flow: migrated.flow, library, simulation, inspectionModules, omex })))
+  return JSON.parse(JSON.stringify(buildWorkspaceFile({ flow: migrated.flow, library, simulation, inspectionModules, omex, parameters })))
 }

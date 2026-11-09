@@ -48,6 +48,25 @@
 
         </DataTable>
       </TabPanel>
+
+      <TabPanel v-if="moduleData.parameters" :header="`Parameters: ${moduleData.parameters.ref}`">
+        <p class="preview-source">From {{ moduleData.parameters.file }}</p>
+        <DataTable :value="moduleData.parameters.rows" :scrollable="true" scrollHeight="400px" stripedRows>
+          <Column field="name" header="Name" style="width: 180px" />
+          <Column header="Value" style="width: 160px">
+            <template #body="slotProps">
+              <span v-if="slotProps.data.value !== null">{{ slotProps.data.value }}</span>
+              <span v-else class="preview-missing">needs a value</span>
+            </template>
+          </Column>
+          <Column field="units" header="Units" style="width: 150px" />
+          <Column header="Kind">
+            <template #body="slotProps">
+              <Tag :severity="slotProps.data.kind === 'global' ? 'info' : 'secondary'">{{ slotProps.data.kind }}</Tag>
+            </template>
+          </Column>
+        </DataTable>
+      </TabPanel>
     </TabView>
 
     <template #footer>
@@ -69,7 +88,7 @@ import MultiportChip from './MultiportChip.vue'
 
 const props = defineProps({
   modelValue: Boolean,
-  moduleData: Object, // { moduleRef, variables, ports }
+  moduleData: Object, // { moduleRef, variables, ports, parameters: {ref, file, rows}|null }
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -91,3 +110,16 @@ watch(visible, (newVal) => {
   }
 })
 </script>
+
+<style scoped>
+.preview-source {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color);
+}
+
+.preview-missing {
+  font-style: italic;
+  color: var(--p-text-muted-color);
+}
+</style>

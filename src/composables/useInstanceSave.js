@@ -1,6 +1,16 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import {
+  changedSetEntries,
+  hasNewValues,
+  hasSetEntries,
+  isOwnInstanceSet,
+  isSharedSet,
+  otherSetUsers,
+} from '../utils/parameters/instanceSet'
+import { planSharedSetUpdate } from '../utils/parameters/apply'
 import {
   fillBlankValues,
   getPortVariables,
@@ -10,18 +20,19 @@ import {
   renameRows,
   renameValues,
 } from '../services/math/reconcileRows'
-import { instanceConfigSource } from '../services/configOwnership'
+import { instanceConfigSource, isSoleOwnConfig } from '../services/configOwnership'
 import { spreadConfig } from '../services/configSpread'
 import { separateParameters } from '../services/math/separateParameters'
 import { rescaleRows } from '../services/math/unitRescale'
 import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
-import { FLOW_IDS, PROTECTED_MATH_REFS } from '../utils/constants'
+import { FLOW_IDS, GHOST_NODE_TYPE, PROTECTED_MATH_REFS } from '../utils/constants'
 import { carryDrivesState, previewCouplings } from '../utils/edges'
 import { detachReactivity } from '../utils/reactivity'
+import { isBlank } from '../utils/variables'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
-const NODE_KEYS = ['name', 'variables', 'ports', 'mathRef', 'moduleRef']
+const NODE_KEYS = ['name', 'variables', 'ports', 'mathRef', 'moduleRef', 'parameterisation']
 
 /**
  * Checks whether two math entries (see libraryStore.getMathEntry) hold the same math, defaults, layout and source.
@@ -92,6 +103,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   const { nodes, edges, findNode, updateNodeData } = useVueFlow(flowId)
   const libraryStore = useLibraryStore()
   const simulationSettingsStore = useSimulationSettingsStore()
+  const defaultParameters = useDefaultParametersStore()
   const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
 
   /**
@@ -189,12 +201,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     }
     if (config.action === 'new') {
       if ((config.follow || stayer) && module) libraryStore.replaceModule({ ...detachReactivity(module), mathRef, ...stayerConfig })
+      // A new config keeps the module's default parameter set, so its instances and its export still name it.
+      const defaultSet = module?.defaultParameterisation && { defaultParameterisation: module.defaultParameterisation }
       const newModule = {
         moduleRef: config.moduleRef,
         mathRef,
         ports: toModulePorts(ports),
         variables: toModuleRows(variables),
         source: instanceConfigSource(id),
+        ...defaultSet,
       }
       libraryStore.addModule(detachReactivity(newModule))
       updateNodeData(id, { moduleRef: config.moduleRef })
@@ -274,7 +289,9 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, { ...detachReactivity(moduleSource), ...ownership }) : null
 
     const moduleFields = moduleRef ? { moduleRef } : {}
-    updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields })
+    // The parameter set the editor last applied, which a later import of that set re-applies.
+    const setFields = save.parameterisation ? { parameterisation: save.parameterisation } : {}
+    updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields, ...setFields })
     if (updateAll) {
       siblings.forEach((siblingId) => {
         const isSameModule = findNode(siblingId)?.data.moduleRef === previousModuleRef
@@ -456,6 +473,152 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Gets the write-back of a save's values to the parameter set its node made (dropped with Parameters "None"), as a
+   * recordEdit `library` entry, while no other node is tagged with it. Imported sets, sets other nodes made, and the
+   * node's own set once others use it (see prepareSharedSetChange) are never written here.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {{apply: Function, library: Object}|null} Null when the node uses no set it made alone.
+   */
+  function prepareInstanceSetChange({ id, mathRef, variables, parameterisation }) {
+    const paramRef = parameterisation ?? findNode(id)?.data.parameterisation
+    const set = paramRef ? defaultParameters.getSet(mathRef, paramRef) : null
+    if (!isOwnInstanceSet(set, id)) return null
+    if (otherSetUsers(nodes.value, { nodeId: id, mathRef, paramRef }).length) return null
+    const states = { before: set, after: null }
+    const current = () => defaultParameters.getSet(mathRef, paramRef)
+    return {
+      apply: () => {
+        defaultParameters.updateInstanceSet(mathRef, paramRef, id, variables)
+        states.after = current()
+      },
+      library: {
+        isAt: (side) => current() === states[side],
+        restore: (side) => defaultParameters.restoreSet(mathRef, paramRef, states[side]),
+      },
+    }
+  }
+
+  /**
+   * Gets what a save does to a set its node shares with others (an imported set, another node's, or its own once
+   * another node uses it), as the editor asked: `update` writes the changed values into the set and gives them to the
+   * other nodes tagged with it; `new` makes the node a set of its own from its values, as dropping it with Parameters
+   * "None" does, and tags it with it.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload; `parameterSet.action` is what was chosen.
+   * @returns {{nodeIds: string[], apply: Function, library: Object}|null} Null when the save changes no shared set.
+   *   `nodeIds` are the other nodes the step changes.
+   */
+  function prepareSharedSetChange(save) {
+    const { id, mathRef, variables, parameterSet } = save
+    const node = findNode(id)
+    const paramRef = save.parameterisation ?? node?.data.parameterisation
+    const set = parameterSet && paramRef ? defaultParameters.getSet(mathRef, paramRef) : null
+    const users = set ? otherSetUsers(nodes.value, { nodeId: id, mathRef, paramRef }) : []
+    if (!node || !isSharedSet(set, id, users)) return null
+    const current = (ref) => defaultParameters.getSet(mathRef, ref)
+
+    if (parameterSet.action === 'update') {
+      const entries = changedSetEntries(set, node.data.variables, variables)
+      if (!hasSetEntries(entries)) return null
+      const target = { nodeId: id, mathRef, paramRef }
+      const states = { before: set, after: null }
+      return {
+        nodeIds: otherSetUsers(nodes.value, target).map((other) => other.id),
+        apply: () => {
+          defaultParameters.updateSetEntries(mathRef, paramRef, entries)
+          // The node's own set holds all its values, as a save while no other node used it writes them.
+          defaultParameters.updateInstanceSet(mathRef, paramRef, id, variables)
+          states.after = current(paramRef)
+          planSharedSetUpdate(nodes.value, target, entries).variablesById.forEach((rows, nodeId) =>
+            updateNodeData(nodeId, { variables: rows })
+          )
+        },
+        library: {
+          isAt: (side) => current(paramRef) === states[side],
+          restore: (side) => defaultParameters.restoreSet(mathRef, paramRef, states[side]),
+        },
+      }
+    }
+
+    if (parameterSet.action !== 'new') return null
+    const states = { ref: null, before: null, after: null }
+    return {
+      nodeIds: [],
+      apply: () => {
+        states.after = defaultParameters.addInstanceSet(mathRef, id, save.name, findNode(id).data.variables)
+        states.ref = states.after.ref
+        updateNodeData(id, { parameterisation: states.ref })
+      },
+      library: {
+        isAt: (side) => current(states.ref) === states[side],
+        restore: (side) => defaultParameters.restoreSet(mathRef, states.ref, states[side]),
+      },
+    }
+  }
+
+  /**
+   * Gets a save's silent parameter-set bookkeeping, as a recordEdit `library` entry. A node with no set (none tagged,
+   * and no set loaded for its config's default) that the save gives values makes a set of its own from them, as
+   * dropping it with Parameters "None" does, and is tagged with it. A config the node owns alone, with no default,
+   * then takes the node's own set as its default. Call `apply` once the save has moved the node to its final module.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload, or `{id}` for a ports edit.
+   * @returns {{apply: Function, library: Object}|null} Null when the save can neither make a set nor give a default.
+   */
+  function prepareParameterDefaults(save) {
+    const { id, variables } = save
+    const node = findNode(id)
+    if (!node || flowId !== FLOW_IDS.MAIN || node.type === GHOST_NODE_TYPE) return null
+    const tag = save.parameterisation ?? node.data.parameterisation
+    // The editor shows a global constant's shared value, which the node's row leaves blank.
+    const rowsBefore = (node.data.variables ?? []).map((row) =>
+      row.type === 'global_constant' && isBlank(row.value) ? { ...row, value: libraryStore.getGlobalConstant(row.name)?.value } : row
+    )
+    const makesSet = !tag && !!variables && hasNewValues(rowsBefore, variables)
+    // Only a node with a set of its own, or about to have one, gives its config a default.
+    const hasOwnSet = isOwnInstanceSet(tag && defaultParameters.getSet(save.mathRef ?? node.data.mathRef, tag), id)
+    if (!makesSet && !hasOwnSet && save.parameterSet?.action !== 'new') return null
+    const states = { mathRef: null, ref: null, before: null, after: null, moduleRef: null, defaultRef: null }
+    const currentSet = () => defaultParameters.getSet(states.mathRef, states.ref)
+    const currentModule = () => libraryStore.availableModules.get(states.moduleRef)
+    // Only the default is this step's: the config's other changes, and a config the save added, are its config entry's.
+    const defaultAt = (side) => (side === 'after' ? states.defaultRef : undefined)
+    const setDefault = (module, defaultRef) => {
+      const { defaultParameterisation, ...rest } = detachReactivity(module)
+      libraryStore.replaceModule(defaultRef ? { ...rest, defaultParameterisation: defaultRef } : rest)
+    }
+
+    return {
+      apply: () => {
+        const data = findNode(id).data
+        const module = libraryStore.availableModules.get(data.moduleRef)
+        const hasDefaultSet = !!module?.defaultParameterisation && !!defaultParameters.getSet(data.mathRef, module.defaultParameterisation)
+        if (makesSet && !hasDefaultSet) {
+          states.after = defaultParameters.addInstanceSet(data.mathRef, id, data.name, data.variables)
+          Object.assign(states, { mathRef: data.mathRef, ref: states.after.ref })
+          updateNodeData(id, { parameterisation: states.ref })
+        }
+        const own = findNode(id).data.parameterisation
+        const otherCount = nodes.value.filter((other) => other.id !== id && other.data?.moduleRef === data.moduleRef).length
+        if (!module || module.defaultParameterisation || !isSoleOwnConfig(module, id, otherCount)) return
+        if (!isOwnInstanceSet(defaultParameters.getSet(data.mathRef, own), id)) return
+        Object.assign(states, { moduleRef: data.moduleRef, defaultRef: own })
+        setDefault(module, own)
+      },
+      library: {
+        isAt: (side) =>
+          (!states.ref || currentSet() === states[side]) &&
+          (!states.moduleRef || !currentModule() || currentModule().defaultParameterisation === defaultAt(side)),
+        restore: (side) => {
+          if (states.ref) defaultParameters.restoreSet(states.mathRef, states.ref, states[side])
+          if (states.moduleRef && currentModule()) setDefault(currentModule(), defaultAt(side))
+        },
+      },
+    }
+  }
+
+  /**
    * Applies an instance editor save as one undo step. Undo puts back the math only while it is still
    * what the save wrote, and keeps math a save created while any node still uses it.
    *
@@ -478,6 +641,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
           .map((node) => node.id),
       ]),
     ]
+    const sharedSetChange = prepareSharedSetChange(save)
+    affectedIds.push(...(sharedSetChange?.nodeIds ?? []).filter((nodeId) => !affectedIds.includes(nodeId)))
     const writtenMathRef = math !== null || isLayoutChanged || isSourceChanged ? mathRef : null
     const mathBefore = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
     let mathAfter = null
@@ -487,6 +652,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const moduleChange = prepareModuleChange(save)
     const unitsChange = prepareUnitsChange(save)
     const configChange = prepareConfigChange(save)
+    const setChange = prepareInstanceSetChange(save)
+    const defaultsChange = prepareParameterDefaults(save)
 
     await recordEdit({
       type: 'edit-instance',
@@ -495,6 +662,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       edgeIds: findIncidentEdgeIds(affectedIds),
       apply: () => {
         const moduleRef = applySave(save)
+        setChange?.apply()
+        sharedSetChange?.apply()
+        // Once the node's set is settled, and before the module changes capture the modules, so they hold a default
+        // it gives.
+        defaultsChange?.apply()
         moduleChange?.created(moduleRef)
         configChange?.changed()
         mathAfter = writtenMathRef && libraryStore.getMathEntry(writtenMathRef)
@@ -519,6 +691,9 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         unitsChange?.library,
         configChange?.library,
         plotChange?.library,
+        setChange?.library,
+        sharedSetChange?.library,
+        defaultsChange?.library,
       ]),
     })
 
@@ -548,6 +723,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       ...new Set([...ids, ...nodes.value.filter((node) => updatedRefs.has(node.data?.moduleRef)).map((node) => node.id)]),
     ]
     const configChanges = [...configs].map(([id, config]) => prepareConfigChange({ id, config }))
+    // A config made here takes its node's own set as its default.
+    const defaultsChanges = [...configs].map(([id]) => prepareParameterDefaults({ id }))
 
     return recordEdit({
       type,
@@ -565,10 +742,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
           applyConfig({ id, config, math: null }).forEach((other) => rewritten.add(other))
         })
         apply()
+        defaultsChanges.forEach((change) => change?.apply())
         configChanges.forEach((change) => change?.changed())
         rewritten.forEach((id) => recomputeEdgeCouplings(id, drivenCouplings))
       },
-      library: combineLibraries(configChanges.map((change) => change?.library ?? null)),
+      library: combineLibraries([...configChanges, ...defaultsChanges].map((change) => change?.library ?? null)),
     })
   }
 
