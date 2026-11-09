@@ -86,7 +86,8 @@ export async function createCellMLDataFragment(cellmlBlob, fileName) {
  * @param {object} cellmlData - The flattened CellML model data.
  * @param {object} flowSnapshot - The current workspace flow snapshot (nodes/edges).
  * @param {object} [simData] - Simulation/plot/parameter-scan config for the SED-ML doc. Currently unused by generateSedmlData.
- * @param {object} [addInfo] - Additional information not carried by the other parameters.
+ * @param {object} [addInfo] - Additional information not carried by the other parameters. addInfo.unitsFiles, the
+ *   library's units files ({ componentFile, model }), are written under units/ so the archive reopens with its units.
  * @returns {Promise<Blob>} The .omex archive as a zip Blob.
  */
 export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}, addInfo = {}) {
@@ -105,9 +106,20 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   const paramsForIdExport = resolveParamsForIdExport(simData.parameterScanConfig?.selections, omexStore.preservedExtras)
   if (paramsForIdExport) reservedLocations.add(paramsForIdExport.location)
 
+  // Each under its own name, the first of a name winning. Reserved, so a copy kept from an imported archive isn't
+  // also written from preservedExtras.
+  const unitsFiles = new Map()
+  for (const { componentFile, model } of addInfo.unitsFiles ?? []) {
+    const location = `units/${componentFile.split('/').pop()}`
+    if (!model || reservedLocations.has(location)) continue
+    unitsFiles.set(location, model)
+    reservedLocations.add(location)
+  }
+
   const manifestEntries = [
     { location: 'document.sedml', format: 'http://identifiers.org/combine.specifications/sed-ml', master: true },
     { location: cellmlFileName, format: 'http://identifiers.org/combine.specifications/cellml' },
+    ...Array.from(unitsFiles.keys(), (location) => ({ location, format: 'http://identifiers.org/combine.specifications/cellml' })),
     { location: 'flow-snapshot.json', format: 'application/x.vnd.phlynx-flow+json' },
     { location: 'changes.json', format: 'application/x.vnd.phlynx-changes+json' },
   ]
@@ -132,6 +144,10 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   zip.file('document.sedml', sedmlText)
   zip.file('flow-snapshot.json', flowSnapshot)
   zip.file('changes.json', JSON.stringify({ id: 'phlynx-changes', version: PHLYNX_PROJECT_VERSION, modified: addInfo.modified }))
+
+  for (const [location, model] of unitsFiles) {
+    zip.file(location, model)
+  }
 
   if (simulationJson !== null) {
     zip.file('simulation.json', simulationJson)

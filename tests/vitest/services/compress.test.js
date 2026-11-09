@@ -6,10 +6,9 @@ import { generateOmexArchive } from '../../../src/services/compress.js'
 import { buildSimulationJson, SIM_STEPS } from '../../../src/services/export/simulation.js'
 import { rehydrateSimulationConfig } from '../../../src/services/import/simulation.js'
 
+const omexStore = vi.hoisted(() => ({ preservedExtras: [] }))
 vi.mock('../../../src/stores/omexStore.js', () => ({
-  useOmexStore: () => ({
-    preservedExtras: [],
-  }),
+  useOmexStore: () => omexStore,
 }))
 
 async function readArchive(blob) {
@@ -18,6 +17,7 @@ async function readArchive(blob) {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  omexStore.preservedExtras = []
 })
 
 describe('generateOmexArchive', () => {
@@ -317,5 +317,37 @@ describe('generateOmexArchive', () => {
     const paramsForIdCsv = await archive.file('params_for_id.csv').async('string')
     expect(paramsForIdCsv).toContain('membrane,gNa,const,0.1,10,')
     expect(manifestXml).toContain('<content location="params_for_id.csv" format="text/csv"/>')
+  })
+
+  describe('units files', () => {
+    const CELLML = 'http://identifiers.org/combine.specifications/cellml'
+    const units = (name) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="${name}"/>`
+    const archiveWith = async (unitsFiles) =>
+      readArchive(
+        await generateOmexArchive({ blob: new Blob(['<model/>']) }, '{}', {}, { cellmlFileName: 'model.cellml', unitsFiles, extractedData: { voi: null, mappedParameters: {} } })
+      )
+
+    it('writes each library units file under units/, as non-master CellML', async () => {
+      const archive = await archiveWith([
+        { componentFile: 'units.cellml', model: units('built_in') },
+        { componentFile: 'generated_units.cellml', model: units('generated') },
+      ])
+      const manifestXml = await archive.file('manifest.xml').async('string')
+
+      expect(await archive.file('units/units.cellml').async('string')).toBe(units('built_in'))
+      expect(await archive.file('units/generated_units.cellml').async('string')).toBe(units('generated'))
+      expect(manifestXml).toContain(`<content location="units/units.cellml" format="${CELLML}"/>`)
+      expect(manifestXml).toContain(`<content location="units/generated_units.cellml" format="${CELLML}"/>`)
+      expect(manifestXml.match(/master="true"/g)).toHaveLength(1)
+    })
+
+    it('writes a units file once, over a preserved extra at its location', async () => {
+      omexStore.preservedExtras = [{ location: 'units/units.cellml', format: CELLML, payload: units('stale') }]
+      const archive = await archiveWith([{ componentFile: 'units.cellml', model: units('current') }])
+      const manifestXml = await archive.file('manifest.xml').async('string')
+
+      expect(await archive.file('units/units.cellml').async('string')).toBe(units('current'))
+      expect(manifestXml.match(/units\/units\.cellml/g)).toHaveLength(1)
+    })
   })
 })
