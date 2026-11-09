@@ -456,6 +456,18 @@
       @cancel="resolveSaveAs(null)"
     />
 
+    <ModuleConfigSaveDialog
+      v-if="configPrompt.visible"
+      v-model="configPrompt.visible"
+      :module-ref="configPrompt.moduleRef"
+      :match-ref="configPrompt.matchRef"
+      :other-count="configPrompt.otherCount"
+      :can-update="configPrompt.canUpdate"
+      :new-ref="configPrompt.newRef"
+      @confirm="(config) => resolveConfigPrompt(config)"
+      @cancel="resolveConfigPrompt(null)"
+    />
+
     <!-- DIALOG FOOTER -->
     <template #footer>
       <div class="dialog-footer" v-if="!loading && !isScreenTooSmall">
@@ -464,7 +476,7 @@
           class="apply-all-checkbox"
           :title="`Ticked, math changes also reach the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
-          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameters and ports only change here.`"
+          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameter values only change here, and a change to ports or variable types asks first.`"
         >
           <Checkbox v-model="applyToAll" binary inputId="applyToAll" />
           <label for="applyToAll">
@@ -518,6 +530,7 @@ import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
+import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
 import CelldlPane from './celldl/CelldlPane.vue'
 import CelldlParametersTab from './celldl/CelldlParametersTab.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
@@ -537,7 +550,10 @@ import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
-import { confirmDrivenStores } from '../services/export/drivenStores'
+import { confirmPortEditDrives } from '../services/export/drivenStores'
+import { spreadConfig } from '../services/configSpread'
+import { isSoleOwnConfig, newConfigRef } from '../services/configOwnership'
+import { isModuleConfig } from '../services/moduleConfig'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -1908,6 +1924,88 @@ function resolveSaveAs(name) {
   saveAsResolver = null
 }
 
+// ── Module Config ────────────────────────────────────────────────────────────
+const configPrompt = ref({ visible: false, moduleRef: '', matchRef: '', otherCount: 0, canUpdate: true, newRef: '' })
+let configResolver = null
+
+/**
+ * Asks whether a config change overwrites the instance's module or moves the instance to a new config of its own,
+ * named after it (see configOwnership).
+ *
+ * @param {Object} options - The prompt's `moduleRef`, `matchRef`, `otherCount` and `canUpdate`.
+ * @returns {Promise<Object|null>} The save's `config`, or null if cancelled.
+ */
+function promptModuleConfig({ moduleRef, matchRef = '', otherCount, canUpdate }) {
+  resolveConfigPrompt(null)
+  const newRef = newConfigRef(moduleRef, editableName.value, (ref) => ref === moduleRef || store.availableModules.has(ref))
+  configPrompt.value = { visible: true, moduleRef, matchRef, otherCount, canUpdate, newRef }
+  return new Promise((resolve) => {
+    configResolver = resolve
+  })
+}
+
+function resolveConfigPrompt(config) {
+  configResolver?.(config)
+  configResolver = null
+}
+
+/**
+ * Gets the instance's module and the other instances that would follow a change to it: every other instance on the
+ * module, or, for math no module uses yet, those of them moving to that math with this instance.
+ *
+ * @param {{mathRef: string, math: string|null, updateAll: boolean}} save - As resolveModuleConfig takes it.
+ * @returns {{moduleRef: string, module: Object, isNewModule: boolean, followers: Array}|null} Null without a module.
+ */
+function moduleFollowers({ mathRef, math, updateAll }) {
+  const moduleRef = nodes.value.find((n) => n.id === props.id)?.data?.moduleRef
+  const module = moduleRef && store.availableModules.get(moduleRef)
+  if (!module) return null
+  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
+  const others = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef)
+  const followers = isNewModule ? others.filter((n) => updateAll && n.data.mathRef === props.mathRef) : others
+  return { moduleRef, module, isNewModule, followers }
+}
+
+/**
+ * Works out what a save does to the instance's module, asking when the ports or variable units, access or types no
+ * longer match it. Values never count. A config the instance made, and alone uses, is updated without asking (see
+ * configOwnership); any other asks to be overwritten or left for a new config, even with no other instance on it. Math
+ * saved for every instance on the module's math takes the module along. Math no module uses gets a module of its own
+ * (see useInstanceSave), which the instances switching from this module share.
+ *
+ * @param {Object} save
+ * @param {string} save.mathRef - The math the instance saves to.
+ * @param {string|null} save.math - The math written, or null.
+ * @param {Array} save.ports
+ * @param {boolean} save.updateAll
+ * @returns {Promise<Object|null|false>} The save's `config`, null when the module needs no change, or false if cancelled.
+ */
+async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
+  const found = moduleFollowers({ mathRef, math, updateAll })
+  if (!found) return null
+  const { moduleRef, module, isNewModule, followers } = found
+  if (isNewModule && !followers.length) return null
+
+  const isFollowing = isNewModule || (updateAll && props.mathRef === module.mathRef)
+  const moduleMathRef = isFollowing ? mathRef : module.mathRef
+  const analysis = isFollowing && math !== null ? analyzeMathXml(math) : store.getMathAnalysis(moduleMathRef)
+  const config = { moduleRef, mathRef, ports, variables: parameterRows.value }
+  if (isModuleConfig(config, { ...module, mathRef: moduleMathRef }, analysis)) {
+    return !isNewModule && moduleMathRef !== module.mathRef ? { action: 'follow' } : null
+  }
+  if (isSoleOwnConfig(module, props.id, followers.length)) return { action: 'update' }
+
+  const choice = await promptModuleConfig({
+    moduleRef: isNewModule ? store.defaultModuleRef(mathRef) : moduleRef,
+    matchRef: isNewModule ? moduleRef : '',
+    otherCount: followers.length,
+    canUpdate: mathRef === moduleMathRef,
+  })
+  if (!choice) return false
+  // Leaving a module whose instances all switched math, take it along.
+  return choice.action === 'new' && !isNewModule && moduleMathRef !== module.mathRef ? { ...choice, follow: true } : choice
+}
+
 /**
  * Asks whether to overwrite stored math, or save it as a new component under an unused name. With "Apply math changes
  * to all" unticked, math other instances use is never overwritten: it asks for the new component's name straight away.
@@ -2342,31 +2440,19 @@ async function resolveMathTarget(math, layout) {
 }
 
 /**
- * Asks, for each CellDL store the edited ports would newly couple to what another instance computes, whether the
- * connection should drive it (see confirmDrivenStores). Only edges whose couplings the ports change are asked about.
+ * Asks once about each CellDL store the saved ports would newly couple to what another instance computes, whether the
+ * connection should drive it (see confirmPortEditDrives). When the save updates the module, the ports spread to its
+ * other instances, whose edges are asked about too.
  *
  * @param {Array} ports - The ports to save.
- * @returns {Promise<Map<string, Array>|null>} Each edge's couplings as they will be, marked where they drive a store,
- *   under the variable names before any rename; null when one was declined.
+ * @param {Array} spreadTo - The other instances the module update gives the ports to.
+ * @returns {Promise<Map<string, Array>|null>} Each previewed edge's couplings as they will be, marked where they drive
+ *   a store; null when declined.
  */
-async function confirmPortDrives(ports) {
-  const canvasNodes = (nodes.value ?? []).map((node) =>
-    node.id === props.id ? { ...node, data: { ...node.data, variables: parameterRows.value, ports } } : node
-  )
-  const canvasEdges = edges.value ?? []
-  const couplings = previewCouplings(props.id, ports, canvasNodes, canvasEdges)
-  const unmarked = (list) => JSON.stringify((list ?? []).map(({ drivesState, ...coupling }) => coupling))
-  const changed = new Set(
-    [...couplings]
-      .filter(([edgeId, next]) => unmarked(canvasEdges.find((edge) => edge.id === edgeId)?.data?.couplings) !== unmarked(next))
-      .map(([edgeId]) => edgeId)
-  )
-  if (!changed.size) return couplings
-  const edited = canvasEdges.map((edge) =>
-    couplings.has(edge.id) ? { ...edge, data: { ...edge.data, couplings: couplings.get(edge.id) } } : edge
-  )
-  const marked = await confirmDrivenStores({ nodes: canvasNodes, edges: edited, edgeIds: changed, libraryStore: store, confirm })
-  return marked && new Map([...couplings, ...marked])
+async function confirmPortDrives(ports, spreadTo) {
+  const config = { ports, variables: parameterRows.value }
+  const edits = new Map([[props.id, config], ...spreadTo.map((node) => [node.id, spreadConfig(node, config)])])
+  return confirmPortEditDrives({ nodes: nodes.value ?? [], edges: edges.value ?? [], edits, libraryStore: store, confirm })
 }
 
 /**
@@ -2454,10 +2540,6 @@ async function saveInstance(options) {
     return
   }
 
-  // 2c. A port change that couples a CellDL store to what another instance computes asks first.
-  const drivenCouplings = await confirmPortDrives(finalPorts)
-  if (!drivenCouplings) return
-
   const textErrors = getEditorErrors()
   if (textErrors.length > 0) {
     const proceed = await confirm({
@@ -2523,6 +2605,22 @@ async function saveInstance(options) {
 
   const updateAll = applyToAll.value || siblingCount.value === 0
 
+  // 4. Check the ports and variable kinds against the module
+  const config = await resolveModuleConfig({
+    mathRef: newMathRef,
+    math: isMathChanged ? mathToSave : null,
+    ports: renamePortVariables(finalPorts, renames),
+    updateAll,
+  })
+  if (config === false) return
+
+  // 5. A port change that couples a CellDL store to what another instance computes asks, once for every instance an
+  // update gives the ports.
+  const followers = moduleFollowers({ mathRef: newMathRef, math: isMathChanged ? mathToSave : null, updateAll })?.followers
+  const spreadTo = config?.action === 'update' ? (followers ?? []) : []
+  const drivenCouplings = await confirmPortDrives(renamePortVariables(finalPorts, renames), spreadTo)
+  if (!drivenCouplings) return
+
   trackEvent('editor_action', {
     category: 'Editor',
     action: 'save_unified_module',
@@ -2568,6 +2666,7 @@ async function saveInstance(options) {
       plotVariables: renamedPlotEntries(),
       updateAll,
       siblings: updateAll ? siblings.value : [],
+      config,
       keepOpen,
     })
   )

@@ -2,11 +2,10 @@ import JSZip from 'jszip'
 import Papa from 'papaparse'
 
 import { notify } from '../../utils/notify'
-import { getModuleFormat } from '../moduleFormats'
-import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../../utils/config'
+import { parseModuleRef } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { isBlank } from '../../utils/variables'
-import { buildInstance } from '../import/buildWorkflow'
+import { configSignature, librarySignatures, moduleConfigEntry } from '../moduleConfig'
 import { resolveBoundaryValues, storeOptions } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 
@@ -214,30 +213,6 @@ function warnMissingBoundaryValues(nodes, edges) {
 }
 
 /**
- * Makes a module's CA config entry.
- *
- * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module.
- * @param {Object} libraryStore - The library, for the math's format.
- * @returns {Object}
- */
-function moduleConfigEntry(module, libraryStore) {
-  const portsByType = restorePorts(module.ports)
-  const { componentFile, componentName } = parseMathRef(module.mathRef)
-  const { moduleType, moduleSubtype } = parseModuleRef(module.moduleRef)
-  return {
-    module_type: moduleType,
-    module_subtype: moduleSubtype,
-    module_format: getModuleFormat(libraryStore.getMathFormat(module.mathRef)).caModuleFormat,
-    component_file: componentFile,
-    component_type: componentName,
-    entrance_ports: portsByType.entrance_ports || [],
-    exit_ports: portsByType.exit_ports || [],
-    general_ports: portsByType.general_ports || [],
-    variables_and_units: restoreVariables(module.variables),
-  }
-}
-
-/**
  * Gives a module ref's configs their subtypes. A config an untouched instance would have keeps the module ref's
  * subtype. Each other config gets `<subtype>_<first instance>`, made unique, and its instances' rows name it, so an
  * edited config never goes out under a ref that resolves to the library module. Warns, naming the instances split out.
@@ -277,35 +252,6 @@ function assignSubtypes(configsByRef, libraryStore) {
     })
   }
   return entries
-}
-
-/**
- * Gets the signatures of an untouched instance of a library module: a fresh drop's, whose rows its math's analysis
- * fills out, then the module's own.
- *
- * @param {Object|undefined} libraryModule
- * @param {Object} libraryStore - The library, for its math's analysis and defaults.
- * @returns {string[]}
- */
-function librarySignatures(libraryModule, libraryStore) {
-  if (!libraryModule) return []
-  const analysis = libraryStore.getMathAnalysis?.(libraryModule.mathRef) ?? null
-  const defaults = libraryStore.getMathDefaults?.(libraryModule.mathRef) ?? new Map()
-  const dropped = buildInstance(null, '', null, libraryModule, [], null, analysis, defaults).data
-  return [dropped, libraryModule].map((module) => configSignature(moduleConfigEntry(module, libraryStore)))
-}
-
-/**
- * Identifies a config entry by everything but its subtype and its variables' order, so instances with the same edits
- * share one.
- *
- * @param {Object} entry - A config entry (see moduleConfigEntry).
- * @returns {string}
- */
-function configSignature(entry) {
-  const { module_subtype, variables_and_units, ...rest } = entry
-  const variables = [...variables_and_units].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return JSON.stringify({ ...rest, variables_and_units: variables })
 }
 
 /**

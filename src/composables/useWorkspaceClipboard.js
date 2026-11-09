@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { parseLayout } from 'cellml-text-editor'
 import { useLibraryStore } from '../stores/libraryStore'
+import { withoutOwner } from '../services/configOwnership'
 import { checkMathSource } from '../services/moduleFormats'
 import { separateNodeParameters } from '../services/workspaceMigrator'
 import { FLOW_IDS } from '../utils/constants'
@@ -152,7 +153,8 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     if (sourceClipboard.storeSnapshot) {
       for (const entry of Object.values(sourceClipboard.storeSnapshot)) {
         if (!libraryStore.availableModules.has(entry.moduleRef)) {
-          libraryStore.addModule(entry.module)
+          // The instance that made the config is in another workspace, so the pasted instance doesn't inherit it.
+          libraryStore.addModule(withoutOwner(entry.module))
         }
         if (!libraryStore.availableMath.has(entry.mathRef)) {
           // Clipboard text can come from anywhere, so the layout and source are checked like saved ones.

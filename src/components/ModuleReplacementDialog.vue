@@ -58,6 +58,8 @@ import Checkbox from 'primevue/checkbox'
 
 import { useGtm } from '../composables/useGtm'
 import LibraryArea from './LibraryArea.vue'
+import { replacementData } from '../services/moduleReplacement'
+import { useLibraryStore } from '../stores/libraryStore'
 
 const props = defineProps({
   modelValue: {
@@ -75,6 +77,7 @@ const emit = defineEmits(['update:modelValue', 'confirm'])
 const selectedModule = ref(null)
 const retainMatches = ref(false)
 const { trackEvent } = useGtm()
+const libraryStore = useLibraryStore()
 
 const dialogVisible = computed({
   get: () => props.modelValue,
@@ -95,12 +98,12 @@ function onModuleSelected(module) {
 }
 
 function handleConfirm() {
-  const moduleVariables = new Set(selectedModule.value.variables.map((variable) => variable.name))
-  const oldPorts = props.currentInstance.data.ports
-
-  const finalPorts = retainMatches.value
-    ? oldPorts.filter((port) => port.variables.every((variable) => moduleVariables.has(variable)))
-    : []
+  const module = selectedModule.value
+  const data = replacementData(props.currentInstance.data?.ports ?? [], module, {
+    retain: retainMatches.value,
+    analysis: libraryStore.getMathAnalysis(module.mathRef) ?? null,
+    defaults: libraryStore.getMathDefaults(module.mathRef) ?? new Map(),
+  })
 
   trackEvent('module_replacement_action', {
     category: 'ModuleReplacement',
@@ -109,12 +112,7 @@ function handleConfirm() {
     file_type: 'json',
   })
 
-  emit('confirm', {
-    moduleRef: selectedModule.value.moduleRef,
-    mathRef: selectedModule.value.mathRef,
-    variables: selectedModule.value.variables,
-    ports: finalPorts,
-  })
+  emit('confirm', data)
 
   closeDialog()
 }

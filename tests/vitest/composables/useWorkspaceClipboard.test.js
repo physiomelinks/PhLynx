@@ -218,6 +218,30 @@ describe('useWorkspaceClipboard', () => {
       expect(nodes.value[0].data.mathRef).toBe(MATH_REF)
     })
 
+    it('makes a pasted instance a second user of a config another instance owns, not its owner', async () => {
+      library.replaceModule({ ...library.availableModules.get(MODULE_REF), source: { kind: 'instance', nodeId: 'dndnode_0' } })
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+      await clipboard.pasteSelection()
+
+      expect(nodes.value[3]).toMatchObject({ id: 'dndnode_3', data: { moduleRef: MODULE_REF } })
+      expect(library.availableModules.get(MODULE_REF).source).toEqual({ kind: 'instance', nodeId: 'dndnode_0' })
+    })
+
+    it('drops the owner of a config pasted into a library without it, as that instance is not there', async () => {
+      library.replaceModule({ ...library.availableModules.get(MODULE_REF), source: { kind: 'instance', nodeId: 'dndnode_0' } })
+      select(['dndnode_0'])
+      await clipboard.copySelection()
+
+      setActivePinia(createPinia())
+      const freshLibrary = useLibraryStore()
+      nodes.value = []
+      edges.value = []
+      await createClipboard().pasteSelection()
+
+      expect(freshLibrary.availableModules.get(MODULE_REF)).not.toHaveProperty('source')
+    })
+
     it('restores the math layout into a fresh library, and drops a layout that is not valid', async () => {
       const layout = {
         format: 'cellml-text-layout',

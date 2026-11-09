@@ -769,8 +769,8 @@ const {
   reactivateEdgeHandles,
   revertHandleIfUnused,
 } = useHandleManagement()
-const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(FLOW_IDS.MAIN)
-const { saveInstanceEdit } = useInstanceSave(FLOW_IDS.MAIN)
+const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
+const { saveInstanceEdit, savePortEdit } = useInstanceSave(FLOW_IDS.MAIN)
 
 const dialogVisible = computed(() => {
   return (
@@ -1743,6 +1743,10 @@ function onEdgeDoubleClick({ edge }) {
   edgeConnectionDialogVisible.value = true
 }
 
+/**
+ * Applies the connection dialog's edit as one undo step, with the module changes its `configs` chose for instances
+ * whose ports no longer match their modules, and the store-driving marks it confirmed for the instances they reach.
+ */
 function onEdgeConnectionConfirm({
   sourceNodeId,
   targetNodeId,
@@ -1750,17 +1754,18 @@ function onEdgeConnectionConfirm({
   targetPorts,
   couplings,
   foreignCouplings,
+  configs,
+  drivenCouplings,
 }) {
-  const nodeIds = [sourceNodeId, targetNodeId]
-  recordEdit({
+  savePortEdit({
     type: 'edit-connection',
-    nodeIds,
-    keys: ['ports'],
-    edgeIds: findIncidentEdgeIds(nodeIds),
+    ports: [
+      [sourceNodeId, sourcePorts],
+      [targetNodeId, targetPorts],
+    ],
+    configs,
+    drivenCouplings,
     apply: () => {
-      updateNodeData(sourceNodeId, { ports: sourcePorts })
-      updateNodeData(targetNodeId, { ports: targetPorts })
-
       const activeEdge = findEdge(edgeDialogActiveEdge.value?.id)
       if (activeEdge) {
         activeEdge.data = { ...activeEdge.data, couplings }

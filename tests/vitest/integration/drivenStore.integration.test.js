@@ -11,8 +11,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { convertCelldl } from '../../../src/services/celldl/convert.js'
+import { spreadPortEdits } from '../../../src/services/configSpread.js'
 import { mintDocumentUri } from '../../../src/services/celldl/documentUri.js'
 import { resolveBoundaryValues, storeOptions } from '../../../src/services/export/boundaryValues.js'
+import { confirmPortEditDrives } from '../../../src/services/export/drivenStores.js'
 import { buildInstance } from '../../../src/services/import/buildWorkflow.js'
 import { createSimulationSession } from '../../../src/services/simulation/engine.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
@@ -164,4 +166,65 @@ describe('a CellDL store driven by a connection', () => {
     expect(S[0]).toBeCloseTo(1, 5)
     expect(S.at(-1)).toBeLessThan(0.95)
   }, 120000)
+
+  describe('when updating a module spreads a port on the store to its other instances', () => {
+    /** Two enzymes on one module with no ports, each with an edge from a source of its own, the first edge active. */
+    function spreadWorkspace() {
+      const enzymes = ['enzyme_1', 'enzyme_2'].map((id) => ({ ...makeNode(id, 'enzyme.cellml:enzyme', []) }))
+      enzymes.forEach((enzyme) => (enzyme.data.moduleRef = 'enzyme:base'))
+      const sources = ['source_1', 'source_2'].map((id) => makeNode(id, 'source.cellml:source', [port('X')]))
+      const edges = [
+        { id: 'e1', source: 'source_1', target: 'enzyme_1', data: { couplings: [] } },
+        { id: 'e2', source: 'source_2', target: 'enzyme_2', data: { couplings: [] } },
+      ]
+      return { nodes: [...enzymes, ...sources], edges }
+    }
+
+    /** Edits enzyme_1's ports as the connection dialog does, its edge's couplings drawn, with the given config. */
+    async function confirmDialogEdit(config, accept = true) {
+      const { nodes, edges } = spreadWorkspace()
+      const ports = [port('q_S_c')]
+      const coupling = { sourcePort: nodes[2].data.ports[0], targetPort: ports[0] }
+      const edited = {
+        nodes: nodes.map((node) => (node.id === 'enzyme_1' ? { ...node, data: { ...node.data, ports } } : node)),
+        edges: edges.map((edge) => (edge.id === 'e1' ? { ...edge, data: { couplings: [coupling] } } : edge)),
+      }
+      const confirm = vi.fn(async () => accept)
+      const portEdits = [{ node: nodes[0], ports }]
+      const marked = await confirmPortEditDrives({
+        ...edited,
+        edits: spreadPortEdits(portEdits, new Map([['enzyme_1', config]]), nodes),
+        edgeIds: new Set(['e1']),
+        libraryStore: store,
+        confirm,
+      })
+      return { marked, confirm }
+    }
+
+    it("asks once, listing both instances' stores and edges, on update", async () => {
+      const { marked, confirm } = await confirmDialogEdit({ action: 'update' })
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(confirm.mock.calls[0][0]).toMatchObject({
+        header: 'Set stores from connections',
+        issues: [
+          { label: 'q_S_c of enzyme_1', message: 'from source_1.X, over source_1 → enzyme_1' },
+          { label: 'q_S_c of enzyme_2', message: 'from source_2.X, over source_2 → enzyme_2' },
+        ],
+      })
+      expect(marked.get('e1')).toEqual([expect.objectContaining({ drivesState: true })])
+      expect(marked.get('e2')).toEqual([expect.objectContaining({ drivesState: true })])
+    })
+
+    it('asks only about the edited edge for a new config', async () => {
+      const { marked, confirm } = await confirmDialogEdit({ action: 'new', moduleRef: 'enzyme:enzyme_1' })
+      expect(confirm).toHaveBeenCalledTimes(1)
+      expect(confirm.mock.calls[0][0]).toMatchObject({ header: 'Set a store from a connection' })
+      expect(marked.has('e2')).toBe(false)
+    })
+
+    it('marks nothing when declined', async () => {
+      const { marked } = await confirmDialogEdit({ action: 'update' }, false)
+      expect(marked).toBeNull()
+    })
+  })
 })

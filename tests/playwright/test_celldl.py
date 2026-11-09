@@ -360,6 +360,16 @@ def untick_apply_to_all(dialog):
     expect(box.locator("input")).not_to_be_checked()
 
 
+def save_module_config(page, choice="Overwrite"):
+    """Answers the "Save Module Config" prompt a change to the module's ports or variables asks: Overwrite the module,
+    or Create new config."""
+    prompt = page.get_by_role("dialog", name="Save Module Config")
+    expect(prompt).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+    prompt.locator("label", has_text=choice).click()
+    prompt.get_by_role("button", name="Save", exact=True).click()
+    expect(prompt).to_be_hidden()
+
+
 def save_as_new(page, taken, name):
     """Names a new component in Save As, which refuses taken names, each with why."""
     save_as = page.get_by_role("dialog", name="Save As New Component")
@@ -558,6 +568,7 @@ class TestCelldl(unittest.TestCase):
             relocate_resistor(page, "X")
             dialog.get_by_role("button", name="Apply").click()
             accept_overwrite(page)
+            save_module_config(page)
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
             content = cellml_text(dialog)
             expect(content).to_contain_text("R_R_i_X")
@@ -1052,6 +1063,7 @@ class TestCelldl(unittest.TestCase):
             kappa.press("Enter")
             dialog.get_by_role("button", name="Apply").click()
             accept_overwrite(page)
+            save_module_config(page)
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
             wait_for_diagram(page)
             kappa = parameter_value(dialog, "kappa_Rx_r1_cyt")
@@ -1121,6 +1133,7 @@ class TestCelldl(unittest.TestCase):
             expect(parameter_value(dialog, "kappa_Rx_r1_cyt")).to_have_value("2")
             dialog.get_by_role("button", name="Save").click()
             accept_overwrite(page)
+            save_module_config(page)
             expect(dialog).to_be_hidden()
 
             instances.first.dblclick()
@@ -1172,6 +1185,7 @@ class TestCelldl(unittest.TestCase):
             expect(element_row(dialog, REACTION_R2).locator(".element-names")).to_contain_text("kappa_Rx_r2_cyt", timeout=DIAGRAM_TIMEOUT)
             dialog.get_by_role("button", name="Save").click()
             accept_overwrite(page)
+            save_module_config(page)
             expect(dialog).to_be_hidden()
             shared = stored_document(page, math_ref)
 
@@ -1765,6 +1779,7 @@ class TestCelldl(unittest.TestCase):
                 expect(cell).to_have_attribute("placeholder", default)
             dialog.get_by_role("button", name="Apply").click()
             accept_overwrite(page)
+            save_module_config(page)
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
             wait_for_diagram(page)
             self.assertTrue(saved_math_has(page, "q_X_c"))
@@ -1792,6 +1807,7 @@ class TestCelldl(unittest.TestCase):
             dialog = open_editor(page, INITIAL_AMOUNT_MODULE)
             add_port(page, dialog, "initial", "X")
             dialog.get_by_role("button", name="Save", exact=True).click()
+            save_module_config(page)
             expect(dialog).to_have_count(0)
             dialog = open_editor(page, ENZYME_MODULE)
             wait_for_diagram(page)
@@ -1800,6 +1816,7 @@ class TestCelldl(unittest.TestCase):
             # Until an edge connects the ports, the value is the diagram's, editable.
             expect(parameter_value(dialog, "q_S_c_init")).to_be_enabled()
             dialog.get_by_role("button", name="Save", exact=True).click()
+            save_module_config(page)
             expect(dialog).to_have_count(0)
             connect(page, ENZYME_MODULE, INITIAL_AMOUNT_MODULE)
 
@@ -1838,11 +1855,13 @@ class TestCelldl(unittest.TestCase):
             dialog = open_editor(page, DRIVEN_AMOUNT_MODULE)
             add_port(page, dialog, "amount", "X")
             dialog.get_by_role("button", name="Save", exact=True).click()
+            save_module_config(page)
             expect(dialog).to_have_count(0)
             dialog = open_editor(page, ENZYME_MODULE)
             wait_for_diagram(page)
             add_port(page, dialog, "amount", "q_S_c")
             dialog.get_by_role("button", name="Save", exact=True).click()
+            save_module_config(page)
             expect(dialog).to_have_count(0)
 
             # Both compute their variable, so the connection asks before it sets the store; cancelled, it isn't made.
@@ -2042,6 +2061,7 @@ class TestCelldl(unittest.TestCase):
             self.assert_sections(content, switch.is_checked())
             dialog.get_by_role("button", name="Apply").click()
             accept_overwrite(page)
+            save_module_config(page)
             expect(page.get_by_text("CellML Updated")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
             content = cellml_text(dialog)
             expect(content).to_contain_text("q_P_c")

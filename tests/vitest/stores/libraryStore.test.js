@@ -47,6 +47,20 @@ describe('libraryStore math', () => {
     expect(store.getMathDefaults(MATH_REF).get('k')).toBe('0.5')
   })
 
+  it('saves and restores which instance owns a config with the workspace', () => {
+    store.addMath(MATH_REF, XML)
+    const source = { kind: 'instance', nodeId: 'dndnode_3' }
+    store.createModuleForMath(MATH_REF, { ports: [], variables: [], source })
+    store.addModule({ moduleRef: 'decay:a', mathRef: MATH_REF, ports: [], variables: [], source })
+    const state = JSON.parse(JSON.stringify(store.getState()))
+
+    setActivePinia(createPinia())
+    const restored = useLibraryStore()
+    restored.loadState(state)
+    expect(restored.availableModules.get(store.defaultModuleRef(MATH_REF)).source).toEqual(source)
+    expect(restored.availableModules.get('decay:a').source).toEqual(source)
+  })
+
   it('saves and restores the defaults with the workspace', () => {
     store.addMath(MATH_REF, XML)
     const state = JSON.parse(JSON.stringify(store.getState()))
