@@ -5,6 +5,7 @@ import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { readNodeSeries } from '../services/simulation/variableMapping'
 import { flowDirection, transportedSpecies } from '../services/bioView/transport'
 import { facePoint, handleFace } from '../services/bioView/faces'
+import { getGlyph } from '../services/bioView/glyphs'
 import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
@@ -292,10 +293,11 @@ function couplingNames(edge, byId) {
  * @param {Map<string, Object>} layout - From layoutBioView.
  * @param {Set<string>} selected - The selected nodes' ids.
  * @param {Function} sidecarOf - Node -> its module's parsed sidecar, or null.
+ * @param {Function} [facesOf] - Node id -> its glyph's face anchors, if it has any.
  * @returns {{edges: Array<Object>, handles: Map<string, Array<{id: string, x: number, y: number}>>}} vue-flow
  *   edges, and each node's handles in its own coordinates.
  */
-export function focusCouplings(nodes, edges, layout, selected, sidecarOf) {
+export function focusCouplings(nodes, edges, layout, selected, sidecarOf, facesOf = () => undefined) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const drawnEdges = []
   const handles = new Map()
@@ -324,7 +326,8 @@ export function focusCouplings(nodes, edges, layout, selected, sidecarOf) {
         const node = byId.get(end.nodeId)
         const handle = node?.data?.handles?.find((h) => getHandleId(h) === end.handleId)
         const face = handle ? handleFace(end.nodeId, handle, [edge], sidecarOf(node)) : null
-        Object.assign(end, facePoint(end.place, face, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }))
+        const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+        Object.assign(end, facePoint(end.place, face, size, facesOf(end.nodeId)))
       } else if (!['cell', 'region', 'membrane'].includes(end.place.kind)) {
         end.point = centreOf(boxOf(end.place))
       }
@@ -493,8 +496,13 @@ export function useBioNodes(nodes, edges = ref([])) {
   })
   const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))
   const focus = computed(() =>
-    focusCouplings(nodes.value, edges.value, layout.value, selected.value, (node) =>
-      node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null
+    focusCouplings(
+      nodes.value,
+      edges.value,
+      layout.value,
+      selected.value,
+      (node) => (node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null),
+      (id) => getGlyph(roles.value.get(id)?.glyph)?.faces
     )
   )
   // Laid out once per layout: a selection or a run changes none of it, only what bioNodes adds.

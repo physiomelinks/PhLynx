@@ -2,7 +2,8 @@
  * A synthetic workspace at format 1.4.0. The workspace holds the default parameter sets imported for each math,
  * keyed `mathRef:paramRef`, and those waiting for a config to name them, each math's side-car of annotations, and
  * the ports and couplings those annotations give, and the physiological view: each node's place in it and the
- * templates placed there, with a copy of each, and the edges a drop there made, which a later move may take away.
+ * templates placed there, with a copy of each, the edges a drop there made, which a later move may take away, and a
+ * copy of each of the user's own cartoons the nodes are drawn as.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
@@ -164,6 +165,26 @@ export const cases = {
     const placed = edge('carrier', 'cytosol', [])
     placed.data.placement = { from: 'carrier', to: 'cytosol', kind: 'across' }
     return mergeParts(carrier, cytosol, { flow: { edges: [placed] } })
+  },
+
+  /** Node `cup_carrier` is drawn as the user's own cartoon `local:cup`, which the workspace keeps a copy of. */
+  userGlyph: () => {
+    const part = separatedDecayNode('cup_carrier')
+    part.flow.nodes[0].data.bioView = { role: 'membraneProtein', glyph: 'local:cup' }
+    part.bioGlyphs = {
+      glyphs: {
+        'local:cup': {
+          id: 'local:cup',
+          name: 'Cup',
+          sbo: 'SBO:0000284',
+          goFunctions: ['GO:0099999'],
+          viewBox: '0 0 64 48',
+          elements: [{ type: 'path', d: 'M 8 3 L 32 20 L 56 3 L 56 45 L 8 45 Z', fill: 'body', stroke: 'outline' }],
+          palette: { light: { body: '#3366cc' } },
+        },
+      },
+    }
+    return part
   },
 
   /** The set `glut5` waits for a config to name it. */

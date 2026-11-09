@@ -98,6 +98,11 @@ describe('readTemplateFile', () => {
     expect(text).not.toHaveBeenCalled()
   })
 
+  it('names what the file should be when it is too big', async () => {
+    const { errors } = await readTemplateFile({ size: MAX_TEMPLATE_FILE_BYTES + 1 }, { what: 'a glyph library' })
+    expect(errors).toEqual(['The file is too big to be a glyph library (over 1024 KB).'])
+  })
+
   it('reports a file that cannot be read', async () => {
     const file = { size: 10, text: () => Promise.reject(new Error('gone')) }
     expect(await readTemplateFile(file)).toEqual({ raw: undefined, errors: ['The file could not be read: gone'] })

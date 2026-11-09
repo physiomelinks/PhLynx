@@ -10,7 +10,12 @@
   >
     <!-- Turned with its facet, so its outside faces out of the cell -->
     <div class="bio-protein__glyph" :style="{ transform: `rotate(${data.rotation ?? 0}deg)` }">
-      <ProteinGlyph :glyph="data.glyph" :rotation="data.rotation ?? 0" :arrows="data.arrows ?? []" />
+      <ProteinGlyph
+        :glyph="data.glyph"
+        :rotation="data.rotation ?? 0"
+        :arrows="data.arrows ?? []"
+        :halo="selected ? 'selected' : data.coupled ? 'coupled' : null"
+      />
     </div>
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-protein__label">
@@ -66,15 +71,6 @@ const movedFrom = computed(() => {
 .bio-protein__glyph {
   position: absolute;
   inset: 0;
-}
-
-.bio-protein--selected .bio-protein__glyph {
-  filter: drop-shadow(0 0 3px var(--p-primary-color)) drop-shadow(0 0 1px var(--p-primary-color));
-}
-
-/* Coupled to what is selected: a softer glow than its own selection */
-.bio-protein--coupled .bio-protein__glyph {
-  filter: drop-shadow(0 0 4px var(--p-primary-color));
 }
 
 .bio-protein--unplaced .bio-protein__glyph {

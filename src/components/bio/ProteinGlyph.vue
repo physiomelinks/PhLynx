@@ -1,33 +1,78 @@
 <template>
   <!-- Drawn with the outside of the cell up; the membrane runs across the middle -->
-  <svg class="protein-glyph" :class="`protein-glyph--${kind}`" viewBox="0 0 64 48" :data-glyph="kind">
-    <template v-if="kind === 'channel'">
-      <rect class="protein-glyph__body" x="6" y="3" width="22" height="42" rx="9" />
-      <rect class="protein-glyph__body" x="36" y="3" width="22" height="42" rx="9" />
-      <rect class="protein-glyph__pore" x="28" y="3" width="8" height="42" />
-    </template>
-    <template v-else-if="kind === 'uniporter'">
+  <svg
+    class="protein-glyph"
+    :class="`protein-glyph--${entry.id.replace(':', '-')}`"
+    :viewBox="entry.viewBox"
+    :data-glyph="entry.id"
+    :style="paletteStyle"
+  >
+    <!-- A selected or coupled protein's glow: its shapes again, widened, under it. Drawn, not a CSS filter, which
+         Firefox blurs on the CPU on every paint of a pan or zoom. -->
+    <g
+      v-for="(layer, l) in haloLayers"
+      :key="`halo-${l}`"
+      class="protein-glyph__halo"
+      :style="{ opacity: layer.opacity }"
+      data-testid="protein-glyph-halo"
+    >
+      <template v-for="(element, i) in entry.elements" :key="i">
+        <component
+          :is="element.type"
+          v-if="element.type !== 'text'"
+          v-bind="shapeOf(element)"
+          :style="haloPaint(element, layer.width)"
+          :transform="upright(element)"
+        />
+      </template>
+    </g>
+    <template v-for="(element, i) in entry.elements" :key="i">
       <path
-        class="protein-glyph__body"
-        d="M 8 12 Q 8 3 18 3 L 26 3 L 32 16 L 38 3 L 46 3 Q 56 3 56 12 L 56 36 Q 56 45 46 45 L 18 45 Q 8 45 8 36 Z"
+        v-if="element.type === 'path'"
+        :d="element.d"
+        :class="partClass(element)"
+        :style="paint(element)"
+        :transform="upright(element)"
       />
-    </template>
-    <template v-else-if="kind === 'pump'">
-      <rect class="protein-glyph__body" x="4" y="3" width="48" height="42" rx="14" />
-      <!-- ATP bound at the side, on the cell's half, so it reads as driving the pump, not as its cargo -->
-      <circle class="protein-glyph__atp" cx="52" cy="34" r="7.5" />
-      <!-- Kept upright, however the cartoon is turned -->
-      <text class="protein-glyph__atp-label" x="52" y="36.5" :transform="`rotate(${-rotation} 52 34)`">ATP</text>
-    </template>
-    <template v-else>
-      <rect class="protein-glyph__body" x="6" y="3" width="52" height="42" rx="15" />
+      <rect
+        v-else-if="element.type === 'rect'"
+        :x="element.x"
+        :y="element.y"
+        :width="element.width"
+        :height="element.height"
+        :rx="element.rx"
+        :ry="element.ry"
+        :class="partClass(element)"
+        :style="paint(element)"
+        :transform="upright(element)"
+      />
+      <circle
+        v-else-if="element.type === 'circle'"
+        :cx="element.cx"
+        :cy="element.cy"
+        :r="element.r"
+        :class="partClass(element)"
+        :style="paint(element)"
+        :transform="upright(element)"
+      />
+      <!-- Kept upright, however the cartoon is turned, when it says so -->
+      <text
+        v-else
+        :x="element.x"
+        :y="element.y"
+        class="protein-glyph__text"
+        :style="textStyle(element)"
+        :transform="upright(element)"
+      >{{ element.text }}</text>
     </template>
 
-    <!-- What it carries: one arrow per species (named in its label), down into the cell or up out of it, both ways until a run says -->
+    <!-- What it carries: one arrow per species (named in its label), down into the cell or up out of it,
+         both ways until a run says -->
     <g
       v-for="arrow in placedArrows"
       :key="arrow.label"
       class="protein-glyph__arrow"
+      :style="arrowStyle"
       :data-species="arrow.label"
       :data-direction="arrow.direction ?? 'both'"
     >
@@ -45,7 +90,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { GLYPHS } from '../../services/bioView/glyphs'
+import { getGlyph } from '../../services/bioView/glyphs'
 
 const props = defineProps({
   glyph: { type: String, default: 'generic' },
@@ -53,21 +98,80 @@ const props = defineProps({
   rotation: { type: Number, default: 0 },
   /** What it carries: [{ label, direction: 'in'|'out'|null }], null when the way isn't known. */
   arrows: { type: Array, default: () => [] },
+  /** A glow round it: 'selected', 'coupled' (softer) or none. */
+  halo: { type: String, default: null },
 })
 
-const kind = computed(() => (GLYPHS.includes(props.glyph) ? props.glyph : 'generic'))
+const entry = computed(() => getGlyph(props.glyph) ?? getGlyph('generic'))
 
-/** Where each cartoon has room for arrows: across, and from its outside edge to its inside one. */
-const ROOM = {
-  channel: { left: 29, right: 35, top: 6, bottom: 42 },
-  uniporter: { left: 20, right: 44, top: 18, bottom: 41 },
-  pump: { left: 14, right: 40, top: 7, bottom: 41 },
-  generic: { left: 18, right: 46, top: 7, bottom: 41 },
+/** A glyph's own palette, as per-slot variables for light and dark; the stylesheet picks the mode's. */
+const paletteStyle = computed(() => {
+  const style = {}
+  for (const mode of ['light', 'dark']) {
+    for (const [slot, colour] of Object.entries(entry.value.palette?.[mode] ?? {})) {
+      style[`--glyph-${slot}-${mode}`] = colour
+    }
+  }
+  return style
+})
+
+const slotColour = (slot) => (slot === 'none' ? 'none' : `var(--glyph-${slot})`)
+
+/** A shape's fill and stroke, from its colour slots. */
+function paint(element) {
+  const style = { fill: slotColour(element.fill) }
+  if (element.stroke && element.stroke !== 'none') {
+    Object.assign(style, { stroke: slotColour(element.stroke), strokeWidth: element.strokeWidth })
+  }
+  return style
 }
+
+const textStyle = (element) => ({
+  ...paint(element),
+  fontSize: `${element.size}px`,
+  fontWeight: element.weight === 'bold' ? 700 : 400,
+})
+
+/** Named by fill slot, as a modifier, so a shape painted 'arrow' is never taken for one of the arrows. */
+const partClass = (element) =>
+  `protein-glyph__part protein-glyph__part--${element.fill === 'none' ? 'line' : element.fill}`
+
+/** How far each layer of a glow reaches past the shapes, and how strong it is: a wide faint one, a close one. */
+const HALOS = {
+  selected: [
+    { width: 3, opacity: 0.28 },
+    { width: 1.2, opacity: 0.6 },
+  ],
+  coupled: [
+    { width: 5, opacity: 0.22 },
+    { width: 2, opacity: 0.25 },
+  ],
+}
+const haloLayers = computed(() => HALOS[props.halo] ?? [])
+
+/** A shape's geometry, without its paint. */
+function shapeOf(element) {
+  const keys = { path: ['d'], rect: ['x', 'y', 'width', 'height', 'rx', 'ry'], circle: ['cx', 'cy', 'r'] }[element.type]
+  return Object.fromEntries((keys ?? []).map((key) => [key, element[key]]))
+}
+
+/** A shape's glow: filled as it is, and stroked wider by the glow's reach. */
+const haloPaint = (element, reach) => ({
+  fill: element.fill === 'none' ? 'none' : 'var(--p-primary-color)',
+  stroke: 'var(--p-primary-color)',
+  strokeWidth: (element.stroke && element.stroke !== 'none' ? (element.strokeWidth ?? 1) : 0) + 2 * reach,
+  strokeLinejoin: 'round',
+})
+
+/** Turns a shape back by the cartoon's rotation, about its point, so it reads upright. */
+const upright = (element) =>
+  element.upright ? `rotate(${-props.rotation} ${element.upright.x} ${element.upright.y})` : undefined
+
+const arrowStyle = computed(() => ({ '--glyph-arrow-ink': slotColour(entry.value.arrowRoom.colour) }))
 
 // Spread evenly across the room; one alone goes down its middle, as through a channel's pore.
 const placedArrows = computed(() => {
-  const room = ROOM[kind.value] ?? ROOM.generic
+  const room = entry.value.arrowRoom
   const count = props.arrows.length
   return props.arrows.map((arrow, i) => ({
     ...arrow,
@@ -84,55 +188,47 @@ function head(x, y, dir) {
 </script>
 
 <style scoped>
+/* One cartoon palette, whatever the diagram's theme tints the node's card: those tints are pale card
+   backgrounds that the white arrows vanish on. A glyph's own palette overrides a slot per mode. */
 .protein-glyph {
-  /* One cartoon palette, whatever the diagram's theme tints the node's card: those tints are pale card
-     backgrounds that the white arrows vanish on */
-  --protein-fill: var(--p-emerald-500);
+  --glyph-body: var(--glyph-body-light, var(--p-emerald-500));
+  --glyph-outline: var(--glyph-outline-light, color-mix(in srgb, var(--glyph-body) 60%, black));
+  --glyph-pore: var(--glyph-pore-light, color-mix(in srgb, var(--glyph-body) 25%, white));
+  --glyph-accent: var(--glyph-accent-light, var(--p-amber-400));
+  --glyph-accentText: var(--glyph-accentText-light, var(--p-amber-900));
+  --glyph-arrow: var(--glyph-arrow-light, white);
   display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
 }
 
-.protein-glyph__body {
-  fill: var(--protein-fill);
-  stroke: color-mix(in srgb, var(--protein-fill) 60%, black);
-  stroke-width: 2;
-}
-
-.protein-glyph__pore {
-  fill: color-mix(in srgb, var(--protein-fill) 25%, white);
-}
-
-.protein-glyph__atp {
-  fill: var(--p-amber-400);
-  stroke: var(--p-amber-700);
-  stroke-width: 1.5;
-}
-
-.protein-glyph__atp-label {
-  font-size: 6px;
-  font-weight: 700;
+.protein-glyph__text {
   text-anchor: middle;
-  fill: var(--p-amber-900);
 }
 
 .protein-glyph__arrow line {
-  stroke: white;
+  stroke: var(--glyph-arrow-ink);
   stroke-width: 2.5;
   stroke-linecap: round;
 }
 
 .protein-glyph__arrow polygon {
-  fill: white;
+  fill: var(--glyph-arrow-ink);
 }
+</style>
 
-/* Through the pale pore, where white would vanish */
-.protein-glyph--channel .protein-glyph__arrow line {
-  stroke: color-mix(in srgb, var(--protein-fill) 60%, black);
-}
-
-.protein-glyph--channel .protein-glyph__arrow polygon {
-  fill: color-mix(in srgb, var(--protein-fill) 60%, black);
+<style>
+/* Dark mode: a glyph's dark palette, else its light one, else the same cartoon colours */
+.p-dark .protein-glyph {
+  --glyph-body: var(--glyph-body-dark, var(--glyph-body-light, var(--p-emerald-500)));
+  --glyph-outline: var(
+    --glyph-outline-dark,
+    var(--glyph-outline-light, color-mix(in srgb, var(--glyph-body) 60%, black))
+  );
+  --glyph-pore: var(--glyph-pore-dark, var(--glyph-pore-light, color-mix(in srgb, var(--glyph-body) 25%, white)));
+  --glyph-accent: var(--glyph-accent-dark, var(--glyph-accent-light, var(--p-amber-400)));
+  --glyph-accentText: var(--glyph-accentText-dark, var(--glyph-accentText-light, var(--p-amber-900)));
+  --glyph-arrow: var(--glyph-arrow-dark, var(--glyph-arrow-light, white));
 }
 </style>

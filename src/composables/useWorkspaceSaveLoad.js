@@ -2,6 +2,7 @@ import { useGtm } from './useGtm'
 import { useClearWorkspace } from './useClearWorkspace'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
+import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -50,6 +51,7 @@ export function useWorkspaceSaveLoad({
   const omexStore = useOmexStore()
   const defaultParametersStore = useDefaultParametersStore()
   const bioTemplateStore = useBioTemplateStore()
+  const glyphLibraryStore = useGlyphLibraryStore()
   const { trackEvent } = useGtm()
   const historyStore = useFlowHistoryStore()
 
@@ -108,6 +110,7 @@ export function useWorkspaceSaveLoad({
       omex: omexStore,
       parameters: defaultParametersStore,
       bioTemplates: bioTemplateStore,
+      bioGlyphs: glyphLibraryStore,
     })
 
     const jsonString = JSON.stringify(saveState, null, 2)
@@ -181,6 +184,7 @@ export function useWorkspaceSaveLoad({
       omexStore.loadState(migratedState.workspace)
       defaultParametersStore.loadState(migratedState.parameters)
       bioTemplateStore.loadState(migratedState.bioTemplates)
+      glyphLibraryStore.loadState(migratedState.bioGlyphs)
       // A loaded workspace is as saved as its file.
       historyStore.markSaved()
 

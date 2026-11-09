@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { buildWorkspaceFile } from '../../../src/services/workspaceFile.js'
 import { migrateWorkspace } from '../../../src/services/workspaceMigrator.js'
 import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
+import { useGlyphLibraryStore } from '../../../src/stores/glyphLibraryStore.js'
 import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
@@ -23,6 +24,7 @@ export function loadAndSave(doc) {
   const omex = useOmexStore()
   const parameters = useDefaultParametersStore()
   const bioTemplates = useBioTemplateStore()
+  const bioGlyphs = useGlyphLibraryStore()
 
   const migrated = migrateWorkspace(doc)
   library.loadState(migrated.store)
@@ -31,7 +33,9 @@ export function loadAndSave(doc) {
   omex.loadState(migrated.workspace)
   parameters.loadState(migrated.parameters)
   bioTemplates.loadState(migrated.bioTemplates)
+  bioGlyphs.loadState(migrated.bioGlyphs)
 
-  const file = buildWorkspaceFile({ flow: migrated.flow, library, simulation, inspectionModules, omex, parameters, bioTemplates })
+  const sources = { library, simulation, inspectionModules, omex, parameters, bioTemplates, bioGlyphs }
+  const file = buildWorkspaceFile({ flow: migrated.flow, ...sources })
   return JSON.parse(JSON.stringify(file))
 }

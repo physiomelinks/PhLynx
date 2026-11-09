@@ -8,7 +8,7 @@ import BioMembrane from '../../../../src/components/bio/BioMembrane.vue'
 import BioProtein from '../../../../src/components/bio/BioProtein.vue'
 import ProteinGlyph from '../../../../src/components/bio/ProteinGlyph.vue'
 import { MEMBRANE_BAND_HALF } from '../../../../src/services/bioView/geometry.js'
-import { GLYPHS } from '../../../../src/services/bioView/glyphs.js'
+import { GLYPHS, setLoadedGlyphs } from '../../../../src/services/bioView/glyphs.js'
 import { useNodeThemeStore } from '../../../../src/stores/nodeThemeStore.js'
 
 describe('physiological view artwork', () => {
@@ -17,7 +17,7 @@ describe('physiological view artwork', () => {
   it.each(GLYPHS)('draws the %s cartoon', (glyph) => {
     const svg = mount(ProteinGlyph, { props: { glyph } }).find('svg')
     expect(svg.attributes('data-glyph')).toBe(glyph)
-    expect(svg.findAll('.protein-glyph__body').length).toBeGreaterThan(0)
+    expect(svg.findAll('.protein-glyph__part--body').length).toBeGreaterThan(0)
   })
 
   it('draws a cartoon it doesn’t know as a generic protein', () => {
@@ -40,7 +40,40 @@ describe('physiological view artwork', () => {
     // Spread across the body.
     const xs = drawn.map((a) => Number(a.find('line').attributes('x1')))
     expect(new Set(xs).size).toBe(3)
-    expect(glyph.find('.protein-glyph__atp-label').attributes('transform')).toBe('rotate(-180 52 34)')
+    expect(glyph.find('text').text()).toBe('ATP')
+    expect(glyph.find('text').attributes('transform')).toBe('rotate(-180 52 34)')
+  })
+
+  it('keeps arrows clear of a receptor’s binding cleft, and anchors its outside face in the cleft', () => {
+    const receptor = mount(ProteinGlyph, { props: { glyph: 'receptor', arrows: [{ label: 'L', direction: 'in' }] } })
+    expect(receptor.find('.protein-glyph__arrow line').attributes('y1')).toBe('18')
+    expect(receptor.find('path').attributes('d')).toContain('L 32 15')
+  })
+
+  it('draws a loaded glyph with its own palette for light and dark', () => {
+    setLoadedGlyphs([
+      {
+        id: 'local:cup',
+        name: 'Cup',
+        viewBox: '0 0 64 48',
+        elements: [
+          { type: 'circle', cx: 32, cy: 24, r: 20, fill: 'body', stroke: 'none' },
+          { type: 'rect', x: 30, y: 2, width: 4, height: 4, fill: 'arrow' },
+        ],
+        arrowRoom: { left: 20, right: 44, top: 8, bottom: 40, colour: 'outline' },
+        palette: { light: { body: '#3366cc' }, dark: { body: '#99bbff' } },
+      },
+    ])
+    const svg = mount(ProteinGlyph, { props: { glyph: 'local:cup', arrows: [{ label: 'X', direction: null }] } }).find('svg')
+    expect(svg.attributes('data-glyph')).toBe('local:cup')
+    expect(svg.attributes('style')).toContain('--glyph-body-light: #3366cc')
+    expect(svg.attributes('style')).toContain('--glyph-body-dark: #99bbff')
+    expect(svg.find('circle').attributes('style')).toContain('fill: var(--glyph-body)')
+    expect(svg.find('.protein-glyph__arrow').attributes('style')).toContain('--glyph-arrow-ink: var(--glyph-outline)')
+    // A shape painted with the arrow slot is not one of the arrows.
+    expect(svg.findAll('.protein-glyph__arrow').map((a) => a.attributes('data-species'))).toEqual(['X'])
+    setLoadedGlyphs([])
+    expect(mount(ProteinGlyph, { props: { glyph: 'local:cup' } }).find('svg').attributes('data-glyph')).toBe('generic')
   })
 
   it('names what a protein carries under its name, in the order its arrows show', () => {
@@ -133,5 +166,17 @@ describe('physiological view artwork', () => {
     expect(corners[0].attributes('d')).toMatch(/^M -7 40 A 47 47 /)
     expect(corners[1].attributes('d')).toMatch(/^M 7 40 A 33 33 /)
     expect(cell.find('.bio-bilayer__tails').exists()).toBe(true)
+  })
+
+  it('glows a selected or coupled protein with its own shapes, not a filter', () => {
+    const halo = (props) => mount(ProteinGlyph, { props: { glyph: 'pump', ...props } }).findAll('.protein-glyph__halo')
+    expect(halo({})).toHaveLength(0)
+    const selected = halo({ halo: 'selected' })
+    expect(selected).toHaveLength(2)
+    expect(selected[0].findAll('path, rect, circle').length).toBeGreaterThan(0)
+    expect(selected[0].find('text').exists()).toBe(false)
+    expect(halo({ halo: 'coupled' })).toHaveLength(2)
+    const protein = mount(BioProtein, { props: { data: { name: 'p', glyph: 'pump' }, selected: true } })
+    expect(protein.findAll('.protein-glyph__halo').length).toBeGreaterThan(0)
   })
 })

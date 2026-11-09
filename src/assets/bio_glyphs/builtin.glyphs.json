@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "id": "builtin",
+  "name": "PhLynx cartoons",
+  "author": "PhLynx",
+  "license": "Apache-2.0",
+  "glyphs": [
+    {
+      "id": "symporter",
+      "name": "Symporter",
+      "sbo": "SBO:0000284",
+      "goFunctions": ["GO:0005412"],
+      "elements": [
+        {
+          "type": "path",
+          "d": "M 18 3 L 46 3 Q 57 3 57 13 Q 57 19 54 24 Q 57 29 57 35 Q 57 45 46 45 L 18 45 Q 7 45 7 35 Q 7 29 10 24 Q 7 19 7 13 Q 7 3 18 3 Z",
+          "fill": "body",
+          "stroke": "outline"
+        }
+      ],
+      "arrowRoom": { "left": 19, "right": 45, "top": 7, "bottom": 41 }
+    },
+    {
+      "id": "antiporter",
+      "name": "Antiporter",
+      "sbo": "SBO:0000284",
+      "elements": [
+        {
+          "type": "path",
+          "d": "M 18 3 L 46 3 Q 57 3 57 13 Q 57 19 54 24 Q 57 29 57 35 Q 57 45 46 45 L 18 45 Q 7 45 7 35 Q 7 29 10 24 Q 7 19 7 13 Q 7 3 18 3 Z",
+          "fill": "body",
+          "stroke": "outline"
+        }
+      ],
+      "arrowRoom": { "left": 19, "right": 45, "top": 7, "bottom": 41 }
+    },
+    {
+      "id": "uniporter",
+      "name": "Uniporter",
+      "sbo": "SBO:0000284",
+      "goFunctions": ["GO:0055056"],
+      "elements": [
+        {
+          "type": "path",
+          "d": "M 18 3 L 46 3 Q 57 3 57 13 Q 57 19 54 24 Q 57 29 57 35 Q 57 45 46 45 L 18 45 Q 7 45 7 35 Q 7 29 10 24 Q 7 19 7 13 Q 7 3 18 3 Z",
+          "fill": "body",
+          "stroke": "outline"
+        }
+      ],
+      "arrowRoom": { "left": 19, "right": 45, "top": 7, "bottom": 41 }
+    },
+    {
+      "id": "pump",
+      "name": "Pump",
+      "sbo": "SBO:0000284",
+      "goFunctions": ["GO:0005391"],
+      "elements": [
+        { "type": "rect", "x": 4, "y": 3, "width": 48, "height": 42, "rx": 14, "fill": "body", "stroke": "outline" },
+        { "type": "circle", "cx": 52, "cy": 34, "r": 7.5, "fill": "accent", "stroke": "accentText", "strokeWidth": 1.5 },
+        {
+          "type": "text",
+          "x": 52,
+          "y": 36.5,
+          "text": "ATP",
+          "size": 6,
+          "weight": "bold",
+          "fill": "accentText",
+          "upright": { "x": 52, "y": 34 }
+        }
+      ],
+      "arrowRoom": { "left": 14, "right": 40, "top": 7, "bottom": 41 }
+    },
+    {
+      "id": "channel",
+      "name": "Channel",
+      "sbo": "SBO:0000284",
+      "goFunctions": ["GO:0005242"],
+      "elements": [
+        { "type": "rect", "x": 6, "y": 3, "width": 22, "height": 42, "rx": 9, "fill": "body", "stroke": "outline" },
+        { "type": "rect", "x": 36, "y": 3, "width": 22, "height": 42, "rx": 9, "fill": "body", "stroke": "outline" },
+        { "type": "rect", "x": 28, "y": 3, "width": 8, "height": 42, "fill": "pore" }
+      ],
+      "arrowRoom": { "left": 29, "right": 35, "top": 6, "bottom": 42, "colour": "outline" }
+    },
+    {
+      "id": "receptor",
+      "name": "Receptor",
+      "sbo": "SBO:0000244",
+      "elements": [
+        {
+          "type": "path",
+          "d": "M 8 12 Q 8 3 18 3 L 24 3 L 32 15 L 40 3 L 46 3 Q 56 3 56 12 L 56 36 Q 56 45 46 45 L 18 45 Q 8 45 8 36 Z",
+          "fill": "body",
+          "stroke": "outline"
+        }
+      ],
+      "arrowRoom": { "left": 20, "right": 44, "top": 18, "bottom": 41 },
+      "faces": { "outside": { "x": 32, "y": 15 } }
+    },
+    {
+      "id": "generic",
+      "name": "Generic",
+      "elements": [
+        { "type": "rect", "x": 6, "y": 3, "width": 52, "height": 42, "rx": 15, "fill": "body", "stroke": "outline" }
+      ],
+      "arrowRoom": { "left": 18, "right": 46, "top": 7, "bottom": 41 }
+    }
+  ]
+}
