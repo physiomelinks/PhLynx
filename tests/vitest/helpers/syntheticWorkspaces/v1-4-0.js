@@ -1,9 +1,11 @@
 /**
  * A synthetic workspace at format 1.4.0. The workspace holds the default parameter sets imported for each math,
- * keyed `mathRef:paramRef`, and those waiting for a config to name them, and each math's side-car of annotations.
+ * keyed `mathRef:paramRef`, and those waiting for a config to name them, each math's side-car of annotations, and
+ * the ports and couplings those annotations give.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
+import { edge, mergeParts } from './builders.js'
 import { separatedDecayNode } from './v1-1-0.js'
 
 export const version = '1.4.0'
@@ -78,6 +80,35 @@ export const cases = {
       [mathRef, '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n<#x> bqbiol:is <https://identifiers.org/CHEBI:17234> .\n'],
     ]
     return part
+  },
+
+  /**
+   * Nodes `pool_a` and `pool_b` have a port their side-car's annotation of x gives, coupled through it, and
+   * `pool_b`'s summed flows are held at 0.
+   */
+  annotatedPorts: () => {
+    const [a, b] = ['pool_a', 'pool_b'].map(separatedDecayNode)
+    const port = (name) => ({
+      portType: 'general_ports',
+      label: '',
+      variables: ['x'],
+      multiportType: 'Sum',
+      annotation: {
+        subject: `decay_modules.cellml#${name}.x`,
+        contribution: 0,
+        variable: 'x',
+        property: 'OPB:00340',
+        species: ['CHEBI:29101'],
+        location: 'GO:0005737',
+        role: 'reader',
+        source: { kind: 'sidecar', mathRef: `decay_modules.cellml:${name}` },
+      },
+    })
+    a.flow.nodes[0].data.ports = [port('pool_a')]
+    b.flow.nodes[0].data.ports = [port('pool_b')]
+    b.flow.nodes[0].data.annotationOverlay = { heldConstant: true }
+    const coupled = { flow: { edges: [edge('pool_a', 'pool_b', [{ sourcePort: port('pool_a'), targetPort: port('pool_b') }])] } }
+    return mergeParts(a, b, coupled)
   },
 
   /** The set `glut5` waits for a config to name it. */

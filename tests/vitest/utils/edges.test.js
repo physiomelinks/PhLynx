@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
-import { carryDrivesState, edgeOrdinals, previewCouplings, resolvePortCouplings } from '../../../src/utils/edges.js'
+import {
+  buildUsedPortKeys,
+  carryDrivesState,
+  checkAndClaimCouplings,
+  comparableCouplings,
+  edgeOrdinals,
+  previewCouplings,
+  resolvePortCouplings,
+} from '../../../src/utils/edges.js'
 
 const port = (label, portType, variables) => ({ label, portType, variables, multiportType: 'None' })
 const node = (id, ports) => ({ id, data: { name: id, ports } })
-const edge = (id, source, target) => ({ id, source, target, data: { couplings: [] } })
+const edge = (id, source, target, couplings = []) => ({ id, source, target, data: { couplings } })
+const annotated = (subject, variables, multiportType = 'None') => ({
+  portType: 'general_ports',
+  label: '',
+  variables,
+  multiportType,
+  annotation: { subject, variable: variables[0], role: 'reader', source: { kind: 'sidecar' } },
+})
 
 describe('previewCouplings', () => {
   it('couples the given ports for the node, and the canvas ports for the other end', () => {
@@ -134,3 +149,100 @@ describe('carryDrivesState', () => {
     expect(carryDrivesState([coupling('X', 'q')], next)).toBe(next)
   })
 })
+
+describe('annotated ports', () => {
+  const sodium = annotated('m#s.v_Na_i', ['v_Na_i'])
+  const glucose = annotated('m#s.v_Glc_i', ['v_Glc_i'])
+  const owner = annotated('m#c.v_Na', ['v_Na'], 'Sum')
+
+  it('are never coupled by label, even with equal empty labels', () => {
+    expect(resolvePortCouplings([sodium, glucose], [owner])).toEqual([])
+  })
+
+  it('keep their couplings through a preview while both ports remain, and hide the manual ports from matching', () => {
+    const label = [port('p', 'exit_ports', ['x']), port('p', 'entrance_ports', ['y'])]
+    const nodes = [node('s', [sodium, glucose, label[0]]), node('c', [owner, label[1]])]
+    const edges = [edge('e', 's', 'c', [{ sourcePort: { ...sodium }, targetPort: { ...owner } }])]
+
+    expect(previewCouplings('s', nodes[0].data.ports, nodes, edges).get('e')).toEqual([
+      { sourcePort: sodium, targetPort: owner },
+    ])
+    expect(previewCouplings('s', [glucose, label[0]], nodes, edges).get('e')).toEqual([])
+  })
+
+  it('keep a stored coupling through a hidden manual port, so it still generates', () => {
+    const label = [port('p', 'exit_ports', ['x']), port('p', 'entrance_ports', ['y'])]
+    const nodes = [node('s', [sodium, label[0]]), node('c', [owner, label[1]])]
+    const stored = [
+      { sourcePort: { ...label[0] }, targetPort: { ...label[1] } },
+      { sourcePort: { ...sodium }, targetPort: { ...owner } },
+    ]
+    const edges = [edge('e', 's', 'c', stored)]
+    expect(previewCouplings('s', nodes[0].data.ports, nodes, edges).get('e')).toEqual([
+      { sourcePort: label[0], targetPort: label[1] },
+      { sourcePort: sodium, targetPort: owner },
+    ])
+    // Gone once its manual port is deleted.
+    expect(previewCouplings('s', [sodium], nodes, edges).get('e')).toEqual([{ sourcePort: sodium, targetPort: owner }])
+  })
+
+  it('match labels only where neither node has annotated ports', () => {
+    const label = [port('p', 'exit_ports', ['x']), port('p', 'entrance_ports', ['y'])]
+    expect(resolvePortCouplings([label[0]], [label[1]])).toEqual([{ sourcePort: label[0], targetPort: label[1] }])
+    expect(resolvePortCouplings([sodium, label[0]], [label[1]])).toEqual([])
+    expect(resolvePortCouplings([label[0]], [owner, label[1]])).toEqual([])
+  })
+
+  it('keep a coupling after the port’s variable changes', () => {
+    const picked = annotated('m#s.v_Na_i', ['v_Na_total'])
+    const nodes = [node('s', [picked]), node('c', [owner])]
+    const edges = [edge('e', 's', 'c', [{ sourcePort: sodium, targetPort: owner }])]
+    expect(previewCouplings('s', [picked], nodes, edges).get('e')).toEqual([{ sourcePort: picked, targetPort: owner }])
+  })
+
+  it('keep a kept coupling’s drivesState mark', () => {
+    const nodes = [node('s', [sodium]), node('c', [owner])]
+    const edges = [edge('e', 's', 'c', [{ sourcePort: sodium, targetPort: owner, drivesState: true }])]
+    expect(previewCouplings('s', [sodium], nodes, edges).get('e')).toEqual([
+      { sourcePort: sodium, targetPort: owner, drivesState: true },
+    ])
+  })
+
+  it('claim single connections by identity, naming the port by its variables', () => {
+    const used = buildUsedPortKeys([edge('e', 's', 'c', [{ sourcePort: sodium, targetPort: owner }])])
+    const free = checkAndClaimCouplings('s', 'd', [{ sourcePort: glucose, targetPort: owner }], new Set(used))
+    expect(free.valid).toBe(true)
+    const clash = checkAndClaimCouplings('s', 'd', [{ sourcePort: sodium, targetPort: owner }], new Set(used))
+    expect(clash.valid).toBe(false)
+    expect(clash.conflicts[0]).toContain('"v_Na_i" (general_ports) on "s"')
+  })
+})
+
+describe('comparableCouplings', () => {
+  const coupling = (sourcePort, targetPort, extra = {}) => ({ sourcePort, targetPort, ...extra })
+
+  it('ignores dialog uids, editor fields and order', () => {
+    const a = coupling(port('p', 'exit_ports', ['x']), port('p', 'entrance_ports', ['y']))
+    const b = coupling(port('q', 'general_ports', ['u']), port('q', 'general_ports', ['v']))
+    const stamped = [
+      coupling({ ...b.sourcePort, _uid: 's1', multiplyFactor: 1 }, { ...b.targetPort, _uid: 't1' }),
+      coupling({ ...a.sourcePort, _uid: 's0' }, { ...a.targetPort, _uid: 't0' }),
+    ]
+    expect(comparableCouplings(stamped)).toEqual(comparableCouplings([a, b]))
+  })
+
+  it('tells apart other variables, labels, annotation subjects and drivesState marks', () => {
+    const base = coupling(port('p', 'exit_ports', ['x']), port('p', 'entrance_ports', ['y']))
+    const differ = (other) => expect(comparableCouplings([other])).not.toEqual(comparableCouplings([base]))
+    differ(coupling(port('p', 'exit_ports', ['z']), base.targetPort))
+    differ(coupling(port('r', 'exit_ports', ['x']), base.targetPort))
+    differ({ ...base, drivesState: true })
+    expect(comparableCouplings([coupling(annotated('m#a', ['x']), owner())])).not.toEqual(
+      comparableCouplings([coupling(annotated('m#b', ['x']), owner())])
+    )
+  })
+})
+
+function owner() {
+  return annotated('m#c.v', ['v'], 'Sum')
+}

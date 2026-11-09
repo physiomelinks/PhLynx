@@ -1,17 +1,39 @@
 import { ref, computed } from 'vue'
 import { TARGET_COMPATIBLE } from '../utils/constants'
 import { detachReactivity } from '../utils/reactivity'
-import { isSingleConnection, resolvePortCouplings } from '../utils/edges'
-import { isCompatible, findPort } from '../utils/ports'
+import { carryDrivesState, comparableCouplings, isSingleConnection, resolvePortCouplings } from '../utils/edges'
+import {
+  canCouple,
+  findPort,
+  isAnnotatedPort,
+  isCompatible,
+  isHiddenPort,
+  portDisplayName,
+  portRef,
+  samePort,
+} from '../utils/ports'
+import { notify } from '../utils/notify'
 import { isMultiport } from '../utils/multiport'
+import { mirrorAnnotation, mirroredPort } from '../services/annotations/couple'
 
-export function useEdgeCouplings(props, askSwapIntent) {
+/**
+ * The edge dialog's local ports and couplings.
+ *
+ * @param {Object} props - sourceNode, targetNode, activeEdge, subgraph and ordinals.
+ * @param {Function} askSwapIntent
+ * @param {Object} [options]
+ * @param {() => Object|undefined} [options.getContext] - The annotation context (see useCouplingContext); without
+ *   one, annotated ports never couple.
+ */
+export function useEdgeCouplings(props, askSwapIntent, { getContext = () => undefined } = {}) {
   const localSrcPorts = ref([])
   const localTgtPorts = ref([])
   const localCouplings = ref([])
   const localSubgraph = ref(new Map())
   const portUsage = new Map()
   const takenElsewhereUids = ref(new Set())
+  /** The payload as the dialog opened, couplings derived (see comparablePayload). */
+  let openedPayload = null
 
   // Fast lookup Map to avoid sequential linear lookups
   const portLookup = computed(() => {
@@ -24,8 +46,33 @@ export function useEdgeCouplings(props, askSwapIntent) {
   const srcByUid = (uid) => portLookup.value.get(uid)?.port
   const tgtByUid = (uid) => portLookup.value.get(uid)?.port
 
+  /** Whether a port is a manual one its side's annotated ports hide: kept, but never newly connected. */
+  const isHidden = (port) => {
+    const side = portLookup.value.get(port?._uid)?.side
+    return !!side && isHiddenPort(port, side === 'source' ? localSrcPorts.value : localTgtPorts.value)
+  }
+
+  /** Whether a new connection may join a source port to a target port. */
+  const canConnect = (sp, tp) =>
+    !isHidden(sp) && !isHidden(tp) && canCouple(sp, props.sourceNode, tp, props.targetNode, getContext())
+
+  /**
+   * Whether a coupling may stay. One with an annotated port is kept while its port types fit, since only its
+   * annotations, not its labels, made it; so is one through a hidden manual port while its labels still match.
+   */
+  const canKeep = (sp, tp) =>
+    !!sp &&
+    !!tp &&
+    isCompatible(sp.portType, tp.portType) &&
+    (isAnnotatedPort(sp) || isAnnotatedPort(tp) || canCouple(sp, props.sourceNode, tp, props.targetNode))
+
   const connectedSrcUids = computed(() => new Set(localCouplings.value.map(c => c.srcUid)))
   const connectedTgtUids = computed(() => new Set(localCouplings.value.map(c => c.tgtUid)))
+
+  /** The ports a side lists: its active ones (see activePorts), and the hidden ones a coupling still uses. */
+  const shownPorts = (ports, connected) => ports.filter((port) => !isHidden(port) || connected.has(port._uid))
+  const visibleSrcPorts = computed(() => shownPorts(localSrcPorts.value, connectedSrcUids.value))
+  const visibleTgtPorts = computed(() => shownPorts(localTgtPorts.value, connectedTgtUids.value))
 
   function stampUids(nodeId, labels) {
     return (labels || []).map((p) => ({
@@ -90,12 +137,14 @@ export function useEdgeCouplings(props, askSwapIntent) {
 
     indexSiblingPorts()
     deriveCouplings()
+    openedPayload = comparablePayload(buildPayload())
   }
 
   /**
    * Sets the edge's couplings to those its ports give (see resolvePortCouplings), the same as save and export
    * apply: the single-connection slots its couplings here name are kept, and those other edges hold are passed by.
-   * Call it after any change to the ports or the couplings.
+   * Couplings with an annotated port, or through a hidden manual port, are kept while they still fit (see
+   * canKeep), as labels can't recreate them. Call it after any change to the ports or the couplings.
    */
   function deriveCouplings() {
     const { sourceIndex = 0, targetIndex = 0 } = props.ordinals ?? {}
@@ -105,10 +154,67 @@ export function useEdgeCouplings(props, askSwapIntent) {
     const held = new Set(
       [...localSrcPorts.value, ...localTgtPorts.value].filter((port) => takenElsewhereUids.value.has(port._uid))
     )
-    localCouplings.value = resolvePortCouplings(localSrcPorts.value, localTgtPorts.value, sourceIndex, targetIndex, {
+    const resolved = resolvePortCouplings(localSrcPorts.value, localTgtPorts.value, sourceIndex, targetIndex, {
       stored,
       held,
-    }).map(({ sourcePort, targetPort }) => ({ srcUid: sourcePort._uid, tgtUid: targetPort._uid }))
+    })
+    const kept = stored.filter(
+      ({ sourcePort, targetPort }) =>
+        (isAnnotatedPort(sourcePort) || isAnnotatedPort(targetPort) || isHidden(sourcePort) || isHidden(targetPort)) &&
+        canKeep(sourcePort, targetPort)
+    )
+    localCouplings.value = [...resolved, ...kept].map(({ sourcePort, targetPort }) => ({
+      srcUid: sourcePort._uid,
+      tgtUid: targetPort._uid,
+    }))
+  }
+
+  /**
+   * The dialog's result: both nodes' ports, the edge's couplings and any sibling edges' changed couplings.
+   *
+   * @returns {{ sourceNodeId: string, targetNodeId: string, sourcePorts: Array, targetPorts: Array,
+   *   couplings: Array, foreignCouplings: Object<string, Array> }}
+   */
+  function buildPayload() {
+    const foreignCouplings = {}
+    const activeEdgeId = props.activeEdge?.id
+    for (const [edgeId, localEdge] of localSubgraph.value) {
+      if (edgeId === activeEdgeId) continue
+      const originalCouplings = props.subgraph?.get(edgeId)?.data?.couplings || []
+      const localCouplingsArr = localEdge?.data?.couplings || []
+      if (JSON.stringify(originalCouplings) !== JSON.stringify(localCouplingsArr)) {
+        foreignCouplings[edgeId] = localCouplingsArr
+      }
+    }
+
+    const couplings = localCouplings.value.map((c) => {
+      const sp = srcByUid(c.srcUid)
+      const tp = tgtByUid(c.tgtUid)
+      return { sourcePort: { _uid: sp._uid, ...portRef(sp) }, targetPort: { _uid: tp._uid, ...portRef(tp) } }
+    })
+
+    return {
+      sourceNodeId: props.sourceNode.id,
+      targetNodeId: props.targetNode.id,
+      sourcePorts: detachReactivity(localSrcPorts.value),
+      targetPorts: detachReactivity(localTgtPorts.value),
+      // A coupling already set to drive a store keeps doing so.
+      couplings: carryDrivesState(props.activeEdge?.data?.couplings ?? [], couplings),
+      foreignCouplings,
+    }
+  }
+
+  /** Whether a payload leaves everything as the dialog opened, ports, couplings and siblings alike. */
+  const isUnchanged = (payload) => openedPayload !== null && comparablePayload(payload) === openedPayload
+
+  /**
+   * Whether the couplings the edge stores differ from those derived when the dialog opened, e.g. from an older
+   * save or ports whose variables changed since.
+   */
+  function storedDiffers() {
+    if (openedPayload === null) return false
+    const stored = props.activeEdge?.data?.couplings ?? []
+    return JSON.stringify(comparableCouplings(stored)) !== JSON.parse(openedPayload).couplings
   }
 
   function evictForeignHandle(port, side) {
@@ -119,12 +225,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     const sibling = localSubgraph.value.get(edgeId)
     if (!sibling) return null
 
-    const coupling = sibling.data?.couplings?.find(c => {
-      const portToCheck = side === 'source' ? c.sourcePort : c.targetPort
-      return portToCheck?.label === port.label &&
-             portToCheck?.portType === port.portType &&
-             JSON.stringify(portToCheck?.variables) === JSON.stringify(port.variables)
-    })
+    const coupling = sibling.data?.couplings?.find(c => samePort(side === 'source' ? c.sourcePort : c.targetPort, port))
 
     const partnerPortLabel = side === 'source' ? coupling?.targetPort : coupling?.sourcePort
     const partnerPort = side === 'source'
@@ -196,13 +297,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
     const sibling = localSubgraph.value.get(edgeId)
     if (!sibling) return
 
-    const newPort = {
-      label: oldPort.label,
-      portType: oldPort.portType,
-      variables: oldPort.variables,
-      multiportType: oldPort.multiportType,
-      multiplyFactor: oldPort.multiplyFactor,
-    }
+    const newPort = portRef(oldPort)
 
     const newCoupling = side === 'source'
       ? { sourcePort: newPort, targetPort: partnerPort }
@@ -219,9 +314,7 @@ export function useEdgeCouplings(props, askSwapIntent) {
   function connectPorts(srcUid, tgtUid, couplings) {
     const sp = srcByUid(srcUid)
     const tp = tgtByUid(tgtUid)
-    if (!sp || !tp || !sp.label || !tp.label) return couplings
-    if (sp.label !== tp.label) return couplings
-    if (!isCompatible(sp.portType, tp.portType)) return couplings
+    if (!canConnect(sp, tp)) return couplings
     if (couplings.some(c => c.srcUid === srcUid && c.tgtUid === tgtUid)) return couplings
     return [...couplings, { srcUid, tgtUid }]
   }
@@ -235,6 +328,14 @@ export function useEdgeCouplings(props, askSwapIntent) {
     deriveCouplings()
   }
 
+  /**
+   * Adds a new port on one side, shaped to couple with a partner port on the other. A copy of an annotated
+   * partner mirrors its annotation (see mirrorAnnotation), with no label and its variable left to pick.
+   *
+   * @param {'source'|'target'} side
+   * @param {Object} [inferFrom] - The partner port.
+   * @returns {Object|null} The new port, or null when none could be made.
+   */
   function activateGhost(side, inferFrom = null) {
     const uid = `new_${side}_${crypto.randomUUID()}`
     let portType = 'general_ports'
@@ -244,23 +345,44 @@ export function useEdgeCouplings(props, askSwapIntent) {
     } else if (side === 'source') {
       portType = inferFrom?.portType === 'entrance_ports' ? 'exit_ports' : 'general_ports'
     } else {
-      return
+      return null
     }
 
-    const entry = {
-      _uid: uid,
-      portType,
-      label: inferFrom?.label ?? '',
-      variables: [],           
-      // Multiport like its partner, its variables True until chosen: the partner's per-variable types don't fit.
-      multiportType: inferFrom && isMultiport(inferFrom) ? 'True' : 'None',
+    const [node, ports, partnerNode] =
+      side === 'source'
+        ? [props.sourceNode, localSrcPorts.value, props.targetNode]
+        : [props.targetNode, localTgtPorts.value, props.sourceNode]
+    const annotation = isAnnotatedPort(inferFrom)
+      ? mirrorAnnotation(inferFrom, partnerNode, node, getContext(), ports)
+      : null
+    // Before the partner has a place (its side-car still parsing, or it is not placed) a copy would have no place
+    // to couple at, ever, so none is made.
+    if (isAnnotatedPort(inferFrom) && !annotation?.location && !annotation?.absoluteLocation) {
+      notify.warning({ message: `"${portDisplayName(inferFrom)}" has no place yet, so it can't be copied.` })
+      return null
     }
+    // A manual port would be hidden at once by the node's annotated ports, and could never connect.
+    if (!annotation && ports.some(isAnnotatedPort)) {
+      notify.warning({ message: `${node.data?.name ?? 'This instance'} connects only through its annotation ports.` })
+      return null
+    }
+    const entry = annotation
+      ? { _uid: uid, ...mirroredPort(annotation, portType) }
+      : {
+          _uid: uid,
+          portType,
+          label: inferFrom?.label ?? '',
+          variables: [],
+          // Multiport like its partner, its variables True until chosen: the partner's per-variable types don't fit.
+          multiportType: inferFrom && isMultiport(inferFrom) ? 'True' : 'None',
+        }
 
     if (side === 'source') {
       localSrcPorts.value.push(entry)
     } else {
       localTgtPorts.value.push(entry)
     }
+    return entry
   }
 
   function onPortConfigChange() {
@@ -270,6 +392,9 @@ export function useEdgeCouplings(props, askSwapIntent) {
   return {
     localSrcPorts,
     localTgtPorts,
+    visibleSrcPorts,
+    visibleTgtPorts,
+    isHidden,
     localCouplings,
     localSubgraph,
     takenElsewhereUids,
@@ -283,8 +408,33 @@ export function useEdgeCouplings(props, askSwapIntent) {
     evictHandle,
     swapConnections,
     connectPorts,
+    canConnect,
+    canKeep,
     deletePort,
     activateGhost,
     onPortConfigChange,
+    buildPayload,
+    isUnchanged,
+    storedDiffers,
   }
+}
+
+const withoutUid = (ports) => (ports ?? []).map(({ _uid, ...port }) => port)
+
+/**
+ * A payload as text for comparing: ports without their dialog uids, and couplings as comparableCouplings gives.
+ *
+ * @param {Object} payload - From buildPayload.
+ * @returns {string}
+ */
+function comparablePayload(payload) {
+  const foreign = Object.entries(payload.foreignCouplings ?? {})
+    .map(([edgeId, couplings]) => [edgeId, comparableCouplings(couplings)])
+    .sort(([a], [b]) => a.localeCompare(b))
+  return JSON.stringify({
+    sourcePorts: JSON.stringify(withoutUid(payload.sourcePorts)),
+    targetPorts: JSON.stringify(withoutUid(payload.targetPorts)),
+    couplings: JSON.stringify(comparableCouplings(payload.couplings)),
+    foreign: JSON.stringify(foreign),
+  })
 }

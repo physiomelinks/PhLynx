@@ -168,6 +168,12 @@ describe('resolveBoundaryValues', () => {
     expect(() => resolveBoundaryValues(nodes, [])).toThrow('"a" port "p": Port "p" has 1 multiport entries for 2 variables.')
   })
 
+  it('names an annotated port by its variables, not its empty label', () => {
+    const annotated = { ...port(['s', 't'], ['sum']), label: '', annotation: { subject: 'm#c.s', variable: 's' } }
+    const nodes = [node('a', [row('s', 'boundary_condition', '1')], [annotated])]
+    expect(() => resolveBoundaryValues(nodes, [])).toThrow('"a" port "s, t": Port "s, t" has 1 multiport entries')
+  })
+
   it('counts the neighbour of a multiply on the target side as computed', () => {
     const nodes = [node('src', [row('q_in', 'boundary_condition', '2')]), node('dst', [row('q', 'variable')])]
     const { supplied, missing } = resolveBoundaryValues(nodes, [

@@ -216,6 +216,29 @@ describe('generateExportZip', () => {
     expect(files['heart_obs_data.json']).toBe('{"protocol_info": {"pre_times": [0], "sim_times": [[1]]}}\n')
   })
 
+  it('refuses couplings made by annotations, naming their edges', async () => {
+    const annotated = {
+      portType: 'general_ports',
+      label: '',
+      variables: ['u'],
+      multiportType: 'None',
+      annotation: { subject: 'm#c.u', variable: 'u', role: 'reader', source: { kind: 'sidecar' } },
+    }
+    const labelled = { portType: 'general_ports', label: 'u', variables: ['u'], multiportType: 'None' }
+    const nodes = [nodeWith('a', []), nodeWith('b', []), nodeWith('c', [])]
+    const edges = [
+      { id: 'ab', source: 'a', target: 'b', data: { couplings: [{ sourcePort: labelled, targetPort: labelled }] } },
+      { id: 'bc', source: 'b', target: 'c', data: { couplings: [{ sourcePort: annotated, targetPort: labelled }] } },
+    ]
+    const message =
+      "CA export can't carry couplings made by annotations, which have no port labels for CA to pair: b → c. " +
+      'Export CellML instead.'
+    expect(findCaExportBlocker(nodes, edges, library)).toBe(message)
+    await expect(generateExportZip('heart', nodes, edges, library)).rejects.toThrow(message)
+    // The caller reports it, so it shows once.
+    expect(notified.error).not.toHaveBeenCalled()
+  })
+
   it("names each config entry's CellML component, as CA's PhLynx schema needs", async () => {
     const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
     const [entry] = JSON.parse(files['modules/heart_module_config.json'])

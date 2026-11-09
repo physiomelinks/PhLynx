@@ -53,6 +53,24 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
   }
 })
 
+const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix sbo: <https://identifiers.org/sbo/SBO:> .
+@prefix m: <./file#> .
+@prefix local: <./decay.ttl#> .
+m:decay bqbiol:is sbo:0000290 .
+local:entity_self bqbiol:is sbo:0000290 .
+m:vdecayx01 bqbiol:isVersionOf opb:00154 ; bqbiol:isPropertyOf local:entity_self .
+`
+const X_SUBJECT = 'https://phlynx.invalid/modules/file#vdecayx01'
+const DECAY_MATH = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+  <component name="decay">
+    <variable name="x" units="dimensionless" id="vdecayx01"/>
+    <variable name="k" units="dimensionless"/>
+  </component>
+</model>`
+
 const moduleData = (overrides = {}) => ({
   moduleRef: 'membrane:basic',
   mathRef: 'membrane.cellml:basic',
@@ -422,6 +440,39 @@ describe('useDragAndDrop', () => {
       expect(flow.flowIds.at(-1)).toBe(FLOW_IDS.MAIN)
       useDragAndDrop(new Set(), FLOW_IDS.MACRO)
       expect(flow.flowIds.at(-1)).toBe(FLOW_IDS.MACRO)
+    })
+  })
+
+  describe('side-car ports', () => {
+    const DECAY = { moduleRef: 'decay:default', mathRef: 'file:decay', ports: [], variables: [{ name: 'x' }, { name: 'k' }] }
+    const sidecarSubjects = (data) => data.ports.map((port) => port.annotation?.subject)
+
+    it('gives a node from a module whose math has a parsed side-car one port per annotation', async () => {
+      const store = useLibraryStore()
+      store.addMath(DECAY.mathRef, DECAY_MATH)
+      store.setModuleAnnotations(DECAY.mathRef, DECAY_SIDECAR)
+      await store.ensureModuleAnnotations(DECAY.mathRef)
+
+      dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(sidecarSubjects(flow.addNodes.mock.calls[0][0].data)).toEqual([X_SUBJECT])
+      expect(DECAY.ports).toEqual([])
+    })
+
+    it('adds the ports once a side-car not yet parsed is', async () => {
+      useLibraryStore().addMath(DECAY.mathRef, DECAY_MATH)
+      useLibraryStore().setModuleAnnotations(DECAY.mathRef, DECAY_SIDECAR)
+      const { nodeId } = dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(flow.addNodes.mock.calls[0][0].data.ports).toEqual([])
+
+      await vi.waitFor(() => expect(flow.updateNode).toHaveBeenCalled())
+      const [id, update] = flow.updateNode.mock.calls[0]
+      expect(id).toBe(nodeId)
+      expect(sidecarSubjects(update({ data: { ...DECAY, ports: [] } }).data)).toEqual([X_SUBJECT])
+    })
+
+    it('leaves the ports of a node whose math has no side-car', () => {
+      dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(flow.addNodes.mock.calls[0][0].data.ports).toBe(DECAY.ports)
     })
   })
 })

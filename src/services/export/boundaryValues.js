@@ -18,6 +18,7 @@
 import { AFFINE_UNIT_CONVERSIONS, VALUE_REQUIRED_TYPES } from '../../utils/constants'
 import { isBlank } from '../../utils/variables'
 import { variableTypes } from '../../utils/multiport'
+import { portDisplayName } from '../../utils/portIdentity'
 
 const keyOf = (nodeId, name) => `${nodeId}::${name}`
 // How a generated component computes a variable from its inputs, for messages.
@@ -178,7 +179,7 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { is
       try {
         types = variableTypes(port)
       } catch (error) {
-        throw new Error(`"${node.data.name}" port "${port.label}": ${error.message}`)
+        throw new Error(`"${node.data.name}" port "${portDisplayName(port)}": ${error.message}`)
       }
       types.forEach((type, i) => {
         const key = keyOf(node.id, port.variables[i])

@@ -1,7 +1,16 @@
 import { ref, onUnmounted } from 'vue'
 import { ROW_H, AUTOSCROLL_SPEED, AUTOSCROLL_ZONE } from '../utils/constants'
 
-export function usePortDrag(localSrcPorts, localTgtPorts, canvasEl) {
+/**
+ * Dragging port rows to reorder them in the edge dialog.
+ *
+ * @param {import('vue').Ref<Array<Object>>} localSrcPorts
+ * @param {import('vue').Ref<Array<Object>>} localTgtPorts
+ * @param {import('vue').Ref<HTMLElement>} canvasEl
+ * @param {Object} [options]
+ * @param {(port: Object) => boolean} [options.isShown] - Whether a port has a row; hidden ones keep their places.
+ */
+export function usePortDrag(localSrcPorts, localTgtPorts, canvasEl, { isShown = () => true } = {}) {
   const dragState = ref({
     active: false,
     uid: null,
@@ -62,9 +71,10 @@ export function usePortDrag(localSrcPorts, localTgtPorts, canvasEl) {
   }
 
   function updateDragState(state) {
-    const ports = state.side === 'source'
+    const all = state.side === 'source'
       ? localSrcPorts.value
       : localTgtPorts.value
+    const ports = all.filter(isShown)
 
     const totalDelta = contentY(state.clientY) - state.startContentY
     const nextIndex = Math.max(0, Math.min(ports.length - 1,
@@ -74,6 +84,11 @@ export function usePortDrag(localSrcPorts, localTgtPorts, canvasEl) {
     if (nextIndex !== state.overIndex) {
       const moved = ports.splice(state.overIndex, 1)[0]
       ports.splice(nextIndex, 0, moved)
+      // The rows take the shown ports' places in turn; hidden ports stay where they are.
+      let next = 0
+      all.forEach((port, i) => {
+        if (isShown(port)) all[i] = ports[next++]
+      })
       state.overIndex = nextIndex
     }
 
@@ -83,7 +98,7 @@ export function usePortDrag(localSrcPorts, localTgtPorts, canvasEl) {
 
   function startDrag(event, uid, side) {
     event.preventDefault()
-    const ports = side === 'source' ? localSrcPorts.value : localTgtPorts.value
+    const ports = (side === 'source' ? localSrcPorts.value : localTgtPorts.value).filter(isShown)
     const index = ports.findIndex(p => p._uid === uid)
 
     dragState.value = {

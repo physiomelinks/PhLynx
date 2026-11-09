@@ -72,6 +72,13 @@ describe('moduleConfig', () => {
     expect(isModuleConfig(dropped, undefined, analysis)).toBe(false)
   })
 
+  it('leaves out annotated ports, which a side-car gives, so they are no config change', () => {
+    const annotated = { label: '', portType: 'general_ports', variables: ['x'], multiportType: 'Sum', annotation: { subject: 'm#x' } }
+    const withAnnotated = edit({ ports: [...dropped.ports, annotated] })
+    expect(isModuleConfig(withAnnotated, MODULE, analysis)).toBe(true)
+    expect(moduleConfigEntry(withAnnotated).general_ports).toEqual(moduleConfigEntry(dropped).general_ports)
+  })
+
   it('gives the library signatures of the drop and the module', () => {
     const library = { getMathAnalysis: () => analysis, getMathDefaults: () => new Map() }
     const signatures = librarySignatures(MODULE, library)
@@ -132,6 +139,11 @@ describe('moduleConfig', () => {
       const updated = { ...MODULE, ports: [] }
       expect(portEditConfig(nodes[0], [], nodes, library())).not.toBeNull()
       expect(portEditConfig(nodes[0], [], nodes, library(), updated)).toBeNull()
+    })
+
+    it('leaves the module alone when only annotated ports change', () => {
+      const annotated = { label: '', portType: 'general_ports', variables: ['x'], multiportType: 'Sum', annotation: { subject: 'm#x' } }
+      expect(portEditConfig(nodes[0], [...dropped.ports, annotated], nodes, library())).toBeNull()
     })
 
     it('needs a module', () => {

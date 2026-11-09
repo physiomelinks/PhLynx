@@ -7,6 +7,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { dropStaleAnnotatedPorts } from '../services/annotations/reconcileNodes'
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { migrateWorkspace } from '../services/workspaceMigrator'
 import { JSON_FILE_TYPES } from '../utils/constants'
@@ -126,6 +127,25 @@ export function useWorkspaceSaveLoad({
   }
 
   /**
+   * Drops annotated ports on variables their math lacks, which would stop the model from running, and says which.
+   */
+  function dropStalePorts() {
+    const { ports, couplings, dropped } = dropStaleAnnotatedPorts(nodes.value, edges.value)
+    if (!dropped.length) return
+    for (const node of nodes.value) {
+      if (ports.has(node.id)) node.data = { ...node.data, ports: ports.get(node.id) }
+    }
+    for (const edge of edges.value) {
+      if (couplings.has(edge.id)) edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
+    }
+    const names = dropped.map(({ name, variables }) => `${name}.${variables.join(', ')}`)
+    notify.warning({
+      title: 'Annotation ports dropped',
+      message: `Their math has no such variable: ${names.join('; ')}.`,
+    })
+  }
+
+  /**
    * Restores the application state from a loaded workspace. Errors are rethrown for the caller to report.
    */
   async function applyWorkspaceState(loadedState, { source = 'json' } = {}) {
@@ -145,6 +165,7 @@ export function useWorkspaceSaveLoad({
 
       setViewport(migratedState.flow.viewport)
       fromObject(migratedState.flow)
+      dropStalePorts()
 
       // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
       rebuildNodeEdgeIndex()

@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }))
 const save = vi.hoisted(() => ({ legacyDownload: vi.fn(), saveFileHandle: vi.fn(), writeFileHandle: vi.fn() }))
 const trackEvent = vi.hoisted(() => vi.fn())
 const clearWorkspace = vi.hoisted(() => vi.fn())
@@ -297,6 +297,23 @@ describe('applyWorkspaceState', () => {
     })
 
     expect(order).toEqual(['clear', 'fromObject'])
+  })
+
+  it('drops annotated ports on variables the math lacks, with their couplings, and says so', async () => {
+    const stale = { portType: 'general_ports', variables: ['I_K'], multiportType: 'True', annotation: { subject: 's' } }
+    const kept = { portType: 'general_ports', variables: ['x'], multiportType: 'True', annotation: { subject: 't' } }
+    flow.fromObject.mockImplementation(() => {
+      nodes.value = [{ id: 'n1', data: { name: 'pump', variables: [{ name: 'x' }], ports: [stale, kept] } }]
+      const couplings = [{ sourcePort: stale, targetPort: kept }]
+      edges.value = [{ id: 'e1', source: 'n1', target: 'n1', data: { couplings } }]
+    })
+    const state = { id: PHLYNX_PROJECT_IDENTIFIER, version: PHLYNX_PROJECT_VERSION, flow: FLOW, store: {} }
+    await view.applyWorkspaceState(state)
+
+    expect(nodes.value[0].data.ports).toEqual([kept])
+    expect(edges.value[0].data.couplings).toEqual([])
+    const message = expect.stringContaining('pump.I_K')
+    expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ message }))
   })
 
   it('migrates an older workspace before it applies it', async () => {

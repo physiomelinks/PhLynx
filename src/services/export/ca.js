@@ -4,6 +4,7 @@ import Papa from 'papaparse'
 import { notify } from '../../utils/notify'
 import { parseModuleRef } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
+import { isAnnotatedPort } from '../../utils/portIdentity'
 import { isBlank } from '../../utils/variables'
 import { configSignature, librarySignatures, moduleConfigEntry } from '../moduleConfig'
 import { resolveBoundaryValues, storeOptions } from './boundaryValues'
@@ -201,6 +202,24 @@ function nodeParameters(node, paramRef, getParameterSet) {
 }
 
 /**
+ * The edges with a coupling made by annotations, as 'source → target' names.
+ *
+ * @param {Array} nodes
+ * @param {Array} edges
+ * @returns {string[]}
+ */
+export function annotatedCouplingEdges(nodes, edges) {
+  const names = new Map(nodes.map((node) => [node.id, node.data?.name ?? node.id]))
+  return edges
+    .filter((edge) =>
+      (edge.data?.couplings ?? []).some(
+        ({ sourcePort, targetPort }) => isAnnotatedPort(sourcePort) || isAnnotatedPort(targetPort)
+      )
+    )
+    .map((edge) => `${names.get(edge.source) ?? edge.source} → ${names.get(edge.target) ?? edge.target}`)
+}
+
+/**
  * Finds what stops the workspace being exported to CA, so it can be checked before asking where to save.
  *
  * @param {Array} nodes - The array of nodes from Vue Flow.
@@ -209,6 +228,14 @@ function nodeParameters(node, paramRef, getParameterSet) {
  * @returns {string|null} Why it can't be exported, or null when it can.
  */
 export function findCaExportBlocker(nodes, edges, libraryStore) {
+  // CA pairs ports by their port_type label, which annotated ports leave empty.
+  const annotated = annotatedCouplingEdges(nodes, edges)
+  if (annotated.length) {
+    return (
+      `CA export can't carry couplings made by annotations, which have no port labels for CA to pair: ` +
+      `${listNamed(annotated)}. Export CellML instead.`
+    )
+  }
   // CA would run the module's own equation for the store, so the export would hold the wrong math.
   const driven = drivenStoreLabels(nodes, edges, libraryStore)
   if (driven.length) return `Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}`

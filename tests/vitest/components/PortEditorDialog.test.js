@@ -103,6 +103,13 @@ describe('PortEditorDialog', () => {
     expect(w.emitted('confirm')[0][0].ports.map((p) => p.label)).toEqual(['keep'])
   })
 
+  it('keeps an annotated port, which has no label, on confirm', async () => {
+    const annotation = { subject: 'm.cellml#m.v', variable: 'v', role: 'owner', source: { kind: 'sidecar' } }
+    const w = mountDialog({ initialPorts: [port({ label: '', annotation })] })
+    await confirmButton(w).trigger('click')
+    expect(w.emitted('confirm')[0][0].ports.map((p) => p.annotation)).toEqual([annotation])
+  })
+
   it('a freshly added port is omitted on confirm because it has no variables selected', async () => {
     const w = mountDialog()
     await addButton(w).trigger('click')

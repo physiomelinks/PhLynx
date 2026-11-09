@@ -116,7 +116,7 @@ const fork = () =>
   })
 
 describe('useInstanceSave', () => {
-  let history, library, saveInstanceEdit, savePortEdit
+  let history, library, saveInstanceEdit, savePortEdit, findDroppedCouplings
 
   beforeAll(async () => {
     await ensureLibCellmlReady()
@@ -129,7 +129,7 @@ describe('useInstanceSave', () => {
     library.addMath(DECAY_REF, DECAY_XML)
     nodes.value = [createNode('a'), createNode('b')]
     edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [] } }]
-    ;({ saveInstanceEdit, savePortEdit } = useInstanceSave())
+    ;({ saveInstanceEdit, savePortEdit, findDroppedCouplings } = useInstanceSave())
   })
 
   it('undoes a fork applied to every instance as one step, and redoes it exactly', async () => {
@@ -741,6 +741,39 @@ describe('useInstanceSave', () => {
     await saveInstanceEdit(buildSave({ ports }))
     expect(detachReactivity(edges.value.map((edge) => edge.data.couplings))).toEqual([preview.get('e'), preview.get('f')])
     expect(preview.get('e')).toHaveLength(1)
+  })
+
+  it('keeps annotated couplings, and stored ones through manual ports they hide, through a save', async () => {
+    const annotated = (subject, variable, multiportType) => ({
+      label: '',
+      portType: 'general_ports',
+      variables: [variable],
+      multiportType,
+      annotation: { subject, variable, role: 'reader', source: { kind: 'sidecar', mathRef: DECAY_REF } },
+    })
+    const reader = annotated('decay.cellml#decay.x', 'x', 'None')
+    const owner = annotated('decay.cellml#decay.k', 'k', 'True')
+    const [labelA] = findNode('a').data.ports
+    const [labelB] = findNode('b').data.ports
+    findNode('a').data = { ...findNode('a').data, ports: [labelA, reader] }
+    findNode('b').data = { ...findNode('b').data, ports: [labelB, owner] }
+    // The label coupling was made before the annotated ports, which now hide its manual ports: it is kept as stored.
+    const couplings = [
+      { sourcePort: labelA, targetPort: labelB },
+      { sourcePort: reader, targetPort: owner },
+    ]
+    edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings } }]
+
+    await saveInstanceEdit(buildSave({ name: 'a' }))
+    const saved = detachReactivity(edges.value[0].data)
+    expect(saved.couplings).toEqual(detachReactivity(couplings))
+
+    // Removing the annotated port drops its coupling, and the manual ports couple by label again.
+    await saveInstanceEdit(buildSave({ name: 'a', ports: findNode('a').data.ports.filter((port) => !port.annotation) }))
+    expect(edges.value[0].data.couplings.map(({ sourcePort }) => sourcePort.label)).toEqual(['p'])
+
+    await history.undo()
+    expect(detachReactivity(edges.value[0].data)).toEqual(saved)
   })
 
   describe('a coupling that drives a store', () => {
@@ -1641,6 +1674,84 @@ local:entity_vdecayk01 bqbiol:is chebi:29101 ; bqbiol:isPartOf local:entity_self
       expect(library.getModuleAnnotations(DECAY_REF)).toBe('not turtle ;;')
       expect(warn).toHaveBeenCalled()
       warn.mockRestore()
+    })
+
+    const COMPLETE_SIDECAR =
+      `@prefix sbo: <https://identifiers.org/sbo/SBO:> .\n${DECAY_SIDECAR}` +
+      'm:decay bqbiol:is sbo:0000290 .\nlocal:entity_self bqbiol:is sbo:0000290 .\n'
+    const sidecarVariables = (id) =>
+      findNode(id)
+        .data.ports.filter((port) => port.annotation?.source?.kind === 'sidecar')
+        .map((port) => port.annotation.subject)
+
+    it('gives every node on the math one side-car port per annotation, and one undo takes them away', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      const subjects = [X_SUBJECT, K_SUBJECT]
+      expect(sidecarVariables('a')).toEqual(subjects)
+      expect(sidecarVariables('b')).toEqual(subjects)
+      expect(findNode('a').data.ports[0].label).toBe('p')
+
+      await history.undo()
+      expect(sidecarVariables('a')).toEqual([])
+      expect(sidecarVariables('b')).toEqual([])
+    })
+
+    it('moves side-car ports and their couplings to forked math', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a', updateAll: true, siblings: ['b'] }))
+      const [xa] = findNode('a').data.ports.filter((port) => port.annotation?.variable === 'x')
+      const [kb] = findNode('b').data.ports.filter((port) => port.annotation?.variable === 'k')
+      edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: xa, targetPort: kb }] } }]
+
+      await saveInstanceEdit(buildSave({ ...forkWithIds(), ports: findNode('a').data.ports }))
+      expect(sidecarVariables('a')).toEqual([X_SUBJECT, K_SUBJECT])
+      expect(findNode('a').data.ports.find((port) => port.annotation).annotation.source.mathRef).toBe(GROWTH_REF)
+      const annotated = edges.value[0].data.couplings.filter(({ sourcePort }) => sourcePort.annotation)
+      expect(annotated.map(({ sourcePort, targetPort }) => [sourcePort.annotation.subject, targetPort.annotation.subject])).toEqual([
+        [X_SUBJECT, K_SUBJECT],
+      ])
+    })
+
+    it('keeps the coupling of a side-car port whose variable the math renamed', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      const [ka] = findNode('a').data.ports.filter((port) => port.annotation?.variable === 'k')
+      const [xb] = findNode('b').data.ports.filter((port) => port.annotation?.variable === 'x')
+      edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: ka, targetPort: xb }] } }]
+
+      // As the editor leaves the port: its variable renamed, its subject the same.
+      const ports = findNode('a').data.ports.map((port) =>
+        port === ka ? { ...port, variables: ['kd'], annotation: { ...port.annotation, variable: 'kd' } } : port
+      )
+      const variables = findNode('a').data.variables.map((row) => (row.name === 'k' ? { ...row, name: 'kd' } : row))
+      const save = buildSave({ math: renameK(withIds(DECAY_XML)), ports, variables })
+      expect(await findDroppedCouplings(save)).toEqual({ couplings: 0, connections: 0 })
+
+      await saveInstanceEdit(save)
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(COMPLETE_SIDECAR)
+      const [kd] = findNode('a').data.ports.filter((port) => port.annotation?.subject === K_SUBJECT)
+      expect(kd).toMatchObject({ variables: ['kd'], annotation: { variable: 'kd' } })
+      const annotated = edges.value[0].data.couplings.filter(({ sourcePort }) => sourcePort.annotation)
+      expect(annotated.map(({ sourcePort }) => [sourcePort.annotation.subject, sourcePort.variables])).toEqual([
+        [K_SUBJECT, ['kd']],
+      ])
+    })
+
+    it('counts the couplings a save would drop, and drops them when saved', async () => {
+      library.setModuleAnnotations(DECAY_REF, COMPLETE_SIDECAR)
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      const [xa] = findNode('a').data.ports.filter((port) => port.annotation?.variable === 'x')
+      const [kb] = findNode('b').data.ports.filter((port) => port.annotation?.variable === 'k')
+      edges.value = [{ id: 'e', source: 'a', target: 'b', data: { couplings: [{ sourcePort: xa, targetPort: kb }] } }]
+
+      const save = buildSave({ name: 'a', annotations: { text: '' } })
+      expect(await findDroppedCouplings(save)).toEqual({ couplings: 1, connections: 1 })
+      expect(findNode('a').data.ports).toContain(xa)
+
+      await saveInstanceEdit(save)
+      expect(sidecarVariables('a')).toEqual([])
+      expect(edges.value[0].data.couplings.filter(({ sourcePort }) => sourcePort.annotation)).toEqual([])
     })
 
     it('leaves the sidecar alone when the save keeps the math', async () => {

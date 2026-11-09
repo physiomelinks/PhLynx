@@ -22,6 +22,15 @@ describe('spreadConfig', () => {
       ],
     })
   })
+
+  it("keeps the instance's own annotated ports, which its side-car gives, and spreads only manual ones", () => {
+    const annotated = (subject) => ({ label: '', portType: 'general_ports', variables: ['x'], annotation: { subject } })
+    const other = { id: 'b', data: { ...node('b', 'm:base').data, ports: [annotated('b#x')] } }
+    expect(spreadConfig(other, { ports: [...ports, annotated('a#x')], variables }).ports).toEqual([
+      { label: 'q', portType: 'general_ports', variables: ['x', 'k'] },
+      annotated('b#x'),
+    ])
+  })
 })
 
 describe('spreadPortEdits', () => {

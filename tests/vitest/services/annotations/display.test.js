@@ -3,6 +3,8 @@ import {
   annotationChips,
   fromAnnotationTitle,
   locationText,
+  placeText,
+  resolvedPlaces,
   subjectText,
   termDetail,
 } from '../../../../src/services/annotations/display.js'
@@ -35,6 +37,20 @@ describe('annotation display', () => {
     expect(annotationChips({ location: 'self' }, { selfName: 'this compartment' })).toEqual([
       { kind: 'location', text: 'this compartment' },
     ])
+  })
+
+  it('describes resolved places by their labels', () => {
+    expect(placeText({ key: 'apical-fluid', label: 'apical fluid' })).toBe('apical fluid')
+    expect(placeText({ key: 'cell-membrane', facets: ['apical'] })).toBe('cell-membrane (apical)')
+    expect(placeText(null)).toBe('unresolved')
+    expect(
+      resolvedPlaces({
+        locations: [{ key: 'lumen', label: 'lumen', path: ['epithelium', 'lumen'] }],
+      })
+    ).toEqual([{ text: 'lumen', path: 'epithelium → lumen', unresolved: false }])
+    expect(resolvedPlaces(null)).toEqual([])
+    const chips = annotationChips({ property: 'OPB:00340', location: null, absoluteLocation: { key: 'c', label: 'cytosol' } })
+    expect(chips.at(-1)).toEqual({ kind: 'location', text: 'cytosol' })
   })
 
   it('lists a term with its label, CURIE and IRI', () => {

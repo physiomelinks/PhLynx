@@ -20,7 +20,7 @@ describe('the module annotations import', () => {
   it('reads a sidecar into its field', async () => {
     const sidecar = await parseForRole(fileOf('porter.ttl', readToy('porter.ttl')), fields())
     expect(sidecar.key).toBe(IMPORT_KEYS.TURTLE)
-    expect(sidecar.data).toEqual({ text: readToy('porter.ttl') })
+    expect(sidecar.data).toEqual({ text: readToy('porter.ttl'), mathRef: 'porter.cellml:porter' })
   })
 
   it('reports broken Turtle and skips unrelated files', async () => {

@@ -11,6 +11,8 @@ import {
   otherSetUsers,
 } from '../utils/parameters/instanceSet'
 import { planSharedSetUpdate } from '../utils/parameters/apply'
+import { countDroppedCouplings, findSidecarPortChanges, reconcileNodePorts } from '../services/annotations/reconcileNodes'
+import { parseSidecar } from '../services/annotations/sidecar'
 import { renameSidecar } from '../services/annotations/sidecarEdit'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import { carryRenames } from '../services/math/carryRenames'
@@ -30,7 +32,8 @@ import { rescaleRows } from '../services/math/unitRescale'
 import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, GHOST_NODE_TYPE, PROTECTED_MATH_REFS } from '../utils/constants'
-import { carryDrivesState, previewCouplings } from '../utils/edges'
+import { carryDrivesState } from '../utils/edges'
+import { isAnnotatedPort } from '../utils/portIdentity'
 import { detachReactivity } from '../utils/reactivity'
 import { isBlank } from '../utils/variables'
 import { useNodeDataHistory } from './useNodeDataHistory'
@@ -71,14 +74,16 @@ function toModuleRows(rows, moduleRows = rows) {
 }
 
 /**
- * Copies a node's ports for its module or another node, without the ids the connection dialog gives them, which are
- * each node's own.
+ * Copies a node's ports for its module, without the ids the connection dialog gives them, which are each node's own,
+ * and without its annotated ports, which each instance's side-car gives it.
  *
  * @param {Array} ports
  * @returns {Array}
  */
 function toModulePorts(ports) {
-  return detachReactivity(ports ?? []).map(({ _uid, ...port }) => port)
+  return detachReactivity(ports ?? [])
+    .filter((port) => !isAnnotatedPort(port))
+    .map(({ _uid, ...port }) => port)
 }
 
 /**
@@ -100,7 +105,7 @@ function combineLibraries(libraries) {
  * Applies an instance editor save to the workspace as one canvas undo step.
  *
  * @param {string} [flowId=FLOW_IDS.MAIN]
- * @returns {Object} saveInstanceEdit, savePortEdit and findVariableRenames.
+ * @returns {Object} saveInstanceEdit, savePortEdit, findDroppedCouplings and findVariableRenames.
  */
 export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   const { nodes, edges, findNode, updateNodeData } = useVueFlow(flowId)
@@ -140,17 +145,18 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Recomputes couplings on every edge touching a node from the current ports, keeping which drive a store. Call it
-   * after changing ports on one or more nodes.
+   * Reconciles the side-car ports of the given nodes and recomputes the couplings of every edge touching them from
+   * the current ports, keeping which drive a store. Call it after changing ports on one or more nodes.
    *
-   * @param {string} nodeId
+   * @param {Array<string>} nodeIds
+   * @param {Function} sidecarFor - From prepareSidecars.
+   * @param {Map<string, Array<Object>>} portChanges - The edited node's side-car ports the editor replaced.
    * @param {Map<string, Array>} [marked] - Edges' couplings as the save confirmed them, whose `drivesState` marks they
    *   keep, matched by port label (see confirmPortEditDrives).
    */
-  function recomputeEdgeCouplings(nodeId, marked = new Map()) {
-    const node = findNode(nodeId)
-    if (!node) return
-    const couplings = previewCouplings(nodeId, node.data.ports ?? [], nodes.value, edges.value)
+  function reconcileSavedNodes(nodeIds, sidecarFor, portChanges, marked = new Map()) {
+    const { ports, couplings } = reconcileNodePorts({ nodes: nodes.value, edges: edges.value, nodeIds, sidecarFor, portChanges })
+    ports.forEach((nodePorts, nodeId) => updateNodeData(nodeId, { ports: nodePorts }))
     edges.value.forEach((edge) => {
       if (!couplings.has(edge.id)) return
       edge.data = { ...edge.data, couplings: carryDrivesState(marked.get(edge.id) ?? [], couplings.get(edge.id), { byLabel: true }) }
@@ -243,9 +249,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * so it shows in the library.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
+   * @param {Array<string>} affectedIds - From findAffectedIds; their side-car ports are reconciled.
+   * @param {Function} sidecarFor - From prepareSidecars.
    * @returns {string|null} The ref of the module made for the math, if one was.
    */
-  function applySave(save) {
+  function applySave(save, affectedIds, sidecarFor) {
     const { id, name, variables, ports, mathRef, math, layout, isLayoutChanged, source, isSourceChanged, units, globalConstants, updateAll, siblings } =
       save
     const renames = new Map(save.renames ?? [])
@@ -288,11 +296,12 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const moduleSource =
       save.config?.action === 'new' && previousModule
         ? { ports: renamePortVariables(previousModule.ports, renames), variables: renameRows(previousModule.variables ?? [], renames) }
-        : { ports, variables }
+        : { ports: toModulePorts(ports), variables }
     // The node's own config unless it moves to a new one, leaving this module to the siblings switching with it.
     const ownership = save.config?.action === 'new' ? {} : { source: instanceConfigSource(id) }
     const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, { ...detachReactivity(moduleSource), ...ownership }) : null
 
+    const portChanges = new Map([[id, findSidecarPortChanges(findNode(id)?.data.ports, ports)]])
     const moduleFields = moduleRef ? { moduleRef } : {}
     // The parameter set the editor last applied, which a later import of that set re-applies.
     const setFields = save.parameterisation ? { parameterisation: save.parameterisation } : {}
@@ -322,9 +331,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
 
     const configured = applyConfig(save)
     // Marks confirmed for edges of the instances an update spread the ports to are kept as theirs are recomputed.
-    const marked = new Map(save.drivenCouplings ?? [])
-    recomputeEdgeCouplings(id, marked)
-    new Set([...otherNodes.map((node) => node.id), ...configured]).forEach((nodeId) => recomputeEdgeCouplings(nodeId, marked))
+    reconcileSavedNodes([...new Set([...affectedIds, ...configured])], sidecarFor, portChanges, new Map(save.drivenCouplings ?? []))
     return moduleRef
   }
 
@@ -674,16 +681,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Applies an instance editor save as one undo step. Undo puts back the math only while it is still
-   * what the save wrote, and keeps math a save created while any node still uses it.
+   * Finds the nodes a save writes: the edited node, the siblings it applies to, every node on its old or new
+   * math, and every node on its module when the save updates that module's config.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
-   * @returns {Promise<number>} How many nodes the save updated.
+   * @returns {Array<string>}
    */
-  async function saveInstanceEdit(save) {
-    const { id, mathRef, previousMathRef, math, isLayoutChanged, isSourceChanged, updateAll, siblings, config } = save
-    const editedModuleRef = findNode(id)?.data.moduleRef
-    const affectedIds = [
+  function findAffectedIds({ id, mathRef, previousMathRef, updateAll, siblings, config }) {
+    const editedModuleRef = nodes.value.find((node) => node.id === id)?.data?.moduleRef
+    return [
       ...new Set([
         id,
         ...(updateAll ? siblings : []),
@@ -696,6 +702,86 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
           .map((node) => node.id),
       ]),
     ]
+  }
+
+  /**
+   * Parses the side-cars the affected nodes' ports follow: the saved math's as the save leaves it, and the others'
+   * as they are.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @param {Object|null} annotationChange - From prepareAnnotationChange.
+   * @param {Array<string>} affectedIds
+   * @returns {Promise<(mathRef: string) => Object|null|undefined>} A math's side-car, null when the save clears
+   *   it, undefined when there is none to follow.
+   */
+  async function prepareSidecars({ mathRef, math }, annotationChange, affectedIds) {
+    const text = annotationChange ? annotationChange.text : libraryStore.getModuleAnnotations(mathRef)
+    const cellml = math ?? libraryStore.availableMath.get(mathRef)
+    const otherRefs = [
+      ...new Set(
+        affectedIds
+          .map((nodeId) => nodes.value.find((node) => node.id === nodeId)?.data?.mathRef)
+          .filter((ref) => ref && ref !== mathRef)
+      ),
+    ]
+    const [target, others] = await Promise.all([
+      text ? parseSidecar(text, { mathRef, cellml }) : null,
+      Promise.all(otherRefs.map(async (ref) => [ref, await libraryStore.ensureModuleAnnotations(ref)])),
+    ])
+    const sidecars = new Map(others.filter(([, sidecar]) => sidecar))
+    const isCleared = !!annotationChange && !text
+    return (ref) => (ref === mathRef ? (target ?? (isCleared ? null : undefined)) : sidecars.get(ref))
+  }
+
+  /**
+   * Builds the nodes as a save would leave them, before their side-car ports are reconciled.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Array<Object>} Copies; the workspace nodes are not changed.
+   */
+  function previewSavedNodes({ id, name, variables, ports, mathRef, updateAll, siblings }) {
+    const validVariables = new Set(variables.map((row) => row.name))
+    return nodes.value.map((node) => {
+      const data = detachReactivity(node.data ?? {})
+      if (node.id === id) return { id: node.id, data: { ...data, name, variables, ports, mathRef } }
+      const isMoved = updateAll && siblings.includes(node.id)
+      if (!isMoved && data.mathRef !== mathRef) return { id: node.id, data }
+      const nodePorts = (data.ports ?? []).filter((port) => (port.variables ?? []).every((v) => validVariables.has(v)))
+      return { id: node.id, data: { ...data, mathRef, variables, ports: nodePorts } }
+    })
+  }
+
+  /**
+   * Counts the annotated couplings a save would drop, as its side-car ports are reconciled, so the editor can ask
+   * first.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Promise<{ couplings: number, connections: number }>}
+   */
+  async function findDroppedCouplings(save) {
+    const affectedIds = findAffectedIds(save)
+    const sidecarFor = await prepareSidecars(save, await prepareAnnotationChange(save), affectedIds)
+    const canvasPorts = nodes.value.find((node) => node.id === save.id)?.data?.ports
+    const { couplings } = reconcileNodePorts({
+      nodes: previewSavedNodes(save),
+      edges: edges.value,
+      nodeIds: affectedIds,
+      sidecarFor,
+      portChanges: new Map([[save.id, findSidecarPortChanges(canvasPorts, save.ports)]]),
+    })
+    return countDroppedCouplings(edges.value, couplings)
+  }
+
+  /**
+   * Applies an instance editor save as one undo step. Undo puts back the math only while it is still
+   * what the save wrote, and keeps math a save created while any node still uses it.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Promise<number>} How many nodes the save updated.
+   */
+  async function saveInstanceEdit(save) {
+    const { mathRef, math, isLayoutChanged, isSourceChanged, updateAll, siblings } = save
+    const affectedIds = findAffectedIds(save)
     const sharedSetChange = prepareSharedSetChange(save)
     affectedIds.push(...(sharedSetChange?.nodeIds ?? []).filter((nodeId) => !affectedIds.includes(nodeId)))
     const writtenMathRef = math !== null || isLayoutChanged || isSourceChanged ? mathRef : null
@@ -704,6 +790,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
 
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
     const annotationChange = await prepareAnnotationChange(save)
+    const sidecarFor = await prepareSidecars(save, annotationChange, affectedIds)
     const plotChange = preparePlotChange(save)
     const moduleChange = prepareModuleChange(save)
     const unitsChange = prepareUnitsChange(save)
@@ -718,7 +805,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       edgeIds: findIncidentEdgeIds(affectedIds),
       apply: () => {
         annotationChange?.apply()
-        const moduleRef = applySave(save)
+        const moduleRef = applySave(save, affectedIds, sidecarFor)
         setChange?.apply()
         sharedSetChange?.apply()
         // Once the node's set is settled, and before the module changes capture the modules, so they hold a default
@@ -783,6 +870,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const configChanges = [...configs].map(([id, config]) => prepareConfigChange({ id, config }))
     // A config made here takes its node's own set as its default.
     const defaultsChanges = [...configs].map(([id]) => prepareParameterDefaults({ id }))
+    // The side-cars whose ports the instances an update rewrites keep.
+    const sidecarFor = await prepareSidecars({ mathRef: null, math: null }, null, affectedIds)
 
     return recordEdit({
       type,
@@ -802,11 +891,11 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         apply()
         defaultsChanges.forEach((change) => change?.apply())
         configChanges.forEach((change) => change?.changed())
-        rewritten.forEach((id) => recomputeEdgeCouplings(id, drivenCouplings))
+        if (rewritten.size) reconcileSavedNodes([...rewritten], sidecarFor, new Map(), drivenCouplings)
       },
       library: combineLibraries([...configChanges, ...defaultsChanges].map((change) => change?.library ?? null)),
     })
   }
 
-  return { saveInstanceEdit, savePortEdit, findVariableRenames }
+  return { saveInstanceEdit, savePortEdit, findDroppedCouplings, findVariableRenames }
 }

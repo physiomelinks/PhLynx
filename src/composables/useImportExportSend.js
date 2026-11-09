@@ -100,6 +100,12 @@ export function useImportExportSend({
       disabled: false,
     },
     {
+      key: IMPORT_KEYS.TURTLE,
+      label: 'Module Annotations',
+      icon: 'pi pi-tags',
+      disabled: libcellml.status !== 'ready',
+    },
+    {
       key: IMPORT_KEYS.OMEX,
       label: 'COMBINE Archive',
       icon: CombineIcon,
