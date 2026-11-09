@@ -488,9 +488,11 @@ export const useLibraryStore = defineStore('library', () => {
    * @param {Object} [options]
    * @param {Array} [options.ports] - The module's ports, else none.
    * @param {Array} [options.variables] - The module's rows, else the math's variables.
+   * @param {Object} [options.source] - What made the module, such as the instance it is its own config of (see
+   *   configOwnership).
    * @returns {string|null} The module's ref, or null for protected math.
    */
-  function createModuleForMath(mathRef, { ports, variables } = {}) {
+  function createModuleForMath(mathRef, { ports, variables, source } = {}) {
     if (PROTECTED_MATH_REFS.has(mathRef)) return null
 
     const moduleRef = defaultModuleRef(mathRef)
@@ -498,6 +500,7 @@ export const useLibraryStore = defineStore('library', () => {
       ? { moduleRef, mathRef, ports: [], variables }
       : buildModule(moduleRef, mathRef, availableMath.value.get(mathRef), getMathDefaults(mathRef))
     if (ports) module.ports = ports
+    if (source) module.source = source
     addModule(module)
     return moduleRef
   }

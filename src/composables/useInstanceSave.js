@@ -10,6 +10,7 @@ import {
   renameRows,
   renameValues,
 } from '../services/math/reconcileRows'
+import { instanceConfigSource } from '../services/configOwnership'
 import { spreadConfig } from '../services/configSpread'
 import { separateParameters } from '../services/math/separateParameters'
 import { rescaleRows } from '../services/math/unitRescale'
@@ -166,7 +167,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
 
   /**
    * Writes the edited node's config to the library. The save's `config.action` says how: 'update' writes it to the
-   * node's module and every other node on it, 'new' adds `config.moduleRef` for this node alone, and 'follow' moves
+   * node's module and every other node on it, 'new' adds `config.moduleRef` as this node's own (see configOwnership),
+   * which updates without asking while no other node uses it, and 'follow' moves
    * the module to the node's math. A 'new' with `follow` also moves the module it leaves to that math. A module on
    * changed math takes the ports and rows of an instance staying on it.
    *
@@ -187,7 +189,13 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     }
     if (config.action === 'new') {
       if ((config.follow || stayer) && module) libraryStore.replaceModule({ ...detachReactivity(module), mathRef, ...stayerConfig })
-      const newModule = { moduleRef: config.moduleRef, mathRef, ports: toModulePorts(ports), variables: toModuleRows(variables) }
+      const newModule = {
+        moduleRef: config.moduleRef,
+        mathRef,
+        ports: toModulePorts(ports),
+        variables: toModuleRows(variables),
+        source: instanceConfigSource(id),
+      }
       libraryStore.addModule(detachReactivity(newModule))
       updateNodeData(id, { moduleRef: config.moduleRef })
       return []
@@ -261,7 +269,9 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       save.config?.action === 'new' && previousModule
         ? { ports: renamePortVariables(previousModule.ports, renames), variables: renameRows(previousModule.variables ?? [], renames) }
         : { ports, variables }
-    const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, detachReactivity(moduleSource)) : null
+    // The node's own config unless it moves to a new one, leaving this module to the siblings switching with it.
+    const ownership = save.config?.action === 'new' ? {} : { source: instanceConfigSource(id) }
+    const moduleRef = isNewModule ? libraryStore.createModuleForMath(mathRef, { ...detachReactivity(moduleSource), ...ownership }) : null
 
     const moduleFields = moduleRef ? { moduleRef } : {}
     updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields })

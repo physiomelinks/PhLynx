@@ -1,32 +1,32 @@
 import { ref } from 'vue'
+import { newConfigRef } from '../services/configOwnership'
 import { portEditConfig } from '../services/moduleConfig'
 import { useLibraryStore } from '../stores/libraryStore'
-import { sanitiseName } from '../utils/identifiers'
 
 /**
- * Asks, for ports edited outside the instance editor, whether each instance's module takes the edit or the instance
- * saves a new config. Show ModuleConfigSaveDialog bound to `configPrompt`, resolving with resolveConfigPrompt.
+ * Asks, for ports edited outside the instance editor, whether each instance's module is overwritten or the instance
+ * moves to a new config of its own, named after it (see configOwnership). Show ModuleConfigSaveDialog bound to
+ * `configPrompt`, resolving with resolveConfigPrompt.
  *
  * @returns {Object} configPrompt, resolveConfigPrompt and resolvePortEdits.
  */
 export function useModuleConfigPrompt() {
   const libraryStore = useLibraryStore()
-  const configPrompt = ref({ visible: false, moduleRef: '', otherCount: 0, canUpdate: true, initialName: '', existingRefs: [] })
+  const configPrompt = ref({ visible: false, moduleRef: '', otherCount: 0, canUpdate: true, newRef: '' })
   let resolver = null
 
   /**
    * Shows the prompt.
    *
    * @param {{moduleRef: string, otherCount: number, canUpdate: boolean}} prompt
-   * @param {string} name - The instance's name, for the new config's.
+   * @param {string} name - The instance's name, which the new config takes.
    * @param {Set<string>} taken - Module refs earlier choices in the edit took.
    * @returns {Promise<Object|null>} The chosen config, or null if cancelled.
    */
   function promptModuleConfig({ moduleRef, otherCount, canUpdate }, name, taken) {
     resolveConfigPrompt(null)
-    const initialName = sanitiseName(`${moduleRef.split(':')[1] ?? ''}_${name ?? ''}`)
-    const existingRefs = [...new Set([...libraryStore.availableModules.keys(), ...taken, moduleRef])]
-    configPrompt.value = { visible: true, moduleRef, otherCount, canUpdate, initialName, existingRefs }
+    const newRef = newConfigRef(moduleRef, name, (ref) => ref === moduleRef || taken.has(ref) || libraryStore.availableModules.has(ref))
+    configPrompt.value = { visible: true, moduleRef, otherCount, canUpdate, newRef }
     return new Promise((resolve) => {
       resolver = resolve
     })
@@ -38,8 +38,8 @@ export function useModuleConfigPrompt() {
   }
 
   /**
-   * Works out the module change each instance's ports edit makes (see portEditConfig), asking in turn when other
-   * instances share the module. A later instance is checked against the modules earlier choices leave.
+   * Works out the module change each instance's ports edit makes (see portEditConfig), asking in turn unless the
+   * instance made its module and alone uses it. A later instance is checked against the modules earlier choices leave.
    *
    * @param {Array<{node: Object, ports: Array}>} edits - Each instance as it was, with its edited ports.
    * @param {Array} nodes - Every node.

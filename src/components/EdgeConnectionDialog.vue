@@ -218,8 +218,7 @@
       :module-ref="configPrompt.moduleRef"
       :other-count="configPrompt.otherCount"
       :can-update="configPrompt.canUpdate"
-      :initial-name="configPrompt.initialName"
-      :existing-refs="configPrompt.existingRefs"
+      :new-ref="configPrompt.newRef"
       @confirm="(config) => resolveConfigPrompt(config)"
       @cancel="resolveConfigPrompt(null)"
     />

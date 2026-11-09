@@ -670,6 +670,8 @@ describe('useInstanceSave', () => {
       const growth = buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML })
       expect(await saveInstanceEdit(growth)).toBe(1)
       expect(findNode('a').data).toMatchObject({ mathRef: GROWTH_REF, moduleRef: GROWTH_MODULE_REF })
+      // Made for this instance's math, the module is its own config.
+      expect(library.availableModules.get(GROWTH_MODULE_REF).source).toEqual({ kind: 'instance', nodeId: 'a' })
       expect(findNode('b').data).toEqual(before.nodes[1].data)
       expect(library.getMathEntry(DECAY_REF)).toEqual(mathBefore)
 
@@ -789,7 +791,7 @@ describe('useInstanceSave', () => {
       const config = { action: 'new', moduleRef: 'decay:a_only' }
       await saveInstanceEdit(buildSave({ ports, variables: variables(), config }))
       expect(findNode('a').data.moduleRef).toBe('decay:a_only')
-      expect(module('decay:a_only')).toMatchObject({ mathRef: DECAY_REF, ports })
+      expect(module('decay:a_only')).toMatchObject({ mathRef: DECAY_REF, ports, source: { kind: 'instance', nodeId: 'a' } })
       expect([...library.availableCollections.get(DECAY_REF)]).toContain('decay:a_only')
       expect(findNode('b').data).toMatchObject({ moduleRef: BASE_REF, ports: before.nodes[1].data.ports })
       expect(module()).toEqual(baseModule())
@@ -800,7 +802,15 @@ describe('useInstanceSave', () => {
 
       await history.redo()
       expect(findNode('a').data.moduleRef).toBe('decay:a_only')
-      expect(module('decay:a_only')).toMatchObject({ ports })
+      expect(module('decay:a_only')).toMatchObject({ ports, source: { kind: 'instance', nodeId: 'a' } })
+    })
+
+    it('keeps the instance that made a config its owner when it is overwritten', async () => {
+      library.replaceModule({ ...baseModule(), source: { kind: 'instance', nodeId: 'a' } })
+      await saveInstanceEdit(buildSave({ ports, variables: variables(), config: { action: 'update' } }))
+      expect(module()).toMatchObject({ ports, source: { kind: 'instance', nodeId: 'a' } })
+      await history.undo()
+      expect(module()).toEqual({ ...baseModule(), source: { kind: 'instance', nodeId: 'a' } })
     })
 
     it('moves the module to math every instance switched to, and undo moves it back', async () => {
@@ -892,6 +902,9 @@ describe('useInstanceSave', () => {
         expect(module('growth:a_only')).toMatchObject({ mathRef: GROWTH_REF, ports })
         expect(findNode('b').data).toMatchObject({ moduleRef: GROWTH_MODULE_REF, ports: before.nodes[1].data.ports })
         expect(module(GROWTH_MODULE_REF)).toMatchObject({ mathRef: GROWTH_REF, ports: moduleBefore.ports })
+        // The new math's module is the switching instances', so no one's own; the new config is this one's.
+        expect(module(GROWTH_MODULE_REF).source).toBeUndefined()
+        expect(module('growth:a_only').source).toEqual({ kind: 'instance', nodeId: 'a' })
         expect(module()).toEqual(moduleBefore)
         expectNodesMatchModules()
 
@@ -1015,6 +1028,7 @@ describe('useInstanceSave', () => {
         await portEdit([['a', { action: 'new', moduleRef: 'decay:a_only' }]], ports)
         expect(findNode('a').data.moduleRef).toBe('decay:a_only')
         expect(module('decay:a_only').ports).toEqual(ports)
+        expect(module('decay:a_only').source).toEqual({ kind: 'instance', nodeId: 'a' })
         expect(findNode('b').data.ports).toEqual(dialogPorts('b', before.nodes[1].data.ports))
         expect(module()).toEqual(baseModule())
 
@@ -1022,6 +1036,19 @@ describe('useInstanceSave', () => {
         expect(snapshot()).toEqual(before)
         expect(library.availableModules.has('decay:a_only')).toBe(false)
         expect(history.canUndo).toBe(false)
+      })
+
+      it('updates the config it made on a later edit, leaving the library module alone, one undo step each', async () => {
+        await portEdit([['a', { action: 'new', moduleRef: 'decay:a_only' }]], ports)
+        const afterNew = snapshot()
+        await portEdit([['a', { action: 'update' }]], [], findNode('b').data.ports)
+        expect(module('decay:a_only')).toMatchObject({ ports: [], source: { kind: 'instance', nodeId: 'a' } })
+        expect(module()).toEqual(baseModule())
+        expect(findNode('b').data.moduleRef).toBe(BASE_REF)
+
+        await history.undo()
+        expect(snapshot()).toEqual(afterNew)
+        expect(module('decay:a_only').ports).toEqual(ports)
       })
 
       it("keeps a store mark confirmed on another instance's edge the update reaches", async () => {

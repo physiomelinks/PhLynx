@@ -95,8 +95,27 @@ describe('moduleConfig', () => {
       })
     })
 
-    it('updates a module no other instance uses without asking', () => {
-      expect(portEditConfig(nodes[0], relabelled, [nodes[0]], library())).toEqual({ action: 'update' })
+    it('asks about a library module even when no other instance uses it', () => {
+      expect(portEditConfig(nodes[0], relabelled, [nodes[0]], library())).toEqual({
+        prompt: { moduleRef: MODULE.moduleRef, otherCount: 0, canUpdate: true },
+      })
+    })
+
+    it('updates a config the instance made, and alone uses, without asking', () => {
+      const owned = { ...MODULE, source: { kind: 'instance', nodeId: 'a' } }
+      expect(portEditConfig(nodes[0], relabelled, [nodes[0]], library(), owned)).toEqual({ action: 'update' })
+    })
+
+    it('asks about a config the instance made once another instance uses it', () => {
+      const owned = { ...MODULE, source: { kind: 'instance', nodeId: 'a' } }
+      expect(portEditConfig(nodes[0], relabelled, nodes, library(), owned)).toEqual({
+        prompt: { moduleRef: MODULE.moduleRef, otherCount: 1, canUpdate: true },
+      })
+    })
+
+    it('asks about a config another instance made', () => {
+      const theirs = { ...MODULE, source: { kind: 'instance', nodeId: 'b' } }
+      expect(portEditConfig(nodes[0], relabelled, [nodes[0]], library(), theirs)).toHaveProperty('prompt')
     })
 
     it('leaves the module alone when only the ports’ ids change', () => {

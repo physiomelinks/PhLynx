@@ -463,8 +463,7 @@
       :match-ref="configPrompt.matchRef"
       :other-count="configPrompt.otherCount"
       :can-update="configPrompt.canUpdate"
-      :initial-name="configPrompt.initialName"
-      :existing-refs="configPrompt.existingRefs"
+      :new-ref="configPrompt.newRef"
       @confirm="(config) => resolveConfigPrompt(config)"
       @cancel="resolveConfigPrompt(null)"
     />
@@ -553,6 +552,7 @@ import { isInitialisable } from '../services/math/variableKinds'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
 import { confirmPortEditDrives } from '../services/export/drivenStores'
 import { spreadConfig } from '../services/configSpread'
+import { isSoleOwnConfig, newConfigRef } from '../services/configOwnership'
 import { isModuleConfig } from '../services/moduleConfig'
 import {
   createSinglePlotConfig,
@@ -1925,20 +1925,20 @@ function resolveSaveAs(name) {
 }
 
 // ── Module Config ────────────────────────────────────────────────────────────
-const configPrompt = ref({ visible: false, moduleRef: '', matchRef: '', otherCount: 0, canUpdate: true, initialName: '', existingRefs: [] })
+const configPrompt = ref({ visible: false, moduleRef: '', matchRef: '', otherCount: 0, canUpdate: true, newRef: '' })
 let configResolver = null
 
 /**
- * Asks whether a config change updates the instance's module or saves as a new one.
+ * Asks whether a config change overwrites the instance's module or moves the instance to a new config of its own,
+ * named after it (see configOwnership).
  *
  * @param {Object} options - The prompt's `moduleRef`, `matchRef`, `otherCount` and `canUpdate`.
  * @returns {Promise<Object|null>} The save's `config`, or null if cancelled.
  */
 function promptModuleConfig({ moduleRef, matchRef = '', otherCount, canUpdate }) {
   resolveConfigPrompt(null)
-  const initialName = sanitiseName(`${moduleRef.split(':')[1] ?? ''}_${editableName.value ?? ''}`)
-  const existingRefs = [...new Set([...store.availableModules.keys(), moduleRef])]
-  configPrompt.value = { visible: true, moduleRef, matchRef, otherCount, canUpdate, initialName, existingRefs }
+  const newRef = newConfigRef(moduleRef, editableName.value, (ref) => ref === moduleRef || store.availableModules.has(ref))
+  configPrompt.value = { visible: true, moduleRef, matchRef, otherCount, canUpdate, newRef }
   return new Promise((resolve) => {
     configResolver = resolve
   })
@@ -1968,9 +1968,10 @@ function moduleFollowers({ mathRef, math, updateAll }) {
 
 /**
  * Works out what a save does to the instance's module, asking when the ports or variable units, access or types no
- * longer match it and other instances would follow. Values never count. A module no other instance uses is updated
- * without asking, and math saved for every instance on the module's math takes the module along. Math no module uses
- * gets a module of its own (see useInstanceSave), which the instances switching from this module share.
+ * longer match it. Values never count. A config the instance made, and alone uses, is updated without asking (see
+ * configOwnership); any other asks to be overwritten or left for a new config, even with no other instance on it. Math
+ * saved for every instance on the module's math takes the module along. Math no module uses gets a module of its own
+ * (see useInstanceSave), which the instances switching from this module share.
  *
  * @param {Object} save
  * @param {string} save.mathRef - The math the instance saves to.
@@ -1992,7 +1993,7 @@ async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
   if (isModuleConfig(config, { ...module, mathRef: moduleMathRef }, analysis)) {
     return !isNewModule && moduleMathRef !== module.mathRef ? { action: 'follow' } : null
   }
-  if (!followers.length) return { action: 'update' }
+  if (isSoleOwnConfig(module, props.id, followers.length)) return { action: 'update' }
 
   const choice = await promptModuleConfig({
     moduleRef: isNewModule ? store.defaultModuleRef(mathRef) : moduleRef,

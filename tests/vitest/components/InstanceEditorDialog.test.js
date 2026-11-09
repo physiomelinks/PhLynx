@@ -426,8 +426,7 @@ describe('InstanceEditorDialog module config', () => {
   it('asks before saving changed ports, and sends the choice', async () => {
     await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
     expect(wrapper.emitted('confirm')).toBeUndefined()
-    expect(configDialog().props()).toMatchObject({ moduleRef: MODULE_REF, otherCount: 1, canUpdate: true, initialName: 'base_a' })
-    expect(configDialog().props('existingRefs')).toContain(MODULE_REF)
+    expect(configDialog().props()).toMatchObject({ moduleRef: MODULE_REF, otherCount: 1, canUpdate: true, newRef: 'decay:a' })
 
     configDialog().vm.$emit('confirm', { action: 'update' })
     await flushPromises()
@@ -467,18 +466,45 @@ describe('InstanceEditorDialog module config', () => {
     })
   })
 
-  it('updates a module no other instance uses without asking', async () => {
+  it('asks about a library module even when no other instance uses it', async () => {
+    flowNodes.value[1].data.moduleRef = 'decay:other'
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
+    expect(configDialog().props()).toMatchObject({ moduleRef: MODULE_REF, otherCount: 0, canUpdate: true, newRef: 'decay:a' })
+  })
+
+  it('names the new config past one of the instance’s name already taken', async () => {
+    const library = useLibraryStore()
+    library.addModule({ ...JSON.parse(JSON.stringify(library.availableModules.get(MODULE_REF))), moduleRef: 'decay:a' })
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
+    expect(configDialog().props('newRef')).toBe('decay:a_2')
+  })
+
+  it('updates a config the instance made, and alone uses, without asking', async () => {
+    const library = useLibraryStore()
+    library.replaceModule({ ...JSON.parse(JSON.stringify(library.availableModules.get(MODULE_REF))), source: { kind: 'instance', nodeId: 'a' } })
     flowNodes.value[1].data.moduleRef = 'decay:other'
     await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
     expect(configDialog().exists()).toBe(false)
     expect(wrapper.emitted('confirm')[0][0].config).toEqual({ action: 'update' })
   })
 
+  it('asks about a config the instance made once another instance uses it', async () => {
+    const library = useLibraryStore()
+    library.replaceModule({ ...JSON.parse(JSON.stringify(library.availableModules.get(MODULE_REF))), source: { kind: 'instance', nodeId: 'a' } })
+    await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] })
+    expect(configDialog().props()).toMatchObject({ moduleRef: MODULE_REF, otherCount: 1 })
+  })
+
   it('asks about the new component\'s module when the instances switching to it would differ', async () => {
     const newXml = EDITED_XML.replace(/"decay"/g, '"decay2"')
     await save({ initialPorts: [{ ...PORTS[0], label: 'q' }] }, { xml: newXml })
-    expect(configDialog().props()).toMatchObject({ moduleRef: 'decay2:default', matchRef: MODULE_REF, otherCount: 1, canUpdate: true })
-    expect(configDialog().props('existingRefs')).toContain('decay2:default')
+    expect(configDialog().props()).toMatchObject({
+      moduleRef: 'decay2:default',
+      matchRef: MODULE_REF,
+      otherCount: 1,
+      canUpdate: true,
+      newRef: 'decay2:a',
+    })
 
     configDialog().vm.$emit('confirm', { action: 'new', moduleRef: 'decay2:a' })
     await flushPromises()

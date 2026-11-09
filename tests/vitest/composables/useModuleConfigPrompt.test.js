@@ -51,7 +51,7 @@ describe('useModuleConfigPrompt', () => {
   it('asks about a port deleted from a shared module, naming the new config after the instance', async () => {
     const result = prompt.resolvePortEdits([edit('a', [])], nodes)
     await nextTick()
-    expect(prompt.configPrompt.value).toMatchObject({ visible: true, moduleRef: 'decay:base', otherCount: 1, initialName: 'base_a' })
+    expect(prompt.configPrompt.value).toMatchObject({ visible: true, moduleRef: 'decay:base', otherCount: 1, newRef: 'decay:a' })
     prompt.resolveConfigPrompt({ action: 'update' })
     expect(await result).toEqual(new Map([['a', { action: 'update' }]]))
   })
@@ -63,9 +63,36 @@ describe('useModuleConfigPrompt', () => {
     expect(await result).toBeNull()
   })
 
-  it('updates a module alone in use without asking', async () => {
+  it('asks about a library module even when no other instance uses it', async () => {
+    const result = prompt.resolvePortEdits([edit('a', [])], [nodes[0]])
+    await nextTick()
+    expect(prompt.configPrompt.value).toMatchObject({ visible: true, moduleRef: 'decay:base', otherCount: 0 })
+    prompt.resolveConfigPrompt({ action: 'new', moduleRef: prompt.configPrompt.value.newRef })
+    expect(await result).toEqual(new Map([['a', { action: 'new', moduleRef: 'decay:a' }]]))
+  })
+
+  it('numbers the new config past one of the instance’s name already taken', async () => {
+    library.addModule({ ...structuredClone(MODULE), moduleRef: 'decay:a' })
+    library.addModule({ ...structuredClone(MODULE), moduleRef: 'decay:a_2' })
+    prompt.resolvePortEdits([edit('a', [])], nodes)
+    await nextTick()
+    expect(prompt.configPrompt.value.newRef).toBe('decay:a_3')
+    prompt.resolveConfigPrompt(null)
+  })
+
+  it('updates a config the instance made, and alone uses, without asking', async () => {
+    library.replaceModule({ ...structuredClone(MODULE), source: { kind: 'instance', nodeId: 'a' } })
     expect(await prompt.resolvePortEdits([edit('a', [])], [nodes[0]])).toEqual(new Map([['a', { action: 'update' }]]))
     expect(prompt.configPrompt.value.visible).toBe(false)
+  })
+
+  it('asks about a config the instance made once a copy of it uses it too', async () => {
+    library.replaceModule({ ...structuredClone(MODULE), source: { kind: 'instance', nodeId: 'a' } })
+    const result = prompt.resolvePortEdits([edit('a', [])], nodes)
+    await nextTick()
+    expect(prompt.configPrompt.value).toMatchObject({ visible: true, otherCount: 1 })
+    prompt.resolveConfigPrompt(null)
+    expect(await result).toBeNull()
   })
 
   it('asks nothing for ports that keep their config', async () => {
@@ -82,12 +109,17 @@ describe('useModuleConfigPrompt', () => {
 
   it('counts out an end that moved to a new config, and keeps its name taken', async () => {
     const relabelled = [{ ...MODULE.ports[0], label: 'q' }]
+    nodes[1].data.name = 'a'
     const result = prompt.resolvePortEdits([edit('a', []), edit('b', relabelled)], nodes)
     await nextTick()
-    prompt.resolveConfigPrompt({ action: 'new', moduleRef: 'decay:a_only' })
+    prompt.resolveConfigPrompt({ action: 'new', moduleRef: 'decay:a' })
+    await nextTick()
+    // b is now the library module's only user, which still asks, offering a name past the one a took.
+    expect(prompt.configPrompt.value).toMatchObject({ visible: true, moduleRef: 'decay:base', otherCount: 0, newRef: 'decay:a_2' })
+    prompt.resolveConfigPrompt({ action: 'update' })
     expect(await result).toEqual(
       new Map([
-        ['a', { action: 'new', moduleRef: 'decay:a_only' }],
+        ['a', { action: 'new', moduleRef: 'decay:a' }],
         ['b', { action: 'update' }],
       ])
     )

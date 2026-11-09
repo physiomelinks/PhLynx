@@ -1,6 +1,7 @@
 import { parseMathRef, parseModuleRef, restorePorts, restoreVariables } from '../utils/config'
 import { detachReactivity } from '../utils/reactivity'
 import { syncInitialiserUnits } from '../utils/variables'
+import { isSoleOwnConfig } from './configOwnership'
 import { buildInstance } from './import/buildWorkflow'
 import { getModuleFormat } from './moduleFormats'
 
@@ -95,7 +96,8 @@ export function isModuleConfig(config, module, analysis) {
 /**
  * Works out what an edit to an instance's ports outside the instance editor, such as in the connection dialog, does
  * to its module. Couplings don't count: an edit that leaves the instance's config as it was, or makes it its
- * module's again, needs no change. A module no other instance uses is updated without asking.
+ * module's again, needs no change. A config the instance made, and alone uses, is updated without asking (see
+ * configOwnership); any other config asks, even one no other instance uses.
  *
  * @param {{id: string, data: Object}} node - The instance as it was.
  * @param {Array} ports - Its ports after the edit.
@@ -113,6 +115,6 @@ export function portEditConfig(node, ports, nodes, libraryStore, module = librar
   if (isModuleConfig(edited, module, libraryStore.getMathAnalysis?.(module.mathRef) ?? null)) return null
 
   const otherCount = nodes.filter((other) => other.id !== node.id && other.data?.moduleRef === module.moduleRef).length
-  if (!otherCount) return { action: 'update' }
+  if (isSoleOwnConfig(module, node.id, otherCount)) return { action: 'update' }
   return { prompt: { moduleRef: module.moduleRef, otherCount, canUpdate: node.data.mathRef === module.mathRef } }
 }
