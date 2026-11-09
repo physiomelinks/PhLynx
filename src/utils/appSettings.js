@@ -1,4 +1,16 @@
 /**
+ * A toolbar button's show/hide setting. The Settings button itself is always shown, so hidden buttons can come back.
+ *
+ * @param {string} key
+ * @param {string} label
+ * @param {string} description
+ * @param {boolean} shown - Whether the button is shown by default.
+ */
+function toolbarToggle(key, label, description, shown) {
+  return { key, type: 'toggle', label, description: `Show ${description}`, default: shown }
+}
+
+/**
  * The settings, by section, in the order the dialog shows them. Each `select` setting offers `options`, each with
  * an optional `hint` shown beneath its label; a `toggle` setting is on or off.
  */
@@ -112,6 +124,52 @@ export const SETTING_SECTIONS = [
       },
     ],
   },
+  {
+    title: 'Toolbar',
+    settings: [
+      toolbarToggle('toolbarLoad', 'Load workspace', 'the folder button that opens a saved workspace.', true),
+      toolbarToggle(
+        'toolbarSave',
+        'Save workspace',
+        'the disk button that saves the workspace. Ctrl/Cmd+S saves either way.',
+        true
+      ),
+      toolbarToggle(
+        'toolbarCleanUp',
+        'Clean up workspace',
+        'the brush button that lays the instances out again.',
+        true
+      ),
+      toolbarToggle(
+        'toolbarClear',
+        'Clear workspace',
+        'the eraser button that removes everything from the canvas.',
+        true
+      ),
+      toolbarToggle(
+        'toolbarUndoRedo',
+        'Undo and redo',
+        'the undo and redo buttons. Their shortcuts work either way.',
+        true
+      ),
+      toolbarToggle(
+        'toolbarAddHandles',
+        'Add handles',
+        'the four buttons that add a handle to one side of the selected instances.',
+        false
+      ),
+      toolbarToggle('toolbarMacroBuilder', 'Macro builder', 'the hammer button that opens the macro builder.', false),
+      toolbarToggle(
+        'toolbarSimulationSettings',
+        'Simulation settings',
+        'the button that opens the simulation settings.',
+        true
+      ),
+      toolbarToggle('toolbarImport', 'Import', 'the Import menu. Ctrl/Cmd+I imports either way.', true),
+      toolbarToggle('toolbarExport', 'Export', 'the Export menu. Ctrl/Cmd+E exports either way.', true),
+      toolbarToggle('toolbarSendTo', 'Send to', 'the Send menu, which sends the model to another tool.', false),
+    ],
+  },
 ]
 
 /** Each setting's definition, by key. */
@@ -138,5 +196,28 @@ export function isValidAppSetting(key, value) {
       return typeof value === 'boolean'
     default:
       return false
+  }
+}
+
+/**
+ * Which workspace toolbar dividers show: one before each shown group that follows another shown group.
+ *
+ * @param {Object<string, *>} settings - The app settings.
+ * @returns {Object<string, boolean>} By the group each divider comes before; `toolsLead` is whether a tools button
+ *   precedes Settings, which then needs its gap.
+ */
+export function shownToolbarDividers(settings) {
+  const file = settings.toolbarLoad || settings.toolbarSave
+  const edit = settings.toolbarCleanUp || settings.toolbarClear
+  const undoRedo = settings.toolbarUndoRedo
+  const addHandles = settings.toolbarAddHandles
+  return {
+    cleanUp: edit && file,
+    undoRedo: undoRedo && (file || edit),
+    addHandles: addHandles && (file || edit || undoRedo),
+    // The tools group always holds the Settings button.
+    tools: file || edit || undoRedo || addHandles,
+    toolsLead: settings.toolbarMacroBuilder || settings.toolbarSimulationSettings,
+    transfer: settings.toolbarImport || settings.toolbarExport || settings.toolbarSendTo,
   }
 }

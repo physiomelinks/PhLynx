@@ -64,13 +64,28 @@ describe('App', () => {
 
   it('links to the workspace, simulation, user guide and about pages', async () => {
     const { wrapper } = await mountApp()
-    const hrefs = wrapper.findAll('nav a').map((a) => [a.text(), a.attributes('href')])
+    const hrefs = wrapper.findAll('nav a:not(.report-issue-link)').map((a) => [a.text(), a.attributes('href')])
     expect(hrefs).toEqual([
       ['Workspace', '/'],
       ['Simulation', '/simulation'],
       ['User Guide', '/docs/'],
       ['About', '/about'],
     ])
+    wrapper.unmount()
+  })
+
+  it('offers a bug button after About that opens a new GitHub issue', async () => {
+    const { wrapper } = await mountApp()
+    const links = wrapper.findAll('nav a')
+    const bug = links.at(-1)
+    expect(links.at(-2).text()).toBe('About')
+    expect(bug.classes()).toContain('report-issue-link')
+    expect(bug.attributes()).toMatchObject({
+      href: 'https://github.com/physiomelinks/phlynx/issues/new',
+      target: '_blank',
+      'aria-label': 'Report an issue',
+    })
+    expect(bug.find('svg').exists()).toBe(true)
     wrapper.unmount()
   })
 

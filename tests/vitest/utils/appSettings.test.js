@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { APP_SETTINGS, SETTING_SECTIONS, defaultAppSettings, isValidAppSetting } from '../../../src/utils/appSettings'
+import {
+  APP_SETTINGS,
+  SETTING_SECTIONS,
+  defaultAppSettings,
+  isValidAppSetting,
+  shownToolbarDividers,
+} from '../../../src/utils/appSettings'
 
 const SETTINGS = SETTING_SECTIONS.flatMap((section) => section.settings)
 
@@ -82,5 +88,72 @@ describe('scrolling in CellDL diagrams', () => {
     expect(SETTING_SECTIONS.find((section) => section.title === 'CellDL diagrams').settings).toContain(setting)
     expect(isValidAppSetting('celldlWheelMode', 'zoom')).toBe(true)
     expect(isValidAppSetting('celldlWheelMode', 'scroll')).toBe(false)
+  })
+
+  it('shows every toolbar button except add handles, macro builder and send to', () => {
+    const toolbar = SETTING_SECTIONS.find((section) => section.title === 'Toolbar')
+    const defaults = Object.fromEntries(toolbar.settings.map((setting) => [setting.key, setting.default]))
+    expect(defaults).toEqual({
+      toolbarLoad: true,
+      toolbarSave: true,
+      toolbarCleanUp: true,
+      toolbarClear: true,
+      toolbarUndoRedo: true,
+      toolbarAddHandles: false,
+      toolbarMacroBuilder: false,
+      toolbarSimulationSettings: true,
+      toolbarImport: true,
+      toolbarExport: true,
+      toolbarSendTo: false,
+    })
+    expect(defaultAppSettings()).toMatchObject(defaults)
+    for (const setting of toolbar.settings) {
+      expect(setting.type, setting.key).toBe('toggle')
+      expect(setting.description, setting.key).toMatch(/^Show the /)
+    }
+  })
+
+  it('accepts only true or false for a toolbar button, and has no setting that hides Settings itself', () => {
+    expect(isValidAppSetting('toolbarSendTo', true)).toBe(true)
+    expect(isValidAppSetting('toolbarSendTo', 'shown')).toBe(false)
+    expect(isValidAppSetting('toolbarMacroBuilder', 1)).toBe(false)
+    expect(isValidAppSetting('toolbarSettings', false)).toBe(false)
+  })
+})
+
+describe('shownToolbarDividers', () => {
+  const allShown = Object.fromEntries(
+    SETTING_SECTIONS.find((section) => section.title === 'Toolbar').settings.map((setting) => [setting.key, true])
+  )
+
+  it('divides every group when every button shows', () => {
+    expect(shownToolbarDividers(allShown)).toEqual({
+      cleanUp: true,
+      undoRedo: true,
+      addHandles: true,
+      tools: true,
+      toolsLead: true,
+      transfer: true,
+    })
+  })
+
+  it('skips the hidden add handles by default', () => {
+    expect(shownToolbarDividers(defaultAppSettings())).toEqual({
+      cleanUp: true,
+      undoRedo: true,
+      addHandles: false,
+      tools: true,
+      toolsLead: true,
+      transfer: true,
+    })
+  })
+
+  it('leaves no divider before the first shown group, nor after the last', () => {
+    const onlyTools = Object.fromEntries(Object.keys(allShown).map((key) => [key, false]))
+    expect(Object.values(shownToolbarDividers(onlyTools)).some(Boolean)).toBe(false)
+    expect(shownToolbarDividers({ ...onlyTools, toolbarUndoRedo: true })).toMatchObject({
+      undoRedo: false,
+      tools: true,
+    })
   })
 })
