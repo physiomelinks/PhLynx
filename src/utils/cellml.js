@@ -52,6 +52,17 @@ export function whenLibCellMLReady() {
   return libcellmlReady
 }
 
+/**
+ * The libCellML instance initLibCellML bound.
+ *
+ * @returns {Object}
+ * @throws {Error} When libCellML is not ready yet.
+ */
+export function getLibCellML() {
+  if (!_libcellml) throw new Error("LibCellML is not ready or hasn't been initialized.")
+  return _libcellml
+}
+
 export function extractParametersFromCellML(cellmlString, filename) {
   const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
   const model = doc.getElementsByTagName('model')[0]
