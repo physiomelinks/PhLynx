@@ -53,7 +53,10 @@
         <!-- Species mode: each compartment's species, and the paths they take through proteins; only tokens are hit -->
         <svg
           v-if="drawnSpecies && !draggingId"
-          :class="['bio-species', { 'bio-species--reordering': draggingChip }]"
+          :class="[
+            'bio-species',
+            { 'bio-species--reordering': draggingChip, 'bio-species--continuous': settings.speciesFlowContinuous },
+          ]"
           data-testid="bio-species"
         >
           <!-- Keyed by direction too, so a run that turns a path round runs its dashes again -->
@@ -2287,9 +2290,9 @@ function assignRole(id, at, { role, cell, placement }) {
 }
 
 /* A path whose flow is known after a run: solid, with its dashes running the way the species goes; square ends, so
-   none pokes past the base of its arrowhead. The dashes run a few times when the flow is shown, then rest on the
-   arrowheads: an endless dash animation repaints the view every frame (Firefox can't run it off the main thread).
-   A focused species' paths keep running. */
+   none pokes past the base of its arrowhead. The dashes keep running while the speciesFlowContinuous setting is on;
+   off, they run a few times when the flow is shown, then rest on the arrowheads, since an endless dash animation
+   repaints the view every frame (Firefox can't run it off the main thread). A focused species' paths always run. */
 .bio-species-path--moving > path {
   stroke-linecap: butt;
   stroke-dasharray: 10 6;
@@ -2297,7 +2300,8 @@ function assignRole(id, at, { role, cell, placement }) {
   animation: bio-species-flow 1.2s linear 4;
 }
 
-.bio-species-path--focused > path {
+.bio-species-path--focused > path,
+.bio-species--continuous .bio-species-path--moving > path {
   animation-iteration-count: infinite;
 }
 
