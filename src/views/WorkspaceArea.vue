@@ -628,6 +628,7 @@ import { getUndoRedoAction, useFlowHistory } from '../composables/useFlowHistory
 import { useConnect } from '../composables/useConnect'
 import { useCellmlDrop } from '../composables/useCellmlDrop'
 import { useCelldlImport } from '../composables/useCelldlImport'
+import { useAnnotationDrivenEdges } from '../composables/useAnnotationDrivenEdges'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -637,6 +638,7 @@ import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
 import { buildRestoredPorts, restoreOmexAnnotations } from '../services/import/omexAnnotations'
 import { withAnnotationData } from '../services/annotations/nodeData'
+import { drivenSummary } from '../services/annotations/edgeCouplings'
 import { findParamsForIdExtra, parseParamsForId, resolveParamsForIdRows } from '../services/simulation/paramsForId'
 import { putSlider } from '../services/simulation/parameterSliders'
 
@@ -816,6 +818,7 @@ const {
   revertHandleIfUnused,
 } = useHandleManagement()
 const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(FLOW_IDS.MAIN)
+const { driveEdgesNow, prepareDriving, findNodesToDrive } = useAnnotationDrivenEdges()
 const { saveInstanceEdit, savePortEdit } = useInstanceSave(FLOW_IDS.MAIN)
 const defaultParametersStore = useDefaultParametersStore()
 const { importParameterFile, importParameterFiles, applyLinkedSets, applySetToNode, retryCsvAsModule } = useParametersImport({
@@ -1119,6 +1122,7 @@ const { connectNodes } = useConnect({
   revertHandleIfUnused,
   revertHandlesForEdge,
   reactivateEdgeHandles,
+  recordEdit,
 })
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
@@ -1425,7 +1429,7 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
       ])
 
       const instance = buildInstance(node.id, node.data.name, node.type, node.data, allHandles, node.position)
-      // Its annotation state, which buildInstance doesn't know about.
+      // Its placement and reservoir state, which buildInstance doesn't know about.
       withAnnotationData(instance.data, node.data)
       return instance
     })
@@ -1459,6 +1463,11 @@ async function loadFlowSnapshot(fileName, flowSnapshot, parameterData = {}, { no
   return { nodeNameToIdMap, globalValues }
 }
 
+/**
+ * Builds the workspace from an imported OMEX archive.
+ *
+ * @returns {Promise<string|null>} From drivenSummary: how many connections now use annotation ports.
+ */
 async function processImportedOmexArchive(archivePayload, result, fileName) {
   await builtInLibraryReady
   const archive = await JSZip.loadAsync(archivePayload)
@@ -1577,6 +1586,10 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     restoredPorts.forEach((ports, nodeId) => updateNodeData(nodeId, { ports }))
   }
 
+  // Connections between placed nodes with annotated ports couple through them, as on workspace load.
+  await prepareDriving()
+  const driven = drivenSummary(driveEdgesNow())
+
   // Rebuild the edge index so the EdgeConnectionDialog subgraph is correct.
   rebuildNodeEdgeIndex()
   recomputeMissingCouplings()
@@ -1614,6 +1627,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     manifestXml,
     extras: preservedExtras,
   })
+  return driven
 }
 
 /**
@@ -1723,11 +1737,11 @@ async function runImportConfirm(importPayload, updateProgress) {
       const archivePayload = await extractOmexArchive(importPayload, updateProgress)
       const result = await importOmexFile(archivePayload.omex, updateProgress)
 
-      await processImportedOmexArchive(archivePayload.omex, result, archivePayload.name)
+      const driven = await processImportedOmexArchive(archivePayload.omex, result, archivePayload.name)
 
       notify.success({
         title: 'OMEX Import Complete',
-        message: 'Workflow built successfully!',
+        message: driven ? `Workflow built successfully! ${driven}` : 'Workflow built successfully!',
       })
     } catch (error) {
       notify.error({
@@ -2141,12 +2155,15 @@ async function connectBioInstances(links) {
   }
   // The edge changes are recorded on the next tick.
   await nextTick()
+  // The nodes' places changed, so their other edges between annotated nodes couple anew.
+  await driveEdgesAt([...new Set(links.flatMap(({ from, to }) => [from, to]))])
   return added
 }
 
 /**
- * Removes the edges a physiological view move left behind (see staleLinks), recorded like any edge removal. Run
- * inside the move's history batch.
+ * Removes the edges a physiological view move left behind (see staleLinks), recorded like any edge removal, and
+ * re-derives the couplings of the edges left at their ends, whose places changed. Run inside the move's history
+ * batch.
  *
  * @param {Array<string>} edgeIds
  * @returns {Promise<void>}
@@ -2158,6 +2175,28 @@ async function disconnectBioInstances(edgeIds) {
   // The removal is recorded on the next tick, and each end's handle turns ghost a tick or two after it: wait them
   // all out, so they land in the move's step and one undo takes the whole move back.
   await new Promise((resolve) => setTimeout(resolve, 0))
+  await driveEdgesAt([...new Set(gone.flatMap(({ source, target }) => [source, target]))])
+}
+
+/**
+ * Re-derives the couplings of the edges at some nodes, whose places may have changed, as a recorded edit (see
+ * driveEdgesByAnnotations). Run it inside a history batch to make it part of one undo step.
+ *
+ * @param {Array<string>} nodeIds
+ * @returns {Promise<void>}
+ */
+async function driveEdgesAt(nodeIds) {
+  const edgeIds = findIncidentEdgeIds(nodeIds)
+  if (!edgeIds.length) return
+  await prepareDriving()
+  await recordEdit({
+    type: 'add-annotated-ports',
+    // Driving an edge may add ports at its far end too.
+    nodeIds: [...new Set([...nodeIds, ...findNodesToDrive(edgeIds)])],
+    keys: ['ports'],
+    edgeIds,
+    apply: () => driveEdgesNow({ edgeIds }),
+  })
 }
 
 function handleAutoLayout() {

@@ -8,6 +8,7 @@ import { lookupTerm } from '../services/ontology/ols'
 import { escapeHtml } from '../utils/importBatch'
 import { notify } from '../utils/notify'
 import { FLOW_IDS } from '../utils/constants'
+import { useAnnotationDrivenEdges } from './useAnnotationDrivenEdges'
 import { useConfirmDialog } from './useConfirmDialog'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
@@ -26,10 +27,12 @@ export function useSidecarImport(flowId = FLOW_IDS.MAIN, { lookup = lookupTerm }
   const { nodes, updateNodeData } = useVueFlow(flowId)
   const libraryStore = useLibraryStore()
   const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
+  const { driveEdgesNow, prepareDriving, findNodesToDrive } = useAnnotationDrivenEdges(flowId)
   const { confirm } = useConfirmDialog()
 
   /**
-   * Puts each file on the library module it annotates, and updates the annotated ports of placed instances.
+   * Puts each file on the library module it annotates, updates the annotated ports of placed instances, and
+   * couples their connections through them.
    *
    * @param {Array<{ name: string, text: string, mathRef?: string|null }>} files - Read side-car files.
    * @returns {Promise<number>} How many modules were annotated.
@@ -65,19 +68,22 @@ export function useSidecarImport(flowId = FLOW_IDS.MAIN, { lookup = lookupTerm }
           libraryStore.setModuleAnnotations(file.mathRef, textOn(side, file))
       })
 
-    // Parsed first, so the ports below follow the new side-cars.
+    // Parsed first, so the ports and couplings below follow the new side-cars.
     setAll('after')
     const parsed = await Promise.all(matched.map(({ mathRef }) => libraryStore.ensureModuleAnnotations(mathRef)))
     const ports = await buildRestoredPorts(nodes.value, matched, libraryStore)
     const nodeIds = [...ports.keys()]
+    const edgeIds = findIncidentEdgeIds(nodeIds)
+    await prepareDriving()
     await recordEdit({
       type: 'import-annotations',
-      nodeIds,
+      nodeIds: [...new Set([...nodeIds, ...findNodesToDrive(edgeIds)])],
       keys: ['ports'],
-      edgeIds: findIncidentEdgeIds(nodeIds),
+      edgeIds,
       apply: () => {
         setAll('after')
         ports.forEach((nodePorts, nodeId) => updateNodeData(nodeId, { ports: nodePorts }))
+        driveEdgesNow({ edgeIds })
       },
       library: {
         isAt: (side) => matched.every((file) => libraryStore.getModuleAnnotations(file.mathRef) === textOn(side, file)),

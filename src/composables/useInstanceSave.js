@@ -36,9 +36,11 @@ import { carryDrivesState } from '../utils/edges'
 import { isAnnotatedPort } from '../utils/portIdentity'
 import { detachReactivity } from '../utils/reactivity'
 import { isBlank } from '../utils/variables'
+import { useAnnotationDrivenEdges } from './useAnnotationDrivenEdges'
+import { useCouplingContext } from './useCouplingContext'
 import { useNodeDataHistory } from './useNodeDataHistory'
 
-const NODE_KEYS = ['name', 'variables', 'ports', 'mathRef', 'moduleRef', 'parameterisation']
+const NODE_KEYS = ['name', 'variables', 'ports', 'mathRef', 'moduleRef', 'parameterisation', 'annotationOverlay']
 
 /**
  * Checks whether two math entries (see libraryStore.getMathEntry) hold the same math, defaults, layout and source.
@@ -113,6 +115,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   const simulationSettingsStore = useSimulationSettingsStore()
   const defaultParameters = useDefaultParametersStore()
   const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
+  const { driveEdgesNow, prepareDriving, findNodesToDrive } = useAnnotationDrivenEdges(flowId)
+  const { getContext } = useCouplingContext()
 
   /**
    * Rebuilds a node's rows from its math, keeping their values. A row the math newly needs starts
@@ -135,6 +139,23 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Sets or clears a node's annotationOverlay.
+   *
+   * @param {string} id
+   * @param {Object|null} overlay - Null removes it.
+   */
+  function setOverlay(id, overlay) {
+    updateNodeData(
+      id,
+      (node) => {
+        const { annotationOverlay: _previous, ...data } = node.data
+        return overlay ? { ...data, annotationOverlay: detachReactivity(overlay) } : data
+      },
+      { replace: true }
+    )
+  }
+
+  /**
    * Drops ports that carry a variable the node no longer has.
    *
    * @param {Object} node
@@ -145,8 +166,20 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Builds the coupling context a save re-checks kept annotated couplings with, and drives edges with.
+   *
+   * @param {Function} sidecarFor - From prepareSidecars.
+   * @param {Array<Object>} contextNodes - The nodes as the save leaves them.
+   * @returns {Object} From buildCouplingContext.
+   */
+  function buildSaveContext(sidecarFor, contextNodes) {
+    return getContext(contextNodes, { sidecarFor })
+  }
+
+  /**
    * Reconciles the side-car ports of the given nodes and recomputes the couplings of every edge touching them from
-   * the current ports, keeping which drive a store. Call it after changing ports on one or more nodes.
+   * the current ports, keeping which drive a store; edges between placed nodes then couple through annotated ports
+   * where both ends have them (see driveEdgesByAnnotations). Call it after changing ports on one or more nodes.
    *
    * @param {Array<string>} nodeIds
    * @param {Function} sidecarFor - From prepareSidecars.
@@ -155,12 +188,20 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    *   keep, matched by port label (see confirmPortEditDrives).
    */
   function reconcileSavedNodes(nodeIds, sidecarFor, portChanges, marked = new Map()) {
-    const { ports, couplings } = reconcileNodePorts({ nodes: nodes.value, edges: edges.value, nodeIds, sidecarFor, portChanges })
+    const { ports, couplings } = reconcileNodePorts({
+      nodes: nodes.value,
+      edges: edges.value,
+      nodeIds,
+      sidecarFor,
+      context: buildSaveContext(sidecarFor, nodes.value),
+      portChanges,
+    })
     ports.forEach((nodePorts, nodeId) => updateNodeData(nodeId, { ports: nodePorts }))
     edges.value.forEach((edge) => {
       if (!couplings.has(edge.id)) return
       edge.data = { ...edge.data, couplings: carryDrivesState(marked.get(edge.id) ?? [], couplings.get(edge.id), { byLabel: true }) }
     })
+    driveEdgesNow({ context: buildSaveContext(sidecarFor, nodes.value), edgeIds: findIncidentEdgeIds(nodeIds) })
   }
 
   /**
@@ -306,6 +347,8 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     // The parameter set the editor last applied, which a later import of that set re-applies.
     const setFields = save.parameterisation ? { parameterisation: save.parameterisation } : {}
     updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields, ...setFields })
+    // Whether its summed flows are held at 0, which the matcher reads.
+    if ('annotationOverlay' in save) setOverlay(id, save.annotationOverlay)
     if (updateAll) {
       siblings.forEach((siblingId) => {
         const isSameModule = findNode(siblingId)?.data.moduleRef === previousModuleRef
@@ -739,11 +782,16 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @param {Object} save - The instance editor's `confirm` payload.
    * @returns {Array<Object>} Copies; the workspace nodes are not changed.
    */
-  function previewSavedNodes({ id, name, variables, ports, mathRef, updateAll, siblings }) {
+  function previewSavedNodes(save) {
+    const { id, name, variables, ports, mathRef, updateAll, siblings } = save
     const validVariables = new Set(variables.map((row) => row.name))
     return nodes.value.map((node) => {
       const data = detachReactivity(node.data ?? {})
-      if (node.id === id) return { id: node.id, data: { ...data, name, variables, ports, mathRef } }
+      if (node.id === id) {
+        const { annotationOverlay, ...rest } = data
+        const overlay = 'annotationOverlay' in save ? save.annotationOverlay : annotationOverlay
+        return { id: node.id, data: { ...rest, name, variables, ports, mathRef, ...(overlay ? { annotationOverlay: overlay } : {}) } }
+      }
       const isMoved = updateAll && siblings.includes(node.id)
       if (!isMoved && data.mathRef !== mathRef) return { id: node.id, data }
       const nodePorts = (data.ports ?? []).filter((port) => (port.variables ?? []).every((v) => validVariables.has(v)))
@@ -762,11 +810,13 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const affectedIds = findAffectedIds(save)
     const sidecarFor = await prepareSidecars(save, await prepareAnnotationChange(save), affectedIds)
     const canvasPorts = nodes.value.find((node) => node.id === save.id)?.data?.ports
+    const preview = previewSavedNodes(save)
     const { couplings } = reconcileNodePorts({
-      nodes: previewSavedNodes(save),
+      nodes: preview,
       edges: edges.value,
       nodeIds: affectedIds,
       sidecarFor,
+      context: buildSaveContext(sidecarFor, preview),
       portChanges: new Map([[save.id, findSidecarPortChanges(canvasPorts, save.ports)]]),
     })
     return countDroppedCouplings(edges.value, couplings)
@@ -797,12 +847,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const configChange = prepareConfigChange(save)
     const setChange = prepareInstanceSetChange(save)
     const defaultsChange = prepareParameterDefaults(save)
+    const edgeIds = findIncidentEdgeIds(affectedIds)
+    await prepareDriving()
 
     await recordEdit({
       type: 'edit-instance',
-      nodeIds: affectedIds,
+      // Driving an edge may add ports at its far end too.
+      nodeIds: [...new Set([...affectedIds, ...findNodesToDrive(edgeIds)])],
       keys: NODE_KEYS,
-      edgeIds: findIncidentEdgeIds(affectedIds),
+      edgeIds,
       apply: () => {
         annotationChange?.apply()
         const moduleRef = applySave(save, affectedIds, sidecarFor)
@@ -870,14 +923,17 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const configChanges = [...configs].map(([id, config]) => prepareConfigChange({ id, config }))
     // A config made here takes its node's own set as its default.
     const defaultsChanges = [...configs].map(([id]) => prepareParameterDefaults({ id }))
-    // The side-cars whose ports the instances an update rewrites keep.
+    // The side-cars whose ports the instances an update rewrites keep, and what driving their edges needs.
     const sidecarFor = await prepareSidecars({ mathRef: null, math: null }, null, affectedIds)
+    const edgeIds = findIncidentEdgeIds(affectedIds)
+    await prepareDriving()
 
     return recordEdit({
       type,
-      nodeIds: affectedIds,
+      // Driving an edge may add ports at its far end too.
+      nodeIds: [...new Set([...affectedIds, ...findNodesToDrive(edgeIds)])],
       keys: NODE_KEYS,
-      edgeIds: findIncidentEdgeIds(affectedIds),
+      edgeIds,
       apply: () => {
         // Instances whose ports an update rewrote after the edit's own, whose couplings follow them.
         const rewritten = new Set()

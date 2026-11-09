@@ -10,8 +10,11 @@ import { offsetEdgeData } from '../utils/edgeRoute'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
+import { isAnnotatedPort } from '../utils/portIdentity'
+import { driveEdgesByAnnotations, withCouplings } from '../services/annotations/edgeCouplings'
 import { nodeDataForCopy } from '../services/annotations/nodeData'
 import { reconcileNodePorts } from '../services/annotations/reconcileNodes'
+import { useCouplingContext } from './useCouplingContext'
 
 /**
  * Whether a workspace keyboard shortcut should be left alone: the user is typing in an input, a dialog is
@@ -74,6 +77,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
   const { addEdges, addNodes, edges, getSelectedEdges, getSelectedNodes, nodes, screenToFlowCoordinate } =
     useVueFlow(flowId)
   const libraryStore = useLibraryStore()
+  const { getContext } = useCouplingContext()
 
   const clipboard = ref({ nodes: [], edges: [] })
 
@@ -158,6 +162,27 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       if ((ports.has(edge.source) || ports.has(edge.target)) && couplings.has(edge.id)) {
         edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
       }
+    }
+  }
+
+  /**
+   * Makes pasted edges between placed nodes with annotated ports couple through them, or restores their manual
+   * couplings where an end lost them (see driveEdgesByAnnotations).
+   *
+   * @param {Array<Object>} newNodes - Changed in place.
+   * @param {Array<Object>} newEdges - Changed in place.
+   */
+  function drivePastedEdges(newNodes, newEdges) {
+    const isAnnotated = (node) => (node.data?.ports ?? []).some(isAnnotatedPort)
+    if (!newNodes.some(isAnnotated) && !newEdges.some((edge) => edge.data?.manualCouplings)) return
+    const all = [...nodes.value, ...newNodes]
+    const { ports, changed } = driveEdgesByAnnotations({ nodes: all, edges: newEdges, context: getContext(all) })
+    for (const node of newNodes) {
+      if (ports.has(node.id)) node.data = { ...node.data, ports: ports.get(node.id) }
+    }
+    const changes = new Map(changed.map((change) => [change.edgeId, change.after]))
+    for (const edge of newEdges) {
+      if (changes.has(edge.id)) edge.data = withCouplings(edge.data, changes.get(edge.id))
     }
   }
 
@@ -270,6 +295,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     })
 
     await reconcilePastedPorts(newNodes, newEdges)
+    drivePastedEdges(newNodes, newEdges)
 
     getSelectedNodes.value.forEach((n) => (n.selected = false))
     getSelectedEdges.value.forEach((e) => (e.selected = false))

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }))
 const save = vi.hoisted(() => ({ legacyDownload: vi.fn(), saveFileHandle: vi.fn(), writeFileHandle: vi.fn() }))
@@ -23,6 +23,9 @@ import { useOmexStore } from '../../../src/stores/omexStore'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore'
 import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
+import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
+import { TOY_PLACEMENTS, loadToyNodes } from '../services/annotations/toyNodes.js'
+import { readToy } from '../services/annotations/toyModel.js'
 
 const FLOW = { nodes: [{ id: 'n1', position: { x: 1, y: 2 } }], edges: [], viewport: { x: 5, y: 6, zoom: 2 } }
 const COLLECTIONS = [['parts.cellml', ['modA', 'modB']]]
@@ -364,5 +367,75 @@ describe('applyWorkspaceState', () => {
 
     // The 1.1.0 -> 1.2.0 step restores the solver settings older files were run with.
     expect(useSimulationSettingsStore().simulationSettings.maxSteps).toBe(500)
+  })
+})
+
+describe('loading a workspace with annotated ports', () => {
+  beforeAll(() => ensureLibCellmlReady())
+
+  const manual = (variable) => ({ portType: 'general_ports', label: variable, variables: [variable] })
+  const coupling = { sourcePort: manual('c_A_i'), targetPort: manual('c_A') }
+  const pairOf = ({ sourcePort, targetPort }) => `${sourcePort.variables[0]} -> ${targetPort.variables[0]}`
+
+  /**
+   * Saves a porter and a cell joined by a manual coupling, placed on a template unless `placed` is false, then sets up
+   * a fresh view to load it into.
+   */
+  async function saveToy({ placed = true } = {}) {
+    const toy = await loadToyNodes()
+    const template = useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 })
+    const at = (name) => (placed ? { bioView: { site: `${template.id}/${TOY_PLACEMENTS[name]}` } } : { bioView: undefined })
+    const portsOf = (name, own, variables) => [manual(own), ...variables.map((v) => toy.port(name, v))]
+    const porterIn = toy.node('porter_in', portsOf('porter_in', 'c_A_i', ['area', 'c_A_i', 'v_A_i']), at('porter_in'))
+    const cell = toy.node('cell', portsOf('cell', 'c_A', ['area', 'c_A', 'v_A']), at('cell'))
+    const savedFlow = {
+      nodes: [porterIn, cell],
+      edges: [{ id: 'e', source: porterIn.id, target: cell.id, data: { couplings: [coupling] } }],
+      viewport: FLOW.viewport,
+    }
+    const library = useLibraryStore()
+    for (const name of ['pool', 'porter']) {
+      library.addMathFile(`${name}.cellml`, [{ name, math: readToy(`${name}.cellml`) }])
+      library.setModuleAnnotations(`${name}.cellml:${name}`, readToy(`${name}.ttl`))
+    }
+    flow.toObject.mockReturnValue(savedFlow)
+    await view.onSaveConfirm('annotated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    setActivePinia(createPinia())
+    setup()
+    flow.fromObject.mockImplementation((loaded) => {
+      nodes.value = loaded.nodes
+      edges.value = loaded.edges
+    })
+    return saved
+  }
+
+  it('couples connections between placed annotated nodes through their annotated ports, keeping the manual ones', async () => {
+    const saved = await saveToy()
+    await view.applyWorkspaceState(saved)
+
+    const [edge] = edges.value
+    expect(edge.data.manualCouplings).toEqual([coupling])
+    expect(edge.data.couplings.map(pairOf).sort()).toEqual(['area -> area', 'c_A_i -> c_A', 'v_A_i -> v_A'])
+    expect(notify.success).toHaveBeenCalledWith({
+      title: 'Workflow loaded successfully!',
+      message: '1 connection now uses annotation ports.',
+    })
+
+    // Saved again, the manual couplings stay with the edge.
+    flow.toObject.mockReturnValue({ nodes: nodes.value, edges: edges.value, viewport: FLOW.viewport })
+    await view.onSaveConfirm('again')
+    const again = await readBlob(save.legacyDownload.mock.calls.at(-1)[1])
+    expect(again.flow.edges[0].data.manualCouplings).toEqual([coupling])
+  })
+
+  it('leaves the stored couplings of unplaced nodes as they were', async () => {
+    const saved = await saveToy({ placed: false })
+    await view.applyWorkspaceState(saved)
+
+    const [edge] = edges.value
+    expect(edge.data).toEqual({ couplings: [coupling] })
+    expect(notify.success).toHaveBeenCalledWith({ title: 'Workflow loaded successfully!' })
   })
 })

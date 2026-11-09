@@ -12,6 +12,7 @@ export const STEP_LABELS = {
   'replace-edge': 'Connect',
   'edit-connection': 'Edit connection',
   'edit-instance': 'Edit module',
+  'add-annotated-ports': 'Add annotated ports',
   'edit-parameters': 'Edit parameters',
   'edit-global-constant': 'Edit constant',
   'rename-node': 'Rename module',

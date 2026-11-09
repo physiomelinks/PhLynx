@@ -1,3 +1,5 @@
+import { locationSource } from './locationSources.js'
+
 /**
  * The annotation fields an instance node's data may carry, saved with the workspace as they are:
  * - annotationOverlay: { heldConstant }, PhLynx-only state, e.g. a reservoir whose summed flows are held at 0.
@@ -24,25 +26,29 @@ export function variableNamesOf(data) {
 
 /**
  * Copies node data for a pasted copy, keeping only the user's role and glyph choices of its bioView, since its
- * place names nodes the copy is not part of.
+ * place names nodes the copy is not part of. The location source's other node keys are left off too, so a copy
+ * is unplaced.
  *
  * @param {Object} data - Node data.
  * @returns {Object}
  */
 export function nodeDataForCopy(data) {
   const { bioView, ...rest } = data ?? {}
+  for (const key of locationSource().nodeKeys ?? []) if (key !== 'bioView') delete rest[key]
   const kept = Object.fromEntries(Object.entries(bioView ?? {}).filter(([key]) => key === 'role' || key === 'glyph'))
   return Object.keys(kept).length ? { ...rest, bioView: kept } : rest
 }
 
 /**
- * Copies the preserved fields of one node's data onto another's, e.g. when a node is rebuilt from a snapshot.
+ * Copies the preserved fields of one node's data onto another's, e.g. when a node is rebuilt from a snapshot: those
+ * of PRESERVED_NODE_KEYS and the location source's node keys.
  *
  * @param {Object} data - The node data to fill.
  * @param {Object} from - The node data to copy them from.
  * @returns {Object} data, with the fields from has.
  */
 export function withAnnotationData(data, from) {
-  for (const key of PRESERVED_NODE_KEYS) if (from?.[key] !== undefined) data[key] = from[key]
+  const keys = new Set([...PRESERVED_NODE_KEYS, ...(locationSource().nodeKeys ?? [])])
+  for (const key of keys) if (from?.[key] !== undefined) data[key] = from[key]
   return data
 }

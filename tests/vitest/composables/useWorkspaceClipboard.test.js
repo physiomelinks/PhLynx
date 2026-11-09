@@ -536,5 +536,23 @@ describe('useWorkspaceClipboard', () => {
       expect(pasted.data.ports.map((port) => port.annotation?.subject)).toEqual([undefined, X_SUBJECT])
       expect(findNode('dndnode_0').data.ports).toEqual([labelPort])
     })
+
+    it('brings back the manual couplings of a pasted edge, as its copied ends are not placed', async () => {
+      const labelPort = { portType: 'general_ports', label: 'p', variables: ['x'], multiportType: 'None' }
+      const coupling = { sourcePort: labelPort, targetPort: labelPort }
+      for (const id of ['dndnode_0', 'dndnode_1']) {
+        findNode(id).data = { ...findNode(id).data, variables: [{ name: 'x' }], ports: [labelPort] }
+      }
+      edges.value[0].data = { couplings: [], manualCouplings: [coupling] }
+      select(['dndnode_0', 'dndnode_1'], ['edge_0'])
+      await clipboard.copySelection()
+
+      await clipboard.pasteSelection()
+
+      const pasted = edges.value.at(-1)
+      expect(pasted.data.couplings).toEqual([coupling])
+      expect(pasted.data).not.toHaveProperty('manualCouplings')
+      expect(edges.value[0].data.manualCouplings).toEqual([coupling])
+    })
   })
 })

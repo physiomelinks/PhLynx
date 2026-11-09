@@ -1,6 +1,7 @@
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from './useClearWorkspace'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import { useCouplingContext } from './useCouplingContext'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
@@ -9,11 +10,13 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { driveEdgesByAnnotations, drivenSummary, withCouplings } from '../services/annotations/edgeCouplings'
 import { dropStaleAnnotatedPorts } from '../services/annotations/reconcileNodes'
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { migrateWorkspace } from '../services/workspaceMigrator'
 import { JSON_FILE_TYPES } from '../utils/constants'
 import { notify } from '../utils/notify'
+import { isAnnotatedPort } from '../utils/portIdentity'
 import { ensureExtension, legacyDownload, saveFileHandle, writeFileHandle } from '../utils/save'
 
 /**
@@ -54,6 +57,7 @@ export function useWorkspaceSaveLoad({
   const glyphLibraryStore = useGlyphLibraryStore()
   const { trackEvent } = useGtm()
   const historyStore = useFlowHistoryStore()
+  const { ensureContext } = useCouplingContext()
 
   /**
    * Saves with the native file picker, or opens the save dialog when the browser has none.
@@ -133,6 +137,32 @@ export function useWorkspaceSaveLoad({
   }
 
   /**
+   * Makes connections between placed nodes with annotated ports couple through them (see driveEdgesByAnnotations).
+   *
+   * @returns {Promise<string|null>} From drivenSummary; null when nothing switched or the side-cars can't be read.
+   */
+  async function driveLoadedEdges() {
+    const hasAnnotatedPorts = (node) => (node.data?.ports ?? []).some(isAnnotatedPort)
+    if (!nodes.value.some(hasAnnotatedPorts) && !edges.value.some((edge) => edge.data?.manualCouplings)) return null
+    let context
+    try {
+      context = await ensureContext(nodes.value)
+    } catch (error) {
+      console.warn('Annotated couplings unavailable:', error)
+      return null
+    }
+    const result = driveEdgesByAnnotations({ nodes: nodes.value, edges: edges.value, context })
+    for (const node of nodes.value) {
+      if (result.ports.has(node.id)) node.data = { ...node.data, ports: result.ports.get(node.id) }
+    }
+    const changes = new Map(result.changed.map((change) => [change.edgeId, change.after]))
+    for (const edge of edges.value) {
+      if (changes.has(edge.id)) edge.data = withCouplings(edge.data, changes.get(edge.id))
+    }
+    return drivenSummary(result.changed)
+  }
+
+  /**
    * Drops annotated ports on variables their math lacks, which would stop the model from running, and says which.
    */
   function dropStalePorts() {
@@ -185,6 +215,8 @@ export function useWorkspaceSaveLoad({
       defaultParametersStore.loadState(migratedState.parameters)
       bioTemplateStore.loadState(migratedState.bioTemplates)
       glyphLibraryStore.loadState(migratedState.bioGlyphs)
+      // After the templates, which place the nodes.
+      const driven = await driveLoadedEdges()
       // A loaded workspace is as saved as its file.
       historyStore.markSaved()
 
@@ -196,6 +228,7 @@ export function useWorkspaceSaveLoad({
       })
       notify.success({
         title: 'Workflow loaded successfully!',
+        ...(driven ? { message: driven } : {}),
       })
     } catch (error) {
       trackEvent('workflow_load_action', {

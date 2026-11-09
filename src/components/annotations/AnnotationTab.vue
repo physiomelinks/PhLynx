@@ -136,6 +136,24 @@
         Check the module’s terms: {{ moduleTermProblems.join('; ') }}.
       </Message>
 
+      <div v-if="aggregators.length || !isPlaced" class="annotation-tab__toolbar annotation-tab__placement">
+        <label v-if="aggregators.length" class="annotation-tab__toggle" data-test="hold-constant">
+          <Checkbox
+            :model-value="heldConstant"
+            binary
+            aria-label="Hold summed flows at 0"
+            data-test="hold-constant-checkbox"
+            @update:model-value="(value) => emit('update:heldConstant', !!value)"
+          />
+          <span :title="`Holds ${aggregators.join(', ')} at 0, so connected instances don't sum into them`">
+            Hold summed flows at 0
+          </span>
+        </label>
+        <Message v-if="!isPlaced" severity="secondary" size="small" variant="simple" data-test="unplaced-hint">
+          Place this instance in the physiology view so its annotated ports couple by location.
+        </Message>
+      </div>
+
       <div v-if="selected.size" :key="bulkKey" class="annotation-bulk" data-test="bulk">
         <span>With {{ selected.size }} selected:</span>
         <Select
@@ -406,6 +424,7 @@ import {
 } from '../../services/annotations/draft'
 import { GO, OPB, canonicalCurie, hasPrefix, isFlowProperty, takesSpecies } from '../../services/annotations/iris'
 import { displayLabel } from '../../services/annotations/labels'
+import { aggregatorVariables } from '../../services/annotations/heldConstant'
 import { isCompleteAnnotation } from '../../services/annotations/match'
 import { parseSidecar } from '../../services/annotations/sidecar'
 import { editSidecar, listOtherTriples } from '../../services/annotations/sidecarEdit'
@@ -464,9 +483,16 @@ const props = defineProps({
   confirmImport: { type: Function, default: async () => true },
   // Saves a file, as (filename, blob) => void.
   download: { type: Function, default: legacyDownload },
+  // Whether the instance is placed in the physiology view, so its annotated ports couple by location.
+  isPlaced: { type: Boolean, default: false },
+  // Whether the instance's summed flows are held at 0 (annotationOverlay.heldConstant).
+  heldConstant: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update:draft'])
+const emit = defineEmits(['update:draft', 'update:heldConstant'])
+
+/** The variables the sidecar sums flows into, which holding the instance constant pins at 0. */
+const aggregators = computed(() => aggregatorVariables(props.sidecar))
 
 const KIND_OPTIONS = [
   { value: 'compartment', label: 'Compartment' },
@@ -1318,6 +1344,10 @@ defineExpose({ importFile })
 
 .annotation-tab__count {
   margin-left: auto;
+}
+
+.annotation-tab__placement {
+  flex-wrap: wrap;
 }
 
 .annotation-tab__status {

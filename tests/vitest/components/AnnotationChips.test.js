@@ -78,6 +78,25 @@ describe('AnnotationChips', () => {
     expect(detail().querySelector('a.annotation-detail__iri').getAttribute('href')).toMatch(/^http/)
   })
 
+  it('names the places a placed instance’s quantity resolves to by their template labels', async () => {
+    const port = toy.port('porter_in', 'c_A_o')
+    const node = toy.node('porter_in')
+    const quantity = quantityOfPort(port, node, toy.context([node]))
+    mountChips({ annotation: port.annotation, quantity, variable: 'c_A_o', isPlaced: true })
+    await wrapper.find('.annotation-chips').trigger('click')
+    await flushPromises()
+    expect(detail().querySelector('[data-place="0"]').textContent).toContain('Apical fluid (lumen)')
+  })
+
+  it('says a placed instance with no matching place has none resolved', async () => {
+    const port = toy.port('outside', 'area')
+    const node = toy.node('outside')
+    mountChips({ annotation: port.annotation, quantity: quantityOfPort(port, node, toy.context([node])), isPlaced: true })
+    await wrapper.find('.annotation-chips').trigger('click')
+    await flushPromises()
+    expect(detail().textContent).toContain('No place resolved')
+  })
+
   it('says an unplaced instance has no place', async () => {
     mountChips({ annotation: toy.port('porter_in', 'c_A_i').annotation })
     await wrapper.find('.annotation-chips').trigger('click')

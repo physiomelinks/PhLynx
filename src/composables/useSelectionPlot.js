@@ -7,6 +7,7 @@ import { computed, unref } from 'vue'
 import { useAppSettings } from './useAppSettings'
 import { SELECTION_PLOT_LIMIT, buildSelectionPlot } from '../services/bioView/autoPlot'
 import { resolveBioRole } from '../services/bioView/roles'
+import { locationSource } from '../services/annotations/locationSources'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useViewModeStore } from '../stores/viewModeStore'
 
@@ -35,7 +36,10 @@ export function useSelectionPlot(nodes) {
   const plot = computed(() => {
     if (!selected.value.length) return null
     return buildSelectionPlot(selected.value, {
-      roleOf: (node) => resolveBioRole(node.data, { sidecar: sidecarOf(node) }).role,
+      roleOf: (node) => {
+        const sidecar = sidecarOf(node)
+        return resolveBioRole(node.data, { sidecar, worked: locationSource().workedRole(node, { sidecar }) }).role
+      },
       sidecarOf,
     })
   })

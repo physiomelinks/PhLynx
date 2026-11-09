@@ -11,6 +11,7 @@ import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
 import { CARD, layoutPhysiology } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
+import { locationSource } from '../services/annotations/locationSources'
 
 /** Stacking: regions under cells under everything drawn on them. */
 const Z = { region: -20, cell: -10 }
@@ -438,17 +439,15 @@ export function useBioNodes(nodes, edges = ref([])) {
   const templateStore = useBioTemplateStore()
   const simulationResults = useSimulationResultsStore()
 
-  const roles = computed(
-    () =>
-      new Map(
-        nodes.value.map((node) => [
-          node.id,
-          resolveBioRole(node.data, {
-            sidecar: node.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null,
-          }),
-        ])
-      )
-  )
+  const roles = computed(() => {
+    const source = locationSource()
+    return new Map(
+      nodes.value.map((node) => {
+        const sidecar = node.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null
+        return [node.id, resolveBioRole(node.data, { sidecar, worked: source.workedRole(node, { sidecar }) })]
+      })
+    )
+  })
   const physiology = computed(() => {
     const byId = new Map(nodes.value.map((node) => [node.id, node]))
     // What a protein carries shows under its name, so it spaces neighbours too.

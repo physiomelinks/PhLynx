@@ -1560,6 +1560,20 @@ describe('useInstanceSave', () => {
     })
   })
 
+  it('holds an instance’s summed flows at 0 with the save, and undo lets them go again', async () => {
+    const held = findNode('a').data.variables.map((row) => (row.name === 'k' ? { ...row, type: 'constant', value: '0' } : row))
+    await saveInstanceEdit(buildSave({ name: 'a', variables: held, annotationOverlay: { heldConstant: true } }))
+    expect(findNode('a').data.annotationOverlay).toEqual({ heldConstant: true })
+
+    await saveInstanceEdit(buildSave({ name: 'a', annotationOverlay: null }))
+    expect(findNode('a').data).not.toHaveProperty('annotationOverlay')
+
+    await history.undo()
+    expect(findNode('a').data.annotationOverlay).toEqual({ heldConstant: true })
+    await history.undo()
+    expect(findNode('a').data).not.toHaveProperty('annotationOverlay')
+  })
+
   describe('module annotations', () => {
     const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
 @prefix semsim: <http://bime.uw.edu/semsim/> .

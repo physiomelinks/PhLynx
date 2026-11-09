@@ -3,8 +3,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useConnect } from '../../../src/composables/useConnect.js'
+import { useNodeDataHistory } from '../../../src/composables/useNodeDataHistory.js'
+import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { TOY_MODULES, readToy } from '../services/annotations/toyModel.js'
+import { TOY_PLACEMENTS, loadToyNodes } from '../services/annotations/toyNodes.js'
 
 const nodes = ref([])
 const edges = ref([])
@@ -20,6 +24,13 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     nodes,
     edges,
     findNode: (id) => nodes.value.find((node) => node.id === id),
+    findEdge: (id) => edges.value.find((edge) => edge.id === id),
+    updateNodeData: (id, update, { replace } = {}) => {
+      const node = nodes.value.find((candidate) => candidate.id === id)
+      if (!node) return
+      const patch = typeof update === 'function' ? update(node) : update
+      node.data = replace ? patch : { ...node.data, ...patch }
+    },
     addEdges: (added) => {
       edges.value.push(...toIds(added))
       onEdgesAdded?.(toIds(added))
@@ -349,6 +360,124 @@ describe('useConnect', () => {
       expect(deps.reactivateEdgeHandles).toHaveBeenLastCalledWith(expect.objectContaining(second), {
         trackHistory: false,
       })
+    })
+  })
+
+  describe('between placed nodes with annotated math', () => {
+    let toy, templateId
+
+    /** A toy node placed at its site on the epithelial-cell template instance. */
+    const placedNode = (name, ports = []) =>
+      toy.node(name, ports, { bioView: { site: `${templateId}/${TOY_PLACEMENTS[name]}` } })
+
+    beforeEach(async () => {
+      toy ??= await loadToyNodes()
+      const library = useLibraryStore()
+      for (const module of new Set(Object.values(TOY_MODULES))) {
+        const mathRef = `${module}.cellml:${module}`
+        library.addMath(mathRef, readToy(`${module}.cellml`))
+        library.setModuleAnnotations(mathRef, readToy(`${module}.ttl`))
+      }
+      templateId = useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 }).id
+      nodes.value = [placedNode('porter_in', [port('general_ports', 'flow', ['q'])]), placedNode('cell')]
+    })
+
+    const connection = {
+      source: 'node_porter_in',
+      target: 'node_cell',
+      sourceHandle: 'handle_s1',
+      targetHandle: 'handle_t1',
+    }
+
+    it('adds the matcher’s couplings and the ports they need, recording the ports as one edit', async () => {
+      const recordEdit = vi.fn(async ({ apply }) => apply())
+      useConnect({ ...deps, recordEdit })
+      await connect(connection)
+
+      const [edge] = edges.value
+      const pairs = edge.data.couplings.map(({ sourcePort, targetPort }) => [
+        sourcePort.variables[0],
+        targetPort.variables[0],
+      ])
+      expect(pairs.sort()).toEqual([
+        ['area', 'area'],
+        ['c_A_i', 'c_A'],
+        ['v_A_i', 'v_A'],
+      ])
+      expect(recordEdit).toHaveBeenCalledTimes(1)
+      expect(recordEdit.mock.calls[0][0]).toMatchObject({
+        type: 'add-annotated-ports',
+        nodeIds: ['node_porter_in', 'node_cell'],
+        keys: ['ports'],
+      })
+      const [porter, cell] = nodes.value
+      expect(porter.data.ports.map((p) => p.variables[0]).sort()).toEqual(['area', 'c_A_i', 'q', 'v_A_i'])
+      expect(cell.data.ports.every((p) => p.annotation?.source.kind === 'sidecar')).toBe(true)
+      // The couplings use the nodes' own ports.
+      expect(edge.data.couplings.every(({ targetPort }) => cell.data.ports.includes(targetPort))).toBe(true)
+    })
+
+    it('puts the ports in one undo step with the edge', async () => {
+      const { recordEdit } = useNodeDataHistory()
+      useConnect({ ...deps, recordEdit })
+      const removeEdge = vi.fn()
+      onEdgesAdded = () => history.addCommand({ type: 'add-edge', undo: removeEdge, redo: vi.fn() })
+      try {
+        await connect(connection)
+      } finally {
+        onEdgesAdded = null
+      }
+      expect(history.canUndo).toBe(true)
+
+      await history.undo()
+      expect(history.canUndo).toBe(false)
+      expect(removeEdge).toHaveBeenCalledTimes(1)
+      expect(nodes.value.map((node) => node.data.ports.length)).toEqual([1, 0])
+    })
+
+    it('couples by label only, and still adds the edge, when the annotations fail to parse', async () => {
+      vi.spyOn(useLibraryStore(), 'ensureModuleAnnotations').mockRejectedValue(new Error('Bad Turtle'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const recordEdit = vi.fn(async ({ apply }) => apply())
+      try {
+        useConnect({ ...deps, recordEdit })
+        await connect(connection)
+        expect(warn).toHaveBeenCalled()
+      } finally {
+        warn.mockRestore()
+      }
+      expect(edges.value).toHaveLength(1)
+      expect(edges.value[0].data.couplings).toEqual([])
+      expect(recordEdit).not.toHaveBeenCalled()
+    })
+
+    it('couples no manual ports once the edge gives their nodes annotated ports, which hide them', async () => {
+      const slots = [port('general_ports', 'flow', ['q0']), port('general_ports', 'flow', ['q1'])]
+      nodes.value[0].data = { ...nodes.value[0].data, ports: [...slots] }
+      nodes.value[1].data = { ...nodes.value[1].data, ports: [port('general_ports', 'flow', ['r'])] }
+      useConnect({ ...deps, recordEdit: vi.fn(async ({ apply }) => apply()) })
+      await connect(connection)
+
+      const edge = edges.value.find((e) => e.id === 'node_porter_in--node_cell')
+      expect(edge.data.couplings.length).toBeGreaterThan(0)
+      expect(edge.data.couplings.some(({ sourcePort }) => sourcePort.label === 'flow')).toBe(false)
+      // The manual ports stay in the nodes' data.
+      expect(nodes.value[0].data.ports.filter((p) => p.label === 'flow')).toHaveLength(2)
+    })
+
+    it('couples by label only when a node is unplaced', async () => {
+      nodes.value[1].data = { ...nodes.value[1].data, bioView: undefined }
+      await connect(connection)
+      expect(edges.value[0].data.couplings).toEqual([])
+      expect(nodes.value[1].data.ports).toEqual([])
+    })
+
+    it('joins placed nodes dropped on a template by the matcher rather than the link', async () => {
+      const { connectNodes } = useConnect({ ...deps, recordEdit: vi.fn(async ({ apply }) => apply()) })
+      const edge = await connectNodes({ source: 'node_cell', target: 'node_porter_in' }, { link: 'across' })
+      // The given way round, as the matcher couples as many either way.
+      expect(edge).toMatchObject({ source: 'node_cell', target: 'node_porter_in' })
+      expect(edge.data.couplings.map(({ sourcePort }) => sourcePort.variables[0]).sort()).toEqual(['area', 'c_A', 'v_A'])
     })
   })
 
