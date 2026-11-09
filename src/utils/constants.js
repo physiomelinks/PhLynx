@@ -195,7 +195,7 @@ export const IMPORT_LABELS = {
   CELLML_FILE: 'CellML File (.cellml or .xml)',
   CELLDL_FILE: 'CellDL Diagram (.celldl)',
   PARAMETER: 'Parameters (.json, .csv)',
-  TURTLE: 'Annotations (.ttl)',
+  TURTLE: 'Module Annotations (.ttl)',
   OMEX: 'COMBINE Archive (OMEX)',
 }
 

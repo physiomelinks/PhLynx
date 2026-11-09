@@ -12,6 +12,8 @@ import {
 } from '../utils/parameters/instanceSet'
 import { planSharedSetUpdate } from '../utils/parameters/apply'
 import { renameSidecar } from '../services/annotations/sidecarEdit'
+import { analyzeMathXml } from '../services/math/analyzeMath'
+import { carryRenames } from '../services/math/carryRenames'
 import {
   fillBlankValues,
   getPortVariables,
@@ -98,7 +100,7 @@ function combineLibraries(libraries) {
  * Applies an instance editor save to the workspace as one canvas undo step.
  *
  * @param {string} [flowId=FLOW_IDS.MAIN]
- * @returns {Object} saveInstanceEdit.
+ * @returns {Object} saveInstanceEdit, savePortEdit and findVariableRenames.
  */
 export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   const { nodes, edges, findNode, updateNodeData } = useVueFlow(flowId)
@@ -622,6 +624,20 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Finds the variables a save's math renamed, as carryRenames carries their rows.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Map<string, string>} Old variable name -> new name.
+   */
+  function findVariableRenames({ mathRef, previousMathRef, math }) {
+    if (math === null) return new Map()
+    const previousAnalysis = libraryStore.getMathAnalysis(previousMathRef ?? mathRef)
+    const rows = [...new Set(previousAnalysis?.references ?? [])].map((name) => ({ name }))
+    const { portRenames } = carryRenames(previousAnalysis, analyzeMathXml(math), rows)
+    return new Map(portRenames.map(({ from, to }) => [from, to]))
+  }
+
+  /**
    * Gets the sidecar a save writes for its math, as a recordEdit `library` entry: the save's own
    * annotations, or else the previous math's sidecar moved to the new math. Its variable subjects are
    * ids, which follow renamed variables as they are. The previous math keeps its own.
@@ -792,5 +808,5 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     })
   }
 
-  return { saveInstanceEdit, savePortEdit }
+  return { saveInstanceEdit, savePortEdit, findVariableRenames }
 }

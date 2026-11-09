@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SPECIES_ALIASES, parseSpeciesTerm, searchSpecies, speciesToken } from '../../../../src/services/annotations/species.js'
+import { displayLabel } from '../../../../src/services/annotations/labels.js'
 
 describe('parseSpeciesTerm', () => {
   it.each([
@@ -39,10 +40,11 @@ describe('searchSpecies', () => {
     expect(searchSpecies('CHEBI:29103', { workspaceTerms: ['CHEBI:29103'] })[0].source).toBe('pasted')
   })
 
-  it('gives every pinned species a unique ChEBI CURIE', () => {
+  it('gives every pinned species a unique ChEBI CURIE and a label', () => {
     const curies = SPECIES_ALIASES.map((entry) => entry.curie)
     expect(new Set(curies).size).toBe(curies.length)
     for (const curie of curies) expect(parseSpeciesTerm(curie)).toBe(curie)
+    expect(displayLabel('CHEBI:29108')).toBe('Ca²⁺')
   })
 
   it('gives inorganic phosphate and hydrogenphosphate distinct tokens', () => {

@@ -44,6 +44,11 @@ const { buildInstance } = await import('../../../src/services/import/buildWorkfl
 const { default: ParameterSetSaveDialog } = await import('../../../src/components/dialogs/ParameterSetSaveDialog.vue')
 const { NEW_MODULE_MATH_REF } = await import('../../../src/utils/constants.js')
 const { cycleMultiportType } = await import('../../../src/utils/multiport.js')
+const { default: AnnotationTab } = await import('../../../src/components/annotations/AnnotationTab.vue')
+const { setDraftEntry, setDraftKind, setDraftSpaceKind } = await import('../../../src/services/annotations/draft.js')
+const { parseSidecar } = await import('../../../src/services/annotations/sidecar.js')
+const { stripIds, variableIdsOf } = await import('../../../src/services/math/variableIds.js')
+const { notify } = await import('../../../src/utils/notify.js')
 const { useCelldlEditorHost } = await import('../../../src/composables/useCelldlEditorHost.js')
 const { useLiveCelldlConvert } = await import('../../../src/composables/useLiveCelldlConvert.js')
 const { useDefaultParametersStore } = await import('../../../src/stores/defaultParametersStore.js')
@@ -64,6 +69,9 @@ const XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
   </component>
 </model>`
 const EDITED_XML = XML.replace('<apply><minus/><ci>k</ci></apply>', '<apply><minus/><cn>1</cn></apply>')
+// The math with ids on its annotated variables, which sidecar subjects name.
+const withId = (xml, name, id) => xml.replace(`<variable name="${name}"`, `<variable id="${id}" name="${name}"`)
+const X_IDS_XML = withId(XML, 'x', 'vdecayx01')
 
 const setText = vi.fn()
 const setModel = vi.fn()
@@ -2959,5 +2967,330 @@ describe('InstanceEditorDialog parameter set', () => {
     await openSeeded()
 
     expect(setSelect()).toBeUndefined()
+  })
+})
+
+describe('InstanceEditorDialog Annotations tab', () => {
+  const SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix chebi: <https://identifiers.org/chebi/CHEBI:> .
+@prefix go: <https://identifiers.org/go/GO:> .
+@prefix sbo: <https://identifiers.org/sbo/SBO:> .
+@prefix m: <./file#> .
+@prefix local: <./decay.ttl#> .
+m:decay bqbiol:is sbo:0000290 .
+local:entity_self bqbiol:is sbo:0000290 .
+m:vdecayx01 bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi:29101 ; bqbiol:isPartOf go:0005737 ] .
+`
+  const K_ENTRY = { property: 'OPB:00592', species: ['CHEBI:29103'], location: 'self' }
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    const library = useLibraryStore()
+    library.addMath(MATH_REF, X_IDS_XML)
+    library.setModuleAnnotations(MATH_REF, SIDECAR)
+  })
+
+  afterEach(() => {
+    confirm.mockImplementation(async () => true)
+    flowNodes.value = []
+    flowEdges.value = []
+  })
+
+  /**
+   * Opens the dialog on the Annotations tab, once its sidecar ports are in place.
+   *
+   * @param {Object} [props]
+   * @returns {Promise<import('@vue/test-utils').VueWrapper>} The tab.
+   */
+  async function openTab(props = {}) {
+    mountDialog({ defaultTab: 'annotations', ...props })
+    const editor = await open()
+    // As the editor gives back the stored math: without its ids.
+    await report(editor, 'init', stripIds(useLibraryStore().availableMath.get(MATH_REF)))
+    await flushPromises()
+    return wrapper.findComponent(AnnotationTab)
+  }
+
+  /**
+   * Edits the draft as the tab would.
+   *
+   * @param {import('@vue/test-utils').VueWrapper} tab
+   * @param {(draft: Object, sidecar: Object) => Object} edit
+   */
+  async function editDraft(tab, edit) {
+    tab.vm.$emit('update:draft', edit(tab.props('draft'), tab.props('sidecar')))
+    await flushPromises()
+  }
+
+  const clickButton = async (label) => {
+    await wrapper.findAll('button').find((button) => button.text() === label).trigger('click')
+    await flushPromises()
+  }
+
+  it('counts annotated of annotatable variables on its tab, leaving out the VoI and constants', async () => {
+    await openTab()
+    expect(wrapper.text()).toContain('Annotations (1/1)')
+  })
+
+  it('saves an edit as the sidecar text', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+    expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+
+    await clickButton('Save')
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save).toMatchObject({ mathRef: MATH_REF, idsChanged: true })
+    // Annotating k gave it an id, which the math carries and the sidecar subject names; the rest is as stored.
+    const ids = variableIdsOf(save.math)
+    expect(ids.get('k')).toMatch(/^v[0-9a-z]{8}$/)
+    expect(ids.get('x')).toBe('vdecayx01')
+    expect(stripIds(save.math)).toBe(stripIds(useLibraryStore().availableMath.get(MATH_REF)))
+    expect(save.annotations.text).toContain(`m:${ids.get('k')} bqbiol:isVersionOf opb:00592`)
+    expect(save.annotations.text).toContain('chebi:29103')
+    expect(save.annotations.text).toMatch(/m:vdecayx01 bqbiol:isVersionOf opb:00340/)
+  })
+
+  it('saves an imported sidecar in place of the stored one, with edits made after it', async () => {
+    const tab = await openTab()
+    const imported = SIDECAR.replace('opb:00340', 'opb:00425')
+    await tab.vm.importFile(new File([imported], 'decay.ttl'))
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Import annotations' }))
+    expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+    await editDraft(tab, (draft) => setDraftSpaceKind(draft, tab.props('draft').imported.sidecar, 'GO:0005737'))
+
+    await clickButton('Save')
+    const [save] = wrapper.emitted('confirm')[0]
+    const saved = await parseSidecar(save.annotations.text, { mathRef: MATH_REF, cellml: save.math ?? X_IDS_XML })
+    expect(saved.variables.find((entry) => entry.variable === 'x').property).toBe('OPB:00425')
+    expect(saved.component.spaceKind).toBe('GO:0005737')
+  })
+
+  it('saves a compartment’s space kind on local:entity_self, and reads it back', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftSpaceKind(draft, sidecar, 'GO:0005737'))
+    expect(wrapper.vm.hasUnsavedEdits).toBe(true)
+    await clickButton('Save')
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.annotations.text).toContain(
+      'local:entity_self bqbiol:is sbo:0000290 ;\n    bqbiol:isVersionOf go:0005737 .'
+    )
+    const saved = await parseSidecar(save.annotations.text, { mathRef: MATH_REF, cellml: save.math ?? X_IDS_XML })
+    expect(saved.component.spaceKind).toBe('GO:0005737')
+  })
+
+  it('annotates a variable renamed after its annotation was drafted under its new name', async () => {
+    mountDialog({ defaultTab: 'annotations' })
+    const editor = await open()
+    const bare = stripIds(useLibraryStore().availableMath.get(MATH_REF))
+    await report(editor, 'init', bare)
+    await flushPromises()
+    const tab = wrapper.findComponent(AnnotationTab)
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+    await report(editor, 'edit', bare.replaceAll('name="k"', 'name="rate"').replaceAll('<ci>k</ci>', '<ci>rate</ci>'))
+
+    await clickButton('Save')
+    const [save] = wrapper.emitted('confirm')[0]
+    const id = variableIdsOf(save.math).get('rate')
+    expect(id).toMatch(/^v[0-9a-z]{8}$/)
+    expect(save.annotations.text).toContain(`m:${id} bqbiol:isVersionOf opb:00592`)
+  })
+
+  it('writes no math when every annotated variable already has an id', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'x', { ...K_ENTRY, property: 'OPB:00340' }))
+
+    await clickButton('Save')
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save).toMatchObject({ math: null, idsChanged: false })
+    expect(save.annotations.text).toMatch(/m:vdecayx01 bqbiol:isVersionOf opb:00340/)
+  })
+
+  it('sends no annotations when the draft is unchanged, or an edit was put back', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', null))
+    expect(wrapper.vm.hasUnsavedEdits).toBe(false)
+
+    await clickButton('Save')
+    expect(wrapper.emitted('confirm')[0][0]).not.toHaveProperty('annotations')
+  })
+
+  it('warns of what else a process held when its flow becomes a level', async () => {
+    const flow = SIDECAR.replace(
+      /m:vdecayx01 [^\n]*\n/,
+      `m:vdecayx01 bqbiol:isVersionOf opb:00592 ; bqbiol:isPropertyOf local:process_vdecayx01 .
+local:process_vdecayx01 semsim:hasSinkParticipant local:sink_vdecayx01 ; bqbiol:isVersionOf go:0006096 .
+local:sink_vdecayx01 semsim:hasPhysicalEntityReference local:entity_self .
+`
+    )
+    useLibraryStore().setModuleAnnotations(MATH_REF, flow)
+    const warning = vi.spyOn(notify, 'warning').mockImplementation(() => {})
+    const tab = await openTab()
+    const level = { property: 'OPB:00340', species: ['CHEBI:29101'], location: 'self' }
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'x', level))
+
+    await clickButton('Save')
+    expect(wrapper.emitted('confirm')[0][0].annotations.text).not.toContain('0006096')
+    expect(warning).toHaveBeenCalledWith({
+      title: 'Annotations',
+      message: "'x' no longer has its process, so its bqbiol:isVersionOf GO:0006096 was dropped.".replaceAll("'", '&#39;'),
+    })
+    warning.mockRestore()
+  })
+
+  it('saves the module kind', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftKind(draft, sidecar, 'transporter', 'uniprot:P11168'))
+
+    await clickButton('Save')
+    const { text } = wrapper.emitted('confirm')[0][0].annotations
+    expect(text).toContain('P11168')
+    expect(text).not.toContain('sbo:0000290')
+  })
+
+  it('does not save a transporter without a UniProt accession', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftKind(draft, sidecar, 'transporter'))
+
+    await clickButton('Save')
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+  })
+
+  it('asks before Cancel discards annotation edits', async () => {
+    const tab = await openTab()
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+    confirm.mockImplementation(async () => false)
+
+    await clickButton('Cancel')
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ header: 'Unsaved Changes' }))
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('says how many instances share the annotations', async () => {
+    flowNodes.value = [
+      { id: 'a', data: { name: 'a', mathRef: MATH_REF } },
+      { id: 'b', data: { name: 'b', mathRef: MATH_REF } },
+    ]
+    await openTab()
+    expect(wrapper.find('[data-test="shared"]').text()).toBe('Shared by 2 instances · edits apply to its module')
+  })
+
+  it('saves annotations of template math as a new component', async () => {
+    const templateXml = XML.replace(/"decay"/g, '"new_module"')
+    useLibraryStore().addMath(NEW_MODULE_MATH_REF, templateXml)
+    mountDialog({ defaultTab: 'annotations', mathRef: NEW_MODULE_MATH_REF, initialName: 'my_instance' })
+    const editor = await open()
+    await report(editor, 'init', templateXml)
+    const tab = wrapper.findComponent(AnnotationTab)
+    await editDraft(tab, (draft, sidecar) => setDraftEntry(draft, sidecar, 'k', K_ENTRY))
+
+    await clickButton('Save')
+    const saveAs = wrapper.findComponent(ComponentSaveAsDialog)
+    expect(saveAs.exists()).toBe(true)
+    saveAs.vm.$emit('confirm', 'my_comp')
+    await flushPromises()
+
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save.mathRef).toBe('User_Modules.cellml:my_comp')
+    expect(save.math).toContain('<component name="my_comp"')
+    const kId = variableIdsOf(save.math).get('k')
+    expect(save.annotations.text).toContain(`m:${kId} bqbiol:isVersionOf opb:00592`)
+    expect(save.annotations.text).not.toContain('new_module')
+  })
+})
+
+describe('InstanceEditorDialog variable ids', () => {
+  const XML_WITH_IDS = XML.replace('<component name="decay"', '<component name="decay" id="vcomp0000"')
+    .replace('<variable name="x"', '<variable name="x" id="vx0000000"')
+    .replace('<variable name="k"', '<variable name="k" id="vk0000000"')
+  const IDS = new Map([
+    ['x', 'vx0000000'],
+    ['k', 'vk0000000'],
+  ])
+  const RENAMED_IDS = new Map([
+    ['y', 'vx0000000'],
+    ['k', 'vk0000000'],
+  ])
+  const renameX = (xml) => xml.replaceAll('name="x"', 'name="y"').replaceAll('<ci>x</ci>', '<ci>y</ci>')
+  // The stored math as the editor gives it back: without ids.
+  let bare
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useLibraryStore().addMath(MATH_REF, XML_WITH_IDS)
+    bare = stripIds(useLibraryStore().availableMath.get(MATH_REF))
+  })
+
+  afterEach(() => window.localStorage.removeItem('instanceEditorDialog.simpleMode'))
+
+  /**
+   * Opens the dialog, applies `edits` and saves.
+   *
+   * @param {Array<[string, string]>} edits - `[source, xml]` reports after the editor's `init`.
+   * @param {Function} [between] - Given the editor; runs after the edits, before Save.
+   * @returns {Promise<Object>} The save.
+   */
+  async function saveAfter(edits, between = async () => {}) {
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', bare)
+    for (const [source, xml] of edits) await report(editor, source, xml)
+    await between(editor)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    return wrapper.emitted('confirm')[0][0]
+  }
+
+  it('keeps the variable and component ids through an edit', async () => {
+    const save = await saveAfter([['edit', bare.replace('<apply><minus/><ci>k</ci></apply>', '<cn>2</cn>')]])
+    expect(save.math).toContain('<cn>2</cn>')
+    expect(variableIdsOf(save.math)).toEqual(IDS)
+    expect(save.math).toContain('id="vcomp0000"')
+    expect(save.idsChanged).toBe(false)
+  })
+
+  it('moves a renamed variable’s id to its new name, whether the editor or the table renamed it', async () => {
+    for (const source of ['edit', 'external']) {
+      const save = await saveAfter([[source, renameX(bare)]])
+      expect(variableIdsOf(save.math)).toEqual(RENAMED_IDS)
+      wrapper.unmount()
+    }
+  })
+
+  it('moves a renamed variable’s id in Advanced Mode', async () => {
+    window.localStorage.setItem('instanceEditorDialog.simpleMode', 'false')
+    const save = await saveAfter([['edit', renameX(bare)]])
+    expect(wrapper.vm.isManaged).toBe(false)
+    expect(variableIdsOf(save.math)).toEqual(RENAMED_IDS)
+  })
+
+  it('keeps the ids through undo and redo', async () => {
+    const undoRedo = async (editor) => {
+      editor.vm.$emit('undo')
+      await flushPromises()
+      editor.vm.$emit('redo')
+      await flushPromises()
+    }
+    expect(variableIdsOf((await saveAfter([['edit', renameX(bare)]], undoRedo)).math)).toEqual(RENAMED_IDS)
+  })
+
+  it('counts math that differs only by ids as unchanged, so it saves no math and asks nothing', async () => {
+    const save = await saveAfter([['edit', useLibraryStore().availableMath.get(MATH_REF)]])
+    expect(confirm).not.toHaveBeenCalled()
+    expect(save).toMatchObject({ mathRef: MATH_REF, math: null, idsChanged: false })
+    expect(useLibraryStore().availableMath.get(MATH_REF)).toContain('vx0000000')
   })
 })

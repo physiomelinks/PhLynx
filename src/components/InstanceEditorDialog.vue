@@ -205,6 +205,10 @@
               <i class="pi pi-chart-line tab-icon"></i>
               Plot ({{ plottedCount }})
             </Tab>
+            <Tab value="annotations">
+              <i class="pi pi-tag tab-icon"></i>
+              Annotations ({{ annotationCounts.annotated }}/{{ annotationCounts.annotatable }})
+            </Tab>
           </TabList>
 
           <TabPanels class="tab-panels-container">
@@ -426,6 +430,23 @@
                 </template>
               </SimulationPanel>
             </TabPanel>
+
+            <!-- TAB 4: ANNOTATIONS, shared by every instance of the math -->
+            <TabPanel value="annotations" class="tab-panel-flex">
+              <AnnotationTab
+                v-model:draft="annotationDraft"
+                :rows="parameterRows"
+                :variable-kinds="variableKinds"
+                :sidecar="renamedSidecar"
+                :sidecar-text="store.getModuleAnnotations(mathRef)"
+                :confirm-import="confirmAnnotationImport"
+                :math-ref="mathRef"
+                :cellml="store.availableMath.get(mathRef) ?? ''"
+                :shared-count="siblingCount + 1"
+                :workspace-terms="workspaceSpecies"
+                :unit-definitions="store.unitDefinitions"
+              />
+            </TabPanel>
           </TabPanels>
         </Tabs>
       </div>
@@ -559,6 +580,7 @@ import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
+import AnnotationTab from './annotations/AnnotationTab.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
 import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
 import ParameterSetSaveDialog from './dialogs/ParameterSetSaveDialog.vue'
@@ -576,11 +598,25 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
+import { useInstanceSave } from '../composables/useInstanceSave'
 import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
 import { useEditorCloseGuard } from '../composables/useEditorCloseGuard'
 import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
+import { prepareSavedMath } from '../services/math/variableIds'
+import {
+  classifyAnnotationRow,
+  createAnnotationDraft,
+  draftBaseSidecar,
+  getDraftEntry,
+  getDraftKind,
+  hasDraftEdits,
+  renameDraftVariables,
+  signDraft,
+} from '../services/annotations/draft'
+import { hasPrefix } from '../services/annotations/iris'
+import { editSidecar, renameSidecar } from '../services/annotations/sidecarEdit'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
 import { confirmPortEditDrives } from '../services/export/drivenStores'
 import { spreadConfig } from '../services/configSpread'
@@ -613,6 +649,7 @@ import { cleanName, sanitiseName } from '../utils/identifiers'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
+import { escapeHtml } from '../utils/importBatch'
 import { areModelsEquivalent, getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
 import { areUnitsModelsEquivalent, mergeUnitDefinitions } from '../utils/units'
 import { separateParameters } from '../services/math/separateParameters'
@@ -661,7 +698,7 @@ const props = defineProps({
   variables: { type: Array, default: () => [] },
   initialPorts: { type: Array, default: () => [] },
   existingNames: { type: Array, default: () => [] },
-  defaultTab: { type: String, default: 'parameters' }, // 'parameters', 'ports' or 'plot'
+  defaultTab: { type: String, default: 'parameters' }, // 'parameters', 'ports', 'plot' or 'annotations'
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
@@ -675,6 +712,7 @@ const { trackEvent } = useGtm()
 const { nodes, edges } = useVueFlow()
 const { confirm, alert, choose } = useConfirmDialog()
 const { settings: appSettings } = useAppSettings()
+const { findVariableRenames } = useInstanceSave()
 
 /** Each units name's expansion beside its suggestion, in the units the user chose in Settings. */
 const unitExpansions = computed(() =>
@@ -737,6 +775,8 @@ let rejectedName = ''
 // The ports a save rejected. Only these are flagged, so rows added afterwards start clean.
 const flaggedPorts = ref(new Set())
 const portsTableRef = ref(null)
+// The Annotations tab's unsaved edits to the math's sidecar.
+const annotationDraft = ref(createAnnotationDraft())
 
 watch(editableName, (name) => {
   if (name !== rejectedName) nameError.value = ''
@@ -1530,7 +1570,7 @@ function plotClickedVariable(name, { isUnsaved = false } = {}) {
 }
 
 /**
- * Signs what a run reads from the instance besides its math: its name, rows and ports.
+ * Signs what the editor saves besides its math: the instance's name, rows and ports, and the annotation draft.
  *
  * @returns {string}
  */
@@ -1540,6 +1580,7 @@ const signEditorState = () =>
     rows: parameterRows.value.map(({ name, value, type, units, initialiser }) => ({ name, value, type, units, initialiser })),
     ports: editablePorts.value,
     parameterisation: chosenParameterRef.value,
+    annotations: signDraft(annotationDraft.value),
   })
 // The signature as loaded, so edits to values, the name or the ports count as unsaved.
 const savedEditorState = ref('')
@@ -1578,12 +1619,26 @@ const parametersCount = computed(() =>
 const rightTabLabel = computed(() => {
   if (activeTab.value === 'ports') return `Ports (${editablePorts.value.length})`
   if (activeTab.value === 'plot') return `Plot (${plottedCount.value})`
+  if (activeTab.value === 'annotations') {
+    return `Annotations (${annotationCounts.value.annotated}/${annotationCounts.value.annotatable})`
+  }
   return `Parameters (${parametersCount.value})`
 })
 
+/**
+ * Gets what the collapsed rail's badges say about the active tab, for screen readers.
+ *
+ * @returns {string}
+ */
+function getRailSummary() {
+  if (activeTab.value === 'parameters') return issueChips.value.map((chip) => chip.label).join(', ')
+  if (activeTab.value === 'annotations' && hasDraftEdits(annotationDraft.value)) return 'Unsaved annotation edits'
+  return ''
+}
+
 // Screen readers get the same information the badges show.
 const railAriaLabel = computed(() => {
-  const summary = activeTab.value === 'parameters' ? issueChips.value.map((chip) => chip.label).join(', ') : ''
+  const summary = getRailSummary()
   return summary ? `Expand panel. ${rightTabLabel.value}. ${summary}` : `Expand panel. ${rightTabLabel.value}`
 })
 
@@ -1735,7 +1790,7 @@ watch(
 // A save that keeps the editor open reloads it from the saved instance, once the workspace has it.
 let reloadAfterSave = false
 watch(
-  () => [props.mathRef, props.variables, props.initialName, props.initialPorts],
+  () => [props.mathRef, props.variables, props.initialName, props.initialPorts, store.getModuleAnnotations(props.mathRef)],
   () => {
     if (!reloadAfterSave || !props.modelValue) return
     reloadAfterSave = false
@@ -1766,12 +1821,14 @@ async function loadEditor({ keepTab = false } = {}) {
     editorKind.value = formatEditor ?? loadStoredEditorKind()
   }
   issueFilter.reset()
+  annotationDraft.value = createAnnotationDraft()
   pendingValues.value = new Map()
   // The diagram opens as the tab first shows, so a dialog that never shows it never loads the editor.
   if (isDiagramEditable.value) celldlHost.prepare(store.getMathSource(props.mathRef))
 
   editableName.value = props.initialName
   chosenParameterRef.value = editedNode()?.data?.parameterisation ?? null
+  store.ensureModuleAnnotations(props.mathRef).catch(() => {})
   editableComponentName.value = componentName.value
   componentNameForEditor.value = componentName.value
   editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
@@ -1809,7 +1866,9 @@ async function loadEditor({ keepTab = false } = {}) {
   } catch (e) {
     console.error('Failed to load CellML source', e)
   }
+  await store.ensureModuleAnnotations(props.mathRef).catch(() => null)
   if (requestId !== openRequestId) return
+  findWorkspaceSpecies()
 
   savedEditorState.value = signEditorState()
   loading.value = false
@@ -1924,6 +1983,80 @@ async function addPort() {
   if (scroller) scroller.scrollTop = scroller.scrollHeight
 }
 
+/** This instance's math's parsed sidecar, or undefined when it has none or it is not parsed yet. */
+const instanceSidecar = computed(() => store.getParsedModuleAnnotations(props.mathRef) ?? undefined)
+
+/** The math's sidecar, as the Annotations tab edits it. */
+const renamedSidecar = computed(() => instanceSidecar.value ?? null)
+
+/** How many variables the draft leaves annotated, of those the Annotations tab lists by default. */
+const annotationCounts = computed(() => {
+  let annotated = 0
+  let annotatable = 0
+  const base = draftBaseSidecar(annotationDraft.value, renamedSidecar.value)
+  for (const row of parameterRows.value) {
+    const role = classifyAnnotationRow(row, variableKinds.value)
+    const isAnnotated = !!getDraftEntry(annotationDraft.value, base, row.name)
+    if (isAnnotated) annotated++
+    if (role === 'variable' || (role === 'constant' && isAnnotated)) annotatable++
+  }
+  return { annotated, annotatable }
+})
+
+// ChEBI species other sidecars in the workspace use, offered first in the Annotations tab.
+const workspaceSpecies = ref([])
+
+/** Collects the species every parsed sidecar in the workspace uses. */
+async function findWorkspaceSpecies() {
+  const refs = [...store.moduleAnnotations.keys()]
+  const sidecars = await Promise.all(refs.map((ref) => store.ensureModuleAnnotations(ref).catch(() => null)))
+  const terms = sidecars.flatMap((sidecar) => (sidecar?.variables ?? []).flatMap((entry) => entry.species ?? []))
+  workspaceSpecies.value = [...new Set(terms)].filter((curie) => hasPrefix(curie, 'CHEBI')).sort()
+}
+
+/**
+ * Builds the sidecar a save writes: the math's sidecar moved to the saved math, with the Annotations tab's draft
+ * applied. Its variable subjects are ids, so they follow renamed variables as they are.
+ *
+ * @param {string} mathRef - The math the save writes.
+ * @param {string|null} math - The saved math, with an id on each annotated variable, or null when it is unchanged.
+ * @param {Object} draft - The Annotations tab's draft, under the saved math's names (see renameDraftVariables).
+ * @param {(message: string) => void} [onWarning] - Told of other triples the edit drops (see editSidecar).
+ * @returns {Promise<string>}
+ * @throws {Error} When the sidecar does not parse, a term is not a known CURIE or a transporter has no accession.
+ */
+async function buildAnnotationText(mathRef, math, draft, onWarning) {
+  let text = draft.imported?.text ?? store.getModuleAnnotations(props.mathRef) ?? ''
+  if (text && mathRef !== props.mathRef) text = await renameSidecar(text, props.mathRef, mathRef)
+  const { componentKind, transporter } = getDraftKind(draft, null)
+  const base = draftBaseSidecar(draft, instanceSidecar.value)
+  const hasSavedAccession = (base?.component?.is ?? []).some((curie) => hasPrefix(curie, 'uniprot'))
+  if (componentKind === 'transporter' && !transporter && !hasSavedAccession) {
+    throw new Error('a transporter needs a UniProt accession.')
+  }
+  return editSidecar(text, mathRef, {
+    ...(draft.componentKind !== undefined ? { componentKind, transporter: transporter ?? undefined } : {}),
+    spaceKind: draft.spaceKind,
+    variables: draft.variables,
+    cellml: math ?? store.availableMath.get(props.mathRef),
+    onWarning,
+  })
+}
+
+/**
+ * Asks before an imported sidecar replaces the math's.
+ *
+ * @returns {Promise<boolean>}
+ */
+function confirmAnnotationImport() {
+  return confirm({
+    header: 'Import annotations',
+    message: `Replace this module's annotations with the file's? They apply to every instance of it once saved.`,
+    acceptLabel: 'Import',
+    rejectLabel: 'Cancel',
+  })
+}
+
 function deletePort(index) {
   editablePorts.value.splice(index, 1)
 }
@@ -1935,7 +2068,8 @@ function deletePort(index) {
  * @returns {boolean}
  */
 function hasDiscardableEdits() {
-  return session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isDiagramDirty.value
+  const isDirty = session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isDiagramDirty.value
+  return isDirty || hasDraftEdits(annotationDraft.value)
 }
 
 /** Commits any rename and editor change still in flight, so an edit typed just before closing counts. */
@@ -2205,7 +2339,7 @@ function rejectInstanceName(message) {
 /**
  * Shows a tab of the right panel, expanding the panel if it was collapsed.
  *
- * @param {'parameters'|'ports'} tab
+ * @param {'parameters'|'ports'|'plot'|'annotations'} tab
  */
 function showTab(tab) {
   activeTab.value = tab
@@ -2734,15 +2868,50 @@ async function saveInstance(options) {
   syncInitialiserUnits(parameterRows.value, { overwrite: isManaged.value })
 
   // 3. Check the math's new reference. A diagram's math is saved with its values, the math's defaults, even when
-  // only they changed.
-  const isMathChanged = isRegenerated || session.isDirty()
+  // only they changed. Template math keeps no annotations, so they also need a new component.
+  const isAnnotationChanged = hasDraftEdits(annotationDraft.value)
+  const isMathChanged =
+    isRegenerated || session.isDirty() || (isAnnotationChanged && PROTECTED_MATH_REFS.has(props.mathRef))
+  // The editor drops ids, so the stored math's go back on, following renamed variables. A variable annotated
+  // anew gets one, which its sidecar subject names.
+  const editedMath = target?.math ?? currentModel.value
+  const idRenames = isRegenerated
+    ? renames
+    : isMathChanged
+      ? findVariableRenames({ previousMathRef: props.mathRef, math: editedMath })
+      : new Map()
+  const draft = renameDraftVariables(annotationDraft.value, idRenames, new Set(parameterRows.value.map((row) => row.name)))
+  const { math: savedMath, idsChanged } = prepareSavedMath({
+    storedMath: store.availableMath.get(props.mathRef) ?? '',
+    editedMath,
+    isMathChanged,
+    renames: idRenames,
+    idsFor: [...draft.variables].filter(([, entry]) => entry).map(([name]) => name),
+  })
+  if (target && savedMath !== null) target = { ...target, math: savedMath }
   if (isMathChanged && !target) {
-    target = await resolveMathTarget(currentModel.value, currentLayout.value)
+    target = await resolveMathTarget(savedMath ?? currentModel.value, currentLayout.value)
     if (!target) return
   }
+  // Only ids changed: the math is written under its own reference, as the same math (see isNewModuleSave).
+  if (idsChanged) target = { mathRef: props.mathRef, math: savedMath, layout: currentLayout.value }
   const newMathRef = target?.mathRef ?? props.mathRef
   const mathToSave = target?.math
   const layoutToSave = target ? target.layout : currentLayout.value
+
+  let annotations
+  const annotationWarnings = []
+  if (isAnnotationChanged) {
+    try {
+      const math = isMathChanged || idsChanged ? mathToSave : null
+      const onWarning = (warning) => annotationWarnings.push(warning)
+      annotations = { text: await buildAnnotationText(newMathRef, math, draft, onWarning) }
+    } catch (err) {
+      notify.error({ message: `Could not save the annotations: ${err.message}` })
+      showTab('annotations')
+      return
+    }
+  }
 
   const updateAll = applyToAll.value || siblingCount.value === 0
 
@@ -2781,9 +2950,11 @@ async function saveInstance(options) {
       name: editableName.value,
       mathRef: newMathRef,
       previousMathRef: props.mathRef,
-      math: isMathChanged ? mathToSave : null,
+      math: isMathChanged || idsChanged ? mathToSave : null,
+      // Only ids changed: the math is written, but as the same math (see isNewModuleSave).
+      idsChanged,
       layout: layoutToSave,
-      isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
+      isLayoutChanged: !isMathChanged && !idsChanged && session.isLayoutDirty(),
       source: staged?.source ?? null,
       isSourceChanged: !!staged,
       units: staged?.units ?? null,
@@ -2812,12 +2983,16 @@ async function saveInstance(options) {
       drivenCouplings: [...drivenCouplings],
       // The instance's plotted variables, under the names this save gives them.
       plotVariables: renamedPlotEntries(),
+      ...(annotations ? { annotations } : {}),
       updateAll,
       siblings: updateAll ? siblings.value : [],
       config,
       keepOpen,
     })
   )
+  if (annotationWarnings.length) {
+    notify.warning({ title: 'Annotations', message: annotationWarnings.map(escapeHtml).join('<br>') })
+  }
 
   // The editor keeps the diagram as saved, so the dialog reloading after Apply doesn't open it again, unless it shows
   // another document, which the reload then opens.
@@ -3134,6 +3309,21 @@ async function saveInstance(options) {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Narrow, as at the default split on a laptop screen, the tabs drop their icons to keep all four labels in view */
+.right-pane-tabs {
+  container-type: inline-size;
+}
+
+@container (max-width: 36rem) {
+  .right-pane-tabs :deep(.p-tab) {
+    padding-inline: 0.625rem;
+  }
+
+  .right-pane-tabs .tab-icon {
+    display: none;
+  }
 }
 
 .right-pane-tabs :deep(.p-tablist) {
