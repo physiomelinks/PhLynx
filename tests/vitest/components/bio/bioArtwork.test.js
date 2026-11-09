@@ -7,6 +7,7 @@ import BioCell from '../../../../src/components/bio/BioCell.vue'
 import BioMembrane from '../../../../src/components/bio/BioMembrane.vue'
 import BioProtein from '../../../../src/components/bio/BioProtein.vue'
 import ProteinGlyph from '../../../../src/components/bio/ProteinGlyph.vue'
+import { MEMBRANE_BAND_HALF } from '../../../../src/services/bioView/geometry.js'
 import { GLYPHS } from '../../../../src/services/bioView/glyphs.js'
 import { useNodeThemeStore } from '../../../../src/stores/nodeThemeStore.js'
 
@@ -92,7 +93,8 @@ describe('physiological view artwork', () => {
       mount(BioMembrane, { props: { data: { name: 'Membrane', width: 300, height: 200 }, selected } })
     const plain = membrane(false)
     expect(plain.findAll('.bio-membrane__band')).toHaveLength(1)
-    expect(plain.find('.bio-membrane__band').attributes('stroke-width')).toBe('20')
+    // As wide as the band a drop on the membrane takes.
+    expect(plain.find('.bio-membrane__band').attributes('stroke-width')).toBe(String(2 * MEMBRANE_BAND_HALF))
     expect(plain.findAll('.bio-membrane__heads')).toHaveLength(0)
     const heads = membrane(true).find('.bio-membrane__heads')
     expect(heads.findAll('pattern circle.bio-bilayer__head')).toHaveLength(2)

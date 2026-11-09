@@ -2,7 +2,7 @@
  * A synthetic workspace at format 1.4.0. The workspace holds the default parameter sets imported for each math,
  * keyed `mathRef:paramRef`, and those waiting for a config to name them, each math's side-car of annotations, and
  * the ports and couplings those annotations give, and the physiological view: each node's place in it and the
- * templates placed there, with a copy of each.
+ * templates placed there, with a copy of each, and the edges a drop there made, which a later move may take away.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
@@ -156,6 +156,14 @@ export const cases = {
       },
     }
     return mergeParts(pump, lumen, placed)
+  },
+
+  /** Node `cytosol` was dropped next to `carrier` in the physiological view, which joined them across its membrane. */
+  placementEdge: () => {
+    const [carrier, cytosol] = ['carrier', 'cytosol'].map(separatedDecayNode)
+    const placed = edge('carrier', 'cytosol', [])
+    placed.data.placement = { from: 'carrier', to: 'cytosol', kind: 'across' }
+    return mergeParts(carrier, cytosol, { flow: { edges: [placed] } })
   },
 
   /** The set `glut5` waits for a config to name it. */

@@ -1,7 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { useNodeDataHistory } from './useNodeDataHistory'
 import { whole } from '../services/bioView/drop'
-import { parseSiteRef } from '../services/bioView/templates'
+import { instanceTemplate, parseSiteRef, sitesOf } from '../services/bioView/templates'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { FLOW_IDS } from '../utils/constants'
@@ -147,6 +147,52 @@ export function useBioEdits(roles = null) {
   }
 
   /**
+   * Unbinds nodes from their template sites: proteins go to the tray, the rest where their role puts them.
+   *
+   * @param {Array<Object>} nodes
+   * @returns {Map<string, Object>} A plan for applyPlan.
+   */
+  function unbindPlan(nodes) {
+    const plan = new Map()
+    for (const node of nodes) {
+      const { site, order, ...rest } = node.data.bioView
+      const role = rest.role ?? roles?.value?.get(node.id)?.role
+      plan.set(node.id, role === 'membraneProtein' ? { ...rest, facet: null } : rest)
+    }
+    return plan
+  }
+
+  /**
+   * The nodes bound to sites of an instance that its template with other changes would no longer offer.
+   *
+   * @param {string} id
+   * @param {Object|null} edits - The changes it would have (see normaliseEdits).
+   * @returns {Array<Object>}
+   */
+  function strandedBy(id, edits) {
+    const instance = templates.getInstance(id)
+    const template = instance && instanceTemplate({ ...instance, edits }, templates.definitions)
+    if (!template) return []
+    const offered = new Set(sitesOf(template).map((site) => site.path))
+    return boundTo(id).filter((node) => !offered.has(parseSiteRef(node.data.bioView.site).path))
+  }
+
+  /**
+   * Sets an instance's own changes to its template, as one step. Nodes bound to sites it no longer offers are
+   * unbound in that step, as when the template is removed.
+   *
+   * @param {string} id
+   * @param {Object|null} edits - See normaliseEdits; checked by the caller (see addToEdits and removeFromEdits).
+   * @param {string} [type='bio-template-add-piece'] - The command type.
+   * @returns {Promise<boolean>}
+   */
+  function editTemplate(id, edits, type = 'bio-template-add-piece') {
+    if (busy() || !templates.getInstance(id)) return Promise.resolve(false)
+    const plan = unbindPlan(strandedBy(id, edits))
+    return applyPlan(plan, type, templates.edit(() => templates.setInstanceEdits(id, edits)))
+  }
+
+  /**
    * Puts what is bound to an instance back in the order the template lays it out in.
    *
    * @param {string} id
@@ -171,12 +217,7 @@ export function useBioEdits(roles = null) {
    */
   function removeTemplate(id) {
     if (busy() || !templates.getInstance(id)) return Promise.resolve(false)
-    const plan = new Map()
-    for (const node of boundTo(id)) {
-      const { site, order, ...rest } = node.data.bioView
-      const role = rest.role ?? roles?.value?.get(node.id)?.role
-      plan.set(node.id, role === 'membraneProtein' ? { ...rest, facet: null } : rest)
-    }
+    const plan = unbindPlan(boundTo(id))
     return applyPlan(plan, 'bio-template-remove', templates.edit(() => templates.removeInstance(id)))
   }
 
@@ -188,6 +229,8 @@ export function useBioEdits(roles = null) {
     renameTemplate,
     nameError,
     renameInstance,
+    editTemplate,
+    strandedBy,
     relayoutTemplate,
     removeTemplate,
   }

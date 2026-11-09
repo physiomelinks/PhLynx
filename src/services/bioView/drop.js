@@ -3,9 +3,18 @@
  * writes: the caller applies the plan as one undo step.
  */
 
-import { CELL_RADIUS } from './metrics.js'
-import { facetSlots } from './geometry.js'
+import {
+  GLYPH_HEIGHT,
+  GLYPH_WIDTH,
+  MEMBRANE_BAND_HALF,
+  cellSlots,
+  facetOfPart,
+  facetSlots,
+  leafletDistance,
+  partOf,
+} from './geometry.js'
 import { CARD } from './layout.js'
+import { FACET_BAND } from './metrics.js'
 import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetsInGroup } from './shape.js'
 
 /** Fields that place a node; Re-layout clears them and keeps the user's choices of what it is. */
@@ -14,12 +23,11 @@ const PLACEMENT_KEYS = ['cell', 'facet', 'at', 'order', 'position', 'rect']
 /** Fields binding to a template site clears: the site places the node instead, and a slot gives its own order. */
 const BIND_CLEARS = ['position', 'rect', 'adjacent', 'cell', 'facet', 'at', 'order']
 
-/** Size of the chip a cell's membrane site is dropped on, across the cell's bottom-left corner. */
-export const MEMBRANE_CHIP = { width: 180, height: 28 }
+export { FACET_BAND } from './metrics.js'
 
 /** Which area wins where several hold the drop point: the most specific first. */
 const AREA_PRIORITY = ['process', 'membrane', 'cell', 'compartment']
-/** Inside an area, a slot only wins this close, so drops in a lumen or cell don't snap to its membrane. */
+/** Inside an area, a slot only wins this close, so drops in a lumen don't snap to its membrane. */
 export const AREA_SNAP = 24
 
 /**
@@ -42,22 +50,79 @@ export const whole = ({ x, y }) => ({ x: Math.round(x), y: Math.round(y) })
  * @param {Map<string, Object>} layout - From layoutBioView.
  * @param {string|null} [dragged] - A protein being dragged: it leaves its own part's count, so its slots are
  *   where the rest are drawn and dropping it back where it was is no move.
- * @returns {Array<{id: string, rect: Object, counts: Object, held?: string, widths?: Object}>} For nearestSlot;
- *   held is the part the dragged protein is on; widths are the names' as each row is drawn.
+ * @returns {Array<{id: string, rect: Object, counts: Object, membrane: string|null, held?: string, widths?: Object}>}
+ *   For nearestSlot and cellSites; held is the part the dragged protein is on; widths are the names' as each row is
+ *   drawn.
  */
 export function dropTargets(layout, dragged = null) {
   const cells = new Map()
   const empty = () => Object.fromEntries(EPITHELIAL_SHAPE.facets.map(({ id: part }) => [part, 0]))
   // A template's cells offer their sites instead (dropSites).
   for (const [id, place] of layout)
-    if (place.kind === 'cell' && !place.instance)
-      cells.set(id, { id, rect: place.rect, counts: empty(), ...(place.widths && { widths: place.widths }) })
+    if (place.kind === 'cell' && !place.instance) {
+      const widths = place.widths && { widths: place.widths }
+      cells.set(id, { id, rect: place.rect, counts: empty(), membrane: place.membrane ?? null, ...widths })
+    }
   for (const [id, place] of layout) {
     if (place.kind !== 'protein' || !cells.has(place.cell)) continue
     if (id === dragged) cells.get(place.cell).held = place.part
     else cells.get(place.cell).counts[place.part]++
   }
   return [...cells.values()]
+}
+
+/** The role a drop on each area of a node-owned cell gives. */
+const CELL_AREA_ROLES = { membrane: 'membrane', cell: 'cytosolic' }
+
+/**
+ * Gives node-owned cells' slots and areas as targets nearestSite reads, so a drop on one is found as on a
+ * template's cell: each slot (with its `slot`, for planSlotDrop), the cell's membrane while it has none, and its
+ * inside.
+ *
+ * @param {Array<Object>} cells - From dropTargets.
+ * @returns {Array<Object>} Each { type: 'slot'|'area', cellId, ... }: a slot as from dropSites, an area with its
+ *   area, the cell's rect, and the role a drop there gives.
+ */
+export function cellSites(cells) {
+  const targets = []
+  for (const cell of cells) {
+    const shape = cell.shape ?? EPITHELIAL_SHAPE
+    for (const { id: part, edge } of shape.facets) {
+      for (const { x, y, order, spare } of cellSlots(cell, part)) {
+        const slot = { cellId: cell.id, part, ...facetOfPart(part, shape), order, spare, x, y }
+        targets.push({ type: 'slot', cellId: cell.id, role: 'membraneProtein', edge, cellRect: cell.rect, x, y, order, spare, slot })
+      }
+    }
+    for (const area of cell.membrane ? ['cell'] : ['membrane', 'cell'])
+      targets.push({ type: 'area', area, cellId: cell.id, rect: cell.rect, role: CELL_AREA_ROLES[area] })
+  }
+  return targets
+}
+
+/**
+ * Plans dropping a node on a node-owned cell's membrane or inside: it becomes that cell's membrane or a process in
+ * it, and the row it left, in a membrane or on a template site, closes up.
+ *
+ * @param {Object} options
+ * @param {string} options.id
+ * @param {{cellId: string, role: string}} options.area - From cellSites.
+ * @param {Map<string, Object>} options.layout
+ * @param {Map<string, Object>} options.bioViews
+ * @returns {Map<string, Object>}
+ */
+export function planCellArea({ id, area, layout, bioViews }) {
+  const plan = new Map()
+  const write = (nodeId, patch) => plan.set(nodeId, patchBioView(plan.get(nodeId) ?? bioViews.get(nodeId), patch))
+  const from = layout.get(id)
+  if (from?.instance) closeUp(layout, from.site, id, write)
+  else if (from?.kind === 'protein') {
+    const parts = touchedParts(layout, [{ cell: from.cell, part: from.part }])
+    for (const entry of parts.values()) entry.ids = entry.ids.filter((other) => other !== id)
+    writeParts(parts, write)
+  }
+  const clears = Object.fromEntries([...BIND_CLEARS, 'site'].map((key) => [key, undefined]))
+  write(id, { ...clears, role: area.role, cell: area.cellId })
+  return plan
 }
 
 /**
@@ -211,16 +276,29 @@ function closeUp(layout, ref, id, write) {
 }
 
 /**
+ * Gives the box a process area's cards and its spare slot take, a little grown: the rest of its zone is the
+ * cell's.
+ *
+ * @param {Array<{x: number, y: number}>} slots - The cards' top-lefts.
+ * @returns {{x: number, y: number, width: number, height: number}}
+ */
+function cardsRect(slots) {
+  const [first] = slots
+  const right = Math.max(...slots.map((slot) => slot.x)) + CARD.width
+  return { x: first.x - 8, y: first.y - 8, width: right - first.x + 16, height: CARD.height + 16 }
+}
+
+/**
  * Gives every template site as somewhere to drop: each slot of a facet or process area, taken (a drop goes
- * before its occupant) or spare (a drop goes last), and each area: a process area, a cell's membrane chip, a
- * cell's inside and a compartment.
+ * before its occupant) or spare (a drop goes last), and each area: a process area, a cell's membrane (the ring
+ * along its outline), a cell's inside and a compartment.
  *
  * @param {Array<Object>} sites - From layoutPhysiology.
  * @param {string|null} [dragged] - A node being dragged: it leaves its own row, so the row's slots are where
  *   the rest are drawn and dropping it back where it was is no move.
  * @returns {Array<Object>} Each { type: 'slot'|'area', ref, role, kind, label, occupant, occupants, key } with,
- *   for a slot, its order, whether it is spare and its centre (x, y), and for an area, which area it is and its
- *   rect.
+ *   for a slot, its order, whether it is spare and its centre (x, y), a facet's also its edge and cellRect, and
+ *   for an area, which area it is and its rect, a membrane's being its cell's.
  */
 export function dropSites(sites, dragged = null) {
   const targets = []
@@ -241,9 +319,11 @@ export function dropSites(sites, dragged = null) {
               spare: false,
               widths: site.widths,
             })
+      const facet = site.process ? {} : { edge: facetById(site.shape, site.facet)?.edge, cellRect: site.cellRect }
       slots.forEach((slot, order) =>
         targets.push({
           ...base,
+          ...facet,
           type: 'slot',
           order,
           spare: !isInRow && !!slot.spare,
@@ -251,13 +331,11 @@ export function dropSites(sites, dragged = null) {
           occupant: occupants[order] ?? null,
         })
       )
-      if (site.process) targets.push({ ...base, type: 'area', area: 'process', rect: site.rect })
+      if (site.process) targets.push({ ...base, type: 'area', area: 'process', rect: cardsRect(site.slots) })
       continue
     }
     if (role === 'membrane') {
-      const { x, y, height } = site.rect
-      const chip = { x: x + CELL_RADIUS - MEMBRANE_CHIP.width, y: y + height - MEMBRANE_CHIP.height / 2 }
-      targets.push({ ...base, type: 'area', area: 'membrane', rect: { ...chip, ...MEMBRANE_CHIP } })
+      targets.push({ ...base, type: 'area', area: 'membrane', rect: site.rect })
       continue
     }
     targets.push({ ...base, type: 'area', area: role === 'cytosol' ? 'cell' : 'compartment', rect: site.rect })
@@ -267,19 +345,71 @@ export function dropSites(sites, dragged = null) {
 
 const contains = (rect, { x, y }) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 
+/** How far inside a rect a point is from one of its edges. */
+function depthFrom(rect, edge, { x, y }) {
+  if (edge === 'top') return y - rect.y
+  if (edge === 'bottom') return rect.y + rect.height - y
+  if (edge === 'left') return x - rect.x
+  return rect.x + rect.width - x
+}
+
+/** Whether a point is on a cell's membrane: within its band either side of the rounded outline. */
+const onMembrane = (rect, point) => Math.abs(leafletDistance(rect, point)) <= MEMBRANE_BAND_HALF
+
+/** Whether a point is inside a cell's rounded outline, as drawn. */
+const inCell = (rect, point) => leafletDistance(rect, point) <= 0
+
+/** Whether an area holds a point: a membrane along its cell's outline, a cell inside it, any other inside its rect. */
+function holds(target, point) {
+  if (target.area === 'membrane') return onMembrane(target.rect, point)
+  return target.area === 'cell' ? inCell(target.rect, point) : contains(target.rect, point)
+}
+
+/** Whether a point is on a slot's protein glyph (turned with its edge) or card. */
+function onSlot(target, { x, y }) {
+  const isUpright = target.edge !== 'left' && target.edge !== 'right'
+  const [width, height] =
+    target.role === 'cytosolic' ? [CARD.width, CARD.height] : isUpright ? [GLYPH_WIDTH, GLYPH_HEIGHT] : [GLYPH_HEIGHT, GLYPH_WIDTH]
+  return Math.abs(x - target.x) <= width / 2 && Math.abs(y - target.y) <= height / 2
+}
+
 /**
- * Finds where a point drops: the nearest slot within reach, else the most specific area holding it (a process
- * area, then a membrane chip, a cell, a compartment), the smallest of those. Inside an area a slot only wins
- * within AREA_SNAP.
+ * The facet slot a point inside a cell goes to: within FACET_BAND of an edge with a facet on it, that facet's
+ * nearest slot, the nearest edge's where the bands of two meet.
+ *
+ * @param {Array<Object>} targets - From dropSites.
+ * @param {{x: number, y: number}} point
+ * @returns {Object|null} The slot, with its distance.
+ */
+function bandSlot(targets, point) {
+  let best = null
+  for (const target of targets) {
+    if (target.type !== 'slot' || !target.edge || !target.cellRect || !inCell(target.cellRect, point)) continue
+    const depth = depthFrom(target.cellRect, target.edge, point)
+    if (depth > FACET_BAND) continue
+    const distance = Math.hypot(target.x - point.x, target.y - point.y)
+    if (!best || depth < best.depth || (depth === best.depth && distance < best.distance))
+      best = { target, depth, distance }
+  }
+  return best && { ...best.target, distance: best.distance }
+}
+
+/**
+ * Finds where a point drops, most specific first: a slot whose glyph or card it is on, or within AREA_SNAP of;
+ * a cell's membrane, within MEMBRANE_BAND_HALF of its outline; inside a cell within FACET_BAND of an edge with a
+ * facet, that facet's nearest slot; else the areas holding it (a process area's cards, a cell's inside, a
+ * compartment), the smallest of a kind. Out of every area, the nearest slot within snap.
  *
  * @param {Array<Object>} targets - From dropSites.
  * @param {{x: number, y: number}} point
  * @param {number} [snap=60]
  * @param {Object} [options]
  * @param {boolean} [options.areas=true] - Whether areas count, not just slots.
+ * @param {boolean} [options.membrane=true] - Whether a membrane is a target at all: false for a protein, which
+ *   should keep finding slots, even round a cell's corners.
  * @returns {Object|null} One of the targets, with distance for a slot.
  */
-export function nearestSite(targets, point, snap = 60, { areas = true } = {}) {
+export function nearestSite(targets, point, snap = 60, { areas = true, membrane = true } = {}) {
   let best = null
   for (const target of targets) {
     if (target.type !== 'slot') continue
@@ -287,13 +417,21 @@ export function nearestSite(targets, point, snap = 60, { areas = true } = {}) {
     if (distance <= snap && (!best || distance < best.distance)) best = { ...target, distance }
   }
   if (!areas) return best
+  if (best && best.distance <= AREA_SNAP) return best
+  const covering = targets.find((target) => target.type === 'slot' && onSlot(target, point))
+  if (covering) return { ...covering, distance: Math.hypot(covering.x - point.x, covering.y - point.y) }
+  const ring =
+    membrane && targets.find((target) => target.type === 'area' && target.area === 'membrane' && holds(target, point))
+  if (ring) return ring
+  const banded = bandSlot(targets, point)
+  if (banded) return banded
   const rank = (target) => AREA_PRIORITY.indexOf(target.area)
   const size = ({ rect }) => rect.width * rect.height
   const area = targets
-    .filter((target) => target.type === 'area' && target.rect && contains(target.rect, point))
+    .filter((target) => target.type === 'area' && target.rect && (membrane || target.area !== 'membrane'))
+    .filter((target) => holds(target, point))
     .sort((a, b) => rank(a) - rank(b) || size(a) - size(b))[0]
-  if (best && (!area || best.distance <= AREA_SNAP)) return best
-  return area ?? null
+  return area ?? best ?? null
 }
 
 /**
@@ -396,6 +534,99 @@ export function planRelayout(bioViews) {
     plan.set(id, Object.fromEntries(Object.entries(bioView).filter(([key]) => !PLACEMENT_KEYS.includes(key))))
   }
   return plan
+}
+
+/**
+ * The nodes a node dropped on a template site connects to: whatever occupies the sites next to it.
+ *
+ * @param {Array<Object>} targets - From dropSites.
+ * @param {Array<{ref: string, relation: string}>} neighbours - The neighbouring sites (see siteNeighbours).
+ * @param {Object} options
+ * @param {string} options.id - The dropped node, never its own neighbour.
+ * @param {Array<{source: string, target: string}>} [options.edges] - Pairs joined either way are left out.
+ * @returns {Array<{id: string, ref: string, relation: string}>} In the neighbours' order, each node once.
+ */
+export function neighbourNodes(targets, neighbours, { id, edges = [] }) {
+  const occupants = new Map()
+  for (const target of targets) {
+    const ids = target.kind === 'slots' ? target.occupants : [target.occupant]
+    occupants.set(target.ref, new Set([...(occupants.get(target.ref) ?? []), ...ids.filter(Boolean)]))
+  }
+  const joined = new Set(
+    edges.flatMap(({ source, target }) => (source === id ? [target] : target === id ? [source] : []))
+  )
+  const nodes = []
+  const seen = new Set([id])
+  for (const { ref, relation } of neighbours) {
+    for (const other of occupants.get(ref) ?? []) {
+      if (seen.has(other) || joined.has(other)) continue
+      seen.add(other)
+      nodes.push({ id: other, ref, relation })
+    }
+  }
+  return nodes
+}
+
+/** The role a node-owned layout entry's kind is, as siteLinks reads it. */
+const KIND_ROLES = { cell: 'cytosol', membrane: 'membrane', protein: 'membraneProtein', cytosolic: 'cytosolic', region: 'region' }
+
+/**
+ * The nodes a node on a node-owned cell (not a template's) connects to, as for a template site (see
+ * siteNeighbours): a protein its cell, the cell's membrane and the compartments against its part; a membrane
+ * its cell and the cell's proteins; a cell its membrane, proteins and processes; a process its cell; a
+ * compartment the proteins on the parts it lies against.
+ *
+ * @param {Map<string, Object>} layout - From layoutPhysiology, after the node was placed.
+ * @param {string} id
+ * @param {Object} [options]
+ * @param {Array<{source: string, target: string}>} [options.edges] - Pairs joined either way are left out.
+ * @returns {{role: string|null, neighbours: Array<{id: string, relation: string}>}} role: the node's, for
+ *   siteLinks; null, with no neighbours, for a node on no node-owned cell.
+ */
+export function ownedNeighbours(layout, id, { edges = [] } = {}) {
+  const place = layout.get(id)
+  const role = place && !place.instance ? (KIND_ROLES[place.kind] ?? null) : null
+  if (!role) return { role: null, neighbours: [] }
+  const owned = (kind, test) =>
+    [...layout].filter(([, entry]) => entry.kind === kind && !entry.instance && test(entry)).map(([other]) => other)
+  const isCell = (key) => {
+    const cell = layout.get(key)
+    return cell?.kind === 'cell' && !cell.instance
+  }
+  const membraneOf = (key) => (isCell(key) ? (layout.get(key).membrane ?? null) : null)
+  const proteinsOn = (cell, part) => owned('protein', (entry) => entry.cell === cell && (!part || entry.part === part))
+  const against = (entry) => (entry.adjacent ?? []).map(({ cell, facet, at }) => ({ cell, part: partOf(facet, at) }))
+
+  const found = []
+  const add = (ids, relation) => ids.forEach((other) => other && found.push({ id: other, relation }))
+  if (place.kind === 'protein' && isCell(place.cell)) {
+    add([place.cell], 'inside')
+    add([membraneOf(place.cell)], 'membrane')
+    const facing = (entry) => against(entry).some(({ cell, part }) => cell === place.cell && part === place.part)
+    add(owned('region', facing), 'outside')
+  } else if (place.kind === 'membrane' && isCell(place.cell)) {
+    add([place.cell], 'inside')
+    add(proteinsOn(place.cell), 'protein')
+  } else if (place.kind === 'cell') {
+    add([place.membrane], 'membrane')
+    add(proteinsOn(id), 'protein')
+    add(owned('cytosolic', (entry) => entry.cell === id), 'process')
+  } else if (place.kind === 'cytosolic' && isCell(place.cell)) {
+    add([place.cell], 'inside')
+  } else if (place.kind === 'region') {
+    for (const { cell, part } of against(place)) if (isCell(cell)) add(proteinsOn(cell, part), 'protein')
+  }
+
+  const joined = new Set(
+    edges.flatMap(({ source, target }) => (source === id ? [target] : target === id ? [source] : []))
+  )
+  const seen = new Set([id])
+  const neighbours = found.filter(({ id: other }) => {
+    if (seen.has(other) || joined.has(other) || !layout.has(other)) return false
+    seen.add(other)
+    return true
+  })
+  return { role, neighbours }
 }
 
 /** The node types whose drag moves a whole structure; any other drag moves only the node dragged. */

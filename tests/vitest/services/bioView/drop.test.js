@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  cellSites,
   dragCompanions,
   dropTargets,
+  nearestSite,
   patchBioView,
+  planCellArea,
   planCellMove,
   planRelayout,
   planSlotDrop,
@@ -38,11 +41,41 @@ describe('dropping in the physiological view', () => {
         id: 'cell',
         rect: layout.get('cell').rect,
         counts: { apical: 3, basolateral: 1, 'lateral-left': 0, 'lateral-right': 0 },
+        membrane: null,
         widths: layout.get('cell').widths,
       },
     ])
     // Each row's names, as drawn, so slots are where the proteins are.
     expect(layout.get('cell').widths.apical).toHaveLength(3)
+  })
+
+  it('offers a hand-added cell’s membrane and inside, found as on a template’s cell', () => {
+    const { layout } = epithelium()
+    const targets = cellSites(dropTargets(layout))
+    const { rect } = layout.get('cell')
+    const at = (x, y) => nearestSite(targets, { x: rect.x + x, y: rect.y + y })
+    // On the outline, clear of the slots: the membrane; well inside: the cell; on a protein: its slot.
+    expect(at(rect.width * 0.12, 4)).toMatchObject({ type: 'area', area: 'membrane', cellId: 'cell', role: 'membrane' })
+    expect(at(rect.width / 2, rect.height / 2)).toMatchObject({ type: 'area', area: 'cell', role: 'cytosolic' })
+    const { x, y } = layout.get('b')
+    expect(nearestSite(targets, { x, y: y + 4 })).toMatchObject({ type: 'slot', slot: { cellId: 'cell', part: 'apical', order: 1 } })
+    // Inside, near a facet's edge: that facet's slot, as on a template.
+    expect(at(rect.width / 2, rect.height - 20)).toMatchObject({ type: 'slot', slot: { part: 'basolateral' } })
+    // A protein never becomes the membrane, even round a corner, clear of the facets' bands: it finds a slot.
+    const corner = { x: rect.x + 6, y: rect.y + 6 }
+    expect(nearestSite(targets, corner)).toMatchObject({ area: 'membrane' })
+    expect(nearestSite(targets, corner, 60, { membrane: false })?.area).not.toBe('membrane')
+    // A cell with a membrane takes no other.
+    const withMembrane = dropTargets(layout).map((cell) => ({ ...cell, membrane: 'wall' }))
+    expect(cellSites(withMembrane).filter((target) => target.area === 'membrane')).toEqual([])
+  })
+
+  it('makes a node dropped on a hand-added cell its membrane or a process in it, closing up the row it left', () => {
+    const { layout, bioViews } = epithelium()
+    const plan = planCellArea({ id: 'b', area: { cellId: 'cell', role: 'cytosolic' }, layout, bioViews })
+    expect(Object.fromEntries(plan)).toEqual({ a: { order: 0 }, c: { order: 1 }, b: { role: 'cytosolic', cell: 'cell' } })
+    const card = planCellArea({ id: 'card', area: { cellId: 'cell', role: 'membrane' }, layout, bioViews })
+    expect(Object.fromEntries(card)).toEqual({ card: { role: 'membrane', cell: 'cell' } })
   })
 
   it('moves a protein to another facet, closing up the one it left', () => {

@@ -31,7 +31,7 @@ function templateData(place) {
     ...zone,
     rect: { ...rect, x: rect.x - x, y: rect.y - y },
   }))
-  return { ...data, facetLabels: place.facetLabels ?? [], zones }
+  return { ...data, facetLabels: place.facetLabels ?? [], zones, ...(place.hintAt && { hintAt: { ...place.hintAt } }) }
 }
 
 /** Whether a place is an empty piece of a template, drawn with no node behind it. */
@@ -273,7 +273,8 @@ const clampInto = (point, box) => ({
  */
 function couplingNames(edge, byId) {
   const name = (id) => byId.get(id)?.data?.name ?? id
-  return (edge.data?.couplings ?? []).map(
+  if (!edge.data?.couplings?.length) return [`${name(edge.source)} → ${name(edge.target)} (no couplings)`]
+  return edge.data.couplings.map(
     ({ sourcePort, targetPort }) =>
       `${name(edge.source)}.${sourcePort?.variables?.[0] ?? '?'} ↔ ${name(edge.target)}.${targetPort?.variables?.[0] ?? '?'}`
   )
@@ -356,7 +357,8 @@ export function focusCouplings(nodes, edges, layout, selected, sidecarOf) {
       updatable: false,
       // Over the cells and regions (-10, -20), under the proteins and cards drawn on them.
       zIndex: -5,
-      data: { names: couplingNames(edge, byId) },
+      // An edge nothing couples is drawn dashed, so a placed but uncoupled neighbour stands out.
+      data: { names: couplingNames(edge, byId), uncoupled: !edge.data?.couplings?.length },
     })
   }
   return { edges: drawnEdges, handles, partners }

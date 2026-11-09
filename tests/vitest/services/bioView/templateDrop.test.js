@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest'
 
 import { BUILT_IN_TEMPLATES } from '../../../../src/services/bioView/builtInTemplates.js'
 import {
-  MEMBRANE_CHIP,
+  FACET_BAND,
   dropSites,
   nearestSite,
+  neighbourNodes,
+  replacedOccupant,
   AREA_SNAP,
   planSiteBind,
   planSlotDrop,
   planUnbind,
 } from '../../../../src/services/bioView/drop.js'
-import { layoutPhysiology } from '../../../../src/services/bioView/layout.js'
+import { CARD, cellHint, layoutPhysiology } from '../../../../src/services/bioView/layout.js'
+import { CELL_RADIUS, GLYPH_WIDTH, MEMBRANE_BAND_HALF } from '../../../../src/services/bioView/geometry.js'
 import { resolveBioRole } from '../../../../src/services/bioView/roles.js'
 
 const definitions = new Map(BUILT_IN_TEMPLATES.map((template) => [template.id, template]))
@@ -51,7 +54,9 @@ describe('template drop sites', () => {
       ['compartment', 'bt-1/basolateral-fluid'],
       ['compartment', 'bt-1/paracellular'],
     ])
-    expect(find(targets, 'bt-1/cell.membrane').rect).toMatchObject(MEMBRANE_CHIP)
+    // The membrane is the cell's outline; a facet's slots know their edge.
+    expect(find(targets, 'bt-1/cell.membrane').rect).toEqual(find(targets, 'bt-1/cell').rect)
+    expect(find(targets, 'bt-1/cell.apical', { order: 0 })).toMatchObject({ edge: 'top' })
   })
 
   it('snaps to the nearest slot, else picks a process, then the membrane, then the cell, then a compartment', () => {
@@ -67,18 +72,109 @@ describe('template drop sites', () => {
 
     // Away from every slot, the areas holding the point, most specific first.
     const areas = targets.filter((t) => t.type === 'area')
-    const zone = find(targets, 'bt-1/cell.metabolism', { type: 'area' }).rect
-    expect(nearestSite(areas, centre(zone))).toMatchObject({ area: 'process' })
-    const chip = find(targets, 'bt-1/cell.membrane').rect
-    // The chip crosses the cell's corner and the basolateral fluid.
-    expect(nearestSite(areas, { x: chip.x + chip.width - 10, y: chip.y + 4 })).toMatchObject({ area: 'membrane' })
+    const cards = find(targets, 'bt-1/cell.metabolism', { type: 'area' }).rect
+    expect(nearestSite(areas, centre(cards))).toMatchObject({ area: 'process' })
     const cell = layout.get('tpl:bt-1/cell').rect
+    // The membrane reaches MEMBRANE_BAND_HALF either side of the cell's outline, over the fluids beside it.
+    expect(nearestSite(areas, { x: cell.x + 100, y: cell.y - MEMBRANE_BAND_HALF + 2 })).toMatchObject({ area: 'membrane' })
+    expect(nearestSite(areas, { x: cell.x + 100, y: cell.y + MEMBRANE_BAND_HALF - 2 })).toMatchObject({ area: 'membrane' })
+    const beyond = { x: cell.x + 100, y: cell.y - MEMBRANE_BAND_HALF - 4 }
+    expect(nearestSite(areas, beyond)).toMatchObject({ area: 'compartment' })
     expect(nearestSite(areas, { x: cell.x + cell.width - 50, y: cell.y + cell.height - 50 })).toMatchObject({ area: 'cell' })
     const lumen = layout.get('tpl:bt-1/apical-fluid').rect
     expect(nearestSite(areas, { x: lumen.x + 10, y: lumen.y + 10 })).toMatchObject({ area: 'compartment', ref: 'bt-1/apical-fluid' })
     expect(nearestSite(targets, { x: -5000, y: -5000 })).toBeNull()
   })
+
+  it('goes to the nearest edge’s facet within FACET_BAND inside a cell, past the membrane’s band', () => {
+    const { targets, layout } = view([node('p', { role: 'membraneProtein', site: 'bt-1/cell.basolateral' })])
+    const cell = layout.get('tpl:bt-1/cell').rect
+    // Above the basolateral membrane's label, far from its slots' centres: still that facet's nearest slot.
+    const near = { x: cell.x + cell.width - 70, y: cell.y + cell.height - FACET_BAND + 4 }
+    const hit = nearestSite(targets, near)
+    expect(hit).toMatchObject({ type: 'slot', ref: 'bt-1/cell.basolateral', order: 1 })
+    expect(hit.distance).toBeGreaterThan(AREA_SNAP)
+    // Deeper in, the cell.
+    expect(nearestSite(targets, { x: near.x, y: cell.y + cell.height - FACET_BAND - 20 })).toMatchObject({
+      area: 'cell',
+    })
+    // Where two bands meet, the nearer edge's facet; a protein moved along its membrane finds slots in the band too.
+    const corner = { x: cell.x + 16, y: cell.y + 48 }
+    expect(nearestSite(targets, corner)).toMatchObject({ ref: 'bt-1/cell.lateral-left' })
+    // Inside the bottom outline, clear of the basolateral glyphs.
+    const onBand = { x: cell.x + CELL_RADIUS + 20, y: cell.y + cell.height - 4 }
+    expect(nearestSite(targets, onBand)).toMatchObject({ area: 'membrane' })
+    expect(nearestSite(targets, onBand, 60, { membrane: false })).toMatchObject({ ref: 'bt-1/cell.basolateral' })
+  })
+
+  it('drops on the membrane along the drawn bilayer, inside the outline too, and on the cell within it', () => {
+    const { targets, layout } = view([node('p', { role: 'membraneProtein', site: 'bt-1/cell.apical' })])
+    const cell = layout.get('tpl:bt-1/cell').rect
+    const slot = find(targets, 'bt-1/cell.apical', { order: 0 })
+    // Inside the top outline, between the protein's glyph and the corner.
+    const between = { x: (cell.x + CELL_RADIUS + slot.x - GLYPH_WIDTH / 2) / 2, y: cell.y + 6 }
+    expect(nearestSite(targets, between)).toMatchObject({ area: 'membrane', ref: 'bt-1/cell.membrane' })
+    // On a rounded corner's arc, the membrane; just inside it, the facets' band rather than the corner's box.
+    const diagonal = CELL_RADIUS * (1 - Math.SQRT1_2)
+    expect(nearestSite(targets, { x: cell.x + diagonal, y: cell.y + diagonal })).toMatchObject({ area: 'membrane' })
+    expect(nearestSite(targets, { x: cell.x + 2, y: cell.y + 2 })).toMatchObject({ area: 'compartment' })
+    // On a protein's glyph, its slot, even within the band.
+    expect(nearestSite(targets, { x: slot.x + GLYPH_WIDTH / 2 - 2, y: slot.y + 4 })).toMatchObject({ type: 'slot', order: 0 })
+    // Away from the band, deeper than it, the facet's slot.
+    expect(nearestSite(targets, { x: between.x, y: cell.y + 20 })).toMatchObject({ ref: 'bt-1/cell.apical' })
+  })
+
+  it('takes a drop on the empty cell’s hint, and beside the process cards, as the cell', () => {
+    const { targets, layout } = view([])
+    const place = layout.get('tpl:bt-1/cell')
+    const cell = place.rect
+    const hint = cellHint(place.rect, place.zones)
+    expect(nearestSite(targets, { x: place.rect.x + hint.x, y: place.rect.y + hint.y })).toMatchObject({ area: 'cell' })
+    const zone = place.zones[0].rect
+    const cards = find(targets, 'bt-1/cell.metabolism', { type: 'area' }).rect
+    expect(cards.width).toBe(CARD.width + 16)
+    // Right of the cards, and deeper than the lateral facet's reach.
+    const beside = { x: cell.x + cell.width - FACET_BAND - 10, y: zone.y + zone.height / 2 }
+    expect(nearestSite(targets, beside)).toMatchObject({ area: 'cell', ref: 'bt-1/cell' })
+  })
+
+  it('gives the nodes on the sites next to a drop, skipping the dropped node and pairs already joined', () => {
+    const { targets } = view([
+      node('cyto', { role: 'cytosol', site: 'bt-1/cell' }),
+      node('mem', { role: 'membrane', site: 'bt-1/cell.membrane' }),
+      node('lumen', { role: 'region', site: 'bt-1/apical-fluid' }),
+      node('blood', { role: 'region', site: 'bt-1/basolateral-fluid' }),
+      node('p', { role: 'membraneProtein', site: 'bt-1/cell.apical', order: 0 }),
+      node('q', { role: 'membraneProtein', site: 'bt-1/cell.apical', order: 1 }),
+    ])
+    const neighbours = [
+      { ref: 'bt-1/cell', relation: 'inside' },
+      { ref: 'bt-1/cell.membrane', relation: 'membrane' },
+      { ref: 'bt-1/apical-fluid', relation: 'outside' },
+    ]
+    expect(neighbourNodes(targets, neighbours, { id: 'p' })).toEqual([
+      { id: 'cyto', ref: 'bt-1/cell', relation: 'inside' },
+      { id: 'mem', ref: 'bt-1/cell.membrane', relation: 'membrane' },
+      { id: 'lumen', ref: 'bt-1/apical-fluid', relation: 'outside' },
+    ])
+    const edges = [{ source: 'lumen', target: 'p' }, { source: 'q', target: 'mem' }]
+    expect(neighbourNodes(targets, neighbours, { id: 'p', edges }).map((n) => n.id)).toEqual(['cyto', 'mem'])
+    // A compartment's neighbours are every protein on the facets against it, the dropped one left out.
+    const facet = [{ ref: 'bt-1/cell.apical', relation: 'protein' }]
+    expect(neighbourNodes(targets, facet, { id: 'lumen' }).map((n) => n.id)).toEqual(['p', 'q'])
+    expect(neighbourNodes(dropSites(view([]).sites), neighbours, { id: 'new' })).toEqual([])
+  })
+
+  it('replaces only another node on a one-module site', () => {
+    const { targets } = view([node('cyto', { role: 'cytosol', site: 'bt-1/cell' }), node('p', apicalAt(0))])
+    expect(replacedOccupant(find(targets, 'bt-1/cell'), null)).toBe('cyto')
+    expect(replacedOccupant(find(targets, 'bt-1/cell'), 'cyto')).toBeNull()
+    expect(replacedOccupant(find(targets, 'bt-1/cell.apical', { order: 0 }), null)).toBeNull()
+    expect(replacedOccupant(find(targets, 'bt-1/apical-fluid'), null)).toBeNull()
+  })
 })
+
+const apicalAt = (order) => ({ role: 'membraneProtein', site: 'bt-1/cell.apical', order })
 
 describe('binding to a template site', () => {
   const apical = (order) => ({ role: 'membraneProtein', site: 'bt-1/cell.apical', order })

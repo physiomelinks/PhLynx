@@ -274,6 +274,24 @@ export function roundedRectPath({ x, y, width, height }, radius = CELL_RADIUS) {
 /** How far each leaflet of a cell's bilayer sits out from (or in from) its outline. */
 export const HEAD_OFFSET = 7
 
+/** How far either side of a cell's outline its membrane is selected or dropped on: the bilayer and a little more. */
+export const MEMBRANE_BAND_HALF = HEAD_OFFSET + 5
+
+/**
+ * Gives how far a point is from a cell's rounded outline, as its bilayer is drawn: negative inside.
+ *
+ * @param {{x: number, y: number, width: number, height: number}} rect - The cell.
+ * @param {{x: number, y: number}} point
+ * @param {number} [radius=CELL_RADIUS]
+ * @returns {number}
+ */
+export function leafletDistance({ x, y, width, height }, point, radius = CELL_RADIUS) {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2))
+  const qx = Math.abs(point.x - (x + width / 2)) - (width / 2 - r)
+  const qy = Math.abs(point.y - (y + height / 2)) - (height / 2 - r)
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r
+}
+
 /**
  * Gives a cell's outline, in the cell's own coordinates, grown by an offset (outward when positive), as
  * its bilayer's leaflets are drawn.

@@ -27,6 +27,7 @@ export const STEP_LABELS = {
   'update-cellml-text-only': 'Edit maths',
   'bio-layout': 'Move',
   'bio-add': 'Add module',
+  'bio-bind': 'Place on template',
   'bio-role': 'Show As',
   'bio-glyph': 'Cartoon',
   'bio-adjacent': 'Lies Against',
@@ -37,8 +38,11 @@ export const STEP_LABELS = {
   'bio-template-add': 'Add template',
   'bio-template-move': 'Move template',
   'bio-template-rename': 'Rename template',
+  'bio-template-add-piece': 'Add to template',
+  'bio-template-remove-piece': 'Remove from template',
+  'bio-template-restore': 'Restore template elements',
   'bio-template-relayout': 'Re-layout template',
-  'bio-template-remove': 'Remove template',
+  'bio-template-remove': 'Delete template',
 }
 
 /** Types that only go along with an edit, so never name a batch. */
