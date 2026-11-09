@@ -75,6 +75,20 @@ describe('which face of a protein a handle belongs on', () => {
     // Faces it doesn't anchor stay at the box's edges.
     expect(facePoint({ x: 100, y: 0, outward: Position.Top }, 'inside', size, anchors).point).toEqual({ x: 100, y: 24 })
   })
+
+  it('moves a face’s point along it as the cartoon’s own x runs, however it is turned', () => {
+    const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    const at = (outward, face) => facePoint({ x: 100, y: 100, outward }, face, size, undefined, -10).point
+    // Upright, left of the middle on both faces; upside down, to the right; on a side, along the cell's edge.
+    expect(at(Position.Top, 'outside')).toEqual({ x: 90, y: 76 })
+    expect(at(Position.Top, 'inside')).toEqual({ x: 90, y: 124 })
+    expect(at(Position.Bottom, 'outside')).toEqual({ x: 110, y: 124 })
+    expect(at(Position.Left, 'inside')).toEqual({ x: 124, y: 110 })
+    expect(at(Position.Right, 'outside')).toEqual({ x: 124, y: 90 })
+    // From a glyph's own anchor too.
+    const anchored = facePoint({ x: 100, y: 100, outward: Position.Top }, 'outside', size, { outside: { x: 32, y: 15 } }, 5)
+    expect(anchored.point).toEqual({ x: 105, y: 91 })
+  })
 })
 
 describe('the couplings of what is selected', () => {

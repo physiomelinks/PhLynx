@@ -59,23 +59,26 @@ const OUTWARD = {
  * @param {'outside'|'inside'|'membrane'|null} face
  * @param {{width: number, height: number}} size - The cartoon, unturned.
  * @param {Object<string, {x: number, y: number}>} [anchors] - The glyph's face points, in its unturned box.
+ * @param {number} [offset=0] - How far along the face to move the point, as the unturned box's x runs: so the
+ *   point under one of the cartoon's arrows, however it is turned.
  * @returns {{point: {x: number, y: number}, direction: {x: number, y: number}}}
  */
-export function facePoint(place, face, { width, height }, anchors) {
+export function facePoint(place, face, { width, height }, anchors, offset = 0) {
   const out = OUTWARD[place.outward] ?? OUTWARD[Position.Top]
   const across = { x: -out.y, y: out.x }
   const key = face === 'outside' || face === 'inside' ? face : 'membrane'
   const direction = key === 'outside' ? out : key === 'inside' ? { x: -out.x, y: -out.y } : across
   const anchor = anchors?.[key]
+  const moved = (point) => ({ x: point.x + across.x * offset, y: point.y + across.y * offset })
   if (anchor) {
     // The unturned box has the outside up: its x runs across, its y inwards.
     const dx = anchor.x - width / 2
     const dy = anchor.y - height / 2
     return {
-      point: { x: place.x + across.x * dx - out.x * dy, y: place.y + across.y * dx - out.y * dy },
+      point: moved({ x: place.x + across.x * dx - out.x * dy, y: place.y + across.y * dx - out.y * dy }),
       direction,
     }
   }
   const reach = key === 'membrane' ? width / 2 : height / 2
-  return { point: { x: place.x + direction.x * reach, y: place.y + direction.y * reach }, direction }
+  return { point: moved({ x: place.x + direction.x * reach, y: place.y + direction.y * reach }), direction }
 }

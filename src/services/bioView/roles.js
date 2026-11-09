@@ -10,7 +10,8 @@
  * - order: its slot along its facet, for a membrane protein;
  * - site: '<instanceId>/<sitePath>', the template site it is bound to; one whose instance is gone leaves it
  *   unbound, falling back to its role;
- * - position, rect: where it is drawn, when not worked out from its cell.
+ * - position, rect: where it is drawn, when not worked out from its cell;
+ * - speciesOrder: the species of a compartment's tokens in species mode, in the order the user dragged them into.
  */
 
 import { GO } from '../annotations/iris.js'

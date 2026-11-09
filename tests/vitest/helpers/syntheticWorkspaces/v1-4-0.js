@@ -4,7 +4,8 @@
  * the ports and couplings those annotations give, and the physiological view: each node's place in it and the
  * templates placed there, with a copy of each, the edges a drop there made, which a later move may take away, and a
  * copy of each of the user's own cartoons the nodes are drawn as. An edge whose ends are placed there keeps its
- * manual couplings aside while their annotations couple it.
+ * manual couplings aside while their annotations couple it, and a compartment keeps the order its species were
+ * dragged into in species mode.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
@@ -195,6 +196,13 @@ export const cases = {
     const placed = edge('left_pool', 'right_pool', [])
     placed.data.manualCouplings = [{ sourcePort: port, targetPort: port }]
     return mergeParts(left, right, { flow: { edges: [placed] } })
+  },
+
+  /** Node `cytosol_pool` lists glucose before sodium in species mode, as the user dragged them. */
+  speciesOrder: () => {
+    const part = separatedDecayNode('cytosol_pool')
+    part.flow.nodes[0].data.bioView = { role: 'cytosol', speciesOrder: ['CHEBI:4167', 'CHEBI:29101'] }
+    return part
   },
 
   /** The set `glut5` waits for a config to name it. */

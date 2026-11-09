@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref, unref, watch } from 'vue'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
@@ -6,6 +6,8 @@ import { readNodeSeries } from '../services/simulation/variableMapping'
 import { flowDirection, transportedSpecies } from '../services/bioView/transport'
 import { facePoint, handleFace } from '../services/bioView/faces'
 import { getGlyph } from '../services/bioView/glyphs'
+import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/species'
+import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, routeSpecies } from '../services/bioView/speciesLayout'
 import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
@@ -36,6 +38,20 @@ function templateData(place) {
   return { ...data, facetLabels: place.facetLabels ?? [], zones, ...(place.hintAt && { hintAt: { ...place.hintAt } }) }
 }
 
+/**
+ * Names as the view draws them: a node's, and for a membrane protein what its arrows carry, so what is placed
+ * around them (a cell's name, species tokens) keeps clear of them.
+ *
+ * @param {Map<string, Object>} byId - The diagram's nodes by id.
+ * @param {Map<string, Object>} layout - From layoutPhysiology.
+ * @param {Map<string, Array<Object>>} transport - Node id -> its cartoon's arrows.
+ * @returns {(id: string) => {name: string, detail: string}}
+ */
+const viewLabels = (byId, layout, transport) => (id) => ({
+  name: byId.get(id)?.data?.name ?? layout.get(id)?.label ?? id,
+  detail: (transport.get(id) ?? []).map((arrow) => arrow.label).join(' · '),
+})
+
 /** Whether a place is an empty piece of a template, drawn with no node behind it. */
 const isEmptyPiece = (place) => !!place.instance && place.empty && (place.kind === 'cell' || place.kind === 'region')
 
@@ -56,6 +72,7 @@ const isEmptyPiece = (place) => !!place.instance && place.empty && (place.kind =
  */
 export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { selection = true } = {}) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
+  const labelOf = viewLabels(byId, layout, transport)
   const base = (id) => {
     const node = byId.get(id)
     if (!node) {
@@ -78,6 +95,9 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
       case 'cell': {
         const { x, y, width, height } = place.rect
         const own = base(id)
+        const named = !own.data.empty && cellNameBox(id, layout, labelOf)
+        // An empty template cell's name and hint keep clear of its proteins' names.
+        const hint = own.data.empty && cellHintAt(id, layout, labelOf)
         parents.push({
           ...own,
           type: 'bioCell',
@@ -85,7 +105,17 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           width,
           height,
           zIndex: Z.cell,
-          data: { ...own.data, ...templateData(place), membrane: place.membrane, width, height },
+          data: {
+            ...own.data,
+            ...templateData(place),
+            membrane: place.membrane,
+            width,
+            height,
+            ...(named && { nameAt: { x: named.x - x, y: named.y - y } }),
+            ...(hint && { hintAt: hint }),
+            // A template's facet names go where its proteins and names are not.
+            ...(place.facetLabels?.length && { facetLabels: facetLabelBoxes(id, layout, labelOf) }),
+          },
         })
         break
       }
@@ -427,14 +457,24 @@ function shareNodes(previous, next) {
   }))
 }
 
+/** The roles whose own species species mode shows. */
+const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
+
 /**
  * The physiological view's nodes, derived from the diagram's. Nothing is written by deriving them.
  *
  * @param {Ref<Array<Object>>} nodes - The diagram's nodes.
+ * @param {Ref<Array<Object>>} [edges] - The diagram's edges.
+ * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null}|null> }} [options] - Species
+ *   mode, when on: whether it shows every annotated species, only those coupled, or only those with a path through a
+ *   protein, and a token it keeps whatever (see speciesNetwork). A compartment's tokens follow its
+ *   bioView.speciesOrder.
  * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
- *   bioNodes: ComputedRef<Array<Object>> }}
+ *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
+ *   `species` is the species network and where it is drawn, while species mode is on; `speciesOrderPreview` places
+ *   one compartment's tokens in an order of the caller's.
  */
-export function useBioNodes(nodes, edges = ref([])) {
+export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } = {}) {
   const libraryStore = useLibraryStore()
   const templateStore = useBioTemplateStore()
   const simulationResults = useSimulationResultsStore()
@@ -477,7 +517,7 @@ export function useBioNodes(nodes, edges = ref([])) {
   })
   /** A protein's arrows, each going the way the latest run took it, if that is known. */
   const arrowsFor = (list, directionOf = () => null) =>
-    list.map(({ label, inside }) => ({ label, direction: directionOf(inside) }))
+    list.map(({ species, label, inside }) => ({ species, label, direction: directionOf(inside) }))
   // Arrows with no direction: what lays the view out, which a run doesn't change.
   const carriedArrows = computed(() => new Map([...carried.value].map(([id, list]) => [id, arrowsFor(list)])))
   // What each membrane protein carries, and which way, from the latest run.
@@ -493,16 +533,78 @@ export function useBioNodes(nodes, edges = ref([])) {
       ])
     )
   })
+  const sidecarOf = (node) => (node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null)
+  const facesOf = (id) => getGlyph(roles.value.get(id)?.glyph)?.faces
+  // What a protein's cartoon's arrows carry, in order, and where it spreads them.
+  const arrowsOf = (id) => ({
+    species: (carriedArrows.value.get(id) ?? []).map((arrow) => arrow.species),
+    room: (getGlyph(roles.value.get(id)?.glyph) ?? getGlyph('generic'))?.arrowRoom,
+  })
+
+  // Whether any compartment annotates species of its own, so species mode has something to show.
+  const hasSpecies = computed(() =>
+    nodes.value.some(
+      (node) => COMPARTMENT_ROLES.has(roles.value.get(node.id)?.role) && ownSpecies(sidecarOf(node)).size
+    )
+  )
+  // The species network and where its tokens go, worked out only while species mode is on: a run changes neither.
+  const speciesTokens = computed(() => {
+    const mode = unref(speciesMode)
+    if (!mode) return null
+    const network = speciesNetwork({
+      nodes: nodes.value,
+      edges: edges.value,
+      roleOf: (id) => roles.value.get(id)?.role,
+      sidecarOf,
+      all: !!mode.all,
+      fluxes: !!mode.fluxes,
+      keep: mode.keep ?? null,
+    })
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const labelOf = viewLabels(byId, layout.value, carriedArrows.value)
+    // A compartment's tokens in the order the user dragged them into.
+    const orderOf = (id) => byId.get(id)?.data?.bioView?.speciesOrder
+    return { network, tokens: placeSpeciesTokens(network, layout.value, { labelOf, orderOf }) }
+  })
+
+  /**
+   * Where one compartment's tokens would go in an order of their species: a chip drag's preview of its drop.
+   *
+   * @param {string} nodeId - The compartment.
+   * @param {string[]} order - Its species, in the order to try.
+   * @returns {Array<Object>} Its tokens, placed as that order would place them; none while species mode is off.
+   */
+  function speciesOrderPreview(nodeId, order) {
+    if (!speciesTokens.value) return []
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const labelOf = viewLabels(byId, layout.value, carriedArrows.value)
+    const orderOf = (id) => (id === nodeId ? order : byId.get(id)?.data?.bioView?.speciesOrder)
+    return placeSpeciesTokens(speciesTokens.value.network, layout.value, { labelOf, orderOf, only: nodeId })
+  }
+  // ...and its paths, which go the way the latest run took them.
+  const species = computed(() => {
+    if (!speciesTokens.value) return null
+    const { network, tokens } = speciesTokens.value
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const { results, mapping } = simulationResults
+    const usable = results && mapping && !results.isSweep
+    const flowOf = (path) => {
+      const crossing = usable && crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
+      if (!crossing) return null
+      const values = readNodeSeries(results, mapping, path.protein, crossing.variable)?.values
+      const way = flowDirection(values)
+      const flip = { in: 'out', out: 'in' }
+      return {
+        direction: way && crossing.inward < 0 ? flip[way] : way,
+        size: values?.length ? Math.abs(values[values.length - 1]) || 0 : 0,
+      }
+    }
+    return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf }) }
+  })
+
   const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))
   const focus = computed(() =>
-    focusCouplings(
-      nodes.value,
-      edges.value,
-      layout.value,
-      selected.value,
-      (node) => (node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null),
-      (id) => getGlyph(roles.value.get(id)?.glyph)?.faces
-    )
+    focusCouplings(nodes.value, edges.value, layout.value, selected.value, sidecarOf, facesOf)
   )
   // Laid out once per layout: a selection or a run changes none of it, only what bioNodes adds.
   const laidOutNodes = computed(() => [
@@ -537,8 +639,8 @@ export function useBioNodes(nodes, edges = ref([])) {
     return Promise.all([...mathRefs].map((mathRef) => libraryStore.ensureModuleAnnotations(mathRef)))
   }
 
-  // A sidecar saved, imported or undone after mount drops its parse; parse it again so roles and transport
-  // follow without remounting the view.
+  // A sidecar saved, imported or undone after mount drops its parse; parse it again so roles, transport and
+  // species mode follow without remounting the view.
   watch(
     () =>
       [...new Set(nodes.value.map((node) => node.data?.mathRef).filter(Boolean))]
@@ -549,5 +651,15 @@ export function useBioNodes(nodes, edges = ref([])) {
     }
   )
 
-  return { roles, layout, sites: computed(() => physiology.value.sites), bioNodes, couplingEdges, loadSidecars }
+  return {
+    roles,
+    layout,
+    sites: computed(() => physiology.value.sites),
+    bioNodes,
+    couplingEdges,
+    hasSpecies,
+    species,
+    speciesOrderPreview,
+    loadSidecars,
+  }
 }

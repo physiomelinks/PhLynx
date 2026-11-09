@@ -52,6 +52,15 @@ export const SETTING_SECTIONS = [
         default: true,
       },
       {
+        key: 'speciesOverlay',
+        type: 'toggle',
+        label: 'Species mode',
+        description:
+          'Open the physiological view in species mode: each compartment’s annotated species, and the paths ' +
+          'they take through its proteins. The view’s controls turn it on and off.',
+        default: false,
+      },
+      {
         key: 'showDataItems',
         type: 'toggle',
         label: 'Show data items',
