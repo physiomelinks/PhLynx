@@ -384,7 +384,7 @@ function submitActive() {
   border: 1px solid color-mix(in srgb, var(--p-text-color) 20%, transparent);
 }
 
-:global(.p-dark) .swatch-chip {
+.p-dark .swatch-chip {
   background: var(--swatch-fill-dark);
 }
 
