@@ -1,6 +1,6 @@
 # Port Logic
 
-When you draw a connection, PhLynx **couples** each pair of ports that share a label and have compatible types. The couplings are stored on the connection and used on export.
+When you draw a connection, PhLynx **couples** each pair of ports that share a label and have compatible types. The couplings are stored on the connection and used on export. [Annotated](../guides/annotation-coupling.md#annotated-ports) ports have no label: they couple by meaning and place instead.
 
 ## Port types {#port-types}
 
@@ -45,6 +45,8 @@ Export refuses a pair that is Sum on both ends or Multiply on both ends. A varia
 ![Connections dialog](../assets/images/connections-dialog.png){.align-center width="800px"}
 
 Double-click a connection to open **Connections**, where each port shows as Connected, Taken (by another connection) or Available. Drag between ports with the same label and compatible types to couple them, or drop onto **Add Port** to create a matching port. Click **Done** to save or **Cancel** to discard.
+
+The dialog shows the couplings export applies. **Done** with no edits closes without an undo step; if those couplings differ from the ones stored on the connection (for example in an older save), it first asks whether to replace the stored ones (**Stored couplings differ**). Annotated ports show their meaning as chips and can't be edited here; see [Annotated Ports](../guides/annotation-coupling.md#annotated-ports).
 
 A Basicport takes one coupling. If you couple one that is already coupled, here or on another connection (Taken), PhLynx asks **Port already connected**:
 

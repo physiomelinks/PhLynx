@@ -91,10 +91,10 @@ Sliders, tracked runs, protocols and sweeps are covered in [Simulating Your Mode
 
 - **Save:** click **Save workspace** (floppy-disk icon) or press Ctrl/Cmd+S. This saves a JSON file with the whole workspace, including simulation settings. Reopen it with **Load workspace** (folder icon).
 - **Export:** open the arrow menu of **Export** (to the right of Import) and choose **CellML** for a flattened CellML 2.0 model. Other formats are listed in the [Interface Overview](../reference/ui-overview.md#export).
-- **Open in OpenCOR:** click **Send to OpenCOR** (paper-plane icon) to open the model in Web OpenCOR.
+- **Open in OpenCOR:** click **Send to OpenCOR** (paper-plane icon) to open the model in Web OpenCOR. The Send button is hidden by default: turn it on in [Settings ▸ Toolbar](../reference/ui-overview.md#settings).
 
 > [!WARNING]
-> PhLynx doesn't save automatically, and reloading or closing the tab loses unsaved changes, so save often. **Load workspace** replaces everything on the canvas without asking, so save first if you want to keep it.
+> PhLynx doesn't save automatically, so save often. Reloading or closing the tab with unsaved changes asks first. **Load workspace** replaces everything on the canvas without asking, so save first if you want to keep it.
 
 Which file to keep:
 
