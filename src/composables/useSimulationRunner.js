@@ -7,6 +7,7 @@ import { computed, ref, unref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useSimulation } from './useSimulation'
+import { workspaceSave } from './useUnsavedChanges'
 import { libopencor } from '../services/simulation/libopencorLoader'
 import { READOUTS } from '../services/simulation/sweepReadouts'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
@@ -157,12 +158,34 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
       : null
   )
 
+  /** A reload sets the simulator up; saving first keeps the work, as a reload starts the workspace afresh. */
+  function reloadActions() {
+    const save = workspaceSave.value
+    return [
+      ...(save ? [{ label: 'Save workspace', icon: 'pi-save', run: save }] : []),
+      {
+        label: 'Reload',
+        icon: 'pi-refresh',
+        severity: save ? 'secondary' : undefined,
+        run: () => window.location.reload(),
+      },
+    ]
+  }
+
   // What the status line says: the most pressing thing first, with the full lists a click away. Notes, such as a
   // boundary condition using its own value, are expected, so they neither warn nor count as warnings.
   const statusLine = computed(() => {
     const warnings = store.report.warnings.length ? [{ title: 'Warnings', lines: store.report.warnings }] : []
     const notes = store.report.notes ?? []
-    if (isSimulatorMissing.value) return { severity: 'error', icon: 'pi-exclamation-circle', text: libopencor.reason ?? 'The simulator isn’t available.', details: [] }
+    if (isSimulatorMissing.value) {
+      return {
+        severity: 'error',
+        icon: 'pi-exclamation-circle',
+        text: libopencor.reason ?? 'The simulator isn’t available.',
+        details: [],
+        actions: libopencor.needsReload ? reloadActions() : [],
+      }
+    }
     if (store.status === 'blocked') {
       const count = store.report.errors.length
       return { severity: 'error', icon: 'pi-exclamation-circle', text: `Can’t simulate yet: ${count} ${count === 1 ? 'problem' : 'problems'}`, details: [{ title: 'Problems', lines: store.report.errors }], hint: failureHint.value }

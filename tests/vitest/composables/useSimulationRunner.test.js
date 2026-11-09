@@ -18,9 +18,15 @@ vi.mock('../../../src/composables/useSimulation', async () => {
   const { ref } = await import('vue')
   return { useSimulation: () => ({ run, stop: vi.fn(), keepCurrent: vi.fn(), isStale: ref(false) }) }
 })
-vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
+const libopencor = vi.hoisted(() => ({ status: 'ready' }))
+vi.mock('../../../src/services/simulation/libopencorLoader', async () => {
+  const { reactive } = await import('vue')
+  return { libopencor: reactive(libopencor) }
+})
 
 const { useSimulationRunner } = await import('../../../src/composables/useSimulationRunner.js')
+const { libopencor: simulator } = await import('../../../src/services/simulation/libopencorLoader')
+const { registerWorkspaceSaver } = await import('../../../src/composables/useUnsavedChanges.js')
 
 /**
  * Runs the composable in a component.
@@ -44,6 +50,7 @@ function setUpRunner(options) {
 describe('useSimulationRunner', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    Object.assign(simulator, { status: 'ready', reason: null, needsReload: false })
     run.mockClear()
     nodes.value = [{ id: 'b' }, { id: 'a' }]
     selected.value = []
@@ -164,5 +171,17 @@ describe('useSimulationRunner', () => {
     editor.store.status = 'error'
     editor.store.scopeNodeIds = null
     expect(editor.statusLine.value.hint).toBeNull()
+  })
+
+  it('offers to save the workspace before the reload that sets the simulator up', () => {
+    Object.assign(simulator, { status: 'unavailable', reason: 'Not ready', needsReload: true })
+    const save = vi.fn()
+    const unregister = registerWorkspaceSaver({ save, hasContent: () => true })
+    const runner = setUpRunner()
+    expect(runner.statusLine.value.actions.map((action) => action.label)).toEqual(['Save workspace', 'Reload'])
+    runner.statusLine.value.actions[0].run()
+    expect(save).toHaveBeenCalled()
+    unregister()
+    expect(runner.statusLine.value.actions.map((action) => action.label)).toEqual(['Reload'])
   })
 })

@@ -57,6 +57,8 @@ export function createHistory() {
   // Only an undo or redo: working is also set while a new command first runs.
   const replaying = ref(false)
   const lastChangeWasAdd = ref(false)
+  // The step the workspace was last saved or loaded at; null before any step.
+  const savedStep = shallowRef(null)
 
   // Batching related controls.
   let batchTimer = null
@@ -73,6 +75,8 @@ export function createHistory() {
   /** Whether an undo or a redo is running, unlike isUndoRedoing never a new command. */
   const isReplaying = computed(() => replaying.value)
   const pointerIndex = computed(() => pointer.value)
+  /** Whether the history stands where the workspace was last saved or loaded. */
+  const isAtSaved = computed(() => (stack.value[pointer.value] ?? null) === savedStep.value)
   /** What an undo or a redo would take back or do again, for a notice. */
   const undoLabel = computed(() => (canUndo.value ? stepLabel(stack.value[pointer.value]) : null))
   const redoLabel = computed(() => (canRedo.value ? stepLabel(stack.value[pointer.value + 1]) : null))
@@ -118,6 +122,13 @@ export function createHistory() {
     pendingCommands.value = []
     isManualBatching.value = false
     batchStart = 0
+    savedStep.value = null
+  }
+
+  /** Marks where the history stands as saved, first committing any steps still batching on their timer. */
+  function markSaved() {
+    if (!isManualBatching.value) commitBatch()
+    savedStep.value = stack.value[pointer.value] ?? null
   }
 
   function addCommand(command) {
@@ -265,11 +276,13 @@ export function createHistory() {
     clear,
     endBatch,
     executeAndAddCommand,
+    isAtSaved,
     isReplaying,
     isUndoRedoing,
     lastChangeWasAdd,
     lastChangeWasAddSetter,
     lastCommandHadOffsetApplied,
+    markSaved,
     pointerIndex,
     redo,
     redoLabel,
