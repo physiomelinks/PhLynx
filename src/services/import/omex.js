@@ -1,6 +1,7 @@
 import JSZip from 'jszip'
 import { isModuleConfigFile, isPhlynxFlowSnapshotFile, isSimulationJsonFile } from './omexClassifiers'
 import { classifyAnnotationEntry, isAnnotationCandidate } from './omexAnnotations'
+import { FLATTENED_FOLDER } from '../export/omex'
 
 const jsonMimeTypeRegex = /^application\/(?:json|.+\+json)$/i
 const CELLML_FORMAT = 'http://identifiers.org/combine.specifications/cellml'
@@ -41,7 +42,8 @@ export function validateCellmlEntries(cellmlEntries, sedmlSource = null) {
  */
 function sedmlModelSource(sedml) {
   const source = /<(?:\w+:)?model\b[^>]*\bsource\s*=\s*"([^"]*)"/.exec(sedml)?.[1]
-  return source ? source.replace(/^\.\//, '') : null
+  // An export's SED-ML runs the flattened copy of its modular main model (see generateOmexArchive).
+  return source ? source.replace(/^\.\//, '').replace(new RegExp(`^${FLATTENED_FOLDER}/`), '') : null
 }
 
 export const extractOmexArchive = async (importPayload, updateProgress) => {

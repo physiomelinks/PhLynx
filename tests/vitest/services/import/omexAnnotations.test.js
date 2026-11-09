@@ -66,6 +66,16 @@ describe('OMEX export and import of annotations', () => {
     expect(await archive.file('model.cellml').async('string')).toMatch(/xlink:href="porter\.cellml"/)
   })
 
+  it('runs a flattened copy from the SED-ML, and imports the modular main model', async () => {
+    const { omex } = await exportOmex(library, nodes)
+    const archive = await JSZip.loadAsync(omex)
+    const manifest = await archive.file('manifest.xml').async('string')
+    expect(manifest).toContain('<content location="flattened/model.cellml" format="http://identifiers.org/combine.specifications/cellml"/>')
+    expect(await archive.file('document.sedml').async('string')).toContain('source="flattened/model.cellml"')
+    expect(await archive.file('flattened/model.cellml').async('string')).not.toMatch(/<import\b/)
+    expect((await importOmexFile(omex)).files.cellml).toBe('model.cellml')
+  })
+
   it('brings the sidecars back', async () => {
     const { omex } = await exportOmex(library, nodes)
     const imported = await importOmex(omex)
