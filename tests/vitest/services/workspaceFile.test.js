@@ -5,6 +5,8 @@ vi.mock('../../../src/utils/notify', () => ({ notify }))
 
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
 import { takeInputFile } from '../../../src/utils/misc'
+import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
+import { loadAndSave } from '../helpers/workspaceSave.js'
 
 const jsonFile = (text, name = 'workspace.json') => new File([text], name, { type: 'application/json' })
 
@@ -62,5 +64,21 @@ describe('loadWorkspaceFile', () => {
     const apply = vi.fn().mockRejectedValue(new Error('bad flow'))
     expect(await loadWorkspaceFile(jsonFile('{}'), apply)).toBe(false)
     expect(notify.error).toHaveBeenCalledWith({ title: 'Failed to load workflow', message: 'bad flow' })
+  })
+})
+
+describe('buildWorkspaceFile annotations', () => {
+  it('carries sidecars through load and save', () => {
+    const doc = {
+      id: PHLYNX_PROJECT_IDENTIFIER,
+      version: PHLYNX_PROJECT_VERSION,
+      flow: { nodes: [{ id: 'n1', position: { x: 0, y: 0 }, data: { name: 'pool' } }], edges: [] },
+      store: { moduleAnnotations: [['pool.cellml:pool', '# sidecar']] },
+    }
+
+    const saved = loadAndSave(doc)
+
+    expect(saved.store.moduleAnnotations).toEqual(doc.store.moduleAnnotations)
+    expect(saved.flow.nodes[0].data).toEqual(doc.flow.nodes[0].data)
   })
 })

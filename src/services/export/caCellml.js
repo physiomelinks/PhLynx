@@ -4,7 +4,7 @@
  * files by the `units.cellml` ending, beside the config.
  */
 import { STANDARD_UNITS } from '../../utils/constants'
-import { combineComponentModels, whenLibCellMLReady } from '../../utils/cellml'
+import { combineComponentModels, uniqueComponentIds, whenLibCellMLReady } from '../../utils/cellml'
 import { parseMathRef } from '../../utils/config'
 import { unitsModelXml } from '../../utils/unitExpression'
 import { groupingCellmlFile, unitsUsedBy } from '../userModules'
@@ -107,8 +107,9 @@ export function renameClashingComponents(typesByFile) {
  *   another grouping holds a component of its name (renameClashingComponents).
  * @param {Object} libraryStore - The library, for `availableMath` and `unitDefinitions`.
  * @returns {Promise<{files: Map<string, string>, missingUnits: string[], renamedComponents: Array<{file: string,
- *   from: string, to: string}>}>} Each file's text by name, the units no library units file defines, and the
- *   components renamed, by their grouping in the library.
+ *   from: string, to: string}>, idRenames: Map<string, Map<string, string>>}>} Each file's text by name, the units
+ *   no library units file defines, the components renamed, by their grouping in the library, and, by mathRef, the ids
+ *   renamed so a file holds each id once (for moving that math's sidecar subjects with renameSidecar).
  * @throws {Error} When a component has no math in the library, or two files get the same name.
  */
 export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
@@ -146,8 +147,11 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
   await whenLibCellMLReady()
   const files = new Map()
   const usedUnits = new Set()
+  const idRenames = new Map()
   for (const [file, types] of typesByFile) {
-    const maths = [...types].map((type) => libraryStore.availableMath.get(`${file}:${type}`))
+    const refs = [...types].map((type) => `${file}:${type}`)
+    const { models: maths, idMaps } = uniqueComponentIds(refs.map((ref) => libraryStore.availableMath.get(ref)))
+    refs.forEach((ref, i) => idMaps[i].size && idRenames.set(ref, idMaps[i]))
     maths.forEach((math) => unitsUsedBy(math).forEach((name) => usedUnits.add(name)))
     const names = [...types].map((type) => exportNames.get(`${file}:${type}`))
     // The model's name can't hold "component": CA copies from the first line that does.
@@ -173,5 +177,5 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
   }
   files.set(`${fileName}_units.cellml`, unitsModelXml(units, 'units'))
 
-  return { files, missingUnits, renamedComponents }
+  return { files, missingUnits, renamedComponents, idRenames }
 }

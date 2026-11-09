@@ -232,6 +232,7 @@
     "store.mathSources[][].generator",
     "store.mathSources[][].generator.name",
     "store.mathSources[][].generator.version",
+    "store.moduleAnnotations",
     "version",
     "workspace",
     "workspace.archiveHash",

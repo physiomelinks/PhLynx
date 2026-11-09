@@ -1,0 +1,46 @@
+# Toy transporter sidecar, written with alternative IRI forms on purpose; _i is the cytoplasm, _o outside.
+# Its named flows share named entities; the others are older bare-GO and blank-node forms, the blank-node process
+# with its mediator.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix uniprot: <http://identifiers.org/uniprot/> .
+@prefix m: <./porter.cellml#> .
+@prefix local: <./porter.ttl#> .
+
+m:porter bqbiol:is uniprot:Q0TOY1 ;
+    bqbiol:isVersionOf <http://identifiers.org/GO:0005412> .
+local:entity_self bqbiol:is <https://identifiers.org/uniprot/Q0TOY1> ;
+    bqbiol:isPartOf <http://purl.obolibrary.org/obo/GO_0005886> .
+local:outside bqbiol:is <http://purl.obolibrary.org/obo/GO_0005576> .
+local:inside bqbiol:is <https://identifiers.org/go/GO:0005737> .
+
+m:v4y7hdahd bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00340> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://identifiers.org/CHEBI:29101> ;
+        bqbiol:isPartOf <http://purl.obolibrary.org/obo/GO_0005737> ] .
+m:v937omo9i bqbiol:isVersionOf <https://identifiers.org/OPB:00340> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://identifiers.org/chebi/CHEBI:29101> , <http://identifiers.org/GO:0005576> ] .
+m:flux_in bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00592> ;
+    bqbiol:isPropertyOf local:process_flux_in .
+local:process_flux_in semsim:hasSourceParticipant [ semsim:hasPhysicalEntityReference local:Na_out ] ;
+    semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:Na_in ] .
+local:Na_out bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> ;
+    bqbiol:isPartOf local:outside .
+local:Na_in bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> ;
+    bqbiol:isPartOf local:inside .
+m:v4xc6r3hg bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00592> ;
+    bqbiol:isPropertyOf [
+        semsim:hasSourceParticipant [ semsim:hasPhysicalEntityReference [
+            bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> ;
+            bqbiol:isPartOf <http://purl.obolibrary.org/obo/GO_0005737> ] ] ;
+        semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference [
+            bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> ;
+            bqbiol:isPartOf <http://purl.obolibrary.org/obo/GO_0005576> ] ] ;
+        semsim:hasMediatorParticipant [ semsim:hasPhysicalEntityReference local:entity_self ] ] .
+m:vp3vtnv5k bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00318> ;
+    bqbiol:isPropertyOf local:process_vp3vtnv5k .
+local:process_vp3vtnv5k semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:plasma_membrane ] .
+local:plasma_membrane bqbiol:is <http://purl.obolibrary.org/obo/GO_0005886> .
+m:vay4adytm bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00506> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://purl.obolibrary.org/obo/GO_0005886> ] .
+m:vsi82ojxw bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00295> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://purl.obolibrary.org/obo/GO_0005886> ] .

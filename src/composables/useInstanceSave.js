@@ -11,6 +11,7 @@ import {
   otherSetUsers,
 } from '../utils/parameters/instanceSet'
 import { planSharedSetUpdate } from '../utils/parameters/apply'
+import { renameSidecar } from '../services/annotations/sidecarEdit'
 import {
   fillBlankValues,
   getPortVariables,
@@ -155,13 +156,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Checks whether a save writes math that no library module uses yet, such as a new component.
+   * Checks whether a save writes math that no library module uses yet, such as a new component. Math whose
+   * ids alone changed is the same math.
    *
    * @param {Object} save - The instance editor's `confirm` payload.
    * @returns {boolean}
    */
-  function isNewModuleSave({ mathRef, math }) {
-    return math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !libraryStore.availableCollections.has(mathRef)
+  function isNewModuleSave({ mathRef, math, idsChanged }) {
+    if (math === null || idsChanged) return false
+    return !PROTECTED_MATH_REFS.has(mathRef) && !libraryStore.availableCollections.has(mathRef)
   }
 
   /**
@@ -619,6 +622,42 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
+   * Gets the sidecar a save writes for its math, as a recordEdit `library` entry: the save's own
+   * annotations, or else the previous math's sidecar moved to the new math. Its variable subjects are
+   * ids, which follow renamed variables as they are. The previous math keeps its own.
+   *
+   * @param {Object} save - The instance editor's `confirm` payload.
+   * @returns {Promise<{text: string|null, apply: Function, library: Object}|null>} Null when the save leaves the
+   *   sidecar as it is.
+   */
+  async function prepareAnnotationChange(save) {
+    const { mathRef, annotations } = save
+    const previousMathRef = save.previousMathRef ?? mathRef
+    let text = annotations?.text
+    if (typeof text !== 'string') {
+      const previousText = libraryStore.getModuleAnnotations(previousMathRef)
+      if (!previousText || mathRef === previousMathRef) return null
+      try {
+        text = await renameSidecar(previousText, previousMathRef, mathRef)
+      } catch (err) {
+        console.warn(`Could not move the annotations of ${previousMathRef} to ${mathRef}:`, err)
+        return null
+      }
+    }
+
+    const states = { before: libraryStore.getModuleAnnotations(mathRef), after: text?.trim() ? text : null }
+    if (states.after === states.before) return null
+    return {
+      text: states.after,
+      apply: () => libraryStore.setModuleAnnotations(mathRef, states.after),
+      library: {
+        isAt: (side) => libraryStore.getModuleAnnotations(mathRef) === states[side],
+        restore: (side) => libraryStore.setModuleAnnotations(mathRef, states[side]),
+      },
+    }
+  }
+
+  /**
    * Applies an instance editor save as one undo step. Undo puts back the math only while it is still
    * what the save wrote, and keeps math a save created while any node still uses it.
    *
@@ -648,6 +687,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     let mathAfter = null
 
     const isUsed = (ref) => nodes.value.some((node) => node.data?.mathRef === ref)
+    const annotationChange = await prepareAnnotationChange(save)
     const plotChange = preparePlotChange(save)
     const moduleChange = prepareModuleChange(save)
     const unitsChange = prepareUnitsChange(save)
@@ -661,6 +701,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       keys: NODE_KEYS,
       edgeIds: findIncidentEdgeIds(affectedIds),
       apply: () => {
+        annotationChange?.apply()
         const moduleRef = applySave(save)
         setChange?.apply()
         sharedSetChange?.apply()
@@ -694,6 +735,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
         setChange?.library,
         sharedSetChange?.library,
         defaultsChange?.library,
+        annotationChange?.library,
       ]),
     })
 

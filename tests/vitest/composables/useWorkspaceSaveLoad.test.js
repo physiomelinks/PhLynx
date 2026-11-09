@@ -251,6 +251,37 @@ describe('applyWorkspaceState', () => {
     })
   })
 
+  it('round trips module sidecars', async () => {
+    const sidecar = '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n'
+    const data = { name: 'cell' }
+    const annotatedFlow = { ...FLOW, nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data }] }
+    flow.toObject.mockReturnValue(annotatedFlow)
+    useLibraryStore().setModuleAnnotations('pool.cellml:pool', sidecar)
+    await view.onSaveConfirm('annotated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
+    expect(saved.store.moduleAnnotations).toEqual([['pool.cellml:pool', sidecar]])
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved)
+
+    expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: annotatedFlow.nodes }))
+    expect(useLibraryStore().getModuleAnnotations('pool.cellml:pool')).toBe(sidecar)
+  })
+
+  it('saves a workspace without sidecars as before, and loading one empties the library sidecars', async () => {
+    fillStores()
+    await view.onSaveConfirm('plain')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved.store).not.toHaveProperty('moduleAnnotations')
+
+    useLibraryStore().setModuleAnnotations('stale.cellml:stale', '# stale')
+    await view.applyWorkspaceState(saved)
+    expect(useLibraryStore().moduleAnnotations.size).toBe(0)
+  })
+
   it('clears the workspace before it restores the flow', async () => {
     const order = []
     clearWorkspace.mockImplementation(async () => {

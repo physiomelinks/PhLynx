@@ -961,6 +961,18 @@ describe('useInstanceSave', () => {
       expect(library.availableUnits.some((file) => file.componentFile === 'growth.cellml')).toBe(false)
     })
 
+    it('writes math whose ids alone changed without making a module, and undo puts the math back', async () => {
+      const before = library.availableMath.get(DECAY_REF)
+      const withId = before.replace('<variable name="x"', '<variable name="x" id="vx0000000"')
+      await saveInstanceEdit(buildSave({ math: withId, idsChanged: true }))
+      expect(library.availableMath.get(DECAY_REF)).toContain('id="vx0000000"')
+      expect(library.availableCollections.has(DECAY_REF)).toBe(false)
+      expect(findNode('a').data.moduleRef).toBe(NEW_MODULE_REF)
+
+      await history.undo()
+      expect(library.availableMath.get(DECAY_REF)).toBe(before)
+    })
+
     it('leaves the module alone when the math already has one', async () => {
       library.addModule({ moduleRef: 'decay:default', mathRef: DECAY_REF, ports: [], variables: [] })
       await saveInstanceEdit(buildSave({ math: DECAY_WITHOUT_K }))
@@ -1512,6 +1524,131 @@ describe('useInstanceSave', () => {
       await saveInstanceEdit(buildSave({ name: 'a', plotVariables: [] }))
       expect(history.canUndo).toBe(false)
       expect(useSimulationSettingsStore().plotConfig).toEqual({})
+    })
+  })
+
+  describe('module annotations', () => {
+    const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix chebi: <https://identifiers.org/chebi/CHEBI:> .
+@prefix m: <./file#> .
+@prefix local: <./decay.ttl#> .
+
+m:vdecayx01 bqbiol:isVersionOf opb:00154 ;
+    bqbiol:isPropertyOf local:entity_self .
+m:vdecayk01 bqbiol:isVersionOf opb:00592 ; bqbiol:isPropertyOf local:process_vdecayk01 .
+local:process_vdecayk01 semsim:hasSinkParticipant local:sink_vdecayk01 .
+local:sink_vdecayk01 semsim:hasPhysicalEntityReference local:entity_vdecayk01 .
+local:entity_vdecayk01 bqbiol:is chebi:29101 ; bqbiol:isPartOf local:entity_self .
+`
+    const X_SUBJECT = 'https://phlynx.invalid/modules/file#vdecayx01'
+    const K_SUBJECT = 'https://phlynx.invalid/modules/file#vdecayk01'
+    // The math's annotated variables carry the ids the sidecar names, as a save keeps them.
+    const withIds = (xml) =>
+      xml
+        .replace('<variable name="x"', '<variable id="vdecayx01" name="x"')
+        .replace('<variable name="k"', '<variable id="vdecayk01" name="k"')
+    const renameK = (xml) => xml.replaceAll('"k"', '"kd"').replaceAll('<ci>k</ci>', '<ci>kd</ci>')
+    const RENAMED_GROWTH_XML = renameK(withIds(GROWTH_XML))
+    const forkWithIds = () => ({ ...fork(), math: withIds(GROWTH_XML) })
+
+    beforeEach(() => {
+      library.addMath(DECAY_REF, withIds(DECAY_XML))
+      library.setModuleAnnotations(DECAY_REF, DECAY_SIDECAR)
+    })
+
+    it('copies the sidecar to forked math, which the old math keeps, and one undo removes the copy', async () => {
+      await saveInstanceEdit(forkWithIds())
+      const copied = library.getModuleAnnotations(GROWTH_REF)
+      expect(copied).toContain('m:vdecayx01')
+      expect(copied).toContain('@prefix local: <./growth.ttl#> .')
+      expect(copied).toContain('bqbiol:isPropertyOf local:entity_self .')
+      expect(copied).not.toContain('m:decay')
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+
+      await history.undo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBeNull()
+      expect(findNode('a').data.mathRef).toBe(DECAY_REF)
+
+      await history.redo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBe(copied)
+    })
+
+    it('keeps the id subjects of variables the new math renamed, which resolve to their new names', async () => {
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: RENAMED_GROWTH_XML }))
+      const copied = library.getModuleAnnotations(GROWTH_REF)
+      expect(copied).toContain('m:vdecayk01')
+      expect(copied).toContain('m:vdecayx01')
+      const parsed = await library.ensureModuleAnnotations(GROWTH_REF)
+      expect(parsed.variables.map(({ variable, id }) => [variable, id])).toEqual([
+        ['x', 'vdecayx01'],
+        ['kd', 'vdecayk01'],
+      ])
+    })
+
+    it('leaves the sidecar as it is when math overwritten under its own reference renames a variable', async () => {
+      await saveInstanceEdit(buildSave({ math: renameK(withIds(DECAY_XML)) }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+      const parsed = await library.ensureModuleAnnotations(DECAY_REF)
+      expect(parsed.variables.find((entry) => entry.id === 'vdecayk01').variable).toBe('kd')
+    })
+
+    it('writes the annotations a save carries, and one undo puts back the sidecar and the nodes', async () => {
+      const text = DECAY_SIDECAR.replace('opb:00592', 'opb:00318')
+      await saveInstanceEdit(buildSave({ annotations: { text } }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(text)
+      expect(findNode('a').data.name).toBe('a2')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+      expect(findNode('a').data.name).toBe('a')
+    })
+
+    it('clears the sidecar when a save carries empty annotations', async () => {
+      await saveInstanceEdit(buildSave({ annotations: { text: '' } }))
+      expect(library.getModuleAnnotations(DECAY_REF)).toBeNull()
+
+      await history.undo()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('records a save that only changes the annotations', async () => {
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      history.clear()
+      await saveInstanceEdit(buildSave({ name: 'a', annotations: { text: DECAY_SIDECAR.replace('opb:00592', 'opb:00318') } }))
+      expect(history.canUndo).toBe(true)
+    })
+
+    it('replaces the sidecar of math a save overwrites, and undo puts it back', async () => {
+      library.addMath(GROWTH_REF, GROWTH_XML)
+      const growthSidecar = DECAY_SIDECAR.replaceAll('decay', 'growth').replace('opb:00592', 'opb:00318')
+      library.setModuleAnnotations(GROWTH_REF, growthSidecar)
+      await saveInstanceEdit(buildSave({ mathRef: GROWTH_REF, math: GROWTH_XML.replace('<ci>k</ci>', '<cn>2</cn>') }))
+      expect(library.getModuleAnnotations(GROWTH_REF)).toContain('opb:00592')
+
+      await history.undo()
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBe(growthSidecar)
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
+    })
+
+    it('still saves, leaving the sidecars as they are, when the old sidecar does not parse', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      library.setModuleAnnotations(DECAY_REF, 'not turtle ;;')
+      await saveInstanceEdit(forkWithIds())
+      expect(findNode('a').data.mathRef).toBe(GROWTH_REF)
+      expect(library.getModuleAnnotations(GROWTH_REF)).toBeNull()
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe('not turtle ;;')
+      expect(warn).toHaveBeenCalled()
+      warn.mockRestore()
+    })
+
+    it('leaves the sidecar alone when the save keeps the math', async () => {
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      history.clear()
+      await saveInstanceEdit(buildSave({ name: 'a' }))
+      expect(history.canUndo).toBe(false)
+      expect(library.getModuleAnnotations(DECAY_REF)).toBe(DECAY_SIDECAR)
     })
   })
 })

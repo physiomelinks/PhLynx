@@ -22,6 +22,7 @@ import {
 import { carryRenames, followPendingRename } from '../services/math/carryRenames'
 import { classifyRows, findConnectionSupplied } from '../services/math/variableKinds'
 import { separateParameters } from '../services/math/separateParameters'
+import { stripIds } from '../services/math/variableIds'
 import { buildVariableDeclarations } from '../utils/variables'
 import { areModelsEquivalent } from '../utils/cellml'
 import { cleanName } from '../utils/identifiers'
@@ -196,14 +197,14 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
   const isMissingUnits = (row) => (isManaged.value ? !cleanName(row.units) : unresolvedInText.value.has(row.name))
 
   /**
-   * Checks whether the math differs from what was loaded. The libcellml comparison only runs when
-   * the XML text differs.
+   * Checks whether the math differs from what was loaded, ignoring ids (a save keeps those, see
+   * carryVariableIds). The libcellml comparison only runs when the XML text differs.
    *
    * @returns {boolean}
    */
   function isDirty() {
     if (currentModel.value === originalModel.value) return false
-    return !areModelsEquivalent(originalModel.value, currentModel.value)
+    return !areModelsEquivalent(stripIds(originalModel.value), stripIds(currentModel.value))
   }
 
   /**
