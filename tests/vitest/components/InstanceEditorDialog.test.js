@@ -245,6 +245,112 @@ describe('InstanceEditorDialog undo (#605)', () => {
   })
 })
 
+describe('InstanceEditorDialog math shared with other instances', () => {
+  const OTHER_REF = 'file:other'
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  })
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    useLibraryStore().addMath(MATH_REF, XML)
+    flowNodes.value = [
+      { id: 'a', data: { name: 'a', mathRef: MATH_REF } },
+      { id: 'b', data: { name: 'b', mathRef: MATH_REF } },
+    ]
+  })
+
+  afterEach(() => {
+    flowNodes.value = []
+  })
+
+  const checkbox = () => wrapper.find('#applyToAll')
+  const saveAsDialog = () => wrapper.findComponent(ComponentSaveAsDialog)
+
+  /**
+   * Opens the dialog, edits the math, optionally unticks the box, and clicks Save.
+   *
+   * @param {{untick?: boolean, xml?: string}} [options]
+   */
+  async function editAndSave({ untick = false, xml = EDITED_XML } = {}) {
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', XML)
+    await report(editor, 'edit', xml)
+    if (untick) await checkbox().setValue(false)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+  }
+
+  it('ticks the box by default, and again on each open', async () => {
+    mountDialog()
+    await open()
+    expect(checkbox().element.checked).toBe(true)
+    await checkbox().setValue(false)
+    await wrapper.setProps({ modelValue: false })
+    await open()
+    expect(checkbox().element.checked).toBe(true)
+  })
+
+  it('overwrites the math in place for every instance when ticked', async () => {
+    await editAndSave()
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('affect 1 other instance.') }))
+    expect(saveAsDialog().exists()).toBe(false)
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save).toMatchObject({ mathRef: MATH_REF, updateAll: true, siblings: ['b'] })
+  })
+
+  it('asks for a new component when unticked, leaving the other instances on the old math', async () => {
+    await editAndSave({ untick: true })
+    expect(choose).not.toHaveBeenCalled()
+    expect(saveAsDialog().props('message')).toContain('1 other instance uses decay')
+    expect(saveAsDialog().props('isTaken')('decay')).toContain('used by the other instances')
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+
+    saveAsDialog().vm.$emit('confirm', 'decay_a')
+    await flushPromises()
+    const [save] = wrapper.emitted('confirm')[0]
+    expect(save).toMatchObject({ mathRef: 'file:decay_a', previousMathRef: MATH_REF, updateAll: false, siblings: [] })
+    expect(save.math).toContain('<component name="decay_a"')
+    expect(save.math).toContain('<cn>1</cn>')
+  })
+
+  it('saves nothing when the new component is cancelled', async () => {
+    await editAndSave({ untick: true })
+    saveAsDialog().vm.$emit('cancel')
+    await flushPromises()
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('asks for a new component when unticked and renamed to math other instances use', async () => {
+    useLibraryStore().addMath(OTHER_REF, XML.replace(/"decay"/g, '"other"'))
+    flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: OTHER_REF } }]
+    await editAndSave({ untick: true, xml: EDITED_XML.replace(/"decay"/g, '"other"') })
+    expect(saveAsDialog().props('message')).toContain('1 other instance uses other')
+  })
+
+  it('counts every instance an overwrite of other math changes', async () => {
+    useLibraryStore().addMath(OTHER_REF, XML.replace(/"decay"/g, '"other"'))
+    flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: OTHER_REF } }]
+    await editAndSave({ xml: EDITED_XML.replace(/"decay"/g, '"other"') })
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('affect 2 other instances.') }))
+  })
+
+  it('saves without asking when the math is unchanged', async () => {
+    mountDialog()
+    const editor = await open()
+    await report(editor, 'init', useLibraryStore().availableMath.get(MATH_REF))
+    await checkbox().setValue(false)
+    await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+    await flushPromises()
+    expect(saveAsDialog().exists()).toBe(false)
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, math: null })
+  })
+})
+
 describe('InstanceEditorDialog new module template (#634)', () => {
   const TEMPLATE_XML = XML.replace(/"decay"/g, '"new_module"')
   const EDITED_TEMPLATE_XML = EDITED_XML.replace(/"decay"/g, '"new_module"')
@@ -311,6 +417,64 @@ describe('InstanceEditorDialog new module template (#634)', () => {
     await flushPromises()
 
     expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ source: null, isSourceChanged: false, units: null })
+  })
+
+  describe('with other instances on the template', () => {
+    beforeEach(() => {
+      flowNodes.value = [
+        { id: 'a', data: { name: 'a', mathRef: NEW_MODULE_MATH_REF } },
+        { id: 'b', data: { name: 'b', mathRef: NEW_MODULE_MATH_REF } },
+      ]
+    })
+
+    afterEach(() => {
+      flowNodes.value = []
+    })
+
+    it('leaves Apply to all unticked, so only this instance moves to the new component', async () => {
+      const saveAs = await saveEditedTemplate()
+      expect(wrapper.find('#applyToAll').element.checked).toBe(false)
+      saveAs.vm.$emit('confirm', 'my_comp')
+      await flushPromises()
+
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({
+        mathRef: 'User_Modules.cellml:my_comp',
+        updateAll: false,
+        siblings: [],
+      })
+    })
+
+    it('moves the other instances too once ticked', async () => {
+      mountDialog({ mathRef: NEW_MODULE_MATH_REF, initialName: 'my_instance' })
+      const editor = await open()
+      await report(editor, 'init', TEMPLATE_XML)
+      await report(editor, 'edit', EDITED_TEMPLATE_XML)
+      await wrapper.find('#applyToAll').setValue(true)
+      await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
+      await flushPromises()
+      wrapper.findComponent(ComponentSaveAsDialog).vm.$emit('confirm', 'my_comp')
+      await flushPromises()
+
+      expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ updateAll: true, siblings: ['b'] })
+    })
+
+    it('unticks it again on each open of the template, but ticks it for other math', async () => {
+      useLibraryStore().addMath(MATH_REF, XML)
+      mountDialog({ mathRef: NEW_MODULE_MATH_REF, initialName: 'my_instance' })
+      await open()
+      await wrapper.find('#applyToAll').setValue(true)
+      await wrapper.setProps({ modelValue: false })
+      await open()
+      expect(wrapper.find('#applyToAll').element.checked).toBe(false)
+
+      flowNodes.value = [
+        { id: 'a', data: { name: 'a', mathRef: MATH_REF } },
+        { id: 'b', data: { name: 'b', mathRef: MATH_REF } },
+      ]
+      await wrapper.setProps({ modelValue: false, mathRef: MATH_REF })
+      await open()
+      expect(wrapper.find('#applyToAll').element.checked).toBe(true)
+    })
   })
 
   describe('whichever editor is used first', () => {
@@ -430,6 +594,7 @@ describe('InstanceEditorDialog new module template (#634)', () => {
         await openTemplate()
         await wrapper.vm.switchEditor('celldl')
         host.isDirty.value = true
+        await wrapper.find('#applyToAll').setValue(false)
         await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
         await flushPromises()
         return wrapper.findComponent(ComponentSaveAsDialog)
@@ -1092,6 +1257,7 @@ describe('InstanceEditorDialog locked math', () => {
     expect(wrapper.vm.isManaged).toBe(false)
     expect(stubProps(FakeEditor).readonly).toBe(true)
 
+    await wrapper.find('#applyToAll').setValue(false)
     await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
     await flushPromises()
     const [save] = wrapper.emitted('confirm')[0]
@@ -1464,8 +1630,8 @@ describe('InstanceEditorDialog locked math', () => {
         isSourceChanged: true,
         source: { format: 'celldl', document: EDITED_DOCUMENT, elements: { R: { primary: 'v_R' } }, frameworkVersion: '1.0' },
         units: { componentFile: 'file', model: '<model name="units"/>' },
-        updateAll: false,
-        siblings: [],
+        updateAll: true,
+        siblings: ['b'],
       })
       expect(save.variables.find((row) => row.name === 'c').value).toBe('3')
       expect(host.markSaved).toHaveBeenCalledWith(save.source)
@@ -1610,20 +1776,23 @@ describe('InstanceEditorDialog locked math', () => {
       const FAST_XML = GENERATED_XML.replaceAll('decay', 'fast')
 
       beforeEach(() => {
-        choose.mockResolvedValueOnce('extra')
         // Converted under the module's name first, then again as the new component.
         convertCelldl
           .mockResolvedValueOnce(converted())
           .mockResolvedValue(converted({ components: [{ name: 'fast', math: FAST_XML }], documentUri: NEW_URI }))
       })
 
-      /** Saves the edited diagram, choosing a new component, and waits for Save As to ask its name. */
+      /**
+       * Saves the edited diagram as a new component, and waits for Save As to ask its name: ticked, chosen instead of
+       * overwriting; unticked, asked straight away, as the other instance uses the module's math.
+       */
       async function startSaveAs({ isAppliedToAll = false } = {}) {
+        if (isAppliedToAll) choose.mockResolvedValueOnce('extra')
         mountDialog()
         await wrapper.setProps({ modelValue: true })
         await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
         host.isDirty.value = true
-        if (isAppliedToAll) await wrapper.find('#applyToAll').setValue(true)
+        await wrapper.find('#applyToAll').setValue(isAppliedToAll)
         await wrapper.findAll('button').find((candidate) => candidate.text() === 'Save').trigger('click')
         await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
         return wrapper.findComponent(ComponentSaveAsDialog)
@@ -1641,8 +1810,10 @@ describe('InstanceEditorDialog locked math', () => {
         // Names need only differ within a grouping.
         useLibraryStore().addMath('User_Modules.cellml:quick', XML.replaceAll('decay', 'quick'))
         const saveAs = await startSaveAs()
+        expect(choose).not.toHaveBeenCalled()
+        expect(saveAs.props('message')).toContain('1 other instance uses decay')
         const isTaken = saveAs.props('isTaken')
-        expect(isTaken('decay')).toBe('A component named "decay" already exists.')
+        expect(isTaken('decay')).toBe('"decay" is used by the other instances.')
         expect(isTaken('slow')).toBe('A component named "slow" already exists.')
         expect(isTaken('new_module')).toBe('"new_module" is a template and can\'t be overwritten.')
         expect(isTaken('Slow')).toBe('A component named "Slow" already exists.')
@@ -1688,12 +1859,16 @@ describe('InstanceEditorDialog locked math', () => {
         convertCelldl.mockResolvedValue(converted({ components: [{ name: 'fast', math: FAST_XML }], documentUri: NEW_URI }))
       })
 
-      /** Opens the dialog on the diagram and renames its component, editing the diagram too unless told not to. */
-      async function openRenamed(name = 'fast', { isEdited = true } = {}) {
+      /**
+       * Opens the dialog on the diagram and renames its component, editing the diagram too unless told not to, for this
+       * instance alone unless told to apply to all.
+       */
+      async function openRenamed(name = 'fast', { isEdited = true, isAppliedToAll = false } = {}) {
         mountDialog()
         await wrapper.setProps({ modelValue: true })
         await vi.waitFor(() => expect(wrapper.findComponent(CelldlPaneStub).exists()).toBe(true))
         host.isDirty.value = isEdited
+        await wrapper.find('#applyToAll').setValue(isAppliedToAll)
         await wrapper.find('.header-group--secondary input').setValue(name)
       }
 
@@ -1810,15 +1985,15 @@ describe('InstanceEditorDialog locked math', () => {
           convertCelldl.mockResolvedValue(converted({ components: [{ name: 'fast', math: FAST_XML }], documentUri: FAST_SOURCE.documentUri }))
         })
 
-        it("asks, then overwrites it with this diagram under its documentUri and file, moving this instance to it", async () => {
-          await openRenamed()
+        it("asks, then overwrites it with this diagram under its documentUri and file, moving the instances on this module to it when ticked", async () => {
+          await openRenamed('fast', { isAppliedToAll: true })
           await clickSave()
 
           expect(choose).toHaveBeenCalledWith(
             expect.objectContaining({ header: 'Overwrite Math?', acceptLabel: 'Overwrite', extraLabel: 'Save as new component' })
           )
           expect(choose.mock.calls[0][0].message).toBe(
-            '"fast" already exists. This will affect 2 other instances. Overwrite it, or save your changes as a new component?'
+            '"fast" already exists. This will affect 3 other instances. Overwrite it, or save your changes as a new component?'
           )
           expect(convertCelldl).toHaveBeenCalledWith(EDITED_DOCUMENT, expect.objectContaining({ documentUri: FAST_SOURCE.documentUri, componentName: 'fast' }))
           const [save] = wrapper.emitted('confirm')[0]
@@ -1829,15 +2004,15 @@ describe('InstanceEditorDialog locked math', () => {
             isSourceChanged: true,
             source: { format: 'celldl', document: EDITED_DOCUMENT, documentUri: FAST_SOURCE.documentUri },
             units: { componentFile: 'file', model: '<model name="units"/>' },
-            updateAll: false,
-            siblings: [],
+            updateAll: true,
+            siblings: ['b'],
           })
           expect(useLibraryStore().getMathSource(MATH_REF)).toEqual(SOURCE)
         })
 
         it('saves as a new component under an unused name instead, when asked', async () => {
           choose.mockResolvedValueOnce('extra')
-          await openRenamed()
+          await openRenamed('fast', { isAppliedToAll: true })
           await wrapper.findAll('button').find((candidate) => candidate.text() === 'Save').trigger('click')
           await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
           const saveAs = wrapper.findComponent(ComponentSaveAsDialog)
@@ -1856,7 +2031,7 @@ describe('InstanceEditorDialog locked math', () => {
 
         it('saves nothing when cancelled', async () => {
           choose.mockResolvedValueOnce('reject')
-          await openRenamed()
+          await openRenamed('fast', { isAppliedToAll: true })
           await clickSave()
 
           expect(wrapper.emitted('confirm')).toBeUndefined()
@@ -2082,7 +2257,7 @@ describe('InstanceEditorDialog locked math', () => {
     expect(window.localStorage.getItem('instanceEditorDialog.editorKind')).toBe('text')
   })
 
-  it("saves CellML math as before: an overwrite asks and applies here unless ticked, a rename stays in its math's grouping", async () => {
+  it("saves CellML math as before: an overwrite asks and, ticked by default, reaches every instance, a rename stays in its math's grouping", async () => {
     mountDialog()
     const editor = await open()
     await report(editor, 'init', XML)
@@ -2092,7 +2267,7 @@ describe('InstanceEditorDialog locked math', () => {
 
     expect(choose).toHaveBeenCalledWith(expect.objectContaining({ header: 'Overwrite Math?' }))
     expect(convertCelldl).not.toHaveBeenCalled()
-    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, updateAll: false, siblings: [], source: null })
+    expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: MATH_REF, updateAll: true, siblings: ['b'], source: null })
 
     choose.mockClear()
     await report(editor, 'edit', EDITED_XML.replaceAll('decay', 'growth'))
@@ -2150,7 +2325,7 @@ describe('InstanceEditorDialog locked math', () => {
     expect(wrapper.findComponent(ComponentSaveAsDialog).props('message')).toContain('A component named "growth" already exists.')
   })
 
-  it("asks before a rename onto another component of its grouping's, counting that component's instances", async () => {
+  it("asks before a rename onto another component of its grouping's, counting that component's instances and the siblings moving to it", async () => {
     useLibraryStore().addMath('file:growth', XML.replaceAll('decay', 'growth'))
     flowNodes.value = [...flowNodes.value, { id: 'c', data: { name: 'c', mathRef: 'file:growth' } }]
     mountDialog()
@@ -2161,20 +2336,23 @@ describe('InstanceEditorDialog locked math', () => {
     await flushPromises()
 
     expect(choose.mock.calls[0][0].message).toBe(
-      '"growth" already exists. This will affect 1 other instance. Overwrite it, or save your changes as a new component?'
+      '"growth" already exists. This will affect 2 other instances. Overwrite it, or save your changes as a new component?'
     )
     expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:growth', previousMathRef: MATH_REF })
   })
 
   describe('saving CellML math as a new component', () => {
-    /** Edits the math and saves it, choosing a new component, and waits for Save As to ask its name. */
+    /**
+     * Edits the math and saves it as a new component, and waits for Save As to ask its name: ticked, chosen instead of
+     * overwriting; unticked, asked straight away, as the other instance uses the math.
+     */
     async function startSaveAs({ isAppliedToAll = false } = {}) {
-      choose.mockResolvedValueOnce('extra')
+      if (isAppliedToAll) choose.mockResolvedValueOnce('extra')
       mountDialog()
       const editor = await open()
       await report(editor, 'init', XML)
       await report(editor, 'edit', EDITED_XML)
-      if (isAppliedToAll) await wrapper.find('#applyToAll').setValue(true)
+      await wrapper.find('#applyToAll').setValue(isAppliedToAll)
       await wrapper.findAll('button').find((button) => button.text() === 'Save').trigger('click')
       await vi.waitFor(() => expect(wrapper.findComponent(ComponentSaveAsDialog).exists()).toBe(true))
       return wrapper.findComponent(ComponentSaveAsDialog)
@@ -2195,11 +2373,10 @@ describe('InstanceEditorDialog locked math', () => {
       library.addMath('User_Modules.cellml:quick', XML.replaceAll('decay', 'quick'))
       const saveAs = await startSaveAs()
 
-      expect(choose).toHaveBeenCalledWith(
-        expect.objectContaining({ header: 'Overwrite Math?', acceptLabel: 'Overwrite', extraLabel: 'Save as new component' })
-      )
+      expect(choose).not.toHaveBeenCalled()
+      expect(saveAs.props('message')).toContain('1 other instance uses decay')
       const isTaken = saveAs.props('isTaken')
-      expect(isTaken('decay')).toBe('A component named "decay" already exists.')
+      expect(isTaken('decay')).toBe('"decay" is used by the other instances.')
       expect(isTaken('growth')).toBe('A component named "growth" already exists.')
       expect(isTaken('new_module')).toBe('"new_module" is a template and can\'t be overwritten.')
       expect(isTaken('Growth')).toBe('A component named "Growth" already exists.')
@@ -2219,6 +2396,9 @@ describe('InstanceEditorDialog locked math', () => {
     it('moves the other instances to it too when ticked', async () => {
       await answer(await startSaveAs({ isAppliedToAll: true }), 'fresh')
 
+      expect(choose).toHaveBeenCalledWith(
+        expect.objectContaining({ header: 'Overwrite Math?', acceptLabel: 'Overwrite', extraLabel: 'Save as new component' })
+      )
       expect(wrapper.emitted('confirm')[0][0]).toMatchObject({ mathRef: 'file:fresh', updateAll: true, siblings: ['b'] })
     })
 
