@@ -13,7 +13,6 @@ import ToggleSwitch from 'primevue/toggleswitch'
 
 import { useColorScheme } from '../composables/useColorScheme'
 
-/** Light/dark mode switch, shown in the global navigation bar. */
 const { isDarkMode, toggleDarkMode } = useColorScheme()
 </script>
 
