@@ -281,9 +281,7 @@
       </div>
 
       <div class="header-right-actions">
-        <!-- Beside the theme switch: both change how the workspace is shown, not what is in it -->
         <ViewModeToggle style="margin-left: 20px" />
-        <ThemeToggle style="margin-left: 20px" />
       </div>
     </header>
 
@@ -613,7 +611,6 @@ import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import Tag from 'primevue/tag'
 import ConfirmDialog from 'primevue/confirmdialog'
-import ThemeToggle from '../components/ThemeToggle.vue'
 import BioFlow from '../components/bio/BioFlow.vue'
 import ViewModeToggle from '../components/bio/ViewModeToggle.vue'
 import { useViewModeStore } from '../stores/viewModeStore'

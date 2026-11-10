@@ -4,12 +4,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { generateOmexArchive } from '../../../../src/services/compress.js'
-import { COMBINED_ANNOTATIONS_LOCATION, OMEX_METADATA_FORMAT, collectAnnotationFiles } from '../../../../src/services/export/annotationsRdf.js'
+import { buildModularModel } from '../../../../src/services/export/modularCellml.js'
 import { importOmexFile, readArchiveEntries } from '../../../../src/services/import/omex.js'
 import { buildRestoredPorts, restoreOmexAnnotations } from '../../../../src/services/import/omexAnnotations.js'
 import { useLibraryStore } from '../../../../src/stores/libraryStore.js'
 import { PHLYNX_PROJECT_VERSION } from '../../../../src/utils/constants.js'
-import { generateFlattenedModel } from '../../../../src/utils/cellml.js'
 import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 import { readToy } from '../annotations/toyModel.js'
 import { toyWorkspace } from '../export/toyWorkspace.js'
@@ -26,15 +25,17 @@ const EXTRAS = [
 
 beforeAll(() => ensureLibCellmlReady(), 120000)
 
-/** Exports the workspace's nodes as an OMEX archive with their annotations, as the OpenCOR export does. */
+/** Exports the workspace's nodes as a modular OMEX archive with their annotations, as the OpenCOR export does. */
 async function exportOmex(library, nodes) {
-  await Promise.all([...new Set(nodes.map((node) => node.data.mathRef))].map((ref) => library.ensureModuleAnnotations(ref)))
-  const exportedIds = new Map()
-  const blob = await generateFlattenedModel(nodes, [], library, [], { check: false, exportedIds })
-  const annotations = await collectAnnotationFiles({ nodes, exportedIds, cellmlFileName: 'model.cellml', libraryStore: library })
+  const modular = await buildModularModel(nodes, [], library, [], { check: false })
   const snapshot = JSON.stringify({ id: 'phlynx-flow-snapshot', version: PHLYNX_PROJECT_VERSION, nodeData: nodes.map(({ id, data }) => ({ id, data })), edges: [] })
-  const omex = await generateOmexArchive({ blob }, snapshot, {}, { cellmlFileName: 'model.cellml', extractedData: {}, annotationFiles: annotations.files })
-  return { omex: await omex.arrayBuffer(), warnings: annotations.warnings }
+  const omex = await generateOmexArchive({ blob: new Blob([modular.main]), flat: modular.flat }, snapshot, {}, {
+    cellmlFileName: 'model.cellml',
+    extractedData: {},
+    moduleFiles: modular.files,
+    annotationFiles: modular.sidecars,
+  })
+  return { omex: await omex.arrayBuffer(), warnings: modular.warnings }
 }
 
 /** Imports an archive's annotations into fresh stores, as an OMEX import does. */
@@ -56,23 +57,33 @@ describe('OMEX export and import of annotations', () => {
     ;({ nodes } = toyWorkspace(library))
   })
 
-  it('lists the sidecars and combined file in the manifest with their formats', async () => {
+  it('lists the module files and sidecars in the manifest with their formats', async () => {
     const { omex } = await exportOmex(library, nodes)
     const archive = await JSZip.loadAsync(omex)
     const manifest = await archive.file('manifest.xml').async('string')
     expect(manifest).toContain('<content location="annotations/porter.cellml/porter.ttl" format="text/turtle"/>')
-    expect(manifest).toContain(`<content location="${COMBINED_ANNOTATIONS_LOCATION}" format="${OMEX_METADATA_FORMAT}"/>`)
+    expect(manifest).toContain('<content location="porter.cellml" format="http://identifiers.org/combine.specifications/cellml"/>')
+    expect(await archive.file('model.cellml').async('string')).toMatch(/xlink:href="porter\.cellml"/)
   })
 
-  it('brings the sidecars back, and skips the combined file', async () => {
+  it('runs a flattened copy from the SED-ML, and imports the modular main model', async () => {
+    const { omex } = await exportOmex(library, nodes)
+    const archive = await JSZip.loadAsync(omex)
+    const manifest = await archive.file('manifest.xml').async('string')
+    expect(manifest).toContain('<content location="flattened/model.cellml" format="http://identifiers.org/combine.specifications/cellml"/>')
+    expect(await archive.file('document.sedml').async('string')).toContain('source="flattened/model.cellml"')
+    expect(await archive.file('flattened/model.cellml').async('string')).not.toMatch(/<import\b/)
+    expect((await importOmexFile(omex)).files.cellml).toBe('model.cellml')
+  })
+
+  it('brings the sidecars back', async () => {
     const { omex } = await exportOmex(library, nodes)
     const imported = await importOmex(omex)
+    expect(imported.result.files.cellml).toBe('model.cellml')
     expect(imported.restored).toEqual({ sidecars: 3 })
     for (const name of ['pool', 'porter', 'wall']) {
       expect(imported.library.getModuleAnnotations(`${name}.cellml:${name}`)).toBe(readToy(`${name}.ttl`))
     }
-    const locations = imported.result.extras.map(({ location }) => location)
-    expect(locations).not.toContain(COMBINED_ANNOTATIONS_LOCATION)
   })
 
   it('keeps unrelated extras with their manifest format, RDF included', async () => {

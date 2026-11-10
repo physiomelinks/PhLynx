@@ -1,6 +1,5 @@
 <template>
   <div class="h-screen overflow-y-auto">
-    <ThemeToggle floating />
     <div class="about-wrapper">
       <transition name="fade-slide" appear>
         <div class="image-container" :class="{ 'is-compact': activeTab === 'changelog' }">
@@ -111,8 +110,6 @@ import Tab from 'primevue/tab'
 import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import Divider from 'primevue/divider'
-
-import ThemeToggle from '../components/ThemeToggle.vue'
 
 const activeTab = ref('overview')
 

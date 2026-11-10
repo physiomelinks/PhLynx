@@ -9,12 +9,14 @@ vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi
 vi.mock('../../../src/utils/save', () => ({ getFileHandle: vi.fn(async () => ({ success: true, handle: {}, cleanName: 'model' })) }))
 vi.mock('../../../src/services/compress', () => ({
   generateOmexArchive: vi.fn(async () => new Blob(['omex'])),
-  createCellMLDataFragment: vi.fn(),
   createOmexDataFragment: vi.fn(),
 }))
 vi.mock('../../../src/utils/cellml', () => ({
-  generateFlattenedModel: vi.fn(() => new Blob(['<model/>'])),
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
+}))
+vi.mock('../../../src/services/export/modularCellml', () => ({
+  buildModularModel: vi.fn(async () => ({ main: '<model/>', flat: '<model/>', files: [], sidecars: [], warnings: [] })),
+  zipModularModel: vi.fn(async () => new Blob(['zip'])),
 }))
 const { getModuleFormat } = vi.hoisted(() => ({ getModuleFormat: vi.fn() }))
 const caExportBlocker = vi.hoisted(() => vi.fn(() => null))
@@ -30,7 +32,7 @@ vi.mock('../../../src/services/moduleFormats', async (importActual) => {
 
 const { useImportExportSend } = await import('../../../src/composables/useImportExportSend.js')
 const { generateOmexArchive } = await import('../../../src/services/compress')
-const { generateFlattenedModel } = await import('../../../src/utils/cellml')
+const { buildModularModel } = await import('../../../src/services/export/modularCellml')
 const { notify } = await import('../../../src/utils/notify')
 const { getFileHandle } = await import('../../../src/utils/save')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
@@ -202,7 +204,7 @@ describe('useImportExportSend selection exports', () => {
     await menuItem(exportMenuItems, 'CellML (selection)').command()
     await currentExportMode.value.action('model')
 
-    const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
+    const [flattenedNodes] = buildModularModel.mock.calls.at(-1)
     expect(flattenedNodes[0].data.variables.find((row) => row.name === 'v').value).toBe('0')
     expect(nodes.value[1].data.variables.find((row) => row.name === 'v').value).toBe('')
   })
@@ -218,7 +220,7 @@ describe('useImportExportSend selection exports', () => {
     expect(open).not.toHaveBeenCalled()
 
     nodes.value[0].data.variables[2].value = '1'
-    generateFlattenedModel.mockImplementationOnce(() => {
+    buildModularModel.mockImplementationOnce(() => {
       throw new Error('Analyser error count: 1')
     })
     await menuItem(sendMenuItems, 'OpenCOR (selection)').command()
@@ -255,7 +257,7 @@ describe('useImportExportSend selection exports', () => {
     expect(currentExportMode.value.key).toBe(EXPORT_KEYS.OMEX_SELECTION)
     await currentExportMode.value.action('model')
 
-    const [flattenedNodes, flattenedEdges] = generateFlattenedModel.mock.calls.at(-1)
+    const [flattenedNodes, flattenedEdges] = buildModularModel.mock.calls.at(-1)
     expect(flattenedNodes.map((node) => node.id)).toEqual(['a', 'b'])
     expect(flattenedEdges.map((edge) => edge.id)).toEqual(['a_b'])
     expect(snapshotFlowState).toHaveBeenCalledWith(['a', 'b'])
@@ -273,21 +275,33 @@ describe('useImportExportSend selection exports', () => {
     expect(currentExportMode.value.key).toBe(EXPORT_KEYS.OMEX)
     await currentExportMode.value.action('model')
 
-    const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
+    const [flattenedNodes] = buildModularModel.mock.calls.at(-1)
     expect(flattenedNodes).toHaveLength(3)
     expect(snapshotFlowState).toHaveBeenLastCalledWith(null)
   })
 
-  it('adds the module sidecars and asks the flattened model for its ids', async () => {
-    const sidecar = '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n'
-    useLibraryStore().setModuleAnnotations('file:decay', sidecar)
+  it('adds the module files and their sidecars beside the main model', async () => {
+    const files = [{ location: 'file.cellml', text: '<model/>' }]
+    const sidecars = [{ location: 'annotations/file.cellml/decay.ttl', format: 'text/turtle', text: '' }]
+    buildModularModel.mockResolvedValueOnce({ main: '<model/>', flat: '<model/>', files, sidecars, warnings: [] })
     const { currentExportMode, exportMenuItems } = setup()
     await menuItem(exportMenuItems, 'OpenCOR').command()
     await currentExportMode.value.action('model')
 
-    const [, , , addInfo] = generateOmexArchive.mock.calls.at(-1)
-    expect(addInfo.annotationFiles).toEqual([{ location: 'annotations/file/decay.ttl', format: 'text/turtle', text: sidecar }])
-    expect(generateFlattenedModel.mock.calls.at(-1)[4]).toEqual({ exportedIds: expect.any(Map) })
+    const [cellmlData, , , addInfo] = generateOmexArchive.mock.calls.at(-1)
+    expect(cellmlData.flat).toBe('<model/>')
+    expect(addInfo.moduleFiles).toBe(files)
+    expect(addInfo.annotationFiles).toBe(sidecars)
+    expect(buildModularModel.mock.calls.at(-1)[4]).toEqual({ mainFileName: addInfo.cellmlFileName })
+  })
+
+  it('exports the CellML as a zip of the modular model', async () => {
+    const { currentExportMode, exportMenuItems } = setup()
+    await menuItem(exportMenuItems, 'CellML').command()
+    expect(currentExportMode.value.suffix).toBe('.zip')
+    const blob = await currentExportMode.value.action('model')
+    expect(await blob.text()).toBe('zip')
+    expect(buildModularModel.mock.calls.at(-1)[0]).toHaveLength(3)
   })
 })
 

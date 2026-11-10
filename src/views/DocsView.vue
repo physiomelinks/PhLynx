@@ -1,6 +1,5 @@
 <template>
   <div class="docs-page relative-container" >
-    <ThemeToggle floating />
 
     <ResizableLibraryPanel
       title="User Guide"
@@ -70,7 +69,6 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import ThemeToggle from '../components/ThemeToggle.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useColorScheme } from '../composables/useColorScheme'
@@ -371,9 +369,6 @@ watch(currentSlug, () => {
 
 
 
-.theme-toggle-switch {
-  margin-right: 8px;
-}
 
 
 

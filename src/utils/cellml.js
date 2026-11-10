@@ -52,6 +52,17 @@ export function whenLibCellMLReady() {
   return libcellmlReady
 }
 
+/**
+ * The libCellML instance initLibCellML bound.
+ *
+ * @returns {Object}
+ * @throws {Error} When libCellML is not ready yet.
+ */
+export function getLibCellML() {
+  if (!_libcellml) throw new Error("LibCellML is not ready or hasn't been initialized.")
+  return _libcellml
+}
+
 export function extractParametersFromCellML(cellmlString, filename) {
   const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
   const model = doc.getElementsByTagName('model')[0]
@@ -1078,7 +1089,7 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
  * web OpenCOR to crash.
  *
  */
-function stripCelsiusToArbitraryUnit(xmlString) {
+export function stripCelsiusToArbitraryUnit(xmlString) {
   const CELSIUS_UNIT_NAME = 'celsius'
 
   const domParser = new DOMParser()
@@ -1183,13 +1194,15 @@ function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariabl
  *   values, for a scope that cut them off from what computes them, rather than throwing.
  * @param {Map} [options.exportedIds] - Filled with each node id's `{ componentId, variableIds }`: the ids its
  *   component and variables have in the model. A variable its math's sidecar annotates always has one.
+ * @param {Map} [options.instanceSources] - Filled with each node id's `{ mathRef, name, xml }`: its math as this
+ *   instance uses it, before its ids are prefixed (see buildModularModel).
  */
 export function generateFlattenedModel(
   nodes,
   edges,
   libraryStore,
   inspectionModules = [],
-  { check = true, allowBcOnly = false, exportedIds = null } = {}
+  { check = true, allowBcOnly = false, exportedIds = null, instanceSources = null } = {}
 ) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
@@ -1348,6 +1361,7 @@ export function generateFlattenedModel(
       // A state a connection drives loses its own equation and initial value, in this instance only.
       const drivenStates = boundaryValues.driven.get(node.id)
       const instanceString = drivenStates ? dropDrivenStates(modelString, drivenStates.keys()) : modelString
+      instanceSources?.set(node.id, { mathRef, name: node.data.name, xml: instanceString })
       // Ids, such as bg2cellml writes, would repeat in each instance of the same math. Annotated variables get
       // one, so the exported annotations can point at them.
       const annotated = libraryStore.getParsedModuleAnnotations?.(mathRef)?.variables?.map(({ variable }) => variable)

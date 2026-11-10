@@ -310,11 +310,27 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
  * @throws {Error} When the scope can't be flattened; run checkScope first for a readable report.
  */
 export function buildScopedModel(scope, libraryStore, options = {}) {
+  const { nodes, edges, inspectionModules, options: scoped } = scopedModelInputs(scope)
+  return generateFlattenedModel(nodes, edges, libraryStore, inspectionModules, { ...scoped, ...options })
+}
+
+/**
+ * The inputs a scope's model is built from, for generateFlattenedModel or buildModularModel.
+ *
+ * @param {ReturnType<typeof resolveScope>} scope
+ * @returns {{ nodes: Array, edges: Array, inspectionModules: Array, options: { allowBcOnly: boolean } }}
+ * @throws {Error} When the scope has no instances.
+ */
+export function scopedModelInputs(scope) {
   if (!scope.nodes.length) throw new Error('Select at least one instance to simulate.')
-  const nodes = zeroUnsuppliedBoundaries(scope.nodes, scope.internalEdges)
   // Boundary conditions the cut leaves coupled only to each other use their own value; checkScope stops those
   // coupled so in the whole model.
-  return generateFlattenedModel(nodes, scope.internalEdges, libraryStore, scope.inspectionModules, { allowBcOnly: true, ...options })
+  return {
+    nodes: zeroUnsuppliedBoundaries(scope.nodes, scope.internalEdges),
+    edges: scope.internalEdges,
+    inspectionModules: scope.inspectionModules,
+    options: { allowBcOnly: true },
+  }
 }
 
 /**
