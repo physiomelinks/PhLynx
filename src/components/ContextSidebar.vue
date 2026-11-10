@@ -178,12 +178,6 @@
           </section>
         </TabPanel>
 
-        <TabPanel value="props">
-          <section class="context-section context-section--global">
-            <NodeColourPanel />
-          </section>
-        </TabPanel>
-
         <TabPanel value="sim">
           <SimulationPanel v-if="isSimulationVisible" />
         </TabPanel>
@@ -235,6 +229,13 @@
             </div>
           </section>
         </TabPanel>
+
+        <TabPanel value="props">
+          <section class="context-section context-section--global">
+            <NodeColourPanel />
+          </section>
+        </TabPanel>
+
       </TabPanels>
     </Tabs>
   </ResizableLibraryPanel>
@@ -301,9 +302,9 @@ function clearSearch() {
 const tabs = [
   { id: 'global', label: 'Global parameters', icon: 'pi-globe' },
   { id: 'params', label: 'Instance parameters', icon: 'pi-sliders-h' },
+  { id: 'sim', label: 'Simulation', icon: 'pi-chart-line' },
   { id: 'sysmod', label: 'Inspection modules', icon: 'pi-question-circle' },
   { id: 'props', label: 'Properties', icon: 'pi-wrench' },
-  { id: 'sim', label: 'Simulation', icon: 'pi-chart-line' },
 ]
 const activeTabId = ref('global')
 const activeTab = computed(() => tabs.find((tab) => tab.id === activeTabId.value))
