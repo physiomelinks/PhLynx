@@ -40,6 +40,7 @@
         >
           <BugIcon aria-hidden="true" />
         </a>
+        <ThemeToggle class="nav-theme-toggle" />
       </nav>
     </header>
 
@@ -63,6 +64,7 @@ import { useSessionMetadataStore } from './stores/sessionMetadataStore'
 
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import BugIcon from './components/icons/BugIcon.vue'
+import ThemeToggle from './components/ThemeToggle.vue'
 
 const appVersion = __APP_VERSION__ + __BUILD_STATE_MARKER__
 const route = useRoute()
@@ -154,6 +156,15 @@ function cancelEdit() {
   position: relative;
   /* Its height whatever the page below holds. */
   flex-shrink: 0;
+}
+
+.global-nav nav {
+  display: flex;
+  align-items: center;
+}
+
+.global-nav nav .nav-theme-toggle {
+  margin-left: 20px;
 }
 
 .global-nav nav a {
