@@ -1,5 +1,8 @@
 import JSZip from 'jszip'
 
+/** The OMEX folder of the flattened copy of a modular model, which the SED-ML runs until libOpenCOR resolves imports. */
+export const FLATTENED_FOLDER = 'flattened'
+
 /**
  * Builds the COMBINE archive manifest.xml listing every file included in the
  * archive, plus the mandatory self-referencing "." entry for the archive

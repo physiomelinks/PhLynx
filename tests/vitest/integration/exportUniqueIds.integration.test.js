@@ -2,14 +2,12 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { BQBIOL } from '../../../src/services/annotations/iris.js'
-import { parseRdf } from '../../../src/services/annotations/rdf.js'
 import { parseSidecar } from '../../../src/services/annotations/sidecar.js'
 import { renameSidecar } from '../../../src/services/annotations/sidecarEdit.js'
 import { buildCaCellmlFiles } from '../../../src/services/export/caCellml.js'
-import { COMBINED_ANNOTATIONS_LOCATION, collectAnnotationFiles } from '../../../src/services/export/annotationsRdf.js'
+import { buildModularModel } from '../../../src/services/export/modularCellml.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
-import { generateFlattenedModel, uniqueComponentIds } from '../../../src/utils/cellml.js'
+import { uniqueComponentIds } from '../../../src/utils/cellml.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 import { readToy } from '../services/annotations/toyModel.js'
 import { TOY_UNITS } from '../services/export/toyWorkspace.js'
@@ -18,7 +16,6 @@ import { TOY_UNITS } from '../services/export/toyWorkspace.js'
 const POOL = readToy('pool.cellml')
 const FORK = POOL.replace('name="pool"', 'name="pool_v2"')
 const SIDECAR = readToy('pool.ttl')
-const ARCHIVE_BASE = 'https://example.org/archive/'
 
 const idsOf = (xml) => [...xml.matchAll(/\bid="([^"]*)"/g)].map((m) => m[1])
 
@@ -87,8 +84,8 @@ describe('CA modules export of a file with two components sharing ids', () => {
   })
 })
 
-describe('OMEX export of two maths from one file sharing ids', () => {
-  it("puts each instance's annotations on ids the flattened model has", async () => {
+describe('modular export of two maths from one file sharing ids', () => {
+  it('writes each id once in the module file, and each renamed sidecar resolves in it', async () => {
     setActivePinia(createPinia())
     const library = useLibraryStore()
     library.addUnitsFile({ componentFile: 'units.cellml', model: TOY_UNITS })
@@ -106,25 +103,17 @@ describe('OMEX export of two maths from one file sharing ids', () => {
       type: 'instanceNode',
       data: { name: `p${i}`, mathRef: `pool.cellml:${component}`, variables: [], ports: [] },
     }))
-    await Promise.all(nodes.map((node) => library.ensureModuleAnnotations(node.data.mathRef)))
-    const exportedIds = new Map()
-    const cellml = await (await generateFlattenedModel(nodes, [], library, [], { check: false, exportedIds })).text()
-    const ids = idsOf(cellml)
+    const { files, sidecars, warnings } = await buildModularModel(nodes, [], library, [], { check: false })
+    expect(warnings).toEqual([])
+    expect(files.map(({ location }) => location)).toEqual(['pool.cellml'])
+    const ids = idsOf(files[0].text)
     expect(ids.length).toBe(new Set(ids).size)
 
-    const { files, warnings } = await collectAnnotationFiles({
-      nodes,
-      exportedIds,
-      cellmlFileName: 'model.cellml',
-      libraryStore: library,
-    })
-    expect(warnings).toEqual([])
-    const combined = files.find((file) => file.location === COMBINED_ANNOTATIONS_LOCATION)
-    const prefix = 'http://omex-library.org/model.omex/model.cellml#'
-    const annotated = (await parseRdf(combined.text, { baseIri: ARCHIVE_BASE }))
-      .filter((t) => t.predicate.value === BQBIOL.isVersionOf && t.subject.value.startsWith(prefix))
-      .map((t) => t.subject.value.slice(prefix.length))
-    expect(annotated).toEqual(expect.arrayContaining(['p0-v4rjndoly', 'p1-v4rjndoly']))
-    for (const id of annotated) expect(ids).toContain(id)
+    for (const component of ['pool', 'pool_v2']) {
+      const sidecar = sidecars.find(({ location }) => location === `annotations/pool.cellml/${component}.ttl`)
+      const parsed = await parseSidecar(sidecar.text, { mathRef: `pool.cellml:${component}`, cellml: files[0].text })
+      expect(parsed.unresolved).toEqual([])
+      expect(parsed.variables.find(({ variable }) => variable === 'c_A').id).toBe(variableId(files[0].text, component, 'c_A'))
+    }
   })
 })
