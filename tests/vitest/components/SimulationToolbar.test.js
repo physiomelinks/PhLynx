@@ -183,6 +183,20 @@ describe('SimulationToolbar placement', () => {
     expect((wrapper.vm.moreItems ?? wrapper.vm.$.setupState.moreItems).map((item) => item.label)).not.toContain('Open the simulation page')
     wrapper.unmount()
   })
+
+  it('holds floating in its more menu only while the float button is hidden', async () => {
+    const wrapper = mount(SimulationToolbar, { attachTo: document.body, global: { plugins: [PrimeVue], directives: { tooltip } } })
+    const labels = () => wrapper.vm.$.setupState.moreItems.map((item) => item.label)
+    const more = wrapper.find('button[aria-label="More simulation actions"]')
+
+    await more.trigger('click')
+    expect(labels()).not.toContain('Float over the canvas')
+
+    wrapper.find('button[aria-label="Float the results over the canvas"]').element.style.display = 'none'
+    await more.trigger('click')
+    expect(labels()[0]).toBe('Float over the canvas')
+    wrapper.unmount()
+  })
 })
 
 describe('SimulationToolbar slot', () => {

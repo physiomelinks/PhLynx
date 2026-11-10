@@ -101,6 +101,8 @@
         size="small"
         :severity="floatingViewer.visible ? 'primary' : 'secondary'"
         :aria-pressed="floatingViewer.visible"
+        ref="floatButton"
+        class="toolbar-float"
         aria-label="Float the results over the canvas"
         v-tooltip.bottom="floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas'"
         @click="toggleFloatingViewer({ isCollapsingSidebar: isInSidebar })"
@@ -152,7 +154,7 @@
         aria-label="More simulation actions"
         aria-haspopup="true"
         v-tooltip.bottom="'More'"
-        @click="(event) => moreMenu.toggle(event)"
+        @click="toggleMoreMenu"
       />
       <Menu ref="moreMenu" :model="moreItems" popup />
     </div>
@@ -247,11 +249,29 @@ const trackBlockerId = useId()
 
 // What the narrow toolbar's menu holds: the buttons it hides.
 const moreMenu = ref(null)
+const floatButton = ref(null)
+// The float button is hidden only when narrowest. The menu sits outside the toolbar, so no container query reaches
+// it: it looks at the button instead, as it opens.
+const isFloatHidden = ref(false)
 const moreItems = computed(() => [
+  ...(props.hasFloat && isFloatHidden.value
+    ? [{
+        label: floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas',
+        icon: 'pi pi-window-minimize',
+        command: () => toggleFloatingViewer({ isCollapsingSidebar: props.isInSidebar }),
+      }]
+    : []),
   ...(props.hasPageLink ? [{ label: 'Open the simulation page', icon: 'pi pi-external-link', command: () => emit('open-page') }] : []),
   { label: 'Edit obs_data', icon: 'pi pi-pen-to-square', disabled: props.isRunning, command: openProtocolDialog },
   { label: 'Simulation settings', icon: 'pi pi-cog', disabled: props.isRunning, command: () => openSimSettings('parameters') },
 ])
+
+/** Opens the menu, holding the float button too when it is hidden. */
+function toggleMoreMenu(event) {
+  const floatEl = floatButton.value?.$el
+  isFloatHidden.value = !!floatEl && getComputedStyle(floatEl).display === 'none'
+  moreMenu.value.toggle(event)
+}
 
 const isWholeModel = computed({
   get: () => scopeMode.value === 'model',
@@ -285,7 +305,8 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
+  /* Never narrower than the switch: squeezed further, the switch would spill under the buttons after it. */
+  min-width: var(--p-toggleswitch-width, 2.5rem);
   font-size: 0.8125rem;
   color: var(--p-text-color);
   cursor: pointer;
@@ -359,6 +380,13 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
 
   .toolbar-more {
     display: inline-flex;
+  }
+}
+
+/* Narrowest: floating the results goes into the menu too. */
+@container (max-width: 240px) {
+  .toolbar-float {
+    display: none;
   }
 }
 
