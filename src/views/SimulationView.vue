@@ -91,39 +91,30 @@
     </header>
 
     <div class="page-body">
-      <aside
-        class="page-controls"
-        :class="{ 'page-controls--collapsed': isControlsCollapsed }"
-        :style="{ width: isControlsCollapsed ? '0px' : `${controlsWidth}px` }"
+      <!-- Beside the charts, or over them when the window is too narrow for both. -->
+      <ResizableLibraryPanel
+        v-model:collapsed="isControlsCollapsed"
+        title="Controls"
+        subject="controls"
+        class="page-controls-panel"
+        :overlay="isNarrow"
+        :initial-width="360"
+        :min-width="280"
+        :max-width="640"
       >
-        <SimulationControls
-          v-if="!isControlsCollapsed"
-          has-settings
-          v-model:view="controlsView"
-          v-model:target-plot-id="targetPlotId"
-          :nodes="nodes"
-          :scope-node-ids="hasScope ? store.scopeNodeIds : null"
-          :keep-current="keepCurrent"
-          @change="rerunForSliders"
-        />
-      </aside>
-      <div
-        class="resize-handle"
-        :class="{ 'resize-handle--disabled': isControlsCollapsed }"
-        @mousedown="onHandleMousedown"
-      >
-        <button
-          type="button"
-          class="aside-collapse-toggle"
-          :aria-label="isControlsCollapsed ? 'Show what gets plotted and tried out' : 'Hide what gets plotted and tried out'"
-          :aria-expanded="!isControlsCollapsed"
-          v-tooltip.right="isControlsCollapsed ? 'Show the controls' : 'Hide the controls'"
-          @mousedown.stop
-          @click="isControlsCollapsed = !isControlsCollapsed"
-        >
-          <i :class="isControlsCollapsed ? 'pi pi-chevron-right' : 'pi pi-chevron-left'" aria-hidden="true"></i>
-        </button>
-      </div>
+        <div class="page-controls">
+          <SimulationControls
+            v-if="!isControlsCollapsed"
+            has-settings
+            v-model:view="controlsView"
+            v-model:target-plot-id="targetPlotId"
+            :nodes="nodes"
+            :scope-node-ids="hasScope ? store.scopeNodeIds : null"
+            :keep-current="keepCurrent"
+            @change="rerunForSliders"
+          />
+        </div>
+      </ResizableLibraryPanel>
       <main class="page-main" aria-label="Simulation results">
         <div ref="chartsEl" class="page-charts">
           <template v-if="hasFigures">
@@ -190,6 +181,7 @@ import Button from 'primevue/button'
 import ProgressBar from 'primevue/progressbar'
 import SelectButton from 'primevue/selectbutton'
 
+import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import FeaturePlot from '../components/simulation/FeaturePlot.vue'
 import ProtocolResultsControls from '../components/simulation/ProtocolResultsControls.vue'
 import SimulationControls from '../components/simulation/SimulationControls.vue'
@@ -197,7 +189,6 @@ import SimulationPlot from '../components/simulation/SimulationPlot.vue'
 import SimulationStatusLine from '../components/simulation/SimulationStatusLine.vue'
 import SimulationToolbar from '../components/simulation/SimulationToolbar.vue'
 import { useSedmlExport } from '../composables/useSedmlExport'
-import { useResizableAside } from '../composables/useResizableAside'
 import { useSimulationCharts } from '../composables/useSimulationCharts'
 import { useSimulationRunner } from '../composables/useSimulationRunner'
 import { useSliderReruns } from '../composables/useSliderReruns'
@@ -282,19 +273,14 @@ const emptyHint = computed(() => {
 const controlsView = ref('plots')
 const targetPlotId = ref(null)
 const isControlsCollapsed = ref(false)
-const { width: controlsWidth, startResize } = useResizableAside(360, 280, 640, 'left')
-// As the page's styles stack the controls under the charts.
+// Too narrow for the controls beside the charts: they float over them instead.
 const NARROW_QUERY = '(max-width: 820px)'
-
-/**
- * Starts resizing the controls from their handle, while they are shown beside the charts.
- *
- * @param {MouseEvent} event
- */
-function onHandleMousedown(event) {
-  if (isControlsCollapsed.value || window.matchMedia?.(NARROW_QUERY).matches) return
-  startResize(event)
-}
+const narrowMedia = window.matchMedia?.(NARROW_QUERY)
+const isNarrow = ref(narrowMedia?.matches ?? false)
+/** @param {MediaQueryListEvent} event */
+const onNarrowChange = (event) => (isNarrow.value = event.matches)
+narrowMedia?.addEventListener?.('change', onNarrowChange)
+onBeforeUnmount(() => narrowMedia?.removeEventListener?.('change', onNarrowChange))
 
 const pageEl = ref(null)
 const chartsEl = ref(null)
@@ -426,6 +412,7 @@ function downloadPng() {
 }
 
 .page-body {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -505,90 +492,9 @@ function downloadPng() {
   font-size: 0.875rem;
 }
 
-/* As the workspace's context sidebar is resized and hidden. */
-.resize-handle {
-  position: relative;
-  width: 6px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background-color: var(--p-content-border-color);
-  transition: background-color 120ms ease;
-}
-
-.resize-handle:hover {
-  background-color: var(--p-primary-color);
-}
-
-.resize-handle--disabled {
-  cursor: default;
-}
-
-.aside-collapse-toggle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 50%;
-  background: var(--p-content-background);
-  color: var(--p-text-muted-color);
-  font-size: 10px;
-  cursor: pointer;
-  z-index: 2;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-
-.aside-collapse-toggle:hover {
-  color: var(--p-primary-color);
-  border-color: var(--p-primary-color);
-}
-
+/* The panel's aside pads and frames it; the controls scroll inside. */
 .page-controls {
-  flex-shrink: 0;
-  min-height: 0;
+  height: 100%;
   overflow-y: auto;
-  padding: 16px;
-  box-sizing: border-box;
-  background: var(--p-content-background);
-  transition: width 160ms ease, padding 160ms ease;
-}
-
-.page-controls--collapsed {
-  padding: 0;
-  overflow: hidden;
-}
-
-/* Too narrow for both side by side: the controls go above the charts. */
-@media (max-width: 820px) {
-  .page-body {
-    flex-direction: column;
-  }
-
-  /* A bar below the controls, still with its button to show or hide them, but not dragged. */
-  .resize-handle {
-    width: auto;
-    height: 6px;
-    cursor: default;
-  }
-
-  .resize-handle:hover {
-    background-color: var(--p-content-border-color);
-  }
-
-  .aside-collapse-toggle i {
-    transform: rotate(90deg);
-  }
-
-  .page-controls {
-    width: auto !important;
-    max-height: 45%;
-    border-bottom: 1px solid var(--p-content-border-color);
-  }
 }
 </style>

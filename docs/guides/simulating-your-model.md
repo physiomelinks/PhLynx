@@ -4,7 +4,7 @@ PhLynx runs and plots your model in-app. Three places share the same controls, a
 
 | Place | Open with | Adds |
 | :--- | :--- | :--- |
-| **Simulation** tab, [Context Sidebar](../reference/ui-overview.md#context-sidebar) | **Simulation** (chart-line icon) on the right-hand rail | **Selection** scope, floating viewer, page link |
+| **Simulation** tab, [Context Sidebar](../reference/ui-overview.md#context-sidebar) | **Simulation** (chart-line icon) in the Context Sidebar | **Selection** scope, floating viewer, page link |
 | **Plot** tab, [Instance Editor](../reference/ui-overview.md#instance-editor) | Editing an instance | **This instance** scope, **Auto-update** |
 | `/simulation` page | **Open the simulation page** (external-link icon) in the sidebar | Run settings, run-mode switch, downloads |
 
@@ -14,7 +14,7 @@ The walkthroughs below use the Simulation tab and the three-instance SN model fr
 
 ## Running a Simulation {#running-a-simulation}
 
-1. Open the **Simulation** tab (chart-line icon) on the right-hand rail.
+1. Open the Context Sidebar with **Show context panel** (hamburger icon, top right), then its **Simulation** tab (chart-line icon).
 2. Leave the scope switch beside Play on **Whole model**. To run only some instances, see [Simulating Part of the Model](#simulating-part-of-the-model).
 3. Click **Simulate the whole model** (play icon), or press F9 while the panel has focus. A progress bar shows while it runs, and the [status line](#status-line) under the toolbar then says what ran, e.g. *Simulated the whole model.*
 4. In the **Plots** view under the charts, type part of a name in **Add a variable…**, e.g. `soma V`, and pick **soma_SN/V**. Words match anywhere in the `instance/variable` path. See [Choosing What to Plot](#choosing-what-to-plot) for more.

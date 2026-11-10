@@ -302,6 +302,8 @@
         :style="{
           '--library-panel-width': libraryPanelWidth + 'px',
           '--context-sidebar-width': contextSidebarWidth + 'px',
+          '--context-panel-cover': contextPanelCover + 'px',
+          '--context-panel-inset': contextPanelInset + 'px',
         }"
       >
         <div
@@ -423,7 +425,7 @@
           <Toast
             v-if="!isUrlLoading"
             position="top-right"
-            :style="{ top: `${toastTop}px`, right: `${contextSidebarWidth + 25}px` }"
+            :style="{ top: `${toastTop}px`, right: `${contextPanelCover + 25}px` }"
           >
             <template #message="slotProps">
               <div class="p-toast-message-text" style="flex: 1">
@@ -756,10 +758,21 @@ function onContextSidebarResize(width) {
   contextSidebarWidth.value = width
 }
 
+/** The context panel's resize handle, beside the width it reports. */
+const CONTEXT_PANEL_HANDLE_WIDTH = 6
+/** The closed context panel's hamburger corner: 0.75rem in from the edge plus its 2.25rem button. */
+const CONTEXT_TOGGLE_FOOTPRINT = 48
+/** How much of the canvas's right edge the floating context panel covers: none while it is closed. */
+const contextPanelCover = computed(() =>
+  contextSidebarWidth.value ? contextSidebarWidth.value + CONTEXT_PANEL_HANDLE_WIDTH : 0
+)
+/** How far in from the right the canvas's top-right search box must sit: clear of the panel, or of its hamburger. */
+const contextPanelInset = computed(() => contextPanelCover.value || CONTEXT_TOGGLE_FOOTPRINT)
+
 const fitViewParams = computed(() => ({
   padding: {
     left: `${libraryPanelWidth.value + 40}px`,
-    right: 0.1,
+    right: contextPanelCover.value ? `${contextPanelCover.value + 40}px` : 0.1,
     top: 0.1,
     bottom: 0.1,
   },
@@ -2815,6 +2828,12 @@ watch(
   transition: transform 160ms ease;
 }
 
+/* Out from under the floating context panel while it is open. */
+.vue-flow__minimap {
+  transform: translateX(calc(-1 * var(--context-panel-cover, 0px)));
+  transition: transform 160ms ease;
+}
+
 /* Vue Flow Edges */
 .vue-flow__connection-path,
 .vue-flow__edge-path {
@@ -2939,13 +2958,15 @@ watch(
 .workspace-search-container {
   position: absolute;
   top: 16px;
-  right: 16px;
+  /* Clear of the floating context panel, or of its hamburger while it is closed. */
+  right: calc(var(--context-panel-inset, 0px) + 16px);
   z-index: 10;
   width: 15.5rem;
-  max-width: calc(100% - 32px);
+  max-width: calc(100% - 32px - var(--context-panel-inset, 0px));
   transition:
     opacity 0.3s ease,
-    width 0.2s ease;
+    width 0.2s ease,
+    right 160ms ease;
   display: flex;
   flex-direction: column;
   gap: 4px;
