@@ -77,27 +77,19 @@
             :data-species="path.species"
             :data-direction="path.direction ?? ''"
           >
-            <!-- Its own arrowhead, sized to its width: the leg stops at the head's base -->
-            <marker
-              v-if="path.head"
-              :id="`bio-species-arrow-${index}`"
-              viewBox="0 0 10 10"
-              refX="0"
-              refY="5"
-              :markerWidth="path.head"
-              :markerHeight="path.head"
-              markerUnits="userSpaceOnUse"
-              orient="auto"
-            >
-              <path d="M0,0 L10,5 L0,10 z" :style="{ fill: colourOf(path.species) }" />
-            </marker>
-            <path
-              v-for="(d, side) in path.legs"
-              :key="side"
-              :d="d"
-              :stroke-width="path.width"
-              :marker-end="path.head ? `url(#bio-species-arrow-${index})` : undefined"
-            />
+            <path v-for="(d, side) in path.legs" :key="side" class="bio-species-leg" :d="d" :stroke-width="path.width" />
+            <!-- Arrowheads, sized to its width, running with the dashes but spaced further apart -->
+            <template v-if="path.head">
+              <template v-for="(d, side) in path.legs" :key="`arrows-${side}`">
+                <path
+                  v-for="arrow in arrowsAlong(d)"
+                  :key="arrow"
+                  class="bio-species-arrow"
+                  :d="arrowShape(path.head)"
+                  :style="arrowStyle(d, arrow)"
+                />
+              </template>
+            </template>
           </g>
           <!-- What a protein reads only the amount of: a faint dashed line ending in an open circle (SBGN modulation) -->
           <g
@@ -405,7 +397,7 @@ import {
   whole,
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
-import { chipOrder, driftSpecies } from '../../services/bioView/speciesLayout'
+import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
 import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
@@ -1217,6 +1209,59 @@ function onNodeDoubleClick({ node }) {
 const speciesDrift = shallowRef(null)
 /** The species as drawn: as laid out, moved with a drag under way. */
 const drawnSpecies = computed(() => driftSpecies(species.value, layout.value, speciesDrift.value ?? undefined))
+
+/** How fast a moving path's dashes run, in px a second: a dash period (16) each 1.2s, as bio-species-flow runs them. */
+const DASH_SPEED = 16 / 1.2
+/** How long the dashes run when they don't run on: 4 times round bio-species-flow. */
+const DASH_RUN = 4 * 1.2
+
+/** Each leg's arrowheads, by its path; a drag redraws only some legs, so the rest keep theirs. */
+const legArrowsCache = new Map()
+const arrowsOfLeg = (d) => {
+  let arrows = legArrowsCache.get(d)
+  if (!arrows) {
+    if (legArrowsCache.size > 2000) legArrowsCache.clear()
+    arrows = legArrows(d)
+    legArrowsCache.set(d, arrows)
+  }
+  return arrows
+}
+
+/**
+ * The arrowheads along a leg, by index.
+ *
+ * @param {string} d - The leg's SVG path.
+ * @returns {number[]}
+ */
+const arrowsAlong = (d) => [...Array(arrowsOfLeg(d).count).keys()]
+
+/**
+ * An arrowhead with its tip at the origin, pointing along x, so it rides its leg's path tip first.
+ *
+ * @param {number} head - Its length and width.
+ * @returns {string} An SVG path.
+ */
+const arrowShape = (head) => `M${-head},${-head / 2} L0,0 L${-head},${head / 2} z`
+
+/**
+ * Where an arrowhead rides on its leg: each runs one gap along, at the dashes' speed, to where the next one started,
+ * so they loop without a jump; at rest they sit at the ends of their runs, the last at the leg's tip.
+ *
+ * @param {string} d - The leg's SVG path.
+ * @param {number} index - Which arrowhead along it.
+ * @returns {Object} Its style.
+ */
+const arrowStyle = (d, index) => {
+  const { gap } = arrowsOfLeg(d)
+  const period = gap / DASH_SPEED
+  return {
+    offsetPath: `path('${d}')`,
+    '--arrow-from': `${index * gap}px`,
+    '--arrow-to': `${(index + 1) * gap}px`,
+    '--arrow-runs': Math.max(1, Math.round(DASH_RUN / period)),
+    animationDuration: `${period}s`,
+  }
+}
 /** A moved token's translation from where it was laid out, as CSS. */
 const offsetOf = (token) => (token.offset ? `translate(${token.offset.x}px, ${token.offset.y}px)` : undefined)
 const SPECIES_TOGGLE_TITLE = 'Show species: each compartment’s, and the paths through its proteins'
@@ -2281,7 +2326,7 @@ function assignRole(id, at, { role, cell, placement }) {
   pointer-events: none;
 }
 
-.bio-species-path > path {
+.bio-species-leg {
   fill: none;
   stroke: var(--species);
   stroke-linecap: round;
@@ -2289,24 +2334,40 @@ function assignRole(id, at, { role, cell, placement }) {
   opacity: 0.55;
 }
 
-/* A path whose flow is known after a run: solid, with its dashes running the way the species goes; square ends, so
-   none pokes past the base of its arrowhead. The dashes keep running while the speciesFlowContinuous setting is on;
-   off, they run a few times when the flow is shown, then rest on the arrowheads, since an endless dash animation
-   repaints the view every frame (Firefox can't run it off the main thread). A focused species' paths always run. */
-.bio-species-path--moving > path {
+/* A path whose flow is known after a run: solid, with its dashes running the way the species goes, and arrowheads,
+   fewer than the dashes, running with them along its path. The dashes and arrowheads keep running while the
+   speciesFlowContinuous setting is on; off, they run a few times when the flow is shown, then rest, the last
+   arrowhead at the tip, since an endless animation repaints the view every frame (Firefox can't run it off the main
+   thread). A focused species' paths always run. */
+.bio-species-path--moving > .bio-species-leg {
   stroke-linecap: butt;
   stroke-dasharray: 10 6;
   opacity: 0.9;
   animation: bio-species-flow 1.2s linear 4;
 }
 
-.bio-species-path--focused > path,
-.bio-species--continuous .bio-species-path--moving > path {
+.bio-species-arrow {
+  fill: var(--species);
+  stroke: none;
+  opacity: 0.9;
+  offset-anchor: 0 0;
+  offset-rotate: auto;
+  offset-distance: var(--arrow-to);
+  animation-name: bio-species-arrow-run;
+  animation-timing-function: linear;
+  animation-iteration-count: var(--arrow-runs);
+}
+
+.bio-species-path--focused > .bio-species-leg,
+.bio-species-path--focused > .bio-species-arrow,
+.bio-species--continuous .bio-species-path--moving > .bio-species-leg,
+.bio-species--continuous .bio-species-path--moving > .bio-species-arrow {
   animation-iteration-count: infinite;
 }
 
-/* No dashes run while the view is panned (paths hide while a node is dragged). */
-.vue-flow__pane.dragging .bio-species-path--moving > path {
+/* Nothing runs while the view is panned (paths hide while a node is dragged). */
+.vue-flow__pane.dragging .bio-species-path--moving > .bio-species-leg,
+.vue-flow__pane.dragging .bio-species-path--moving > .bio-species-arrow {
   animation-play-state: paused;
 }
 
@@ -2316,8 +2377,18 @@ function assignRole(id, at, { role, cell, placement }) {
   }
 }
 
+@keyframes bio-species-arrow-run {
+  from {
+    offset-distance: var(--arrow-from);
+  }
+  to {
+    offset-distance: var(--arrow-to);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .bio-species-path--moving > path {
+  .bio-species-path--moving > .bio-species-leg,
+  .bio-species-arrow {
     animation: none;
   }
 }
