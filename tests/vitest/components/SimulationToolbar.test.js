@@ -170,6 +170,19 @@ describe('SimulationToolbar placement', () => {
     expect(labelsOf(wrapper)).toContain('Track this run')
     wrapper.unmount()
   })
+
+  it('holds the buttons it hides when narrow in its more menu, disabled as they are', async () => {
+    const wrapper = mountToolbar({ hasPageLink: true, isRunning: true })
+    const items = wrapper.vm.moreItems ?? wrapper.vm.$.setupState.moreItems
+    expect(items.map((item) => item.label)).toEqual(['Open the simulation page', 'Edit obs_data', 'Simulation settings'])
+    expect(items.map((item) => !!item.disabled)).toEqual([false, true, true])
+    items[0].command()
+    expect(wrapper.emitted('open-page')).toHaveLength(1)
+
+    await wrapper.setProps({ hasPageLink: false })
+    expect((wrapper.vm.moreItems ?? wrapper.vm.$.setupState.moreItems).map((item) => item.label)).not.toContain('Open the simulation page')
+    wrapper.unmount()
+  })
 })
 
 describe('SimulationToolbar slot', () => {
