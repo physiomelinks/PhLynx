@@ -128,11 +128,20 @@ describe('where species mode draws its network', () => {
   })
 
   it('spaces the arrowheads along a leg evenly, about ARROW_SPACING apart', () => {
-    expect(legArrows('M0,0 C0,50 0,100 0,150')).toEqual({ count: 2, gap: 75 })
-    expect(legArrows('M0,0 C0,10 0,20 0,30')).toEqual({ count: 1, gap: 30 })
+    expect(legArrows('M0,0 C0,50 0,100 0,150')).toMatchObject({ count: 2, gap: 75 })
+    expect(legArrows('M0,0 C0,10 0,20 0,30')).toMatchObject({ count: 1, gap: 30 })
     expect(legArrows('M0,0 C0,0 0,0 0,0').count).toBe(0)
     expect(legArrows('nonsense').count).toBe(0)
     expect(legArrows('M0,0 C0,100 0,200 0,320').count).toBe(320 / ARROW_SPACING)
+  })
+
+  it('runs the arrowheads on a track carried a head past the end of the leg, where they hide', () => {
+    const d = 'M0,0 C0,50 100,100 100,150'
+    expect(legArrows(d).track).toBe(d)
+    const { track, count, gap } = legArrows(d, 10)
+    // On from the end the way the curve comes in; the start is the leg's own.
+    expect(track).toBe('M0,0 C0,50 100,100 100,150 L100,160')
+    expect(count * gap).toBeCloseTo(legArrows(d).count * legArrows(d).gap + 10, 5)
   })
 
   it('attaches each species’ path under its own arrow on the cartoon, in the order the arrows show', () => {

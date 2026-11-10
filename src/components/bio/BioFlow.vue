@@ -82,11 +82,11 @@
             <template v-if="path.head">
               <template v-for="(d, side) in path.legs" :key="`arrows-${side}`">
                 <path
-                  v-for="arrow in arrowsAlong(d)"
+                  v-for="arrow in arrowsAlong(d, path.head)"
                   :key="arrow"
                   class="bio-species-arrow"
                   :d="arrowShape(path.head)"
-                  :style="arrowStyle(d, arrow)"
+                  :style="arrowStyle(d, path.head, arrow)"
                 />
               </template>
             </template>
@@ -1215,14 +1215,15 @@ const DASH_SPEED = 16 / 1.2
 /** How long the dashes run when they don't run on: 4 times round bio-species-flow. */
 const DASH_RUN = 4 * 1.2
 
-/** Each leg's arrowheads, by its path; a drag redraws only some legs, so the rest keep theirs. */
+/** Each leg's arrowheads, by its path and their size; a drag redraws only some legs, so the rest keep theirs. */
 const legArrowsCache = new Map()
-const arrowsOfLeg = (d) => {
-  let arrows = legArrowsCache.get(d)
+const arrowsOfLeg = (d, head) => {
+  const key = `${head}:${d}`
+  let arrows = legArrowsCache.get(key)
   if (!arrows) {
     if (legArrowsCache.size > 2000) legArrowsCache.clear()
-    arrows = legArrows(d)
-    legArrowsCache.set(d, arrows)
+    arrows = legArrows(d, head)
+    legArrowsCache.set(key, arrows)
   }
   return arrows
 }
@@ -1231,9 +1232,10 @@ const arrowsOfLeg = (d) => {
  * The arrowheads along a leg, by index.
  *
  * @param {string} d - The leg's SVG path.
+ * @param {number} head - The arrowheads' length.
  * @returns {number[]}
  */
-const arrowsAlong = (d) => [...Array(arrowsOfLeg(d).count).keys()]
+const arrowsAlong = (d, head) => [...Array(arrowsOfLeg(d, head).count).keys()]
 
 /**
  * An arrowhead with its tip at the origin, pointing along x, so it rides its leg's path tip first.
@@ -1244,18 +1246,20 @@ const arrowsAlong = (d) => [...Array(arrowsOfLeg(d).count).keys()]
 const arrowShape = (head) => `M${-head},${-head / 2} L0,0 L${-head},${head / 2} z`
 
 /**
- * Where an arrowhead rides on its leg: each runs one gap along, at the dashes' speed, to where the next one started,
- * so they loop without a jump; at rest they sit at the ends of their runs, the last at the leg's tip.
+ * Where an arrowhead rides on its leg's track (the leg carried on under its end): each runs one gap along, at the
+ * dashes' speed, to where the next one started, so they loop without a jump; at rest they sit at the ends of their
+ * runs, the last wholly under the leg's end.
  *
  * @param {string} d - The leg's SVG path.
+ * @param {number} head - The arrowheads' length.
  * @param {number} index - Which arrowhead along it.
  * @returns {Object} Its style.
  */
-const arrowStyle = (d, index) => {
-  const { gap } = arrowsOfLeg(d)
+const arrowStyle = (d, head, index) => {
+  const { track, gap } = arrowsOfLeg(d, head)
   const period = gap / DASH_SPEED
   return {
-    offsetPath: `path('${d}')`,
+    offsetPath: `path('${track}')`,
     '--arrow-from': `${index * gap}px`,
     '--arrow-to': `${(index + 1) * gap}px`,
     '--arrow-runs': Math.max(1, Math.round(DASH_RUN / period)),
@@ -2336,8 +2340,7 @@ function assignRole(id, at, { role, cell, placement }) {
 
 /* A path whose flow is known after a run: solid, with its dashes running the way the species goes, and arrowheads,
    fewer than the dashes, running with them along its path. The dashes and arrowheads keep running while the
-   speciesFlowContinuous setting is on; off, they run a few times when the flow is shown, then rest, the last
-   arrowhead at the tip, since an endless animation repaints the view every frame (Firefox can't run it off the main
+   speciesFlowContinuous setting is on; off, they run a few times when the flow is shown, then rest, since an endless animation repaints the view every frame (Firefox can't run it off the main
    thread). A focused species' paths always run. */
 .bio-species-path--moving > .bio-species-leg {
   stroke-linecap: butt;

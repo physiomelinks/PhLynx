@@ -41,20 +41,25 @@ export const arrowHead = (width) => Math.round((6 + 2 * width) * 10) / 10
 export const ARROW_SPACING = 64
 
 /**
- * The arrowheads that run along a leg: how many, and the even gap between them, which is about ARROW_SPACING.
+ * The arrowheads that run along a leg: the track they ride, how many, and the even gap between them, about
+ * ARROW_SPACING. The track is the leg carried straight on past its end by a head's length, under the token or protein
+ * there, so an arrowhead is wholly under it before it goes. Its start is the leg's own: an arrowhead's tip sets off
+ * from there, its body already hidden behind it.
  *
  * @param {string} d - The leg's SVG path, `M x,y C x,y x,y x,y` as `leg` draws it.
+ * @param {number} [head=0] - The arrowheads' length.
  * @param {number} [spacing=ARROW_SPACING]
- * @returns {{count: number, gap: number}} No arrows for a path it can't read or of no length.
+ * @returns {{track: string, count: number, gap: number}} No arrows for a path it can't read or of no length.
  */
-export function legArrows(d, spacing = ARROW_SPACING) {
+export function legArrows(d, head = 0, spacing = ARROW_SPACING) {
+  const none = { track: d, count: 0, gap: 0 }
   const numbers = (d.match(/-?[\d.]+(?:e-?\d+)?/g) ?? []).map(Number)
-  if (numbers.length !== 8) return { count: 0, gap: 0 }
-  const [x0, y0, x1, y1, x2, y2, x3, y3] = numbers
+  if (numbers.length !== 8) return none
+  const [p0, p1, p2, p3] = [0, 2, 4, 6].map((i) => ({ x: numbers[i], y: numbers[i + 1] }))
   const at = (t) => {
     const u = 1 - t
     const [a, b, c, e] = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t]
-    return { x: a * x0 + b * x1 + c * x2 + e * x3, y: a * y0 + b * y1 + c * y2 + e * y3 }
+    return { x: a * p0.x + b * p1.x + c * p2.x + e * p3.x, y: a * p0.y + b * p1.y + c * p2.y + e * p3.y }
   }
   let length = 0
   let last = at(0)
@@ -63,9 +68,16 @@ export function legArrows(d, spacing = ARROW_SPACING) {
     length += Math.hypot(next.x - last.x, next.y - last.y)
     last = next
   }
-  if (!(length > 0)) return { count: 0, gap: 0 }
-  const count = Math.max(1, Math.round(length / spacing))
-  return { count, gap: length / count }
+  if (!(length > 0)) return none
+  // Which way the curve meets its end: from the last point before it that isn't the end.
+  const from = [p2, p1, p0].find((point) => point.x !== p3.x || point.y !== p3.y)
+  const run = Math.hypot(p3.x - from.x, p3.y - from.y)
+  const round = (value) => Math.round(value * 10) / 10
+  const after = { x: round(p3.x + ((p3.x - from.x) / run) * head), y: round(p3.y + ((p3.y - from.y) / run) * head) }
+  const track = head > 0 ? `${d} L${after.x},${after.y}` : d
+  const total = length + head
+  const count = Math.max(1, Math.round(total / spacing))
+  return { track, count, gap: total / count }
 }
 
 /**
