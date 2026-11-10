@@ -1,0 +1,17 @@
+# Synthetic compartment sidecar whose subjects mix PhLynx ('v…') and libCellML Annotator ('b4da…') ids.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix chebi: <https://identifiers.org/chebi/CHEBI:> .
+@prefix sbo: <https://identifiers.org/sbo/SBO:> .
+@prefix m: <./tank.cellml#> .
+@prefix local: <./tank.ttl#> .
+
+m:tank bqbiol:is sbo:0000290 .
+local:entity_self bqbiol:is sbo:0000290 .
+
+m:v4rjndoly bqbiol:isVersionOf opb:00340 ;
+    bqbiol:isPropertyOf local:Na_self .
+local:Na_self bqbiol:is chebi:29101 ;
+    bqbiol:isPartOf local:entity_self .
+m:b4da57 bqbiol:isVersionOf opb:00154 ;
+    bqbiol:isPropertyOf local:entity_self .

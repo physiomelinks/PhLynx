@@ -3102,7 +3102,7 @@ m:vdecayx01 bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi
     expect(save).toMatchObject({ mathRef: MATH_REF, idsChanged: true })
     // Annotating k gave it an id, which the math carries and the sidecar subject names; the rest is as stored.
     const ids = variableIdsOf(save.math)
-    expect(ids.get('k')).toMatch(/^v[0-9a-z]{8}$/)
+    expect(ids.get('k')).toMatch(/^b4da[0-9a-f]+$/)
     expect(ids.get('x')).toBe('vdecayx01')
     expect(stripIds(save.math)).toBe(stripIds(useLibraryStore().availableMath.get(MATH_REF)))
     expect(save.annotations.text).toContain(`m:${ids.get('k')} bqbiol:isVersionOf opb:00592`)
@@ -3161,7 +3161,7 @@ m:vdecayx01 bqbiol:isVersionOf opb:00340 ; bqbiol:isPropertyOf [ bqbiol:is chebi
     await clickButton('Save')
     const [save] = wrapper.emitted('confirm')[0]
     const id = variableIdsOf(save.math).get('rate')
-    expect(id).toMatch(/^v[0-9a-z]{8}$/)
+    expect(id).toMatch(/^b4da[0-9a-f]+$/)
     expect(save.annotations.text).toContain(`m:${id} bqbiol:isVersionOf opb:00592`)
   })
 

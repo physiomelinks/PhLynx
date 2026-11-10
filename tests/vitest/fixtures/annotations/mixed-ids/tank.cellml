@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="MixedIdTank" id="b4da5c">
+  <component name="tank" id="b4da55">
+    <variable name="t" units="second" interface="public"/>
+    <variable id="v4rjndoly" name="c_A" units="mM" initial_value="1" interface="public"/>
+    <variable id="b4da56" name="v_A" units="mM_per_s" interface="public"/>
+    <variable id="b4da57" name="volume" units="pL" initial_value="2" interface="public"/>
+    <variable name="k" units="per_second" initial_value="0.5" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>c_A</ci></apply>
+        <apply><minus/><ci>v_A</ci><apply><times/><ci>k</ci><ci>c_A</ci></apply></apply>
+      </apply>
+    </math>
+  </component>
+</model>

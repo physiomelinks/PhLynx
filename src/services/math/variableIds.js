@@ -4,56 +4,9 @@
  * (see carryVariableIds).
  */
 import { CELLML_NS } from '../../utils/constants'
+import { getLibCellML } from '../../utils/cellml'
 
-const ID_LENGTH = 8
 const MAX_ATTEMPTS = 1000
-// An XML ID (NCName) in ASCII: a letter or `_` first.
-const XML_ID = /^[A-Za-z_][\w.-]*$/
-
-/**
- * Draws 'v' and 8 base36 characters.
- *
- * @returns {string}
- */
-function randomId() {
-  const bytes = new Uint32Array(ID_LENGTH)
-  globalThis.crypto.getRandomValues(bytes)
-  return `v${Array.from(bytes, (byte) => (byte % 36).toString(36)).join('')}`
-}
-
-/**
- * A seeded id generator (mulberry32), for tests and fixtures.
- *
- * @param {number} seed
- * @returns {() => string} Draws 'v' and 8 base36 characters.
- */
-export function seededIdGenerator(seed) {
-  let state = seed >>> 0
-  const next = () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let value = Math.imul(state ^ (state >>> 15), 1 | state)
-    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value)
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
-  }
-  return () => `v${Array.from({ length: ID_LENGTH }, () => Math.floor(next() * 36).toString(36)).join('')}`
-}
-
-/**
- * A new variable id, unique against `existingIds`.
- *
- * @param {Set<string>} existingIds - Every id and component name in the math (see reservedIdsOf).
- * @param {() => string} [generate] - Draws a candidate; random by default.
- * @returns {string}
- * @throws {Error} When the generator gives an invalid XML ID, or no unused one.
- */
-export function newVariableId(existingIds, generate = randomId) {
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const id = generate()
-    if (!XML_ID.test(id)) throw new Error(`"${id}" is not a valid XML ID.`)
-    if (!existingIds.has(id)) return id
-  }
-  throw new Error('Could not find an unused variable id.')
-}
 
 /**
  * Parses math, or null when it is empty or not XML.
@@ -145,30 +98,74 @@ export function applyVariableIds(math, nameToId, { componentId = null } = {}) {
 }
 
 /**
- * Gives the named variables ids, keeping any they have.
+ * New ids for the named variables, from libCellML's Annotator (`b4da55`, `b4da56`, …). Each avoids `reserved`, which
+ * also holds ids the Annotator does not see, such as MathML ones.
+ *
+ * @param {string} math
+ * @param {Set<string>} names - Variables without an id.
+ * @param {Set<string>} reserved - See reservedIdsOf.
+ * @returns {Map<string, string>} Variable name -> id; the first component's variable takes a shared name.
+ * @throws {Error} When libCellML cannot parse the math, or finds no unused id.
+ */
+function annotatorIds(math, names, reserved) {
+  const libcellml = getLibCellML()
+  const parser = new libcellml.Parser(false)
+  const annotator = new libcellml.Annotator()
+  const owned = []
+  const ids = new Map()
+  try {
+    const model = parser.parseModel(math)
+    owned.push(model)
+    if (!model || parser.errorCount() > 0) throw new Error('libCellML could not parse the math.')
+    annotator.setModel(model)
+    const assign = (variable) => {
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const id = annotator.assignIdByVariable(variable)
+        if (id && !reserved.has(id)) return id
+      }
+      throw new Error('Could not find an unused variable id.')
+    }
+    const visit = (component) => {
+      owned.push(component)
+      for (let i = 0; i < component.variableCount(); i++) {
+        const variable = component.variableByIndex(i)
+        owned.push(variable)
+        const name = variable.name()
+        if (!names.has(name) || ids.has(name) || variable.id()) continue
+        const id = assign(variable)
+        reserved.add(id)
+        ids.set(name, id)
+      }
+      for (let i = 0; i < component.componentCount(); i++) visit(component.componentByIndex(i))
+    }
+    for (let i = 0; i < model.componentCount(); i++) visit(model.componentByIndex(i))
+    return ids
+  } finally {
+    owned.reverse().forEach((item) => item?.delete())
+    annotator.delete()
+    parser.delete()
+  }
+}
+
+/**
+ * Gives the named variables ids, keeping any they have. New ids come from libCellML's Annotator and are written
+ * into the math as it is, so its formatting is kept.
  *
  * @param {string} math
  * @param {Iterable<string>} names
- * @param {Object} [options]
- * @param {() => string} [options.generate] - See newVariableId.
  * @returns {{math: string, ids: Map<string, string>}} The math, and the named variables' ids by name.
  */
-export function ensureVariableIds(math, names, { generate } = {}) {
+export function ensureVariableIds(math, names) {
   names = new Set(names)
   if (!names.size) return { math, ids: new Map() }
   const existing = variableIdsOf(math)
   const declared = new Set(variableNamesOf(math))
-  const reserved = reservedIdsOf(math)
+  const missing = new Set([...names].filter((name) => !existing.has(name) && declared.has(name)))
+  const added = missing.size ? annotatorIds(math, missing, reservedIdsOf(math)) : new Map()
   const ids = new Map()
-  const added = new Map()
   for (const name of names) {
-    if (existing.has(name)) ids.set(name, existing.get(name))
-    else if (declared.has(name)) {
-      const id = newVariableId(reserved, generate)
-      reserved.add(id)
-      added.set(name, id)
-      ids.set(name, id)
-    }
+    const id = existing.get(name) ?? added.get(name)
+    if (id) ids.set(name, id)
   }
   return { math: applyVariableIds(math, added), ids }
 }
@@ -233,13 +230,12 @@ export function stripIds(math) {
  * @param {boolean} options.isMathChanged - Whether the math changed, ids aside.
  * @param {Map<string, string>} [options.renames] - From findVariableRenames, stored -> edited.
  * @param {Iterable<string>} [options.idsFor] - Variables (by saved name) that need an id.
- * @param {() => string} [options.generate] - See newVariableId.
  * @returns {{math: string|null, idsChanged: boolean, ids: Map<string, string>}} `math` is null when
  *   nothing changed; `ids` are those of `idsFor`.
  */
-export function prepareSavedMath({ storedMath, editedMath, isMathChanged, renames, idsFor = [], generate }) {
+export function prepareSavedMath({ storedMath, editedMath, isMathChanged, renames, idsFor = [] }) {
   const base = isMathChanged ? carryVariableIds(storedMath, editedMath, renames) : storedMath
-  const { math, ids } = ensureVariableIds(base, idsFor, { generate })
+  const { math, ids } = ensureVariableIds(base, idsFor)
   const idsChanged = !isMathChanged && math !== storedMath
   return { math: isMathChanged || idsChanged ? math : null, idsChanged, ids }
 }
