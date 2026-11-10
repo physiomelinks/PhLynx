@@ -1,7 +1,7 @@
 <template>
   <!-- The outer element is the container its width is queried on, so the row inside can change its own gap. -->
   <div class="simulation-toolbar" role="toolbar" aria-label="Simulation">
-    <div class="toolbar-row">
+    <div ref="row" class="toolbar-row">
       <!-- The out-of-date dot sits on a wrapper, since the button crops what overflows it. -->
       <span class="toolbar-run-wrap">
         <Button
@@ -44,8 +44,9 @@
       <!-- A view's own controls for the run, such as the instance editor's Auto-update. -->
       <slot />
 
-      <template v-if="protocolStore.hasProtocol || protocolStore.source?.parseError">
+      <template v-if="hasProtocolButton">
         <Button
+          v-show="!hidden.has('protocol')"
           icon="pi pi-list-check"
           text
           rounded
@@ -63,6 +64,7 @@
       <!-- Plays the sweep set in the Sweep view rather than one run, as the protocol button plays the protocol. -->
       <Button
         v-if="sweep"
+        v-show="!hidden.has('sweep')"
         icon="pi pi-chart-line"
         text
         rounded
@@ -79,7 +81,7 @@
 
       <span class="toolbar-spacer"></span>
       <!-- A span carries the tooltip, as a disabled button shows none. -->
-      <span class="toolbar-track" v-tooltip.bottom="trackBlocker ?? 'Track this run: keep its lines on the charts'">
+      <span v-show="!hidden.has('track')" class="toolbar-track" v-tooltip.bottom="trackBlocker ?? 'Track this run: keep its lines on the charts'">
         <Button
           icon="pi pi-bookmark"
           text
@@ -95,56 +97,56 @@
       </span>
       <Button
         v-if="hasFloat"
+        v-show="!hidden.has('float')"
         icon="pi pi-window-minimize"
         text
         rounded
         size="small"
         :severity="floatingViewer.visible ? 'primary' : 'secondary'"
         :aria-pressed="floatingViewer.visible"
-        ref="floatButton"
-        class="toolbar-float"
         aria-label="Float the results over the canvas"
         v-tooltip.bottom="floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas'"
         @click="toggleFloatingViewer({ isCollapsingSidebar: isInSidebar })"
       />
       <Button
         v-if="hasPageLink"
+        v-show="!hidden.has('page')"
         icon="pi pi-external-link"
         text
         rounded
         size="small"
         severity="secondary"
-        class="toolbar-secondary"
         aria-label="Open the simulation page"
         v-tooltip.bottom="'Open the simulation page'"
         @click="emit('open-page')"
       />
       <Button
+        v-show="!hidden.has('obsData')"
         icon="pi pi-pen-to-square"
         text
         rounded
         size="small"
         severity="secondary"
         :disabled="isRunning"
-        class="toolbar-secondary"
         aria-label="Edit obs_data"
         v-tooltip.bottom="protocolStore.hasProtocol ? 'Edit obs_data' : 'Edit obs_data: add a protocol of experiments that set parameters'"
         @click="openProtocolDialog"
       />
       <Button
+        v-show="!hidden.has('settings')"
         icon="pi pi-cog"
         text
         rounded
         size="small"
         severity="secondary"
         :disabled="isRunning"
-        class="toolbar-secondary"
         aria-label="Simulation settings"
         v-tooltip.bottom="'Simulation settings'"
         @click="openSimSettings('parameters')"
       />
-      <!-- Too narrow for them all: the buttons above, in a menu. -->
+      <!-- Too narrow for them all: those that don't fit, in a menu. -->
       <Button
+        v-if="hidden.size"
         icon="pi pi-ellipsis-v"
         text
         rounded
@@ -154,7 +156,7 @@
         aria-label="More simulation actions"
         aria-haspopup="true"
         v-tooltip.bottom="'More'"
-        @click="toggleMoreMenu"
+        @click="(event) => moreMenu.toggle(event)"
       />
       <Menu ref="moreMenu" :model="moreItems" popup />
     </div>
@@ -174,6 +176,7 @@ import Menu from 'primevue/menu'
 import ToggleSwitch from 'primevue/toggleswitch'
 
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
+import { useOverflowMenu } from '../../composables/useOverflowMenu'
 import { useProtocolDialog } from '../../composables/useProtocolDialog'
 import { useSimSettingsDialog } from '../../composables/useSimSettingsDialog'
 import { useTrackRun } from '../../composables/useTrackRun'
@@ -247,31 +250,58 @@ const { trackBlocker, track } = useTrackRun()
 // The tooltip saying why tracking is blocked shows only on hover, so screen readers are told it too.
 const trackBlockerId = useId()
 
-// What the narrow toolbar's menu holds: the buttons it hides.
-const moreMenu = ref(null)
-const floatButton = ref(null)
-// The float button is hidden only when narrowest. The menu sits outside the toolbar, so no container query reaches
-// it: it looks at the button instead, as it opens.
-const isFloatHidden = ref(false)
-const moreItems = computed(() => [
-  ...(props.hasFloat && isFloatHidden.value
-    ? [{
-        label: floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas',
-        icon: 'pi pi-window-minimize',
-        command: () => toggleFloatingViewer({ isCollapsingSidebar: props.isInSidebar }),
-      }]
-    : []),
-  ...(props.hasPageLink ? [{ label: 'Open the simulation page', icon: 'pi pi-external-link', command: () => emit('open-page') }] : []),
-  { label: 'Edit obs_data', icon: 'pi pi-pen-to-square', disabled: props.isRunning, command: openProtocolDialog },
-  { label: 'Simulation settings', icon: 'pi pi-cog', disabled: props.isRunning, command: () => openSimSettings('parameters') },
+const hasProtocolButton = computed(() => !!(protocolStore.hasProtocol || protocolStore.source?.parseError))
+
+// The buttons that go into the more menu when the toolbar is too narrow for them, the least used first. The modes go
+// last, as only their buttons show which is on.
+const row = ref(null)
+const hideable = computed(() =>
+  [
+    props.hasPageLink && 'page',
+    'obsData',
+    'settings',
+    props.hasFloat && 'float',
+    'track',
+    sweep.value && 'sweep',
+    hasProtocolButton.value && 'protocol',
+  ].filter(Boolean),
+)
+const { hidden } = useOverflowMenu(row, hideable, () => [
+  // The mode buttons show a label while on.
+  protocolStore.isProtocolMode,
+  resultsStore.isSweepMode,
+  experimentCount.value,
 ])
 
-/** Opens the menu, holding the float button too when it is hidden. */
-function toggleMoreMenu(event) {
-  const floatEl = floatButton.value?.$el
-  isFloatHidden.value = !!floatEl && getComputedStyle(floatEl).display === 'none'
-  moreMenu.value.toggle(event)
-}
+// The menu's items, for the buttons hidden, in the toolbar's order.
+const moreMenu = ref(null)
+const moreItems = computed(() => {
+  const items = {
+    protocol: {
+      label: protocolStore.isProtocolMode ? 'Back to the time course' : 'Run the protocol\'s experiments',
+      icon: 'pi pi-list-check',
+      command: toggleProtocol,
+    },
+    sweep: { label: resultsStore.isSweepMode ? 'Back to one run' : 'Run the sweep', icon: 'pi pi-chart-line', command: toggleSweep },
+    track: { label: 'Track this run', icon: 'pi pi-bookmark', disabled: !!trackBlocker.value, command: track },
+    float: {
+      label: floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas',
+      icon: 'pi pi-window-minimize',
+      command: () => toggleFloatingViewer({ isCollapsingSidebar: props.isInSidebar }),
+    },
+    page: { label: 'Open the simulation page', icon: 'pi pi-external-link', command: () => emit('open-page') },
+    obsData: { label: 'Edit obs_data', icon: 'pi pi-pen-to-square', disabled: props.isRunning, command: openProtocolDialog },
+    settings: { label: 'Simulation settings', icon: 'pi pi-cog', disabled: props.isRunning, command: () => openSimSettings('parameters') },
+  }
+  return Object.keys(items).filter((id) => hidden.value.has(id)).map((id) => items[id])
+})
+// Its button gone, the menu closes too.
+watch(
+  () => hidden.value.size,
+  (size) => {
+    if (!size) moreMenu.value?.hide()
+  },
+)
 
 const isWholeModel = computed({
   get: () => scopeMode.value === 'model',
@@ -356,10 +386,6 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   flex-shrink: 0;
 }
 
-.toolbar-more {
-  display: none;
-}
-
 /* Narrower: smaller buttons, closer together. */
 @container (max-width: 380px) {
   .toolbar-row {
@@ -369,24 +395,6 @@ const playHint = computed(() => props.blockedReason ?? (props.isLoading ? 'Loadi
   .toolbar-row :deep(.p-button-icon-only.p-button-sm) {
     width: 1.75rem;
     height: 1.75rem;
-  }
-}
-
-/* Narrower still: the less used buttons go into a menu. */
-@container (max-width: 340px) {
-  .toolbar-secondary {
-    display: none;
-  }
-
-  .toolbar-more {
-    display: inline-flex;
-  }
-}
-
-/* Narrowest: floating the results goes into the menu too. */
-@container (max-width: 240px) {
-  .toolbar-float {
-    display: none;
   }
 }
 
