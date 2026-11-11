@@ -111,13 +111,6 @@ describe('ResizableLibraryPanel', () => {
     expect(wrapper.emitted('resize').at(-1)).toEqual([280])
   })
 
-  it('emits the hamburger strip’s width when collapsed inline', async () => {
-    mountPanel({ overlay: false })
-
-    await wrapper.vm.toggleCollapsed()
-    expect(wrapper.emitted('resize').at(-1)).toEqual([60])
-  })
-
   it('docks right with a left-facing tooltip and a mirrored tornado', () => {
     mountPanel({ side: 'right' })
 

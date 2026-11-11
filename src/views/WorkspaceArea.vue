@@ -301,7 +301,6 @@
           '--library-panel-width': libraryPanelWidth + 'px',
           '--context-sidebar-width': contextSidebarWidth + 'px',
           '--context-panel-cover': contextPanelCover + 'px',
-          '--context-panel-inset': contextPanelInset + 'px',
         }"
       >
         <div
@@ -733,6 +732,7 @@ import {
   NEW_INSTANCE_MODULE_REF,
   NUM_GHOST_HANDLES_TOP_BOT,
   NUM_GHOST_HANDLES_LEFT_RIGHT,
+  PANEL_RESIZE_HANDLE_WIDTH,
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
 import { edgeOrdinals, resolvePortCouplings } from '../utils/edges'
@@ -755,16 +755,10 @@ function onContextSidebarResize(width) {
   contextSidebarWidth.value = width
 }
 
-/** The context panel's resize handle, beside the width it reports. */
-const CONTEXT_PANEL_HANDLE_WIDTH = 6
-/** The closed context panel's hamburger corner: 0.75rem in from the edge plus its 2.25rem button. */
-const CONTEXT_TOGGLE_FOOTPRINT = 48
 /** How much of the canvas's right edge the floating context panel covers: none while it is closed. */
 const contextPanelCover = computed(() =>
-  contextSidebarWidth.value ? contextSidebarWidth.value + CONTEXT_PANEL_HANDLE_WIDTH : 0
+  contextSidebarWidth.value ? contextSidebarWidth.value + PANEL_RESIZE_HANDLE_WIDTH : 0
 )
-/** How far in from the right the canvas's top-right search box must sit: clear of the panel, or of its hamburger. */
-const contextPanelInset = computed(() => contextPanelCover.value || CONTEXT_TOGGLE_FOOTPRINT)
 
 const fitViewParams = computed(() => ({
   padding: {
@@ -2787,6 +2781,12 @@ watch(
    2. Workbench Main Canvas
    ========================================================================== */
 .workbench-main {
+  /* How far in from the right the top-right search box must sit: clear of the open context panel, or of its
+     hamburger corner while it is closed. */
+  --context-panel-inset: max(
+    var(--context-panel-cover, 0px),
+    calc(var(--canvas-control-side) + var(--canvas-toggle-size))
+  );
   position: relative;
   overflow: hidden;
   min-width: 0;
@@ -2954,7 +2954,8 @@ watch(
    ========================================================================== */
 .workspace-search-container {
   position: absolute;
-  top: 16px;
+  /* Level with the panel toggles, which take the same offset. */
+  top: var(--canvas-control-top);
   /* Clear of the floating context panel, or of its hamburger while it is closed. */
   right: calc(var(--context-panel-inset, 0px) + 16px);
   z-index: 10;

@@ -136,6 +136,11 @@ function cancelEdit() {
 :root {
   --view-header-height: 46px;
   --view-header-padding-x: 1rem;
+  /* Where the canvas's floating controls sit: the panel toggles and the search box. Their offset below the view
+     header, the toggles' offset in from the side, and the toggles' size, which the search box keeps clear of. */
+  --canvas-control-top: 0.75rem;
+  --canvas-control-side: 0.75rem;
+  --canvas-toggle-size: 2.25rem;
 }
 
 .app-layout {

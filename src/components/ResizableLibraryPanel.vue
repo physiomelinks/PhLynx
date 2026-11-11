@@ -54,6 +54,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useResizableAside } from '../composables/useResizableAside'
+import { PANEL_RESIZE_HANDLE_WIDTH } from '../utils/constants'
 
 const props = defineProps({
   title: {
@@ -124,14 +125,8 @@ const toggleLines = computed(() => {
   }))
 })
 
-/** Inline and closed, the panel keeps a strip this wide for its hamburger. */
-const INLINE_COLLAPSED_WIDTH = 60
-
-/** The width the panel takes from its neighbours: none while closed as an overlay. */
-const effectiveWidth = computed(() => {
-  if (!isCollapsed.value) return width.value
-  return props.overlay ? 0 : INLINE_COLLAPSED_WIDTH
-})
+/** The open panel's width: none while it is closed, when at most its hamburger's strip shows. */
+const effectiveWidth = computed(() => (isCollapsed.value ? 0 : width.value))
 
 watch(effectiveWidth, (val) => emit('resize', val), { immediate: true })
 
@@ -146,9 +141,9 @@ defineExpose({ isCollapsed, toggleCollapsed })
 <style scoped>
 .resizable-library-panel {
   /* Where the toggle sits; the panel header lines its title up beside it. */
-  --library-toggle-top: 0.75rem;
-  --library-toggle-left: 0.75rem;
-  --library-toggle-size: 2.25rem;
+  --library-toggle-top: var(--canvas-control-top);
+  --library-toggle-left: var(--canvas-control-side);
+  --library-toggle-size: var(--canvas-toggle-size);
   display: flex;
   height: 100%;
 }
@@ -171,9 +166,9 @@ defineExpose({ isCollapsed, toggleCollapsed })
   flex-shrink: 0;
 }
 
-/* Inline, the collapsed panel reserves only the toggle's footprint. */
+/* Inline, the collapsed panel reserves only the toggle's footprint: the toggle with its offset either side. */
 .resizable-library-panel--inline.resizable-library-panel--collapsed {
-  min-width: 60px; /* INLINE_COLLAPSED_WIDTH */
+  min-width: calc(2 * var(--library-toggle-left) + var(--library-toggle-size));
 }
 
 .library-panel-body {
@@ -363,8 +358,10 @@ defineExpose({ isCollapsed, toggleCollapsed })
 }
 
 .resize-handle {
-  width: 6px;
+  width: v-bind('PANEL_RESIZE_HANDLE_WIDTH + "px"');
   flex-shrink: 0;
+  /* Positioned so it paints over the aside's edge shadow, which reaches across it. */
+  position: relative;
   cursor: col-resize;
   background-color: var(--p-content-border-color);
   transition: background-color 120ms ease;
