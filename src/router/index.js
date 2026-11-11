@@ -5,6 +5,7 @@ import WorkspaceView from '../views/WorkspaceView.vue'
 import AboutView from '../views/AboutView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 import SimulationView from '../views/SimulationView.vue'
+import { formatDocsSlug, routeTitle, updateDocumentTitle } from './documentTitle'
 import { ensureWorkspaceMounted } from './workspaceMount'
 
 const { trackPageView } = useGtm()
@@ -16,13 +17,13 @@ const router = createRouter({
       path: '/',
       name: 'workspace',
       component: WorkspaceView,
-      meta: { title: 'Workflow Builder' },
+      meta: { title: 'Workflow Builder', showsProjectName: true },
     },
     {
       path: '/simulation',
       name: 'simulation',
       component: SimulationView,
-      meta: { title: 'Simulation' },
+      meta: { title: 'Simulation', showsProjectName: true },
       // The page shows the workspace's model, so the workspace loads first.
       beforeEnter: ensureWorkspaceMounted,
     },
@@ -48,8 +49,7 @@ const router = createRouter({
           // Fallback if visiting /docs/ root
           if (!slug || slug.length === 0) return 'Documentation'
 
-          // Convert "my-category/setup-guide" to "Setup Guide - My Category".
-          return formatSlug(slug)
+          return formatDocsSlug(slug)
         },
       },
     },
@@ -62,38 +62,12 @@ const router = createRouter({
   ],
 })
 
-function formatSlug(slug) {
-  // Make sure slug is an array.
-  const slugArray = Array.isArray(slug) ? slug : [slug]
-
-  // Split by '/' and '-', capitalize words, and join back.
-  return slugArray
-    .map((part) => {
-      return (
-        part
-          // Replace hyphens/underscores with spaces.
-          .replace(/[-_]/g, ' ')
-          // Capitalize the first letter of EVERY word.
-          // \b matches a "word boundary" (start of string or after a space).
-          .replace(/\b\w/g, (char) => char.toUpperCase())
-      )
-    })
-    .join(' | ')
-}
-
 router.afterEach((to, from, failure) => {
-  let pageTitle = ''
-
-  if (typeof to.meta.title === 'function') {
-    pageTitle = to.meta.title(to)
-  } else {
-    pageTitle = to.meta.title
-  }
-
-  document.title = pageTitle ? `${pageTitle} - PhLynx` : 'PhLynx'
+  updateDocumentTitle(to)
 
   if (failure || (from !== START_LOCATION && to.path === from.path)) return
-  trackPageView(to, pageTitle)
+  // The route's title alone: the project's name stays out of analytics.
+  trackPageView(to, routeTitle(to))
 })
 
 export default router

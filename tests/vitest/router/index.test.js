@@ -17,6 +17,7 @@ vi.mock('../../../src/views/DocsView.vue', () => ({ default: { name: 'DocsViewSt
 
 const { default: router } = await import('../../../src/router/index.js')
 const { setWorkspaceMounted } = await import('../../../src/router/workspaceMount.js')
+const { useSessionMetadataStore } = await import('../../../src/stores/sessionMetadataStore.js')
 const NotFoundView = (await import('../../../src/views/NotFoundView.vue')).default
 
 describe('router', () => {
@@ -87,7 +88,7 @@ describe('router', () => {
 
   describe('document title', () => {
     it.each([
-      ['/', 'Workflow Builder - PhLynx'],
+      ['/', 'phlynx-project - Workflow Builder - PhLynx'],
       ['/about', 'About - PhLynx'],
       ['/nope', '404 Not Found - PhLynx'],
     ])('sets the title for %s', async (path, title) => {
@@ -99,17 +100,36 @@ describe('router', () => {
     it('sets the Simulation title once the workspace is mounted', async () => {
       setWorkspaceMounted(true)
       await router.push('/simulation')
-      expect(document.title).toBe('Simulation - PhLynx')
+      expect(document.title).toBe('phlynx-project - Simulation - PhLynx')
     })
 
-    it('formats docs slugs into capitalised words joined by a pipe', async () => {
+    it('leads the workspace and simulation titles with the project name', async () => {
+      useSessionMetadataStore().setLastSaveName('My model')
+      await router.push('/')
+      expect(document.title).toBe('My model - Workflow Builder - PhLynx')
+
+      setWorkspaceMounted(true)
+      await router.push('/simulation')
+      expect(document.title).toBe('My model - Simulation - PhLynx')
+    })
+
+    it('leaves the project name out of the other titles', async () => {
+      useSessionMetadataStore().setLastSaveName('My model')
+      await router.push('/')
+      await router.push('/about')
+      expect(document.title).toBe('About - PhLynx')
+      await router.push('/docs/a')
+      expect(document.title).toBe('A - PhLynx')
+    })
+
+    it('formats docs slugs into capitalised words, the page before its category', async () => {
       await router.push('/docs/my-category/setup_guide')
-      expect(document.title).toBe('My Category | Setup Guide - PhLynx')
+      expect(document.title).toBe('Setup Guide - My Category - PhLynx')
     })
 
     it('uses the redirected introduction slug for the title of /docs/', async () => {
       await router.push('/docs/')
-      expect(document.title).toBe('Getting Started | Introduction - PhLynx')
+      expect(document.title).toBe('Introduction - Getting Started - PhLynx')
     })
 
     it('falls back to the bare site name when the route has no title', async () => {
@@ -135,9 +155,15 @@ describe('router', () => {
       expect(title).toBe('Workflow Builder')
     })
 
+    it('keeps the project name out of tracking', async () => {
+      useSessionMetadataStore().setLastSaveName('My model')
+      await router.push('/')
+      expect(trackPageView.mock.calls[0][1]).toBe('Workflow Builder')
+    })
+
     it('passes the computed docs title to tracking', async () => {
       await router.push('/docs/a-b/c')
-      expect(trackPageView).toHaveBeenCalledWith(expect.objectContaining({ path: '/docs/a-b/c' }), 'A B | C')
+      expect(trackPageView).toHaveBeenCalledWith(expect.objectContaining({ path: '/docs/a-b/c' }), 'C - A B')
     })
 
     it('does not track a navigation to the current page', async () => {

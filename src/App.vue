@@ -60,6 +60,7 @@ import { computed, ref, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import InputText from 'primevue/inputtext'
 
+import { updateDocumentTitle } from './router/documentTitle'
 import { useSessionMetadataStore } from './stores/sessionMetadataStore'
 
 import ConfirmDialog from './components/ConfirmDialog.vue'
@@ -87,6 +88,8 @@ const checkOverflow = () => {
 
 watch(sessionName, () => {
   nextTick(checkOverflow)
+  // The router sets the title on navigation; a rename, save or load changes the name in place.
+  updateDocumentTitle(route)
 })
 
 const isDocsActive = computed(() => {
