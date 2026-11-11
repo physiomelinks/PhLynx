@@ -170,12 +170,6 @@ export const PORT_TYPE_OPTIONS = [
   { value: 'exit_ports',     label: 'O' },  
 ]
 
-export const MULTIPORT_OPTIONS = [
-  { value: 'True',  label: 'True'  },
-  { value: 'Sum',   label: 'Sum'   },
-  { value: 'None',  label: 'None'  },
-]
-
 /*--- Folder and File Handling ---*/
 export const IMPORT_KEYS = {
   INSTANCE_ARRAY: 'instanceArray',
