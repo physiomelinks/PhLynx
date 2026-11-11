@@ -1242,7 +1242,7 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_role("button", name="Float the results over the canvas").click()
             viewer = page.locator(".simulation-floating-viewer")
             expect(viewer.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
-            expect(page.locator(".context-aside--collapsed")).to_have_count(1)
+            expect(page.locator(".context-panel.resizable-library-panel--collapsed")).to_have_count(1)
             expect(viewer).to_be_visible()
             # Showing the sliders makes the window taller rather than squeezing the plot.
             height_before = viewer.bounding_box()["height"]
