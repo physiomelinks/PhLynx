@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isTypeFixed, typeOptionsFor } from '../../../src/utils/parameterRows'
+import { getUnknownUnitsNotice, isTypeFixed, typeOptionsFor } from '../../../src/utils/parameterRows'
 
 const values = (options) => options.map((option) => option.value)
 
@@ -19,5 +19,19 @@ describe('parameter row types', () => {
   it('offers parameters every type except variable', () => {
     expect(values(typeOptionsFor({ name: 'k', type: 'constant' }))).not.toContain('variable')
     expect(values(typeOptionsFor({ name: 'x', type: 'variable' }))).toContain('variable')
+  })
+})
+
+describe('unknown units notice', () => {
+  const library = new Set(['mM'])
+
+  it('flags a unit that is not in the library', () => {
+    expect(getUnknownUnitsNotice({ units: 'furlong' }, library)).toContain('furlong')
+  })
+
+  it('stays quiet for a known unit and for no unit at all', () => {
+    expect(getUnknownUnitsNotice({ units: 'mM' }, library)).toBe('')
+    expect(getUnknownUnitsNotice({ units: '' }, library)).toBe('')
+    expect(getUnknownUnitsNotice({}, library)).toBe('')
   })
 })
