@@ -447,13 +447,13 @@ import { legacyDownload } from '../../utils/save'
 import { sanitiseName } from '../../utils/identifiers'
 
 const props = defineProps({
-  /** Adds an instance of a library module with this bioView, and gives its node id (see WorkspaceArea). */
+  /** Adds an instance of a library module with this bioView, and gives its node id (see WorkspaceView). */
   createInstance: { type: Function, default: null },
   /** Joins pairs of instances, [{ source, target }], with label-matched edges, in the current step. */
   connectInstances: { type: Function, default: null },
-  /** Removes edges by id, in the current step, re-deriving the couplings left at their ends (see WorkspaceArea). */
+  /** Removes edges by id, in the current step, re-deriving the couplings left at their ends (see WorkspaceView). */
   disconnectInstances: { type: Function, default: null },
-  /** Gives an instance's "Apply Parameter Set" submenu as the diagram's node menu builds it (see WorkspaceArea). */
+  /** Gives an instance's "Apply Parameter Set" submenu as the diagram's node menu builds it (see WorkspaceView). */
   parameterSetMenu: { type: Function, default: null },
   /** How the view is fitted, as the diagram's is: clear of the library panel over its left. */
   fitViewParams: { type: Object, default: () => ({ padding: 0.15 }) },

@@ -1,6 +1,6 @@
 /**
  * Opens the Simulation Settings dialog from anywhere, such as the Simulation tab's cog or the instance
- * editor, without passing events up through the components between. WorkspaceArea shows the dialog.
+ * editor, without passing events up through the components between. WorkspaceView shows the dialog.
  */
 import { reactive } from 'vue'
 

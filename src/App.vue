@@ -46,7 +46,7 @@
 
     <div class="view-container">
       <router-view v-slot="{ Component }">
-        <keep-alive :include="['WorkspaceArea', 'SimulationView']">
+        <keep-alive :include="['WorkspaceView', 'SimulationView']">
           <component :is="Component" />
         </keep-alive>
       </router-view>

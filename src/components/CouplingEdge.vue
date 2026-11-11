@@ -129,7 +129,7 @@ const markerId = `coupling-edge-arrow-${props.id}`
   stroke-dasharray: 6 4;
 }
 
-/* Matches the selected line (WorkspaceArea.vue) */
+/* Matches the selected line (WorkspaceView.vue) */
 .coupling-edge-arrow {
   stroke: var(--p-primary-color);
   fill: var(--p-primary-color);

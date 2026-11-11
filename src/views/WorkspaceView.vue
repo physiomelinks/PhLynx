@@ -592,7 +592,7 @@
 
 <script>
 export default {
-  name: 'WorkspaceArea',
+  name: 'WorkspaceView',
 }
 </script>
 

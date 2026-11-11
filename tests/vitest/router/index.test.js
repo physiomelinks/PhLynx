@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const trackPageView = vi.hoisted(() => vi.fn())
 vi.mock('../../../src/composables/useGtm', () => ({ useGtm: () => ({ trackPageView }) }))
 
-vi.mock('../../../src/views/WorkspaceArea.vue', () => ({ default: { name: 'WorkspaceAreaStub', render: () => null } }))
+vi.mock('../../../src/views/WorkspaceView.vue', () => ({ default: { name: 'WorkspaceViewStub', render: () => null } }))
 vi.mock('../../../src/views/AboutView.vue', () => ({ default: { name: 'AboutViewStub', render: () => null } }))
 vi.mock('../../../src/views/SimulationView.vue', () => ({
   default: { name: 'SimulationViewStub', render: () => null },
