@@ -194,7 +194,7 @@ export const SEND_KEYS = {
 }
 
 export const IMPORT_LABELS = {
-  INSTANCE_ARRAY: 'Instance Array (.csv)',
+  INSTANCE_ARRAY: 'Instance Array (.json, .csv)',
   MODULE_CONFIG: 'Module Configurations (.json)',
   CELLML_FILE: 'CellML File (.cellml or .xml)',
   CELLDL_FILE: 'CellDL Diagram (.celldl)',

@@ -1,5 +1,4 @@
 import JSZip from 'jszip'
-import Papa from 'papaparse'
 
 import { notify } from '../../utils/notify'
 import { parseModuleRef } from '../../utils/config'
@@ -97,10 +96,10 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       const defaultSet = configs.get(signature).entry.default_parameterisation
       const row = {
         name: node.data.name,
-        module_subtype: moduleSubtype,
         module_type: moduleType,
-        inp_instances: inp_instances.join(' '),
-        out_instances: out_instances.join(' '),
+        module_subtype: moduleSubtype,
+        inp_instances,
+        out_instances,
         ...(parameterisation && parameterisation !== defaultSet && { parameterisation }),
       }
       configs.get(signature).rows.push(row)
@@ -113,10 +112,6 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
     warnMissingBoundaryValues(nodes, edges)
     const module_config = assignSubtypes(configsByRef, libraryStore)
     addPulmonaryModule(instance_array, module_config, libraryStore)
-    // The CSV's columns are the first row's keys, so every row has the column once any does.
-    if (instance_array.some((row) => row.parameterisation)) {
-      for (const row of instance_array) row.parameterisation ??= ''
-    }
 
     // The config's CellML, edits included; may rename component files so CA finds them.
     const { files: cellmlFiles, missingUnits, renamedComponents } = await buildCaCellmlFiles(fileName, module_config, libraryStore)
@@ -141,7 +136,8 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
 
     // --- 3. FINALIZING AND COMPRESSING ZIP ---
     zip.file(`${MODULES_DIR}/${fileName}_module_config.json`, JSON.stringify(module_config, null, 2))
-    zip.file(`${fileName}_module_array.csv`, Papa.unparse(instance_array))
+    // At the root: CA reads every JSON file in modules/ as a config.
+    zip.file(`${fileName}_module_array.json`, moduleArrayJson(instance_array))
     zip.file(parametersFileName(fileName), parametersText)
     if (obsData != null) zip.file(`${fileName}_obs_data.json`, obsData)
     for (const [name, { text }] of parameterFiles) zip.file(`${PARAMETERS_DIR}/${name}`, text)
@@ -372,16 +368,39 @@ function assignSubtypes(configsByRef, libraryStore) {
 }
 
 /**
+ * Writes a value as Python's `json.dumps` does by default: `', '` and `': '` separators, non-ASCII escaped.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function pythonStyleJson(value) {
+  if (Array.isArray(value)) return `[${value.map(pythonStyleJson).join(', ')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value).map(([key, item]) => `${pythonStyleJson(key)}: ${pythonStyleJson(item)}`).join(', ')}}`
+  }
+  const text = JSON.stringify(value) ?? 'null'
+  return text.replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
+}
+
+/**
+ * Writes module array records in CA's `dump_vessel_records` layout: one record per line inside a list.
+ * @param {Object[]} records
+ * @returns {string}
+ */
+export function moduleArrayJson(records) {
+  return `[\n${records.map((record) => ` ${pythonStyleJson(record)}`).join(',\n')}\n]\n`
+}
+
+/**
  * Adds the module CA uses for the pulmonary artery and vein it adds when the only heart has one output, unless a
  * config has it already, and warns that CA will ask for their values.
  *
- * @param {Array} instanceArray - The module array rows.
+ * @param {Array} instanceArray - The module array rows, with instance lists as arrays.
  * @param {Array<Object>} moduleConfig - The config entries, added to.
  * @param {Object} libraryStore - The library, for `availableModules` and the math's format.
  */
 function addPulmonaryModule(instanceArray, moduleConfig, libraryStore) {
   const hearts = instanceArray.filter((row) => isHeart(row.module_type))
-  if (hearts.length !== 1 || hearts[0].out_instances.split(' ').filter(Boolean).length >= 2) return
+  if (hearts.length !== 1 || hearts[0].out_instances.length >= 2) return
 
   const { moduleType, moduleSubtype } = parseModuleRef(PULMONARY_MODULE_REF)
   const module = libraryStore.availableModules.get(PULMONARY_MODULE_REF)
