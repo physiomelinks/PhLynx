@@ -387,6 +387,7 @@ export function pythonStyleJson(value) {
  * @returns {string}
  */
 export function moduleArrayJson(records) {
+  if (records.length === 0) return '[]\n'
   return `[\n${records.map((record) => ` ${pythonStyleJson(record)}`).join(',\n')}\n]\n`
 }
 

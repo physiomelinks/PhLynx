@@ -291,6 +291,7 @@ describe('generateExportZip', () => {
 
   it("escapes non-ASCII text as Python's json.dumps does", () => {
     expect(moduleArrayJson([{ name: 'café', inp_instances: [] }])).toBe('[\n {"name": "caf\\u00e9", "inp_instances": []}\n]\n')
+    expect(moduleArrayJson([])).toBe('[]\n')
   })
 
   it('writes no default parameterisation when the module names none', async () => {
