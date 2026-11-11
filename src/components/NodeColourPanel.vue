@@ -29,6 +29,11 @@
         @update:modelValue="onSelectTheme"
       />
       <p v-if="themeStore.activeTheme.description" class="hint">{{ themeStore.activeTheme.description }}</p>
+      <p v-if="isActiveFromWorkspace" class="hint">
+        <i class="pi pi-info-circle"></i>
+        This theme came with the workspace and is saved with it. Choose <strong>New from this theme</strong> to keep
+        a copy in this browser.
+      </p>
       <p v-if="themeStore.remoteStatus === 'error'" class="hint hint--warn">
         <i class="pi pi-exclamation-triangle"></i>
         Shared themes could not be loaded ({{ themeStore.remoteError }}).
@@ -168,7 +173,14 @@ import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { FLOW_IDS, GHOST_NODE_TYPE } from '../utils/constants'
 import { notify } from '../utils/notify'
-import { THEME_REPO, buildSubmissionUrl, findCategory, isLocalThemeId, toSubmission } from '../utils/nodeThemes'
+import {
+  THEME_REPO,
+  buildSubmissionUrl,
+  findCategory,
+  isLocalThemeId,
+  isWorkspaceThemeId,
+  toSubmission,
+} from '../utils/nodeThemes'
 
 const MIXED = Symbol('mixed')
 
@@ -181,6 +193,7 @@ const selectedNodes = computed(() => getSelectedNodes.value.filter((node) => nod
 
 const themeGroups = computed(() =>
   [
+    { label: 'From this workspace', items: themeStore.workspaceThemes },
     { label: 'Built-in', items: themeStore.builtInThemes },
     { label: 'Shared', items: themeStore.remoteThemes },
     { label: 'My themes', items: themeStore.localThemes },
@@ -200,6 +213,7 @@ const orphanKey = computed(() => {
 })
 
 const isActiveLocal = computed(() => isLocalThemeId(themeStore.activeTheme.id))
+const isActiveFromWorkspace = computed(() => isWorkspaceThemeId(themeStore.activeTheme.id))
 
 function swatchStyle(category) {
   return {

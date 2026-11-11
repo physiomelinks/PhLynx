@@ -138,3 +138,26 @@ describe('buildWorkspaceFile bioTemplates', () => {
     expect(loadAndSave(doc).bioTemplates).toEqual(bioTemplates)
   })
 })
+
+describe('buildWorkspaceFile nodeTheme', () => {
+  it('carries a theme this browser lacks through load and save', () => {
+    const nodeTheme = {
+      id: 'local:mine',
+      theme: {
+        schemaVersion: 1,
+        id: 'local:mine',
+        name: 'Mine',
+        categories: [{ key: 'pump', label: 'Pump', color: '#ffeedd', dark: '#332211' }],
+      },
+    }
+    const doc = {
+      id: PHLYNX_PROJECT_IDENTIFIER,
+      version: PHLYNX_PROJECT_VERSION,
+      flow: { nodes: [{ id: 'n1', position: { x: 0, y: 0 }, data: { name: 'p', domainType: 'pump' } }], edges: [] },
+      store: {},
+      nodeTheme,
+    }
+
+    expect(loadAndSave(doc).nodeTheme).toEqual(nodeTheme)
+  })
+})
