@@ -256,6 +256,7 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       // A new config keeps the module's default parameter set, so its instances and its export still name it.
       const defaultSet = module?.defaultParameterisation && { defaultParameterisation: module.defaultParameterisation }
       const newModule = {
+        ...(module?.configExtras && { configExtras: module.configExtras }),
         moduleRef: config.moduleRef,
         mathRef,
         ports: toModulePorts(ports),

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { normaliseConfig } from '../../../src/utils/config.js'
 import { buildInstance } from '../../../src/services/import/buildWorkflow.js'
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath.js'
 import { isModuleConfig, librarySignatures, moduleConfigEntry, configSignature, portEditConfig } from '../../../src/services/moduleConfig.js'
@@ -158,5 +159,42 @@ describe('moduleConfig', () => {
     expect(moduleConfigEntry({ ...dropped, defaultParameterisation: 'fast' }, library).default_parameterisation).toBe('fast')
     expect(configSignature(entry)).toBe(configSignature(moduleConfigEntry(dropped)))
     expect(isModuleConfig(dropped, { ...MODULE, defaultParameterisation: 'slow' }, analysis)).toBe(true)
+  })
+})
+
+describe('keys PhLynx does not edit', () => {
+  const api = { name: 'ext', role: 'consumer', transport: 'python' }
+  const config = {
+    module_type: 'decay',
+    module_subtype: 'base',
+    module_format: 'external_api',
+    component_file: 'file',
+    component_type: 'decay',
+    api,
+    delay_info: { variables_to_delay: ['x'], delayed_variables: ['xd'], delay_amounts: [1] },
+    phlynx_layout: { x: 1 },
+    licence: 'MIT',
+    entrance_ports: [],
+    exit_ports: [],
+    general_ports: [],
+    variables_and_units: [],
+  }
+  const library = () => ({ availableModules: new Map([['decay:base', normaliseConfig(config)]]) })
+
+  it('are written back as they were', () => {
+    const store = library()
+    const entry = moduleConfigEntry(store.availableModules.get('decay:base'), store)
+    expect(entry).toMatchObject({ module_format: 'external_api', api, licence: 'MIT', phlynx_layout: { x: 1 } })
+    expect(entry.delay_info.delay_amounts).toEqual([1])
+  })
+
+  it('stay out of the entries compared without the library', () => {
+    const module = library().availableModules.get('decay:base')
+    expect(moduleConfigEntry(module)).not.toHaveProperty('api')
+  })
+
+  it('leave a CellML config with none', () => {
+    const { api, delay_info, phlynx_layout, licence, ...plain } = { ...config, module_format: 'cellml' }
+    expect(normaliseConfig(plain).configExtras).toBeUndefined()
   })
 })
