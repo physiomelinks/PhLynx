@@ -239,6 +239,7 @@ After a run, add it to a plot by searching for its name, or turn on **Settings â
 
 1. Select instances, open **Properties** (wrench icon) and click a category under **Node colour** (**None** removes it). The colours come from the theme chosen under **Colour theme**.
 2. To make your own categories, click **New from this theme**, edit the labels and colours (**Add** adds a category), then **Save**. Your themes are listed under **My themes**.
+   Double-click a category under **Node colour** to go straight to its colour: the editor opens with the picker for the light or dark mode colour, whichever mode is on. On a theme that isn't yours, this starts a new theme from it, kept only when you **Save**.
    The chosen theme is saved with the workspace, with a copy of its colours unless it is built in. Someone who opens the workspace without that theme sees it listed under **From this workspace**; it is not added to their browser unless they choose **New from this theme**.
 3. **Import a theme file** (upload icon) loads a theme; on your own theme, **Export as JSON** (download icon) saves it and **Propose for everyone** opens a GitHub issue to share it.
 

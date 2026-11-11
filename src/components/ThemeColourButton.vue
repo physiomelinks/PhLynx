@@ -1,5 +1,6 @@
 <template>
   <button
+    ref="chip"
     type="button"
     class="colour-chip"
     :class="{ 'colour-chip--auto': isAuto, 'colour-chip--open': isOpen }"
@@ -113,6 +114,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const popover = ref(null)
+const chip = ref(null)
 const isOpen = ref(false)
 const hexText = ref('')
 /** Bumped when the colour is set from outside the picker, so its handles move to the new colour. */
@@ -179,6 +181,15 @@ function toggle(event) {
   popover.value?.toggle(event)
 }
 
+/** Opens the picker from code, anchored to the chip; does nothing when it is already open. */
+function open() {
+  if (isOpen.value || !chip.value) return
+  original = props.modelValue
+  applied = false
+  isOpen.value = true
+  popover.value?.show({ currentTarget: chip.value }, chip.value)
+}
+
 function revert() {
   if (props.modelValue !== original) emit('update:modelValue', original)
 }
@@ -201,7 +212,7 @@ function cancel() {
   popover.value?.hide()
 }
 
-defineExpose({ apply, cancel })
+defineExpose({ open, apply, cancel })
 </script>
 
 <style scoped>

@@ -55,10 +55,12 @@
           :key="category.key"
           type="button"
           class="swatch"
-          :class="{ 'swatch--active': selectionKey === category.key }"
-          :disabled="!selectedNodes.length"
+          :class="{ 'swatch--active': selectionKey === category.key, 'swatch--inert': !selectedNodes.length }"
+          :aria-disabled="!selectedNodes.length"
           :style="swatchStyle(category)"
+          v-tooltip.top="'Double-click to change colours'"
           @click="assignCategory(category.key)"
+          @dblclick="editCategoryColour(category.key)"
         >
           <span class="swatch-chip"></span>
           <span class="swatch-label">{{ category.label }}</span>
@@ -92,6 +94,8 @@
         :theme="editingTheme"
         :errors="editorErrors"
         :is-new="isNewTheme"
+        :focus-key="editFocusKey"
+        :focus-scheme="isDarkMode ? 'dark' : 'light'"
         @change="editorErrors = []"
         @save="saveEdit"
         @cancel="stopEditing"
@@ -168,6 +172,7 @@ import Button from 'primevue/button'
 import Select from 'primevue/select'
 
 import NodeThemeEditor from './NodeThemeEditor.vue'
+import { useColorScheme } from '../composables/useColorScheme'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
@@ -188,6 +193,7 @@ const themeStore = useNodeThemeStore()
 const { getSelectedNodes, updateNodeData } = useVueFlow(FLOW_IDS.MAIN)
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 const { confirm } = useConfirmDialog()
+const { isDarkMode } = useColorScheme()
 
 const selectedNodes = computed(() => getSelectedNodes.value.filter((node) => node.type !== GHOST_NODE_TYPE))
 
@@ -233,7 +239,8 @@ function onSelectTheme(id) {
  */
 function assignCategory(key) {
   const ids = selectedNodes.value.map((node) => node.id)
-  if (!ids.length) return
+  // Nothing to do also when every node has it already, so a double-click's second click adds no undo step.
+  if (!ids.length || selectionKey.value === key) return
   recordEdit({
     type: 'set-node-category',
     nodeIds: ids,
@@ -245,6 +252,8 @@ function assignCategory(key) {
 // ── Local themes ───────────────────────────────────────────────────────
 const editingTheme = ref(null)
 const isNewTheme = ref(false)
+/** The category whose colour picker the editor opens on. */
+const editFocusKey = ref(null)
 const editorErrors = ref([])
 const fileInput = ref(null)
 
@@ -261,7 +270,20 @@ function startEditing() {
   editingTheme.value = themeStore.activeTheme
 }
 
+/**
+ * Opens the editor on a category's colour: the theme itself when it is the user's own, otherwise an unsaved
+ * copy, as New from this theme does.
+ *
+ * @param {string} key
+ */
+function editCategoryColour(key) {
+  if (isActiveLocal.value) startEditing()
+  else duplicateActive()
+  editFocusKey.value = key
+}
+
 function stopEditing() {
+  editFocusKey.value = null
   editingTheme.value = null
   isNewTheme.value = false
   editorErrors.value = []
@@ -375,12 +397,12 @@ function submitActive() {
   text-align: left;
 }
 
-.swatch:disabled {
+.swatch--inert {
   cursor: default;
   opacity: 0.6;
 }
 
-.swatch:not(:disabled):hover {
+.swatch:not(.swatch--inert):hover {
   border-color: var(--p-primary-color);
 }
 
