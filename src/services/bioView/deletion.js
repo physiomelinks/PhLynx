@@ -69,7 +69,7 @@ export async function deleteInstances(ids, { removeNodes, history }) {
  *
  * @param {string} edgeId
  * @param {Object} options
- * @param {Function} options.disconnectInstances - Removes edges in the current step (see WorkspaceArea).
+ * @param {Function} options.disconnectInstances - Removes edges in the current step (see WorkspaceView).
  * @param {Object} options.history - The history store.
  * @returns {Promise<void>}
  */

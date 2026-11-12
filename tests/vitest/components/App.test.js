@@ -25,10 +25,15 @@ async function mountApp(path = '/') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/', name: 'workspace', component: view('workspace view') },
+      {
+        path: '/',
+        name: 'workspace',
+        component: view('workspace view'),
+        meta: { title: 'Workflow Builder', showsProjectName: true },
+      },
       { path: '/simulation', name: 'simulation', component: view('simulation view') },
       { path: '/docs/:rest(.*)*', name: 'docs', component: view('docs view') },
-      { path: '/about', name: 'about', component: view('about view') },
+      { path: '/about', name: 'about', component: view('about view'), meta: { title: 'About' } },
     ],
   })
   await router.push(path)
@@ -136,6 +141,19 @@ describe('App', () => {
     await router.push('/simulation')
     await flushPromises()
     expect(isNameShown(wrapper)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('updates the tab title when the session name changes on a route that shows it', async () => {
+    const { wrapper, router, store } = await mountApp('/')
+    store.setLastSaveName('My model')
+    await flushPromises()
+    expect(document.title).toBe('My model - Workflow Builder - PhLynx')
+
+    await router.push('/about')
+    store.setLastSaveName('Renamed')
+    await flushPromises()
+    expect(document.title).toBe('About - PhLynx')
     wrapper.unmount()
   })
 
