@@ -70,7 +70,7 @@ Cartoons are data in a glyph library. **Glyph Libraries ▸ Load Glyph Library�
 
 ## Species Mode {#species-mode}
 
-Species mode shows, in each compartment, a token for each annotated species, and the paths those species take through the proteins between compartments. Turn it on with the **Show species** button in the view's controls, or **Species Mode ▸ Show Species** on the canvas right-click menu. **Settings ▸ Species mode** opens the view in species mode.
+Species mode shows, in each compartment, a token for each annotated species, and the paths those species take through the proteins between compartments. Turn it on with the **Show species** button in the view's controls, or **Species Mode ▸ Show Species** on the canvas right-click menu. The view opens with species mode as you last left it.
 
 - Click a token to focus that species in that compartment: its paths are highlighted, other species are set back, and after a run its amount and the flows into it are plotted. Click the canvas to clear the focus.
 - Drag a token along its row to reorder the tokens in its compartment; a token cannot leave its compartment. The order is saved with the workspace and each reorder is one undo step. Dependence links meet their protein in the order of their tokens; paths stay under the cartoon's arrows. Right-click the compartment and choose **Reset Species Order** to go back to the automatic order.
