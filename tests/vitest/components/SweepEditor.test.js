@@ -60,7 +60,7 @@ afterEach(() => wrapper?.unmount())
 function mountEditor(sweep = null, props = {}) {
   wrapper = mount(SweepEditor, {
     props: { nodes, sweep, 'onUpdate:sweep': (next) => wrapper.setProps({ sweep: next }), ...props },
-    global: { plugins: [PrimeVue], directives: { tooltip } },
+    global: { plugins: [PrimeVue], directives: { tooltip, hint: tooltip } },
   })
 }
 
@@ -240,7 +240,7 @@ describe('SweepEditor', () => {
     function mountWithKo(sweep) {
       wrapper = mount(SweepEditor, {
         props: { nodes: twoParameters, sweep, 'onUpdate:sweep': (next) => wrapper.setProps({ sweep: next }) },
-        global: { plugins: [PrimeVue], directives: { tooltip } },
+        global: { plugins: [PrimeVue], directives: { tooltip, hint: tooltip } },
       })
     }
 

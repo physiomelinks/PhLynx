@@ -21,7 +21,7 @@
       :severity="protocolStore.isShowingInputs ? 'primary' : 'secondary'"
       :aria-pressed="protocolStore.isShowingInputs"
       aria-label="Show the values the protocol set"
-      v-tooltip.bottom="protocolStore.isShowingInputs ? 'Hide the values the protocol set' : 'Show the values the protocol set, after the results'"
+      v-hint.bottom="protocolStore.isShowingInputs ? 'Hide the values the protocol set' : 'Show the values the protocol set, after the results'"
       @click="protocolStore.isShowingInputs = !protocolStore.isShowingInputs"
     />
   </div>

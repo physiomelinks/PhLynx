@@ -96,7 +96,7 @@ async function mountTab(props = {}, text = SIDECAR) {
       'onUpdate:draft': (draft) => wrapper.setProps({ draft }),
       ...props,
     },
-    global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} } },
   })
   await flushPromises()
   return wrapper
@@ -714,7 +714,7 @@ describe('AnnotationTab placement and held flows', () => {
     const sidecar = await parseSidecar(text, { mathRef: 'pool.cellml:pool', cellml })
     wrapper = mount(AnnotationTab, {
       props: { rows: POOL_ROWS, sidecar, sidecarText: text, cellml, draft: createAnnotationDraft(), mathRef: 'pool.cellml:pool', ...props },
-      global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+      global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} } },
     })
     await flushPromises()
     return wrapper

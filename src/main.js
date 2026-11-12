@@ -7,6 +7,7 @@ import ConfirmationService from 'primevue/confirmationservice'
 import ToastService from 'primevue/toastservice'
 import libcellmlPlugin from 'vue3-libcellml.js'
 import GlossaryLink from './components/GlossaryLink.vue'
+import { vHint } from './directives/hint'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -61,6 +62,7 @@ waitForIsolationReload().then(() => {
   app.use(ConfirmationService)
   app.use(ToastService)
   app.directive('tooltip', Tooltip)
+  app.directive('hint', vHint)
   app.directive('ripple', Ripple)
   app.use(libcellmlPlugin)
   app.component('GlossaryLink', GlossaryLink)

@@ -50,7 +50,7 @@ let wrapper
 
 async function mountPanel() {
   wrapper = mount(NodeColourPanel, {
-    global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {}, hint: {} } },
   })
   await flushPromises()
 }

@@ -69,7 +69,7 @@ describe('CouplingEdge', () => {
   describe('route', () => {
     const geometry = { sourceX: 0, sourceY: 0, targetX: 300, targetY: 120, sourcePosition: 'right', targetPosition: 'left' }
     const mountRoute = (data) =>
-      mount(CouplingEdge, { props: { id: 'e', source: 'a', target: 'b', ...geometry, data }, global: { directives: { tooltip: {} } } })
+      mount(CouplingEdge, { props: { id: 'e', source: 'a', target: 'b', ...geometry, data }, global: { directives: { tooltip: {}, hint: {} } } })
     const drawnPath = (wrapper) => wrapper.findComponent({ name: 'BaseEdge' }).props('path')
 
     it('draws an edge without waypoints exactly as smoothstep does', () => {
@@ -91,7 +91,7 @@ describe('CouplingEdge', () => {
         selectedEdges.value = [edges.value[0]]
         const wrapper = mount(CouplingEdge, {
           props: { id: 'e', source: 'a', target: 'b', ...geometry, data, selected: true },
-          global: { directives: { tooltip: {} } },
+          global: { directives: { tooltip: {}, hint: {} } },
         })
         return wrapper
       }

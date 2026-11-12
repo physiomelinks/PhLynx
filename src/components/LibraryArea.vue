@@ -68,7 +68,7 @@
                         text
                         rounded
                         class="mlc__preview-btn mlc__remove-btn"
-                        v-tooltip.top="'Remove module'"
+                        v-hint.top="'Remove module'"
                         @click.stop="deleteModule(activeModule(card))"
                       />
                       <span class="mlc__card-name">{{ card.label }}</span>
@@ -88,7 +88,7 @@
                           rounded
                           size="small"
                           class="mlc__preview-btn"
-                          v-tooltip.top="'Preview configuration'"
+                          v-hint.top="'Preview configuration'"
                           @click.stop="openPreview(activeModule(card))"
                         />
                       </div>

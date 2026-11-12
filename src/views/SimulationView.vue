@@ -10,7 +10,7 @@
           severity="secondary"
           class="page-back"
           aria-label="Back to the workspace"
-          v-tooltip.bottom="'Back to the workspace'"
+          v-hint.bottom="'Back to the workspace'"
           @click="goToWorkspace"
         />
         <!-- Focused on arrival, so keyboard and screen-reader users start on the page. -->

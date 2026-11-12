@@ -44,7 +44,7 @@ async function mountLibrary({ sets = ['lumen', 'enterocyte'], mathOnlyFirst = fa
   for (const ref of sets) parameters.addSet(paramSet(ref, [['C', param(ref === 'lumen' ? '140' : '15')]]), { mathRef: MATH_REF })
 
   wrapper = mount(LibraryArea, {
-    global: { plugins: [PrimeVue], stubs: { ModulePreviewDialog: true }, directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue], stubs: { ModulePreviewDialog: true }, directives: { tooltip: {}, hint: {} } },
   })
   await wrapper.find('.mlc__group-header').trigger('click')
   await flushPromises()

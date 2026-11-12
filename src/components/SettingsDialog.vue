@@ -151,7 +151,7 @@
           text
           severity="secondary"
           :disabled="changedKeys.size === 0"
-          v-tooltip.top="{ value: 'Put every setting back as it was when Settings opened', showDelay: 300 }"
+          v-hint.top="'Put every setting back as it was when Settings opened'"
           @click="revertChanges"
         />
         <Button label="Done" @click="closeDialog" />
@@ -164,6 +164,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { Dialog, Button, Checkbox, Select, ToggleSwitch } from 'primevue'
 import Tooltip from 'primevue/tooltip'
+import { vHint as hint } from '../directives/hint'
 
 import { useAppSettings } from '../composables/useAppSettings'
 import { SETTING_SECTIONS } from '../utils/appSettings'
@@ -175,6 +176,7 @@ import SimulationSettingsIcon from './icons/SimulationSettingsIcon.vue'
 
 // Registered here as well as app-wide, so the dialog brings its own.
 const vTooltip = Tooltip
+const vHint = hint
 
 /** The icon of the toolbar button each checklist setting shows: a PrimeIcons class or an icon component. */
 const SETTING_ICONS = {

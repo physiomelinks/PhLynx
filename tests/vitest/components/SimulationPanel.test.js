@@ -48,7 +48,7 @@ function mountWith(component, { props = {}, router }) {
     attachTo: document.body,
     global: {
       plugins: [PrimeVue, router],
-      directives: { tooltip: {} },
+      directives: { tooltip: {}, hint: {} },
       stubs: { SimulationPlot: true, FeaturePlot: true, SimulationControls: true },
     },
   })

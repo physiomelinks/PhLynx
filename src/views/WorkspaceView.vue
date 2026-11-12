@@ -16,7 +16,7 @@
             icon="pi pi-folder-open"
             size="small"
             variant="text"
-            v-tooltip.bottom="{ value: 'Load workspace', showDelay: 300 }"
+            v-hint.bottom="'Load workspace'"
             @click="$refs.workspaceFileInput.click()"
           />
 
@@ -25,7 +25,7 @@
             icon="pi pi-save"
             size="small"
             variant="text"
-            v-tooltip.bottom="{ value: 'Save workspace', showDelay: 300 }"
+            v-hint.bottom="'Save workspace'"
             @click="handleSaveWorkspace"
             :style="{ marginLeft: appSettings.toolbarLoad ? '10px' : 0 }"
             :disabled="!hasWorkspaceContent"
@@ -39,7 +39,7 @@
             size="small"
             variant="text"
             severity="warn"
-            v-tooltip.bottom="{ value: 'Clean up workspace', showDelay: 300 }"
+            v-hint.bottom="'Clean up workspace'"
             @click="handleAutoLayout"
             :disabled="!somethingAvailable"
           >
@@ -52,7 +52,7 @@
             size="small"
             variant="text"
             severity="danger"
-            v-tooltip.bottom="{ value: 'Clear workspace', showDelay: 300 }"
+            v-hint.bottom="'Clear workspace'"
             @click="handleClearWorkspace"
             :style="{ marginLeft: appSettings.toolbarCleanUp ? '10px' : 0 }"
             :disabled="!hasWorkspaceContent"
@@ -67,7 +67,7 @@
               size="small"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Undo', showDelay: 300 }"
+              v-hint.bottom="'Undo'"
               @click="handleUndo"
               :disabled="!historyStore.canUndo"
             />
@@ -78,7 +78,7 @@
               size="small"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Redo', showDelay: 300 }"
+              v-hint.bottom="'Redo'"
               @click="handleRedo"
               style="margin-left: 10px"
               :disabled="!historyStore.canRedo"
@@ -92,7 +92,7 @@
               iconOnly
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add left handle', showDelay: 300 }"
+              v-hint.bottom="'Add left handle'"
               :disabled="!somethingSelected"
               @click="addHandle('left')"
             >
@@ -104,7 +104,7 @@
               style="margin-left: 5px"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add top handle', showDelay: 300 }"
+              v-hint.bottom="'Add top handle'"
               :disabled="!somethingSelected"
               @click="addHandle('top')"
             >
@@ -116,7 +116,7 @@
               style="margin-left: 5px"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add right handle', showDelay: 300 }"
+              v-hint.bottom="'Add right handle'"
               :disabled="!somethingSelected"
               @click="addHandle('right')"
             >
@@ -128,7 +128,7 @@
               style="margin-left: 5px"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add bottom handle', showDelay: 300 }"
+              v-hint.bottom="'Add bottom handle'"
               :disabled="!somethingSelected"
               @click="addHandle('bottom')"
             >
@@ -145,7 +145,7 @@
             size="small"
             variant="text"
             severity="info"
-            v-tooltip.bottom="{ value: 'Open macro builder', showDelay: 300 }"
+            v-hint.bottom="'Open macro builder'"
             @click="onOpenMacroBuilderDialog"
           />
 
@@ -158,7 +158,7 @@
             severity="info"
             :disabled="!somethingAvailable"
             aria-label="Configure simulation settings"
-            v-tooltip.bottom="{ value: 'Configure simulation settings', showDelay: 300 }"
+            v-hint.bottom="'Configure simulation settings'"
             @click="onOpenSimSettingsDialog"
           >
             <SimulationSettingsIcon />
@@ -173,7 +173,7 @@
             variant="text"
             severity="info"
             aria-label="Settings"
-            v-tooltip.bottom="{ value: 'Settings', showDelay: 300 }"
+            v-hint.bottom="'Settings'"
             @click="onOpenSettingsDialog"
           />
 

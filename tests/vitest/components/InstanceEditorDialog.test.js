@@ -160,7 +160,7 @@ function mountDialog(props = {}, { isPanelReal = false } = {}) {
         CelldlParametersTab: CelldlParametersTabStub,
         ...(isPanelReal ? { SimulationPlot: true, FeaturePlot: true } : { SimulationPanel: SimulationPanelStub }),
       },
-      directives: { tooltip: {} },
+      directives: { tooltip: {}, hint: {} },
     },
   })
   return wrapper

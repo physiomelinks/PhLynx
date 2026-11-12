@@ -36,7 +36,7 @@
           rel="noopener"
           class="report-issue-link"
           aria-label="Report an issue"
-          v-tooltip.bottom="{ value: 'Report an issue', showDelay: 300 }"
+          v-hint.bottom="'Report an issue'"
         >
           <BugIcon aria-hidden="true" />
         </a>

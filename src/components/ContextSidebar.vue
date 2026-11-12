@@ -30,7 +30,7 @@
           :key="tab.id"
           :value="tab.id"
           :tabindex="tab.id === activeTabId ? 0 : -1"
-          v-tooltip.left="tab.label"
+          v-hint.left="tab.label"
           @click="activeTabId = tab.id"
         >
           <i :class="['pi', tab.icon]"></i>
@@ -197,7 +197,7 @@
                       text
                       rounded
                       size="small"
-                      v-tooltip.top="'Edit module'"
+                      v-hint.top="'Edit module'"
                       @click="emit('open-inspection-module-dialog', module)"
                     />
                     <span class="module-card-name" :title="module.name">{{ module.name }}</span>
@@ -210,7 +210,7 @@
                       rounded
                       size="small"
                       severity="danger"
-                      v-tooltip.top="'Delete module'"
+                      v-hint.top="'Delete module'"
                       @click="inspectionModuleStore.removeModule(module.id)"
                     />
                   </div>

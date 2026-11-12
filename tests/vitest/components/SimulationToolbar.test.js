@@ -24,7 +24,7 @@ const tooltip = {
  * @param {Object} [props]
  * @returns {import('@vue/test-utils').VueWrapper}
  */
-const mountToolbar = (props = {}) => mount(SimulationToolbar, { props, global: { plugins: [PrimeVue], directives: { tooltip } } })
+const mountToolbar = (props = {}) => mount(SimulationToolbar, { props, global: { plugins: [PrimeVue], directives: { tooltip, hint: tooltip } } })
 
 describe('SimulationToolbar sweep mode', () => {
   beforeEach(() => setActivePinia(createPinia()))
@@ -244,7 +244,7 @@ describe('SimulationToolbar slot', () => {
 
   it('puts a view’s own controls right after the scope switch', () => {
     const wrapper = mount(SimulationToolbar, {
-      global: { plugins: [PrimeVue], directives: { tooltip } },
+      global: { plugins: [PrimeVue], directives: { tooltip, hint: tooltip } },
       slots: { default: '<span class="own-control">Mine</span>' },
     })
     expect(wrapper.find('.toolbar-scope').element.nextElementSibling.classList.contains('own-control')).toBe(true)

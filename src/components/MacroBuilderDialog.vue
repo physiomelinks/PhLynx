@@ -31,7 +31,7 @@
       <main class="workbench-macro">
         <Menubar :model="items">
           <template #item="{ item, props }">
-            <a class="p-menubar-item-link" v-bind="props.action" v-tooltip.bottom="item.tooltip">
+            <a class="p-menubar-item-link" v-bind="props.action" v-hint.bottom="item.tooltip">
               <i v-if="typeof item.icon === 'string'" :class="item.icon" />
               <component :is="item.icon" v-else-if="item.icon" />
               <span v-if="item.label">{{ item.label }}</span>

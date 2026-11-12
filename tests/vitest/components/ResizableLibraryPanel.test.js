@@ -25,7 +25,7 @@ function mountPanel(props = {}) {
     props: { initialWidth: 280, ...props },
     slots: { default: '<div class="library-slot">Library</div>' },
     attachTo: document.body,
-    global: { plugins: [PrimeVue], directives: { tooltip: tooltipStub } },
+    global: { plugins: [PrimeVue], directives: { tooltip: tooltipStub, hint: tooltipStub } },
   })
   return wrapper
 }

@@ -53,7 +53,7 @@ function mountRow(props = {}) {
       variables: [{ name: 'v' }, { name: 'q' }],
       ...props,
     },
-    global: { plugins: [PrimeVue], stubs: { Handle: true }, directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue], stubs: { Handle: true }, directives: { tooltip: {}, hint: {} } },
   })
   return wrapper
 }

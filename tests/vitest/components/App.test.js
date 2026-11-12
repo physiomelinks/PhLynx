@@ -43,7 +43,7 @@ async function mountApp(path = '/') {
     attachTo: document.body,
     global: {
       plugins: [PrimeVue, router],
-      directives: { tooltip },
+      directives: { tooltip, hint: tooltip },
       stubs: { ConfirmDialog: true },
     },
   })
