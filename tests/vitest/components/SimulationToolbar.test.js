@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -168,6 +168,73 @@ describe('SimulationToolbar placement', () => {
     expect(labelsOf(wrapper)).not.toContain('Open the simulation page')
     expect(labelsOf(wrapper)).not.toContain('Float the results over the canvas')
     expect(labelsOf(wrapper)).toContain('Track this run')
+    wrapper.unmount()
+  })
+})
+
+describe('SimulationToolbar overflow menu', () => {
+  // happy-dom lays nothing out, so the row is given one: each control it shows is 30px wide.
+  let rowWidth
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    rowWidth = 1000
+    const shown = (row) => [...row.children].filter((child) => child.style.display !== 'none' && child.tagName !== 'TEMPLATE')
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function () {
+      return this.classList.contains('toolbar-row') ? shown(this).length * 30 : 0
+    })
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () {
+      return this.classList.contains('toolbar-row') ? rowWidth : 0
+    })
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const shownLabels = (wrapper) =>
+    wrapper.findAll('.toolbar-row > *').filter((el) => el.element.style.display !== 'none').map((el) => el.attributes('aria-label') ?? el.classes()[0])
+  const menuLabels = (wrapper) => wrapper.vm.$.setupState.moreItems.map((item) => item.label)
+
+  it('has no menu while everything fits', async () => {
+    const wrapper = mountToolbar({ hasPageLink: true })
+    await flushPromises()
+    expect(wrapper.find('button[aria-label="More simulation actions"]').exists()).toBe(false)
+    expect(menuLabels(wrapper)).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('moves as few buttons as fit into the menu, the least used first', async () => {
+    // Shown, the run, the switch, the spacer, track, float, page, obs_data and settings: eight, or 240px.
+    rowWidth = 190
+    const wrapper = mountToolbar({ hasPageLink: true, isRunning: true })
+    await flushPromises()
+
+    // Three hidden, and the more button shown, makes six, or 180px; two hidden would make 210px.
+    expect(menuLabels(wrapper)).toEqual(['Open the simulation page', 'Edit obs_data', 'Simulation settings'])
+    expect(wrapper.vm.$.setupState.moreItems.map((item) => !!item.disabled)).toEqual([false, true, true])
+    expect(shownLabels(wrapper)).toEqual([
+      'toolbar-run-wrap',
+      'toolbar-scope',
+      'toolbar-spacer',
+      'toolbar-track',
+      'Float the results over the canvas',
+      'More simulation actions',
+    ])
+    wrapper.vm.$.setupState.moreItems[0].command()
+    expect(wrapper.emitted('open-page')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('keeps the modes to last, and fits again when a sweep is set', async () => {
+    // Room for five: four hidden, and the more button.
+    rowWidth = 150
+    const wrapper = mountToolbar({ hasPageLink: true })
+    await flushPromises()
+    expect(menuLabels(wrapper)).toEqual(['Float over the canvas', 'Open the simulation page', 'Edit obs_data', 'Simulation settings'])
+
+    const settingsStore = useSimulationSettingsStore()
+    settingsStore.setSimulationSettings({ ...settingsStore.simulationSettings, sweep: SWEEP })
+    await flushPromises()
+    // The sweep button takes the track button's place.
+    expect(menuLabels(wrapper)).toEqual(['Track this run', 'Float over the canvas', 'Open the simulation page', 'Edit obs_data', 'Simulation settings'])
+    expect(shownLabels(wrapper)).toContain('Run the sweep')
     wrapper.unmount()
   })
 })

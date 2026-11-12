@@ -1,6 +1,6 @@
 /**
  * Shows or hides the floating simulation viewer, a small window of the results that stays over the canvas
- * while the model is edited. WorkspaceArea shows it, and says how to return to the Simulation tab and how to hide the
+ * while the model is edited. WorkspaceView shows it, and says how to return to the Simulation tab and how to hide the
  * sidebar, which floating the results does to give the canvas room.
  */
 import { reactive } from 'vue'

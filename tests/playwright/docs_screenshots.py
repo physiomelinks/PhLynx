@@ -114,7 +114,7 @@ def close_search(page):
 
 
 def open_simulation_tab(page):
-    page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+    page.locator(".context-panel .library-toggle").click()
     page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
 
@@ -242,7 +242,7 @@ def simulation_sidebar(page):
     close_search(page)
     page.mouse.move(5, VIEWPORT["height"] - 5)
     dismiss_toasts(page)
-    save(page, "simulation-sidebar", clip=page.locator(".resizable-context-panel").bounding_box())
+    save(page, "simulation-sidebar", clip=page.locator(".context-panel").bounding_box())
 
 
 def simulation_page(page):
@@ -430,7 +430,7 @@ def sweep_view(page):
     page.mouse.move(5, VIEWPORT["height"] - 5)
     page.wait_for_timeout(300)
     dismiss_toasts(page)
-    save(page, "sweep-view", clip=page.locator(".resizable-context-panel").bounding_box())
+    save(page, "sweep-view", clip=page.locator(".context-panel").bounding_box())
 
 
 # Two experiments stepping the soma's input current, each recording V's peak, plotted against the step.

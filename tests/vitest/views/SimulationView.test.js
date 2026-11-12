@@ -165,12 +165,14 @@ describe('SimulationView', () => {
 
   it('hides and shows the controls', async () => {
     const { wrapper } = await mountPage()
-    const toggle = wrapper.find('.aside-collapse-toggle')
+    const toggle = wrapper.find('.page-controls-panel .library-toggle')
+    expect(toggle.attributes('aria-label')).toBe('Hide controls')
     await toggle.trigger('click')
     expect(wrapper.find('.controls-stub').exists()).toBe(false)
     expect(toggle.attributes('aria-expanded')).toBe('false')
     await toggle.trigger('click')
     expect(wrapper.find('.controls-stub').exists()).toBe(true)
+    expect(wrapper.find('.page-controls-panel .module-aside-title').text()).toBe('Controls')
     wrapper.unmount()
   })
 })

@@ -46,7 +46,7 @@
 
     <div class="view-container">
       <router-view v-slot="{ Component }">
-        <keep-alive :include="['WorkspaceArea', 'SimulationView']">
+        <keep-alive :include="['WorkspaceView', 'SimulationView']">
           <component :is="Component" />
         </keep-alive>
       </router-view>
@@ -60,6 +60,7 @@ import { computed, ref, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import InputText from 'primevue/inputtext'
 
+import { updateDocumentTitle } from './router/documentTitle'
 import { useSessionMetadataStore } from './stores/sessionMetadataStore'
 
 import ConfirmDialog from './components/ConfirmDialog.vue'
@@ -87,6 +88,8 @@ const checkOverflow = () => {
 
 watch(sessionName, () => {
   nextTick(checkOverflow)
+  // The router sets the title on navigation; a rename, save or load changes the name in place.
+  updateDocumentTitle(route)
 })
 
 const isDocsActive = computed(() => {
@@ -136,6 +139,11 @@ function cancelEdit() {
 :root {
   --view-header-height: 46px;
   --view-header-padding-x: 1rem;
+  /* Where the canvas's floating controls sit: the panel toggles and the search box. Their offset below the view
+     header, the toggles' offset in from the side, and the toggles' size, which the search box keeps clear of. */
+  --canvas-control-top: 0.75rem;
+  --canvas-control-side: 0.75rem;
+  --canvas-toggle-size: 2.25rem;
 }
 
 .app-layout {

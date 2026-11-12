@@ -61,7 +61,7 @@ You can also drop `.cellml` or `.omex` files onto the canvas ([Opening files](./
 Modules are grouped by source file. **Search Library…** filters them; drag a card onto the canvas to place an instance.
 
 * Each card has a module picker, a config picker when there are several, **Preview configuration** (eye icon) and **Remove module** (cross icon).
-* **Hide module library** (chevron) collapses the panel; drag its edge to resize.
+* **Hide module library** (tornado icon, top left) closes the panel, and the same button, now **Show module library** (hamburger icon), opens it again. Drag the panel's edge to resize it.
 
 ---
 
@@ -214,7 +214,7 @@ Says what each variable means (its property, species and place), shared by every
 
 ## Context Sidebar {#context-sidebar}
 
-**Hide context panel** (chevron) collapses it to its icons; click an icon to reopen that tab.
+**Show context panel** (hamburger icon, top right of the canvas) opens the sidebar over the canvas, and the same button, now **Hide context panel** (tornado icon), closes it. The icons down the sidebar's left edge switch between its tabs, and the header names the open tab. Drag the sidebar's left edge to resize it.
 
 | Tab | Icon | Shows |
 | :--- | :--- | :--- |

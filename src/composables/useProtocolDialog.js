@@ -1,5 +1,5 @@
 /**
- * Opens the Protocol dialog from anywhere, such as the Simulation tab's toolbar. WorkspaceArea shows the dialog.
+ * Opens the Protocol dialog from anywhere, such as the Simulation tab's toolbar. WorkspaceView shows the dialog.
  */
 import { reactive } from 'vue'
 

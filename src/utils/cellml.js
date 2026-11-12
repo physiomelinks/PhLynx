@@ -1477,7 +1477,7 @@ export function generateFlattenedModel(
     const unitsCache = new Map() // for resolveUnits, across the edges' couplings
     for (const edge of edges) {
       // Edges only carry source/target node ids plus resolved coupling data
-      // (see WorkspaceArea.vue's onConnect) — there is no edge.sourceNode /
+      // (see WorkspaceView.vue's onConnect) — there is no edge.sourceNode /
       // edge.targetNode. Resolve components directly from the map built above.
       const sourceComp = nodeComponentMap.get(edge.source)
       const targetComp = nodeComponentMap.get(edge.target)

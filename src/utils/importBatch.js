@@ -185,7 +185,7 @@ export function buildBatchSummary({ placed = [], failed = [], skipped = [], isIn
   } else if (isInstanceArrayImport && !hasInstanceArray) {
     type = 'warning'
     title = 'Instance Array Needed'
-    lines.push('Add an instance array (.csv) to continue.')
+    lines.push('Add an instance array (.json or .csv) to continue.')
   } else if (isInstanceArrayImport && !readiness?.resourcesAreLoaded) {
     type = 'warning'
     title = 'More Files Needed'

@@ -1,264 +1,244 @@
 <template>
-  <div class="resizable-context-panel">
-    <div
-      class="resize-handle"
-      :class="{ 'resize-handle--disabled': isCollapsed }"
-      @mousedown="!isCollapsed && startResize($event)"
-    >
-      <button
-        type="button"
-        class="aside-collapse-toggle"
-        @mousedown.stop
-        @click="toggleCollapsed"
-        v-tooltip.left="isCollapsed ? 'Show context panel' : 'Hide context panel'"
-      >
-        <i :class="isCollapsed ? 'pi pi-chevron-left' : 'pi pi-chevron-right'"></i>
-      </button>
-    </div>
+  <ResizableLibraryPanel
+    v-model:collapsed="isCollapsed"
+    side="right"
+    class="context-panel"
+    :title="activeTab.label"
+    subject="context panel"
+    :initial-width="initialWidth"
+    :min-width="minWidth"
+    :max-width="maxWidth"
+    @resize="emit('resize', $event)"
+  >
+    <!-- The header names the tab; what the tab's own heading used to add follows it. -->
+    <template v-if="titleDetail" #title-detail>{{ titleDetail }}</template>
+    <template v-if="activeTabId === 'sysmod'" #header-actions>
+      <Button
+        label="New"
+        icon="pi pi-plus"
+        size="small"
+        outlined
+        @click="emit('open-inspection-module-dialog')"
+      />
+    </template>
 
-    <aside
-      :style="{ width: effectiveWidth + 'px' }"
-      class="context-aside"
-      :class="{ 'context-aside--collapsed': isCollapsed }"
-    >
-      <!-- One-way value: tab clicks go through onTabClick, and no tab is selected while collapsed. -->
-      <Tabs :value="isCollapsed ? null : activeTabId" class="context-tabs">
-        <TabList>
-          <Tab
-            v-for="tab in tabs"
-            :key="tab.id"
-            :value="tab.id"
-            :tabindex="tab.id === activeTabId ? 0 : -1"
-            v-tooltip.left="tab.label"
-            @click="onTabClick(tab.id)"
-          >
-            <i :class="['pi', tab.icon]"></i>
-          </Tab>
-        </TabList>
+    <!-- The tabs only switch panels; the hamburger at the top-right opens and closes it. -->
+    <Tabs :value="activeTabId" class="context-tabs">
+      <TabList>
+        <Tab
+          v-for="tab in tabs"
+          :key="tab.id"
+          :value="tab.id"
+          :tabindex="tab.id === activeTabId ? 0 : -1"
+          v-tooltip.left="tab.label"
+          @click="activeTabId = tab.id"
+        >
+          <i :class="['pi', tab.icon]"></i>
+        </Tab>
+      </TabList>
 
-        <TabPanels>
-          <!-- ── Global functions & constants ──────────────────────────────── -->
-          <TabPanel value="global">
-            <section class="context-section context-section--global">
-              <h4 class="context-section-title">Global Constants <span class="context-count">({{ globalConstantRows.length }})</span></h4>
+      <TabPanels>
+        <!-- ── Global functions & constants ──────────────────────────────── -->
+        <TabPanel value="global">
+          <section class="context-section context-section--global">
 
-              <IconField class="table-search-input" v-if="globalConstantRows.length > 0">
+            <IconField class="table-search-input" v-if="globalConstantRows.length > 0">
+              <InputIcon class="pi pi-search" />
+              <InputText
+                v-model="globalConstantSearch"
+                placeholder="Search constants..."
+                size="small"
+                class="w-full"
+              />
+              <InputIcon v-if="globalConstantSearch" class="search-clear-input pi pi-times-circle" @click="clearSearch"/>
+            </IconField>
+
+              <div v-if="globalConstantRows.length === 0" class="empty-hint">
+                No global constants defined yet.
+              </div>
+
+              <div v-else-if="filteredGlobalConstantRows.length === 0" class="empty-hint">
+                No constants match your search.
+              </div>
+
+              <div v-else class="table-flex-wrapper" style="margin-top: 0.5rem;">
+                <DataTable
+                  :value="filteredGlobalConstantRows"
+                  dataKey="name"
+                  scrollable
+                  scrollHeight="flex"
+                  class="p-datatable-sm parameters-table"
+                  :rowClass="(row) => newlyAddedNames.has(row.name) ? 'global-constant-row--new' : ''"
+                >
+                  <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px">
+                    <template #body="slotProps">
+                      <span :title="slotProps.data.name">{{ slotProps.data.name }}</span>
+                    </template>
+                  </Column>
+                  
+                  <Column field="value" header="Value" style="width: 110px">
+                    <template #body="slotProps">
+                      <InputText
+                        v-model="slotProps.data.value"
+                        size="small"
+                        class="w-full"
+                        placeholder="Value..."
+                        @change="handleGlobalConstantChange(slotProps.data)"
+                      />
+                    </template>
+                  </Column>
+                  
+                  <Column field="units" bodyClass="small-text-col" header="Units" style="min-width: 80px">
+                    <template #body="slotProps">
+                      <span :title="slotProps.data.units">{{ slotProps.data.units || '—' }}</span>
+                    </template>
+                  </Column>
+                </DataTable>
+              </div>
+          </section>
+        </TabPanel>
+
+        <!-- ── Parameters of the selected node ─────────────────────────────── -->
+        <TabPanel value="params">
+          <section class="context-section context-section--params">
+            <template v-if="selectedNode && !isMultipleSelected">
+
+              <IconField class="table-search-input" v-if="parameterRows.length > 0">
                 <InputIcon class="pi pi-search" />
                 <InputText
-                  v-model="globalConstantSearch"
-                  placeholder="Search constants..."
+                  v-model="parameterSearch"
+                  placeholder="Search parameters..."
                   size="small"
                   class="w-full"
                 />
-                <InputIcon v-if="globalConstantSearch" class="search-clear-input pi pi-times-circle" @click="clearSearch"/>
+                <InputIcon v-if="parameterSearch" class="search-clear-input pi pi-times-circle" @click="clearSearch"/>
               </IconField>
 
-                <div v-if="globalConstantRows.length === 0" class="empty-hint">
-                  No global constants defined yet.
-                </div>
+              <div v-if="!parameterRowsNode" />
 
-                <div v-else-if="filteredGlobalConstantRows.length === 0" class="empty-hint">
-                  No constants match your search.
-                </div>
-
-                <div v-else class="table-flex-wrapper" style="margin-top: 0.5rem;">
-                  <DataTable
-                    :value="filteredGlobalConstantRows"
-                    dataKey="name"
-                    scrollable
-                    scrollHeight="flex"
-                    class="p-datatable-sm parameters-table"
-                    :rowClass="(row) => newlyAddedNames.has(row.name) ? 'global-constant-row--new' : ''"
-                  >
-                    <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px">
-                      <template #body="slotProps">
-                        <span :title="slotProps.data.name">{{ slotProps.data.name }}</span>
-                      </template>
-                    </Column>
-                    
-                    <Column field="value" header="Value" style="width: 110px">
-                      <template #body="slotProps">
-                        <InputText
-                          v-model="slotProps.data.value"
-                          size="small"
-                          class="w-full"
-                          placeholder="Value..."
-                          @change="handleGlobalConstantChange(slotProps.data)"
-                        />
-                      </template>
-                    </Column>
-                    
-                    <Column field="units" bodyClass="small-text-col" header="Units" style="min-width: 80px">
-                      <template #body="slotProps">
-                        <span :title="slotProps.data.units">{{ slotProps.data.units || '—' }}</span>
-                      </template>
-                    </Column>
-                  </DataTable>
-                </div>
-            </section>
-          </TabPanel>
-
-          <!-- ── Parameters of the selected node ─────────────────────────────── -->
-          <TabPanel value="params">
-            <h4 class="context-section-title">Instance Parameters</h4>
-            <section class="context-section context-section--params">
-              <template v-if="selectedNode && !isMultipleSelected">
-                <h4 class="context-section-title">
-                  {{ `${parameterRowsNode?.data?.name ?? selectedNode.data?.name}` || 'Selected Instance' }}
-                  <span class="context-count">({{ parameterRows.length }})</span>
-                </h4>
-
-                <IconField class="table-search-input" v-if="parameterRows.length > 0">
-                  <InputIcon class="pi pi-search" />
-                  <InputText
-                    v-model="parameterSearch"
-                    placeholder="Search parameters..."
-                    size="small"
-                    class="w-full"
-                  />
-                  <InputIcon v-if="parameterSearch" class="search-clear-input pi pi-times-circle" @click="clearSearch"/>
-                </IconField>
-
-                <div v-if="!parameterRowsNode" />
-
-                <div v-else-if="parameterRows.length === 0" class="empty-hint">
-                  This instance has no parameters.
-                </div>
-
-                <div v-else-if="filteredParameterRows.length === 0" class="empty-hint">
-                  No parameters match your search.
-                </div>
-
-                <div v-else-if="isParamsVisible" class="table-flex-wrapper">
-                  <DataTable
-                    :key="parameterTableKey"
-                    :value="filteredParameterRows"
-                    dataKey="name"
-                    scrollable
-                    scrollHeight="flex"
-                    :virtualScrollerOptions="parameterVirtualScrollerOptions"
-                    class="p-datatable-sm parameters-table"
-                  >
-                    <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px" />
-                    <Column field="value" header="Value" style="min-width: 70px">
-                      <template #body="slotProps">
-                        <InputText
-                          v-if="hasValueCell(slotProps.data.type)"
-                          v-model="slotProps.data.value"
-                          size="small"
-                          :placeholder="valuePlaceholder(slotProps.data.type)"
-                          class="w-full"
-                          @change="handleParameterValueChange(slotProps.data)"
-                        />
-                        <span v-else class="text-muted">-</span>
-                      </template>
-                    </Column>
-                    <Column field="units" bodyClass="small-text-col" header="Units" style="min-width: 80px" />
-                    <Column field="type" header="Type" style="width: 100px">
-                      <template #body="slotProps">
-                        <Select
-                          v-model="slotProps.data.type"
-                          :options="typeOptionsFor(slotProps.data)"
-                          :disabled="isTypeFixed(slotProps.data)"
-                          optionLabel="label"
-                          optionValue="value"
-                          size="small"
-                          class="w-full"
-                          @change="handleParameterTypeChange(slotProps.data)"
-                        />
-                      </template>
-                    </Column>
-                  </DataTable>
-                </div>
-              </template>
-              <div v-else-if="isMultipleSelected" class="empty-state">
-                <i class="pi pi-info-circle empty-state-icon"></i>
-                <p>Parameter inspector is restricted to a single instance</p>
+              <div v-else-if="parameterRows.length === 0" class="empty-hint">
+                This instance has no parameters.
               </div>
 
-              <div v-else class="empty-state">
-                <i class="pi pi-info-circle empty-state-icon"></i>
-                <p>Select an instance to edit its parameters here.</p>
-              </div>
-            </section>
-          </TabPanel>
-
-          <TabPanel value="props">
-            <section class="context-section context-section--global">
-              <h4 class="context-section-title">Properties</h4>
-              <NodeColourPanel />
-            </section>
-          </TabPanel>
-
-          <TabPanel value="sim">
-            <SimulationPanel v-if="isSimulationVisible" />
-          </TabPanel>
-
-          <TabPanel value="sysmod">
-            <section class="context-section context-section--modules">
-              <div class="modules-header">
-                <h4 class="context-section-title">
-                  Inspection Modules
-                  <span class="context-count">({{ inspectionModuleStore.modules.length }})</span>
-                </h4>
-                <Button
-                  label="New"
-                  icon="pi pi-plus"
-                  size="small"
-                  outlined
-                  @click="emit('open-inspection-module-dialog')"
-                />
+              <div v-else-if="filteredParameterRows.length === 0" class="empty-hint">
+                No parameters match your search.
               </div>
 
-              <div v-if="inspectionModuleStore.modules.length === 0" class="empty-hint">
-                No inspection modules yet. Create one to sum variables that share the same units.
-              </div>
-
-              <div v-else class="module-card-list">
-                <div v-for="module in inspectionModuleStore.modules" :key="module.id" class="module-card">
-                  <div class="module-card-header">
-                    <div class="module-card-title-group">
-                      <Button
-                        icon="pi pi-pencil"
-                        text
-                        rounded
+              <div v-else-if="isParamsVisible" class="table-flex-wrapper">
+                <DataTable
+                  :key="parameterTableKey"
+                  :value="filteredParameterRows"
+                  dataKey="name"
+                  scrollable
+                  scrollHeight="flex"
+                  :virtualScrollerOptions="parameterVirtualScrollerOptions"
+                  class="p-datatable-sm parameters-table"
+                >
+                  <Column field="name" bodyClass="small-text-col" header="Name" style="min-width: 90px" />
+                  <Column field="value" header="Value" style="min-width: 70px">
+                    <template #body="slotProps">
+                      <InputText
+                        v-if="hasValueCell(slotProps.data.type)"
+                        v-model="slotProps.data.value"
                         size="small"
-                        v-tooltip.top="'Edit module'"
-                        @click="emit('open-inspection-module-dialog', module)"
+                        :placeholder="valuePlaceholder(slotProps.data.type)"
+                        class="w-full"
+                        @change="handleParameterValueChange(slotProps.data)"
                       />
-                      <span class="module-card-name" :title="module.name">{{ module.name }}</span>
-                    </div>
-                    <div class="module-card-actions">
-                      <span class="module-card-units-badge">{{ module.units || '—' }}</span>
-                      <Button
-                        icon="pi pi-trash"
-                        text
-                        rounded
+                      <span v-else class="text-muted">-</span>
+                    </template>
+                  </Column>
+                  <Column field="units" bodyClass="small-text-col" header="Units" style="min-width: 80px" />
+                  <Column field="type" header="Type" style="width: 100px">
+                    <template #body="slotProps">
+                      <Select
+                        v-model="slotProps.data.type"
+                        :options="typeOptionsFor(slotProps.data)"
+                        :disabled="isTypeFixed(slotProps.data)"
+                        optionLabel="label"
+                        optionValue="value"
                         size="small"
-                        severity="danger"
-                        v-tooltip.top="'Delete module'"
-                        @click="inspectionModuleStore.removeModule(module.id)"
+                        class="w-full"
+                        @change="handleParameterTypeChange(slotProps.data)"
                       />
-                    </div>
+                    </template>
+                  </Column>
+                </DataTable>
+              </div>
+            </template>
+            <div v-else-if="isMultipleSelected" class="empty-state">
+              <i class="pi pi-info-circle empty-state-icon"></i>
+              <p>Parameter inspector is restricted to a single instance</p>
+            </div>
+
+            <div v-else class="empty-state">
+              <i class="pi pi-info-circle empty-state-icon"></i>
+              <p>Select an instance to edit its parameters here.</p>
+            </div>
+          </section>
+        </TabPanel>
+
+        <TabPanel value="sim">
+          <SimulationPanel v-if="isSimulationVisible" />
+        </TabPanel>
+
+        <TabPanel value="sysmod">
+          <section class="context-section context-section--modules">
+            <div v-if="inspectionModuleStore.modules.length === 0" class="empty-hint">
+              No inspection modules yet. Create one to sum variables that share the same units.
+            </div>
+
+            <div v-else class="module-card-list">
+              <div v-for="module in inspectionModuleStore.modules" :key="module.id" class="module-card">
+                <div class="module-card-header">
+                  <div class="module-card-title-group">
+                    <Button
+                      icon="pi pi-pencil"
+                      text
+                      rounded
+                      size="small"
+                      v-tooltip.top="'Edit module'"
+                      @click="emit('open-inspection-module-dialog', module)"
+                    />
+                    <span class="module-card-name" :title="module.name">{{ module.name }}</span>
                   </div>
-                  <ul class="module-card-variable-list">
-                    <li v-for="variable in module.variables" :key="variable.key" class="module-card-variable-item">
-                      <span class="module-card-variable-sign" :class="{ negative: variable.sign === -1 }">
-                        {{ variable.sign === -1 ? '-' : '+' }}
-                      </span>
-                      <span class="module-card-variable-node">{{ variable.nodeName }}</span>
-                      <span class="module-card-variable-sep">·</span>
-                      <span class="module-card-variable-name">{{ variable.variableName }}</span>
-                    </li>
-                  </ul>
+                  <div class="module-card-actions">
+                    <span class="module-card-units-badge">{{ module.units || '—' }}</span>
+                    <Button
+                      icon="pi pi-trash"
+                      text
+                      rounded
+                      size="small"
+                      severity="danger"
+                      v-tooltip.top="'Delete module'"
+                      @click="inspectionModuleStore.removeModule(module.id)"
+                    />
+                  </div>
                 </div>
+                <ul class="module-card-variable-list">
+                  <li v-for="variable in module.variables" :key="variable.key" class="module-card-variable-item">
+                    <span class="module-card-variable-sign" :class="{ negative: variable.sign === -1 }">
+                      {{ variable.sign === -1 ? '-' : '+' }}
+                    </span>
+                    <span class="module-card-variable-node">{{ variable.nodeName }}</span>
+                    <span class="module-card-variable-sep">·</span>
+                    <span class="module-card-variable-name">{{ variable.variableName }}</span>
+                  </li>
+                </ul>
               </div>
-            </section>
-          </TabPanel>
-        </TabPanels>
-      </Tabs>
-    </aside>
-  </div>
+            </div>
+          </section>
+        </TabPanel>
+
+        <TabPanel value="props">
+          <section class="context-section context-section--global">
+            <NodeColourPanel />
+          </section>
+        </TabPanel>
+
+      </TabPanels>
+    </Tabs>
+  </ResizableLibraryPanel>
 </template>
 
 <script setup>
@@ -278,6 +258,7 @@ import TabPanel from 'primevue/tabpanel'
 import InputIcon from 'primevue/inputicon'
 import IconField from 'primevue/iconfield'
 
+import ResizableLibraryPanel from './ResizableLibraryPanel.vue'
 import SimulationPanel from './simulation/SimulationPanel.vue'
 
 import { FLOW_IDS } from '../utils/constants'
@@ -286,7 +267,6 @@ import { detachReactivity } from '../utils/reactivity'
 import { hasValueCell, valuePlaceholder } from '../utils/variables'
 
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
-import { useResizableAside } from '../composables/useResizableAside'
 import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -309,18 +289,9 @@ const props = defineProps({
 
 const emit = defineEmits(['resize', 'open-inspection-module-dialog'])
 
-/** Width of the collapsed icon rail: 1px border + 8px padding either side of a 34px tab. */
-const COLLAPSED_WIDTH = 51
-
-const { width, startResize } = useResizableAside(props.initialWidth, props.minWidth, props.maxWidth, 'right')
+// Starts closed. It floats over the canvas, emitting its width (0 while closed) as
+// `resize` so the workspace can keep its search box and minimap clear of it.
 const isCollapsed = ref(true)
-
-const effectiveWidth = computed(() => (isCollapsed.value ? COLLAPSED_WIDTH : width.value))
-watch(effectiveWidth, (newWidth) => emit('resize', newWidth), { immediate: true })
-
-function toggleCollapsed() {
-  isCollapsed.value = !isCollapsed.value
-}
 
 function clearSearch() {
   globalConstantSearch.value = ''
@@ -331,11 +302,12 @@ function clearSearch() {
 const tabs = [
   { id: 'global', label: 'Global parameters', icon: 'pi-globe' },
   { id: 'params', label: 'Instance parameters', icon: 'pi-sliders-h' },
+  { id: 'sim', label: 'Simulation', icon: 'pi-chart-line' },
   { id: 'sysmod', label: 'Inspection modules', icon: 'pi-question-circle' },
   { id: 'props', label: 'Properties', icon: 'pi-wrench' },
-  { id: 'sim', label: 'Simulation', icon: 'pi-chart-line' },
 ]
 const activeTabId = ref('global')
+const activeTab = computed(() => tabs.find((tab) => tab.id === activeTabId.value))
 
 const libraryStore = useLibraryStore()
 const inspectionModuleStore = useInspectionModuleStore()
@@ -360,17 +332,7 @@ function showTab(tabId) {
   isCollapsed.value = false
 }
 
-/**
- * Opens the panel on a rail icon's tab, or collapses it when that tab is already open.
- *
- * @param {string} tabId
- */
-function onTabClick(tabId) {
-  if (!isCollapsed.value && activeTabId.value === tabId) collapse()
-  else showTab(tabId)
-}
-
-/** Hides the panel down to its icon rail. */
+/** Hides the panel, leaving only its hamburger. */
 function collapse() {
   isCollapsed.value = true
 }
@@ -450,6 +412,23 @@ onUnmounted(() => {
 const parameterRows = ref([])
 /** Node the current `parameterRows` were built from; lags `selectedNode` until the deferred rebuild lands. */
 const parameterRowsNode = shallowRef(null)
+
+/** What the active tab adds to the panel header: a count, or the instance being edited. */
+const titleDetail = computed(() => {
+  switch (activeTabId.value) {
+    case 'global':
+      return `(${globalConstantRows.value.length})`
+    case 'sysmod':
+      return `(${inspectionModuleStore.modules.length})`
+    case 'params': {
+      if (!selectedNode.value || isMultipleSelected.value) return null
+      const name = parameterRowsNode.value?.data?.name ?? selectedNode.value.data?.name ?? 'Selected instance'
+      return `· ${name} (${parameterRows.value.length})`
+    }
+    default:
+      return null
+  }
+})
 const parameterSearch = ref('')
 let pendingRowsRequestId = 0
 // The variables the sidebar last wrote, so only changes made elsewhere (e.g. undo) rebuild the rows.
@@ -581,88 +560,9 @@ function handleParameterTypeChange(row) {
 </script>
 
 <style scoped>
-.resizable-context-panel {
-  display: flex;
-  flex-shrink: 0;
-  min-height: 0;
-  height: 100%;
-}
-
-.resize-handle {
-  position: relative;
-  width: 6px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background-color: var(--p-content-border-color);
-  transition: background-color 120ms ease;
-}
-
-.resize-handle:hover {
-  background-color: var(--p-primary-color);
-}
-
-.resize-handle--disabled {
-  cursor: default;
-}
-
-.aside-collapse-toggle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid var(--p-content-border-color);
-  border-radius: 50%;
-  background: var(--p-content-background);
-  color: var(--p-text-muted-color);
-  font-size: 10px;
-  cursor: pointer;
-  z-index: 2;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-
-.aside-collapse-toggle:hover {
-  color: var(--p-primary-color);
-  border-color: var(--p-primary-color);
-}
-
-.context-aside {
-  background-color: var(--p-content-background);
-  border-left: 1px solid var(--p-content-border-color);
-  padding: 1rem;
-  box-sizing: border-box;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 4px color-mix(in srgb, var(--p-text-color) 15%, transparent);
-  transition: width 160ms ease, padding 160ms ease;
-}
-
-.context-aside--collapsed {
-  padding: 1rem 8px;
-}
-
-.context-aside--collapsed :deep(.context-tabs.p-tabs) {
-  min-width: 0;
-  gap: 0;
-}
-
-.context-aside--collapsed :deep(.context-tabs .p-tablist-tab-list) {
-  border-right: none;
-  padding-right: 0;
-}
-
-.context-aside--collapsed :deep(.context-tabs .p-tabpanels) {
-  display: none;
-}
-
 :deep(.context-tabs.p-tabs) {
   flex: 1 1 auto;
+  height: 100%;
   flex-direction: row;
   /* The aside's width less its padding and border, so the content fits at the minimum width */
   min-width: calc(v-bind('props.minWidth + "px"') - 2rem - 1px);
@@ -730,24 +630,6 @@ function handleParameterTypeChange(row) {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
-}
-
-.context-section-title {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
-  display: flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 0; 
-}
-
-.context-count {
-  font-size: 0.8rem;
-  font-weight: 400;
-  color: var(--p-text-muted-color);
 }
 
 .new-system-module-btn {
@@ -857,18 +739,6 @@ function handleParameterTypeChange(row) {
 /* ── Inspection modules tab ─────────────────────────────────────────────── */
 .context-section--modules {
   overflow-y: auto;
-}
-
-.modules-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.85rem;
-}
-
-.modules-header .context-section-title {
-  margin: 0;
 }
 
 .module-card-list {
