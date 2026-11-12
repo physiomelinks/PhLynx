@@ -12,7 +12,7 @@
         <strong
           v-if="!isEditing"
           ref="sessionNameEl"
-          v-tooltip.bottom="{ value: hasSessionOverflow ? sessionName : '', showDelay: 300, class: 'nowrap-tooltip' }"
+          v-tooltip.bottom="{ value: hasSessionOverflow ? sessionName : '', class: 'nowrap-tooltip' }"
         >
           {{ sessionName }}
         </strong>

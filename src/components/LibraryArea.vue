@@ -68,6 +68,7 @@
                         text
                         rounded
                         class="mlc__preview-btn mlc__remove-btn"
+                        :aria-label="`Remove ${card.label}`"
                         v-hint.top="'Remove module'"
                         @click.stop="deleteModule(activeModule(card))"
                       />
@@ -88,6 +89,7 @@
                           rounded
                           size="small"
                           class="mlc__preview-btn"
+                          :aria-label="`Preview the configuration of ${card.label}`"
                           v-hint.top="'Preview configuration'"
                           @click.stop="openPreview(activeModule(card))"
                         />
@@ -179,7 +181,7 @@ import InputIcon from 'primevue/inputicon'
 import Tag from 'primevue/tag'
 import Button from 'primevue/button'
 import Select from 'primevue/select'
-import vTooltip from 'primevue/tooltip'
+import { vTooltip } from '../directives/tooltip'
 
 import { useLibraryProxyStore } from '../stores/libraryProxyStore'
 import { useLibraryStore } from '../stores/libraryStore'

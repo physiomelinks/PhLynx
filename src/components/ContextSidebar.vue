@@ -30,6 +30,7 @@
           :key="tab.id"
           :value="tab.id"
           :tabindex="tab.id === activeTabId ? 0 : -1"
+          :aria-label="tab.label"
           v-hint.left="tab.label"
           @click="activeTabId = tab.id"
         >
@@ -197,6 +198,7 @@
                       text
                       rounded
                       size="small"
+                      :aria-label="`Edit ${module.name}`"
                       v-hint.top="'Edit module'"
                       @click="emit('open-inspection-module-dialog', module)"
                     />
@@ -210,6 +212,7 @@
                       rounded
                       size="small"
                       severity="danger"
+                      :aria-label="`Delete ${module.name}`"
                       v-hint.top="'Delete module'"
                       @click="inspectionModuleStore.removeModule(module.id)"
                     />

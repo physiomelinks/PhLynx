@@ -40,6 +40,7 @@
           icon="pi pi-pencil"
           @click="openInstanceEditor('parameters')"
           @dblclick.stop
+          :aria-label="`Edit ${data.name}`"
           v-hint.bottom="'Edit instance'"
         />
       </div>
