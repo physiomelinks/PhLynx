@@ -8,6 +8,8 @@ import {
   TOKEN,
   arrangeRow,
   arrowHead,
+  ARROW_SPACING,
+  legArrows,
   arrowOffset,
   cellHintAt,
   chipOrder,
@@ -102,27 +104,44 @@ describe('where species mode draws its network', () => {
     expect(paths[0].legs.outside).toMatch(/^M300,176 /)
   })
 
-  it('stops each leg at the base of an arrowhead sized to its width', () => {
+  it('sizes the arrowheads to the width, and runs each leg right to its end', () => {
     const placed = layoutSpecies(network, layout, { flowOf: () => ({ direction: 'out', size: 2 }) })
     const [moving] = placed.paths
     expect(moving.head).toBe(arrowHead(5))
     expect(arrowHead(5)).toBeGreaterThan(arrowHead(1.5))
     expect(arrowHead(1.5)).toBeGreaterThan(2 * 1.5)
-    // The inside leg comes up to the inner face at y 224, stopping a head's length below it, heading straight on.
+    // The inside leg comes up to the inner face at y 224, heading straight on.
     const end = (d) => d.match(/(-?[\d.]+),(-?[\d.]+)$/).slice(1).map(Number)
     const control = (d) => d.match(/ (-?[\d.]+),(-?[\d.]+) -?[\d.]+,-?[\d.]+$/).slice(1).map(Number)
-    expect(end(moving.legs.inside)).toEqual([300, 224 + moving.head])
+    expect(end(moving.legs.inside)).toEqual([300, 224])
     expect(control(moving.legs.inside)[0]).toBe(300)
-    expect(control(moving.legs.inside)[1]).toBeGreaterThan(224 + moving.head)
-    // The outside leg stops short of the lumen's token by as much.
+    expect(control(moving.legs.inside)[1]).toBeGreaterThan(224)
+    // The outside leg reaches the lumen's token.
     const lumen = placed.tokens.find((t) => t.nodeId === 'lumen')
     const [x, y] = end(moving.legs.outside)
     expect(x).toBe(lumen.x)
-    expect(y).toBeCloseTo(lumen.y + lumen.height / 2 + moving.head, 1)
+    expect(y).toBeCloseTo(lumen.y + lumen.height / 2, 1)
     // Without a direction there is no head, and the legs reach the faces.
     const [still] = layoutSpecies(network, layout).paths
     expect(still.head).toBe(0)
     expect(end(still.legs.outside)).toEqual([300, 176])
+  })
+
+  it('spaces the arrowheads along a leg evenly, about ARROW_SPACING apart', () => {
+    expect(legArrows('M0,0 C0,50 0,100 0,150')).toMatchObject({ count: 2, gap: 75 })
+    expect(legArrows('M0,0 C0,10 0,20 0,30')).toMatchObject({ count: 1, gap: 30 })
+    expect(legArrows('M0,0 C0,0 0,0 0,0').count).toBe(0)
+    expect(legArrows('nonsense').count).toBe(0)
+    expect(legArrows('M0,0 C0,100 0,200 0,320').count).toBe(320 / ARROW_SPACING)
+  })
+
+  it('runs the arrowheads on a track carried a head past the end of the leg, where they hide', () => {
+    const d = 'M0,0 C0,50 100,100 100,150'
+    expect(legArrows(d).track).toBe(d)
+    const { track, count, gap } = legArrows(d, 10)
+    // On from the end the way the curve comes in; the start is the leg's own.
+    expect(track).toBe('M0,0 C0,50 100,100 100,150 L100,160')
+    expect(count * gap).toBeCloseTo(legArrows(d).count * legArrows(d).gap + 10, 5)
   })
 
   it('attaches each species’ path under its own arrow on the cartoon, in the order the arrows show', () => {

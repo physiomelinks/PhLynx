@@ -195,7 +195,7 @@ LEG_ENDS_JS = """([species, nodeId]) => {
     const box = token.getBoundingClientRect()
     const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
     const ends = []
-    for (const leg of document.querySelectorAll(`[data-testid=bio-species-path][data-species="${species}"] > path`)) {
+    for (const leg of document.querySelectorAll(`[data-testid=bio-species-path][data-species="${species}"] > path.bio-species-leg`)) {
         const matrix = leg.getScreenCTM()
         for (const at of [0, leg.getTotalLength()]) {
             const point = leg.getPointAtLength(at).matrixTransform(matrix)
@@ -613,7 +613,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         species = page.locator("[data-testid=bio-species-path]").first.get_attribute("data-species")
         token = page.locator(f'[data-testid=bio-species-token][data-node="{lumen}"][data-species="{species}"]')
         expect(page.locator("[data-testid=bio-species-path]")).not_to_have_count(0)
-        path = page.locator(f'[data-testid=bio-species-path][data-species="{species}"] > path').first
+        path = page.locator(f'[data-testid=bio-species-path][data-species="{species}"] > path.bio-species-leg').first
         token_at, path_at = self.centre(token), self.centre(path)
 
         # Partway through a drag of the template's name, the tokens and their paths have gone with it.
