@@ -27,7 +27,7 @@ The add-handle, macro builder and Send buttons are hidden by default; [Settings 
 | **Settings** | Cog | Opens app [Settings](#settings). |
 | **Import** / **Export** / **Send** | Split buttons | Click runs the last-used item (Ctrl/Cmd+I, Ctrl/Cmd+E); the arrow opens the menu. |
 
-On the right are the **Diagram** / **Physiology** switch (see [The Physiology View](../guides/physiology-view.md)) and a light/dark switch. To report a bug, use the bug icon beside **About** at the top of every page. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
+On the right are the **Diagram** / **Physiology** switch (see [The Physiology View](../guides/physiology-view.md)) and a light/dark switch. At the top of every page, beside **About**, the bell opens the **Notices** tab of the About page - announcements from the developers, such as an upcoming end of support for an older file format - and shows a count while there are notices you have not yet seen; next to it, the bug icon reports a bug. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
 
 ### Import {#import}
 

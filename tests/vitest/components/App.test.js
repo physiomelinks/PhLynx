@@ -10,7 +10,19 @@ import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStor
 vi.stubGlobal('__APP_VERSION__', '1.2.3')
 vi.stubGlobal('__BUILD_STATE_MARKER__', '-dirty')
 
+const NOTICE_FEED = {
+  schema: 1,
+  notices: [
+    { id: 'a', title: 'First', targets: ['phlynx'] },
+    { id: 'b', title: 'Second', targets: ['all'] },
+    { id: 'c', title: 'Not ours', targets: ['cuflynx'] },
+  ],
+}
+const fetchMock = vi.fn(async () => ({ ok: true, text: async () => JSON.stringify(NOTICE_FEED) }))
+vi.stubGlobal('fetch', fetchMock)
+
 const App = (await import('../../../src/App.vue')).default
+const { useNotices } = await import('../../../src/composables/useNotices')
 
 const tooltip = { mounted: () => {}, updated: () => {} }
 
@@ -69,7 +81,9 @@ describe('App', () => {
 
   it('links to the workspace, simulation, user guide and about pages', async () => {
     const { wrapper } = await mountApp()
-    const hrefs = wrapper.findAll('nav a:not(.report-issue-link)').map((a) => [a.text(), a.attributes('href')])
+    const hrefs = wrapper
+      .findAll('nav a:not(.report-issue-link):not(.notices-link)')
+      .map((a) => [a.text(), a.attributes('href')])
     expect(hrefs).toEqual([
       ['Workspace', '/'],
       ['Simulation', '/simulation'],
@@ -79,11 +93,41 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('offers a bug button after About that opens a new GitHub issue', async () => {
+  it('offers a notices bell after About, counting the unread notices for this app', async () => {
+    const { wrapper, router } = await mountApp()
+    await flushPromises()
+    const links = wrapper.findAll('nav a')
+    const bell = links.at(-2)
+    expect(links.at(-3).text()).toBe('About')
+    expect(bell.classes()).toContain('notices-link')
+    expect(bell.attributes('href')).toBe('/about?tab=notices')
+    expect(bell.attributes('aria-label')).toBe('Notices (2 unread)')
+    expect(bell.find('[data-testid="notices-badge"]').text()).toBe('2')
+
+    await bell.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/about?tab=notices')
+    // Still a way to the notices from the About page's other tabs: it never takes the inert active class.
+    expect(bell.classes()).not.toContain('router-link-active')
+
+    useNotices().markAllRead()
+    await flushPromises()
+    expect(bell.find('[data-testid="notices-badge"]').exists()).toBe(false)
+    expect(bell.attributes('aria-label')).toBe('Notices')
+    wrapper.unmount()
+  })
+
+  it('fetches the notices on start', async () => {
+    const { wrapper } = await mountApp()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('LynxNotices'), { cache: 'no-cache' })
+    wrapper.unmount()
+  })
+
+  it('offers a bug button after the notices bell that opens a new GitHub issue', async () => {
     const { wrapper } = await mountApp()
     const links = wrapper.findAll('nav a')
     const bug = links.at(-1)
-    expect(links.at(-2).text()).toBe('About')
+    expect(links.at(-2).classes()).toContain('notices-link')
     expect(bug.classes()).toContain('report-issue-link')
     expect(bug.attributes()).toMatchObject({
       href: 'https://github.com/physiomelinks/phlynx/issues/new',
