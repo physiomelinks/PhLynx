@@ -6,6 +6,7 @@ import PrimeVue from 'primevue/config'
 import ConfirmationService from 'primevue/confirmationservice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useColorScheme } from '../../../src/composables/useColorScheme.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useNodeThemeStore } from '../../../src/stores/nodeThemeStore.js'
 
@@ -88,10 +89,52 @@ describe('NodeColourPanel', () => {
     expect(nodes.value.map((n) => n.data.domainType ?? null)).toEqual([null, 'protein', 'membrane'])
   })
 
-  it('disables the swatches with nothing selected', async () => {
+  it('greys the swatches with nothing selected, and a click then changes nothing', async () => {
     nodes.value.forEach((node) => (node.selected = false))
     await mountPanel()
-    expect(swatch('Membrane').attributes('disabled')).toBeDefined()
+    expect(swatch('Membrane').attributes('aria-disabled')).toBe('true')
+    await swatch('Membrane').trigger('click')
+    expect(nodes.value.map((n) => n.data.domainType ?? null)).toEqual([null, 'protein', 'membrane'])
+  })
+
+  it('adds no undo step when the selection has the category already', async () => {
+    await mountPanel()
+    const history = useFlowHistoryStore()
+    await swatch('Membrane').trigger('click')
+    const steps = history.pointerIndex
+    await swatch('Membrane').trigger('click')
+    expect(steps).toBe(0)
+    expect(history.pointerIndex).toBe(steps)
+  })
+
+  describe('double-clicking a swatch', () => {
+    /** The editor's colour chips that are open, by title. */
+    const openChips = () =>
+      wrapper.findAll('.theme-editor button.colour-chip[aria-expanded="true"]').map((b) => b.attributes('aria-label'))
+
+    afterEach(() => useColorScheme().setDarkMode(false))
+
+    it('opens an unsaved copy of a theme the user cannot edit, on that category’s light colour', async () => {
+      nodes.value.forEach((node) => (node.selected = false))
+      await mountPanel()
+      await swatch('Protein').trigger('dblclick')
+      await flushPromises()
+
+      expect(wrapper.find('.theme-editor').text()).toContain('New theme')
+      expect(useNodeThemeStore().localThemes).toHaveLength(0)
+      expect(openChips()).toEqual(['Protein colour, #d1fff0'])
+    })
+
+    it('edits the user’s own theme in place, on the colour for dark mode when it is on', async () => {
+      useColorScheme().setDarkMode(true)
+      useNodeThemeStore().createLocalTheme('domain-types', 'Mine')
+      await mountPanel()
+      await swatch('Membrane').trigger('dblclick')
+      await flushPromises()
+
+      expect(wrapper.find('.theme-editor').text()).toContain('Editing theme')
+      expect(openChips()).toEqual(['Membrane dark mode colour, automatic'])
+    })
   })
 
   it('notes a category the active theme does not define', async () => {

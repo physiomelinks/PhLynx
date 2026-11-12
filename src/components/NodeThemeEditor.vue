@@ -44,8 +44,14 @@
       <span class="category-columns-spacer"></span>
     </div>
     <ul class="category-rows">
-      <li v-for="(category, index) in draft.categories" :key="category._rowId" class="category-row">
+      <li
+        v-for="(category, index) in draft.categories"
+        :key="category._rowId"
+        :ref="(el) => setRowRef(category.key, el)"
+        class="category-row"
+      >
         <ThemeColourButton
+          :ref="(chip) => setChipRef(category.key, 'light', chip)"
           v-model="category.color"
           :title="`${category.label || 'Category'} colour`"
           :text-colour="TEXT_COLOURS.light"
@@ -64,6 +70,7 @@
           </span>
         </div>
         <ThemeColourButton
+          :ref="(chip) => setChipRef(category.key, 'dark', chip)"
           v-model="category.dark"
           :auto-colour="autoDarkColour(safeColour(category.color))"
           :title="`${category.label || 'Category'} dark mode colour`"
@@ -101,7 +108,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, useId, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, useId, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
@@ -134,6 +141,17 @@ const props = defineProps({
   isNew: {
     type: Boolean,
     default: false,
+  },
+  /** A category to scroll to on opening, with its colour picker open. */
+  focusKey: {
+    type: String,
+    default: null,
+  },
+  /** Which of the focused category's colours to open: the one for the colour scheme in use. */
+  focusScheme: {
+    type: String,
+    default: 'light',
+    validator: (value) => ['light', 'dark'].includes(value),
   },
 })
 
@@ -215,6 +233,27 @@ function addCategory() {
 function save() {
   emit('save', toTheme())
 }
+
+// Rows and colour chips by category key, so opening on a category can find them.
+const rowRefs = new Map()
+const chipRefs = new Map()
+
+function setRowRef(key, el) {
+  if (el) rowRefs.set(key, el)
+  else rowRefs.delete(key)
+}
+
+function setChipRef(key, scheme, chip) {
+  if (chip) chipRefs.set(`${key}/${scheme}`, chip)
+  else chipRefs.delete(`${key}/${scheme}`)
+}
+
+onMounted(async () => {
+  if (!props.focusKey) return
+  await nextTick()
+  rowRefs.get(props.focusKey)?.scrollIntoView?.({ block: 'nearest' })
+  chipRefs.get(`${props.focusKey}/${props.focusScheme}`)?.open()
+})
 </script>
 
 <style scoped>

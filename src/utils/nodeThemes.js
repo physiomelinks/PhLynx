@@ -23,6 +23,9 @@ export const THEMES_CDN_URL = `https://cdn.jsdelivr.net/gh/${THEME_REPO.owner}/$
 
 export const LOCAL_THEME_PREFIX = 'local:'
 
+/** Marks the theme a loaded workspace carries, listed for that workspace only. */
+export const WORKSPACE_THEME_PREFIX = 'workspace:'
+
 export const THEME_LIMITS = {
   name: 64,
   description: 280,
@@ -306,6 +309,14 @@ export function isLocalThemeId(id) {
 }
 
 /**
+ * @param {string} id
+ * @returns {boolean} Whether the theme came with the loaded workspace.
+ */
+export function isWorkspaceThemeId(id) {
+  return typeof id === 'string' && id.startsWith(WORKSPACE_THEME_PREFIX)
+}
+
+/**
  * Makes an editable copy of a theme under a new local id.
  *
  * @param {Object} base - The theme to start from.
@@ -328,7 +339,7 @@ export function deriveTheme(base, { name, takenIds = [] } = {}) {
     categories: base.categories.map((category) => ({ ...category })),
   }
   if (base.description) theme.description = base.description
-  const origin = isLocalThemeId(base.id) ? base.derivedFrom : base.id
+  const origin = isLocalThemeId(base.id) || isWorkspaceThemeId(base.id) ? base.derivedFrom : base.id
   if (origin) theme.derivedFrom = origin
   return theme
 }

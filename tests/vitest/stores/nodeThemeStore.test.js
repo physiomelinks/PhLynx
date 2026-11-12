@@ -101,4 +101,91 @@ describe('nodeThemeStore', () => {
     expect(store.importTheme('{nope').errors).toEqual(['The file is not valid JSON.'])
     expect(store.importTheme('{"id":"x"}').theme).toBeNull()
   })
+  describe('workspace theme', () => {
+    const mine = {
+      schemaVersion: 1,
+      id: 'local:mine',
+      name: 'Mine',
+      categories: [{ key: 'pump', label: 'Pump', color: '#ffeedd' }],
+    }
+
+    it('saves a built-in theme by id only', () => {
+      expect(useNodeThemeStore().getState()).toEqual({ id: DEFAULT_THEME.id })
+    })
+
+    it('saves a copy of a local or shared theme', async () => {
+      const store = useNodeThemeStore()
+      await store.refreshRemote({ fetchImpl: okFetch() })
+      store.setActiveTheme('domain-types')
+      expect(store.getState()).toEqual({ id: 'domain-types', theme: index.themes[0] })
+
+      const local = store.createLocalTheme(undefined, 'Mine')
+      expect(store.getState()).toEqual({ id: local.id, theme: local })
+    })
+
+    it('lists a theme this browser lacks for the workspace only, and saves it back unchanged', () => {
+      const store = useNodeThemeStore()
+      store.loadState({ id: mine.id, theme: mine })
+
+      expect(store.activeTheme.id).toBe('workspace:mine')
+      expect(store.activeTheme.categories).toEqual(mine.categories)
+      expect(store.localThemes).toEqual([])
+      expect(store.preferredThemeId).toBe(DEFAULT_THEME.id)
+      expect(window.localStorage.getItem('phlynx-node-theme')).toBeNull()
+      expect(window.localStorage.getItem('phlynx-node-themes-local')).toBeNull()
+      expect(store.getState()).toEqual({ id: mine.id, theme: mine })
+    })
+
+    it('uses a theme here when it has the same id and colours', () => {
+      const store = useNodeThemeStore()
+      const local = store.createLocalTheme(undefined, 'Mine')
+      store.setActiveTheme(DEFAULT_THEME.id)
+
+      store.loadState({ id: local.id, theme: local })
+      expect(store.activeThemeId).toBe(local.id)
+      expect(store.workspaceThemes).toEqual([])
+    })
+
+    it('keeps the workspace copy when a theme here has the same id but other colours', () => {
+      const store = useNodeThemeStore()
+      const local = store.createLocalTheme(undefined, 'Mine')
+      const changed = { ...local, categories: [{ key: 'pump', label: 'Pump', color: '#000000' }] }
+
+      store.loadState({ id: local.id, theme: changed })
+      expect(store.activeThemeId).toBe('workspace:mine')
+      expect(store.activeTheme.categories).toEqual(changed.categories)
+      expect(store.findTheme(local.id).categories).toEqual(local.categories)
+    })
+
+    it("shows this browser's choice for files without a theme, and after a reset", () => {
+      const store = useNodeThemeStore()
+      const local = store.createLocalTheme(undefined, 'Mine')
+
+      store.loadState({ id: DEFAULT_THEME.id })
+      expect(store.activeThemeId).toBe(DEFAULT_THEME.id)
+      store.loadState(undefined)
+      expect(store.activeThemeId).toBe(local.id)
+
+      store.loadState({ id: mine.id, theme: { ...mine, categories: [] } })
+      expect(store.activeThemeId).toBe(local.id)
+
+      store.loadState({ id: 'local:other', theme: { ...mine, id: 'local:other' } })
+      const snap = store.snapshot()
+      store.resetState()
+      expect(store.activeThemeId).toBe(local.id)
+      expect(store.workspaceThemes).toEqual([])
+      store.restoreSnapshot(snap)
+      expect(store.activeThemeId).toBe('workspace:other')
+    })
+
+    it('copies the workspace theme into this browser on request', () => {
+      const store = useNodeThemeStore()
+      store.loadState({ id: mine.id, theme: mine })
+      const copy = store.createLocalTheme(undefined, 'Kept')
+
+      expect(copy.categories).toEqual(mine.categories)
+      expect(store.activeThemeId).toBe(copy.id)
+      expect(store.preferredThemeId).toBe(copy.id)
+    })
+  })
 })

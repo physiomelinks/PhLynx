@@ -9,6 +9,7 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
+import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useProtocolStore } from '../stores/protocolStore'
 import { cancelSimulation, forgetSimulationSession } from './useSimulation'
@@ -27,6 +28,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const omexStore = useOmexStore()
   const bioTemplateStore = useBioTemplateStore()
   const glyphLibraryStore = useGlyphLibraryStore()
+  const nodeThemeStore = useNodeThemeStore()
   const sessionMetadataStore = useSessionMetadataStore()
   const defaultParametersStore = useDefaultParametersStore()
 
@@ -40,6 +42,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldOmexState = omexStore.getState()
     const oldBioTemplateState = bioTemplateStore.snapshot()
     const oldGlyphState = glyphLibraryStore.snapshot()
+    const oldThemeState = nodeThemeStore.snapshot()
     const oldSessionMetadata = sessionMetadataStore.getState()
     const oldParameters = defaultParametersStore.getState()
 
@@ -50,6 +53,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
         bioTemplateStore.restoreSnapshot(oldBioTemplateState)
         glyphLibraryStore.restoreSnapshot(oldGlyphState)
+        nodeThemeStore.restoreSnapshot(oldThemeState)
         inspectionStore.loadState(oldInspectStore)
         sessionMetadataStore.loadState(oldSessionMetadata)
         simStore.loadState(oldSimStore)
@@ -77,6 +81,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         omexStore.resetState()
         bioTemplateStore.resetState()
         glyphLibraryStore.resetState()
+        nodeThemeStore.resetState()
         sessionMetadataStore.resetState()
         libraryStore.resetGlobalConstants()
         if (!keepParameters) defaultParametersStore.resetState()
