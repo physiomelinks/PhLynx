@@ -77,6 +77,21 @@ describe('bond arrowheads setting', () => {
   })
 })
 
+describe('accent colour setting', () => {
+  it('defaults to Copper, offering Logo brown and Emerald, under Appearance', () => {
+    const setting = APP_SETTINGS.get('accentColour')
+    expect(defaultAppSettings().accentColour).toBe('copper')
+    expect(setting.options.map((option) => [option.value, option.label])).toEqual([
+      ['copper', 'Copper'],
+      ['logoBrown', 'Logo brown'],
+      ['emerald', 'Emerald'],
+    ])
+    expect(SETTING_SECTIONS.find((section) => section.title === 'Appearance').settings).toEqual([setting])
+    expect(isValidAppSetting('accentColour', 'emerald')).toBe(true)
+    expect(isValidAppSetting('accentColour', 'purple')).toBe(false)
+  })
+})
+
 describe('unit system for new CellDL modules', () => {
   it('defaults to Cellular, offering SI as the other choice', () => {
     expect(defaultAppSettings().celldlUnitSystem).toBe('cellular')

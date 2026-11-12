@@ -1,9 +1,8 @@
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import Tooltip from 'primevue/tooltip'
 import Ripple from 'primevue/ripple'
-import Aura from '@primevue/themes/aura'
 import ConfirmationService from 'primevue/confirmationservice'
 import ToastService from 'primevue/toastservice'
 import libcellmlPlugin from 'vue3-libcellml.js'
@@ -28,14 +27,17 @@ import router from './router'
 import { useNodeThemeStore } from './stores/nodeThemeStore'
 import App from './App.vue'
 import { waitForIsolationReload } from './utils/isolation'
+import { applyAccentColour, createThemePreset } from './utils/themePreset'
 import { libopencor, loadLibOpenCOR } from './services/simulation/libopencorLoader'
 import { initAnalytics } from './composables/useGtm'
+import { useAppSettings } from './composables/useAppSettings'
 
 // The first visit reloads once to install the isolation service worker; starting the app before that
 // would load anything it was opened with twice.
 waitForIsolationReload().then(() => {
   const app = createApp(App)
   const pinia = createPinia()
+  const { settings } = useAppSettings()
 
   // Setup GTag before the first page view.
   initAnalytics()
@@ -45,7 +47,7 @@ waitForIsolationReload().then(() => {
   app.use(PrimeVue, {
     ripple: true,
     theme: {
-      preset: Aura,
+      preset: createThemePreset(settings.accentColour),
       options: {
         darkModeSelector: '.p-dark',
         cssLayer: {
@@ -64,6 +66,9 @@ waitForIsolationReload().then(() => {
   app.component('GlossaryLink', GlossaryLink)
   app.provide('$libopencor', libopencor)
   app.mount('#app')
+
+  // The Accent colour setting recolours the app as soon as it is saved.
+  watch(() => settings.accentColour, applyAccentColour)
 
   // In the background, so the simulator is ready by the time it's needed; nothing waits for it here.
   loadLibOpenCOR()

@@ -20,5 +20,9 @@ const { isDarkMode, toggleDarkMode } = useColorScheme()
 .theme-toggle {
   display: flex;
   align-items: center;
+  /* The header is dark in both colour schemes, so the switch's off state (light mode) takes a track
+     made for a dark surface in place of the light scheme's pale one. */
+  --p-toggleswitch-background: var(--p-surface-600);
+  --p-toggleswitch-hover-background: var(--p-surface-500);
 }
 </style>
