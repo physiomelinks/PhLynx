@@ -181,7 +181,13 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         page.goto(BASE_URL)
         expect(page.locator(".vue-flow__pane")).to_be_visible()
-        expect(page.locator(".file-io-buttons .p-splitbutton button").first).to_be_enabled()
+        # The Import button enables at once (its first mode is Instance Array), but a CellML file dropped before
+        # libcellml is ready is turned away: wait for the menu's CellML File item, which enables with libcellml.
+        page.locator(".file-io-buttons .p-splitbutton").first.locator(".p-splitbutton-dropdown").click()
+        cellml_item = page.get_by_role("menuitem", name="CellML File", exact=True)
+        expect(cellml_item).to_be_enabled(timeout=60000)
+        page.keyboard.press("Escape")
+        expect(cellml_item).to_be_hidden()
 
     def drop_cellml(self, name):
         self.page.evaluate(DROP_FILE_JS, [name, read_resource(name)])
