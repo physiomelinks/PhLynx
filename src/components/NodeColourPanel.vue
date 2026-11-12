@@ -11,7 +11,7 @@
           text
           rounded
           :loading="themeStore.remoteStatus === 'loading'"
-          v-tooltip.left="'Refresh shared themes'"
+          v-hint.left="'Refresh shared themes'"
           aria-label="Refresh shared themes"
           @click="themeStore.refreshRemote()"
         />
@@ -58,7 +58,7 @@
           :class="{ 'swatch--active': selectionKey === category.key, 'swatch--inert': !selectedNodes.length }"
           :aria-disabled="!selectedNodes.length"
           :style="swatchStyle(category)"
-          v-tooltip.top="'Double-click to change colours'"
+          v-hint.top="'Double-click to change colours'"
           @click="assignCategory(category.key)"
           @dblclick="editCategoryColour(category.key)"
         >
@@ -115,7 +115,7 @@
             size="small"
             text
             rounded
-            v-tooltip.top="'Import a theme file'"
+            v-hint.top="'Import a theme file'"
             aria-label="Import a theme file"
             @click="fileInput?.click()"
           />
@@ -129,7 +129,7 @@
             size="small"
             text
             rounded
-            v-tooltip.top="'Export as JSON'"
+            v-hint.top="'Export as JSON'"
             aria-label="Export as JSON"
             @click="exportActive"
           />
@@ -139,7 +139,7 @@
             text
             rounded
             severity="danger"
-            v-tooltip.top="'Delete this theme'"
+            v-hint.top="'Delete this theme'"
             aria-label="Delete this theme"
             @click="deleteActive"
           />

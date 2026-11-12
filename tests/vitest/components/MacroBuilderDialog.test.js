@@ -64,7 +64,7 @@ function mountDialog() {
     props: { modelValue: true },
     global: {
       plugins: [PrimeVue],
-      directives: { tooltip: {} },
+      directives: { tooltip: {}, hint: {} },
       stubs: {
         Dialog: Passthrough,
         ResizableLibraryPanel: Passthrough,

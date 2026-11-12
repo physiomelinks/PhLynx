@@ -732,7 +732,8 @@ class TestBioTemplates(unittest.TestCase):
         expect(page.locator(".p-dialog-mask")).to_have_count(0)
         page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right")
         page.locator(".p-contextmenu").get_by_text("Remove from This Template", exact=True).click()
-        page.get_by_role("button", name="Remove").click()
+        # Exact, as each library card's remove button is named "Remove <module>".
+        page.get_by_role("button", name="Remove", exact=True).click()
         expect(page.locator(f'{BIO_NODE}[data-id="{module}"]')).to_have_count(1)
         expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/paracellular"]')).to_have_count(0)
         expect(page.locator(f"{BIO} [data-testid=bio-region]")).to_have_count(3)

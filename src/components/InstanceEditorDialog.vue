@@ -460,7 +460,7 @@
                 <template #toolbar>
                   <label
                     class="plot-tab-auto-label"
-                    v-tooltip.bottom="'Click a variable in the math to plot it alone. Off, adding offers only the plot\'s units.'"
+                    v-hint.bottom="'Click a variable in the math to plot it alone. Off, adding offers only the plot\'s units.'"
                   >
                     <ToggleSwitch
                       v-model="isAutoUpdate"
@@ -588,7 +588,7 @@
             label="Apply"
             severity="secondary"
             outlined
-            v-tooltip.top="'Save and keep editing'"
+            v-hint.top="'Save and keep editing'"
             :loading="isConverting"
             @click="handleSave({ keepOpen: true })"
           />

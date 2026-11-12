@@ -45,7 +45,7 @@ describe('CelldlPane', () => {
   })
 
   const mountPane = (props = {}) => {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip, hint: Tooltip } } })
     return useCelldlEditorHost()
   }
 
@@ -109,7 +109,7 @@ describe('CelldlPane live conversion', () => {
   })
 
   const mountPane = (props = {}) => {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS, ...props }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip, hint: Tooltip } } })
   }
   const status = () => wrapper.find('.celldl-live-status')
 
@@ -221,7 +221,7 @@ describe('CelldlPane issue list', () => {
   }
 
   async function openList(issues = ISSUES) {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } }, attachTo: document.body })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip, hint: Tooltip } }, attachTo: document.body })
     live.latest.value = converted('cheap', issues)
     await nextTick()
     await wrapper.find('.celldl-live-issues').trigger('click')
@@ -255,7 +255,7 @@ describe('CelldlPane issue list', () => {
   })
 
   it('shows no list for a diagram that converts cleanly', async () => {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip, hint: Tooltip } } })
     live.latest.value = converted('cheap')
     await nextTick()
     expect(wrapper.find('.celldl-live-issues').exists()).toBe(false)
@@ -302,7 +302,7 @@ describe('CelldlPane Reorganise', () => {
   })
 
   const mountPane = () => {
-    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip } } })
+    wrapper = mount(CelldlPane, { props: { rows: ROWS }, global: { plugins: [PrimeVue], directives: { tooltip: Tooltip, hint: Tooltip } } })
   }
   const select = () => wrapper.findComponent({ name: 'Select' })
   const button = () => wrapper.get('.celldl-reorganise-button')

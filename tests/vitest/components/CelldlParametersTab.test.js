@@ -50,7 +50,7 @@ describe('CelldlParametersTab', () => {
     const table = buildElementTable({ elements, manifest, rows, savedDefaults: new Map(DEFAULTS), supplied })
     wrapper = mount(CelldlParametersTab, {
       props: { table, savedDefaults: new Map(DEFAULTS), isDiagramShown: true, ...props },
-      global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+      global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} } },
       attachTo: document.body,
     })
     return wrapper

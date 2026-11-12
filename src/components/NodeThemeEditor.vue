@@ -83,7 +83,7 @@
           rounded
           severity="danger"
           :disabled="draft.categories.length <= 1"
-          v-tooltip.top="'Remove category'"
+          v-hint.top="'Remove category'"
           :aria-label="`Remove ${category.label || 'category'}`"
           @click="draft.categories.splice(index, 1)"
         />

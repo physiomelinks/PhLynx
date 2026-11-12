@@ -12,7 +12,7 @@
         <strong
           v-if="!isEditing"
           ref="sessionNameEl"
-          v-tooltip.bottom="{ value: hasSessionOverflow ? sessionName : '', showDelay: 300, class: 'nowrap-tooltip' }"
+          v-tooltip.bottom="{ value: hasSessionOverflow ? sessionName : '', class: 'nowrap-tooltip' }"
         >
           {{ sessionName }}
         </strong>
@@ -36,7 +36,7 @@
           rel="noopener"
           class="report-issue-link"
           aria-label="Report an issue"
-          v-tooltip.bottom="{ value: 'Report an issue', showDelay: 300 }"
+          v-hint.bottom="'Report an issue'"
         >
           <BugIcon aria-hidden="true" />
         </a>

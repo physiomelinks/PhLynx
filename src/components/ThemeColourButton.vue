@@ -60,7 +60,7 @@
           size="small"
           text
           :disabled="isAuto"
-          v-tooltip.top="'Derive from the light colour'"
+          v-hint.top="'Derive from the light colour'"
           @click="emit('update:modelValue', undefined)"
         />
         <span class="spacer"></span>

@@ -15,13 +15,13 @@
       v-if="side === 'right'"
       v-bind="toggleAttrs"
       @click="toggleCollapsed"
-      v-tooltip.left="toggleLabel"
+      v-hint.left="toggleLabel"
     >
       <svg class="library-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
         <line v-for="line in toggleLines" :key="line.y" v-bind="line" pathLength="100" />
       </svg>
     </button>
-    <button v-else v-bind="toggleAttrs" @click="toggleCollapsed" v-tooltip.right="toggleLabel">
+    <button v-else v-bind="toggleAttrs" @click="toggleCollapsed" v-hint.right="toggleLabel">
       <svg class="library-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
         <line v-for="line in toggleLines" :key="line.y" v-bind="line" pathLength="100" />
       </svg>

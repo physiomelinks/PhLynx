@@ -43,7 +43,7 @@
           size="small"
           :aria-label="`Edit the variables on ${shownPlotName}`"
           aria-haspopup="true"
-          v-tooltip.top="'Edit this plot’s variables'"
+          v-hint.top="'Edit this plot’s variables'"
           class="viewer-plot-edit"
           @mousedown.stop
           @click="(event) => plotEditor.toggle(event)"
@@ -68,7 +68,7 @@
           size="small"
           severity="danger"
           aria-label="Stop the simulation"
-          v-tooltip.top="'Stop'"
+          v-hint.top="'Stop'"
           @mousedown.stop
           @click="stop"
         />
@@ -92,7 +92,7 @@
           :severity="showSliders ? 'primary' : 'secondary'"
           :aria-pressed="showSliders"
           aria-label="Show the sliders"
-          v-tooltip.top="'Sliders'"
+          v-hint.top="'Sliders'"
           @mousedown.stop
           @click="showSliders = !showSliders"
         />
@@ -116,7 +116,7 @@
           size="small"
           severity="secondary"
           aria-label="Back to the Simulation tab"
-          v-tooltip.top="'Back to the Simulation tab'"
+          v-hint.top="'Back to the Simulation tab'"
           @mousedown.stop
           @click="returnToTab"
         />
@@ -141,7 +141,7 @@
                 severity="secondary"
                 class="remove-button"
                 :aria-label="`Stop plotting ${selection.variableName}`"
-                v-tooltip.left="'Remove from the plot'"
+                v-hint.left="'Remove from the plot'"
                 @click="settingsStore.setPlotConfig(removePlotSelection(settingsStore.plotConfig, selection.key))"
               />
             </li>

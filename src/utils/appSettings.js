@@ -155,6 +155,15 @@ export const SETTING_SECTIONS = [
         ],
         default: 'copper',
       },
+      {
+        key: 'showHints',
+        type: 'toggle',
+        label: 'Show hints',
+        description:
+          'Name a button, such as Save workspace, when the pointer rests on it. Tooltips that warn, or say why ' +
+          'something is unavailable, show either way.',
+        default: true,
+      },
     ],
   },
   {

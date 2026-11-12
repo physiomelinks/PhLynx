@@ -35,7 +35,7 @@
           rounded
           size="small"
           :aria-label="`Add a variable to ${plot.name}`"
-          v-tooltip.top="'Add a variable here'"
+          v-hint.top="'Add a variable here'"
           @click="addHere(plot)"
         />
         <Button
@@ -73,7 +73,7 @@
           size="small"
           severity="secondary"
           :aria-label="`Plot ${plot.name} against time again`"
-          v-tooltip.left="'Plot against time again'"
+          v-hint.left="'Plot against time again'"
           @click="emitConfig(setPlotXAxis(plotConfig, plot.id, null))"
         />
       </div>
@@ -105,7 +105,7 @@
             severity="secondary"
             class="remove-button"
             :aria-label="`Stop plotting ${selection.variableName}`"
-            v-tooltip.left="'Remove from the plot'"
+            v-hint.left="'Remove from the plot'"
             @click="emitConfig(removePlotSelection(plotConfig, selection.key))"
           />
         </li>
@@ -141,7 +141,7 @@
             severity="secondary"
             class="remove-button"
             :aria-label="`Stop plotting ${selection.variableName}`"
-            v-tooltip.left="'Remove from the plot'"
+            v-hint.left="'Remove from the plot'"
             @click="emitConfig(removePlotSelection(plotConfig, selection.key))"
           />
         </li>

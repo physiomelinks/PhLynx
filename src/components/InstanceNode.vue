@@ -40,7 +40,8 @@
           icon="pi pi-pencil"
           @click="openInstanceEditor('parameters')"
           @dblclick.stop
-          v-tooltip.bottom="{ value: 'Edit instance', showDelay: 300 }"
+          :aria-label="`Edit ${data.name}`"
+          v-hint.bottom="'Edit instance'"
         />
       </div>
 

@@ -15,7 +15,7 @@ function mountButton(props = {}) {
       'onUpdate:modelValue': (value) => wrapper.setProps({ modelValue: value }),
       ...props,
     },
-    global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} } },
     attachTo: document.body,
   })
   return wrapper

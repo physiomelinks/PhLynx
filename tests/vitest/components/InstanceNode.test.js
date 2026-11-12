@@ -49,7 +49,7 @@ let wrapper
 function mountNode() {
   wrapper = mount(InstanceNode, {
     props: { id: 'a', data: nodes.value[0].data },
-    global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} } },
     attachTo: document.body,
   })
 }
