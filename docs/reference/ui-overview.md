@@ -81,7 +81,7 @@ The canvas shows the model as a diagram, or as physiology when the header is swi
 
 **Replace Module** swaps an instance's math and variables for another module's, keeping its name, position and arrows. Pick the module in the list and click **Confirm**. Parameter values become the new module's. Ports are dropped unless you tick **Retain matching ports?**, which keeps each port whose variables all exist in the new module; double-click the arrows afterwards to check their couplings. Undo (Ctrl/Cmd+Z) reverses it.
 
-**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right.
+**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right: **Hide minimap** on its corner shrinks it to a map button, which brings it back.
 
 ### Searching the workspace {#search}
 
@@ -265,4 +265,4 @@ A change applies as soon as you make it, and is remembered in this browser.
 * **Restore defaults** puts the settings of the section shown back to their defaults. **Revert changes** undoes that too.
 * **Done**, Esc or a click outside closes Settings, keeping the changes.
 
-Species mode and CellDL location shading are not in Settings: each is a switch in its own view, and stays as you last left it.
+Species mode, CellDL location shading and the minimap are not in Settings: each is a switch in its own view, and stays as you last left it.

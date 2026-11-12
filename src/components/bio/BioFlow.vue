@@ -30,7 +30,7 @@
       @pane-click="clearSpeciesFocus"
     >
       <Background v-bind="BACKGROUND_DOTS" />
-      <MiniMap :pannable="true" :zoomable="true" class="mini-map" />
+      <FlowMiniMap :pannable="true" :zoomable="true" class="mini-map" />
       <Controls :fit-view-params="fitViewParams">
         <ControlButton
           title="Export image of the physiological view"
@@ -360,7 +360,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
-import { MiniMap } from '@vue-flow/minimap'
+import FlowMiniMap from '../FlowMiniMap.vue'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import Dialog from 'primevue/dialog'

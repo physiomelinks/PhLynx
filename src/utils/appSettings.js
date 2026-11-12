@@ -215,6 +215,8 @@ export const REMEMBERED_SETTINGS = [
   { key: 'speciesOverlay', type: 'toggle', label: 'Species mode', default: false },
   // The Shading switch in the CellDL tab's status bar.
   { key: 'celldlLocationShading', type: 'toggle', label: 'Location shading', default: true },
+  // The button on the corner of a view's minimap, and the map button that brings the minimap back.
+  { key: 'showMiniMap', type: 'toggle', label: 'Minimap', default: true },
 ]
 
 /** Each setting's definition, by key. */

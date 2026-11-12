@@ -91,11 +91,17 @@ describe('app settings registry', () => {
 })
 
 describe('settings remembered from a switch in their own view', () => {
-  it('keeps species mode and location shading out of the dialog', () => {
-    expect(REMEMBERED_SETTINGS.map((setting) => setting.key)).toEqual(['speciesOverlay', 'celldlLocationShading'])
+  it('keeps species mode, location shading and the minimap out of the dialog', () => {
+    const remembered = REMEMBERED_SETTINGS.map((setting) => setting.key)
+    expect(remembered).toEqual(['speciesOverlay', 'celldlLocationShading', 'showMiniMap'])
     const listed = LISTED.map((setting) => setting.key)
-    expect(listed).not.toContain('speciesOverlay')
-    expect(listed).not.toContain('celldlLocationShading')
+    for (const key of remembered) expect(listed, key).not.toContain(key)
+  })
+
+  it('shows the minimap unless the user hides it', () => {
+    expect(defaultAppSettings().showMiniMap).toBe(true)
+    expect(isValidAppSetting('showMiniMap', false)).toBe(true)
+    expect(isValidAppSetting('showMiniMap', 'hidden')).toBe(false)
   })
 
   it('starts without species mode and with location shading, accepting only on or off', () => {

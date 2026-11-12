@@ -64,11 +64,12 @@ describe('useScreenshot', () => {
       expect(toJpeg).not.toHaveBeenCalled()
     })
 
-    it('filter drops minimap, controls and dropzone nodes but keeps others', async () => {
+    it('filter drops minimap, its show and hide button, controls and dropzone nodes but keeps others', async () => {
       const { capture } = useScreenshot()
       await capture(document.createElement('div'))
       const { filter } = toPng.mock.calls[0][1]
       expect(filter(nodeWith('vue-flow__minimap'))).toBe(false)
+      expect(filter(nodeWith('vue-flow__panel', 'minimap-toggle'))).toBe(false)
       expect(filter(nodeWith('vue-flow__controls'))).toBe(false)
       expect(filter(nodeWith('dropzone-background'))).toBe(false)
       expect(filter(nodeWith('vue-flow__node'))).toBe(true)
