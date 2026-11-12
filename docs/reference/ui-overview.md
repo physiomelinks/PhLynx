@@ -255,4 +255,5 @@ Opened with **Settings** (cog icon).
 | Simulation | **Plot inspection modules**; **Auto-plot selection** (in the [physiology view](../guides/physiology-view.md#roles)); **Species mode** (open the physiology view in [species mode](../guides/physiology-view.md#species-mode)); **Show data items** (in Edit obs_data) |
 | CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **Location shading**; **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
 | Image export | **Image format** (PNG or SVG); **Include warning symbols** |
+| Appearance | **Accent colour** (Copper, Logo brown or Emerald) |
 | Toolbar | Show or hide each toolbar button. **Add handles**, **Macro builder** and **Send to** are hidden until turned on; **Settings** is always shown |

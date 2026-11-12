@@ -152,6 +152,23 @@ export const SETTING_SECTIONS = [
     ],
   },
   {
+    title: 'Appearance',
+    settings: [
+      {
+        key: 'accentColour',
+        type: 'select',
+        label: 'Accent colour',
+        description: 'The colour of the main buttons, links, selections and highlights. It changes as soon as it is saved.',
+        options: [
+          { value: 'copper', label: 'Copper', hint: 'The brown of the PhLynx icon, more saturated' },
+          { value: 'logoBrown', label: 'Logo brown', hint: 'The brown of the PhLynx icon' },
+          { value: 'emerald', label: 'Emerald', hint: 'The green PhLynx used before' },
+        ],
+        default: 'copper',
+      },
+    ],
+  },
+  {
     title: 'Toolbar',
     settings: [
       toolbarToggle('toolbarLoad', 'Load workspace', 'the folder button that opens a saved workspace.', true),
