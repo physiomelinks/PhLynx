@@ -991,10 +991,12 @@ class TestSimulationTab(unittest.TestCase):
 
             # Turned off in Settings, the section goes; the obs_data is as it was.
             page.get_by_role("button", name="Settings", exact=True).click()
+            settings = page.get_by_role("dialog", name="Settings")
+            settings.get_by_role("tab", name="Simulation", exact=True).click()
             show_data_items = page.get_by_role("switch", name="Show data items")
             expect(show_data_items).to_be_checked()
             show_data_items.uncheck()
-            page.get_by_role("button", name="Save Changes").click()
+            settings.get_by_role("button", name="Done").click()
             page.get_by_role("button", name="Edit obs_data", exact=True).click()
             expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
             expect(dialog.get_by_role("region", name="data_items")).to_have_count(0)
@@ -1360,8 +1362,10 @@ class TestSimulationTab(unittest.TestCase):
 
             # Turned on in Settings, they plot as a plot of their own.
             page.get_by_role("button", name="Settings", exact=True).click()
+            settings = page.get_by_role("dialog", name="Settings")
+            settings.get_by_role("tab", name="Simulation", exact=True).click()
             page.get_by_role("switch", name="Plot inspection modules").check()
-            page.get_by_role("button", name="Save Changes").click()
+            settings.get_by_role("button", name="Done").click()
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")
             # ----------- END ------------
 

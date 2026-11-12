@@ -67,7 +67,7 @@ waitForIsolationReload().then(() => {
   app.provide('$libopencor', libopencor)
   app.mount('#app')
 
-  // The Accent colour setting recolours the app as soon as it is saved.
+  // The Accent colour setting recolours the app as soon as it is chosen.
   watch(() => settings.accentColour, applyAccentColour)
 
   // In the background, so the simulator is ready by the time it's needed; nothing waits for it here.

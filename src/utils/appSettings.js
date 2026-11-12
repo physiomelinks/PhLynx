@@ -11,8 +11,9 @@ function toolbarToggle(key, label, description, shown) {
 }
 
 /**
- * The settings, by section, in the order the dialog shows them. Each `select` setting offers `options`, each with
- * an optional `hint` shown beneath its label; a `toggle` setting is on or off.
+ * The settings, by section, in the order the dialog lists its sections. Each `select` setting offers `options`, each
+ * with an optional `hint` shown beneath its label; a `toggle` setting is on or off. A section may open with an `intro`,
+ * and one whose `layout` is 'checklist' shows its toggles as a compact list of checkboxes.
  */
 export const SETTING_SECTIONS = [
   {
@@ -43,22 +44,26 @@ export const SETTING_SECTIONS = [
         default: false,
       },
       {
+        key: 'showDataItems',
+        type: 'toggle',
+        label: 'Show data items',
+        description:
+          "List the obs_data's data items, the measurements a calibration fits the model to, in Edit obs_data. They are shown read-only: edit them in CUFLynx.",
+        default: true,
+      },
+    ],
+  },
+  {
+    title: 'Physiological view',
+    settings: [
+      {
         key: 'autoPlotSelection',
         type: 'toggle',
         label: 'Auto-plot selection',
         description:
-          'In the physiological view, plot what is selected from its annotations: a protein’s flows, ' +
-          'a compartment’s concentrations, a membrane’s potential.',
+          'Plot what is selected from its annotations: a protein’s flows, a compartment’s concentrations, ' +
+          'a membrane’s potential.',
         default: true,
-      },
-      {
-        key: 'speciesOverlay',
-        type: 'toggle',
-        label: 'Species mode',
-        description:
-          'Open the physiological view in species mode: each compartment’s annotated species, and the paths ' +
-          'they take through its proteins. The view’s controls turn it on and off.',
-        default: false,
       },
       {
         key: 'speciesFlowContinuous',
@@ -67,14 +72,6 @@ export const SETTING_SECTIONS = [
         description:
           'In species mode, keep the dashes on each path running the way its species flows. Off, they run a few ' +
           'times and then rest, which is lighter on slower machines; a selected species’ paths always run.',
-        default: true,
-      },
-      {
-        key: 'showDataItems',
-        type: 'toggle',
-        label: 'Show data items',
-        description:
-          "List the obs_data's data items, the measurements a calibration fits the model to, in Edit obs_data. They are shown read-only: edit them in CUFLynx.",
         default: true,
       },
     ],
@@ -105,14 +102,6 @@ export const SETTING_SECTIONS = [
           { value: 'zoom', label: 'Zoom', hint: 'Scrolling zooms around the pointer' },
         ],
         default: 'auto',
-      },
-      {
-        key: 'celldlLocationShading',
-        type: 'toggle',
-        label: 'Location shading',
-        description:
-          "Shade the regions of a diagram that its elements' locations mark out. Only the display changes; the CellDL tab's status bar has the same switch.",
-        default: true,
       },
       {
         key: 'celldlUnitSystem',
@@ -158,7 +147,7 @@ export const SETTING_SECTIONS = [
         key: 'accentColour',
         type: 'select',
         label: 'Accent colour',
-        description: 'The colour of the main buttons, links, selections and highlights. It changes as soon as it is saved.',
+        description: 'The colour of the main buttons, links, selections and highlights.',
         options: [
           { value: 'copper', label: 'Copper', hint: 'The brown of the PhLynx icon, more saturated' },
           { value: 'logoBrown', label: 'Logo brown', hint: 'The brown of the PhLynx icon' },
@@ -170,6 +159,8 @@ export const SETTING_SECTIONS = [
   },
   {
     title: 'Toolbar',
+    layout: 'checklist',
+    intro: 'The buttons the workspace toolbar shows. Settings is always shown, so hidden buttons can come back.',
     settings: [
       toolbarToggle('toolbarLoad', 'Load workspace', 'the folder button that opens a saved workspace.', true),
       toolbarToggle(
@@ -216,9 +207,24 @@ export const SETTING_SECTIONS = [
   },
 ]
 
+/**
+ * Settings the dialog does not list: each is a switch in the view it changes, remembered as it was last left.
+ */
+export const REMEMBERED_SETTINGS = [
+  // The physiological view's Show species button, and Species Mode on its right-click menu.
+  { key: 'speciesOverlay', type: 'toggle', label: 'Species mode', default: false },
+  // The Shading switch in the CellDL tab's status bar.
+  { key: 'celldlLocationShading', type: 'toggle', label: 'Location shading', default: true },
+  // The button on the corner of a view's minimap, and the map button that brings the minimap back.
+  { key: 'showMiniMap', type: 'toggle', label: 'Minimap', default: true },
+]
+
 /** Each setting's definition, by key. */
 export const APP_SETTINGS = new Map(
-  SETTING_SECTIONS.flatMap((section) => section.settings).map((setting) => [setting.key, setting])
+  [...SETTING_SECTIONS.flatMap((section) => section.settings), ...REMEMBERED_SETTINGS].map((setting) => [
+    setting.key,
+    setting,
+  ])
 )
 
 /** @returns {Object<string, *>} Every setting at its default. */

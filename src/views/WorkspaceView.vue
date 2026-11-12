@@ -466,7 +466,7 @@
             <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
             <!-- Not kept while the diagram is hidden: it would redraw every node for each edit in the physiology view -->
-            <MiniMap
+            <FlowMiniMap
               v-if="!viewMode.isBio"
               :pannable="true"
               :zoomable="true"
@@ -617,7 +617,6 @@ import { Toast } from 'primevue'
 import { useToast } from 'primevue/usetoast'
 
 import { Controls, ControlButton } from '@vue-flow/controls'
-import { MiniMap } from '@vue-flow/minimap'
 
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
@@ -673,6 +672,7 @@ import ProtocolDialog from '../components/ProtocolDialog.vue'
 import SimulationFloatingViewer from '../components/simulation/SimulationFloatingViewer.vue'
 import { setWorkspaceMounted } from '../router/workspaceMount'
 import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
+import FlowMiniMap from '../components/FlowMiniMap.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'

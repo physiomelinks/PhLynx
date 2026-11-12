@@ -81,7 +81,7 @@ The canvas shows the model as a diagram, or as physiology when the header is swi
 
 **Replace Module** swaps an instance's math and variables for another module's, keeping its name, position and arrows. Pick the module in the list and click **Confirm**. Parameter values become the new module's. Ports are dropped unless you tick **Retain matching ports?**, which keeps each port whose variables all exist in the new module; double-click the arrows afterwards to check their couplings. Undo (Ctrl/Cmd+Z) reverses it.
 
-**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right.
+**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right: **Hide minimap** on its corner shrinks it to a map button, which brings it back.
 
 ### Searching the workspace {#search}
 
@@ -247,13 +247,22 @@ After a run, add it to a plot by searching for its name, or turn on **Settings â
 
 ## Settings {#settings}
 
-Opened with **Settings** (cog icon).
+Opened with **Settings** (cog icon). Pick a section from the list on the left; its settings show on the right.
 
 | Section | Settings |
 | :--- | :--- |
 | Units | **Units suggestion format**: CellML built-in or SI base units |
-| Simulation | **Plot inspection modules**; **Auto-plot selection** (in the [physiology view](../guides/physiology-view.md#roles)); **Species mode** (open the physiology view in [species mode](../guides/physiology-view.md#species-mode)); **Show data items** (in Edit obs_data) |
-| CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **Location shading**; **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
+| Simulation | **Plot inspection modules**; **Show data items** (in Edit obs_data) |
+| Physiological view | **Auto-plot selection** (in the [physiology view](../guides/physiology-view.md#roles)); **Keep species flows moving** (in [species mode](../guides/physiology-view.md#species-mode)) |
+| CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
 | Image export | **Image format** (PNG or SVG); **Include warning symbols** |
 | Appearance | **Accent colour** (Copper, Logo brown or Emerald) |
-| Toolbar | Show or hide each toolbar button. **Add handles**, **Macro builder** and **Send to** are hidden until turned on; **Settings** is always shown |
+| Toolbar | Tick or untick each toolbar button to show or hide it. **Add handles**, **Macro builder** and **Send to** are hidden until ticked; **Settings** is always shown |
+
+A change applies as soon as you make it, and is remembered in this browser.
+
+* **Revert changes** puts every setting back as it was when you opened Settings. A dot marks each setting you have changed since then, and each section that holds one.
+* **Restore defaults** puts the settings of the section shown back to their defaults. **Revert changes** undoes that too.
+* **Done**, Esc or a click outside closes Settings, keeping the changes.
+
+Species mode, CellDL location shading and the minimap are not in Settings: each is a switch in its own view, and stays as you last left it.
