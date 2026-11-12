@@ -2937,7 +2937,7 @@ watch(
 
 .p-dark .vue-flow__node.selected {
   background-color: #333;
-  box-shadow: 0 0 0 2px #2563eb;
+  box-shadow: 0 0 0 2px var(--p-primary-color);
 }
 
 /* Edge Labels */

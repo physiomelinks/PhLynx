@@ -5,7 +5,7 @@
 :deep(.vue-flow__handle) {
   width: 10px;
   height: 10px;
-  border: 2px solid #409eff;
+  border: 2px solid var(--p-primary-color);
   border-radius: 10px;
   background: #000000;
 }
