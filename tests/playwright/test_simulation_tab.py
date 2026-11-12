@@ -145,8 +145,19 @@ def simulate_whole_model(page):
 def pick_path(page, box_name, path, within=None):
     """Searches for an instance/variable path in a Simulation tab search box and picks it."""
     scope = within or page
-    scope.get_by_role("combobox", name=box_name).fill(path.replace("/", " "))
-    option = page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(rf"^{re.escape(path)}$")))
+    query = path.replace("/", " ")
+    scope.get_by_role("combobox", name=box_name).fill(query)
+    # The box lists every path as soon as it has focus and only filters 120 ms after typing, so wait for the
+    # filtered list: a row picked from the unfiltered one can be replaced under the click.
+    page.wait_for_function(
+        """(words) => {
+            const options = [...document.querySelectorAll('.p-autocomplete-option')]
+            return options.length > 0
+                && options.every((o) => words.every((w) => (o.getAttribute('aria-label') ?? '').toLowerCase().includes(w)))
+        }""",
+        arg=query.lower().split(),
+    )
+    option =page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(rf"^{re.escape(path)}$")))
     option.first.click()
 
 
