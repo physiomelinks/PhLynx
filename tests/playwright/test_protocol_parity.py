@@ -14,22 +14,22 @@ from playwright.sync_api import sync_playwright
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from .test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, evaluate_within_a_minute
+    from .test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, TRACK_APP_MODULES, evaluate_within_a_minute
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, evaluate_within_a_minute
+    from test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, TRACK_APP_MODULES, evaluate_within_a_minute
 
 PARITY = os.path.join(RESOURCE_PATH, "protocols", "parity")
 
 # Runs __CASE__ on the model __CELLML__ as the Simulation tab runs a protocol, with the tolerance __TOLERANCE__.
 RUN_CASE = """async () => {
   const spec = __CASE__
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
-  const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
+  const { whenLibCellMLReady } = await importAppModule('/src/utils/cellml.js')
   const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
-  const { planDrivers } = await import('/src/services/protocol/libopencorEngine/protocolDrivers.js')
-  const { addProtocolDrivers } = await import('/src/services/simulation/protocolDriverModel.js')
-  const { prepareProtocolRun } = await import('/src/services/simulation/protocolRun.js')
+  const { planDrivers } = await importAppModule('/src/services/protocol/libopencorEngine/protocolDrivers.js')
+  const { addProtocolDrivers } = await importAppModule('/src/services/simulation/protocolDriverModel.js')
+  const { prepareProtocolRun } = await importAppModule('/src/services/simulation/protocolRun.js')
   const checked = validateProtocolInfo(spec.protocol_info)
   if (checked.errors.length) return { errors: checked.errors }
   const view = readProtocolInfo(checked.protocolInfo)
@@ -60,10 +60,10 @@ RUN_CASE = """async () => {
 # features need, and computes them; also from the joined traces, whose sub-experiments start with the point before.
 RUN_FEATURES = """async () => {
   const spec = __CASE__
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const { computeFeatures, readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
-  const { prepareProtocolRun } = await import('/src/services/simulation/protocolRun.js')
-  const { buildOperandTime, computeRunFeatures, listFeatureOperands, resolveFeatureOperands } = await import('/src/services/simulation/protocolFeatures.js')
+  const { prepareProtocolRun } = await importAppModule('/src/services/simulation/protocolRun.js')
+  const { buildOperandTime, computeRunFeatures, listFeatureOperands, resolveFeatureOperands } = await importAppModule('/src/services/simulation/protocolFeatures.js')
   const checked = validateProtocolInfo(spec.obs_data.protocol_info)
   if (checked.errors.length) return { errors: checked.errors }
   const view = readProtocolInfo(checked.protocolInfo)
@@ -102,6 +102,7 @@ class TestProtocolParity(unittest.TestCase):
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()
             page.goto(BASE_URL, wait_until="commit")
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
@@ -147,6 +148,7 @@ class TestProtocolParity(unittest.TestCase):
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()
             page.goto(BASE_URL, wait_until="commit")
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)

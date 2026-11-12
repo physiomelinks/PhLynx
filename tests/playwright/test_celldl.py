@@ -8,10 +8,10 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, expect, 
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from .test_simulator import IS_DEV_SERVER
+    from .test_simulator import IS_DEV_SERVER, TRACK_APP_MODULES
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from test_simulator import IS_DEV_SERVER
+    from test_simulator import IS_DEV_SERVER, TRACK_APP_MODULES
 
 
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
@@ -108,6 +108,7 @@ def open_app(playwright, engine="chromium"):
     browser = getattr(playwright, engine).launch(headless=HEADLESS_MODE)
     context = browser.new_context(viewport={"width": 1600, "height": 1000})
     context.add_init_script(OPT_IN_TO_ISOLATION)
+    context.add_init_script(TRACK_APP_MODULES)
     page = context.new_page()
     page.goto(BASE_URL, wait_until="commit")
     page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
@@ -284,7 +285,7 @@ def draw_in_editor(page, path):
         document = f.read()
     page.evaluate(
         """async (data) => {
-            const { useCelldlEditorHost } = await import('/src/composables/useCelldlEditorHost.js')
+            const { useCelldlEditorHost } = await importAppModule('/src/composables/useCelldlEditorHost.js')
             useCelldlEditorHost().command.value = { command: 'file', options: { action: 'open', data, name: 'drawn.celldl' } }
         }""",
         document,
@@ -333,7 +334,7 @@ def set_element_type(page, element_id, kind):
     """Sets an element's type in the diagram, as a diagram saved with it would have it, through the editor host."""
     result = page.evaluate(
         """async ([id, value]) => {
-            const { useCelldlEditorHost } = await import('/src/composables/useCelldlEditorHost.js')
+            const { useCelldlEditorHost } = await importAppModule('/src/composables/useCelldlEditorHost.js')
             return useCelldlEditorHost().setElement([{ id, field: 'type', value }])
         }""",
         [element_id, kind],
@@ -1576,7 +1577,7 @@ class TestCelldl(unittest.TestCase):
             # A change applies to an open diagram straight away.
             page.evaluate(
                 """async () => {
-                    const { useAppSettings } = await import('/src/composables/useAppSettings.js')
+                    const { useAppSettings } = await importAppModule('/src/composables/useAppSettings.js')
                     useAppSettings().saveAppSettings({ arrowStyle: 'classic' })
                 }"""
             )
