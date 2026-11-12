@@ -94,6 +94,19 @@ describe('parseForRole', () => {
     expect(asConfig.key).toBe(IMPORT_KEYS.MODULE_CONFIG)
   })
 
+  it('reads a module array JSON as the instance array, and a config JSON as a config, whichever is tried first', async () => {
+    const roles = [IMPORT_KEYS.INSTANCE_ARRAY, IMPORT_KEYS.MODULE_CONFIG, IMPORT_KEYS.PARAMETER].map(fieldFor)
+    const array = '[{"name": "heart", "module_type": "heart", "module_subtype": "simple", "inp_instances": [], "out_instances": []}]'
+
+    for (const order of [roles, [...roles].reverse()]) {
+      const asArray = await parseForRole(entry('heart_module_array.json', array).file, order, emptyStore)
+      expect(asArray.key).toBe(IMPORT_KEYS.INSTANCE_ARRAY)
+      expect(asArray.data).toEqual([{ name: 'heart', module_type: 'heart', module_subtype: 'simple', inp_instances: '', out_instances: '' }])
+      const asConfig = await parseForRole(entry('config.json', JSON.stringify(CONFIG)).file, order, emptyStore)
+      expect(asConfig.key).toBe(IMPORT_KEYS.MODULE_CONFIG)
+    }
+  })
+
   it('keeps a <variable>_<instance> CSV\'s rows', async () => {
     const result = await parseForRole(entry('b.csv', PARAMETERS_CSV).file, csvCandidates(), emptyStore)
 

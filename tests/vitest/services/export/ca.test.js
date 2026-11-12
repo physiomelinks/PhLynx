@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import JSZip from 'jszip'
-import Papa from 'papaparse'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,7 +8,7 @@ import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 const notified = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn() }))
 vi.mock('../../../../src/utils/notify', () => ({ notify: notified }))
 
-const { findCaExportBlocker, generateExportZip } = await import('../../../../src/services/export/ca.js')
+const { findCaExportBlocker, generateExportZip, moduleArrayJson } = await import('../../../../src/services/export/ca.js')
 const { caModuleFileName, groupingTag, renameClashingComponents } = await import('../../../../src/services/export/caCellml.js')
 const { combineComponentModels, processCellMLData } = await import('../../../../src/utils/cellml.js')
 const { useLibraryStore } = await import('../../../../src/stores/libraryStore.js')
@@ -263,13 +262,36 @@ describe('generateExportZip', () => {
     nodes[0].data.parameterisation = 'vp'
     nodes[1].data.parameterisation = 'vp_calibrated'
     const files = await readZip(await generateExportZip('heart', nodes, [], library))
-    const { data: rows } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
-    expect(rows.map((row) => row.parameterisation)).toEqual(['', 'vp_calibrated', ''])
+    const rows = JSON.parse(files['heart_module_array.json'])
+    expect(rows.map((row) => row.parameterisation)).toEqual([undefined, 'vp_calibrated', undefined])
   })
 
-  it('writes no parameterisation column when every instance uses its default', async () => {
+  it('writes no parameterisation key when every instance uses its default', async () => {
     const files = await readZip(await generateExportZip('heart', [nodeWith('vp', [])], [], library))
-    expect(files['heart_module_array.csv'].split('\n')[0]).not.toContain('parameterisation')
+    expect(Object.keys(JSON.parse(files['heart_module_array.json'])[0])).toEqual(['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances'])
+  })
+
+  it("writes the module array as JSON in CA's dump_vessel_records layout, with no CSV", async () => {
+    library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
+    const nodes = [nodeWith('a', []), nodeWith('b', [])]
+    nodes[1].data.parameterisation = 'vp_calibrated'
+    const edges = [{ id: 'e', source: 'a', target: 'b' }]
+    const files = await readZip(await generateExportZip('heart', nodes, edges, library))
+    expect(files['heart_module_array.json']).toBe(
+      [
+        '[',
+        ' {"name": "a", "module_type": "arterial_simple", "module_subtype": "vp", "inp_instances": [], "out_instances": ["b"]},',
+        ' {"name": "b", "module_type": "arterial_simple", "module_subtype": "vp", "inp_instances": ["a"], "out_instances": [], "parameterisation": "vp_calibrated"}',
+        ']',
+        '',
+      ].join('\n')
+    )
+    expect(Object.keys(files).filter((name) => name.includes('module_array'))).toEqual(['heart_module_array.json'])
+  })
+
+  it("escapes non-ASCII text as Python's json.dumps does", () => {
+    expect(moduleArrayJson([{ name: 'café', inp_instances: [] }])).toBe('[\n {"name": "caf\\u00e9", "inp_instances": []}\n]\n')
+    expect(moduleArrayJson([])).toBe('[]\n')
   })
 
   it('writes no default parameterisation when the module names none', async () => {
@@ -317,7 +339,7 @@ describe('generateExportZip', () => {
       note: { value: 'n/a', units: 'J_per_m3', data_reference: 'paper' },
     })
     // The module array's ref names the file written.
-    const { data: rows } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+    const rows = JSON.parse(files['heart_module_array.json'])
     expect(files[`parameters/${rows[1].parameterisation}_parameters.json`]).toBeDefined()
   })
 
@@ -347,8 +369,8 @@ describe('generateExportZip', () => {
     })
     // An imported set is written as imported, whatever its instance holds.
     expect(JSON.parse(files['parameters/vp_parameters.json']).E.value).toBe(1)
-    const { data: array } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
-    expect(array.map((row) => row.parameterisation)).toEqual(['a', ''])
+    const array = JSON.parse(files['heart_module_array.json'])
+    expect(array.map((row) => row.parameterisation)).toEqual(['a', undefined])
   })
 
   it("writes the set an instance made as its own config's default, naming it on the config, not the row", async () => {
@@ -360,7 +382,7 @@ describe('generateExportZip', () => {
     const files = await readZip(await generateExportZip('heart', [node], [], library, null, { getParameterSet: (_, ref) => (ref === 'a' ? own : null) }))
 
     expect(JSON.parse(files['modules/heart_module_config.json'])[0].default_parameterisation).toBe('a')
-    expect(files['heart_module_array.csv'].split('\n')[0]).not.toContain('parameterisation')
+    expect(JSON.parse(files['heart_module_array.json'])[0]).not.toHaveProperty('parameterisation')
     expect(JSON.parse(files['parameters/a_parameters.json']).E.value).toBe(5)
   })
 
@@ -461,7 +483,7 @@ describe('generateExportZip', () => {
           '',
         ].join('\n')
       )
-      expect(Object.keys(files).filter((name) => name.endsWith('.csv'))).toEqual(['heart_module_array.csv'])
+      expect(Object.keys(files).filter((name) => name.endsWith('.csv'))).toEqual([])
     })
 
     it('marks a blank constant or boundary condition to be filled', async () => {
@@ -596,7 +618,7 @@ describe('generateExportZip', () => {
     expect(Object.keys(files).filter((name) => name.startsWith('modules/') && name.endsWith('.json'))).toEqual([
       'modules/heart_module_config.json',
     ])
-    expect(Object.keys(files)).toEqual(expect.arrayContaining(['heart_module_array.csv', 'heart_parameters.json', 'heart_obs_data.json']))
+    expect(Object.keys(files)).toEqual(expect.arrayContaining(['heart_module_array.json', 'heart_parameters.json', 'heart_obs_data.json']))
   })
 
   it('writes units that only other units are made of', async () => {
@@ -655,7 +677,7 @@ describe('generateExportZip', () => {
     async function exportNodes(nodes, edges = []) {
       const files = await readZip(await generateExportZip('heart', nodes, edges, library))
       const config = JSON.parse(files['modules/heart_module_config.json'])
-      const { data } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+      const data = JSON.parse(files['heart_module_array.json'])
       return { files, config, subtypes: Object.fromEntries(data.map((row) => [row.name, row.module_subtype])) }
     }
 
@@ -754,7 +776,7 @@ describe('generateExportZip', () => {
     describe("with the module's default parameter set", () => {
       const sets = { vp: { ref: 'vp', globals: new Map(), values: new Map() }, vp_fast: { ref: 'vp_fast', globals: new Map(), values: new Map() } }
       const getParameterSet = (mathRef, ref) => sets[ref] ?? null
-      const rowsOf = (files) => Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true }).data
+      const rowsOf = (files) => JSON.parse(files['heart_module_array.json'])
 
       beforeEach(() => {
         library.availableModules.get(BG_MODULE_REF).defaultParameterisation = 'vp'
@@ -769,8 +791,8 @@ describe('generateExportZip', () => {
         const config = JSON.parse(files['modules/heart_module_config.json'])
         expect(config.map((entry) => [entry.module_subtype, entry.default_parameterisation])).toEqual([['vp', 'vp'], ['vp_B', 'vp']])
         expect(rowsOf(files).map((row) => [row.name, row.module_subtype, row.parameterisation])).toEqual([
-          ['A', 'vp', ''],
-          ['B', 'vp_B', ''],
+          ['A', 'vp', undefined],
+          ['B', 'vp_B', undefined],
           ['C', 'vp_B', 'vp_fast'],
         ])
         expect(Object.keys(files).filter((name) => name.startsWith('parameters/')).sort()).toEqual([
@@ -875,7 +897,7 @@ describe('generateExportZip', () => {
     expect(files['modules/User_CellDL_modules.cellml']).not.toContain('"rate_type"')
     expect(files['modules/User_modules.cellml']).toContain('<component name="rate_type">')
     // The module array and parameters name instances and module types, which the rename leaves alone.
-    const { data: rows } = Papa.parse(files['heart_module_array.csv'], { header: true, skipEmptyLines: true })
+    const rows = JSON.parse(files['heart_module_array.json'])
     expect(rows.map((row) => `${row.module_type}:${row.module_subtype}`)).toEqual(['rate0:default', 'rate1:default'])
     expect(Object.keys(parametersOf(files))).toEqual(['schema_version', 'r0', 'r1'])
     expect(notified.warning).toHaveBeenCalledWith({

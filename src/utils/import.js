@@ -283,26 +283,129 @@ const parseInstanceArray = (file, libraryStore = null) => {
           reject(new Error('Instance array file has no rows.'))
           return
         }
-        if (libraryStore) {
-          const requiredModules = results.data
-          const completionStatus = checkResourcesAreLoaded(requiredModules, libraryStore)
-          resolve({
-            data: results.data,
-            // warnings: completionStatus.warnings,
-            completionStatus: completionStatus,
-          })
-        } else {
-          resolve({
-            data: results.data,
-            // warnings: [],
-            completionStatus: null,
-          })
-        }
+        resolve(instanceArrayResult(results.data, libraryStore))
       },
       error: (err) => reject(err),
     })
   })
 }
+
+/** Keys of CA's older vessel arrays, which it refuses. */
+const LEGACY_ARRAY_KEYS = ['vessel_type', 'BC_type', 'inp_vessels', 'out_vessels', 'instance']
+
+/** Keys of hierarchical (super-module) records, which PhLynx can't build yet. */
+const HIERARCHICAL_ARRAY_KEYS = ['per_submodule_inputs', 'per_submodule_outputs']
+
+/** Keys that mark a JSON record as a module config or port definition rather than an instance. */
+const CONFIG_RECORD_KEYS = ['component_file', 'entrance_ports', 'exit_ports', 'general_ports']
+
+/**
+ * Checks whether parsed JSON looks like a module array: an array whose first record has a name and no config keys.
+ * @param {unknown} parsed
+ * @returns {boolean}
+ */
+function isModuleArrayShape(parsed) {
+  const first = Array.isArray(parsed) ? parsed[0] : null
+  return !!first && typeof first === 'object' && 'name' in first && !CONFIG_RECORD_KEYS.some((key) => key in first)
+}
+
+/**
+ * Joins a module array instance list (array, space-separated string or null) into the CSV's space-separated form.
+ * @param {string[]|string|null|undefined} list
+ * @returns {string}
+ */
+function joinInstanceList(list) {
+  if (list == null) return ''
+  const names = Array.isArray(list) ? list.map((name) => String(name).trim()) : String(list).trim().split(/\s+/)
+  return names.filter(Boolean).join(' ')
+}
+
+function hierarchicalError(found, name) {
+  return new Error(`PhLynx doesn't currently support hierarchical model structures (found ${found} on instance '${name}').`)
+}
+
+/**
+ * Normalises module array JSON records to the rows the CSV parser gives: trimmed strings, with the instance lists
+ * space-joined. `phlynx_*` keys are dropped.
+ * @param {Object[]} records
+ * @returns {Object[]}
+ */
+export function moduleArrayRows(records) {
+  return records.map((record) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('Instance array records must be objects.')
+    const name = String(record?.name ?? '').trim()
+    const legacy = LEGACY_ARRAY_KEYS.find((key) => key in record)
+    if (legacy) throw new Error(`Instance array uses older vessel-array keys (found ${legacy} on instance '${name}'). Rename them to the module array keys.`)
+    const nested = HIERARCHICAL_ARRAY_KEYS.find((key) => key in record)
+    if (nested) throw hierarchicalError(nested, name)
+
+    const row = {}
+    for (const [key, value] of Object.entries(record)) {
+      if (key.startsWith('phlynx_')) continue
+      if (key === 'inp_instances' || key === 'out_instances') {
+        row[key] = joinInstanceList(value)
+        const path = row[key].split(' ').find((other) => other.includes('/'))
+        if (path) throw hierarchicalError(path, name)
+      } else if (value !== null && typeof value !== 'object') {
+        row[key] = String(value).trim()
+      }
+    }
+    if (name.includes('/')) throw hierarchicalError(name, name)
+    row.inp_instances ??= ''
+    row.out_instances ??= ''
+    const schemaError = missingFieldsError('instance array file', INSTANCE_ARRAY_COLUMNS, Object.keys(row), 'keys')
+    if (schemaError) throw schemaError
+    return row
+  })
+}
+
+/**
+ * Resolves parsed instance array rows, with readiness when a library store is given.
+ * @param {Object[]} data
+ * @param {Object|null} libraryStore
+ * @returns {{ data: Object[], completionStatus: Object|null }}
+ */
+function instanceArrayResult(data, libraryStore) {
+  return { data, completionStatus: libraryStore ? checkResourcesAreLoaded(data, libraryStore) : null }
+}
+
+/**
+ * Parses a CA module array JSON file (a list of instance records) into the CSV parser's row shape.
+ * @param {File} file
+ * @param {Object} [libraryStore]
+ * @returns {Promise<{ data: Object[], completionStatus: Object|null }>}
+ */
+export const parseInstanceArrayJson = (file, libraryStore = null) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result)
+        if (!Array.isArray(parsed)) {
+          throw Object.assign(new Error('Instance array file must be an array of instance records.'), { unrelated: true })
+        }
+        if (parsed.length === 0) throw new Error('Instance array file has no rows.')
+        if (!isModuleArrayShape(parsed)) {
+          throw Object.assign(new Error('Invalid instance array file format. Records need a name.'), { unrelated: true })
+        }
+        resolve(instanceArrayResult(moduleArrayRows(parsed), libraryStore))
+      } catch (err) {
+        reject(err)
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+}
+
+/**
+ * Parses an instance array file, JSON or CSV by its extension.
+ * @param {File} file
+ * @param {Object} [libraryStore]
+ * @returns {Promise<{ data: Object[], completionStatus: Object|null }>}
+ */
+export const parseInstanceArrayFile = (file, libraryStore = null) =>
+  extensionOf(file?.name ?? '') === '.json' ? parseInstanceArrayJson(file, libraryStore) : parseInstanceArray(file, libraryStore)
 
 const parseConfigJson = (file) => {
   return new Promise((resolve, reject) => {
@@ -315,6 +418,9 @@ const parseConfigJson = (file) => {
         }
         if (parsed.length === 0) {
           throw new Error('Config file must be a non-empty array of configuration objects.')
+        }
+        if (isModuleArrayShape(parsed)) {
+          throw Object.assign(new Error('This is an instance array, not a module configuration file.'), { unrelated: true })
         }
         const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(parsed[0] ?? {}), 'keys')
         if (schemaError) throw schemaError
@@ -508,10 +614,10 @@ const configs = {
       {
         key: IMPORT_KEYS.INSTANCE_ARRAY,
         label: IMPORT_LABELS.INSTANCE_ARRAY,
-        accept: '.csv',
+        accept: '.csv, .json',
         limit: 1,
         required: true,
-        parser: parseInstanceArray,
+        parser: parseInstanceArrayFile,
         isDynamic: true,
       },
       {
