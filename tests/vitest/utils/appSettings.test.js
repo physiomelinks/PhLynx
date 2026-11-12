@@ -130,9 +130,21 @@ describe('accent colour setting', () => {
       ['logoBrown', 'Logo brown'],
       ['emerald', 'Emerald'],
     ])
-    expect(SETTING_SECTIONS.find((section) => section.title === 'Appearance').settings).toEqual([setting])
+    expect(SETTING_SECTIONS.find((section) => section.title === 'Appearance').settings[0]).toBe(setting)
     expect(isValidAppSetting('accentColour', 'emerald')).toBe(true)
     expect(isValidAppSetting('accentColour', 'purple')).toBe(false)
+  })
+})
+
+describe('button hints setting', () => {
+  it('shows hints until the user turns them off, under Appearance after the accent colour', () => {
+    const setting = APP_SETTINGS.get('showHints')
+    expect(setting.type).toBe('toggle')
+    expect(defaultAppSettings().showHints).toBe(true)
+    expect(SETTING_SECTIONS.find((section) => section.title === 'Appearance').settings.map((s) => s.key)).toEqual([
+      'accentColour',
+      'showHints',
+    ])
   })
 })
 

@@ -3,7 +3,10 @@ import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useAppSettings } from '../../../src/composables/useAppSettings'
 import { HINT_SHOW_DELAY, TOOLTIP_SHOW_DELAY, vHint, vTooltip, withShowDelay } from '../../../src/directives/tooltip'
+
+const { saveAppSettings } = useAppSettings()
 
 describe('withShowDelay', () => {
   it('turns plain text into options with the delay', () => {
@@ -45,5 +48,50 @@ describe.each([
     vi.advanceTimersByTime(1)
     expect(document.body.querySelector('.p-tooltip')?.textContent).toContain('Save workspace')
     wrapper.unmount()
+  })
+})
+
+describe('the Show button hints setting', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => {
+    saveAppSettings({ showHints: true })
+    vi.useRealTimers()
+    document.body.innerHTML = ''
+  })
+
+  /** Rests the pointer on a control with both a hint and, beside it, a tooltip, and reports which showed. */
+  async function shown() {
+    const wrapper = mount(
+      {
+        template: '<div><button v-hint="\'Save workspace\'">Save</button><span v-tooltip="\'Library not ready\'">!</span></div>',
+        directives: { hint: vHint, tooltip: vTooltip },
+      },
+      { global: { plugins: [PrimeVue] }, attachTo: document.body },
+    )
+    return async () => {
+      await wrapper.find('button').trigger('mouseenter')
+      await wrapper.find('span').trigger('mouseenter')
+      vi.advanceTimersByTime(HINT_SHOW_DELAY)
+      const texts = [...document.body.querySelectorAll('.p-tooltip')].map((tip) => tip.textContent)
+      wrapper.find('button').trigger('mouseleave')
+      wrapper.find('span').trigger('mouseleave')
+      vi.advanceTimersByTime(1)
+      return texts
+    }
+  }
+
+  it('hides hints but not tooltips while off, including on controls already on screen', async () => {
+    const hover = await shown()
+    saveAppSettings({ showHints: false })
+    const texts = await hover()
+    expect(texts.join()).not.toContain('Save workspace')
+    expect(texts.join()).toContain('Library not ready')
+  })
+
+  it('shows hints again once turned back on', async () => {
+    saveAppSettings({ showHints: false })
+    const hover = await shown()
+    saveAppSettings({ showHints: true })
+    expect((await hover()).join()).toContain('Save workspace')
   })
 })
