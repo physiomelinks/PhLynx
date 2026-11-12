@@ -177,7 +177,8 @@ class TestBioTemplates(unittest.TestCase):
         menu.get_by_text("Epithelial cell", exact=True).click()
         expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
         expect(menu).to_be_hidden()
-        library = page.locator(".module-aside").bounding_box()
+        # The context panel is a library panel too, docked right; the library is the one that isn't.
+        library = page.locator(".resizable-library-panel:not(.context-panel) .module-aside").bounding_box()
         edge = library["x"] + library["width"]
         lefts = lambda: page.evaluate(
             "() => [...document.querySelectorAll('.bio-flow .vue-flow__node')].map((n) => n.getBoundingClientRect().x)"

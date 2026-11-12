@@ -111,6 +111,26 @@ describe('ResizableLibraryPanel', () => {
     expect(wrapper.emitted('resize').at(-1)).toEqual([280])
   })
 
+  it('docks right with a left-facing tooltip and a mirrored tornado', () => {
+    mountPanel({ side: 'right' })
+
+    expect(wrapper.classes()).toContain('resizable-library-panel--right')
+    expect(toggle().attributes('data-tooltip-position')).toBe('left')
+    // Lines run from the outer (right) edge inward, so the tornado tapers toward the canvas.
+    expect(toggle().find('line').attributes('x1')).toBe('20')
+  })
+
+  it('opens and closes from a bound collapsed model', async () => {
+    mountPanel({ collapsed: true })
+    expect(panelBody().attributes('style')).toContain('display: none')
+
+    await wrapper.setProps({ collapsed: false })
+    expect(panelBody().isVisible()).toBe(true)
+
+    await toggle().trigger('click')
+    expect(wrapper.emitted('update:collapsed').at(-1)).toEqual([true])
+  })
+
   it('shows the hamburger inline when not an overlay', async () => {
     mountPanel({ overlay: false })
     expect(wrapper.classes()).toContain('resizable-library-panel--inline')

@@ -178,80 +178,109 @@ describe('ContextSidebar global constant parameters', () => {
   })
 })
 
-describe('ContextSidebar collapsing', () => {
+describe('ContextSidebar opening and closing', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     nodes.value = []
   })
 
-  it('collapses when asked, and opens again on a tab', async () => {
+  /** Mounts the sidebar closed, as it starts. */
+  async function mountCollapsed() {
+    wrapper = mount(ContextSidebar, {
+      props: { initialWidth: 320 },
+      global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true, SimulationPanel: true }, directives: { tooltip: {} } },
+    })
+    await flushPromises()
+  }
+
+  const toggle = () => wrapper.find('button.library-toggle')
+  const panelBody = () => wrapper.find('.library-panel-body')
+  const tabFor = (icon) => wrapper.findAll('[role=tab]').find((tab) => tab.find(`.${icon}`).exists())
+  const widths = () => wrapper.emitted('resize').map(([width]) => width)
+
+  it('starts closed, floating on the right, with only the hamburger showing', async () => {
+    await mountCollapsed()
+
+    expect(wrapper.vm.isCollapsed).toBe(true)
+    expect(wrapper.classes()).toContain('resizable-library-panel--right')
+    expect(wrapper.classes()).not.toContain('resizable-library-panel--inline')
+    expect(panelBody().attributes('style')).toContain('display: none')
+    expect(toggle().attributes('aria-label')).toBe('Show context panel')
+    expect(toggle().attributes('aria-expanded')).toBe('false')
+    expect(widths().at(-1)).toBe(0)
+  })
+
+  it('opens and closes from the hamburger', async () => {
+    await mountCollapsed()
+
+    await toggle().trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(false)
+    expect(panelBody().isVisible()).toBe(true)
+    expect(toggle().attributes('aria-label')).toBe('Hide context panel')
+    expect(widths().at(-1)).toBe(320)
+
+    await toggle().trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(true)
+    expect(widths().at(-1)).toBe(0)
+  })
+
+  it('switches tabs without closing, even on the open tab', async () => {
+    await mountCollapsed()
+    await toggle().trigger('click')
+
+    await tabFor('pi-wrench').trigger('click')
+    expect(wrapper.vm.activeTabId).toBe('props')
+    expect(tabFor('pi-wrench').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('.module-aside-title').text()).toBe('Properties')
+
+    await tabFor('pi-wrench').trigger('click')
+    expect(wrapper.vm.isCollapsed).toBe(false)
+    expect(wrapper.vm.activeTabId).toBe('props')
+  })
+
+  const headerTitle = () => wrapper.find('.module-aside-title').text().replace(/\s+/g, ' ')
+
+  it('puts each tab’s name and detail in the panel header, not in the tab', async () => {
+    await mountCollapsed()
+    await toggle().trigger('click')
+
+    expect(headerTitle()).toBe('Global parameters (0)')
+    await tabFor('pi-chart-line').trigger('click')
+    expect(headerTitle()).toBe('Simulation')
+    expect(wrapper.findAll('.p-tabpanels h4')).toHaveLength(0)
+  })
+
+  it('names the edited instance and its parameter count in the header', async () => {
+    nodes.value = [{ id: 'n1', type: 'instanceNode', data: { name: 'LV', moduleRef: 'missing.cellml:none' } }]
     await mountOnParams()
-    const widths = () => wrapper.emitted('resize').map(([width]) => width)
+
+    expect(headerTitle()).toBe(`Instance parameters · LV (${wrapper.vm.parameterRows.length})`)
+  })
+
+  it('offers New in the header on the inspection modules tab only', async () => {
+    await mountCollapsed()
+    await toggle().trigger('click')
+    expect(wrapper.find('.module-aside-header-actions').exists()).toBe(false)
+
+    await tabFor('pi-question-circle').trigger('click')
+    const actions = wrapper.find('.module-aside-header-actions')
+    expect(headerTitle()).toBe('Inspection modules (0)')
+    await actions.find('button').trigger('click')
+    expect(wrapper.emitted('open-inspection-module-dialog')).toHaveLength(1)
+  })
+
+  it('closes when asked, and opens again on a tab', async () => {
+    await mountOnParams()
 
     wrapper.vm.collapse()
     await flushPromises()
     expect(wrapper.vm.isCollapsed).toBe(true)
-    expect(widths().at(-1)).toBe(51)
+    expect(widths().at(-1)).toBe(0)
 
     wrapper.vm.showTab('global')
     await flushPromises()
     expect(wrapper.vm.isCollapsed).toBe(false)
     expect(wrapper.vm.activeTabId).toBe('global')
     expect(widths().at(-1)).toBeGreaterThan(0)
-  })
-
-  /** Mounts the sidebar collapsed, as it starts. */
-  async function mountCollapsed() {
-    wrapper = mount(ContextSidebar, { global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true, SimulationPanel: true }, directives: { tooltip: {} } } })
-    await flushPromises()
-  }
-
-  const railTab = (icon) => wrapper.findAll('[role=tab]').find((tab) => tab.find(`.${icon}`).exists())
-
-  it('collapses to the icon rail, with no tab selected', async () => {
-    await mountCollapsed()
-
-    expect(wrapper.find('.context-aside--collapsed').exists()).toBe(true)
-    expect(wrapper.find('.context-aside').attributes('style')).toContain('width: 51px')
-    expect(wrapper.emitted('resize').at(-1)).toEqual([51])
-    expect(wrapper.findAll('[role=tab]')).toHaveLength(5)
-    expect(wrapper.findAll('[role=tab][aria-selected=true]')).toHaveLength(0)
-    // The last-used tab stays keyboard-reachable while collapsed.
-    expect(railTab('pi-globe').attributes('tabindex')).toBe('0')
-  })
-
-  it('opens on the clicked rail icon’s tab', async () => {
-    await mountCollapsed()
-
-    await railTab('pi-chart-line').trigger('click')
-    expect(wrapper.vm.isCollapsed).toBe(false)
-    expect(wrapper.vm.activeTabId).toBe('sim')
-    expect(railTab('pi-chart-line').attributes('aria-selected')).toBe('true')
-    expect(wrapper.emitted('resize').at(-1)).toEqual([320])
-  })
-
-  it('collapses when the open tab’s icon is clicked again', async () => {
-    await mountCollapsed()
-
-    await railTab('pi-globe').trigger('click')
-    expect(wrapper.vm.isCollapsed).toBe(false)
-
-    await railTab('pi-globe').trigger('click')
-    expect(wrapper.vm.isCollapsed).toBe(true)
-    expect(wrapper.findAll('[role=tab][aria-selected=true]')).toHaveLength(0)
-
-    await railTab('pi-globe').trigger('click')
-    expect(wrapper.vm.isCollapsed).toBe(false)
-    expect(railTab('pi-globe').attributes('aria-selected')).toBe('true')
-  })
-
-  it('switches tab without collapsing when another icon is clicked while open', async () => {
-    await mountCollapsed()
-
-    await railTab('pi-globe').trigger('click')
-    await railTab('pi-wrench').trigger('click')
-    expect(wrapper.vm.isCollapsed).toBe(false)
-    expect(wrapper.vm.activeTabId).toBe('props')
-    expect(railTab('pi-wrench').attributes('aria-selected')).toBe('true')
   })
 })

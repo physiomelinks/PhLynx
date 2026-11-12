@@ -89,22 +89,6 @@ button.multiport-chip:hover {
   flex-shrink: 0;
 }
 
-.resize-handle {
-  width: 5px;
-  height: 100%;
-  /* transform: translateY(50%); */
-  cursor: col-resize;
-  background-color: #f4f2f2;
-  border-left: 1px solid #dcdfe6;
-  border-right: 1px solid #dcdfe6;
-  flex-shrink: 0;
-  position: relative;
-}
-
-.resize-handle:hover {
-  background-color: #e0e0e0;
-}
-
 .handle-icon {
   /* Center the icon */
   position: absolute;

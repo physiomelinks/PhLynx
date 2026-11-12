@@ -300,6 +300,7 @@
         :style="{
           '--library-panel-width': libraryPanelWidth + 'px',
           '--context-sidebar-width': contextSidebarWidth + 'px',
+          '--context-panel-cover': contextPanelCover + 'px',
         }"
       >
         <div
@@ -421,7 +422,7 @@
           <Toast
             v-if="!isUrlLoading"
             position="top-right"
-            :style="{ top: `${toastTop}px`, right: `${contextSidebarWidth + 25}px` }"
+            :style="{ top: `${toastTop}px`, right: `${contextPanelCover + 25}px` }"
           >
             <template #message="slotProps">
               <div class="p-toast-message-text" style="flex: 1">
@@ -731,6 +732,7 @@ import {
   NEW_INSTANCE_MODULE_REF,
   NUM_GHOST_HANDLES_TOP_BOT,
   NUM_GHOST_HANDLES_LEFT_RIGHT,
+  PANEL_RESIZE_HANDLE_WIDTH,
   PHLYNX_PROJECT_VERSION,
 } from '../utils/constants'
 import { edgeOrdinals, resolvePortCouplings } from '../utils/edges'
@@ -753,10 +755,15 @@ function onContextSidebarResize(width) {
   contextSidebarWidth.value = width
 }
 
+/** How much of the canvas's right edge the floating context panel covers: none while it is closed. */
+const contextPanelCover = computed(() =>
+  contextSidebarWidth.value ? contextSidebarWidth.value + PANEL_RESIZE_HANDLE_WIDTH : 0
+)
+
 const fitViewParams = computed(() => ({
   padding: {
     left: `${libraryPanelWidth.value + 40}px`,
-    right: 0.1,
+    right: contextPanelCover.value ? `${contextPanelCover.value + 40}px` : 0.1,
     top: 0.1,
     bottom: 0.1,
   },
@@ -2774,6 +2781,12 @@ watch(
    2. Workbench Main Canvas
    ========================================================================== */
 .workbench-main {
+  /* How far in from the right the top-right search box must sit: clear of the open context panel, or of its
+     hamburger corner while it is closed. */
+  --context-panel-inset: max(
+    var(--context-panel-cover, 0px),
+    calc(var(--canvas-control-side) + var(--canvas-toggle-size))
+  );
   position: relative;
   overflow: hidden;
   min-width: 0;
@@ -2809,6 +2822,12 @@ watch(
 /* Control box library aside adjustment */
 .vue-flow__controls {
   transform: translateX(var(--library-panel-width, 0px));
+  transition: transform 160ms ease;
+}
+
+/* Out from under the floating context panel while it is open. */
+.vue-flow__minimap {
+  transform: translateX(calc(-1 * var(--context-panel-cover, 0px)));
   transition: transform 160ms ease;
 }
 
@@ -2935,14 +2954,17 @@ watch(
    ========================================================================== */
 .workspace-search-container {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  /* Level with the panel toggles, which take the same offset. */
+  top: var(--canvas-control-top);
+  /* Clear of the floating context panel, or of its hamburger while it is closed. */
+  right: calc(var(--context-panel-inset, 0px) + 16px);
   z-index: 10;
   width: 15.5rem;
-  max-width: calc(100% - 32px);
+  max-width: calc(100% - 32px - var(--context-panel-inset, 0px));
   transition:
     opacity 0.3s ease,
-    width 0.2s ease;
+    width 0.2s ease,
+    right 160ms ease;
   display: flex;
   flex-direction: column;
   gap: 4px;

@@ -60,7 +60,7 @@ Views: **Plots**, **Sliders**, **Sweep**, **Runs**. Search matches every typed w
 - Runs the whole model.
 - When a protocol or sweep is set, a **Time course / Protocol / Sweep** switch on the bar under the toolbar sets what Play runs, and runs it.
 - The **CSV**, **PNG** and **SED-ML** [downloads](#downloads) are on the same bar.
-- The controls panel resizes and collapses. Its folding **Simulation settings** section holds the [Solver tab's](#simulation-settings) fields (the first is **Starts at**); changes there apply as you make them.
+- **Hide controls** (tornado icon, top left of the controls) closes the controls panel, and the same button, now **Show controls** (hamburger icon), opens it again; drag its edge to resize it. Its folding **Simulation settings** section holds the [Solver tab's](#simulation-settings) fields (the first is **Starts at**); changes there apply as you make them.
 
 ## Floating Viewer {#floating-viewer}
 
