@@ -11,17 +11,11 @@ const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_in
 /** Columns a parameters CSV must have. */
 const PARAMETER_COLUMNS = ['variable_name', 'units', 'value', 'data_reference']
 
-/** Keys each module configuration object must have. */
-const MODULE_CONFIG_KEYS = [
-  'entrance_ports',
-  'exit_ports',
-  'general_ports',
-  'module_subtype',
-  'module_type',
-  'module_format',
-  'component_file',
-  'component_type',
-]
+/** Keys each module configuration object must have, as in circulatory_autogen's module config schema. */
+const MODULE_CONFIG_KEYS = ['module_subtype', 'module_type', 'component_file', 'component_type']
+
+/** Whether a config entry is a supermodule's, which CA recognises by its format or its submodule versions. */
+const isSupermoduleEntry = (entry) => entry?.module_format === 'supermodule' || Array.isArray(entry?.submodule_versions)
 
 /**
  * Builds a format error naming the required fields a file lacks, or null when none are missing.
@@ -422,9 +416,11 @@ const parseConfigJson = (file) => {
         if (isModuleArrayShape(parsed)) {
           throw Object.assign(new Error('This is an instance array, not a module configuration file.'), { unrelated: true })
         }
-        const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(parsed[0] ?? {}), 'keys')
+        const components = parsed.filter((entry) => !isSupermoduleEntry(entry))
+        if (components.length === 0) throw new Error('Config file has no component entries; supermodule entries are not read here.')
+        const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(components[0] ?? {}), 'keys')
         if (schemaError) throw schemaError
-        resolve(parsed)
+        resolve(components)
       } catch (err) {
         reject(err)
       }

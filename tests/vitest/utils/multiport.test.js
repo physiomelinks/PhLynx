@@ -450,3 +450,24 @@ describe('annotated ports', () => {
     ])
   })
 })
+
+describe('port options round-trip through a config', () => {
+  const entry = {
+    module_type: 't',
+    module_subtype: 's',
+    component_file: 'f.cellml',
+    component_type: 'c',
+    exit_ports: [{ port_type: 'p', variables: ['a', 'b'], multi_port: ['multiply', 'sum'], multiply_factor: [2, null], only_one_port: true }],
+  }
+
+  it('keeps multiply_factor and only_one_port', () => {
+    const module = normaliseConfig(entry)
+    expect(restorePorts(module.ports).exit_ports[0]).toEqual(entry.exit_ports[0])
+  })
+
+  it('leaves multiply_factor out beside a port with no Multiply', () => {
+    const module = normaliseConfig(entry)
+    module.ports[0].multiportType = 'Sum'
+    expect(restorePorts(module.ports).exit_ports[0]).not.toHaveProperty('multiply_factor')
+  })
+})
