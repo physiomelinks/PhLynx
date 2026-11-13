@@ -65,11 +65,30 @@ export function getGlyph(id) {
  * @returns {string} A glyph id.
  */
 export function glyphFor(isVersionOf = [], override) {
+  return chosenOrAnnotatedGlyph(isVersionOf, override) ?? 'generic'
+}
+
+/** What a process card shows when the user chose no cartoon: 'none' is that choice. */
+export const NO_GLYPH = 'none'
+
+/**
+ * Picks a process's glyph, drawn on its card beside its name: the user's choice, else the first of its GO terms
+ * with one, else none, so a plain process stays a plain card.
+ *
+ * @param {string[]} [isVersionOf] - The component's bqbiol:isVersionOf CURIEs.
+ * @param {string} [override] - The user's choice; NO_GLYPH for none.
+ * @returns {string|null} A glyph id, or null.
+ */
+export function processGlyphFor(isVersionOf = [], override) {
+  return override === NO_GLYPH ? null : chosenOrAnnotatedGlyph(isVersionOf, override)
+}
+
+function chosenOrAnnotatedGlyph(isVersionOf = [], override) {
   if (getGlyph(override)) return override
   for (const curie of isVersionOf) if (GO_FUNCTION_GLYPHS.has(curie)) return GO_FUNCTION_GLYPHS.get(curie)
   for (const curie of isVersionOf) {
     const glyph = loaded.value.find((entry) => entry.goFunctions?.includes(curie))
     if (glyph) return glyph.id
   }
-  return 'generic'
+  return null
 }

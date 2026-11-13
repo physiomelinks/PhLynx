@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import BioCard from '../../../../src/components/bio/BioCard.vue'
 import BioCell from '../../../../src/components/bio/BioCell.vue'
 import BioMembrane from '../../../../src/components/bio/BioMembrane.vue'
 import BioProtein from '../../../../src/components/bio/BioProtein.vue'
@@ -17,7 +18,16 @@ describe('physiological view artwork', () => {
   it.each(GLYPHS)('draws the %s cartoon', (glyph) => {
     const svg = mount(ProteinGlyph, { props: { glyph } }).find('svg')
     expect(svg.attributes('data-glyph')).toBe(glyph)
-    expect(svg.findAll('.protein-glyph__part--body').length).toBeGreaterThan(0)
+    // Painted in its body colour, filled or, for line art, stroked.
+    const parts = svg.findAll('.protein-glyph__part')
+    expect(parts.some((part) => /var\(--glyph-body\)/.test(part.attributes('style') ?? ''))).toBe(true)
+  })
+
+  it('draws a process card’s cartoon beside its name, and none when it has none', () => {
+    const card = mount(BioCard, { props: { data: { name: 'ATP synthesis', glyph: 'mitochondrion' } } })
+    expect(card.find('[data-testid="bio-card-glyph"]').attributes('data-glyph')).toBe('mitochondrion')
+    expect(card.text()).toContain('ATP synthesis')
+    expect(mount(BioCard, { props: { data: { name: 'plain' } } }).find('[data-testid="bio-card-glyph"]').exists()).toBe(false)
   })
 
   it('draws a cartoon it doesn’t know as a generic protein', () => {

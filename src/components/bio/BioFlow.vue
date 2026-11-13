@@ -401,7 +401,7 @@ import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speci
 import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
-import { BUILT_IN_GLYPHS, loadedGlyphs } from '../../services/bioView/glyphs'
+import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
 import { glyphLibraryFile } from '../../services/bioView/glyphLibrary'
 import {
   GLYPH_HEIGHT,
@@ -1862,8 +1862,11 @@ function glyphLibraryMenu() {
   ]
 }
 
-/** The Cartoon submenu for a protein: the built-ins, then the loaded glyphs, then the libraries. */
-function cartoonMenu(nodeId, chosen) {
+/**
+ * The Cartoon submenu for a protein or process: the built-ins, then the loaded glyphs, then the libraries. A
+ * process's starts with None, since a plain card is its default.
+ */
+function cartoonMenu(nodeId, chosen, { none = false } = {}) {
   const item = (glyph) => ({
     label: glyph.name,
     icon: chosen === glyph.id ? 'pi pi-check' : undefined,
@@ -1874,6 +1877,16 @@ function cartoonMenu(nodeId, chosen) {
   })
   const loaded = loadedGlyphs()
   return [
+    ...(none
+      ? [
+          {
+            label: 'None',
+            icon: chosen ? undefined : 'pi pi-check',
+            command: () => setChoice(nodeId, { glyph: NO_GLYPH }, 'bio-glyph'),
+          },
+          { separator: true },
+        ]
+      : []),
     ...BUILT_IN_GLYPHS.map(item),
     { separator: true },
     ...loaded.map(item),
@@ -1956,6 +1969,12 @@ function onNodeContextMenu({ event, node }) {
       label: 'Cartoon',
       icon: 'pi pi-palette',
       items: cartoonMenu(node.id, role.glyph),
+    })
+  } else if (role?.role === 'cytosolic') {
+    items.push({
+      label: 'Cartoon',
+      icon: 'pi pi-palette',
+      items: cartoonMenu(node.id, role.glyph, { none: true }),
     })
   }
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
