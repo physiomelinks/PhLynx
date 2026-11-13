@@ -401,6 +401,7 @@ import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speci
 import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
+import { ROLE_LABELS } from '../../services/bioView/roles'
 import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
 import { glyphLibraryFile } from '../../services/bioView/glyphLibrary'
 import {
@@ -460,16 +461,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-instance-editor', 'open-edge-dialog', 'export-image'])
-
-/** How the role choices read in the menu. */
-const ROLE_LABELS = {
-  membraneProtein: 'Membrane protein',
-  membrane: 'Membrane',
-  cytosol: 'Cell',
-  cytosolic: 'Process in a cell',
-  region: 'Region outside cells',
-  none: 'Card',
-}
 
 /** How near, in flow units, a dragged protein's centre must come to a slot to snap to it. */
 const SNAP_DISTANCE = 60
@@ -1493,7 +1484,21 @@ const isMenuOpen = ref(false)
 
 /** Sets some of a node's bioView fields, as one undo step. */
 function setChoice(id, patch, type) {
-  return applyPlan(new Map([[id, patchBioView(main.findNode(id)?.data?.bioView, patch)]]), type)
+  return setChoices([id], patch, type)
+}
+
+/** Makes the same choice for several nodes, as one step. */
+function setChoices(ids, patch, type) {
+  return applyPlan(new Map(ids.map((id) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])), type)
+}
+
+/** Shows nodes as a role. */
+const chooseRole = (ids, role) => setChoices(ids, { role }, 'bio-role')
+
+/** Draws nodes with a glyph, NO_GLYPH taking a process's away; a glyph from a loaded library joins the workspace. */
+function chooseGlyph(ids, glyph) {
+  glyphStore.adoptGlyph(glyph)
+  return setChoices(ids, { glyph }, 'bio-glyph')
 }
 
 /** Somewhere left of the cells, below any proteins already there, for one taken out of its membrane. */
@@ -1870,10 +1875,7 @@ function cartoonMenu(nodeId, chosen, { none = false } = {}) {
   const item = (glyph) => ({
     label: glyph.name,
     icon: chosen === glyph.id ? 'pi pi-check' : undefined,
-    command: () => {
-      glyphStore.adoptGlyph(glyph.id)
-      setChoice(nodeId, { glyph: glyph.id }, 'bio-glyph')
-    },
+    command: () => chooseGlyph([nodeId], glyph.id),
   })
   const loaded = loadedGlyphs()
   return [
@@ -1882,7 +1884,7 @@ function cartoonMenu(nodeId, chosen, { none = false } = {}) {
           {
             label: 'None',
             icon: chosen ? undefined : 'pi pi-check',
-            command: () => setChoice(nodeId, { glyph: NO_GLYPH }, 'bio-glyph'),
+            command: () => chooseGlyph([nodeId], NO_GLYPH),
           },
           { separator: true },
         ]
@@ -1960,7 +1962,7 @@ function onNodeContextMenu({ event, node }) {
       items: Object.entries(ROLE_LABELS).map(([value, label]) => ({
         label,
         icon: role?.role === value ? 'pi pi-check' : undefined,
-        command: () => setChoice(node.id, { role: value }, 'bio-role'),
+        command: () => chooseRole([node.id], value),
       })),
     },
   ]
@@ -2253,7 +2255,10 @@ onBeforeUnmount(() => {
 const isDialogOpen = computed(
   () => !!placing.value || !!renaming.value || !!renamingNode.value || !!naming.value || isConfirming.value
 )
-defineExpose({ isDialogOpen, isMenuOpen, deleteSelection })
+/** What the properties panel reads and sets while this view is open: the roles, and the choices the menus make. */
+const properties = { roles, chooseRole, chooseGlyph }
+
+defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
 
 /** A new cell's rect, centred where it was put. */
 const cellRectAt = (at) => ({ x: at.x - MIN_CELL.width / 2, y: at.y - MIN_CELL.height / 2, ...MIN_CELL })

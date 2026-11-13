@@ -29,6 +29,19 @@ import { glyphFor, processGlyphFor } from './glyphs.js'
  */
 export const ROLES = ['membraneProtein', 'membrane', 'cytosol', 'cytosolic', 'region', 'none']
 
+/** How the roles read where the user picks one: the Show As menu and the properties panel. */
+export const ROLE_LABELS = Object.freeze({
+  membraneProtein: 'Membrane protein',
+  membrane: 'Membrane',
+  cytosol: 'Cell',
+  cytosolic: 'Process in a cell',
+  region: 'Region outside cells',
+  none: 'Card',
+})
+
+/** The roles drawn with a cartoon: a protein in its membrane, and a process on its card. */
+export const GLYPH_ROLES = new Set(['membraneProtein', 'cytosolic'])
+
 /** Roles that belong to a cell. */
 const CELL_ROLES = new Set(['membraneProtein', 'membrane', 'cytosolic'])
 
