@@ -13,6 +13,8 @@ const DEFINITIONS = new Map([
   ['uA_per_cm2', [part('ampere', -6), part('metre', -2, -2)]],
   ['mV', [part('volt', -3)]],
   ['J_per_C', [part('joule'), part('coulomb', 0, -1)]],
+  ['J_per_mol', [part('joule'), part('mole', 0, -1)]],
+  ['kJ_per_mol', [part('joule', 3), part('mole', 0, -1)]],
   ['pL', [part('litre', -12)]],
   ['um2', [part('metre', -6, 2)]],
   ['widgets', []],
@@ -30,6 +32,8 @@ describe('propertyUnitsProblem', () => {
     expect(check('OPB:00506', 'mV')).toBeNull()
     expect(check('OPB:00506', 'J_per_C')).toBeNull()
     expect(check('OPB:00154', 'pL')).toBeNull()
+    expect(check('OPB:00378', 'J_per_mol')).toBeNull()
+    expect(check('OPB:00378', 'kJ_per_mol')).toBeNull()
     expect(check('OPB:00295', 'um2')).toBeNull()
   })
 
@@ -40,6 +44,7 @@ describe('propertyUnitsProblem', () => {
     expect(check('OPB:00318', 'mV')).toBe('mV isn’t a charge flow rate')
     expect(check('OPB:00154', 'um2')).toBe('um2 isn’t a volume')
     expect(check('OPB:00295', 'pL')).toBe('pL isn’t an area')
+    expect(check('OPB:00378', 'mV')).toBe('mV isn’t a chemical potential')
     expect(check('OPB:00506', 'pA')).toBe('pA isn’t an electrical potential')
     expect(check('OPB:00340', 'widgets')).toBe('widgets isn’t a concentration')
   })

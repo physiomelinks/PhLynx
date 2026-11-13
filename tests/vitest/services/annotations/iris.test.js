@@ -84,6 +84,7 @@ describe('takesSpecies', () => {
     expect(takesSpecies(OPB.amount)).toBe(true)
     expect(takesSpecies(OPB.molarFlowRate)).toBe(true)
     expect(takesSpecies(OPB.amountDensityFlowRate)).toBe(true)
+    expect(takesSpecies(OPB.chemicalPotential)).toBe(true)
     expect(takesSpecies(OPB.electricalPotential)).toBe(false)
     expect(takesSpecies(OPB.chargeFlowRate)).toBe(false)
     expect(takesSpecies(null)).toBe(false)

@@ -321,7 +321,7 @@ describe('AnnotationTab', () => {
       expect(port('J').attributes('aria-label')).toBe('No port until it has what')
     })
 
-    it('offers the seven properties in words, Amount among them, and None to clear', async () => {
+    it('offers the eight properties in words, Amount among them, and None to clear', async () => {
       await mountTab()
       expect(cell('x', 'what').props('options').map(({ label }) => label)).toEqual([
         'Concentration',
@@ -329,6 +329,7 @@ describe('AnnotationTab', () => {
         'Molar flow rate',
         'Fluid volume',
         'Spatial area',
+        'Chemical potential',
         'Electrical potential',
         'Charge flow rate',
         'None',
