@@ -233,9 +233,11 @@
           </section>
         </TabPanel>
 
+        <!-- Properties follow the view: how pieces are shown in the physiology view, colours in the diagram. -->
         <TabPanel value="props">
           <section class="context-section context-section--global">
-            <NodeColourPanel />
+            <BioPropertiesPanel v-if="bioProperties" :properties="bioProperties" />
+            <NodeColourPanel v-else />
           </section>
         </TabPanel>
 
@@ -274,6 +276,7 @@ import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOpti
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import NodeColourPanel from './NodeColourPanel.vue'
+import BioPropertiesPanel from './bio/BioPropertiesPanel.vue'
 
 const props = defineProps({
   initialWidth: {
@@ -287,6 +290,11 @@ const props = defineProps({
   maxWidth: {
     type: Number,
     default: 480,
+  },
+  /** The open physiology view's properties (BioFlow's exposed `properties`), or null while the diagram shows. */
+  bioProperties: {
+    type: Object,
+    default: null,
   },
 })
 
