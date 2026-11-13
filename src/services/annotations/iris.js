@@ -159,6 +159,7 @@ export const OPB = {
   amountDensityFlowRate: 'OPB:00593',
   fluidVolume: 'OPB:00154',
   spatialArea: 'OPB:00295',
+  chemicalPotential: 'OPB:00378',
   electricalPotential: 'OPB:00506',
   chargeFlowRate: 'OPB:00318',
 }
@@ -189,7 +190,12 @@ export function isFlowProperty(property) {
 }
 
 // Properties of a species, which mean nothing without one.
-export const SPECIES_PROPERTIES = new Set([OPB.concentration, OPB.amount, ...MOLAR_FLOW_PROPERTIES])
+export const SPECIES_PROPERTIES = new Set([
+  OPB.concentration,
+  OPB.amount,
+  OPB.chemicalPotential,
+  ...MOLAR_FLOW_PROPERTIES,
+])
 
 /**
  * Whether an OPB property is of a species, so an annotation of it names one.

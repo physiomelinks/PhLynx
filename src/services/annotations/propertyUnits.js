@@ -21,6 +21,7 @@ const PROPERTY_UNITS = {
   [OPB.chargeFlowRate]: { noun: 'a charge flow rate', allowed: dimensions({ A: 1 }, { A: 1, m: -2 }) },
   [OPB.fluidVolume]: { noun: 'a volume', allowed: dimensions({ m: 3 }) },
   [OPB.spatialArea]: { noun: 'an area', allowed: dimensions({ m: 2 }) },
+  [OPB.chemicalPotential]: { noun: 'a chemical potential', allowed: dimensions({ kg: 1, m: 2, s: -2, mol: -1 }) },
   [OPB.electricalPotential]: { noun: 'an electrical potential', allowed: dimensions({ kg: 1, m: 2, s: -3, A: -1 }) },
 }
 

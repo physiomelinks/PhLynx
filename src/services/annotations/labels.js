@@ -14,6 +14,7 @@ export const BUILT_IN_LABELS = new Map([
   ['OPB:00593', 'chemical amount density flow rate'],
   ['OPB:00154', 'fluid volume'],
   ['OPB:00295', 'spatial area'],
+  ['OPB:00378', 'chemical potential'],
   ['OPB:00506', 'electrical potential'],
   ['OPB:00318', 'charge flow rate'],
   // CHEBI species

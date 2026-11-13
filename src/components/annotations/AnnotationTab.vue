@@ -522,6 +522,7 @@ const BULK_PROPERTY_OPTIONS = [
   OPB.molarFlowRate,
   OPB.fluidVolume,
   OPB.spatialArea,
+  OPB.chemicalPotential,
   OPB.electricalPotential,
   OPB.chargeFlowRate,
 ].map((curie) => ({ value: curie, label: capitalise(displayLabel(curie)) }))
