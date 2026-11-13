@@ -413,6 +413,9 @@ const parseConfigJson = (file) => {
         if (parsed.length === 0) {
           throw new Error('Config file must be a non-empty array of configuration objects.')
         }
+        if (isModuleArrayShape(parsed)) {
+          throw Object.assign(new Error('This is an instance array, not a module configuration file.'), { unrelated: true })
+        }
         const components = parsed.filter((entry) => !isSupermoduleEntry(entry))
         if (components.length === 0) throw new Error('Config file has no component entries; supermodule entries are not read here.')
         const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(components[0] ?? {}), 'keys')
