@@ -85,7 +85,7 @@ When there are issues, click the status (or focus it and press Enter) to list th
 The right end of the status line holds:
 
 - **Reorganise**, with its mode dropdown (**Balanced** by default; hover a mode for what it favours), lays the diagram out again by location and then says what changed. It is one undo step, and Compartment and Region boxes move with their contents.
-- **Shading** switches location shading: a shaded region for each location, drawn behind the elements and over Compartment and Region boxes. Only the display changes. The same switch is in [Settings](#settings).
+- **Shading** switches location shading: a shaded region for each location, drawn behind the elements and over Compartment and Region boxes. Only the display changes. It is on to begin with, and stays as you last left it.
 
 ## The Parameters Tab {#parameters}
 
@@ -141,7 +141,6 @@ In **Settings** (cog icon), under **CellDL diagrams**:
 
 - **Bond arrowheads:** **Classic** (a closed arrowhead, the default) or **Bond graph** (a half arrow). Only the display changes.
 - **Scrolling in CellDL diagrams:** **Automatic** (the default: a mouse wheel zooms, a trackpad pans), **Pan** or **Zoom**. Pinching, or Ctrl/Cmd+wheel, always zooms.
-- **Location shading:** on by default; the same as the status line's **Shading** switch.
 - **New CellDL modules: unit system:** **Cellular (fmol, pL)** (the default) or **SI (mol, L)**. Each module keeps its own after that.
 
 ## Saving and Exporting {#exporting}

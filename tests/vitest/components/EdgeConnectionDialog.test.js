@@ -35,7 +35,7 @@ async function openDialog(couplings, { targetModuleRef } = {}) {
     global: {
       plugins: [PrimeVue],
       stubs: { Dialog: DialogStub, VueFlow: true, Handle: true, MultiportKey: true },
-      directives: { tooltip: {} },
+      directives: { tooltip: {}, hint: {} },
     },
   })
   await wrapper.setProps({ modelValue: true })

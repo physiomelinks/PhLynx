@@ -20,7 +20,7 @@ let wrapper
 function mountSelect(props = {}) {
   wrapper = mount(PortVariableSelect, {
     props: { port: reactive({ variables: [], multiportType: 'None' }), options: OPTIONS, ...props },
-    global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+    global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} } },
     attachTo: document.body,
   })
   return wrapper

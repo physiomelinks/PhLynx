@@ -21,7 +21,7 @@ function mountChips(props, { provide = {}, attrs = {} } = {}) {
     props,
     attrs,
     attachTo: document.body,
-    global: { plugins: [PrimeVue], directives: { tooltip: {} }, provide },
+    global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} }, provide },
   })
   return wrapper
 }

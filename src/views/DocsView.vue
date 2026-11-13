@@ -448,6 +448,65 @@ watch(currentSlug, () => {
   overflow: visible;
 }
 
+/* github-markdown-css brings GitHub's own colours: blue-tinted greys (a navy page in dark mode) and blue links.
+   These keep its layout and type, on the app's surfaces and accent instead. The .docs-page prefix outranks its
+   rules, which are injected later than these. */
+.docs-page .markdown-body,
+.docs-page .markdown-body table tr {
+  color: var(--p-text-color);
+  background-color: var(--p-content-background);
+}
+
+/* Solid underlines tell links from the text around them, which the accent alone is too close to; glossary terms
+   keep their dotted one. */
+.docs-page .markdown-body a {
+  color: var(--p-primary-color);
+}
+.docs-page .markdown-body a[href]:not(.glossary-link) {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.docs-page .markdown-body a:focus-visible {
+  outline-color: var(--p-primary-color);
+}
+
+.docs-page .markdown-body h1,
+.docs-page .markdown-body h2,
+.docs-page .markdown-body hr {
+  border-bottom-color: var(--p-content-border-color);
+}
+.docs-page .markdown-body hr {
+  background-color: var(--p-content-border-color);
+}
+.docs-page .markdown-body table th,
+.docs-page .markdown-body table td,
+.docs-page .markdown-body table tr,
+.docs-page .markdown-body blockquote,
+.docs-page .markdown-body kbd {
+  border-color: var(--p-content-border-color);
+}
+
+.docs-page .markdown-body h6,
+.docs-page .markdown-body blockquote {
+  color: var(--p-text-muted-color);
+}
+
+.docs-page .markdown-body table tr:nth-child(2n),
+.docs-page .markdown-body pre,
+.docs-page .markdown-body kbd {
+  color: var(--p-text-color);
+  background-color: var(--p-content-hover-background);
+}
+.docs-page .markdown-body kbd {
+  box-shadow: inset 0 -1px 0 var(--p-content-border-color);
+}
+.docs-page .markdown-body code {
+  background-color: color-mix(in srgb, var(--p-text-color) 10%, transparent);
+}
+.docs-page .markdown-body pre code {
+  background-color: transparent;
+}
+
 .heading-highlight {
   animation: highlightFade 2s ease-in;
   position: relative;

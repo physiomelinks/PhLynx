@@ -13,6 +13,19 @@ except ImportError:
 
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
 OPT_IN_TO_ISOLATION = "localStorage.setItem('phlynx.isolateUnderAutomation', 'true')"
+# Gives the page importAppModule('/src/...'), for in-page scripts to use in place of import('/src/...'). Once the dev
+# server has hot-reloaded a module it serves it as /src/...?t=<time>, and the browser counts each URL as its own
+# module: a bare import would get a second copy, with state apart from the app's (its settings, its simulator).
+# importAppModule takes the URL the app loaded, read from the page's resource timings, kept beyond the default 250.
+# A module the app hasn't loaded yet is imported as is.
+TRACK_APP_MODULES = """
+performance.setResourceTimingBufferSize(10000)
+window.importAppModule = (path) => {
+  const loaded = performance.getEntriesByType('resource').map((entry) => new URL(entry.name))
+    .filter((url) => url.pathname === path && [...url.searchParams.keys()].every((key) => key === 't'))
+  return import(loaded.length ? loaded[loaded.length - 1].href : path)
+}
+"""
 SIMULATOR_STATE = "({ ...document.querySelector('#app').__vue_app__._context.provides.$libopencor })"
 SIMULATOR_STATUS = "document.querySelector('#app')?.__vue_app__?._context?.provides?.$libopencor?.status"
 # A cold dev server compiles the app on its first request, which can take a while on CI.
@@ -39,7 +52,7 @@ IS_DEV_SERVER = (
 # A decay model, dx/dt = -k x, solved by the app's simulator, in its worker. It imports source modules, so it needs the
 # dev server (as CI uses).
 SOLVE_DECAY = """async () => {
-  const loader = await import('/src/services/simulation/libopencorLoader.js')
+  const loader = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const cellml = `<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
   <units name="per_second"><unit units="second" exponent="-1"/></units>
@@ -65,11 +78,11 @@ MAP_WORKSPACE_RESULTS = """async () => {
   const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
   const { useVueFlow } = await import(vueFlowUrl)
   const { nodes, edges } = useVueFlow('main-flow-editor')
-  const { resolveScope, buildScopedModel } = await import('/src/services/simulation/scopedModel.js')
-  const { buildVariableMapping, mappingKey } = await import('/src/services/simulation/variableMapping.js')
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
-  const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
-  const { useLibraryStore } = await import('/src/stores/libraryStore.js')
+  const { resolveScope, buildScopedModel } = await importAppModule('/src/services/simulation/scopedModel.js')
+  const { buildVariableMapping, mappingKey } = await importAppModule('/src/services/simulation/variableMapping.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
+  const { whenLibCellMLReady } = await importAppModule('/src/utils/cellml.js')
+  const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const scope = resolveScope(null, nodes.value, edges.value, [])
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
@@ -94,10 +107,10 @@ COMPARE_WITH_EXPORT = """async () => {
   const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
   const { useVueFlow } = await import(vueFlowUrl)
   const { nodes, edges } = useVueFlow('main-flow-editor')
-  const { resolveScope, buildScopedModel } = await import('/src/services/simulation/scopedModel.js')
-  const { generateOmexArchive } = await import('/src/services/compress.js')
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
-  const { useLibraryStore } = await import('/src/stores/libraryStore.js')
+  const { resolveScope, buildScopedModel } = await importAppModule('/src/services/simulation/scopedModel.js')
+  const { generateOmexArchive } = await importAppModule('/src/services/compress.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
+  const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const settings = __SETTINGS__
   const scope = resolveScope(null, nodes.value, edges.value, [])
   const blob = buildScopedModel(scope, useLibraryStore())
@@ -134,6 +147,7 @@ class TestSimulator(unittest.TestCase):
 
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()
             page.goto(BASE_URL, wait_until="commit")
 
@@ -157,6 +171,7 @@ class TestSimulator(unittest.TestCase):
 
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()
             page.goto(BASE_URL, wait_until="commit")
 
@@ -179,6 +194,7 @@ class TestSimulator(unittest.TestCase):
 
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()
             with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
                 workspace_json = f.read().strip()
@@ -206,6 +222,7 @@ class TestSimulator(unittest.TestCase):
 
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()
             with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
                 workspace_json = f.read().strip()

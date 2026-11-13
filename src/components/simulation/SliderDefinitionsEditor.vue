@@ -46,7 +46,7 @@
               severity="secondary"
               class="remove-button"
               :aria-label="`Remove the ${row.parameterName} slider`"
-              v-tooltip.left="'Remove the slider'"
+              v-hint.left="'Remove the slider'"
               @click="removeRow(row)"
             />
           </td>

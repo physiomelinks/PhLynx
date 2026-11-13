@@ -62,7 +62,7 @@ async function mountPage({ isKeptAlive = false } = {}) {
     attachTo: document.body,
     global: {
       plugins: [PrimeVue, router],
-      directives: { tooltip },
+      directives: { tooltip, hint: tooltip },
       stubs: { SimulationPlot: PlotStub, FeaturePlot: true, SimulationControls: { template: '<div class="controls-stub" />' } },
     },
   })

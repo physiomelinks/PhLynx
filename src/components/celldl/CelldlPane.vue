@@ -40,7 +40,7 @@
             size="small"
             aria-label="Reorganise mode"
             :disabled="!canReorganise"
-            v-tooltip.top="modeDescription"
+            v-hint.top="modeDescription"
           />
           <Button
             class="celldl-reorganise-button"
@@ -50,13 +50,13 @@
             size="small"
             outlined
             :disabled="!canReorganise"
-            v-tooltip.top="'Lay the diagram out again by location. Undo puts it back.'"
+            v-hint.top="'Lay the diagram out again by location. Undo puts it back.'"
             @click="reorganise"
           />
         </div>
         <label
           class="celldl-shading-toggle"
-          v-tooltip.top="'Shade the regions that elements\' locations mark out. Only the display changes.'"
+          v-hint.top="'Shade the regions that elements\' locations mark out. Only the display changes.'"
         >
           <ToggleSwitch v-model="isShaded" class="celldl-shading-switch" aria-label="Location shading" />
           <span>Shading</span>

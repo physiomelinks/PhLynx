@@ -5,7 +5,8 @@
  * templates placed there, with a copy of each, the edges a drop there made, which a later move may take away, and a
  * copy of each of the user's own cartoons the nodes are drawn as. An edge whose ends are placed there keeps its
  * manual couplings aside while their annotations couple it, and a compartment keeps the order its species were
- * dragged into in species mode.
+ * dragged into in species mode. Nodes are coloured from the workspace's node theme, which it keeps a copy of
+ * unless it is built in.
  * Written out literally rather than built with the app's helpers, so a change to those shows as a format change.
  */
 import { base as base1_3_0 } from './v1-3-0.js'
@@ -184,6 +185,26 @@ export const cases = {
           elements: [{ type: 'path', d: 'M 8 3 L 32 20 L 56 3 L 56 45 L 8 45 Z', fill: 'body', stroke: 'outline' }],
           palette: { light: { body: '#3366cc' } },
         },
+      },
+    }
+    return part
+  },
+
+  /** Node `heart_pump` has the category `pump`, coloured by the user's own theme `local:organs`, kept with it. */
+  nodeTheme: () => {
+    const part = separatedDecayNode('heart_pump')
+    part.flow.nodes[0].data.domainType = 'pump'
+    part.nodeTheme = {
+      id: 'local:organs',
+      theme: {
+        schemaVersion: 1,
+        id: 'local:organs',
+        name: 'Organs',
+        description: 'Colours by organ.',
+        author: 'PhLynx tests',
+        license: 'CC0-1.0',
+        derivedFrom: 'plain',
+        categories: [{ key: 'pump', label: 'Pump', color: '#ffe2ec', dark: '#4d2633' }],
       },
     }
     return part

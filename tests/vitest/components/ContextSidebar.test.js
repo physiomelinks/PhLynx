@@ -42,7 +42,7 @@ async function waitForRows() {
 
 /** Mounts the sidebar on the Params tab and waits for its rows. */
 async function mountOnParams() {
-  wrapper = mount(ContextSidebar, { global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true }, directives: { tooltip: {} } } })
+  wrapper = mount(ContextSidebar, { global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true }, directives: { tooltip: {}, hint: {} } } })
   wrapper.vm.isCollapsed = false
   wrapper.vm.activeTabId = 'params'
   await waitForRows()
@@ -188,7 +188,7 @@ describe('ContextSidebar opening and closing', () => {
   async function mountCollapsed() {
     wrapper = mount(ContextSidebar, {
       props: { initialWidth: 320 },
-      global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true, SimulationPanel: true }, directives: { tooltip: {} } },
+      global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true, SimulationPanel: true }, directives: { tooltip: {}, hint: {} } },
     })
     await flushPromises()
   }

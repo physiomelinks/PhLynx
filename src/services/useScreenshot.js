@@ -126,6 +126,7 @@ export function useScreenshot() {
       filter: (node) => {
         if (
           node.classList?.contains('vue-flow__minimap') ||
+          node.classList?.contains('minimap-toggle') ||
           node.classList?.contains('vue-flow__controls') ||
           node.classList?.contains('dropzone-background')
         ) {

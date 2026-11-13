@@ -4,6 +4,7 @@ import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useCouplingContext } from './useCouplingContext'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
+import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
@@ -55,6 +56,7 @@ export function useWorkspaceSaveLoad({
   const defaultParametersStore = useDefaultParametersStore()
   const bioTemplateStore = useBioTemplateStore()
   const glyphLibraryStore = useGlyphLibraryStore()
+  const nodeThemeStore = useNodeThemeStore()
   const { trackEvent } = useGtm()
   const historyStore = useFlowHistoryStore()
   const { ensureContext } = useCouplingContext()
@@ -115,6 +117,7 @@ export function useWorkspaceSaveLoad({
       parameters: defaultParametersStore,
       bioTemplates: bioTemplateStore,
       bioGlyphs: glyphLibraryStore,
+      nodeTheme: nodeThemeStore,
     })
 
     const jsonString = JSON.stringify(saveState, null, 2)
@@ -215,6 +218,7 @@ export function useWorkspaceSaveLoad({
       defaultParametersStore.loadState(migratedState.parameters)
       bioTemplateStore.loadState(migratedState.bioTemplates)
       glyphLibraryStore.loadState(migratedState.bioGlyphs)
+      nodeThemeStore.loadState(migratedState.nodeTheme)
       // After the templates, which place the nodes.
       const driven = await driveLoadedEdges()
       // A loaded workspace is as saved as its file.

@@ -25,7 +25,7 @@ function mountViewer(isCanvasShown) {
     attachTo: document.body,
     global: {
       plugins: [PrimeVue],
-      directives: { tooltip: {} },
+      directives: { tooltip: {}, hint: {} },
       stubs: { SimulationPlot: true, FeaturePlot: true, SliderList: true, VariablePathPicker: true },
     },
   })

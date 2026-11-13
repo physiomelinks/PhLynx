@@ -145,8 +145,19 @@ def simulate_whole_model(page):
 def pick_path(page, box_name, path, within=None):
     """Searches for an instance/variable path in a Simulation tab search box and picks it."""
     scope = within or page
-    scope.get_by_role("combobox", name=box_name).fill(path.replace("/", " "))
-    option = page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(rf"^{re.escape(path)}$")))
+    query = path.replace("/", " ")
+    scope.get_by_role("combobox", name=box_name).fill(query)
+    # The box lists every path as soon as it has focus and only filters 120 ms after typing, so wait for the
+    # filtered list: a row picked from the unfiltered one can be replaced under the click.
+    page.wait_for_function(
+        """(words) => {
+            const options = [...document.querySelectorAll('.p-autocomplete-option')]
+            return options.length > 0
+                && options.every((o) => words.every((w) => (o.getAttribute('aria-label') ?? '').toLowerCase().includes(w)))
+        }""",
+        arg=query.lower().split(),
+    )
+    option =page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(rf"^{re.escape(path)}$")))
     option.first.click()
 
 
@@ -991,10 +1002,12 @@ class TestSimulationTab(unittest.TestCase):
 
             # Turned off in Settings, the section goes; the obs_data is as it was.
             page.get_by_role("button", name="Settings", exact=True).click()
+            settings = page.get_by_role("dialog", name="Settings")
+            settings.get_by_role("tab", name="Simulation", exact=True).click()
             show_data_items = page.get_by_role("switch", name="Show data items")
             expect(show_data_items).to_be_checked()
             show_data_items.uncheck()
-            page.get_by_role("button", name="Save Changes").click()
+            settings.get_by_role("button", name="Done").click()
             page.get_by_role("button", name="Edit obs_data", exact=True).click()
             expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
             expect(dialog.get_by_role("region", name="data_items")).to_have_count(0)
@@ -1360,8 +1373,10 @@ class TestSimulationTab(unittest.TestCase):
 
             # Turned on in Settings, they plot as a plot of their own.
             page.get_by_role("button", name="Settings", exact=True).click()
+            settings = page.get_by_role("dialog", name="Settings")
+            settings.get_by_role("tab", name="Simulation", exact=True).click()
             page.get_by_role("switch", name="Plot inspection modules").check()
-            page.get_by_role("button", name="Save Changes").click()
+            settings.get_by_role("button", name="Done").click()
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")
             # ----------- END ------------
 

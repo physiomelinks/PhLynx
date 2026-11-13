@@ -30,7 +30,7 @@
       @pane-click="clearSpeciesFocus"
     >
       <Background v-bind="BACKGROUND_DOTS" />
-      <MiniMap :pannable="true" :zoomable="true" class="mini-map" />
+      <FlowMiniMap :pannable="true" :zoomable="true" class="mini-map" />
       <Controls :fit-view-params="fitViewParams">
         <ControlButton
           title="Export image of the physiological view"
@@ -360,7 +360,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
-import { MiniMap } from '@vue-flow/minimap'
+import FlowMiniMap from '../FlowMiniMap.vue'
 import Button from 'primevue/button'
 import ContextMenu from 'primevue/contextmenu'
 import Dialog from 'primevue/dialog'
@@ -496,9 +496,9 @@ const {
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.BIO)
 const viewMode = useViewModeStore()
-const { settings } = useAppSettings()
-/** Whether species mode is on: as the user last set it here, else as Settings opens the view. */
-const isSpeciesOn = computed(() => viewMode.speciesOverlay ?? !!settings.speciesOverlay)
+const { settings, saveAppSettings } = useAppSettings()
+/** Whether species mode is on: an app setting, remembered as it was last left here. */
+const isSpeciesOn = computed(() => settings.speciesOverlay)
 /** The focused token, kept by Species with Fluxes even where it has no path. */
 const keptSpecies = computed(() => {
   const focus = viewMode.speciesScope === 'fluxes' ? viewMode.focusedSpecies : null
@@ -1293,10 +1293,10 @@ function clearSpeciesFocus() {
   viewMode.focusedSpecies = null
 }
 
-/** Turns species mode on or off, for as long as the app is open. */
+/** Turns species mode on or off, remembered with the app's settings. */
 function toggleSpecies() {
-  viewMode.speciesOverlay = !isSpeciesOn.value
-  if (!viewMode.speciesOverlay) clearSpeciesFocus()
+  saveAppSettings({ speciesOverlay: !isSpeciesOn.value })
+  if (!isSpeciesOn.value) clearSpeciesFocus()
 }
 
 /**
@@ -1305,7 +1305,7 @@ function toggleSpecies() {
  */
 function setSpeciesScope(scope) {
   viewMode.speciesScope = scope
-  viewMode.speciesOverlay = true
+  saveAppSettings({ speciesOverlay: true })
   if (scope !== 'fluxes') clearSpeciesFocus()
 }
 

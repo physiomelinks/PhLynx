@@ -25,6 +25,7 @@ The app runs at http://localhost:5173. Simulation needs localhost or https.
 | `yarn update:docs:changelog` | Regenerate the [Change Log](../reference/change-log.md) from `changelogs/` |
 
 Browser tests and screenshots need `pip install -r tests/requirements.txt` and `playwright install --with-deps chromium`.
+Against a local `yarn dev`, restart it before a full test run: a dev server left running while files are edited can make tests time out.
 
 To regenerate the docs images, start `yarn dev`, then run:
 

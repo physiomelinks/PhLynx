@@ -27,7 +27,7 @@ The add-handle, macro builder and Send buttons are hidden by default; [Settings 
 | **Settings** | Cog | Opens app [Settings](#settings). |
 | **Import** / **Export** / **Send** | Split buttons | Click runs the last-used item (Ctrl/Cmd+I, Ctrl/Cmd+E); the arrow opens the menu. |
 
-On the right are the **Diagram** / **Physiology** switch (see [The Physiology View](../guides/physiology-view.md)) and a light/dark switch. To report a bug, use the bug icon beside **About** at the top of every page. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
+On the right are the **Diagram** / **Physiology** switch (see [The Physiology View](../guides/physiology-view.md)) and a light/dark switch. At the top of every page, beside **About**, the bell opens the **Notices** tab of the About page - announcements from the developers, such as an upcoming end of support for an older file format - and shows a count while there are notices you have not yet seen; next to it, the bug icon reports a bug. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
 
 ### Import {#import}
 
@@ -81,7 +81,7 @@ The canvas shows the model as a diagram, or as physiology when the header is swi
 
 **Replace Module** swaps an instance's math and variables for another module's, keeping its name, position and arrows. Pick the module in the list and click **Confirm**. Parameter values become the new module's. Ports are dropped unless you tick **Retain matching ports?**, which keeps each port whose variables all exist in the new module; double-click the arrows afterwards to check their couplings. Undo (Ctrl/Cmd+Z) reverses it.
 
-**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right.
+**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right: **Hide minimap** on its corner shrinks it to a map button, which brings it back.
 
 ### Searching the workspace {#search}
 
@@ -239,18 +239,30 @@ After a run, add it to a plot by searching for its name, or turn on **Settings â
 
 1. Select instances, open **Properties** (wrench icon) and click a category under **Node colour** (**None** removes it). The colours come from the theme chosen under **Colour theme**.
 2. To make your own categories, click **New from this theme**, edit the labels and colours (**Add** adds a category), then **Save**. Your themes are listed under **My themes**.
+   Double-click a category under **Node colour** to go straight to its colour: the editor opens with the picker for the light or dark mode colour, whichever mode is on. On a theme that isn't yours, this starts a new theme from it, kept only when you **Save**.
+   The chosen theme is saved with the workspace, with a copy of its colours unless it is built in. Someone who opens the workspace without that theme sees it listed under **From this workspace**; it is not added to their browser unless they choose **New from this theme**.
 3. **Import a theme file** (upload icon) loads a theme; on your own theme, **Export as JSON** (download icon) saves it and **Propose for everyone** opens a GitHub issue to share it.
 
 ---
 
 ## Settings {#settings}
 
-Opened with **Settings** (cog icon).
+Opened with **Settings** (cog icon). Pick a section from the list on the left; its settings show on the right.
 
 | Section | Settings |
 | :--- | :--- |
 | Units | **Units suggestion format**: CellML built-in or SI base units |
-| Simulation | **Plot inspection modules**; **Auto-plot selection** (in the [physiology view](../guides/physiology-view.md#roles)); **Species mode** (open the physiology view in [species mode](../guides/physiology-view.md#species-mode)); **Show data items** (in Edit obs_data) |
-| CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **Location shading**; **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
+| Simulation | **Plot inspection modules**; **Show data items** (in Edit obs_data) |
+| Physiological view | **Auto-plot selection** (in the [physiology view](../guides/physiology-view.md#roles)); **Keep species flows moving** (in [species mode](../guides/physiology-view.md#species-mode)) |
+| CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
 | Image export | **Image format** (PNG or SVG); **Include warning symbols** |
-| Toolbar | Show or hide each toolbar button. **Add handles**, **Macro builder** and **Send to** are hidden until turned on; **Settings** is always shown |
+| Appearance | **Accent colour** (Copper, Logo brown or Emerald) |
+| Toolbar | Tick or untick each toolbar button to show or hide it. **Add handles**, **Macro builder** and **Send to** are hidden until ticked; **Settings** is always shown |
+
+A change applies as soon as you make it, and is remembered in this browser.
+
+* **Revert changes** puts every setting back as it was when you opened Settings. A dot marks each setting you have changed since then, and each section that holds one.
+* **Restore defaults** puts the settings of the section shown back to their defaults. **Revert changes** undoes that too.
+* **Done**, Esc or a click outside closes Settings, keeping the changes.
+
+Species mode, CellDL location shading and the minimap are not in Settings: each is a switch in its own view, and stays as you last left it.

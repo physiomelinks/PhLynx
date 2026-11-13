@@ -10,7 +10,7 @@
           severity="danger"
           class="toolbar-run toolbar-run--stop"
           aria-label="Stop the simulation"
-          v-tooltip.bottom="'Stop'"
+          v-hint.bottom="'Stop'"
           @click="emit('stop')"
         >
           <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></svg>
@@ -56,7 +56,7 @@
           :aria-pressed="protocolStore.isProtocolMode"
           :label="protocolStore.isProtocolMode && experimentCount < 2 ? 'Protocol' : undefined"
           aria-label="Run the protocol's experiments"
-          v-tooltip.bottom="protocolStore.isProtocolMode ? 'Running the protocol: switch back to the time course' : 'Run the protocol\'s experiments'"
+          v-hint.bottom="protocolStore.isProtocolMode ? 'Running the protocol: switch back to the time course' : 'Run the protocol\'s experiments'"
           @click="toggleProtocol"
         />
       </template>
@@ -105,7 +105,7 @@
         :severity="floatingViewer.visible ? 'primary' : 'secondary'"
         :aria-pressed="floatingViewer.visible"
         aria-label="Float the results over the canvas"
-        v-tooltip.bottom="floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas'"
+        v-hint.bottom="floatingViewer.visible ? 'Close the floating viewer' : 'Float over the canvas'"
         @click="toggleFloatingViewer({ isCollapsingSidebar: isInSidebar })"
       />
       <Button
@@ -117,7 +117,7 @@
         size="small"
         severity="secondary"
         aria-label="Open the simulation page"
-        v-tooltip.bottom="'Open the simulation page'"
+        v-hint.bottom="'Open the simulation page'"
         @click="emit('open-page')"
       />
       <Button
@@ -129,7 +129,7 @@
         severity="secondary"
         :disabled="isRunning"
         aria-label="Edit obs_data"
-        v-tooltip.bottom="protocolStore.hasProtocol ? 'Edit obs_data' : 'Edit obs_data: add a protocol of experiments that set parameters'"
+        v-hint.bottom="protocolStore.hasProtocol ? 'Edit obs_data' : 'Edit obs_data: add a protocol of experiments that set parameters'"
         @click="openProtocolDialog"
       />
       <Button
@@ -141,7 +141,7 @@
         severity="secondary"
         :disabled="isRunning"
         aria-label="Simulation settings"
-        v-tooltip.bottom="'Simulation settings'"
+        v-hint.bottom="'Simulation settings'"
         @click="openSimSettings('parameters')"
       />
       <!-- Too narrow for them all: those that don't fit, in a menu. -->
@@ -155,7 +155,7 @@
         class="toolbar-more"
         aria-label="More simulation actions"
         aria-haspopup="true"
-        v-tooltip.bottom="'More'"
+        v-hint.bottom="'More'"
         @click="(event) => moreMenu.toggle(event)"
       />
       <Menu ref="moreMenu" :model="moreItems" popup />

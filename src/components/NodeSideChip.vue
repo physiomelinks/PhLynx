@@ -1,5 +1,5 @@
 <template>
-  <!-- A connection end's chip, tinted by its side: primary for the source or this instance, secondary otherwise -->
+  <!-- A connection end's chip, tinted by its side: the accent for the source or this instance, neutral otherwise -->
   <Chip :label="label" :class="['node-side-chip', `node-side-chip--${side}`]" />
 </template>
 
@@ -14,10 +14,10 @@ defineProps({
 
 <style scoped>
 .node-side-chip--source {
-  --side-colour: var(--p-primary-color, #409eff);
+  --side-colour: var(--p-primary-color);
 }
 .node-side-chip--target {
-  --side-colour: var(--p-secondary-color, #409eff);
+  --side-colour: var(--p-text-muted-color);
 }
 .node-side-chip {
   background: color-mix(in srgb, var(--side-colour) 15%, transparent);

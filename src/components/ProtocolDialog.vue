@@ -26,8 +26,8 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <Button icon="pi pi-undo" text rounded severity="secondary" :disabled="!past.length" aria-label="Undo" v-tooltip.top="'Undo (⌘Z)'" @click="undo" />
-        <Button icon="pi pi-refresh" text rounded severity="secondary" :disabled="!future.length" aria-label="Redo" v-tooltip.top="'Redo (⇧⌘Z)'" @click="redo" />
+        <Button icon="pi pi-undo" text rounded severity="secondary" :disabled="!past.length" aria-label="Undo" v-hint.top="'Undo (⌘Z)'" @click="undo" />
+        <Button icon="pi pi-refresh" text rounded severity="secondary" :disabled="!future.length" aria-label="Redo" v-hint.top="'Redo (⇧⌘Z)'" @click="redo" />
         <span class="footer-count">{{ dataItemCount }} data item(s)</span>
         <span class="footer-spacer"></span>
         <span v-if="errorCount" class="footer-problems" role="status">

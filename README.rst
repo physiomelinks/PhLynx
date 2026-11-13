@@ -172,6 +172,12 @@ Then run the tests using the following command:
     # Run all tests
     python tests/run_playwright_tests.py
 
+The tests run in parallel, one worker for every two CPU cores by default.
+Set ``PLAYWRIGHT_WORKERS`` to choose how many, for example ``PLAYWRIGHT_WORKERS=1`` to run them one at a time while debugging.
+
+When testing against a local development server, restart ``yarn dev`` before a full run.
+A dev server that has been running while you edit files serves those files under new URLs, and tests can then time out in ways that look like flaky tests.
+
 To generate Playwright test code for a specific URL, use the following command:
 
 .. code-block:: bash

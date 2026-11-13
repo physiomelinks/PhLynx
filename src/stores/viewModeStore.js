@@ -10,8 +10,6 @@ export const useViewModeStore = defineStore('viewMode', () => {
   const mode = ref('diagram')
   /** The physiological view's pan and zoom, kept while the diagram is shown. */
   const bioViewport = ref(null)
-  /** Whether the physiological view shows species mode; null follows the setting. */
-  const speciesOverlay = ref(null)
   /**
    * Which species species mode shows: 'coupled' (those coupled to their compartment), 'fluxes' (those coupled with
    * a path through a protein) or 'all' annotated.
@@ -26,5 +24,5 @@ export const useViewModeStore = defineStore('viewMode', () => {
 
   const isBio = computed(() => mode.value === 'bio')
 
-  return { mode, bioViewport, speciesOverlay, speciesScope, focusedSpecies, isBio }
+  return { mode, bioViewport, speciesScope, focusedSpecies, isBio }
 })

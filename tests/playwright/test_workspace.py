@@ -181,7 +181,13 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         page.goto(BASE_URL)
         expect(page.locator(".vue-flow__pane")).to_be_visible()
-        expect(page.locator(".file-io-buttons .p-splitbutton button").first).to_be_enabled()
+        # The Import button enables at once (its first mode is Instance Array), but a CellML file dropped before
+        # libcellml is ready is turned away: wait for the menu's CellML File item, which enables with libcellml.
+        page.locator(".file-io-buttons .p-splitbutton").first.locator(".p-splitbutton-dropdown").click()
+        cellml_item = page.get_by_role("menuitem", name="CellML File", exact=True)
+        expect(cellml_item).to_be_enabled(timeout=60000)
+        page.keyboard.press("Escape")
+        expect(cellml_item).to_be_hidden()
 
     def drop_cellml(self, name):
         self.page.evaluate(DROP_FILE_JS, [name, read_resource(name)])
@@ -234,6 +240,26 @@ class TestWorkspaceCanvas(unittest.TestCase):
         moved = wait_for_transform_change(page, start, "x")
         self.assertNotEqual((moved["x"], moved["y"]), (start["x"], start["y"]))
         self.assertAlmostEqual(moved["zoom"], start["zoom"], places=3)
+
+    def test_minimap_hides_to_a_button_and_stays_hidden_after_a_reload(self):
+        page = self.page
+        self.open_workspace()
+
+        minimap = page.locator(".main-flow .vue-flow__minimap")
+        expect(minimap).to_be_visible()
+        page.get_by_role("button", name="Hide minimap").click()
+        expect(minimap).to_have_count(0)
+        show = page.get_by_role("button", name="Show minimap")
+        expect(show).to_be_visible()
+
+        # Remembered with the app's settings, so it is still hidden when the app opens again.
+        self.open_workspace()
+        expect(minimap).to_have_count(0)
+
+        show.click()
+        expect(minimap).to_be_visible()
+        expect(minimap.locator(".vue-flow__minimap-node")).to_have_count(FIXTURE_NODE_COUNT)
+        expect(show).to_have_count(0)
 
     # ---------- selection, delete and undo -----------
 

@@ -11,7 +11,7 @@
           text
           rounded
           :loading="themeStore.remoteStatus === 'loading'"
-          v-tooltip.left="'Refresh shared themes'"
+          v-hint.left="'Refresh shared themes'"
           aria-label="Refresh shared themes"
           @click="themeStore.refreshRemote()"
         />
@@ -29,6 +29,11 @@
         @update:modelValue="onSelectTheme"
       />
       <p v-if="themeStore.activeTheme.description" class="hint">{{ themeStore.activeTheme.description }}</p>
+      <p v-if="isActiveFromWorkspace" class="hint">
+        <i class="pi pi-info-circle"></i>
+        This theme came with the workspace and is saved with it. Choose <strong>New from this theme</strong> to keep
+        a copy in this browser.
+      </p>
       <p v-if="themeStore.remoteStatus === 'error'" class="hint hint--warn">
         <i class="pi pi-exclamation-triangle"></i>
         Shared themes could not be loaded ({{ themeStore.remoteError }}).
@@ -50,10 +55,12 @@
           :key="category.key"
           type="button"
           class="swatch"
-          :class="{ 'swatch--active': selectionKey === category.key }"
-          :disabled="!selectedNodes.length"
+          :class="{ 'swatch--active': selectionKey === category.key, 'swatch--inert': !selectedNodes.length }"
+          :aria-disabled="!selectedNodes.length"
           :style="swatchStyle(category)"
+          v-hint.top="'Double-click to change colours'"
           @click="assignCategory(category.key)"
+          @dblclick="editCategoryColour(category.key)"
         >
           <span class="swatch-chip"></span>
           <span class="swatch-label">{{ category.label }}</span>
@@ -87,6 +94,8 @@
         :theme="editingTheme"
         :errors="editorErrors"
         :is-new="isNewTheme"
+        :focus-key="editFocusKey"
+        :focus-scheme="isDarkMode ? 'dark' : 'light'"
         @change="editorErrors = []"
         @save="saveEdit"
         @cancel="stopEditing"
@@ -106,7 +115,7 @@
             size="small"
             text
             rounded
-            v-tooltip.top="'Import a theme file'"
+            v-hint.top="'Import a theme file'"
             aria-label="Import a theme file"
             @click="fileInput?.click()"
           />
@@ -120,7 +129,7 @@
             size="small"
             text
             rounded
-            v-tooltip.top="'Export as JSON'"
+            v-hint.top="'Export as JSON'"
             aria-label="Export as JSON"
             @click="exportActive"
           />
@@ -130,7 +139,7 @@
             text
             rounded
             severity="danger"
-            v-tooltip.top="'Delete this theme'"
+            v-hint.top="'Delete this theme'"
             aria-label="Delete this theme"
             @click="deleteActive"
           />
@@ -163,12 +172,20 @@ import Button from 'primevue/button'
 import Select from 'primevue/select'
 
 import NodeThemeEditor from './NodeThemeEditor.vue'
+import { useColorScheme } from '../composables/useColorScheme'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { FLOW_IDS, GHOST_NODE_TYPE } from '../utils/constants'
 import { notify } from '../utils/notify'
-import { THEME_REPO, buildSubmissionUrl, findCategory, isLocalThemeId, toSubmission } from '../utils/nodeThemes'
+import {
+  THEME_REPO,
+  buildSubmissionUrl,
+  findCategory,
+  isLocalThemeId,
+  isWorkspaceThemeId,
+  toSubmission,
+} from '../utils/nodeThemes'
 
 const MIXED = Symbol('mixed')
 
@@ -176,11 +193,13 @@ const themeStore = useNodeThemeStore()
 const { getSelectedNodes, updateNodeData } = useVueFlow(FLOW_IDS.MAIN)
 const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
 const { confirm } = useConfirmDialog()
+const { isDarkMode } = useColorScheme()
 
 const selectedNodes = computed(() => getSelectedNodes.value.filter((node) => node.type !== GHOST_NODE_TYPE))
 
 const themeGroups = computed(() =>
   [
+    { label: 'From this workspace', items: themeStore.workspaceThemes },
     { label: 'Built-in', items: themeStore.builtInThemes },
     { label: 'Shared', items: themeStore.remoteThemes },
     { label: 'My themes', items: themeStore.localThemes },
@@ -200,6 +219,7 @@ const orphanKey = computed(() => {
 })
 
 const isActiveLocal = computed(() => isLocalThemeId(themeStore.activeTheme.id))
+const isActiveFromWorkspace = computed(() => isWorkspaceThemeId(themeStore.activeTheme.id))
 
 function swatchStyle(category) {
   return {
@@ -219,7 +239,8 @@ function onSelectTheme(id) {
  */
 function assignCategory(key) {
   const ids = selectedNodes.value.map((node) => node.id)
-  if (!ids.length) return
+  // Nothing to do also when every node has it already, so a double-click's second click adds no undo step.
+  if (!ids.length || selectionKey.value === key) return
   recordEdit({
     type: 'set-node-category',
     nodeIds: ids,
@@ -231,6 +252,8 @@ function assignCategory(key) {
 // ── Local themes ───────────────────────────────────────────────────────
 const editingTheme = ref(null)
 const isNewTheme = ref(false)
+/** The category whose colour picker the editor opens on. */
+const editFocusKey = ref(null)
 const editorErrors = ref([])
 const fileInput = ref(null)
 
@@ -247,7 +270,20 @@ function startEditing() {
   editingTheme.value = themeStore.activeTheme
 }
 
+/**
+ * Opens the editor on a category's colour: the theme itself when it is the user's own, otherwise an unsaved
+ * copy, as New from this theme does.
+ *
+ * @param {string} key
+ */
+function editCategoryColour(key) {
+  if (isActiveLocal.value) startEditing()
+  else duplicateActive()
+  editFocusKey.value = key
+}
+
 function stopEditing() {
+  editFocusKey.value = null
   editingTheme.value = null
   isNewTheme.value = false
   editorErrors.value = []
@@ -361,12 +397,12 @@ function submitActive() {
   text-align: left;
 }
 
-.swatch:disabled {
+.swatch--inert {
   cursor: default;
   opacity: 0.6;
 }
 
-.swatch:not(:disabled):hover {
+.swatch:not(.swatch--inert):hover {
   border-color: var(--p-primary-color);
 }
 

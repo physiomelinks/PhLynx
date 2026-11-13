@@ -7,6 +7,7 @@ import { useGlyphLibraryStore } from '../../../src/stores/glyphLibraryStore.js'
 import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useNodeThemeStore } from '../../../src/stores/nodeThemeStore.js'
 import { useOmexStore } from '../../../src/stores/omexStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
 
@@ -25,6 +26,7 @@ export function loadAndSave(doc) {
   const parameters = useDefaultParametersStore()
   const bioTemplates = useBioTemplateStore()
   const bioGlyphs = useGlyphLibraryStore()
+  const nodeTheme = useNodeThemeStore()
 
   const migrated = migrateWorkspace(doc)
   library.loadState(migrated.store)
@@ -34,8 +36,9 @@ export function loadAndSave(doc) {
   parameters.loadState(migrated.parameters)
   bioTemplates.loadState(migrated.bioTemplates)
   bioGlyphs.loadState(migrated.bioGlyphs)
+  nodeTheme.loadState(migrated.nodeTheme)
 
-  const sources = { library, simulation, inspectionModules, omex, parameters, bioTemplates, bioGlyphs }
+  const sources = { library, simulation, inspectionModules, omex, parameters, bioTemplates, bioGlyphs, nodeTheme }
   const file = buildWorkspaceFile({ flow: migrated.flow, ...sources })
   return JSON.parse(JSON.stringify(file))
 }

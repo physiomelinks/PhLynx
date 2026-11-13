@@ -13,7 +13,7 @@ import SimulationStatusLine from '../../../src/components/simulation/SimulationS
  */
 function mountLine(status) {
   const tooltip = { mounted: (el, { value }) => (el.dataset.tooltip = value), updated: (el, { value }) => (el.dataset.tooltip = value) }
-  return mount(SimulationStatusLine, { props: { status }, global: { plugins: [PrimeVue], directives: { tooltip } } })
+  return mount(SimulationStatusLine, { props: { status }, global: { plugins: [PrimeVue], directives: { tooltip, hint: tooltip } } })
 }
 
 describe('SimulationStatusLine', () => {

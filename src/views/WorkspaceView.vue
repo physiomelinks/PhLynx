@@ -16,7 +16,8 @@
             icon="pi pi-folder-open"
             size="small"
             variant="text"
-            v-tooltip.bottom="{ value: 'Load workspace', showDelay: 300 }"
+            aria-label="Load workspace"
+            v-hint.bottom="'Load workspace'"
             @click="$refs.workspaceFileInput.click()"
           />
 
@@ -25,7 +26,8 @@
             icon="pi pi-save"
             size="small"
             variant="text"
-            v-tooltip.bottom="{ value: 'Save workspace', showDelay: 300 }"
+            aria-label="Save workspace"
+            v-hint.bottom="'Save workspace'"
             @click="handleSaveWorkspace"
             :style="{ marginLeft: appSettings.toolbarLoad ? '10px' : 0 }"
             :disabled="!hasWorkspaceContent"
@@ -39,7 +41,8 @@
             size="small"
             variant="text"
             severity="warn"
-            v-tooltip.bottom="{ value: 'Clean up workspace', showDelay: 300 }"
+            aria-label="Clean up workspace"
+            v-hint.bottom="'Clean up workspace'"
             @click="handleAutoLayout"
             :disabled="!somethingAvailable"
           >
@@ -52,7 +55,8 @@
             size="small"
             variant="text"
             severity="danger"
-            v-tooltip.bottom="{ value: 'Clear workspace', showDelay: 300 }"
+            aria-label="Clear workspace"
+            v-hint.bottom="'Clear workspace'"
             @click="handleClearWorkspace"
             :style="{ marginLeft: appSettings.toolbarCleanUp ? '10px' : 0 }"
             :disabled="!hasWorkspaceContent"
@@ -67,7 +71,8 @@
               size="small"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Undo', showDelay: 300 }"
+              aria-label="Undo"
+              v-hint.bottom="'Undo'"
               @click="handleUndo"
               :disabled="!historyStore.canUndo"
             />
@@ -78,7 +83,8 @@
               size="small"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Redo', showDelay: 300 }"
+              aria-label="Redo"
+              v-hint.bottom="'Redo'"
               @click="handleRedo"
               style="margin-left: 10px"
               :disabled="!historyStore.canRedo"
@@ -92,7 +98,8 @@
               iconOnly
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add left handle', showDelay: 300 }"
+              aria-label="Add left handle"
+              v-hint.bottom="'Add left handle'"
               :disabled="!somethingSelected"
               @click="addHandle('left')"
             >
@@ -104,7 +111,8 @@
               style="margin-left: 5px"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add top handle', showDelay: 300 }"
+              aria-label="Add top handle"
+              v-hint.bottom="'Add top handle'"
               :disabled="!somethingSelected"
               @click="addHandle('top')"
             >
@@ -116,7 +124,8 @@
               style="margin-left: 5px"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add right handle', showDelay: 300 }"
+              aria-label="Add right handle"
+              v-hint.bottom="'Add right handle'"
               :disabled="!somethingSelected"
               @click="addHandle('right')"
             >
@@ -128,7 +137,8 @@
               style="margin-left: 5px"
               variant="text"
               severity="secondary"
-              v-tooltip.bottom="{ value: 'Add bottom handle', showDelay: 300 }"
+              aria-label="Add bottom handle"
+              v-hint.bottom="'Add bottom handle'"
               :disabled="!somethingSelected"
               @click="addHandle('bottom')"
             >
@@ -145,7 +155,8 @@
             size="small"
             variant="text"
             severity="info"
-            v-tooltip.bottom="{ value: 'Open macro builder', showDelay: 300 }"
+            aria-label="Open macro builder"
+            v-hint.bottom="'Open macro builder'"
             @click="onOpenMacroBuilderDialog"
           />
 
@@ -158,7 +169,7 @@
             severity="info"
             :disabled="!somethingAvailable"
             aria-label="Configure simulation settings"
-            v-tooltip.bottom="{ value: 'Configure simulation settings', showDelay: 300 }"
+            v-hint.bottom="'Configure simulation settings'"
             @click="onOpenSimSettingsDialog"
           >
             <SimulationSettingsIcon />
@@ -173,7 +184,7 @@
             variant="text"
             severity="info"
             aria-label="Settings"
-            v-tooltip.bottom="{ value: 'Settings', showDelay: 300 }"
+            v-hint.bottom="'Settings'"
             @click="onOpenSettingsDialog"
           />
 
@@ -192,7 +203,6 @@
               value: currentImportDisabled
                 ? 'The Import option is disabled because CellML library is not ready yet.'
                 : `Import ${currentImportMode.label}`,
-              showDelay: 300,
             }"
           >
             <template #icon>
@@ -226,7 +236,6 @@
                 !somethingAvailable || currentExportDisabled
                   ? cellMlExportTooltip
                   : `Export ${currentExportMode.label}`,
-              showDelay: 300,
             }"
           >
             <template #icon>
@@ -262,7 +271,6 @@
                     ? 'Select instances to send them on their own.'
                     : 'The Send option is disabled because CellML library is not ready yet.'
                   : `Send to ${currentSendMode.label}`,
-              showDelay: 300,
             }"
           >
             <!-- Dropdown Menu Item Icons -->
@@ -466,7 +474,7 @@
             <component :is="'style'" v-if="highlightCss">{{ highlightCss }}</component>
             <HelperLines :horizontal="helperLineHorizontal" :vertical="helperLineVertical" :alignment="alignment" />
             <!-- Not kept while the diagram is hidden: it would redraw every node for each edit in the physiology view -->
-            <MiniMap
+            <FlowMiniMap
               v-if="!viewMode.isBio"
               :pannable="true"
               :zoomable="true"
@@ -617,7 +625,6 @@ import { Toast } from 'primevue'
 import { useToast } from 'primevue/usetoast'
 
 import { Controls, ControlButton } from '@vue-flow/controls'
-import { MiniMap } from '@vue-flow/minimap'
 
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
@@ -673,6 +680,7 @@ import ProtocolDialog from '../components/ProtocolDialog.vue'
 import SimulationFloatingViewer from '../components/simulation/SimulationFloatingViewer.vue'
 import { setWorkspaceMounted } from '../router/workspaceMount'
 import EdgeConnectionDialog from '../components/EdgeConnectionDialog.vue'
+import FlowMiniMap from '../components/FlowMiniMap.vue'
 import SettingsDialog from '../components/SettingsDialog.vue'
 import HelperLines from '../components/HelperLines.vue'
 import PaneContextMenu from '../components/PaneContextMenu.vue'
@@ -2937,7 +2945,7 @@ watch(
 
 .p-dark .vue-flow__node.selected {
   background-color: #333;
-  box-shadow: 0 0 0 2px #2563eb;
+  box-shadow: 0 0 0 2px var(--p-primary-color);
 }
 
 /* Edge Labels */
