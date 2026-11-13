@@ -28,7 +28,7 @@ describe('built-in glyphs', () => {
     const { library: built, errors } = validateGlyphLibrary(builtInLibrary)
     expect(errors).toEqual([])
     expect(built.glyphs.map((g) => g.id)).toEqual(GLYPHS)
-    for (const id of ['symporter', 'antiporter', 'uniporter', 'pump', 'channel', 'generic', 'receptor']) {
+    for (const id of ['symporter', 'antiporter', 'uniporter', 'pump', 'channel', 'generic', 'receptor', 'myofilament', 'mitochondrion']) {
       expect(getGlyph(id)?.id).toBe(id)
     }
   })

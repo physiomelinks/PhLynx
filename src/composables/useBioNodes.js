@@ -177,6 +177,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const cell = layout.get(place.cell).rect
         // One bound to a template's process area can be dragged out of it, to another site or none.
         const bound = !!place.instance
+        const glyph = roles.get(id)?.glyph ?? null
         children.push({
           ...base(id),
           type: 'bioCard',
@@ -185,7 +186,9 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x: place.x - cell.x, y: place.y - cell.y },
           width: CARD.width,
           height: CARD.height,
-          ...(bound && { data: { ...base(id).data, droppable: true } }),
+          ...((bound || glyph) && {
+            data: { ...base(id).data, ...(glyph && { glyph }), ...(bound && { droppable: true }) },
+          }),
         })
         break
       }

@@ -188,7 +188,7 @@ describe('ContextSidebar opening and closing', () => {
   async function mountCollapsed() {
     wrapper = mount(ContextSidebar, {
       props: { initialWidth: 320 },
-      global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true, SimulationPanel: true }, directives: { tooltip: {}, hint: {} } },
+      global: { plugins: [PrimeVue], stubs: { DataTable: { render: () => null }, NodeColourPanel: true, BioPropertiesPanel: true, SimulationPanel: true }, directives: { tooltip: {}, hint: {} } },
     })
     await flushPromises()
   }
@@ -222,6 +222,18 @@ describe('ContextSidebar opening and closing', () => {
     await toggle().trigger('click')
     expect(wrapper.vm.isCollapsed).toBe(true)
     expect(widths().at(-1)).toBe(0)
+  })
+
+  it('shows the colour properties for the diagram, and the physiology properties while that view is open', async () => {
+    await mountCollapsed()
+    await toggle().trigger('click')
+    await tabFor('pi-wrench').trigger('click')
+    expect(wrapper.findComponent({ name: 'NodeColourPanel' }).exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'BioPropertiesPanel' }).exists()).toBe(false)
+
+    await wrapper.setProps({ bioProperties: { roles: ref(new Map()), chooseRole: () => {}, chooseGlyph: () => {} } })
+    expect(wrapper.findComponent({ name: 'NodeColourPanel' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'BioPropertiesPanel' }).exists()).toBe(true)
   })
 
   it('switches tabs without closing, even on the open tab', async () => {

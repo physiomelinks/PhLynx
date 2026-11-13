@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { GO } from '../../../../src/services/annotations/iris.js'
 import { parseSidecar } from '../../../../src/services/annotations/sidecar.js'
-import { glyphFor } from '../../../../src/services/bioView/glyphs.js'
+import { NO_GLYPH, glyphFor, processGlyphFor } from '../../../../src/services/bioView/glyphs.js'
 import { goLocationsOf, resolveBioRole } from '../../../../src/services/bioView/roles.js'
 
 const TOY = resolve(__dirname, '../../fixtures/annotations/toy')
@@ -97,5 +97,15 @@ describe('physiological roles', () => {
     expect(glyphFor([GO.inwardRectifierPotassiumChannel])).toBe('channel')
     expect(glyphFor(['GO:0000000'])).toBe('generic')
     expect(glyphFor([GO.glucoseTransporter], 'antiporter')).toBe('antiporter')
+  })
+
+  it('draws a process as a plain card unless chosen or annotated with a cartoon', () => {
+    expect(resolveBioRole({ bioView: { role: 'cytosolic' } }).glyph).toBeNull()
+    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'mitochondrion' } }).glyph).toBe('mitochondrion')
+    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'blob' } }).glyph).toBeNull()
+    expect(processGlyphFor(['GO:0030016'])).toBe('myofilament')
+    expect(processGlyphFor(['GO:0005739'])).toBe('mitochondrion')
+    expect(processGlyphFor(['GO:0005739'], NO_GLYPH)).toBeNull()
+    expect(processGlyphFor(['GO:0000000'])).toBeNull()
   })
 })

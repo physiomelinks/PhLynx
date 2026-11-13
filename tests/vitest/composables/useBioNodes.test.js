@@ -29,6 +29,13 @@ function workspace() {
 }
 
 describe('physiological view nodes', () => {
+  it('draws a process’s cartoon on its card when it has one', () => {
+    const { nodes, roles } = workspace()
+    roles.set('gly', role('cytosolic', { glyph: 'mitochondrion' }))
+    const bio = bioFlowNodes(nodes, roles, layoutBioView(nodes, roles))
+    expect(bio.find((n) => n.id === 'gly')).toMatchObject({ type: 'bioCard', data: { name: 'gly', glyph: 'mitochondrion' } })
+  })
+
   it('draws each instance with the id it has in the diagram, a membrane over its cell’s outline', () => {
     const { nodes, roles, layout } = workspace()
     const bio = bioFlowNodes(nodes, roles, layout)
@@ -74,6 +81,7 @@ describe('physiological view nodes', () => {
     expect(p).toMatchObject({ parentNode: 'cell', data: { glyph: 'pump', facet: 'apical', rotation: 0, droppable: true } })
     expect(p.draggable).toBeUndefined()
     expect(bio[index('gly')]).toMatchObject({ parentNode: 'cell', extent: 'parent' })
+    expect(bio[index('gly')].data.glyph).toBeUndefined()
     expect(index('cell')).toBeLessThan(index('p'))
     // Relative to the cell, centred on its slot on the outline.
     const slot = layout.get('p')
