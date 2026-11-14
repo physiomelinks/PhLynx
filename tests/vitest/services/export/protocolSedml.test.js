@@ -6,7 +6,7 @@ import { planDrivers } from '../../../../src/services/protocol/libopencorEngine/
 import { prepareProtocolRun } from '../../../../src/services/simulation/protocolRun.js'
 import { SERIES_COLOURS } from '../../../../src/services/simulation/seriesSlots.js'
 
-const SETTINGS = { solver: 'CVODE', tolerance: 1e-7, maxSteps: 500, timeStep: 0, pointInterval: 0.5 }
+const SETTINGS = { solver: 'CVODE', relativeTolerance: 1e-7, maxSteps: 500, timeStep: 0, pointInterval: 0.5 }
 
 // The decay model as the simulator lists it once a driver for u and the protocol's clock are written in.
 const VARIABLES = new Map([

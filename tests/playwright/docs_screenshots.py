@@ -73,7 +73,7 @@ ALL_TOOLBAR_BUTTONS = (
 # predates saved settings, so it loads with the coarser ones older files get, between which the solver gives up.
 APP_DEFAULT_SIMULATION = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationSettings')"
-    ".setSimulationSettings({ startingPoint: 0, endingPoint: 10, pointInterval: 0.001, tolerance: 1e-7, maxSteps: 500 })"
+    ".setSimulationSettings({ startingPoint: 0, endingPoint: 10, pointInterval: 0.001, relativeTolerance: 1e-7, maxSteps: 500 })"
 )
 SIMULATION_DONE = f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)"
 

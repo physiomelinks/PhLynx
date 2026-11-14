@@ -54,7 +54,7 @@ const OBS_DATA = {
  */
 const createPrepared = (overrides = {}) => ({
   errors: [],
-  settings: { solver: 'CVODE', tolerance: 1e-7, maxSteps: 500, timeStep: 0.01, pointInterval: 0.1 },
+  settings: { solver: 'CVODE', relativeTolerance: 1e-7, maxSteps: 500, timeStep: 0.01, pointInterval: 0.1 },
   mapping: new Map([
     ['a::x', 'a/x'],
     ['a::t', 'm/t'],
@@ -211,7 +211,7 @@ describe('useSedmlExport', () => {
      */
     const createRun = (overrides = {}) => ({
       errors: [],
-      settings: { solver: 'CVODE', tolerance: 1e-7, maxSteps: 500, timeStep: 0.01, initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 },
+      settings: { solver: 'CVODE', relativeTolerance: 1e-7, maxSteps: 500, timeStep: 0.01, initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 },
       mapping: new Map([
         ['a::x', 'a/x'],
         ['a::t', 'm/t'],

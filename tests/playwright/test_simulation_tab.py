@@ -112,7 +112,7 @@ FEATURES_CASE = _spec["cases"][0]
 FEATURES_SETTINGS = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationSettings')"
     f".setSimulationSettings({{ pointInterval: {FEATURES_CASE['pointInterval']}, timeStep: {FEATURES_CASE['maximumStep']},"
-    f" tolerance: {_spec['solver']['tolerance']}, maxSteps: 50000 }})"
+    f" relativeTolerance: {_spec['solver']['tolerance']}, maxSteps: 50000 }})"
 )
 with open(os.path.join(PARITY, "ca-features.json")) as _references:
     CA_FEATURES = json.load(_references)["cases"][FEATURES_CASE["name"]]

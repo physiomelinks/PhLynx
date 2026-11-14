@@ -80,7 +80,7 @@ RUN_DECAY_SEGMENTS = """async () => {
   const simulator = await loader.whenLibOpenCORReady()
   const cellml = __CELLML__
   const key = 'protocol-probe-' + Math.round(performance.now())
-  const accurate = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const accurate = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
   const window = (from, to) => ({ ...accurate, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: 0.1 })
   const run = (options) => simulator.startSimulation(options).promise
   const series = (results, name) => results.variables.get(name).values
@@ -133,7 +133,7 @@ CHAIN_SEGMENTS = """async () => {
   // short of 0.01, which the simulator refuses as an interval longer than the window.
   const settings = (from) => {
     const to = from + 0.01
-    return { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: to - from }
+    return { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: to - from }
   }
   const started = performance.now()
   let results = await simulator.startSimulation({ cellml: __CELLML__, key, settings: settings(0) }).promise
@@ -175,7 +175,7 @@ PIECEWISE_INPUT = """async () => {
 </model>`
   const loader = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const simulator = await loader.whenLibOpenCORReady()
-  const settings = { solver: 'CVODE', tolerance: 1e-9, maxSteps: 50000, timeStep: 0, initialPoint: 0, startingPoint: 0, endingPoint: 10, pointInterval: 0.5 }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-9, maxSteps: 50000, timeStep: 0, initialPoint: 0, startingPoint: 0, endingPoint: 10, pointInterval: 0.5 }
   try {
     const results = await simulator.startSimulation({ cellml, settings }).promise
     return { ok: true, bytes: cellml.length, xEnd: results.variables.get('input/x').values.at(-1) }
@@ -197,7 +197,7 @@ CARRY_WORKSPACE_STATES = """async () => {
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-carry-' + Math.round(performance.now())
-  const window = (from, to) => ({ solver: 'CVODE', tolerance: 1e-10, maxSteps: 50000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: 0.01 })
+  const window = (from, to) => ({ solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 50000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: 0.01 })
   const whole = await simulator.startSimulation({ cellml, key, settings: window(0, 1) }).promise
   const first = await simulator.startSimulation({ key, settings: window(0, 0.5) }).promise
   const states = [...first.variables].filter(([, v]) => v.kind === 'state')
@@ -228,7 +228,7 @@ RUN_PROTOCOL = """async () => {
   const described = await simulator.describeModel({ cellml: __CELLML__, key })
   const { protocolInfo } = validateProtocolInfo({ pre_times: [1], sim_times: [[2, 2]], params_to_change: { 'decay/k': [[0.5, 1]] } })
   const plan = compileProtocolPlan({ view: readProtocolInfo(protocolInfo), pointInterval: 0.5 })
-  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
   const results = await simulator.startProtocol({ key, settings, plan, targets: new Map([['decay/k', 'instance_parameters/k']]) }).promise
   const [experiment] = results.experiments
   return {
@@ -253,7 +253,7 @@ RUN_SHORT_PULSE = """async () => {
     protocol_shapes: { kick: { baseline: 0, events: [{ level: 100, start: 6.37, length: 0.01 }] } },
   })
   const plan = compileProtocolPlan({ view: readProtocolInfo(protocolInfo), pointInterval: 0.01 })
-  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
   const results = await simulator.startProtocol({ key, settings, plan, targets: new Map([['decay/k', 'instance_parameters/k']]) }).promise
   const x = results.experiments[0].variables.get('decay/x').values
   return { segments: plan.experiments[0].segments.length, before: x[637], after: x[638], end: x.at(-1) }
@@ -280,7 +280,7 @@ RUN_RAMP = """async () => {
   const driven = new Map([['decay/k', { selectorParameter: 'protocol_drivers/driver_1_selector', valueParameter: 'protocol_drivers/driver_1_value', selectors: drivers[0].selectors }]])
   const plan = compileProtocolPlan({ view, pointInterval: 0.1, drivers: driven })
   const targets = new Map([['protocol_drivers/driver_1_selector', 'protocol_drivers/driver_1_selector'], ['protocol_drivers/driver_1_value', 'protocol_drivers/driver_1_value']])
-  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: findShortestFeature(drivers) }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: findShortestFeature(drivers) }
   const results = await simulator.startProtocol({ key, settings, plan, targets }).promise
   const [experiment] = results.experiments
   return {

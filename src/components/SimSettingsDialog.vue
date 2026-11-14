@@ -178,17 +178,28 @@
               </template>
               <template v-else>
                 <div class="field">
-                  <label for="sim-tolerance">Tolerance</label>
+                  <label for="sim-relative-tolerance">Relative Tolerance</label>
                   <InputNumber
-                    v-model="localSimulationSettings.tolerance"
-                    input-id="sim-tolerance"
-                    :pt:pcInputText:root="{ 'data-testid': 'sim-tolerance' }"
+                    v-model="localSimulationSettings.relativeTolerance"
+                    input-id="sim-relative-tolerance"
+                    :pt:pcInputText:root="{ 'data-testid': 'sim-relative-tolerance' }"
                     :min="0"
                     :minFractionDigits="0"
                     :maxFractionDigits="12"
                     fluid
                   />
-                  <small class="subtle">Relative and absolute.</small>
+                </div>
+                <div class="field">
+                  <label for="sim-absolute-tolerance">Absolute Tolerance</label>
+                  <InputNumber
+                    v-model="localSimulationSettings.absoluteTolerance"
+                    input-id="sim-absolute-tolerance"
+                    :pt:pcInputText:root="{ 'data-testid': 'sim-absolute-tolerance' }"
+                    :min="0"
+                    :minFractionDigits="0"
+                    :maxFractionDigits="12"
+                    fluid
+                  />
                 </div>
                 <div class="field">
                   <label for="sim-max-steps">Maximum Steps</label>

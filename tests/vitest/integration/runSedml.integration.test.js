@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { RUN_SEDML_MODEL, buildRunSedml } from '../../../src/services/export/runSedml.js'
 import { createSimulationSession } from '../../../src/services/simulation/engine.js'
 
-const SETTINGS = { solver: 'CVODE', tolerance: 1e-7, maxSteps: 500, initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
+const SETTINGS = { solver: 'CVODE', relativeTolerance: 1e-7, maxSteps: 500, initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
 
 /**
  * Wraps a component's variables and maths in a CellML 2.0 model.

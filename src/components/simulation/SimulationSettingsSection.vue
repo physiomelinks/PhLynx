@@ -103,11 +103,25 @@
         </div>
         <template v-else>
           <div class="field">
-            <label for="side-tolerance">Tolerance</label>
+            <label for="side-relative-tolerance">Relative tolerance</label>
             <InputNumber
-              v-model="draft.tolerance"
-              input-id="side-tolerance"
-              :pt:pcInputText:root="{ 'data-testid': 'side-tolerance' }"
+              v-model="draft.relativeTolerance"
+              input-id="side-relative-tolerance"
+              :pt:pcInputText:root="{ 'data-testid': 'side-relative-tolerance' }"
+              :min="0"
+              :minFractionDigits="0"
+              :maxFractionDigits="12"
+              size="small"
+              fluid
+              @update:model-value="commit"
+            />
+          </div>
+          <div class="field">
+            <label for="side-absolute-tolerance">Absolute tolerance</label>
+            <InputNumber
+              v-model="draft.absoluteTolerance"
+              input-id="side-absolute-tolerance"
+              :pt:pcInputText:root="{ 'data-testid': 'side-absolute-tolerance' }"
               :min="0"
               :minFractionDigits="0"
               :maxFractionDigits="12"

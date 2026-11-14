@@ -262,6 +262,7 @@ export const BASELINE_SIMULATION_SETTINGS = {
   solver: 'CVODE',
   // The solver settings, as sedParameters.js's DEFAULT_SOLVER_SETTINGS.
   timeStep: 0.0,
-  tolerance: 1e-7,
+  relativeTolerance: 1e-7,
+  absoluteTolerance: 1e-7,
   maxSteps: 500,
 }
