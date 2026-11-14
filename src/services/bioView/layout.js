@@ -481,7 +481,8 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
     const counts = Object.fromEntries(shape.facets.map((facet) => [facet.id, parts[facet.id].length]))
     const widths = Object.fromEntries(shape.facets.map((facet) => [facet.id, parts[facet.id].map(widthOf)]))
     const x = nextX + besideCell(key, 'left')
-    const rect = isRect(cell.storedRect) ? cell.storedRect : fitCellRect({ x, y: 0, ...MIN_CELL }, counts, shape, widths)
+    // A cell the user moved stays where it was put, and still grows to fit proteins added since.
+    const rect = fitCellRect(isRect(cell.storedRect) ? cell.storedRect : { x, y: 0, ...MIN_CELL }, counts, shape, widths)
     nextX = Math.max(nextX, rect.x + rect.width + GAP + besideCell(key, 'right'))
     rects.set(key, rect)
     layout.set(key, { kind: 'cell', rect, membrane: cell.membrane, widths })
