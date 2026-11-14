@@ -34,15 +34,17 @@
       :height="2 * STRIP_HALF"
       :fill="`url(#${patternId})`"
     />
-    <path v-if="tails" class="bio-bilayer__tails" :d="leafletCorners(width, height)" />
-    <path class="bio-bilayer__heads" :d="leafletCorners(width, height, HEAD_OFFSET)" />
-    <path class="bio-bilayer__heads" :d="leafletCorners(width, height, -HEAD_OFFSET)" />
+    <!-- Each corner's arc is as many units long as it has lipids, whatever its radius, so one dash pattern puts
+         both rows of heads and the tails between them on the same radii -->
+    <path v-if="tails" class="bio-bilayer__tails" :d="leafletCorners(width, height)" :pathLength="cornerLength" />
+    <path class="bio-bilayer__heads" :d="leafletCorners(width, height, HEAD_OFFSET)" :pathLength="cornerLength" />
+    <path class="bio-bilayer__heads" :d="leafletCorners(width, height, -HEAD_OFFSET)" :pathLength="cornerLength" />
   </g>
 </template>
 
 <script setup>
 import { computed, useId } from 'vue'
-import { HEAD_OFFSET, LIPID_PITCH, leafletCorners, leafletSides } from '../../services/bioView/geometry'
+import { HEAD_OFFSET, LIPID_PITCH, cornerLipids, leafletCorners, leafletSides } from '../../services/bioView/geometry'
 
 const props = defineProps({
   width: { type: Number, required: true },
@@ -59,6 +61,8 @@ const STRIP_HALF = HEAD_OFFSET + HEAD_RADIUS + 1
 
 const patternId = `bio-bilayer-${useId()}`
 const sides = computed(() => leafletSides(props.width, props.height))
+/** The four corner arcs' length together, in lipids. */
+const cornerLength = computed(() => 4 * cornerLipids(props.width, props.height))
 </script>
 
 <style scoped>
@@ -76,13 +80,16 @@ const sides = computed(() => leafletSides(props.width, props.height))
   stroke: var(--bilayer-head);
   stroke-width: 4.5;
   stroke-linecap: round;
-  stroke-dasharray: 0 5;
+  /* In lipids (see pathLength): one head each, half a space in from the arc's ends */
+  stroke-dasharray: 0 1;
+  stroke-dashoffset: 0.5;
 }
 
 .bio-bilayer__tails {
   fill: none;
   stroke: var(--bilayer-tail);
   stroke-width: 9;
-  stroke-dasharray: 1 4;
+  stroke-dasharray: 0.2 0.8;
+  stroke-dashoffset: 0.6;
 }
 </style>
