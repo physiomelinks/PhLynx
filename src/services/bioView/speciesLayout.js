@@ -648,6 +648,60 @@ const proteinPlaceIn = (layout) => (id) => {
   return place?.kind === 'protein' ? place : null
 }
 
+/** A process card's place in the layout: in a cell or free. Its x and y are its top-left corner. */
+const cardPlaceIn = (layout) => (id) => {
+  const place = layout.get(id)
+  return place?.kind === 'cytosolic' || place?.kind === 'card' ? place : null
+}
+
+/** How far apart the legs meeting one side of a process card are kept. */
+const CARD_LEG_GAP = 20
+
+/**
+ * Where the legs between process cards and tokens meet the cards: each on the side of its card that faces its
+ * token, those sharing a side spread along it in the order of their tokens, so they don't cross.
+ *
+ * @param {Array<{id: string, place: Object, token: Object}>} legs - Each leg's own key, its card's place and its
+ *   token.
+ * @returns {Map<string, {point: {x: number, y: number}, direction: {x: number, y: number}}>} Leg id -> its face.
+ */
+export function cardFaces(legs) {
+  const sideOf = ({ place, token }) => {
+    const dx = token.x - (place.x + CARD.width / 2)
+    const dy = token.y - (place.y + CARD.height / 2)
+    if (Math.abs(dy) * CARD.width >= Math.abs(dx) * CARD.height) return dy < 0 ? 'top' : 'bottom'
+    return dx < 0 ? 'left' : 'right'
+  }
+  const groups = new Map()
+  for (const entry of legs) {
+    const side = sideOf(entry)
+    const key = `${entry.place.x},${entry.place.y},${side}`
+    groups.set(key, [...(groups.get(key) ?? []), { ...entry, side }])
+  }
+  const faces = new Map()
+  for (const group of groups.values()) {
+    const { side, place } = group[0]
+    const isFlat = side === 'top' || side === 'bottom'
+    const length = isFlat ? CARD.width : CARD.height
+    const gap = Math.min(CARD_LEG_GAP, (length - CARD_LEG_GAP) / group.length)
+    const along = (entry) => (isFlat ? entry.token.x : entry.token.y)
+    group.sort((a, b) => along(a) - along(b) || byLabel(a, b))
+    for (const [index, entry] of group.entries()) {
+      const offset = (index - (group.length - 1) / 2) * gap
+      const centre = { x: place.x + CARD.width / 2, y: place.y + CARD.height / 2 }
+      const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[side]
+      faces.set(entry.id, {
+        point: {
+          x: centre.x + (direction.x * CARD.width) / 2 + (isFlat ? offset : 0),
+          y: centre.y + (direction.y * CARD.height) / 2 + (isFlat ? 0 : offset),
+        },
+        direction,
+      })
+    }
+  }
+  return faces
+}
+
 /**
  * Places the network's tokens: the part of layoutSpecies a run doesn't change.
  *
@@ -763,7 +817,8 @@ export function chipOrder(tokens, key, along) {
 }
 
 /**
- * Draws the network's paths and dependences between placed tokens and proteins: the part of layoutSpecies that
+ * Draws the network's paths, exchanges and dependences between placed tokens, proteins and process cards (an
+ * exchange is a path of one leg, `legs.process`, with its process as `protein`): the part of layoutSpecies that
  * follows a run.
  *
  * @param {Object} network - From speciesNetwork.
@@ -781,8 +836,32 @@ export function routeSpecies(
 ) {
   const proteinPlace = proteinPlaceIn(layout)
   const tokenAt = new Map(tokens.map((token) => [token.key, token]))
+  const cardPlace = cardPlaceIn(layout)
   const flows = network.paths.map((path) => flowOf(path))
-  const largest = Math.max(0, ...flows.map((flow) => Math.abs(flow?.size ?? 0)))
+  // A process's exchanges with compartments, and the species its card only reads: the legs that meet a card.
+  const exchanges = (network.exchanges ?? [])
+    .map((exchange) => ({
+      ...exchange,
+      id: `${exchange.process}::${exchange.species}::${exchange.compartment}`,
+      place: cardPlace(exchange.process),
+      token: tokenAt.get(`${exchange.compartment}::${exchange.species}`),
+    }))
+    .filter((exchange) => exchange.place && exchange.token)
+  const read = (network.dependences ?? [])
+    .map((dependence) => ({
+      ...dependence,
+      id: `read::${dependence.protein}::${dependence.species}::${dependence.compartment}`,
+      place: cardPlace(dependence.protein),
+      token: tokenAt.get(`${dependence.compartment}::${dependence.species}`),
+    }))
+    .filter((dependence) => dependence.place && dependence.token)
+  const cardFace = cardFaces([...exchanges, ...read])
+  const exchangeFlows = exchanges.map((exchange) => flowOf(exchange))
+  const largest = Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
+  const widthOf = (flow) => {
+    const share = largest > 0 && flow?.size ? Math.sqrt(Math.abs(flow.size) / largest) : 0
+    return WIDTH.min + (WIDTH.max - WIDTH.min) * share
+  }
   const paths = []
   for (const [index, path] of network.paths.entries()) {
     const place = proteinPlace(path.protein)
@@ -795,8 +874,7 @@ export function routeSpecies(
     const out = facePoint(place, 'outside', size, anchors, offset)
     const into = facePoint(place, 'inside', size, anchors, offset)
     const flow = flows[index]
-    const share = largest > 0 && flow?.size ? Math.sqrt(Math.abs(flow.size) / largest) : 0
-    const width = WIDTH.min + (WIDTH.max - WIDTH.min) * share
+    const width = widthOf(flow)
     const head = flow?.direction ? arrowHead(width) : 0
     paths.push({
       key: `${path.protein}::${path.species}::${path.outside}::${path.inside}`,
@@ -818,6 +896,26 @@ export function routeSpecies(
     })
   }
 
+  // A process's exchange is one leg between its card and the token, running the way the species goes: 'out' of
+  // the process into the compartment, or 'in' to it.
+  for (const [index, exchange] of exchanges.entries()) {
+    const flow = exchangeFlows[index]
+    const width = widthOf(flow)
+    const face = cardFace.get(exchange.id)
+    const toToken = flow?.direction === 'out'
+    paths.push({
+      key: exchange.id,
+      protein: exchange.process,
+      species: exchange.species,
+      compartment: exchange.compartment,
+      direction: flow?.direction ?? null,
+      width,
+      head: flow?.direction ? arrowHead(width) : 0,
+      legs: { process: leg(exchange.token, face, toToken) },
+      ends: { process: { token: exchange.token.key, face, toToken } },
+    })
+  }
+
   // A dependence goes to the face on its compartment's side: under the species' arrow if the cartoon has one, else
   // spread with the protein's other such dependences on that face, in the order of their tokens along it.
   const placedDependences = []
@@ -828,7 +926,22 @@ export function routeSpecies(
     const face = dependence.side ?? (layout.get(dependence.compartment)?.kind === 'cell' ? 'inside' : 'outside')
     placedDependences.push({ ...dependence, place, token, face })
   }
-  const dependences = []
+  const dependences = read.map(({ id, protein, compartment, species, token }) => {
+    const at = cardFace.get(id)
+    return {
+      key: `${protein}::${species}::${compartment}`,
+      protein,
+      compartment,
+      species,
+      d: leg(token, at, false, 2 * DEPENDENCE_END),
+      ends: { token: token.key, face: at, toToken: false, head: 2 * DEPENDENCE_END },
+      end: {
+        x: at.point.x + at.direction.x * DEPENDENCE_END,
+        y: at.point.y + at.direction.y * DEPENDENCE_END,
+        r: DEPENDENCE_END,
+      },
+    }
+  })
   for (const dependence of placedDependences) {
     const { protein, compartment, species, place, token, face } = dependence
     const arrows = arrowsOf(protein)
@@ -903,9 +1016,9 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
   const paths = species.paths.map((path) => {
     if (!path.ends) return path
     const shift = faceShift(path.protein)
-    const outside = redraw(path.ends.outside, path.legs.outside, shift)
-    const inside = redraw(path.ends.inside, path.legs.inside, shift)
-    return outside === path.legs.outside && inside === path.legs.inside ? path : { ...path, legs: { outside, inside } }
+    const sides = Object.keys(path.legs)
+    const legs = Object.fromEntries(sides.map((side) => [side, redraw(path.ends[side], path.legs[side], shift)]))
+    return sides.every((side) => legs[side] === path.legs[side]) ? path : { ...path, legs }
   })
   const dependences = species.dependences.map((dependence) => {
     if (!dependence.ends) return dependence

@@ -514,6 +514,27 @@ class TestAnnotationCoupling(unittest.TestCase):
         menu.get_by_label("Species with fluxes").check()
         expect(menu.locator("input[type=radio]:checked")).to_have_value("fluxes")
 
+    def test_species_mode_joins_a_process_in_the_cell_to_the_species_it_exchanges(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        cell = piece(page, "cell").bounding_box()
+        self.place_cell_pool()
+        # A porter dropped in the cell's process area is a process, coupled to the cell's pool.
+        self.drop_module("porter", (cell["x"] + cell["width"] * 0.3, cell["y"] + cell["height"] * 0.42))
+        card = page.locator(f"{BIO} .vue-flow__node-bioCard")
+        expect(card).to_have_count(1)
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        self.show_species("Species with Fluxes", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
+
+        # One leg between the process and the cell's Na⁺, beside the two proteins' paths of two legs each.
+        paths = page.locator("[data-testid=bio-species-path]")
+        expect(paths).to_have_count(3)
+        exchange = paths.and_(page.locator(f'[data-protein="{card.get_attribute("data-id")}"]'))
+        expect(exchange).to_have_count(1)
+        expect(exchange.locator(".bio-species-leg")).to_have_count(1)
+
     def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
         page = self.page
         self.open_physiology_with_template()

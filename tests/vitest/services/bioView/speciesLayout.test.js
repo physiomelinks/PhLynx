@@ -217,6 +217,47 @@ describe('where species mode draws its network', () => {
     expect(layoutSpecies(reads, layout, { arrowsOf }).dependences[0].end.x).toBe(314)
   })
 
+  it('runs a leg between a process card and each token it exchanges with, the way the species goes', () => {
+    const inCell = new Map([...layout, ['works', { kind: 'cytosolic', cell: 'cell', x: 60, y: 260 }]])
+    const exchanging = {
+      ...network,
+      paths: [],
+      exchanges: [
+        { process: 'works', compartment: 'cell', species: 'Na', variable: 'v', produces: -1 },
+        { process: 'works', compartment: 'cell', species: 'K', variable: 'w', produces: 1 },
+      ],
+    }
+    const flowOf = (exchange) => ({ direction: exchange.species === 'Na' ? 'in' : 'out', size: 1 })
+    const { paths, tokens } = layoutSpecies(exchanging, inCell, { flowOf })
+    expect(paths.map((path) => [path.protein, path.species, path.direction])).toEqual([
+      ['works', 'Na', 'in'],
+      ['works', 'K', 'out'],
+    ])
+    const start = (d) => d.match(/^M([-\d.]+),([-\d.]+)/).slice(1).map(Number)
+    const end = (d) => d.match(/([-\d.]+),([-\d.]+)$/).slice(1).map(Number)
+    const onCard = ([x, y]) => x >= 60 && x <= 240 && y >= 260 && y <= 332
+    const [taken, given] = paths.map((path) => path.legs.process)
+    // Taken in, the leg ends on the card; given out, it starts there. Each stops a head short of its end.
+    expect(onCard(start(given))).toBe(true)
+    expect(onCard(start(taken))).toBe(false)
+    expect(paths.every((path) => path.head > 0)).toBe(true)
+    // The two legs meet the card apart.
+    expect(paths[0].ends.process.face.point).not.toEqual(paths[1].ends.process.face.point)
+
+    // Moved with its cell, a leg is drawn again from its ends.
+    const moved = driftSpecies({ tokens, paths, dependences: [] }, inCell, { moved: new Map([['cell', { x: 10, y: 0 }]]) })
+    expect(start(moved.paths[1].legs.process)[0]).toBe(start(given)[0] + 10)
+    // Without a run it is drawn still.
+    expect(layoutSpecies(exchanging, inCell).paths.map((path) => path.direction)).toEqual([null, null])
+  })
+
+  it('draws a dependence to a process card that only reads a species', () => {
+    const inCell = new Map([...layout, ['works', { kind: 'cytosolic', cell: 'cell', x: 60, y: 260 }]])
+    const reads = { ...network, paths: [], dependences: [{ protein: 'works', compartment: 'cell', species: 'K' }] }
+    const [dependence] = layoutSpecies(reads, inCell).dependences
+    expect(dependence).toMatchObject({ protein: 'works', species: 'K', end: { r: DEPENDENCE_END } })
+  })
+
   it('draws no path for a protein not in a membrane', () => {
     const tray = new Map([...layout, ['porter', { kind: 'tray', x: 0, y: 0 }]])
     expect(layoutSpecies(network, tray).paths).toEqual([])

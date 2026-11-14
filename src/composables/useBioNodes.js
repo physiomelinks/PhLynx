@@ -603,6 +603,16 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } 
     const { results, mapping } = simulationResults
     const usable = results && mapping && !results.isSweep
     const flowOf = (path) => {
+      // A process's exchange with a compartment names its own flow, and which sign gives the species away.
+      if (path.process) {
+        const values = usable ? readNodeSeries(results, mapping, path.process, path.variable)?.values : null
+        const way = flowDirection(values)
+        const flip = { in: 'out', out: 'in' }
+        return {
+          direction: way && (path.produces > 0 ? flip[way] : way),
+          size: values?.length ? Math.abs(values[values.length - 1]) || 0 : 0,
+        }
+      }
       const crossing = usable && crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
       if (!crossing) return null
       const values = readNodeSeries(results, mapping, path.protein, crossing.variable)?.values
