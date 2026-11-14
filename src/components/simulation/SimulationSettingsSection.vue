@@ -17,13 +17,11 @@
       <div class="settings-grid">
         <div class="field">
           <label for="side-initial-point">Starts at</label>
-          <InputNumber
+          <ScientificNumberInput
             v-model="draft.initialPoint"
             input-id="side-initial-point"
-            :pt:pcInputText:root="{ 'data-testid': 'side-initial-point' }"
-            suffix=" s"
-            :minFractionDigits="0"
-            :maxFractionDigits="8"
+            test-id="side-initial-point"
+            suffix="s"
             size="small"
             fluid
             @update:model-value="commit"
@@ -31,13 +29,11 @@
         </div>
         <div class="field">
           <label for="side-starting-point">Plots start at</label>
-          <InputNumber
+          <ScientificNumberInput
             v-model="draft.startingPoint"
             input-id="side-starting-point"
-            :pt:pcInputText:root="{ 'data-testid': 'side-starting-point' }"
-            suffix=" s"
-            :minFractionDigits="0"
-            :maxFractionDigits="8"
+            test-id="side-starting-point"
+            suffix="s"
             size="small"
             fluid
             @update:model-value="commit"
@@ -45,13 +41,11 @@
         </div>
         <div class="field">
           <label for="side-ending-point">Ends at</label>
-          <InputNumber
+          <ScientificNumberInput
             v-model="draft.endingPoint"
             input-id="side-ending-point"
-            :pt:pcInputText:root="{ 'data-testid': 'side-ending-point' }"
-            suffix=" s"
-            :minFractionDigits="0"
-            :maxFractionDigits="8"
+            test-id="side-ending-point"
+            suffix="s"
             size="small"
             fluid
             @update:model-value="commit"
@@ -59,14 +53,12 @@
         </div>
         <div class="field">
           <label for="side-point-interval">Point interval</label>
-          <InputNumber
+          <ScientificNumberInput
             v-model="draft.pointInterval"
             input-id="side-point-interval"
-            :pt:pcInputText:root="{ 'data-testid': 'side-point-interval' }"
-            suffix=" s"
+            test-id="side-point-interval"
+            suffix="s"
             :min="0"
-            :minFractionDigits="0"
-            :maxFractionDigits="8"
             size="small"
             fluid
             @update:model-value="commit"
@@ -88,14 +80,12 @@
         </div>
         <div v-if="isFixedStepSolver" class="field">
           <label for="side-time-step">Time step</label>
-          <InputNumber
+          <ScientificNumberInput
             v-model="draft.timeStep"
             input-id="side-time-step"
-            :pt:pcInputText:root="{ 'data-testid': 'side-time-step' }"
-            suffix=" s"
+            test-id="side-time-step"
+            suffix="s"
             :min="0"
-            :minFractionDigits="0"
-            :maxFractionDigits="12"
             size="small"
             fluid
             @update:model-value="commit"
@@ -104,13 +94,11 @@
         <template v-else>
           <div class="field">
             <label for="side-relative-tolerance">Relative tolerance</label>
-            <InputNumber
+            <ScientificNumberInput
               v-model="draft.relativeTolerance"
               input-id="side-relative-tolerance"
-              :pt:pcInputText:root="{ 'data-testid': 'side-relative-tolerance' }"
+              test-id="side-relative-tolerance"
               :min="0"
-              :minFractionDigits="0"
-              :maxFractionDigits="12"
               size="small"
               fluid
               @update:model-value="commit"
@@ -118,13 +106,11 @@
           </div>
           <div class="field">
             <label for="side-absolute-tolerance">Absolute tolerance</label>
-            <InputNumber
+            <ScientificNumberInput
               v-model="draft.absoluteTolerance"
               input-id="side-absolute-tolerance"
-              :pt:pcInputText:root="{ 'data-testid': 'side-absolute-tolerance' }"
+              test-id="side-absolute-tolerance"
               :min="0"
-              :minFractionDigits="0"
-              :maxFractionDigits="12"
               size="small"
               fluid
               @update:model-value="commit"
@@ -146,14 +132,12 @@
           </div>
           <div class="field">
             <label for="side-maximum-step">Maximum step</label>
-            <InputNumber
+            <ScientificNumberInput
               v-model="draft.timeStep"
               input-id="side-maximum-step"
-              :pt:pcInputText:root="{ 'data-testid': 'side-maximum-step' }"
-              suffix=" s"
+              test-id="side-maximum-step"
+              suffix="s"
               :min="0"
-              :minFractionDigits="0"
-              :maxFractionDigits="12"
               size="small"
               fluid
               @update:model-value="commit"
@@ -176,6 +160,8 @@ import { computed, ref, watch } from 'vue'
 
 import InputNumber from 'primevue/inputnumber'
 import Select from 'primevue/select'
+
+import ScientificNumberInput from '../ScientificNumberInput.vue'
 
 import { MAX_SOLVER_STEPS, SOLVERS, findSolverSettingsProblem } from '../../services/simulation/sedParameters'
 import { cloneSimulationSettings, useSimulationSettingsStore } from '../../stores/simulationSettingsStore'

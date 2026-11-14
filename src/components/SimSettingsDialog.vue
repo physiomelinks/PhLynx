@@ -86,52 +86,44 @@
             <div class="settings-grid">
               <div class="field">
                 <label for="sim-initial-point">Simulation starts at</label>
-                <InputNumber
+                <ScientificNumberInput
                   v-model="localSimulationSettings.initialPoint"
                   input-id="sim-initial-point"
-                  :pt:pcInputText:root="{ 'data-testid': 'sim-initial-point' }"
-                  suffix=" s"
-                  :minFractionDigits="0"
-                  :maxFractionDigits="8"
+                  test-id="sim-initial-point"
+                  suffix="s"
                   fluid
                 />
                 <small class="subtle">Where the solver starts, from the initial values.</small>
               </div>
               <div class="field">
                 <label for="sim-starting-point">Plots start at</label>
-                <InputNumber
+                <ScientificNumberInput
                   v-model="localSimulationSettings.startingPoint"
                   input-id="sim-starting-point"
-                  :pt:pcInputText:root="{ 'data-testid': 'sim-starting-point' }"
-                  suffix=" s"
-                  :minFractionDigits="0"
-                  :maxFractionDigits="8"
+                  test-id="sim-starting-point"
+                  suffix="s"
                   fluid
                 />
                 <small class="subtle">Results before this are solved but not kept, so a model can settle first.</small>
               </div>
               <div class="field">
                 <label for="sim-ending-point">Ends at</label>
-                <InputNumber
+                <ScientificNumberInput
                   v-model="localSimulationSettings.endingPoint"
                   input-id="sim-ending-point"
-                  :pt:pcInputText:root="{ 'data-testid': 'sim-ending-point' }"
-                  suffix=" s"
-                  :minFractionDigits="0"
-                  :maxFractionDigits="8"
+                  test-id="sim-ending-point"
+                  suffix="s"
                   fluid
                 />
               </div>
               <div class="field">
                 <label for="sim-point-interval">Point interval</label>
-                <InputNumber
+                <ScientificNumberInput
                   v-model="localSimulationSettings.pointInterval"
                   input-id="sim-point-interval"
-                  :pt:pcInputText:root="{ 'data-testid': 'sim-point-interval' }"
-                  suffix=" s"
+                  test-id="sim-point-interval"
+                  suffix="s"
                   :min="0"
-                  :minFractionDigits="0"
-                  :maxFractionDigits="8"
                   fluid
                 />
                 <small class="subtle">Time between the points kept.</small>
@@ -164,14 +156,12 @@
               <template v-if="isFixedStepSolver">
                 <div class="field">
                   <label for="sim-time-step">Time Step</label>
-                  <InputNumber
+                  <ScientificNumberInput
                     v-model="localSimulationSettings.timeStep"
                     input-id="sim-time-step"
-                    :pt:pcInputText:root="{ 'data-testid': 'sim-time-step' }"
-                    suffix=" s"
+                    test-id="sim-time-step"
+                    suffix="s"
                     :min="0"
-                    :minFractionDigits="0"
-                    :maxFractionDigits="12"
                     fluid
                   />
                 </div>
@@ -179,25 +169,21 @@
               <template v-else>
                 <div class="field">
                   <label for="sim-relative-tolerance">Relative Tolerance</label>
-                  <InputNumber
+                  <ScientificNumberInput
                     v-model="localSimulationSettings.relativeTolerance"
                     input-id="sim-relative-tolerance"
-                    :pt:pcInputText:root="{ 'data-testid': 'sim-relative-tolerance' }"
+                    test-id="sim-relative-tolerance"
                     :min="0"
-                    :minFractionDigits="0"
-                    :maxFractionDigits="12"
                     fluid
                   />
                 </div>
                 <div class="field">
                   <label for="sim-absolute-tolerance">Absolute Tolerance</label>
-                  <InputNumber
+                  <ScientificNumberInput
                     v-model="localSimulationSettings.absoluteTolerance"
                     input-id="sim-absolute-tolerance"
-                    :pt:pcInputText:root="{ 'data-testid': 'sim-absolute-tolerance' }"
+                    test-id="sim-absolute-tolerance"
                     :min="0"
-                    :minFractionDigits="0"
-                    :maxFractionDigits="12"
                     fluid
                   />
                 </div>
@@ -216,14 +202,12 @@
                 </div>
                 <div class="field">
                   <label for="sim-maximum-step">Maximum Step</label>
-                  <InputNumber
+                  <ScientificNumberInput
                     v-model="localSimulationSettings.timeStep"
                     input-id="sim-maximum-step"
-                    :pt:pcInputText:root="{ 'data-testid': 'sim-maximum-step' }"
-                    suffix=" s"
+                    test-id="sim-maximum-step"
+                    suffix="s"
                     :min="0"
-                    :minFractionDigits="0"
-                    :maxFractionDigits="12"
                     fluid
                   />
                   <small class="subtle">0 for no limit.</small>
@@ -274,6 +258,7 @@ import Tabs from 'primevue/tabs'
 import PlotListEditor from './simulation/PlotListEditor.vue'
 import SliderDefinitionsEditor from './simulation/SliderDefinitionsEditor.vue'
 import SweepEditor from './simulation/SweepEditor.vue'
+import ScientificNumberInput from './ScientificNumberInput.vue'
 import VariablePathPicker from './simulation/VariablePathPicker.vue'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { plotVariable, resolveGroups } from '../services/simulation/plotSelections'

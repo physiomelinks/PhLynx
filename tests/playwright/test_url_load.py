@@ -107,10 +107,10 @@ class TestLoadViaUrl(unittest.TestCase):
             expect(page.get_by_test_id("param-default-C")).to_have_value("10");
             expect(page.get_by_test_id("param-max-C")).to_have_value("11");
             dialog.get_by_role("tab", name="Solver").click()
-            expect(page.get_by_test_id("sim-initial-point")).to_have_value("0 s");
-            expect(page.get_by_test_id("sim-starting-point")).to_have_value("0 s");
-            expect(page.get_by_test_id("sim-ending-point")).to_have_value("20 s");
-            expect(page.get_by_test_id("sim-point-interval")).to_have_value("0.001 s");
+            expect(page.get_by_test_id("sim-initial-point")).to_have_value("0");
+            expect(page.get_by_test_id("sim-starting-point")).to_have_value("0");
+            expect(page.get_by_test_id("sim-ending-point")).to_have_value("20");
+            expect(page.get_by_test_id("sim-point-interval")).to_have_value("0.001");
             dialog.get_by_role("button", name="Save", exact=True).click()
             page.locator(".vue-flow__pane").click()
             # ----------- END ------------
