@@ -70,6 +70,13 @@ const isEmptyPiece = (place) => !!place.instance && place.empty && (place.kind =
  *   itself, so a selection doesn't lay the nodes out again.
  * @returns {Array<Object>} vue-flow nodes; parents come before their children.
  */
+/**
+ * What only some kinds of node set, cleared on every node: vue-flow merges a node onto the one it had under the
+ * same id, so a field left out keeps its old value when an instance is shown as something else. A card that
+ * became a protein stayed held inside its cell, and a membrane that became one could not be clicked.
+ */
+const UNSET = Object.freeze({ extent: undefined, zIndex: undefined, style: undefined, selectable: undefined, draggable: undefined })
+
 export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { selection = true } = {}) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const labelOf = viewLabels(byId, layout, transport)
@@ -78,9 +85,10 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
     if (!node) {
       const place = layout.get(id)
       const data = { name: place.label ?? id, domainType: null, empty: true }
-      return { id, selectable: false, draggable: true, data }
+      return { ...UNSET, id, selectable: false, draggable: true, data }
     }
     return {
+      ...UNSET,
       id,
       ...(selection && { selected: !!node.selected }),
       data: { name: node.data?.name ?? id, domainType: node.data?.domainType ?? null },
