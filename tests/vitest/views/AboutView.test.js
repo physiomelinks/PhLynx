@@ -2,7 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const FEED = {
   schema: 1,
@@ -51,6 +51,9 @@ describe('AboutView', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
   })
+  // PrimeVue's TabList measures its ink bar 150 ms after mounting, on a timer it never clears. Wait it out, or it
+  // fires once the file's DOM is gone and fails the run with "HTMLElement is not defined".
+  afterAll(() => new Promise((resolve) => setTimeout(resolve, 200)))
 
   it('opens on the overview, counting the unread notices on their tab', async () => {
     const { wrapper, unreadCount } = await mountAbout()
