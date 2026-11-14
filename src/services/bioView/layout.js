@@ -531,12 +531,16 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
     const key = form === 'column' ? `${first.cellKey}/${first.facetId}` : form === 'free' ? piece.side : first.facetId
     const index = stacked.get(key) ?? 0
     stacked.set(key, index + 1)
-    let rect = isRect(piece.storedRect) ? piece.storedRect : compartmentRect(form, against, index, placed, piece.depth)
+    // One lying against cells is placed by them, so it follows as they move and grow; a place of its own is kept
+    // only by one with no cell to lie against.
+    const anchored = form !== 'free' && (facetId ? cellRects.length > 0 : against.every((entry) => rects.has(entry.cellKey)))
+    const stored = !anchored && isRect(piece.storedRect) ? piece.storedRect : null
+    let rect = stored ?? compartmentRect(form, against, index, placed, piece.depth)
     if (!rect) {
       rect = { x: left - GAP, y: otherY, width: right - left + 2 * GAP, height: REGION_HEIGHT }
       otherY += REGION_HEIGHT + GAP / 2
     }
-    layout.set(piece.key, { kind: 'region', side: piece.side ?? null, adjacent: piece.adjacent, rect })
+    layout.set(piece.key, { kind: 'region', side: piece.side ?? null, adjacent: piece.adjacent, rect, ...(anchored && { anchored }) })
   }
 
   // Template instances, each from its own corner; the tray and cards go beside every cell.
