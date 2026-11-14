@@ -278,6 +278,7 @@ export function serialiseInlineSvg(svg, { getStyle, colour, idPrefix, serialise 
       ...paint('stroke'),
       'stroke-width': style.stroke && style.stroke !== 'none' ? parseFloat(style.strokeWidth) || 1 : null,
       'stroke-dasharray': style.strokeDasharray && style.strokeDasharray !== 'none' ? style.strokeDasharray : null,
+      'stroke-dashoffset': style.strokeDasharray && style.strokeDasharray !== 'none' && parseFloat(style.strokeDashoffset) ? style.strokeDashoffset : null,
       'stroke-linecap': style.strokeLinecap && style.strokeLinecap !== 'butt' ? style.strokeLinecap : null,
       'stroke-linejoin': style.strokeLinejoin && style.strokeLinejoin !== 'miter' ? style.strokeLinejoin : null,
       'fill-rule': style.fillRule === 'evenodd' ? 'evenodd' : null,
@@ -547,6 +548,9 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
         rx: radius > 0 ? Math.max(0, radius - inset) : null,
         ...paintAttrs('fill', fill),
         ...(border ? { ...paintAttrs('stroke', border), 'stroke-width': borderWidth } : {}),
+        // A dashed or dotted border, as browsers draw it: dashes three widths long, dots one.
+        ...(border && style.borderTopStyle === 'dashed' ? { 'stroke-dasharray': `${num(3 * borderWidth)} ${num(2 * borderWidth)}` } : {}),
+        ...(border && style.borderTopStyle === 'dotted' ? { 'stroke-dasharray': `0 ${num(2 * borderWidth)}`, 'stroke-linecap': 'round' } : {}),
       })
     )
     bounds.add(rect.x, rect.y, rect.width, rect.height)
