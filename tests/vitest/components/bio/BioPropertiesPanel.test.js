@@ -50,10 +50,12 @@ describe('BioPropertiesPanel', () => {
     expect(tile('pump').classes()).toContain('glyph-tile--active')
   })
 
-  it('offers a process None, marked while it has no cartoon, and sets the choice for the whole selection', async () => {
+  it('offers a process None, marked once chosen, and sets the choice for the whole selection', async () => {
     select('gly')
     mountPanel({ gly: role('cytosolic') })
     expect(tile(NO_GLYPH).classes()).toContain('glyph-tile--active')
+    await tile(NO_GLYPH).trigger('click')
+    expect(properties.chooseGlyph).toHaveBeenCalledWith(['gly'], NO_GLYPH)
     await tile('mitochondrion').trigger('click')
     expect(properties.chooseGlyph).toHaveBeenCalledWith(['gly'], 'mitochondrion')
   })
