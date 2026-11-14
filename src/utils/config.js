@@ -34,11 +34,26 @@ export function uniqueModuleRef(moduleRef, mathRef, getModule) {
   return ref
 }
 
+/** The keys of a config entry PhLynx reads and writes itself; the rest are kept as the module's `configExtras`. */
+const HANDLED_CONFIG_KEYS = new Set([
+  'module_type',
+  'module_subtype',
+  'component_file',
+  'component_type',
+  'default_parameterisation',
+  'entrance_ports',
+  'exit_ports',
+  'general_ports',
+  'variables_and_units',
+])
+
 /**
  * Makes a library module from a CA module config.
  *
  * @param {Object} config - One entry of a module config file.
- * @returns {Object} The module, with `defaultParameterisation` when the config names one.
+ * @returns {Object} The module, with `defaultParameterisation` when the config names one, and `configExtras`
+ *   holding every other key (api, delay_info, phlynx_ metadata, a non-CellML module_format, ...) for the export
+ *   to write back as it was.
  */
 export function normaliseConfig(config) {
   const module = {
@@ -48,6 +63,10 @@ export function normaliseConfig(config) {
     variables: normaliseVariables(config.variables_and_units),
   }
   if (config.default_parameterisation) module.defaultParameterisation = config.default_parameterisation
+  const extras = Object.fromEntries(
+    Object.entries(config).filter(([key, value]) => !HANDLED_CONFIG_KEYS.has(key) && !(key === 'module_format' && value === 'cellml'))
+  )
+  if (Object.keys(extras).length) module.configExtras = extras
   return module
 }
 
@@ -72,6 +91,8 @@ export function normalisePorts(config) {
         label: p.port_type, 
         variables: p.variables || [],
         multiportType: parseMultiport(p.multi_port),
+        ...(p.multiply_factor != null && { multiplyFactor: p.multiply_factor }),
+        ...(isTrue(p.only_one_port) && { onlyOnePort: true }),
       })
     }
   })
@@ -100,7 +121,9 @@ export function restorePorts(ports) {
     
     if (multiPortValue !== undefined) {
       portEntry.multi_port = multiPortValue
+      if (p.multiplyFactor != null && hasMultiply(multiPortValue)) portEntry.multiply_factor = toRaw(p.multiplyFactor)
     }
+    if (p.onlyOnePort) portEntry.only_one_port = true
 
     config[p.portType].push(portEntry)
   }
@@ -127,6 +150,10 @@ export function restoreVariables(variables = []) {
     v.type
   ])
 }
+
+const isTrue = (value) => value === true || value === 'True'
+
+const hasMultiply = (value) => [value].flat().some((entry) => typeof entry === 'string' && entry.toLowerCase() === 'multiply')
 
 function unparseMultiport(value) {
   if (value === "None") return undefined

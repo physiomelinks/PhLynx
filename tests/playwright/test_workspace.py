@@ -171,7 +171,8 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         workspace_json = read_resource("workspace-json.base64").strip()
         page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
-        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
+        # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT, timeout=60000)
         expect(page.locator(EDGE)).to_have_count(2)
         # Let the initial fit-view finish so tests start from a stable viewport.
         return wait_for_settled_transform(page)

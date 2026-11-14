@@ -12,7 +12,8 @@ import { getModuleFormat } from './moduleFormats'
  *
  * @param {{moduleRef: string, mathRef: string, ports: Array, variables: Array}} module - A node's data or a library module;
  *   its library module gives `default_parameterisation` when it names none.
- * @param {Object} [libraryStore] - The library, for the math's format and default set; without it, the default format's.
+ * @param {Object} [libraryStore] - The library, for the math's format, default set and the keys its config had that
+ *   PhLynx doesn't edit (api, delay_info, ...), which the entry keeps; without it, the default format's and none of those.
  * @returns {Object}
  */
 export function moduleConfigEntry(module, libraryStore) {
@@ -21,10 +22,13 @@ export function moduleConfigEntry(module, libraryStore) {
   const { moduleType, moduleSubtype } = parseModuleRef(module.moduleRef)
   const defaultParameterisation =
     module.defaultParameterisation ?? libraryStore?.availableModules?.get(module.moduleRef)?.defaultParameterisation
+  const extras = libraryStore?.availableModules?.get(module.moduleRef)?.configExtras
+  const moduleFormat = getModuleFormat(libraryStore?.getMathFormat?.(module.mathRef)).caModuleFormat
   return {
+    ...extras,
     module_type: moduleType,
     module_subtype: moduleSubtype,
-    module_format: getModuleFormat(libraryStore?.getMathFormat?.(module.mathRef)).caModuleFormat,
+    module_format: extras?.module_format && moduleFormat === 'cellml' ? extras.module_format : moduleFormat,
     component_file: componentFile,
     component_type: componentName,
     ...(defaultParameterisation && { default_parameterisation: defaultParameterisation }),
