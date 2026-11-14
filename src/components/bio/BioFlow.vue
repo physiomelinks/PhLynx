@@ -1154,6 +1154,9 @@ async function settleNodeDrag({ nodes: dragged }) {
           bioViews: bioViews(),
         })
       )
+    } else if (place?.kind === 'region' && place.anchored) {
+      // A compartment lying against cells is placed by them: it goes back, and moves when they do.
+      putBack([moved])
     } else {
       plan.set(moved.id, {
         ...main.findNode(moved.id)?.data?.bioView,
