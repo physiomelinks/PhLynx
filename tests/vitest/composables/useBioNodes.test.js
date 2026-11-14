@@ -29,6 +29,25 @@ function workspace() {
 }
 
 describe('physiological view nodes', () => {
+  it('clears what an instance only had as another kind of node, since vue-flow merges onto the node it had', () => {
+    const { nodes, roles } = workspace()
+    const shown = (id) => bioFlowNodes(nodes, roles, layoutBioView(nodes, roles)).find((n) => n.id === id)
+    // A process held inside its cell, and the membrane over its outline that takes no clicks.
+    expect(shown('gly')).toMatchObject({ type: 'bioCard', extent: 'parent' })
+    expect(shown('wall')).toMatchObject({ zIndex: expect.any(Number), style: { pointerEvents: 'none' } })
+    // Shown as proteins, both name those fields with nothing in them, so the merge clears them.
+    roles.set('gly', role('membraneProtein', { cell: 'cell', facet: 'apical' }))
+    roles.set('wall', role('membraneProtein', { cell: 'cell', facet: 'apical' }))
+    for (const id of ['gly', 'wall']) {
+      const node = shown(id)
+      expect(node.type).toBe('bioProtein')
+      for (const field of ['extent', 'zIndex', 'style']) {
+        expect(Object.hasOwn(node, field)).toBe(true)
+        expect(node[field]).toBeUndefined()
+      }
+    }
+  })
+
   it('draws a process’s cartoon on its card when it has one', () => {
     const { nodes, roles } = workspace()
     roles.set('gly', role('cytosolic', { glyph: 'mitochondrion' }))
