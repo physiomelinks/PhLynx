@@ -107,5 +107,7 @@ describe('physiological roles', () => {
     expect(processGlyphFor(['GO:0005739'])).toBe('mitochondrion')
     expect(processGlyphFor(['GO:0005739'], NO_GLYPH)).toBeNull()
     expect(processGlyphFor(['GO:0000000'])).toBeNull()
+    // The generic process, SBGN's process node, is there to choose.
+    expect(processGlyphFor([], 'process')).toBe('process')
   })
 })
