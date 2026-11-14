@@ -398,7 +398,14 @@ import {
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
 import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
-import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
+import {
+  cellContents,
+  deleteConnection,
+  deleteInstances,
+  deletionLabel,
+  deletionScope,
+  releaseFromCell,
+} from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { ROLE_LABELS } from '../../services/bioView/roles'
@@ -2035,11 +2042,42 @@ function onNodeContextMenu({ event, node }) {
  * @param {Array<string>} ids - Diagram node ids.
  * @returns {Promise<boolean>} Whether anything was asked to go.
  */
-const deleteNodes = (ids) =>
-  deleteInstances(
-    ids.filter((id) => main.findNode(id)),
-    { removeNodes: main.removeNodes, history }
-  )
+async function deleteNodes(ids) {
+  let going = ids.filter((id) => main.findNode(id))
+  // A cell's contents are asked about: left behind they have no cell, which looked as if they had gone too.
+  const contents = cellContents(going, layout.value)
+  let before
+  if (contents.length) {
+    const cells = going.filter((id) => layout.value.get(id)?.kind === 'cell')
+    const subject = cells.length === 1 ? nameOf(cells[0]) : `These ${cells.length} cells`
+    const holds = cells.length === 1 ? 'holds' : 'hold'
+    const listed = contents.slice(0, 6).map(nameOf).join(', ') + (contents.length > 6 ? `, and ${contents.length - 6} more` : '')
+    isConfirming.value = true
+    let answer
+    try {
+      answer = await choose({
+        header: cells.length === 1 ? 'Delete cell?' : 'Delete cells?',
+        message:
+          `${subject} ${holds} ${listed}. Delete only the cell, leaving them where they are and in the diagram ` +
+          'without a cell, or delete them with it, from the diagram too?',
+        severity: 'warning',
+        acceptLabel: 'Delete Cell Only',
+        extraLabel: 'Delete Cell and Contents',
+        rejectLabel: 'Cancel',
+      })
+    } finally {
+      isConfirming.value = false
+    }
+    if (answer === 'reject') return false
+    if (answer === 'extra') going = [...going, ...contents]
+    else {
+      const patches = releaseFromCell(contents, layout.value, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
+      before = () =>
+        applyPlan(new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])))
+    }
+  }
+  return deleteInstances(going, { removeNodes: main.removeNodes, history, before })
+}
 
 /** Deletes the selected instances, for the workspace's Delete and Backspace keys. */
 const deleteSelection = () => deleteNodes(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
