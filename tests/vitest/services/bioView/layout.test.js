@@ -204,6 +204,33 @@ describe('physiological view layout of regions sharing a place', () => {
 })
 
 describe('physiological view layout with cells the user added', () => {
+  it('keeps a cell’s processes inside its membrane, in an area drawn round them, and grows the cell for a row of them', () => {
+    const ids = ['a', 'b', 'c']
+    const roles = new Map([['cell', role('cytosol')], ...ids.map((id) => [id, role('cytosolic', { cell: 'cell' })])])
+    const cellAt = { rect: { x: 100, y: 100, width: 320, height: 240 } }
+    // One left over the bottom membrane, as a drag to the cell's edge used to leave it.
+    const nodes = [node('cell', cellAt), node('a'), node('b'), node('c', { position: { x: 150, y: 330 } })]
+    const layout = layoutBioView(nodes, roles)
+    const cell = layout.get('cell')
+    for (const id of ids) {
+      const card = layout.get(id)
+      expect(card.x).toBeGreaterThanOrEqual(cell.rect.x + 16)
+      expect(card.x + CARD.width).toBeLessThanOrEqual(cell.rect.x + cell.rect.width - 16)
+      expect(card.y + CARD.height).toBeLessThanOrEqual(cell.rect.y + cell.rect.height - 16)
+    }
+    expect(layout.get('c').y).toBe(100 + 240 - 16 - CARD.height)
+    // Wide enough for the three in a row, and the area holds all of them.
+    expect(cell.rect.width).toBeGreaterThanOrEqual(2 * 40 + 3 * CARD.width + 2 * 16)
+    const [zone] = cell.zones
+    expect(zone.label).toBe('Processes')
+    for (const id of ids) {
+      expect(layout.get(id).x).toBeGreaterThan(zone.rect.x)
+      expect(layout.get(id).y + CARD.height).toBeLessThan(zone.rect.y + zone.rect.height)
+    }
+    // A cell with none has no such area.
+    expect(layoutBioView([node('cell', cellAt)], new Map([['cell', role('cytosol')]])).get('cell').zones).toBeUndefined()
+  })
+
   it('keeps a region against its cell as the cell moves and grows, whatever place the region had', () => {
     const ids = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
     const roles = new Map([
