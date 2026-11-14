@@ -5,18 +5,39 @@ import {
   el,
   escapeXml,
   fitText,
+  inStackingOrder,
   markerPlacement,
   markerTransform,
   normalisePathData,
   num,
   parseRgb,
   resolveRadius,
+  textTurn,
 } from '../../../../src/services/export/svg'
 
 // A fixed-pitch font: every character is 10 units wide.
 const measure = (text) => text.length * 10
 
 describe('SVG export helpers', () => {
+  it('orders nodes as they are stacked, keeping document order within a level', () => {
+    const z = { cell: '-10', region: '-20', protein: 'auto', card: '0', membrane: '-10' }
+    expect(inStackingOrder(['cell', 'region', 'protein', 'card', 'membrane'], (id) => z[id])).toEqual([
+      'region',
+      'cell',
+      'membrane',
+      'protein',
+      'card',
+    ])
+  })
+
+  it('works out how far text is turned from its writing mode and the transforms around it', () => {
+    expect(textTurn('horizontal-tb', ['none'])).toBe(0)
+    expect(textTurn('vertical-rl', ['none'])).toBe(90)
+    // A facet's name reads up a cell's edge: vertical writing turned half way round.
+    expect(textTurn('vertical-rl', ['matrix(-1, 0, 0, -1, 0, 0)', 'none'])).toBe(-90)
+    expect(textTurn('horizontal-tb', ['matrix(0, 1, -1, 0, 0, 0)'])).toBe(90)
+  })
+
   it('escapes text for content and attributes', () => {
     expect(escapeXml(`a<b> & "c" 'd'`)).toBe('a&lt;b&gt; &amp; &quot;c&quot; &apos;d&apos;')
   })
