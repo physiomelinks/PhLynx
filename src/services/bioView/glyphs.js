@@ -73,14 +73,14 @@ export const NO_GLYPH = 'none'
 
 /**
  * Picks a process's glyph, drawn on its card beside its name: the user's choice, else the first of its GO terms
- * with one, else none, so a plain process stays a plain card.
+ * with one, else 'process', SBGN's process node. Only the choice of none leaves a plain card.
  *
  * @param {string[]} [isVersionOf] - The component's bqbiol:isVersionOf CURIEs.
  * @param {string} [override] - The user's choice; NO_GLYPH for none.
- * @returns {string|null} A glyph id, or null.
+ * @returns {string|null} A glyph id, or null for none.
  */
 export function processGlyphFor(isVersionOf = [], override) {
-  return override === NO_GLYPH ? null : chosenOrAnnotatedGlyph(isVersionOf, override)
+  return override === NO_GLYPH ? null : (chosenOrAnnotatedGlyph(isVersionOf, override) ?? 'process')
 }
 
 function chosenOrAnnotatedGlyph(isVersionOf = [], override) {
