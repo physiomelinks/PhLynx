@@ -138,8 +138,9 @@ function onDragStart(event, tile) {
 <style scoped>
 .bio-palette {
   position: absolute;
-  top: 44px;
-  left: 12px;
+  /* Below where the library's toggle sits once the library is folded away, and in line with it */
+  top: calc(var(--canvas-control-top, 0.75rem) + var(--canvas-toggle-size, 2.25rem) + 0.5rem);
+  left: var(--canvas-control-side, 0.75rem);
   z-index: 6;
   /* Clear of the library panel, which lies over the view's left side, as the view's controls are */
   transform: translateX(var(--library-panel-width, 0px));
