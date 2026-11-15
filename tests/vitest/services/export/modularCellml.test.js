@@ -212,6 +212,43 @@ describe('buildModularModel', () => {
     expect(parsed.variables.map(({ variable }) => variable)).toEqual(['q'])
   })
 
+  it('writes the files of one source by their names alone, sidecars included', async () => {
+    store.addMathFile('repo/math/tank.cellml', [{ name: 'tank', math: TANK }])
+    store.setModuleAnnotations('repo/math/tank.cellml:tank', TANK_TTL)
+    const nodes = [buildNode('tank_a', 'repo/math/tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
+    const { files, sidecars, warnings } = await expectEquivalent(nodes, [])
+    expect(warnings).toEqual([])
+    expect(files.map(({ location }) => location)).toEqual(['tank.cellml'])
+    expect(sidecars.map(({ location }) => location)).toEqual(['annotations/tank.cellml/tank.ttl'])
+    const parsed = await parseSidecar(sidecars[0].text, { mathRef: 'tank.cellml:tank', cellml: files[0].text })
+    expect(parsed.unresolved).toEqual([])
+    expect(parsed.variables.map(({ variable }) => variable)).toEqual(['q'])
+  })
+
+  it("prefixes same-named files with their sources, each sidecar resolving against its own source's file", async () => {
+    for (const source of ['enterocyte-modules', 'CellML']) {
+      store.addMathFile(`${source}/math/tank.cellml`, [{ name: 'tank', math: TANK }])
+      store.setModuleAnnotations(`${source}/math/tank.cellml:tank`, TANK_TTL)
+    }
+    const nodes = [
+      buildNode('tank_a', 'enterocyte-modules/math/tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } }),
+      buildNode('tank_b', 'CellML/math/tank.cellml:tank', { values: { q_init: '2', v: '0.1', k: '0.5' } }),
+    ]
+    const { main, files, sidecars, warnings } = await expectEquivalent(nodes, [])
+    expect(warnings).toEqual([])
+    expect(files.map(({ location }) => location).sort()).toEqual(['CellML_tank.cellml', 'enterocyte-modules_tank.cellml'])
+    expect(main).toMatch(/xlink:href="enterocyte-modules_tank\.cellml"/)
+    expect(sidecars.map(({ location }) => location).sort()).toEqual([
+      'annotations/CellML_tank.cellml/tank.ttl',
+      'annotations/enterocyte-modules_tank.cellml/tank.ttl',
+    ])
+    for (const { location, text } of sidecars) {
+      const file = location.split('/')[1]
+      const parsed = await parseSidecar(text, { mathRef: `${file}:tank`, cellml: files.find((f) => f.location === file).text })
+      expect(parsed.unresolved).toEqual([])
+    }
+  })
+
   it('keeps a Sum coupling in the main model', async () => {
     const tank = buildNode('tank_1', 'tank.cellml:tank', { values: { q_init: '1', k: '0.5' }, ports: [port('flow', 'v', 'Sum')], boundaries: ['v'] })
     const sources = ['source_1', 'source_2'].map((id, i) =>

@@ -11,6 +11,7 @@ import { parseMathRef } from '../../utils/config'
 import { renameSidecar } from '../annotations/sidecarEdit'
 import { groupingCellmlFile, unitsUsedBy } from '../userModules'
 import { TURTLE_FORMAT, sidecarLocation } from './annotationsRdf'
+import { flatFileNames } from '../../utils/sourceIdentity'
 
 export const MODULAR_MAIN_FILE = 'model.cellml'
 const XLINK_NS = 'http://www.w3.org/1999/xlink'
@@ -87,9 +88,11 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
     }
   }
 
+  // A file from a source goes by its name, prefixed with the source only where another exported file has that name.
+  const flatNames = flatFileNames(shared.keys())
   const locationOf = new Map()
   for (const [componentFile, maths] of shared) {
-    const location = claim(cellmlFileName(componentFile))
+    const location = claim(cellmlFileName(flatNames.get(componentFile)))
     locationOf.set(componentFile, location)
     const names = [...maths.keys()]
     const { models, idMaps } = uniqueComponentIds([...maths.values()])

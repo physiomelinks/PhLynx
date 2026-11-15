@@ -201,3 +201,55 @@ export function moduleRefLabel(moduleRef, { withSource = true } = {}) {
   const bare = moduleRef.slice(0, moduleRef.length - source.length - 1)
   return withSource ? `${bare} (${source})` : bare
 }
+
+/**
+ * Makes a source name safe as part of a file name or CellML identifier: letters, digits, '_' and
+ * '-' only.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+export function fileSafeSource(source) {
+  return String(source).replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'source'
+}
+
+/**
+ * Names the files an export writes side by side. Each takes its file name; where several have
+ * the same one (ignoring case), those from a source are prefixed with it (`repo_membrane.cellml`),
+ * and any still clashing are numbered (`repo_membrane_2.cellml`). So an export with files of one
+ * source, or with no clashes, writes them by their names alone, as it did before sources existed.
+ *
+ * @param {Iterable<string>} fileKeys
+ * @param {Object} [options]
+ * @param {Iterable<string>} [options.reserved] - Names already used, such as a main model's.
+ * @returns {Map<string, string>} The flat name for each file key.
+ */
+export function flatFileNames(fileKeys, { reserved = [] } = {}) {
+  const keys = [...new Set(fileKeys)].sort()
+  const byName = new Map()
+  for (const key of keys) {
+    const name = baseNameOf(key).toLowerCase()
+    byName.set(name, [...(byName.get(name) ?? []), key])
+  }
+
+  const taken = new Set([...reserved].map((name) => name.toLowerCase()))
+  const names = new Map()
+  const claim = (key, name) => {
+    const dot = name.lastIndexOf('.')
+    const [stem, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, '']
+    let flat = name
+    for (let n = 2; taken.has(flat.toLowerCase()); n++) flat = `${stem}_${n}${extension}`
+    taken.add(flat.toLowerCase())
+    names.set(key, flat)
+  }
+  // Unclashing names and loose files first, so they keep their names whatever else is exported.
+  const clashing = []
+  for (const group of byName.values()) {
+    for (const key of group) {
+      if (group.length > 1 && sourceOfFileKey(key)) clashing.push(key)
+      else claim(key, baseNameOf(key))
+    }
+  }
+  for (const key of clashing) claim(key, `${fileSafeSource(sourceOfFileKey(key))}_${baseNameOf(key)}`)
+  return new Map(keys.map((key) => [key, names.get(key)]))
+}

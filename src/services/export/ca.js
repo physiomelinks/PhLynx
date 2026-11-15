@@ -5,6 +5,7 @@ import { parseModuleRef } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { isAnnotatedPort } from '../../utils/portIdentity'
 import { isBlank } from '../../utils/variables'
+import { fileSafeSource, sourceOfModuleRef } from '../../utils/sourceIdentity'
 import { configSignature, librarySignatures, moduleConfigEntry } from '../moduleConfig'
 import { resolveBoundaryValues, storeOptions } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
@@ -326,25 +327,68 @@ function addParameterFile(parameterFiles, node, paramRef, getParameterSet) {
 }
 
 /**
+ * Gives each module ref the subtype it is exported under: its own, unless another module ref exported has the same
+ * type and subtype from another source, when a ref from a source gets `<subtype>_<source>`. CA has no sources, so
+ * this keeps an export using one source's modules as it was, and tells several sources' apart only where they clash.
+ *
+ * @param {Iterable<string>} moduleRefs
+ * @returns {Map<string, string>} The subtype for each module ref.
+ */
+export function exportedSubtypes(moduleRefs) {
+  const refs = [...new Set(moduleRefs)]
+  const byName = new Map()
+  for (const ref of refs) {
+    const { moduleType, moduleSubtype } = parseModuleRef(ref)
+    const name = `${moduleType}:${moduleSubtype}`
+    byName.set(name, [...(byName.get(name) ?? []), ref])
+  }
+  const subtypes = new Map()
+  for (const group of byName.values()) {
+    for (const ref of group) {
+      const { moduleSubtype } = parseModuleRef(ref)
+      const source = sourceOfModuleRef(ref)
+      subtypes.set(ref, group.length > 1 && source ? `${moduleSubtype}_${fileSafeSource(source).replace(/-/g, '_')}` : moduleSubtype)
+    }
+  }
+  return subtypes
+}
+
+/**
  * Gives a module ref's configs their subtypes. A config an untouched instance would have keeps the module ref's
- * subtype. Each other config gets `<subtype>_<first instance>`, made unique, and its instances' rows name it, so an
- * edited config never goes out under a ref that resolves to the library module. Warns, naming the instances split out.
+ * subtype (exportedSubtypes). Each other config gets `<subtype>_<first instance>`, made unique, and its instances'
+ * rows name it, so an edited config never goes out under a ref that resolves to the library module. Warns, naming the
+ * instances split out.
  *
  * @param {Map<string, Map<string, {entry: Object, rows: Array}>>} configsByRef - Configs by module ref, then signature.
  * @param {Object} libraryStore - The library, for `availableModules` and its math.
  * @returns {Array<Object>} The config entries.
  */
 function assignSubtypes(configsByRef, libraryStore) {
-  const taken = new Set([...libraryStore.availableModules.keys(), ...configsByRef.keys()])
+  const subtypes = exportedSubtypes(configsByRef.keys())
+  const qualified = [...subtypes].filter(([ref, subtype]) => parseModuleRef(ref).moduleSubtype !== subtype)
+  if (qualified.length) {
+    notify.warning({
+      title: 'Module Subtypes Renamed',
+      message: `Several sources have modules of the same type and subtype, which CA can't tell apart, so the export adds the source: ${listNamed(qualified.map(([ref, subtype]) => `${parseModuleRef(ref).moduleType}:${subtype}`))}. The library keeps the original names.`,
+    })
+  }
+  const exportedName = (ref) => {
+    const { moduleType, moduleSubtype } = parseModuleRef(ref)
+    return `${moduleType}:${subtypes.get(ref) ?? moduleSubtype}`
+  }
+  const taken = new Set([...libraryStore.availableModules.keys(), ...configsByRef.keys()].map(exportedName))
   const entries = []
   const splitOut = []
 
   for (const [moduleRef, configs] of configsByRef) {
-    const { moduleType, moduleSubtype } = parseModuleRef(moduleRef)
+    const { moduleType } = parseModuleRef(moduleRef)
+    const moduleSubtype = subtypes.get(moduleRef)
     const libraryModule = libraryStore.availableModules.get(moduleRef)
     const baseSignature = librarySignatures(libraryModule, libraryStore).find((signature) => configs.has(signature))
 
     for (const [signature, { entry, rows }] of configs) {
+      entry.module_subtype = moduleSubtype
+      for (const row of rows) row.module_subtype = moduleSubtype
       if (signature !== baseSignature) {
         let subtype = `${moduleSubtype}_${rows[0].name}`
         for (let i = 2; taken.has(`${moduleType}:${subtype}`); i++) subtype = `${moduleSubtype}_${rows[0].name}_${i}`

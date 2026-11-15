@@ -8,6 +8,7 @@ import { combineComponentModels, uniqueComponentIds, whenLibCellMLReady } from '
 import { parseMathRef } from '../../utils/config'
 import { unitsModelXml } from '../../utils/unitExpression'
 import { groupingCellmlFile, unitsUsedBy } from '../userModules'
+import { baseNameOf, fileSafeSource, flatFileNames, sourceOfFileKey } from '../../utils/sourceIdentity'
 
 // CA adds this component when a heart has one venous input; it comes from CA's built-in BG modules.
 const ZERO_FLOW_MATH_REF = 'BG_modules.cellml:zero_flow'
@@ -68,14 +69,25 @@ export function groupingTag(grouping) {
 }
 
 /**
+ * Gives a source's tag for the components an export renames, as groupingTag does a grouping's.
+ *
+ * @param {string} source
+ * @returns {string}
+ */
+function sourceTag(source) {
+  return fileSafeSource(source).toLowerCase().replace(/-/g, '_')
+}
+
+/**
  * Picks new names for components of one name in several groupings, as CA finds components by name. The first grouping
  * keeps the name, CellML groupings before others and then by name; each other gets `<name>_<tag>` (groupingTag),
  * numbered from 2 while that is taken.
  *
  * @param {Map<string, Set<string>>} typesByFile - Component names by grouping.
+ * @param {(grouping: string) => string} [tagOf] - The tag a grouping's renamed components get.
  * @returns {Array<{file: string, from: string, to: string}>} The renames, by name and then in grouping order.
  */
-export function renameClashingComponents(typesByFile) {
+export function renameClashingComponents(typesByFile, tagOf = groupingTag) {
   const filesByType = new Map()
   for (const [file, types] of typesByFile) {
     for (const type of types) filesByType.set(type, [...(filesByType.get(type) ?? []), file])
@@ -88,7 +100,7 @@ export function renameClashingComponents(typesByFile) {
   for (const [type, files] of [...filesByType].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     if (files.length < 2) continue
     for (const file of [...files].sort(order).slice(1)) {
-      const base = `${type}_${groupingTag(file)}`
+      const base = `${type}_${tagOf(file)}`
       let to = base
       for (let n = 2; taken.has(to); n++) to = `${base}_${n}`
       taken.add(to)
@@ -131,9 +143,14 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
   const missing = mathRefs.filter((mathRef) => !libraryStore.availableMath.has(mathRef))
   if (missing.length) throw new Error(`No math in the library for ${listNamed(missing)}.`)
 
-  const renamedComponents = renameClashingComponents(typesByFile)
+  // CA reads the files from one folder, so a file from a source goes by its name, prefixed with the source only
+  // where another file exported has the same name.
+  const flatNames = flatFileNames(typesByFile.keys())
+  const tagOf = (file) =>
+    flatNames.get(file) === baseNameOf(file) ? groupingTag(baseNameOf(file)) : sourceTag(sourceOfFileKey(file))
+  const renamedComponents = renameClashingComponents(typesByFile, tagOf)
   const exportNames = new Map(renamedComponents.map(({ file, from, to }) => [`${file}:${from}`, to]))
-  const renames = new Map([...typesByFile.keys()].map((file) => [file, caModuleFileName(file)]))
+  const renames = new Map([...typesByFile.keys()].map((file) => [file, caModuleFileName(flatNames.get(file))]))
   const taken = new Map()
   for (const [file, name] of renames) {
     if (taken.has(name)) throw new Error(`"${taken.get(name)}" and "${file}" would both be written as "${name}".`)

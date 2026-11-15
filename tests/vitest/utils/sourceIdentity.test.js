@@ -6,6 +6,7 @@ import {
   describeFileKey,
   fileKeyFromPath,
   findModule,
+  flatFileNames,
   moduleRefLabel,
   moduleRefOf,
   renameSourceIn,
@@ -110,5 +111,29 @@ describe('display', () => {
     expect(moduleRefLabel('membrane:membrane:repo (2)')).toBe('membrane:membrane (repo (2))')
     expect(moduleRefLabel('membrane:membrane:repo', { withSource: false })).toBe('membrane:membrane')
     expect(moduleRefLabel('membrane:membrane')).toBe('membrane:membrane')
+  })
+})
+
+describe('flatFileNames', () => {
+  it('names files by their names alone when none clash, as a single-source export always has', () => {
+    const names = flatFileNames(['repo/math/membrane.cellml', 'repo/math/heart.cellml', 'loose.cellml'])
+    expect(Object.fromEntries(names)).toEqual({
+      'repo/math/membrane.cellml': 'membrane.cellml',
+      'repo/math/heart.cellml': 'heart.cellml',
+      'loose.cellml': 'loose.cellml',
+    })
+  })
+
+  it('prefixes clashing files from a source, leaving a loose one its name, and numbers what still clashes', () => {
+    const names = flatFileNames(['a/math/m.cellml', 'b (2)/math/m.cellml', 'm.cellml', 'a/old/M.cellml'], {
+      reserved: ['model.cellml'],
+    })
+    expect(Object.fromEntries(names)).toEqual({
+      'm.cellml': 'm.cellml',
+      'a/math/m.cellml': 'a_m.cellml',
+      'a/old/M.cellml': 'a_M_2.cellml',
+      'b (2)/math/m.cellml': 'b_2_m.cellml',
+    })
+    expect(flatFileNames(['r/model.cellml'], { reserved: ['model.cellml'] }).get('r/model.cellml')).toBe('model_2.cellml')
   })
 })
