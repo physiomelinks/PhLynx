@@ -37,6 +37,7 @@ vi.mock('../../../src/services/import/omex', () => ({ importOmexFile: vi.fn() })
 vi.mock('../../../src/services/import/prepareCellml', () => ({
   prepareCellmlImport: vi.fn((content) => content),
   prepareCellmlImports: vi.fn((files) => files.map((file) => file.content)),
+  resolveCellmlImports: vi.fn(async (files) => files.map((file) => file.content)),
 }))
 vi.mock('../../../src/utils/cellml', () => ({ loadParametersFromCellML: vi.fn(() => ({ params: true })) }))
 vi.mock('../../../src/utils/misc', () => ({ readFileAsText: vi.fn() }))

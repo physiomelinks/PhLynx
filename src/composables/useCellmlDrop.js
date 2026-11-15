@@ -2,7 +2,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
 import { importOmexFile } from '../services/import/omex'
-import { prepareCellmlImport, prepareCellmlImports } from '../services/import/prepareCellml'
+import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { loadParametersFromCellML } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
@@ -89,7 +89,9 @@ export function useCellmlDrop({
     // Single-file fast path: check for connections and load as a graph if present
     if (entries.length === 1) {
       const entry = entries[0]
-      const content = prepareCellmlImport(entry instanceof File ? await readFileAsText(entry) : entry.content, entry.name)
+      const text = entry instanceof File ? await readFileAsText(entry) : entry.content
+      const [resolved] = await resolveCellmlImports([{ name: entry.name, content: text }])
+      const content = prepareCellmlImport(resolved, entry.name)
       const parsedCellmlPayload = parseCellMLConnections(content, entry.name)
 
       if (parsedCellmlPayload.edges.length > 0) {
@@ -181,8 +183,9 @@ export function useCellmlDrop({
         }
       })
     )
-    // Prepared together, so the batch gets one notice of each kind.
-    const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: texts[index] })))
+    // Prepared together, so imports resolve against the other files and the batch gets one notice of each kind.
+    const resolved = await resolveCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: texts[index] })))
+    const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
     const results = await Promise.all(
       entries.map(async (entry, index) => {
         if (unreadable.has(index)) return failed

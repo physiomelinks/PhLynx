@@ -1,3 +1,4 @@
+import { describeImportIssues, inlineUnitsImports } from '../services/import/cellmlImports'
 import { hoistEncapsulatedComponents, processCellMLData } from './cellml'
 import { normaliseConfig, parseMathRef } from './config'
 import { extensionOf } from './import'
@@ -66,9 +67,14 @@ function describeFailures(errors) {
  * @param {File} file
  * @param {Object[]} candidates - Import field configs, in order of preference.
  * @param {Object} [store] - Library store, passed to each parser.
- * @returns {Promise<{ key: string, field: Object, data: any, components?: any[] } | { error: string, skip?: boolean }>}
+ * @param {Object} [options]
+ * @param {string} [options.path] - The file's path within `options.source`; defaults to its name.
+ * @param {import('../services/import/cellmlImports').FileSource} [options.source] - Where a CellML
+ *   file's imports are looked for, usually the rest of the batch.
+ * @returns {Promise<{ key: string, field: Object, data: any, components?: any[], importIssues?: string[] }
+ *   | { error: string, skip?: boolean }>} `importIssues` describes imports that could not be resolved.
  */
-export async function parseForRole(file, candidates, store = null) {
+export async function parseForRole(file, candidates, store = null, { path = file.name, source = null } = {}) {
   const accepting = candidates.filter((field) => acceptsExtension(field, file.name))
   if (accepting.length === 0) {
     return { error: 'not a supported file type here', skip: true }
@@ -78,7 +84,7 @@ export async function parseForRole(file, candidates, store = null) {
   for (const field of accepting) {
     try {
       const parsed = await field.parser(file, store)
-      const data = parsed?.data ?? parsed
+      let data = parsed?.data ?? parsed
 
       if (field.processUpload === 'config') {
         // Readiness checks normalise every config, so a config that cannot be normalised fails here.
@@ -87,11 +93,19 @@ export async function parseForRole(file, candidates, store = null) {
       if (field.processUpload === 'cellml') {
         // Hoisted as the workspace import does: the dialog commits these components to the library
         // and checks readiness against them. In CellML mode the notices come when the file is loaded.
+        const resolved = await inlineUnitsImports(data, path, source)
+        data = resolved.cellml
         const result = processCellMLData(hoistEncapsulatedComponents(data).cellml)
         if (result?.type !== 'success') {
           throw new Error(`Invalid CellML: ${result?.issues?.[0]?.description ?? 'the model could not be read.'}`)
         }
-        return { key: field.key, field, data, components: result.components }
+        return {
+          key: field.key,
+          field,
+          data,
+          components: result.components,
+          importIssues: describeImportIssues(resolved.issues),
+        }
       }
       return { key: field.key, field, data }
     } catch (error) {
@@ -166,9 +180,20 @@ function formatReasonLines(prefix, items) {
  * @param {boolean} result.hasInstanceArray
  * @param {Object|null} result.readiness - Current `checkResourcesAreLoaded` result.
  * @param {{ count: number, folderName: string }|null} [result.autoFill] - Files added from the connected folder.
+ * @param {{ name: string, issues: string[] }[]} [result.importIssues] - Added CellML files with imports that
+ *   could not be resolved.
  * @returns {{ type: string, title: string, message: string, duration: number }}
  */
-export function buildBatchSummary({ placed = [], failed = [], skipped = [], isInstanceArrayImport, hasInstanceArray, readiness, autoFill = null }) {
+export function buildBatchSummary({
+  placed = [],
+  failed = [],
+  skipped = [],
+  isInstanceArrayImport,
+  hasInstanceArray,
+  readiness,
+  autoFill = null,
+  importIssues = [],
+}) {
   const lines = []
   const addedParts = []
   if (placed.length) addedParts.push(pluralise(placed.length, 'file'))
@@ -195,6 +220,9 @@ export function buildBatchSummary({ placed = [], failed = [], skipped = [], isIn
   } else if (failed.length) {
     type = 'warning'
     title = 'Some Files Not Added'
+  } else if (importIssues.length) {
+    type = 'warning'
+    title = 'Some Imports Not Resolved'
   } else {
     type = 'success'
     title = isInstanceArrayImport ? 'Ready to Import' : 'Files Ready'
@@ -202,6 +230,12 @@ export function buildBatchSummary({ placed = [], failed = [], skipped = [], isIn
 
   lines.push(...formatReasonLines('Not added', failed))
   lines.push(...formatReasonLines('Ignored', skipped))
+  for (const { name, issues } of importIssues) {
+    lines.push(`Unresolved in ${escapeHtml(name)}: ${issues.map(escapeHtml).join('; ')}`)
+  }
+  if (importIssues.length) {
+    lines.push('Unresolved units are looked up by name in the other loaded units files.')
+  }
 
   return {
     type,

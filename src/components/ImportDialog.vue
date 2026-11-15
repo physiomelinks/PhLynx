@@ -249,6 +249,7 @@ import {
   requiredCellMLFilenames,
 } from '../utils/importBatch'
 import { normaliseConfig, parseMathRef } from '../utils/config'
+import { createMapSource } from '../services/import/cellmlImports'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -751,16 +752,19 @@ function stageFile(listKey, filename, payload) {
 
 /**
  * Parses each entry without touching dialog state.
- * @param {{ file: File }[]} entries - Planned entries.
+ * @param {{ file: File, path?: string }[]} entries - Planned entries.
  * @param {Object[]} candidates - Candidate field configs.
+ * @param {{ file: File, path?: string }[]} [sourceEntries] - Files CellML imports are resolved against,
+ *   by path; defaults to `entries`. Pass the whole batch, so files dropped as duplicates still count.
  * @returns {Promise<{ parsed: Object[], failed: Object[], skipped: Object[] }>}
  */
-async function parseEntries(entries, candidates) {
+async function parseEntries(entries, candidates, sourceEntries = entries) {
   const parsed = []
   const failed = []
   const skipped = []
-  for (const { file } of entries) {
-    const result = await parseForRole(file, candidates, libraryStore)
+  const source = createMapSource(sourceEntries.map(({ file, path }) => [path ?? file.name, file]))
+  for (const { file, path } of entries) {
+    const result = await parseForRole(file, candidates, libraryStore, { path: path ?? file.name, source })
     if (!result.error) {
       parsed.push({ ...result, file })
     } else if (result.skip) {
@@ -893,10 +897,14 @@ function importBatch(entries, options = {}) {
 
 async function runImportBatch(entries, { preferredKey, isSelection = false }) {
   const { ordered, duplicates } = planBatchEntries(entries)
-  const { parsed, failed, skipped } = await parseEntries(ordered, getCandidateFields(preferredKey))
+  const { parsed, failed, skipped } = await parseEntries(ordered, getCandidateFields(preferredKey), entries)
   skipped.unshift(...duplicates)
 
   const placed = commitParsedFiles(parsed, skipped)
+  const placedNames = new Set(placed.map(({ name }) => name))
+  const importIssues = parsed
+    .filter((result) => result.importIssues?.length && placedNames.has(result.file.name))
+    .map((result) => ({ name: result.file.name, issues: result.importIssues }))
   const autoFill = await runAutoFillFromFolder()
 
   if (failed.length || placed.length === 0) {
@@ -916,6 +924,7 @@ async function runImportBatch(entries, { preferredKey, isSelection = false }) {
     !failed.length &&
     !skipped.length &&
     !autoFill?.count &&
+    !importIssues.length &&
     (!isInstanceArrayImport.value ||
       preferredKey === IMPORT_KEYS.INSTANCE_ARRAY ||
       importReadiness.value?.resourcesAreLoaded)
@@ -924,7 +933,7 @@ async function runImportBatch(entries, { preferredKey, isSelection = false }) {
     return
   }
 
-  summarise({ placed, failed, skipped, autoFill })
+  summarise({ placed, failed, skipped, autoFill, importIssues })
 }
 
 const handleFileChange = async (event, field) => {
@@ -973,11 +982,13 @@ async function runAutoFillFromFolder() {
   const startGeneration = formGeneration
   isScanningFolder.value = true
   try {
-    const entries = (await scanFolder()).filter(
+    const folderEntries = await scanFolder()
+    const entries = folderEntries.filter(
       ({ file }) => !foldersAttemptedFilenames.value.has(file.name) && !isFilePresent(file.name)
     )
     const { ordered } = planBatchEntries(entries)
-    const { parsed, failed } = await parseEntries(ordered, AUTO_FILL_ROLE_KEYS.map(getRoleField))
+    // Imports are resolved against the whole folder, including files already loaded.
+    const { parsed, failed } = await parseEntries(ordered, AUTO_FILL_ROLE_KEYS.map(getRoleField), folderEntries)
     // The form was reset or closed while the folder was being read.
     if (startGeneration !== formGeneration || !getInstanceArrayPayload()) return null
 
