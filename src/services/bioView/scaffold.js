@@ -275,6 +275,8 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         site: siteOf(compartment.id),
         node: members(compartment.id)[0] ?? null,
         form: compartmentForm(template, compartment),
+        // A microdomain's cell.
+        parent: compartment.in !== undefined ? (cellKeys.get(compartment.in) ?? null) : null,
         against,
         tone: compartment.tone,
         depth: compartment.depth ?? null,

@@ -4,7 +4,12 @@
       'bio-region',
       `bio-region--tone-${tone}`,
       edge && `bio-region--edge-${edge}`,
-      { 'bio-region--selected': selected, 'bio-region--empty': data.empty, 'bio-region--template': data.instance },
+      {
+        'bio-region--selected': selected,
+        'bio-region--empty': data.empty,
+        'bio-region--template': data.instance,
+        'bio-region--inner': data.form === 'inner',
+      },
     ]"
     data-testid="bio-region"
   >
@@ -126,6 +131,16 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   padding: 0;
   transform: translate(-50%, -50%);
   white-space: nowrap;
+}
+
+/* A microdomain lies over its cell: on the view's own background, so its colour is its own and not the cell's too */
+.bio-region--inner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--p-content-background);
 }
 
 .bio-region--empty {

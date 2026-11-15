@@ -508,3 +508,56 @@ describe('organelles', () => {
     failsWith(nested({}, { compartments: [{ id: 'fluid', label: 'Fluid', against: [`sr.${first}`] }] }), 'is an organelle’s facet'.replace('’', "'"))
   })
 })
+
+describe('microdomains', () => {
+  const [first] = fourFacets()
+  const nested = (compartment, more = {}) =>
+    base({
+      schemaVersion: 2,
+      cells: [cell('a'), cell('sr', { in: 'a' })],
+      compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`, `sr.${first.id}`], ...compartment }],
+      ...more,
+    })
+
+  it('reads a compartment in a cell, against a facet of the cell and of an organelle in it, at version 2', () => {
+    const { template, errors } = validateTemplate(nested())
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    expect(template.compartments[0]).toMatchObject({ in: 'a', against: [`a.${first.id}`, `sr.${first.id}`] })
+    expect(compartmentForm(template, 'cleft')).toBe('inner')
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+  })
+
+  it('stands between the proteins against it and the cell’s inside', () => {
+    const { template } = validateTemplate(nested())
+    expect(siteNeighbours(template, `a.${first.id}`)).toContainEqual({ path: 'cleft', relation: 'inside' })
+    expect(siteNeighbours(template, `a.${first.id}`)).not.toContainEqual({ path: 'a', relation: 'inside' })
+    expect(siteNeighbours(template, `sr.${first.id}`)).toEqual(
+      expect.arrayContaining([
+        { path: 'cleft', relation: 'outside' },
+        { path: 'sr', relation: 'inside' },
+      ])
+    )
+    expect(siteNeighbours(template, `sr.${first.id}`)).not.toContainEqual({ path: 'a', relation: 'outside' })
+    expect(siteNeighbours(template, 'cleft').map((entry) => entry.path).sort()).toEqual([`a.${first.id}`, `sr.${first.id}`].sort())
+    // Another facet of the cell still meets the cell's inside.
+    const other = fourFacets()[1]
+    expect(siteNeighbours(template, `a.${other.id}`)).toContainEqual({ path: 'a', relation: 'inside' })
+  })
+
+  it('rejects one at version 1, in no cell or an organelle, against nothing, another cell’s facet, or two sides', () => {
+    failsWith({ ...nested(), schemaVersion: 1, cells: [cell('a')], compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`] }] }, 'needs "schemaVersion" 2')
+    failsWith(nested({ in: 'nowhere' }), '"in" must be the id of the cell it is inside')
+    failsWith(nested({ in: 'sr' }), 'is an organelle')
+    failsWith(nested({ against: [] }), '"against" must name one or two facets')
+    failsWith(nested({ against: ['b.x'] }), 'is not a facet of "a"')
+    const other = fourFacets()[1]
+    failsWith(nested({ against: [`a.${first.id}`, `sr.${other.id}`] }), 'A microdomain lies against')
+    failsWith(nested({ against: [`a.${first.id}`, `a.${other.id}`] }), 'A microdomain lies against')
+  })
+
+  it('lets a facet be against one microdomain only', () => {
+    const second = { id: 'other', label: 'Other', in: 'a', against: [`a.${first.id}`] }
+    failsWith(nested({}, { compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`] }, second] }), 'is already against the microdomain "cleft"')
+  })
+})

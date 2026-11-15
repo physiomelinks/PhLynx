@@ -16,7 +16,8 @@ import { resolveBioRole } from '../services/bioView/roles'
 import { locationSource } from '../services/annotations/locationSources'
 
 /** Stacking: regions under cells under everything drawn on them. */
-const Z = { region: -20, cell: -10 }
+// A microdomain is drawn over its cell, and an organelle over both.
+const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8 }
 
 /**
  * What a template piece's node shows of its template: which instance and site it is, and how it is drawn.
@@ -30,7 +31,8 @@ function templateData(place) {
   if (!place.instance) return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
   const { instance, site = null, tone = null, edge = null } = place
   const data = { instance, site, tone, edge }
-  if (place.kind !== 'cell') return data
+  // A microdomain is drawn over its cell.
+  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner' } : data
   return { ...data, facetLabels: place.facetLabels ?? [], zones: zonesIn(place), ...(place.hintAt && { hintAt: { ...place.hintAt } }) }
 }
 
@@ -114,7 +116,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x, y },
           width,
           height,
-          zIndex: Z.cell,
+          zIndex: place.parent ? Z.organelle : Z.cell,
           data: {
             ...own.data,
             ...templateData(place),
@@ -138,7 +140,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x, y },
           width,
           height,
-          zIndex: Z.region,
+          zIndex: place.form === 'inner' ? Z.microdomain : Z.region,
           data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null },
         })
         break

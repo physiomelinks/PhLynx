@@ -338,7 +338,8 @@ export function dropSites(sites, dragged = null) {
       targets.push({ ...base, type: 'area', area: 'membrane', rect: site.rect })
       continue
     }
-    targets.push({ ...base, type: 'area', area: role === 'cytosol' ? 'cell' : 'compartment', rect: site.rect })
+    const inner = site.inner ? { inner: true } : {}
+    targets.push({ ...base, type: 'area', area: role === 'cytosol' ? 'cell' : 'compartment', rect: site.rect, ...inner })
   }
   return targets
 }
@@ -425,7 +426,8 @@ export function nearestSite(targets, point, snap = 60, { areas = true, membrane 
   if (ring) return ring
   const banded = bandSlot(targets, point)
   if (banded) return banded
-  const rank = (target) => AREA_PRIORITY.indexOf(target.area)
+  // A microdomain is within its cell, so it ranks with the cell's inside, and being the smaller, is chosen.
+  const rank = (target) => AREA_PRIORITY.indexOf(target.inner ? 'cell' : target.area)
   const size = ({ rect }) => rect.width * rect.height
   const area = targets
     .filter((target) => target.type === 'area' && target.rect && (membrane || target.area !== 'membrane'))

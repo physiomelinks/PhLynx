@@ -11,8 +11,9 @@ import { MIN_CELL } from './metrics.js'
 export const TEMPLATE_SCHEMA_VERSION = 1
 
 /**
- * The version of a template with pieces version 1 has none of: an organelle, which is a cell `in` another. A
- * template is written at the lowest version that reads it, so one without them still loads in older PhLynx.
+ * The version of a template with pieces version 1 has none of: an organelle, which is a cell `in` another, and a
+ * microdomain, which is a compartment `in` a cell. A template is written at the lowest version that reads it, so
+ * one without them still loads in older PhLynx.
  */
 export const TEMPLATE_SCHEMA_VERSION_NESTED = 2
 
@@ -105,7 +106,7 @@ export const TEMPLATE_KEYS = {
   facet: ['id', 'label', 'edge', 'group', 'annotation', 'site'],
   annotation: ['facet', 'at'],
   process: ['id', 'label', 'site'],
-  compartment: ['id', 'label', 'against', 'tone', 'depth', 'site'],
+  compartment: ['id', 'label', 'in', 'against', 'tone', 'depth', 'site'],
 }
 
 const DEFAULT_MEMBRANE_LABEL = 'Plasma membrane'
@@ -378,6 +379,32 @@ function formOf(cells, against) {
   return { form: null, error: allowed }
 }
 
+/**
+ * Says what is wrong with a microdomain's place, if anything.
+ *
+ * @param {Array<Object>} cells - Clean cells.
+ * @param {*} inside - The id of the cell it is in.
+ * @param {*} against - 'cell.facet' references.
+ * @returns {string|null}
+ */
+function microdomainError(cells, inside, against) {
+  const cell = isPieceId(inside) && cells.find((entry) => entry.id === inside)
+  if (!cell) return `"in" must be the id of the cell it is inside.`
+  if (cell.in) return `"${cell.id}" is an organelle; a microdomain is in a cell.`
+  const rule = 'A microdomain lies against one facet of its cell, one facet of an organelle in that cell, or one of each on the same side.'
+  if (!Array.isArray(against) || against.length < 1 || against.length > 2) return `"against" must name one or two facets. ${rule}`
+  const found = []
+  for (const ref of against) {
+    const [cellId, facetId, extra] = typeof ref === 'string' ? ref.split('.') : []
+    const owner = cells.find((entry) => entry.id === cellId)
+    const facet = extra === undefined && owner?.facets.find((entry) => entry.id === facetId)
+    if (!facet || (owner !== cell && owner.in !== cell.id)) return `"against" entry ${JSON.stringify(ref)} is not a facet of "${cell.id}" or of an organelle in it. ${rule}`
+    found.push({ isOwn: owner === cell, edge: facet.edge })
+  }
+  if (found.length === 2 && (found[0].isOwn === found[1].isOwn || found[0].edge !== found[1].edge)) return rule
+  return null
+}
+
 function readCompartment(raw, index, cells, errors, warnings) {
   if (!isObject(raw)) {
     errors.push(`Compartment ${index + 1} must be an object.`)
@@ -388,7 +415,13 @@ function readCompartment(raw, index, cells, errors, warnings) {
   if (!isPieceId(raw.id)) errors.push(`${where}: ${PIECE_ID_RULE}`)
   const compartment = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors), against: [] }
 
-  if (raw.against !== undefined) {
+  // A microdomain: a compartment inside a cell, against a facet of the cell, of an organelle in it, or of both.
+  if (raw.in !== undefined) {
+    compartment.in = raw.in
+    const error = microdomainError(cells, raw.in, raw.against)
+    if (error) errors.push(`${where}: ${error}`)
+    else compartment.against = [...raw.against]
+  } else if (raw.against !== undefined) {
     if (!Array.isArray(raw.against)) errors.push(`${where}: "against" must be a list of "cell.facet" names.`)
     else {
       const { form, error } = formOf(cells, raw.against)
@@ -487,9 +520,22 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     }
   }
 
+  // Microdomains, too, are read only at the version that has them; each facet is against one at most.
+  const microdomains = compartments.filter((compartment) => compartment.in !== undefined)
+  if (microdomains.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: a microdomain (a compartment "in" a cell) needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  const within = new Map()
+  for (const microdomain of microdomains) {
+    for (const name of microdomain.against) {
+      if (within.has(name)) errors.push(`Compartment "${microdomain.id}": facet "${name}" is already against the microdomain "${within.get(name)}".`)
+      else within.set(name, microdomain.id)
+    }
+  }
+
   const filledBy = new Map()
   for (const compartment of compartments) {
-    if (formOf(cells, compartment.against).form !== 'gap') continue
+    if (compartment.in !== undefined || formOf(cells, compartment.against).form !== 'gap') continue
     compartment.against.forEach(name => filledBy.set(name, compartment.id))
   }
   for (const compartment of compartments) {
@@ -508,7 +554,7 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     seen.add(piece.id)
   }
 
-  const schemaVersion = organelles.length ? TEMPLATE_SCHEMA_VERSION_NESTED : TEMPLATE_SCHEMA_VERSION
+  const schemaVersion = organelles.length || microdomains.length ? TEMPLATE_SCHEMA_VERSION_NESTED : TEMPLATE_SCHEMA_VERSION
   const template = { schemaVersion, id: raw.id, name }
   if (description) template.description = description
   if (author) template.author = author
@@ -564,12 +610,14 @@ export function sitesOf(template) {
  *
  * @param {Object} template - A validated template.
  * @param {Object|string} compartment - The compartment, or its id.
- * @returns {'band'|'gap'|'column'|'free'|null} null when the template has no such compartment.
+ * @returns {'band'|'gap'|'column'|'free'|'inner'|null} 'inner' for a microdomain; null when the template has no
+ *   such compartment.
  */
 export function compartmentForm(template, compartment) {
   const entry =
     typeof compartment === 'string' ? template.compartments.find((c) => c.id === compartment) : compartment
   if (!entry) return null
+  if (entry.in !== undefined) return 'inner'
   return formOf(template.cells, entry.against ?? []).form
 }
 
@@ -605,6 +653,7 @@ export function parseSiteRef(ref) {
  * The pairs of a template's sites that sit next to each other: each facet with its cell's inside and
  * membrane and with every compartment against it, each process area with its cell's inside, and each
  * cell's inside with its membrane. An organelle's facets have the inside of the cell it is in as their outside.
+ * A facet against a microdomain has it, in place of the cell's inside, on the side the cell's inside would be.
  * Only offered sites count.
  *
  * @param {Object} template - A validated template.
@@ -620,11 +669,15 @@ function neighbourPairs(template) {
     if (cell.membrane) pair(cell.id, membrane, 'membrane', 'inside')
     for (const facet of cell.facets) {
       const path = `${cell.id}.${facet.id}`
-      pair(path, cell.id, 'inside', 'protein')
+      // The microdomain against it, if it offers a site: what the facet's proteins meet, not the cell's inside.
+      const microdomain = template.compartments.find((entry) => entry.in !== undefined && entry.against.includes(path) && offered.has(entry.id))
+      if (cell.in) {
+        pair(path, cell.id, 'inside', 'protein')
+        pair(path, microdomain?.id ?? cell.in, 'outside', 'protein')
+      } else pair(path, microdomain?.id ?? cell.id, 'inside', 'protein')
       if (cell.membrane) pair(path, membrane, 'membrane', 'protein')
-      if (cell.in) pair(path, cell.in, 'outside', 'protein')
       for (const compartment of template.compartments) {
-        if (compartment.against.includes(path)) pair(path, compartment.id, 'outside', 'protein')
+        if (compartment.in === undefined && compartment.against.includes(path)) pair(path, compartment.id, 'outside', 'protein')
       }
     }
     for (const process of cell.processes) pair(`${cell.id}.${process.id}`, cell.id, 'inside', 'process')
@@ -692,7 +745,10 @@ export function normaliseEdits(raw) {
  * @param {string[]} paths
  */
 function removePieces(raw, paths) {
-  const gone = (entry) => paths.includes(entry) || paths.includes(entry.split('.')[0])
+  // A cell that goes takes its organelles with it, and with them what was against them.
+  const cellsGone = new Set(paths.filter((path) => !path.includes('.')))
+  for (const cell of raw.cells) if (cellsGone.has(cell.in)) cellsGone.add(cell.id)
+  const gone = (entry) => paths.includes(entry) || cellsGone.has(entry.split('.')[0])
   for (const path of paths) {
     const [first, second] = path.split('.')
     if (second === undefined) {

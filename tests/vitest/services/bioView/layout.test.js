@@ -296,3 +296,27 @@ describe('physiological view layout with cells the user added', () => {
     expect(lumen.x).toBeGreaterThan(-800 + 320)
   })
 })
+
+describe('where a microdomain goes', () => {
+  const rects = new Map([
+    ['cell', { x: 0, y: 0, width: 600, height: 500 }],
+    ['sr', { x: 160, y: 200, width: 280, height: 170 }],
+  ])
+  const own = (edge) => ({ cellKey: 'cell', facetId: edge, edge })
+  const organelle = (edge) => ({ cellKey: 'sr', facetId: edge, edge })
+
+  it('fills the space between its cell’s side and the organelle’s, reaching under the organelle’s corners', async () => {
+    const { microdomainRect } = await import('../../../../src/services/bioView/layout.js')
+    const below = microdomainRect({ parent: 'cell', against: [own('bottom'), organelle('bottom')] }, rects)
+    expect(below).toEqual({ x: 180, width: 240, y: 330, height: 160 })
+    const beside = microdomainRect({ parent: 'cell', against: [own('left'), organelle('left')] }, rects)
+    expect(beside).toEqual({ y: 220, height: 130, x: 10, width: 190 })
+  })
+
+  it('is a band under its cell’s side, or round an organelle’s, when against one alone', async () => {
+    const { microdomainRect } = await import('../../../../src/services/bioView/layout.js')
+    expect(microdomainRect({ parent: 'cell', against: [own('top')], depth: 60 }, rects)).toEqual({ x: 40, width: 520, y: 10, height: 60 })
+    expect(microdomainRect({ parent: 'cell', against: [organelle('top')], depth: 50 }, rects)).toEqual({ x: 180, width: 240, y: 150, height: 90 })
+    expect(microdomainRect({ parent: 'gone', against: [own('top')] }, rects)).toBeNull()
+  })
+})

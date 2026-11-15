@@ -177,6 +177,24 @@ class TestBioTemplates(unittest.TestCase):
         assert outer["x"] < inner["x"] and inner["x"] + inner["width"] < outer["x"] + outer["width"], (outer, inner)
         assert outer["y"] < inner["y"] and inner["y"] + inner["height"] < outer["y"] + outer["height"], (outer, inner)
 
+        # A microdomain dropped between the organelle and the cell's bottom side fills the space between them.
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=microdomain]").drag_to(
+            pane,
+            target_position={
+                "x": inner["x"] - box["x"] + inner["width"] / 2,
+                "y": (inner["y"] + inner["height"] + outer["y"] + outer["height"]) / 2 - box["y"],
+            },
+        )
+        microdomain = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/microdomain-1"]')
+        expect(microdomain).to_be_visible()
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer, inner, between = cell.bounding_box(), organelle.bounding_box(), microdomain.bounding_box()
+        assert between["y"] > inner["y"] + inner["height"] / 2, (inner, between)
+        assert abs(between["y"] + between["height"] - (outer["y"] + outer["height"])) < 0.1 * outer["height"], (outer, between)
+
         # A module dropped on the organelle is its inside, not the cell's.
         self.drop_module(2, (inner["x"] + inner["width"] / 2, inner["y"] + inner["height"] / 2))
         expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)

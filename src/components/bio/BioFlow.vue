@@ -1786,6 +1786,46 @@ function addOrganelle(instanceId, cellId) {
   })
 }
 
+/**
+ * Adds an empty microdomain to a placed template's cell: under the side of the cell nearest the drop, and, dropped
+ * between that side and an organelle, between the two.
+ *
+ * @param {{key: string, instance: string, path: string, rect: Object}} found - The cell, from templateCellAt.
+ * @param {{x: number, y: number}} point - Where it was dropped.
+ */
+function addMicrodomain(found, point) {
+  const template = placedTemplate(found.instance)
+  const cell = template.cells.find((entry) => entry.id === found.path)
+  const taken = new Set(template.compartments.filter((entry) => entry.in !== undefined).flatMap((entry) => entry.against))
+  const edge = nearestEdge(found.rect, point, cell.facets.filter((facet) => !taken.has(`${cell.id}.${facet.id}`)).map((facet) => facet.edge))
+  if (!edge) return notify.info({ title: 'Every protein site of this cell already has a microdomain' })
+  const against = [`${cell.id}.${cell.facets.find((facet) => facet.edge === edge).id}`]
+  // An organelle the drop lies between and that side, with a protein site facing it.
+  const isBetween = (rect) =>
+    ({
+      top: point.y < rect.y && point.x >= rect.x && point.x <= rect.x + rect.width,
+      bottom: point.y > rect.y + rect.height && point.x >= rect.x && point.x <= rect.x + rect.width,
+      left: point.x < rect.x && point.y >= rect.y && point.y <= rect.y + rect.height,
+      right: point.x > rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height,
+    })[edge]
+  for (const [, place] of layout.value) {
+    if (place.kind !== 'cell' || place.parent !== found.key || !isBetween(place.rect)) continue
+    const facet = template.cells.find((entry) => entry.id === place.path)?.facets.find((entry) => entry.edge === edge)
+    if (facet && !taken.has(`${place.path}.${facet.id}`)) against.push(`${place.path}.${facet.id}`)
+    break
+  }
+  const used = new Set(template.compartments.map((compartment) => compartment.tone))
+  const id = freePieceId(template, 'microdomain', undefined, templateStore.getInstance(found.instance)?.edits?.removed)
+  const number = id.split('-')[1]
+  return addPiece(found.instance, 'compartments', {
+    id,
+    label: number === '1' ? 'Microdomain' : `Microdomain ${number}`,
+    in: cell.id,
+    against,
+    tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
+  })
+}
+
 /** Adds a process zone inside a placed template's cell. */
 function addZone(instanceId, cellId) {
   const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
@@ -1821,7 +1861,7 @@ function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
   if (tile.kind === 'cell') return placeTemplate(BLANK_CELL_TEMPLATE, point)
   // An organelle goes in a cell, and a compartment beside one; a site or zone on an organelle too.
-  const isForCell = tile.kind === 'compartment' || tile.kind === 'organelle'
+  const isForCell = tile.kind === 'compartment' || tile.kind === 'organelle' || tile.kind === 'microdomain'
   const reach = tile.kind === 'compartment' ? COMPARTMENT_REACH : TILE_REACH
   const found = templateCellAt(layout.value, point, reach, { organelles: !isForCell })
   const cell = found && placedTemplate(found.instance)?.cells.find((entry) => entry.id === found.path)
@@ -1830,6 +1870,7 @@ function applyTile(tile, point) {
     return notify.info({ title: `Drop it ${where}`, message: 'Add a cell first, from the palette.' })
   }
   if (tile.kind === 'organelle') return addOrganelle(found.instance, found.path)
+  if (tile.kind === 'microdomain') return addMicrodomain(found, point)
   if (tile.kind === 'zone') {
     if (cell.processes.length >= LIMITS.processes) return notify.info({ title: 'This cell has all the process zones it can hold' })
     return addZone(found.instance, found.path)

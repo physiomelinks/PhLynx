@@ -10,7 +10,7 @@
       "type": "string"
     },
     "schemaVersion": {
-      "description": "The template format version: 1, or 2 for a template with an organelle (a cell \"in\" another).",
+      "description": "The template format version: 1, or 2 for a template with an organelle (a cell \"in\" another) or a microdomain (a compartment \"in\" a cell).",
       "enum": [1, 2]
     },
     "id": {
@@ -180,6 +180,10 @@
       "properties": {
         "id": { "$ref": "#/$defs/pieceId", "description": "The compartment's id, unique among cells and compartments." },
         "label": { "$ref": "#/$defs/label", "description": "The compartment's name." },
+        "in": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Makes this a microdomain: the id of the cell it is inside. It then lies against one facet of that cell, one facet of an organelle in it, or one of each on the same side, and the proteins on those facets meet it in place of the cell's inside. Needs schemaVersion 2."
+        },
         "against": {
           "description": "The facets the compartment lies against, as 'cell.facet': facets on the same top or bottom edge of cells in one row (a band), two facing facets of neighbouring cells (the gap between them), one left or right facet (a column), or none (a free band below everything).",
           "type": "array",
