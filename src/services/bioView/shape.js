@@ -14,17 +14,39 @@ import { DEFAULT_TEMPLATE_ID, getBuiltInTemplate } from './builtInTemplates.js'
  *   annotation?: {facet: string, at?: string}}>, processes: Array<{id: string, label: string}>}}
  */
 export function shapeFromTemplateCell(cell) {
-  const facets = (cell.facets ?? []).map(({ id, label, edge, group, annotation }) =>
+  const facets = (cell.facets ?? []).map(({ id, label, edge, fold, depth, group, annotation }) =>
     Object.freeze({
       id,
       label,
-      edge,
+      // A fold dips in from a side, in place of lying along one.
+      ...(fold ? { fold, ...(depth && { depth }) } : { edge }),
       ...(group && { group }),
       ...(annotation && { annotation: Object.freeze({ ...annotation }) }),
     })
   )
   const processes = (cell.processes ?? []).map(({ id, label }) => Object.freeze({ id, label }))
   return Object.freeze({ facets: Object.freeze(facets), processes: Object.freeze(processes) })
+}
+
+/**
+ * Gives a shape with its folds as they are drawn: as deep as their proteins need, or a microdomain against them,
+ * which a template's own depth is only the least of; and, with a microdomain between a fold and an organelle, its
+ * proteins down the one wall that faces the organelle (`facing`), from where the organelle starts (`lead`).
+ *
+ * @param {Object} shape
+ * @param {(facet: Object) => {depth?: number, lead?: number, facing?: boolean}|undefined} drawnAs - What changes of
+ *   a fold; undefined to leave it.
+ * @returns {Object} The same shape where no fold changes.
+ */
+export function withFolds(shape, drawnAs) {
+  let changed = false
+  const facets = shape.facets.map((facet) => {
+    const drawn = facet.fold ? drawnAs(facet) : undefined
+    if (!drawn || Object.entries(drawn).every(([key, value]) => facet[key] === value)) return facet
+    changed = true
+    return Object.freeze({ ...facet, ...drawn })
+  })
+  return changed ? Object.freeze({ ...shape, facets: Object.freeze(facets) }) : shape
 }
 
 /** The shape of the built-in epithelial cell: the geometry annotated cells are drawn with. */

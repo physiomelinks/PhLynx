@@ -319,4 +319,15 @@ describe('where a microdomain goes', () => {
     expect(microdomainRect({ parent: 'cell', against: [organelle('top')], depth: 50 }, rects)).toEqual({ x: 180, width: 240, y: 150, height: 90 })
     expect(microdomainRect({ parent: 'gone', against: [own('top')] }, rects)).toBeNull()
   })
+
+  it('lies between a fold’s wall and the organelle’s side facing it, over the stretch they share, or round the fold', async () => {
+    const { microdomainRect } = await import('../../../../src/services/bioView/layout.js')
+    const pocket = { edge: 'top', at: 540, half: 38, depth: 400 }
+    const fold = { cellKey: 'cell', facetId: 'tubule', fold: 'top' }
+    const between = microdomainRect({ parent: 'cell', against: [fold, organelle('right')] }, rects, pocket)
+    expect(between).toEqual({ x: 400, y: 220, width: 540 - 38 - 10 - 400, height: 130 })
+    const round = microdomainRect({ parent: 'cell', against: [fold], depth: 40 }, rects, pocket)
+    expect(round).toEqual({ x: 452, y: 10, width: 176, height: 430 })
+    expect(microdomainRect({ parent: 'cell', against: [fold] }, rects)).toBeNull()
+  })
 })

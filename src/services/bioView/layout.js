@@ -9,18 +9,22 @@
 
 import {
   CELL_RADIUS,
+  FOLD,
   GLYPH_HEIGHT,
   GLYPH_WIDTH,
   MIN_CELL,
   facetSlots,
   fitCellRect,
+  foldDepthFor,
+  foldPocket,
+  foldPoint,
   partOf,
   proteinLabelWidth,
   proteinPlacement,
 } from './geometry.js'
 import { FACET_BAND } from './metrics.js'
 import { byName, cellFinder, inSlotOrder, scaffoldFromNodes, scaffoldFromTemplates } from './scaffold.js'
-import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetOfAnnotation, facetsInGroup } from './shape.js'
+import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetOfAnnotation, facetsInGroup, withFolds } from './shape.js'
 
 /** Size of a card for an instance with no physiological shape. */
 export const CARD = { width: 180, height: 72 }
@@ -230,17 +234,21 @@ const MICRODOMAIN_DEPTH = 84
  * organelle facet it is against; or, against one of each, the space between the two, reaching under the organelle's
  * rounded corners, which are drawn over it.
  *
+ * Against a fold it goes round the fold, or between the fold's nearer wall and the organelle's side facing it.
+ *
  * @param {Object} piece - The microdomain, from scaffoldFromTemplates.
  * @param {Map<string, Object>} rects - Cell key -> rect, organelles too.
+ * @param {Object} [pocket] - The fold it is against, from foldPocket, if it is against one.
  * @returns {Object|null} Its rect; null when a cell it names has no place.
  */
-export function microdomainRect(piece, rects) {
+export function microdomainRect(piece, rects, pocket = null) {
   const own = piece.against.find((entry) => entry.cellKey === piece.parent)
   const other = piece.against.find((entry) => entry.cellKey !== piece.parent)
   const cell = rects.get(piece.parent)
   const organelle = other && rects.get(other.cellKey)
   if (!cell || (other && !organelle)) return null
   const depth = piece.depth ?? MICRODOMAIN_DEPTH
+  if (own?.fold) return pocket ? foldMicrodomainRect(cell, pocket, organelle, piece.depth ?? FOLD_MICRODOMAIN_DEPTH) : null
   const { edge } = own ?? other
   const isAcross = edge === 'top' || edge === 'bottom'
   // The cell's inner edge on that side, and the organelle's outer edge, pulled in under its corners.
@@ -273,6 +281,60 @@ export function microdomainRect(piece, rects) {
 
 /** The room beside a cell's organelles for the cell's own name, where a microdomain has the room below them. */
 const NAME_ROOM = 190
+
+/** How far round a fold a microdomain against it alone reaches. */
+const FOLD_MICRODOMAIN_DEPTH = 46
+
+/** Makes a rect from two corners given in a fold's own terms (see foldPoint). */
+function foldRect(cell, edge, [alongA, inwardA], [alongB, inwardB]) {
+  const a = foldPoint(cell, edge, alongA, inwardA)
+  const b = foldPoint(cell, edge, alongB, inwardB)
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
+}
+
+/**
+ * Gives where a microdomain against a fold goes: round the fold, or, with an organelle, between the organelle's side
+ * and the fold's wall facing it, over the stretch the two share.
+ *
+ * @param {Object} cell - The cell's rect.
+ * @param {{edge: string, at: number, half: number, depth: number}} pocket - The fold.
+ * @param {Object|undefined} organelle - The organelle's rect.
+ * @param {number} depth - How far round the fold it reaches, alone.
+ * @returns {Object|null} Null when the organelle and the fold share no stretch.
+ */
+function foldMicrodomainRect(cell, pocket, organelle, depth) {
+  const { edge, at, half } = pocket
+  const wall = at - half - MICRODOMAIN_INSET
+  if (!organelle) return foldRect(cell, edge, [wall - depth, MICRODOMAIN_INSET], [at + half + MICRODOMAIN_INSET + depth, pocket.depth + depth])
+  // In the fold's terms: how far along its side the organelle's far side is, and the stretch inward it covers.
+  const isAcross = edge === 'top' || edge === 'bottom'
+  const far = isAcross ? organelle.x + organelle.width - cell.x : organelle.y + organelle.height - cell.y
+  const [near, deep] = {
+    top: [organelle.y - cell.y, organelle.y + organelle.height - cell.y],
+    bottom: [cell.y + cell.height - organelle.y - organelle.height, cell.y + cell.height - organelle.y],
+    left: [organelle.x - cell.x, organelle.x + organelle.width - cell.x],
+    right: [cell.x + cell.width - organelle.x - organelle.width, cell.x + cell.width - organelle.x],
+  }[edge]
+  const from = Math.max(near + CELL_RADIUS / 2, MICRODOMAIN_INSET)
+  const to = Math.min(deep - CELL_RADIUS / 2, pocket.depth - half)
+  if (to <= from || wall <= far - CELL_RADIUS) return null
+  return foldRect(cell, edge, [far - CELL_RADIUS, from], [wall, to])
+}
+
+/**
+ * Gives the part of a microdomain round a fold that the fold itself takes, to leave clear.
+ *
+ * @param {Object} cell - The cell's rect.
+ * @param {Object} pocket - The fold.
+ * @param {Object} rect - The microdomain.
+ * @returns {{x: number, y: number, width: number, height: number, radius: number}} In the microdomain's own coordinates.
+ */
+function foldCutout(cell, pocket, rect) {
+  const { edge, at, half, depth } = pocket
+  const reach = half + MICRODOMAIN_INSET
+  const hole = foldRect(cell, edge, [at - reach, -reach], [at + reach, depth + MICRODOMAIN_INSET])
+  return { x: hole.x - rect.x, y: hole.y - rect.y, width: hole.width, height: hole.height, radius: reach }
+}
 
 /** The smallest an organelle is drawn. */
 const ORGANELLE_MIN = { width: 200, height: 140 }
@@ -389,6 +451,12 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
 
     // Cells, row by row.
     const rows = [...new Set(cells.map((cell) => cell.row))].sort((a, b) => a - b)
+    // A fold is as deep as its proteins need, at least: the cell is sized for it, and its slots are found down it.
+    const redraw = (cell, drawnAs) => (cell.shape = withFolds(cell.shape, drawnAs))
+    const membersOf = (cell, facetId) => cell.facets.find((facet) => facet.id === facetId)?.members.length ?? 0
+    for (const cell of cells) {
+      redraw(cell, (facet) => ({ depth: Math.max(facet.depth ?? FOLD.depth, foldDepthFor(membersOf(cell, facet.id))) }))
+    }
     const sizes = new Map(
       everyCell.map((cell) => {
         const counts = Object.fromEntries(cell.facets.map((facet) => [facet.id, facet.members.length]))
@@ -458,22 +526,61 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       }
     }
 
+    // A fold with a microdomain between it and an organelle reaches as far in as the organelle does, and has its
+    // proteins down the wall facing the organelle, from where the organelle starts: in the microdomain.
+    for (const cell of cells) {
+      const rect = rects.get(cell.key)
+      redraw(cell, (facet) => {
+        const bridge = microdomainsOf(cell).find((piece) => piece.against.length === 2 && piece.against.some((entry) => entry.facetId === facet.id && entry.cellKey === cell.key))
+        const organelle = bridge && rects.get(bridge.against.find((entry) => entry.cellKey !== cell.key).cellKey)
+        if (!organelle) return undefined
+        const [near, far] = {
+          top: [organelle.y - rect.y, organelle.y + organelle.height - rect.y],
+          bottom: [rect.y + rect.height - organelle.y - organelle.height, rect.y + rect.height - organelle.y],
+          left: [organelle.x - rect.x, organelle.x + organelle.width - rect.x],
+          right: [rect.x + rect.width - organelle.x - organelle.width, rect.x + rect.width - organelle.x],
+        }[facet.fold]
+        const lead = near + CELL_RADIUS / 2 + 8
+        const drawn = { lead, facing: true }
+        return { ...drawn, depth: Math.max(facet.depth, far - CELL_RADIUS / 2 + FOLD.width / 2, foldDepthFor(membersOf(cell, facet.id), drawn)) }
+      })
+    }
+    const pocketsOf = (cell) =>
+      cell.shape.facets.filter((facet) => facet.fold).map((facet) => ({ facetId: facet.id, label: facet.label, ...foldPocket(rects.get(cell.key), facet) }))
+
     // What is bound to each cell: its membrane, the proteins on its facets and the processes inside it.
     for (const cell of everyCell) {
       const rect = rects.get(cell.key)
+      // A process area stops short of a fold that comes down or up through it.
+      const through = cell.parent ? [] : pocketsOf(cell).filter((pocket) => pocket.edge === 'top' || pocket.edge === 'bottom')
+      const clear = (zone) => {
+        const end = Math.min(zone.x + zone.width, ...through.map((pocket) => rect.x + pocket.at - pocket.half - FOLD.clearance))
+        return { ...zone, width: Math.max(0, end - zone.x) }
+      }
       const cellZones = cell.processes.map((process, area) => ({
         processId: process.id,
         label: process.label,
-        rect: processZone(rect, area),
+        rect: clear(processZone(rect, area)),
       }))
       zones.set(cell.key, cellZones)
       // An empty cell's name goes below its organelles, as below its process areas.
       const within = organellesOf(cell).map((organelle) => ({ rect: rects.get(organelle.key) }))
       const taken = [...cellZones, ...within]
       // Beside its organelles, level with them, where a microdomain has the room below.
+      // On the left where a fold comes in on the right.
+      const isFolded = cell.shape.facets.some((facet) => facet.fold === 'top' || facet.fold === 'bottom')
       const beside = !cell.parent && isBridged(cell) && within.length
-        ? { x: rect.width - CELL_RADIUS - NAME_ROOM / 2, y: within[0].rect.y + within[0].rect.height / 2 - rect.y }
+        ? {
+            x: isFolded ? CELL_RADIUS + NAME_ROOM / 2 : rect.width - CELL_RADIUS - NAME_ROOM / 2,
+            y: within[0].rect.y + within[0].rect.height / 2 - rect.y,
+          }
         : null
+      // Each fold, in the cell's own coordinates, in the colour of the compartment that fills it.
+      const folds = cell.parent ? [] : pocketsOf(cell).map((pocket) => {
+        const side = cell.facets.find((facet) => facet.edge === pocket.edge)
+        const outside = side && pieces.find((piece) => piece.form !== 'inner' && piece.against.some((entry) => entry.cellKey === cell.key && entry.facetId === side.id))
+        return { ...pocket, tone: outside?.tone ?? null }
+      })
       layout.set(cell.key, {
         hintAt: cell.parent ? { x: rect.width / 2, y: rect.height / 2 + 10 } : (beside ?? cellHint(rect, taken)),
         kind: 'cell',
@@ -486,7 +593,8 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         empty: !cell.node,
         tone: null,
         label: cell.label,
-        facetLabels: cell.facets.map(({ id, label, edge }) => ({ facetId: id, label, edge })),
+        facetLabels: cell.facets.filter((facet) => !facet.fold).map(({ id, label, edge }) => ({ facetId: id, label, edge })),
+        ...(folds.length && { folds }),
         zones: cellZones,
       })
       if (cell.membrane) {
@@ -526,12 +634,20 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       freeY += height + GAP / 2
     }
     // Microdomains, each inside its cell; they change no other piece's place.
+    const cutouts = new Map()
     for (const piece of pieces.filter((piece) => piece.form === 'inner')) {
-      const rect = microdomainRect(piece, rects)
-      if (rect) placed.push([piece, rect])
+      const own = piece.against.find((entry) => entry.cellKey === piece.parent)
+      const cell = own?.fold && cells.find((each) => each.key === piece.parent)
+      const pocket = cell && pocketsOf(cell).find((each) => each.facetId === own.facetId)
+      const rect = microdomainRect(piece, rects, pocket)
+      if (!rect) continue
+      placed.push([piece, rect])
+      // Round a fold alone, it leaves the fold itself clear: the cell's membrane is drawn under it.
+      if (pocket && piece.against.length === 1) cutouts.set(piece.key, foldCutout(rects.get(piece.parent), pocket, rect))
     }
     for (const [piece, rect] of placed) {
-      const edge = piece.form === 'free' ? null : piece.against[0].edge
+      // A microdomain against a fold is named as one down the side of what faces the fold.
+      const edge = piece.form === 'free' ? null : (piece.against.find((entry) => entry.edge)?.edge ?? 'top')
       layout.set(piece.key, {
         kind: 'region',
         side: null,
@@ -544,6 +660,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         tone: piece.tone,
         form: piece.form,
         ...(piece.form === 'inner' && { parent: piece.parent }),
+        ...(cutouts.has(piece.key) && { cutout: cutouts.get(piece.key) }),
         ...(edge && { edge }),
         label: piece.label,
       })

@@ -32,8 +32,14 @@ function templateData(place) {
   const { instance, site = null, tone = null, edge = null } = place
   const data = { instance, site, tone, edge }
   // A microdomain is drawn over its cell.
-  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner' } : data
-  return { ...data, facetLabels: place.facetLabels ?? [], zones: zonesIn(place), ...(place.hintAt && { hintAt: { ...place.hintAt } }) }
+  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }) } : data
+  return {
+    ...data,
+    facetLabels: place.facetLabels ?? [],
+    zones: zonesIn(place),
+    ...(place.hintAt && { hintAt: { ...place.hintAt } }),
+    ...(place.folds && { folds: place.folds }),
+  }
 }
 
 /** A cell's process zones, relative to the cell. */
@@ -230,7 +236,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           zIndex: Z.cell,
           // Dragging its outline moves its cell (see BioFlow).
           style: { pointerEvents: 'none' },
-          data: { ...own.data, width: cell.width, height: cell.height },
+          data: { ...own.data, width: cell.width, height: cell.height, ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }) },
         })
         break
       }

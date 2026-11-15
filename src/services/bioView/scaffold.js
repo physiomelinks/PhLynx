@@ -239,10 +239,11 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         membrane: members(membranePath)[0] ?? null,
         membraneSite: siteOf(membranePath),
         membraneLabel: cell.membrane ? cell.membrane.label : null,
-        facets: cell.facets.map(({ id, label, edge }) => ({
+        facets: cell.facets.map(({ id, label, edge, fold }) => ({
           id,
           label,
           edge,
+          ...(fold && { fold }),
           site: siteOf(`${cell.id}.${id}`),
           members: members(`${cell.id}.${id}`),
         })),
@@ -265,8 +266,8 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
       const key = keyOf(compartment.id)
       const against = compartment.against.map((entry) => {
         const [cellId, facetId] = entry.split('.')
-        const edge = template.cells.find((cell) => cell.id === cellId).facets.find((facet) => facet.id === facetId).edge
-        return { cellKey: cellKeys.get(cellId), facetId, edge }
+        const { edge, fold } = template.cells.find((cell) => cell.id === cellId).facets.find((facet) => facet.id === facetId)
+        return { cellKey: cellKeys.get(cellId), facetId, edge, ...(fold && { fold }) }
       })
       scaffold.compartments.push({
         key,

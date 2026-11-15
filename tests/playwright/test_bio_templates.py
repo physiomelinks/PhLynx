@@ -195,6 +195,20 @@ class TestBioTemplates(unittest.TestCase):
         assert between["y"] > inner["y"] + inner["height"] / 2, (inner, between)
         assert abs(between["y"] + between["height"] - (outer["y"] + outer["height"])) < 0.1 * outer["height"], (outer, between)
 
+        # A fold dropped by the cell's top side dips in from it.
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=fold]").drag_to(
+            pane, target_position={"x": outer["x"] - box["x"] + outer["width"] / 2, "y": outer["y"] - box["y"] + 16}
+        )
+        fold = page.locator("[data-testid=bio-fold]")
+        expect(fold).to_have_count(1)
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer, dip = cell.bounding_box(), fold.bounding_box()
+        assert abs(dip["y"] - outer["y"]) < 3 and dip["height"] > 0.2 * outer["height"], (outer, dip)
+        inner = organelle.bounding_box()
+
         # A module dropped on the organelle is its inside, not the cell's.
         self.drop_module(2, (inner["x"] + inner["width"] / 2, inner["y"] + inner["height"] / 2))
         expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)

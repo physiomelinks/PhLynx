@@ -18,6 +18,7 @@ export const PALETTE_TILES = Object.freeze([
   { kind: 'compartment', label: 'Compartment', icon: 'pi pi-stop', hint: 'An empty compartment against the side of the cell it is dropped beside' },
   { kind: 'organelle', label: 'Organelle', icon: 'pi pi-circle-fill', hint: 'An empty organelle inside the cell it is dropped on, with a membrane of its own' },
   { kind: 'microdomain', label: 'Microdomain', icon: 'pi pi-clone', hint: 'A space inside a cell under the side it is dropped by, or between an organelle and that side when dropped between them' },
+  { kind: 'fold', label: 'Fold', icon: 'pi pi-arrow-down', hint: 'An invagination of the membrane, such as a T-tubule, in from the side of the cell it is dropped by' },
   { kind: 'site', label: 'Protein site', icon: 'pi pi-plus', hint: 'A stretch of membrane for proteins, on the nearest free side of a cell or organelle' },
   { kind: 'zone', label: 'Process zone', icon: 'pi pi-box', hint: 'A place for processes inside a cell' },
 ])

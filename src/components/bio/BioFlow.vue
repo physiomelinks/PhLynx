@@ -1861,7 +1861,7 @@ function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
   if (tile.kind === 'cell') return placeTemplate(BLANK_CELL_TEMPLATE, point)
   // An organelle goes in a cell, and a compartment beside one; a site or zone on an organelle too.
-  const isForCell = tile.kind === 'compartment' || tile.kind === 'organelle' || tile.kind === 'microdomain'
+  const isForCell = ['compartment', 'organelle', 'microdomain', 'fold'].includes(tile.kind)
   const reach = tile.kind === 'compartment' ? COMPARTMENT_REACH : TILE_REACH
   const found = templateCellAt(layout.value, point, reach, { organelles: !isForCell })
   const cell = found && placedTemplate(found.instance)?.cells.find((entry) => entry.id === found.path)
@@ -1871,11 +1871,19 @@ function applyTile(tile, point) {
   }
   if (tile.kind === 'organelle') return addOrganelle(found.instance, found.path)
   if (tile.kind === 'microdomain') return addMicrodomain(found, point)
+  if (tile.kind === 'fold') {
+    const edge = nearestEdge(found.rect, point, EDGES.filter((each) => !cell.facets.some((facet) => facet.fold === each)))
+    if (!edge) return notify.info({ title: 'Every side of this cell has a fold' })
+    const removed = templateStore.getInstance(found.instance)?.edits?.removed ?? []
+    const id = freePieceId(placedTemplate(found.instance), 'fold', found.path, removed)
+    return addPiece(found.instance, 'facets', { cell: found.path, id, label: 'Fold', fold: edge })
+  }
   if (tile.kind === 'zone') {
     if (cell.processes.length >= LIMITS.processes) return notify.info({ title: 'This cell has all the process zones it can hold' })
     return addZone(found.instance, found.path)
   }
   if (tile.kind === 'site') {
+    // On an organelle the point is on, or the cell's.
     const edge = nearestEdge(found.rect, point, EDGES.filter((each) => !cell.facets.some((facet) => facet.edge === each)))
     if (!edge) return notify.info({ title: 'Every side of this cell has a protein site' })
     return addSite(found.instance, found.path, edge)

@@ -11,6 +11,7 @@
         'bio-region--inner': data.form === 'inner',
       },
     ]"
+    :style="cutoutStyle"
     data-testid="bio-region"
   >
     <BioHandles :handles="data.handles ?? []" />
@@ -48,6 +49,16 @@ const edge = computed(() => {
   if (!props.data.side) return null
   return facetById(EPITHELIAL_SHAPE, partOf(props.data.side, props.data.at ?? undefined))?.edge ?? null
 })
+/** A microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it. */
+const cutoutStyle = computed(() => {
+  const hole = props.data.cutout
+  if (!hole) return undefined
+  const { x, y, width, height, radius } = hole
+  const r = Math.min(radius, width / 2, height / 2)
+  const cut = `M ${x + r} ${y} H ${x + width - r} A ${r} ${r} 0 0 1 ${x + width} ${y + r} V ${y + height - r} A ${r} ${r} 0 0 1 ${x + width - r} ${y + height} H ${x + r} A ${r} ${r} 0 0 1 ${x} ${y + height - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`
+  return { clipPath: `path(evenodd, "M -4 -4 H 100000 V 100000 H -4 Z ${cut}")` }
+})
+
 const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)
 </script>
 

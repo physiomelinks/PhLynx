@@ -125,15 +125,25 @@
       }
     },
     "facet": {
-      "description": "A part of a cell's membrane along one edge.",
+      "description": "A part of a cell's membrane: along one edge, or, with \"fold\" in place of \"edge\", an invagination in from one.",
       "type": "object",
-      "required": ["id", "label", "edge"],
+      "required": ["id", "label"],
       "properties": {
         "id": {
           "$ref": "#/$defs/pieceId",
           "description": "The facet's id, unique within its cell; 'membrane' is reserved."
         },
         "label": { "$ref": "#/$defs/label", "description": "The facet's name." },
+        "fold": {
+          "description": "Makes this a fold (an invagination, such as a T-tubule): the edge of the cell it dips in from, near that edge's right or bottom end. Its proteins sit down its two walls, and its lumen is the outside of the facet along that edge. One per edge; needs schemaVersion 2.",
+          "enum": ["top", "bottom", "left", "right"]
+        },
+        "depth": {
+          "description": "A fold's least depth in from its edge, in pixels. Defaults to 160; it is drawn deeper for more proteins.",
+          "type": "number",
+          "minimum": 80,
+          "maximum": 1000
+        },
         "edge": {
           "description": "The edge of the cell the facet lies along.",
           "enum": ["top", "bottom", "left", "right"]

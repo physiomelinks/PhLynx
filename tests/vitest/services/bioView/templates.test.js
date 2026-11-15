@@ -561,3 +561,53 @@ describe('microdomains', () => {
     failsWith(nested({}, { compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`] }, second] }), 'is already against the microdomain "cleft"')
   })
 })
+
+describe('folds', () => {
+  const [first] = fourFacets()
+  const fold = (extra = {}) => ({ id: 'tubule', label: 'T-tubule', fold: first.edge, ...extra })
+  const folded = (extra = {}, more = {}) => base({ schemaVersion: 2, cells: [cell('a', { facets: [...fourFacets(), fold(extra)] })], ...more })
+
+  it('reads a facet that dips in from a side, beside the facet along that side, at version 2', () => {
+    const { template, errors } = validateTemplate(folded({ depth: 200 }))
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    expect(template.cells[0].facets.at(-1)).toEqual({ id: 'tubule', label: 'T-tubule', fold: first.edge, depth: 200 })
+    expect(sitesOf(template).find((site) => site.path === 'a.tubule')).toMatchObject({ role: 'membraneProtein', kind: 'slots' })
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+  })
+
+  it('has the outside of the side it dips in from as its own, and the cell’s inside or a microdomain within', () => {
+    const outside = { id: 'fluid', label: 'Fluid', against: [`a.${first.id}`] }
+    const { template } = validateTemplate(folded({}, { compartments: [outside] }))
+    expect(siteNeighbours(template, 'a.tubule')).toEqual(
+      expect.arrayContaining([
+        { path: 'fluid', relation: 'outside' },
+        { path: 'a', relation: 'inside' },
+      ])
+    )
+    const cleft = { id: 'cleft', label: 'Cleft', in: 'a', against: ['a.tubule'] }
+    const within = validateTemplate(folded({}, { compartments: [outside, cleft] })).template
+    expect(siteNeighbours(within, 'a.tubule')).toContainEqual({ path: 'cleft', relation: 'inside' })
+    expect(siteNeighbours(within, 'a.tubule')).not.toContainEqual({ path: 'a', relation: 'inside' })
+  })
+
+  it('pairs with the side of an organelle that faces it, for a microdomain between them', () => {
+    const facing = { top: 'right', bottom: 'right', left: 'bottom', right: 'bottom' }[first.edge]
+    const side = (edge) => ({ id: `s-${edge}`, label: edge, edge })
+    const cells = [cell('a', { facets: [...fourFacets(), fold()] }), cell('sr', { in: 'a', facets: ['top', 'bottom', 'left', 'right'].map(side) })]
+    const cleft = (edge) => ({ id: 'cleft', label: 'Cleft', in: 'a', against: ['a.tubule', `sr.s-${edge}`] })
+    expect(validateTemplate(base({ schemaVersion: 2, cells, compartments: [cleft(facing)] })).errors).toEqual([])
+    const away = ['top', 'bottom', 'left', 'right'].find((edge) => edge !== facing)
+    failsWith(base({ schemaVersion: 2, cells, compartments: [cleft(away)] }), 'against a fold and an organelle')
+  })
+
+  it('rejects one at version 1, with an edge too, a second in from the same side, in an organelle, or with a compartment against it', () => {
+    failsWith({ ...folded(), schemaVersion: 1 }, 'needs "schemaVersion" 2')
+    failsWith(folded({ edge: first.edge }), 'a fold has no "edge"')
+    failsWith(folded({ fold: 'inward' }), '"fold" must be the side it dips in from')
+    failsWith(base({ schemaVersion: 2, cells: [cell('a', { facets: [...fourFacets(), fold(), fold({ id: 'other' })] })] }), 'already has the fold "tubule"')
+    failsWith(base({ schemaVersion: 2, cells: [cell('a'), cell('sr', { in: 'a', facets: [...fourFacets(), fold()] })] }), 'an organelle has no folds')
+    failsWith(folded({}, { compartments: [{ id: 'fluid', label: 'Fluid', against: ['a.tubule'] }] }), 'is a fold')
+    failsWith(base({ cells: [cell('a', { facets: [{ ...first, depth: 100 }] })] }), 'only a fold has a "depth"')
+  })
+})

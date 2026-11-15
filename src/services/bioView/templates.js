@@ -11,8 +11,8 @@ import { MIN_CELL } from './metrics.js'
 export const TEMPLATE_SCHEMA_VERSION = 1
 
 /**
- * The version of a template with pieces version 1 has none of: an organelle, which is a cell `in` another, and a
- * microdomain, which is a compartment `in` a cell. A template is written at the lowest version that reads it, so
+ * The version of a template with pieces version 1 has none of: an organelle, which is a cell `in` another; a
+ * microdomain, which is a compartment `in` a cell; and a fold, which is a facet that dips in from a side of its cell. A template is written at the lowest version that reads it, so
  * one without them still loads in older PhLynx.
  */
 export const TEMPLATE_SCHEMA_VERSION_NESTED = 2
@@ -95,6 +95,7 @@ export const LIMITS = {
   bytes: 64 * 1024,
   size: { min: 120, max: 4000 },
   depth: { min: 20, max: 1000 },
+  fold: { min: 80, max: 1000 },
 }
 
 /** The keys the validator knows for each kind of object, in the order a clean copy lists them. */
@@ -103,7 +104,7 @@ export const TEMPLATE_KEYS = {
   cell: ['id', 'label', 'in', 'row', 'size', 'membrane', 'facets', 'processes', 'site'],
   size: ['width', 'height'],
   membrane: ['label'],
-  facet: ['id', 'label', 'edge', 'group', 'annotation', 'site'],
+  facet: ['id', 'label', 'edge', 'fold', 'depth', 'group', 'annotation', 'site'],
   annotation: ['facet', 'at'],
   process: ['id', 'label', 'site'],
   compartment: ['id', 'label', 'in', 'against', 'tone', 'depth', 'site'],
@@ -196,8 +197,18 @@ function readFacet(raw, where, errors, warnings) {
   }
   warnUnknown(raw, TEMPLATE_KEYS.facet, where, warnings)
   if (!isPieceId(raw.id)) errors.push(`${where}: ${PIECE_ID_RULE}`)
-  const facet = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors), edge: raw.edge }
-  if (!EDGES.includes(raw.edge)) errors.push(`${where}: "edge" must be one of ${EDGES.join(', ')}.`)
+  const facet = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors) }
+  // A fold: an invagination of the membrane, in from the side named, in place of a stretch along a side.
+  if (raw.fold !== undefined) {
+    facet.fold = raw.fold
+    if (!EDGES.includes(raw.fold)) errors.push(`${where}: "fold" must be the side it dips in from: one of ${EDGES.join(', ')}.`)
+    if (raw.edge !== undefined) errors.push(`${where}: a fold has no "edge"; "fold" names the side it dips in from.`)
+    if (raw.depth !== undefined) facet.depth = boundedNumber(raw.depth, LIMITS.fold, `${where}: "depth"`, errors)
+  } else {
+    facet.edge = raw.edge
+    if (!EDGES.includes(raw.edge)) errors.push(`${where}: "edge" must be one of ${EDGES.join(', ')}.`)
+    if (raw.depth !== undefined) errors.push(`${where}: only a fold has a "depth".`)
+  }
   if (raw.group !== undefined) {
     if (isPieceId(raw.group)) facet.group = raw.group
     else errors.push(`${where}: "group" must start with a letter and use only lower-case letters, digits and hyphens.`)
@@ -284,12 +295,18 @@ function readCell(raw, index, errors, warnings) {
     errors.push(`${where}: "facets" must be a non-empty list.`)
   } else {
     const edges = new Map()
+    const folds = new Map()
     const aliases = new Map()
     raw.facets.forEach((rawFacet, i) => {
       const label = `facet ${i + 1}`
       const facet = readFacet(rawFacet, `${where}, ${label}`, errors, warnings)
       if (!facet) return
       claim(facet.id, label)
+      if (EDGES.includes(facet.fold)) {
+        if (folds.has(facet.fold)) {
+          errors.push(`${where}, ${label}: the ${facet.fold} side already has the fold "${folds.get(facet.fold)}"; a side has one at most.`)
+        } else folds.set(facet.fold, facet.id)
+      }
       if (EDGES.includes(facet.edge)) {
         const taken = edges.get(facet.edge)
         if (taken) {
@@ -346,6 +363,9 @@ function formOf(cells, against) {
     if (cell.in) {
       return { form: null, error: `"against" entry ${i + 1} (${JSON.stringify(ref)}) is an organelle's facet; a compartment lies against a cell's.` }
     }
+    if (facet.fold) {
+      return { form: null, error: `"against" entry ${i + 1} (${JSON.stringify(ref)}) is a fold; a compartment lies against a side of a cell, and fills the folds in from it.` }
+    }
     if (resolved.some((entry) => entry.cell === cell && entry.facet === facet)) {
       return { form: null, error: `"against" names "${ref}" more than once.` }
     }
@@ -391,7 +411,9 @@ function microdomainError(cells, inside, against) {
   const cell = isPieceId(inside) && cells.find((entry) => entry.id === inside)
   if (!cell) return `"in" must be the id of the cell it is inside.`
   if (cell.in) return `"${cell.id}" is an organelle; a microdomain is in a cell.`
-  const rule = 'A microdomain lies against one facet of its cell, one facet of an organelle in that cell, or one of each on the same side.'
+  const rule =
+    'A microdomain lies against one facet of its cell, one facet of an organelle in that cell, or one of each on the same side; ' +
+    'against a fold and an organelle, the organelle’s facet is its right one for a fold in from the top or bottom, and its bottom one for a fold in from the left or right.'
   if (!Array.isArray(against) || against.length < 1 || against.length > 2) return `"against" must name one or two facets. ${rule}`
   const found = []
   for (const ref of against) {
@@ -399,11 +421,21 @@ function microdomainError(cells, inside, against) {
     const owner = cells.find((entry) => entry.id === cellId)
     const facet = extra === undefined && owner?.facets.find((entry) => entry.id === facetId)
     if (!facet || (owner !== cell && owner.in !== cell.id)) return `"against" entry ${JSON.stringify(ref)} is not a facet of "${cell.id}" or of an organelle in it. ${rule}`
-    found.push({ isOwn: owner === cell, edge: facet.edge })
+    found.push({ isOwn: owner === cell, edge: facet.edge, fold: facet.fold })
   }
-  if (found.length === 2 && (found[0].isOwn === found[1].isOwn || found[0].edge !== found[1].edge)) return rule
+  if (found.length === 2) {
+    if (found[0].isOwn === found[1].isOwn) return rule
+    const own = found.find((entry) => entry.isOwn)
+    const other = found.find((entry) => !entry.isOwn)
+    // A fold comes in at the far end of its side, so it is the organelle's far side that faces it.
+    const facing = own.fold ? FOLD_FACES[own.fold] : own.edge
+    if (other.edge !== facing) return rule
+  }
   return null
 }
+
+/** The side of an organelle that faces a fold in from each side of its cell. */
+export const FOLD_FACES = Object.freeze({ top: 'right', bottom: 'right', left: 'bottom', right: 'bottom' })
 
 function readCompartment(raw, index, cells, errors, warnings) {
   if (!isObject(raw)) {
@@ -506,6 +538,12 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     else if (parent.in) errors.push(`Cell "${organelle.id}": "${parent.id}" is itself inside a cell; organelles don't nest.`)
   }
   if (cells.length && organelles.length === cells.length) errors.push(`${where}: at least one cell must not be inside another.`)
+  // Folds, too, are read only at the version that has them, and only a cell has them.
+  const folded = cells.filter((cell) => cell.facets.some((facet) => facet.fold))
+  if (folded.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: a fold (a facet with "fold") needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  for (const cell of folded) if (cell.in) errors.push(`Cell "${cell.id}": an organelle has no folds.`)
 
   const compartments = []
   if (raw.compartments !== undefined) {
@@ -554,7 +592,8 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     seen.add(piece.id)
   }
 
-  const schemaVersion = organelles.length || microdomains.length ? TEMPLATE_SCHEMA_VERSION_NESTED : TEMPLATE_SCHEMA_VERSION
+  const isNested = organelles.length || microdomains.length || folded.length
+  const schemaVersion = isNested ? TEMPLATE_SCHEMA_VERSION_NESTED : TEMPLATE_SCHEMA_VERSION
   const template = { schemaVersion, id: raw.id, name }
   if (description) template.description = description
   if (author) template.author = author
@@ -676,8 +715,11 @@ function neighbourPairs(template) {
         pair(path, microdomain?.id ?? cell.in, 'outside', 'protein')
       } else pair(path, microdomain?.id ?? cell.id, 'inside', 'protein')
       if (cell.membrane) pair(path, membrane, 'membrane', 'protein')
+      // A fold's outside is that of the side it dips in from: its lumen is the same space.
+      const side = facet.fold ? cell.facets.find((entry) => entry.edge === facet.fold) : facet
+      const outer = side && `${cell.id}.${side.id}`
       for (const compartment of template.compartments) {
-        if (compartment.in === undefined && compartment.against.includes(path)) pair(path, compartment.id, 'outside', 'protein')
+        if (compartment.in === undefined && compartment.against.includes(outer)) pair(path, compartment.id, 'outside', 'protein')
       }
     }
     for (const process of cell.processes) pair(`${cell.id}.${process.id}`, cell.id, 'inside', 'process')

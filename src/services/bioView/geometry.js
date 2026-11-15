@@ -113,6 +113,98 @@ function edgeOf(shape, part) {
 }
 
 /**
+ * A fold's measures: how wide its lumen is between the outlines of its two walls; how deep it is unless its
+ * template or its proteins ask for more; how far it stands in from the corner at the far end of its side; how far
+ * down its walls the first protein sits; and how far the proteins along its side keep from its mouth.
+ */
+export const FOLD = Object.freeze({ width: 76, depth: 160, margin: 24, lead: 30, clearance: 44 })
+
+/** The side a protein on each wall of a fold faces as one on that side of a cell does: out, into the fold's lumen. */
+const FOLD_WALLS = Object.freeze({
+  top: { low: 'right', high: 'left' },
+  bottom: { low: 'right', high: 'left' },
+  left: { low: 'bottom', high: 'top' },
+  right: { low: 'bottom', high: 'top' },
+})
+
+/**
+ * How deep a fold must be for its proteins: a row down each wall, or down the one facing an organelle, and a
+ * spare slot.
+ *
+ * @param {number} count - Proteins on it.
+ * @param {{lead?: number, facing?: boolean}} [fold] - As withFolds draws it.
+ * @returns {number}
+ */
+export function foldDepthFor(count, { lead = FOLD.lead, facing = false } = {}) {
+  const rows = facing ? count + 1 : Math.ceil((count + 1) / 2)
+  return lead + GLYPH_WIDTH / 2 + (rows - 1) * SLOT_PITCH + GLYPH_WIDTH / 2 + FOLD.width / 2 + 8
+}
+
+/**
+ * Gives where a fold is in its cell: how far along its side its middle is (from the side's left or top end), half
+ * its lumen's width, and its depth in from the side. It comes in near the far end of its side, clear of the side's
+ * own proteins, which are centred on what is left.
+ *
+ * @param {{width: number, height: number}} rect - The cell.
+ * @param {{fold: string, depth?: number, lead?: number, facing?: boolean}} facet - The fold, from the cell's shape.
+ * @returns {{edge: string, at: number, half: number, depth: number}}
+ */
+export function foldPocket(rect, facet) {
+  const half = FOLD.width / 2
+  const along = EDGES[facet.fold].axis === 'x' ? rect.width : rect.height
+  const across = EDGES[facet.fold].axis === 'x' ? rect.height : rect.width
+  const depth = Math.min(facet.depth ?? FOLD.depth, Math.max(FOLD.width, across - CELL_RADIUS))
+  return { edge: facet.fold, at: along - CELL_RADIUS - FOLD.margin - half, half, depth }
+}
+
+/**
+ * Turns a place in a fold's own terms, how far along its side and how far in from it, into the cell's.
+ *
+ * @param {{x: number, y: number, width: number, height: number}} rect - The cell.
+ * @param {string} edge - The side the fold dips in from.
+ * @param {number} along
+ * @param {number} inward
+ * @returns {{x: number, y: number}}
+ */
+export function foldPoint(rect, edge, along, inward) {
+  if (edge === 'top') return { x: rect.x + along, y: rect.y + inward }
+  if (edge === 'bottom') return { x: rect.x + along, y: rect.y + rect.height - inward }
+  if (edge === 'left') return { x: rect.x + inward, y: rect.y + along }
+  return { x: rect.x + rect.width - inward, y: rect.y + along }
+}
+
+/**
+ * Gives the centres of a fold's slots: down its two walls in turn, the wall nearer its side's start first.
+ *
+ * @param {Object} rect - The cell.
+ * @param {Object} facet - The fold.
+ * @param {number} count
+ * @returns {Array<{x: number, y: number, faces: string}>} faces: the side of a cell a protein there is drawn as on.
+ */
+function foldSlotPositions(rect, facet, count) {
+  const pocket = foldPocket(rect, facet)
+  const lead = facet.lead ?? FOLD.lead
+  return Array.from({ length: count }, (_, order) => {
+    // Down the wall facing an organelle alone, where a microdomain lies between the two.
+    const wall = !facet.facing && order % 2 ? 'high' : 'low'
+    const along = pocket.at + (wall === 'low' ? -pocket.half : pocket.half)
+    const inward = lead + GLYPH_WIDTH / 2 + (facet.facing ? order : Math.floor(order / 2)) * SLOT_PITCH
+    return { ...foldPoint(rect, pocket.edge, along, inward), faces: FOLD_WALLS[pocket.edge][wall] }
+  })
+}
+
+/**
+ * How much of a side's length, from its far end, a fold in from it takes from the side's own proteins.
+ *
+ * @param {Object} shape
+ * @param {string} edge
+ * @returns {number} 0 for a side with no fold.
+ */
+function foldReserve(shape, edge) {
+  return shape.facets.some((facet) => facet.fold === edge) ? CELL_RADIUS + FOLD.margin + FOLD.width + FOLD.clearance - FACET_INSET : 0
+}
+
+/**
  * Gives the centres of a membrane part's slots.
  *
  * @param {{x: number, y: number, width: number, height: number}} rect - The cell.
@@ -124,13 +216,17 @@ function edgeOf(shape, part) {
  */
 export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, widths = []) {
   const { x, y, width, height } = rect
+  const fold = facetById(shape, part)
+  if (fold?.fold) return foldSlotPositions(rect, fold, count).map((slot) => ({ x: slot.x, y: slot.y }))
   const edge = edgeOf(shape, part)
+  // A fold in from this side takes its far end.
+  const reserve = foldReserve(shape, edge.name)
   if (edge.axis === 'x') {
     const lineY = edge.name === 'top' ? y : y + height
-    return spread(x + FACET_INSET, x + width - FACET_INSET, count, widths).map((cx) => ({ x: cx, y: lineY }))
+    return spread(x + FACET_INSET, x + width - FACET_INSET - reserve, count, widths).map((cx) => ({ x: cx, y: lineY }))
   }
   const lineX = edge.name === 'left' ? x : x + width
-  return spread(y + FACET_INSET, y + height - FACET_INSET, count).map((cy) => ({ x: lineX, y: cy }))
+  return spread(y + FACET_INSET, y + height - FACET_INSET - reserve, count).map((cy) => ({ x: lineX, y: cy }))
 }
 
 /**
@@ -148,6 +244,10 @@ export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, width
 export function facetSlots(rect, part, count, shape = EPITHELIAL_SHAPE, { spare = true, widths = [] } = {}) {
   const slots = slotPositions(rect, part, count, shape, widths).map((slot, order) => ({ ...slot, order, spare: false }))
   if (!spare) return slots
+  // A fold's spare is the next place down its walls.
+  if (facetById(shape, part)?.fold) {
+    return [...slots, { ...slotPositions(rect, part, count + 1, shape)[count], order: count, spare: true }]
+  }
   const last = slots.at(-1)
   const step =
     edgeOf(shape, part).axis === 'x' ? { x: pitchBetween(widths[count - 1]), y: 0 } : { x: 0, y: SLOT_PITCH }
@@ -168,6 +268,12 @@ export function facetSlots(rect, part, count, shape = EPITHELIAL_SHAPE, { spare 
  *   to turn it, and the side of it facing out of the cell.
  */
 export function proteinPlacement(rect, part, order, count, shape = EPITHELIAL_SHAPE, widths = []) {
+  const fold = facetById(shape, part)
+  if (fold?.fold) {
+    const slot = foldSlotPositions(rect, fold, order + 1)[order]
+    const { outward, rotation } = EDGES[slot.faces]
+    return { x: slot.x, y: slot.y, rotation, outward }
+  }
   const slot = slotPositions(rect, part, Math.max(count, order + 1), shape, widths)[order]
   const { outward, rotation } = edgeOf(shape, part)
   return { x: slot.x, y: slot.y, rotation, outward }
@@ -240,12 +346,18 @@ export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {},
     const proteins = pitches.reduce((total, pitch) => total + pitch, 0)
     return proteins + spare + Math.max(SLOT_PITCH / 2 + GLYPH_WIDTH, spare)
   }
-  const length = (axis) => Math.max(0, ...along(axis).map((facet) => row(facet, axis))) + 2 * FACET_INSET
+  const length = (axis) =>
+    Math.max(0, ...along(axis).map((facet) => row(facet, axis) + foldReserve(shape, facet.edge))) + 2 * FACET_INSET
+  // A fold needs its side long enough to come in from, and the cell deep enough to hold it and its proteins.
+  const folds = (axis) => shape.facets.filter((facet) => facet.fold && EDGES[facet.fold].axis === axis)
+  const mouth = (axis) => (folds(axis).length ? 2 * CELL_RADIUS + 2 * FOLD.margin + FOLD.width : 0)
+  const reach = (axis) =>
+    Math.max(0, ...folds(axis).map((facet) => Math.max(facet.depth ?? FOLD.depth, foldDepthFor(counts[facet.id] ?? 0)) + CELL_RADIUS + 24))
   return {
     x: rect.x,
     y: rect.y,
-    width: Math.max(rect.width, least.width, length('x')),
-    height: Math.max(rect.height, least.height, length('y')),
+    width: Math.max(rect.width, least.width, length('x'), mouth('x'), reach('y')),
+    height: Math.max(rect.height, least.height, length('y'), mouth('y'), reach('x')),
   }
 }
 
@@ -300,11 +412,46 @@ export function leafletDistance({ x, y, width, height }, point, radius = CELL_RA
  * @param {number} width - The cell's width.
  * @param {number} height - The cell's height.
  * @param {number} [offset=0]
+ * @param {Array<{edge: string, at: number, half: number, depth: number}>} [folds] - The cell's folds, from
+ *   foldPocket: the outline dips in round each.
  * @returns {string} An SVG path.
  */
-export function leafletPath(width, height, offset = 0) {
+export function leafletPath(width, height, offset = 0, folds = []) {
   const rect = { x: -offset, y: -offset, width: width + 2 * offset, height: height + 2 * offset }
-  return roundedRectPath(rect, CELL_RADIUS + offset)
+  if (!folds.length) return roundedRectPath(rect, CELL_RADIUS + offset)
+  // Round the outline as roundedRectPath goes, with each fold's pocket on the way along its side: down one wall,
+  // round its end the other way from a corner, and back up the other. Grown outward, a pocket narrows.
+  const r = Math.max(0, Math.min(CELL_RADIUS + offset, rect.width / 2, rect.height / 2))
+  const pocket = (edge) => {
+    const fold = folds.find((each) => each.edge === edge)
+    if (!fold) return []
+    const half = Math.max(1, fold.half - offset)
+    const end = fold.depth - fold.half
+    const arc = (x, y) => `A ${half} ${half} 0 0 0 ${x} ${y}`
+    if (edge === 'top') return [`H ${fold.at - half}`, `V ${end}`, arc(fold.at + half, end), `V ${-offset}`]
+    if (edge === 'right') return [`V ${fold.at - half}`, `H ${width - end}`, arc(width - end, fold.at + half), `H ${width + offset}`]
+    if (edge === 'bottom') return [`H ${fold.at + half}`, `V ${height - end}`, arc(fold.at - half, height - end), `V ${height + offset}`]
+    return [`V ${fold.at + half}`, `H ${end}`, arc(end, fold.at - half), `H ${-offset}`]
+  }
+  const { x, y } = rect
+  const right = x + rect.width
+  const bottom = y + rect.height
+  return [
+    `M ${x + r} ${y}`,
+    ...pocket('top'),
+    `H ${right - r}`,
+    `A ${r} ${r} 0 0 1 ${right} ${y + r}`,
+    ...pocket('right'),
+    `V ${bottom - r}`,
+    `A ${r} ${r} 0 0 1 ${right - r} ${bottom}`,
+    ...pocket('bottom'),
+    `H ${x + r}`,
+    `A ${r} ${r} 0 0 1 ${x} ${bottom - r}`,
+    ...pocket('left'),
+    `V ${y + r}`,
+    `A ${r} ${r} 0 0 1 ${x + r} ${y}`,
+    'Z',
+  ].join(' ')
 }
 
 /** How far apart a bilayer's lipids are, along its leaflets. */
@@ -315,11 +462,15 @@ export const LIPID_PITCH = 5
  * side, from 0 to `length`, and y across it. Each length is a whole number of lipids, stretched or squeezed a
  * little to fill its side exactly, so the lipids meet the corners' (see cornerLipids) without a gap or a crowd.
  *
+ * A side a fold dips in from is in two pieces, either side of the fold's mouth, and the fold's two walls are strips
+ * too.
+ *
  * @param {number} width - The cell's width.
  * @param {number} height - The cell's height.
+ * @param {Array<{edge: string, at: number, half: number, depth: number}>} [folds] - From foldPocket.
  * @returns {Array<{edge: string, length: number, transform: string}>}
  */
-export function leafletSides(width, height) {
+export function leafletSides(width, height, folds = []) {
   const r = Math.max(0, Math.min(CELL_RADIUS, width / 2, height / 2))
   const sides = [
     { edge: 'top', x: r, y: 0, angle: 0, span: width - 2 * r },
@@ -327,13 +478,77 @@ export function leafletSides(width, height) {
     { edge: 'bottom', x: width - r, y: height, angle: 180, span: width - 2 * r },
     { edge: 'left', x: 0, y: height - r, angle: 270, span: height - 2 * r },
   ]
-  return sides
-    .filter((side) => side.span >= LIPID_PITCH / 2)
-    .map(({ edge, x, y, angle, span }) => {
+  // Each strip in its side's own terms: from how far along the side it starts, how long, and whether it turns in.
+  const strips = sides.flatMap((side) => {
+    const fold = foldAlong(side, folds, width, height)
+    if (!fold) return [{ ...side, from: 0 }]
+    const wall = { ...side, span: fold.depth - fold.half, turned: true }
+    return [
+      { ...side, from: 0, span: fold.at - fold.half },
+      { ...side, from: fold.at + fold.half, span: side.span - fold.at - fold.half },
+      { ...wall, from: fold.at - fold.half },
+      { ...wall, from: fold.at + fold.half },
+    ]
+  })
+  return strips
+    .filter((strip) => strip.span >= LIPID_PITCH / 2)
+    .map(({ edge, x, y, angle, span, from, turned }) => {
       const length = Math.max(1, Math.round(span / LIPID_PITCH)) * LIPID_PITCH
-      const transform = `translate(${x} ${y}) rotate(${angle}) scale(${span / length} 1)`
-      return { edge, length, transform }
+      const within = `${from ? ` translate(${from} 0)` : ''}${turned ? ' rotate(90)' : ''}`
+      const place = `translate(${x} ${y}) rotate(${angle})${within}`
+      return { edge, length, transform: `${place} scale(${span / length} 1)` }
     })
+}
+
+/**
+ * Gives the fold in from a side in the side's own terms: how far along the side, as the outline goes round it,
+ * its middle is.
+ *
+ * @param {{edge: string, span: number}} side
+ * @param {Array<Object>} folds - From foldPocket, which measures from a side's left or top end.
+ * @param {number} width
+ * @param {number} height
+ * @returns {{at: number, half: number, depth: number}|null}
+ */
+function foldAlong(side, folds, width, height) {
+  const fold = folds.find((each) => each.edge === side.edge)
+  if (!fold) return null
+  const r = Math.max(0, Math.min(CELL_RADIUS, width / 2, height / 2))
+  // The outline runs the bottom and left sides back towards their start.
+  const at = { top: fold.at - r, right: fold.at - r, bottom: width - r - fold.at, left: height - r - fold.at }[side.edge]
+  return { at, half: fold.half, depth: fold.depth }
+}
+
+/**
+ * Gives the rounded end of each fold's pocket, grown by an offset (outward when positive, which narrows it), each
+ * with the transform that puts it in its cell and its length in lipids: what of a leaflet the strips down a fold's
+ * walls (see leafletSides) leave.
+ *
+ * @param {number} width - The cell's width.
+ * @param {number} height - The cell's height.
+ * @param {Array<Object>} folds - From foldPocket.
+ * @param {number} [offset=0]
+ * @returns {Array<{edge: string, d: string, transform: string, lipids: number}>}
+ */
+export function leafletFoldEnds(width, height, folds, offset = 0) {
+  const r = Math.max(0, Math.min(CELL_RADIUS, width / 2, height / 2))
+  const sides = {
+    top: `translate(${r} 0)`,
+    right: `translate(${width} ${r}) rotate(90)`,
+    bottom: `translate(${width - r} ${height}) rotate(180)`,
+    left: `translate(0 ${height - r}) rotate(270)`,
+  }
+  return folds.map((each) => {
+    const fold = foldAlong({ edge: each.edge }, folds, width, height)
+    const half = Math.max(1, fold.half - offset)
+    const end = fold.depth - fold.half
+    return {
+      edge: each.edge,
+      d: `M ${fold.at - half} ${end} A ${half} ${half} 0 0 0 ${fold.at + half} ${end}`,
+      transform: sides[each.edge],
+      lipids: Math.max(1, Math.round((Math.PI * fold.half) / LIPID_PITCH)),
+    }
+  })
 }
 
 /**
