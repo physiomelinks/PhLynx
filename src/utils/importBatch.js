@@ -214,9 +214,12 @@ export function buildBatchSummary({
   } else if (isInstanceArrayImport && !readiness?.resourcesAreLoaded) {
     type = 'warning'
     title = 'More Files Needed'
-    const { modules, math } = readiness?.missingResources ?? {}
+    const { modules, math, ambiguous } = readiness?.missingResources ?? {}
     if (modules?.size) lines.push(`Missing configurations for: ${formatList([...modules])}`)
     if (math?.size) lines.push(`Missing CellML components: ${formatList([...math])}`)
+    for (const [moduleRef, sources] of ambiguous ?? []) {
+      lines.push(`${escapeHtml(moduleRef)} is defined by several sources: ${formatList(sources)}`)
+    }
   } else if (failed.length) {
     type = 'warning'
     title = 'Some Files Not Added'

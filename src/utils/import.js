@@ -4,6 +4,7 @@ import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS, TTL_FILE_TYPES } from 
 import { isCellML, doesComponentExistInModel } from './cellml'
 import { csvToParameterFile, parseParametersJson } from './parameters/parse'
 import { readSidecarComponent } from '../services/annotations/sidecarFiles'
+import { findModule } from './sourceIdentity'
 
 /** Columns an instance array CSV must have. */
 const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
@@ -90,32 +91,48 @@ export async function collectEntry(entry, path, depth, maxDepth, results) {
   }
 }
 
-export const checkResourcesAreLoaded = (requestedModules, store) => {
+/**
+ * Checks that the library has a module, and its math, for every instance array row.
+ *
+ * @param {Object[]} requestedModules - Instance array rows.
+ * @param {{ availableModules: Map, availableMath: Map }} store
+ * @param {Object} [options]
+ * @param {string|null} [options.preferredSource] - The source the instance array came from (see findModule).
+ * @returns {{ warnings: string[], resourcesAreLoaded: boolean, missingResources: { modules: Set<string>,
+ *   math: Set<string>, ambiguous: Map<string, string[]> } }} `modules` and `ambiguous` are keyed
+ *   `type:subtype`, as the rows name them; `ambiguous` gives the sources that each define one.
+ */
+export const checkResourcesAreLoaded = (requestedModules, store, { preferredSource = null } = {}) => {
   const warnings = []
   const missingResources = {
     modules: new Set(),
     math: new Set(),
+    ambiguous: new Map(),
   }
 
   if (!requestedModules || requestedModules.length === 0) {
     warnings.push('No modules specified in the instance array file.')
   }
 
-  for (const module of requestedModules) {
-    const moduleRef = `${module.module_type}:${module.module_subtype}`
-    if (!(store.availableModules.has(moduleRef))) {
+  for (const row of requestedModules) {
+    const moduleRef = `${row.module_type}:${row.module_subtype}`
+    const { module, ambiguous } = findModule(store.availableModules, row.module_type, row.module_subtype, preferredSource)
+    if (ambiguous.length) {
+      missingResources.ambiguous.set(moduleRef, ambiguous)
+    } else if (!module) {
       missingResources.modules.add(moduleRef)
-    } else {
-      const mathRef = store.availableModules.get(moduleRef)?.mathRef 
-      if (!(store.availableMath.has(mathRef))) {
-        missingResources.math.add(mathRef)
-      }
+    } else if (!store.availableMath.has(module.mathRef)) {
+      missingResources.math.add(module.mathRef)
     }
   }
 
   // Generate warnings
   if (missingResources.modules.size > 0) {
     warnings.push(`Missing modules: ${[...missingResources.modules].join(', ')}`)
+  }
+
+  for (const [moduleRef, sources] of missingResources.ambiguous) {
+    warnings.push(`${moduleRef} is defined by several sources (${sources.join(', ')}); load only the one this instance array uses.`)
   }
 
   if (missingResources.math.size > 0) {

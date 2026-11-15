@@ -250,6 +250,7 @@ import {
 } from '../utils/importBatch'
 import { normaliseConfig, parseMathRef } from '../utils/config'
 import { createMapSource } from '../services/import/cellmlImports'
+import { findModule } from '../utils/sourceIdentity'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -740,7 +741,7 @@ function getReferencedCellMLFilenames(instanceArrayPayload) {
   const { availableModules } = createTemporaryStore()
   const filenames = new Set()
   for (const row of instanceArrayPayload) {
-    const mathRef = availableModules.get(`${row.module_type}:${row.module_subtype}`)?.mathRef
+    const mathRef = findModule(availableModules, row.module_type, row.module_subtype).module?.mathRef
     if (mathRef) filenames.add(parseMathRef(mathRef).componentFile)
   }
   return filenames

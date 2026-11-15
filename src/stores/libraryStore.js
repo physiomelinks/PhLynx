@@ -3,6 +3,14 @@ import { parseLayout } from 'cellml-text-editor'
 import { ref, computed, markRaw, shallowReactive } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
 import {
+  baseNameOf,
+  moduleRefOf,
+  resolveComponentFile,
+  sourceOfFileKey,
+  sourceOfModuleRef,
+} from '../utils/sourceIdentity'
+import { areModelsEquivalent } from '../utils/cellml'
+import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
   PROTECTED_MATH_REFS,
@@ -186,21 +194,129 @@ export const useLibraryStore = defineStore('library', () => {
 
   // --- SETTERS ---
 
-  function addConfigFile(filename, configs) {
+  /**
+   * Adds the modules of a config file. A config from a source (its file key is a path, such as
+   * `repo/configurations/x.json`) gives modules qualified by that source, on math in that source.
+   *
+   * @param {string} filename - The config file's key.
+   * @param {Object[]} configs
+   * @param {Object} [options]
+   * @param {Iterable<string>} [options.candidates] - Keys of CellML files being loaded with the config,
+   *   besides those already in the library, that its `component_file` may name.
+   * @returns {number} How many modules were added.
+   */
+  function addConfigFile(filename, configs, { candidates = [] } = {}) {
     let totalAdded = 0
 
     if (!configs || !Array.isArray(configs)) {
       return totalAdded
     }
 
+    const source = sourceOfFileKey(filename)
+    const known = source ? [...loadedFileKeys(), ...candidates] : []
     configs.forEach((config) => {
       if (!config.component_file || typeof config.component_file !== 'string') {
         return totalAdded
       }
 
-      if (addModule(normaliseConfig(config))) totalAdded++
+      const componentFile = resolveComponentFile(filename, config.component_file, known)
+      if (addModule(normaliseConfig({ ...config, component_file: componentFile }, { source }))) totalAdded++
     })
     return totalAdded
+  }
+
+  /** Keys of every CellML file with math or units in the library. */
+  function loadedFileKeys() {
+    const keys = new Set(availableUnits.value.map((file) => file.componentFile))
+    for (const mathRef of availableMath.value.keys()) keys.add(parseMathRef(mathRef).componentFile)
+    return keys
+  }
+
+  /**
+   * Every source with files or modules in the library.
+   *
+   * @returns {Set<string>}
+   */
+  function loadedSources() {
+    const sources = new Set()
+    for (const key of loadedFileKeys()) {
+      const source = sourceOfFileKey(key)
+      if (source) sources.add(source)
+    }
+    for (const moduleRef of availableModules.value.keys()) {
+      const source = sourceOfModuleRef(moduleRef)
+      if (source) sources.add(source)
+    }
+    return sources
+  }
+
+  /**
+   * Finds what incoming files would change in the library: math, units or configs under keys the
+   * library already has, with different content. Nothing is changed. Each clash carries both
+   * versions, for whatever shows the user the difference.
+   *
+   * @param {Object} incoming
+   * @param {Array<{ key: string, components: Array<{ name: string, math: string }> }>} [incoming.mathFiles]
+   * @param {Array<{ key: string, model: string }>} [incoming.unitsFiles]
+   * @param {Array<{ key: string, configs: Object[] }>} [incoming.configFiles]
+   * @returns {Array<{ kind: 'math'|'units'|'module', key: string, existing: any, incoming: any }>}
+   */
+  function findClashes({ mathFiles = [], unitsFiles = [], configFiles = [] } = {}) {
+    const clashes = []
+
+    for (const { key, components } of mathFiles) {
+      for (const component of components ?? []) {
+        const mathRef = `${key}:${component.name}`
+        const stored = availableMath.value.get(mathRef)
+        if (stored === undefined) continue
+        const { math, values } = separateParameters(component.math)
+        const sameDefaults = sameValues(getMathDefaults(mathRef), values)
+        if (!sameDefaults || !areModelsEquivalent(stored, math)) {
+          clashes.push({
+            kind: 'math',
+            key: mathRef,
+            existing: { math: stored, defaults: getMathDefaults(mathRef) },
+            incoming: { math, defaults: values },
+          })
+        }
+      }
+    }
+
+    for (const { key, model } of unitsFiles) {
+      const stored = availableUnits.value.find((file) => file.componentFile === key)
+      if (stored && model && !areModelsEquivalent(stored.model, model)) {
+        clashes.push({ kind: 'units', key, existing: stored.model, incoming: model })
+      }
+    }
+
+    for (const { key, configs } of configFiles) {
+      const source = sourceOfFileKey(key)
+      const candidates = [...loadedFileKeys(), ...mathFiles.map((file) => file.key)]
+      for (const config of configs ?? []) {
+        if (!config?.component_file) continue
+        const moduleRef = moduleRefOf(config.module_type, config.module_subtype, source)
+        const stored = availableModules.value.get(moduleRef)
+        if (!stored) continue
+        const componentFile = resolveComponentFile(key, config.component_file, candidates)
+        const module = normaliseConfig({ ...config, component_file: componentFile }, { source })
+        if (!sameModuleConfig(stored, module)) clashes.push({ kind: 'module', key: moduleRef, existing: stored, incoming: module })
+      }
+    }
+
+    return clashes
+  }
+
+  function sameValues(a, b) {
+    if (a.size !== b.size) return false
+    for (const [name, value] of a) if (b.get(name) !== value) return false
+    return true
+  }
+
+  /** Whether two modules made from configs say the same: the same math, ports, variables and parameterisation. */
+  function sameModuleConfig(a, b) {
+    const comparable = ({ mathRef, ports, variables, defaultParameterisation }) =>
+      JSON.stringify(detachReactivity({ mathRef, ports, variables, defaultParameterisation: defaultParameterisation ?? null }))
+    return comparable(a) === comparable(b)
   }
 
   /**
@@ -317,6 +433,28 @@ export const useLibraryStore = defineStore('library', () => {
       addMath(mathRef, component.math, true, component.layout)
       createModuleForMath(mathRef)
     })
+    relinkStubs(filename, new Set(components.map((component) => component.name)))
+  }
+
+  /**
+   * Points stub modules of a source at a file of that source that has their math, when their
+   * config named the file by a path where it wasn't. Configs give bare file names, so the path is
+   * a guess until the file itself arrives.
+   *
+   * @param {string} filename - Key of the file just added.
+   * @param {Set<string>} componentNames - Its components.
+   */
+  function relinkStubs(filename, componentNames) {
+    const source = sourceOfFileKey(filename)
+    if (!source) return
+    const name = baseNameOf(filename)
+    for (const module of [...availableModules.value.values()]) {
+      if (!module.isStub) continue
+      const { componentFile, componentName } = parseMathRef(module.mathRef)
+      if (componentFile === filename || !componentNames.has(componentName)) continue
+      if (sourceOfFileKey(componentFile) !== source || baseNameOf(componentFile) !== name) continue
+      replaceModule({ ...module, mathRef: `${filename}:${componentName}` })
+    }
   }
 
   /**
@@ -594,8 +732,9 @@ export const useLibraryStore = defineStore('library', () => {
    * @returns {string}
    */
   function defaultModuleRef(mathRef) {
-    const { componentName } = parseMathRef(mathRef)
-    return uniqueModuleRef(`${componentName}:default`, mathRef, (ref) => availableModules.value.get(ref))
+    const { componentFile, componentName } = parseMathRef(mathRef)
+    const wanted = moduleRefOf(componentName, 'default', sourceOfFileKey(componentFile))
+    return uniqueModuleRef(wanted, mathRef, (ref) => availableModules.value.get(ref))
   }
 
   /**
@@ -871,6 +1010,8 @@ export const useLibraryStore = defineStore('library', () => {
 
     // Actions
     addConfigFile,
+    findClashes,
+    loadedSources,
     addModule,
     addMathFile,
     createModuleForMath,
