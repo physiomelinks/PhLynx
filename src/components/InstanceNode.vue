@@ -468,7 +468,6 @@ function openContextMenu(event) {
 
 .instance-name :deep(.p-inputtext) {
   width: 100%;
-  /* Centred, as the name it takes the place of is, so the name doesn't move as it becomes a field */
   text-align: center;
   padding-top: 0.2rem;
   padding-bottom: 0.2rem;
@@ -631,7 +630,6 @@ function openContextMenu(event) {
 .popover-bottom {
   top: 50%;
   left: 50%;
-  /* Pushes it down */
   transform: translate(-50%, 14px);
 }
 
