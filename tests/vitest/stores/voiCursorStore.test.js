@@ -95,4 +95,26 @@ describe('the VoI cursor', () => {
     await Promise.resolve()
     expect([cursor.isPlaying, cursor.isActive, cursor.index, cursor.range]).toEqual([false, false, 2, [0, 2]])
   })
+
+  it('gives the charts its place and window to mark only while a view follows it', () => {
+    cursor.seek(2)
+    expect(cursor.marker).toBeNull()
+    cursor.isFollowed = true
+    expect(cursor.marker).toEqual({ value: 2, from: null, to: null })
+    cursor.setWindow({ from: 1, to: 3 })
+    expect(cursor.marker).toEqual({ value: 2, from: 1, to: 3 })
+    cursor.reset()
+    expect(cursor.marker).toEqual({ value: null, from: null, to: null })
+  })
+
+  it('goes to the point nearest a value, within the window, and stops playing', () => {
+    cursor.play()
+    cursor.seekValue(1.6)
+    expect([cursor.index, cursor.isPlaying]).toEqual([2, false])
+    cursor.seekValue(1.4)
+    expect(cursor.index).toBe(1)
+    cursor.setWindow({ from: 1, to: 3 })
+    cursor.seekValue(99)
+    expect(cursor.index).toBe(3)
+  })
 })

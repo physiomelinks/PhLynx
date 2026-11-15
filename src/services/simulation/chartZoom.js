@@ -20,6 +20,14 @@ export const getChartZoom = (key) => (key ? zooms.get(key) ?? null : null)
  */
 export function setChartZoom(key, range) {
   if (!key) return
+  // Set afresh, so the zoom made last is the last kept.
+  zooms.delete(key)
   if (range) zooms.set(key, range)
-  else zooms.delete(key)
 }
+
+/**
+ * Gets the range zoomed into last, on whichever chart, if any chart is still zoomed.
+ *
+ * @returns {{min: number, max: number}|null}
+ */
+export const latestChartZoom = () => [...zooms.values()].at(-1) ?? null

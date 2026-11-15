@@ -82,7 +82,7 @@
       @click="cursor.reset()"
     />
 
-    <Popover ref="settings">
+    <Popover ref="settings" @show="plotZoom = latestChartZoom()">
       <div class="species-playback__settings" role="dialog" aria-label="Playback settings">
         <label class="species-playback__field">
           <span>Play the window in</span>
@@ -123,7 +123,18 @@
               @change="setWindow({ to: $event.target.value })"
             />
           </label>
-          <Button label="Whole run" size="small" text :disabled="!cursor.window" @click="cursor.setWindow(null)" />
+          <div class="species-playback__window-actions">
+            <Button
+              label="Use plot zoom"
+              size="small"
+              text
+              :disabled="!plotZoom"
+              v-tooltip.top="plotZoom ? 'The stretch a plot is zoomed into' : 'Zoom a plot first, by dragging across it'"
+              data-testid="bio-species-window-zoom"
+              @click="cursor.setWindow({ from: plotZoom.min, to: plotZoom.max })"
+            />
+            <Button label="Whole run" size="small" text :disabled="!cursor.window" @click="cursor.setWindow(null)" />
+          </div>
         </fieldset>
       </div>
     </Popover>
@@ -133,8 +144,9 @@
 <script setup>
 import Button from 'primevue/button'
 import Popover from 'primevue/popover'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import { latestChartZoom } from '../../services/simulation/chartZoom'
 import { useVoiCursorStore } from '../../stores/voiCursorStore'
 
 /** The times the whole window can be played in, in seconds. */
@@ -142,6 +154,8 @@ const PLAY_SECONDS = [5, 10, 30, 60]
 
 const cursor = useVoiCursorStore()
 const settings = ref(null)
+/** The stretch a plot was zoomed into when the settings opened, if any. */
+const plotZoom = ref(null)
 
 /** A number short enough to read, as it is shown and typed. */
 const trim = (value) => Number(value.toPrecision(4))
@@ -198,9 +212,12 @@ watch(
   },
   { immediate: true }
 )
+// The plots mark the cursor for as long as the bar is there to move it.
+onMounted(() => (cursor.isFollowed = true))
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame)
   cursor.pause()
+  cursor.isFollowed = false
 })
 </script>
 
@@ -276,6 +293,11 @@ onBeforeUnmount(() => {
   padding: 0.5rem 0 0;
   border: 0;
   border-top: 1px solid var(--p-content-border-color);
+}
+
+.species-playback__window-actions {
+  display: flex;
+  justify-content: space-between;
 }
 
 .species-playback__window legend {

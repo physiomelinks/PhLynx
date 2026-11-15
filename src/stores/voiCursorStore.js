@@ -44,6 +44,8 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
   const isLooping = ref(false)
   /** How long playing the whole window takes, in seconds. */
   const playSeconds = ref(DEFAULT_PLAY_SECONDS)
+  /** Whether a view is following the cursor and offering its playback, as species mode does. */
+  const isFollowed = ref(false)
 
   /** The window's first and last points, as indices into the VoI's values; null with no run. */
   const range = computed(() => {
@@ -74,11 +76,30 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
     return { from: values[range.value[0]], to: values[range.value[1]] }
   })
 
+  /**
+   * What a chart against the VoI marks while the cursor is followed: `{ value, from, to }` in the VoI's units,
+   * `value` null until the cursor is moved and `from` and `to` null over the whole run; null when it isn't followed.
+   */
+  const marker = computed(() => {
+    if (!isFollowed.value || !voi.value) return null
+    return { value: isActive.value ? value.value : null, from: window.value ? span.value.from : null, to: window.value ? span.value.to : null }
+  })
+
   /** Moves the cursor to a point of the run, kept within the window. */
   function seek(point) {
     if (!range.value) return
     const [first, last] = range.value
     position.value = voi.value.values[Math.min(last, Math.max(first, Math.round(point)))]
+  }
+
+  /** Moves the cursor to the point nearest a value of the VoI, kept within the window. */
+  function seekValue(value) {
+    const values = voi.value?.values
+    if (!values || !Number.isFinite(value)) return
+    const before = indexAt(values, value)
+    const after = Math.min(before + 1, values.length - 1)
+    isPlaying.value = false
+    seek(value - values[before] <= values[after] - value ? before : after)
   }
 
   /** Moves the cursor a number of points on, or back. */
@@ -145,12 +166,15 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
     isPlaying,
     isLooping,
     playSeconds,
+    isFollowed,
+    marker,
     range,
     isActive,
     index,
     value,
     span,
     seek,
+    seekValue,
     step,
     play,
     pause,

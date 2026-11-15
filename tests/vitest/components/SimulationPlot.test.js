@@ -10,18 +10,21 @@ vi.mock('uplot', () => {
       Object.assign(this, { options, data, width: options.width, scales: { x: {} } })
       this.root = document.createElement('div')
       this.root.innerHTML = '<div class="u-wrap"></div>'
-      this.over = { offsetLeft: 0, offsetTop: 0 }
+      this.over = { offsetLeft: 0, offsetTop: 0, getBoundingClientRect: () => ({ left: 10 }) }
       this.cursor = { idx: null, left: null }
       this.bbox = { left: 0, top: 0, width: 100, height: 50 }
       const calls = []
       this.calls = calls
       const record = (name) => (...args) => calls.push([name, ...args])
-      this.ctx = { canvas: null, save() {}, restore() {}, clip() {}, rect() {}, beginPath: record('begin'), moveTo: record('move'), lineTo: record('line'), stroke: record('stroke'), setLineDash: record('dash'), arc: record('arc'), fill: record('fill') }
+      this.ctx = { canvas: null, save() {}, restore() {}, clip() {}, rect() {}, beginPath: record('begin'), moveTo: record('move'), lineTo: record('line'), stroke: record('stroke'), setLineDash: record('dash'), arc: record('arc'), fill: record('fill'), fillRect: record('fillRect') }
       target.appendChild(this.root)
       charts.push(this)
     }
     valToPos(value) {
       return value
+    }
+    posToVal(position) {
+      return position
     }
     setData(data) {
       this.data = data
@@ -89,7 +92,7 @@ describe('SimulationPlot: reference lines', () => {
   it('draws them in values after the lines, across a window or up the chart, and fits the values to them', () => {
     wrapper = mountPlot()
     const [chart] = charts
-    expect(chart.options.hooks.draw).toHaveLength(1)
+    expect(chart.options.hooks.draw).toHaveLength(2)
     chart.options.hooks.draw[0](chart)
     expect(chart.calls.filter(([name]) => name !== 'begin')).toEqual([
       ['dash', [6, 4]],
@@ -415,3 +418,50 @@ describe('SimulationPlot: lining up', () => {
   })
 })
 
+
+describe('SimulationPlot: the cursor on the variable of integration', () => {
+  const mountMarked = (marker) => mount(SimulationPlot, { props: { title: 'V', unit: 'mV', x: X, series: SERIES, marker }, attachTo: document.body })
+  const drawn = (chart) => {
+    const { drawClear, draw } = chart.options.hooks
+    for (const hook of [...drawClear, ...draw]) hook(chart)
+    return chart.calls.filter(([name]) => ['fillRect', 'move', 'line'].includes(name))
+  }
+
+  it('draws a line up the chart at the cursor, and dims what lies outside its window', () => {
+    wrapper = mountMarked({ value: 2, from: 1, to: 3 })
+    expect(drawn(charts[0])).toEqual([
+      ['fillRect', 0, 0, 1, 50],
+      ['fillRect', 3, 0, 97, 50],
+      ['fillRect', 0, 0, 1, 50],
+      ['fillRect', 3, 0, 97, 50],
+      ['move', 2, 0],
+      ['line', 2, 50],
+    ])
+  })
+
+  it('marks nothing with the cursor unmoved over the whole run, or with none', () => {
+    wrapper = mountMarked({ value: null, from: null, to: null })
+    expect(drawn(charts[0])).toEqual([])
+    wrapper.unmount()
+    wrapper = mountMarked(null)
+    expect(drawn(charts[1])).toEqual([])
+  })
+
+  it('draws again as the cursor moves', async () => {
+    wrapper = mountMarked({ value: 2, from: null, to: null })
+    await wrapper.setProps({ marker: { value: 3, from: null, to: null } })
+    expect(charts[0].redraws).toEqual([[false, false]])
+  })
+
+  it('moves the cursor with a drag across the chart with alt held, and zooms without', async () => {
+    wrapper = mountMarked({ value: null, from: null, to: null })
+    const { root } = charts[0]
+    root.dispatchEvent(new MouseEvent('mousedown', { clientX: 12, bubbles: true }))
+    expect(wrapper.emitted('seek')).toBeUndefined()
+    root.dispatchEvent(new MouseEvent('mousedown', { clientX: 12, altKey: true, bubbles: true }))
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 13 }))
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 14 }))
+    expect(wrapper.emitted('seek')).toEqual([[2], [3]])
+  })
+})
