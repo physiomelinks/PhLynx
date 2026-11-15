@@ -137,11 +137,17 @@ class TestBioTemplates(unittest.TestCase):
         expect(compartment).to_be_visible()
         assert compartment.bounding_box()["y"] < cell.bounding_box()["y"]
 
-        # Named afterwards, from its menu.
-        compartment.click(button="right", position={"x": 30, "y": 30})
-        page.locator(".p-contextmenu").get_by_text("Rename Compartment…", exact=True).click()
-        page.locator("[data-testid=bio-template-rename-input]").fill("Lumen")
-        page.locator("[data-testid=bio-template-rename-confirm]").click()
+        # Named afterwards as an instance is in the diagram: a click on its name gives a field for it.
+        name = compartment.locator("[data-testid=bio-piece-name]")
+        before = name.bounding_box()
+        name.click()
+        field = page.locator("[data-testid=bio-piece-name-input]")
+        expect(field).to_be_focused()
+        # The name stays where it was as it becomes a field.
+        after = field.bounding_box()
+        assert abs(after["x"] - before["x"]) < 1 and abs(after["y"] - before["y"]) < 1, (before, after)
+        field.fill("Lumen")
+        field.press("Enter")
         expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")).to_be_visible()
 
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):

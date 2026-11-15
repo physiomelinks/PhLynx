@@ -228,13 +228,13 @@
         <BioCouplingEdge v-bind="props" />
       </template>
       <template #node-bioCell="props">
-        <BioCell :data="props.data" :selected="props.selected" :width="props.data.width" :height="props.data.height" />
+        <BioCell :id="props.id" :data="props.data" :selected="props.selected" :width="props.data.width" :height="props.data.height" />
       </template>
       <template #node-bioMembrane="props">
         <BioMembrane :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioRegion="props">
-        <BioRegion :data="props.data" :selected="props.selected" />
+        <BioRegion :id="props.id" :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioProtein="props">
         <BioProtein :data="props.data" :selected="props.selected" />
@@ -300,7 +300,7 @@
       v-if="renaming"
       :visible="true"
       modal
-      :header="renaming.path ? 'Rename' : 'Rename Template'"
+      header="Rename Template"
       :style="{ width: '360px' }"
       class="compact-dialog"
       data-testid="bio-template-rename"
@@ -386,7 +386,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
@@ -1630,20 +1630,37 @@ function liesAgainstMenu(id, role) {
   }
 }
 
-/** Renaming a template instance, or with `path` a piece of it: { id, label, placeholder, path? }. */
+/** Renaming a template instance: { id, label, placeholder }. */
 const renaming = ref(null)
 
 function onRenameConfirm() {
-  const { id, label, path } = renaming.value
+  const { id, label } = renaming.value
   renaming.value = null
-  if (!path) return renameTemplate(id, label)
-  const instance = templateStore.getInstance(id)
-  const template = instance && templateStore.definitions.get(instance.template)
-  if (!template) return
-  const { edits, errors } = labelInEdits(template, instance.edits ?? null, path, label)
-  if (errors.length) return notify.error({ title: 'Could not rename it', message: summariseProblems(errors) })
-  editTemplate(id, edits, 'bio-template-rename-piece')
+  renameTemplate(id, label)
 }
+
+/**
+ * Names a cell or compartment from the field its name becomes on a click: the module on it, as the diagram renames
+ * an instance, or an empty piece of a placed template, in that placement's changes.
+ *
+ * @param {string} id - The piece's node id.
+ * @param {string} name
+ */
+async function renamePiece(id, name) {
+  if (main.findNode(id)) {
+    const error = await renameInstance(id, name)
+    if (error) notify.error({ title: 'Could not rename it', message: error })
+    return
+  }
+  const place = layout.value.get(id)
+  const instance = place?.instance && templateStore.getInstance(place.instance)
+  const template = instance && templateStore.definitions.get(instance.template)
+  if (!template || !place.path) return
+  const { edits, errors } = labelInEdits(template, instance.edits ?? null, place.path, name)
+  if (errors.length) return notify.error({ title: 'Could not rename it', message: summariseProblems(errors) })
+  editTemplate(instance.id, edits, 'bio-template-rename-piece')
+}
+provide('bioRenamePiece', renamePiece)
 
 /** Renaming a diagram instance: { id, name }. */
 const renamingNode = ref(null)
@@ -1806,7 +1823,7 @@ function applyTile(tile, point) {
   const edge = nearestEdge(found.rect, point, EDGES)
   const facet = cell.facets.find((each) => each.edge === edge)
   if (!facet) return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell.' })
-  // Unnamed: Rename Compartment… in its menu names it.
+  // Unnamed: a click on its name names it.
   return addCompartment(found.instance, `${found.path}.${facet.id}`)
 }
 
@@ -2068,16 +2085,6 @@ function templateMenu(instanceId, place = null) {
   const isPiece = place?.instance === instanceId && !!place.path
   return [
     { separator: true },
-    ...(isPiece && (place.kind === 'cell' || place.kind === 'region')
-      ? [
-          {
-            // Told from the Rename… of a module on it.
-            label: place.kind === 'cell' ? 'Rename Cell…' : 'Rename Compartment…',
-            icon: 'pi pi-pencil',
-            command: () => (renaming.value = { id: instanceId, path: place.path, label: place.label ?? '', placeholder: 'Name' }),
-          },
-        ]
-      : []),
     ...(place?.kind === 'cell' && isPiece ? addToCellMenu(instanceId, place.path) : []),
     ...(isPiece ? removeFromTemplateMenu(instanceId, place) : []),
     ...(instance.edits?.removed?.length

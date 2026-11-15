@@ -46,7 +46,7 @@
     </span>
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-cell__label" :style="labelStyle">
-      {{ data.name }}
+      <BioPieceName :id="id" :name="data.name" />
       <small v-if="data.empty" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
@@ -56,9 +56,12 @@
 import { computed } from 'vue'
 import BioBilayer from './BioBilayer.vue'
 import BioHandles from './BioHandles.vue'
+import BioPieceName from './BioPieceName.vue'
 import { HEAD_OFFSET, leafletPath } from '../../services/bioView/geometry'
 
 const props = defineProps({
+  /** Its node id, for renaming it. */
+  id: { type: String, default: null },
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
   width: { type: Number, required: true },

@@ -10,7 +10,7 @@
   >
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-region__label">
-      {{ data.name }}
+      <BioPieceName :id="id" :name="data.name" />
       <small v-if="data.empty" class="bio-region__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
@@ -19,10 +19,13 @@
 <script setup>
 import { computed } from 'vue'
 import BioHandles from './BioHandles.vue'
+import BioPieceName from './BioPieceName.vue'
 import { partOf } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, facetById } from '../../services/bioView/shape'
 
 const props = defineProps({
+  /** Its node id, for renaming it. */
+  id: { type: String, default: null },
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
 })
