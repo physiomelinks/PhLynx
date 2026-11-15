@@ -87,4 +87,28 @@ describe('the species playback bar', () => {
     expect(cursor.isFollowed).toBe(false)
     wrapper = mount(SpeciesPlaybackBar, { global: { plugins: [PrimeVue], directives: { tooltip: Tooltip }, stubs: { Popover } } })
   })
+
+  it('reads every point out to the same length, so the bar keeps its width, and goes back to the start', async () => {
+    useSimulationResultsStore().results = {
+      voi: { name: 't', unit: 's', values: Float64Array.from([0, 0.25, 0.5, 0.75, 1]) },
+      variables: new Map(),
+    }
+    await wrapper.vm.$nextTick()
+    const texts = []
+    for (const point of ['0', '1', '2', '4']) {
+      await find('bio-species-scrubber').setValue(point)
+      texts.push(find('bio-species-voi').text())
+    }
+    expect(texts).toEqual(['t = 0.00 s', 't = 0.25 s', 't = 0.50 s', 't = 1.00 s'])
+    expect(find('bio-species-voi').attributes('style')).toContain('min-width: 10ch')
+    await find('bio-species-rewind').trigger('click')
+    expect(cursor.index).toBe(0)
+  })
+
+  it('sets what a path’s width is compared with, and whether brief spikes set the scale', async () => {
+    expect(cursor.flowScale).toEqual({ group: 'species', spikes: false })
+    await find('bio-species-width-group').setValue('path')
+    await find('bio-species-width-spikes').setValue(true)
+    expect(cursor.flowScale).toEqual({ group: 'path', spikes: true })
+  })
 })

@@ -555,7 +555,7 @@ const { bioNodes, couplingEdges, layout, roles, sites, hasSpecies, species, spec
   useBioNodes(
   main.nodes,
   main.edges,
-  { speciesMode, voiCursor }
+  { speciesMode, voiCursor, flowScale: computed(() => cursor.flowScale) }
 )
 const {
   applyPlan,

@@ -697,3 +697,39 @@ describe('species drawn while something is dragged', () => {
     expect(drawn.dependences[0].end).toEqual(species.dependences[0].end)
   })
 })
+
+describe('the flow drawn widest for each species', () => {
+  it('is nearly the largest of the species’ own flows over the stretch, whatever a few points above it are', async () => {
+    const { flowScales } = await import('../../../../src/services/bioView/speciesLayout.js')
+    // A spike at the first point, as a solver's first step gives, over a flow that rises to 2.
+    const calcium = Float64Array.from({ length: 1000 }, (_, i) => (i === 0 ? 1e9 : (-2 * i) / 999))
+    const sodium = Float64Array.from({ length: 1000 }, () => 500)
+    const lcc = { key: 'lcc', species: 'Ca', values: calcium }
+    const ncx = { key: 'ncx', species: 'Ca', values: calcium.map((value, i) => (i === 0 ? 0 : value / 4)) }
+    const channel = { key: 'na', species: 'Na', values: sodium }
+    const flows = [lcc, ncx, channel]
+    const bySpecies = flowScales(flows, [0, 999])
+    expect(bySpecies(lcc)).toBeGreaterThan(1.9)
+    expect(bySpecies(lcc)).toBeLessThanOrEqual(2)
+    expect(bySpecies(ncx)).toBe(bySpecies(lcc))
+    expect(bySpecies(channel)).toBe(500)
+    // Over a stretch where it flows at one point alone, that point's size.
+    const one = { key: 'one', species: 'Ca', values: Float64Array.from([0, 0, 3, 0]) }
+    expect(flowScales([one], [0, 3])(one)).toBe(3)
+    expect(flowScales([{ ...one, values: Float64Array.from([0, 0]) }], [0, 1])(one)).toBe(0)
+  })
+
+  it('compares each path with itself or with every flow instead, and scales to spikes when asked', async () => {
+    const { flowScales } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const big = { key: 'big', species: 'Ca', values: Float64Array.from({ length: 200 }, (_, i) => (i === 0 ? 1000 : 8)) }
+    const small = { key: 'small', species: 'Ca', values: Float64Array.from({ length: 200 }, () => 2) }
+    const other = { key: 'other', species: 'Na', values: Float64Array.from({ length: 200 }, () => 50) }
+    const flows = [big, small, other]
+    const byPath = flowScales(flows, [0, 199], { group: 'path' })
+    expect([byPath(big), byPath(small), byPath(other)]).toEqual([8, 2, 50])
+    const overall = flowScales(flows, [0, 199], { group: 'all' })
+    expect([overall(big), overall(small), overall(other)]).toEqual([50, 50, 50])
+    const spiked = flowScales(flows, [0, 199], { group: 'species', spikes: true })
+    expect([spiked(big), spiked(small), spiked(other)]).toEqual([1000, 1000, 50])
+  })
+})

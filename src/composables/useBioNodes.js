@@ -7,7 +7,7 @@ import { flowDirection, transportedSpecies } from '../services/bioView/transport
 import { facePoint, handleFace } from '../services/bioView/faces'
 import { getGlyph } from '../services/bioView/glyphs'
 import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/species'
-import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, routeSpecies } from '../services/bioView/speciesLayout'
+import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, flowScales, routeSpecies } from '../services/bioView/speciesLayout'
 import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
@@ -489,7 +489,7 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
  *   `species` is the species network and where it is drawn, while species mode is on; `speciesOrderPreview` places
  *   one compartment's tokens in an order of the caller's.
  */
-export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), voiCursor = ref(null) } = {}) {
+export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), voiCursor = ref(null), flowScale = ref(null) } = {}) {
   const libraryStore = useLibraryStore()
   const templateStore = useBioTemplateStore()
   const simulationResults = useSimulationResultsStore()
@@ -611,29 +611,23 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
     for (const path of network.paths) {
       const crossing = crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
       const values = crossing && valuesOf(path.protein, crossing.variable)
-      if (values) flows.set(path, { values, isFlipped: crossing.inward < 0 })
+      if (values) flows.set(path, { values, isFlipped: crossing.inward < 0, species: path.species })
     }
     // A process's exchange with a compartment names its own flow, and which sign gives the species away.
     for (const exchange of network.exchanges ?? []) {
       const values = valuesOf(exchange.process, exchange.variable)
-      if (values) flows.set(exchange, { values, isFlipped: exchange.produces > 0 })
+      if (values) flows.set(exchange, { values, isFlipped: exchange.produces > 0, species: exchange.species })
     }
     return flows
   })
-  // The largest of those flows over the stretch of the run the cursor plays, so a path keeps its width's meaning
-  // from one point to the next. Worked out once for the stretch, not at each point.
+  // The flow drawn widest for each species over the stretch of the run the cursor plays, so a path keeps its width's
+  // meaning from one point to the next. Worked out once for the stretch, not at each point.
   const largestFlow = computed(() => {
     const range = unref(voiCursor)?.range
     if (!range || !speciesFlows.value) return null
-    let largest = 0
-    for (const { values } of speciesFlows.value.values()) {
-      const end = Math.min(range[1], values.length - 1)
-      for (let index = Math.max(0, range[0]); index <= end; index++) {
-        const size = Math.abs(values[index])
-        if (size > largest) largest = size
-      }
-    }
-    return largest
+    const flows = [...speciesFlows.value].map(([key, flow]) => ({ key, ...flow }))
+    const scaleOf = flowScales(flows, range, unref(flowScale) ?? undefined)
+    return (source) => scaleOf({ key: source, species: source.species })
   })
   // ...and its paths, which go the way the latest run took them at the cursor: its end, until that is moved.
   const species = computed(() => {

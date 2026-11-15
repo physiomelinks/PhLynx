@@ -117,4 +117,12 @@ describe('the VoI cursor', () => {
     cursor.seekValue(99)
     expect(cursor.index).toBe(3)
   })
+
+  it('goes back to the window’s start with one step, and stops playing', () => {
+    cursor.setWindow({ from: 1, to: 3 })
+    cursor.seek(3)
+    cursor.play()
+    cursor.rewind()
+    expect([cursor.index, cursor.isPlaying]).toEqual([1, false])
+  })
 })

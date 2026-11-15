@@ -18,6 +18,17 @@
       @click="cursor.isPlaying ? cursor.pause() : cursor.play()"
     />
     <Button
+      icon="pi pi-fast-backward"
+      size="small"
+      text
+      rounded
+      aria-label="Back to the start"
+      v-tooltip.top="cursor.window ? 'Back to the start of the window' : 'Back to the start of the run'"
+      :disabled="cursor.index <= cursor.range[0]"
+      data-testid="bio-species-rewind"
+      @click="cursor.rewind()"
+    />
+    <Button
       icon="pi pi-step-backward"
       size="small"
       text
@@ -49,7 +60,9 @@
       data-testid="bio-species-scrubber"
       @input="scrub($event.target.value)"
     />
-    <output class="species-playback__readout" data-testid="bio-species-voi">{{ readout }}</output>
+    <output class="species-playback__readout" :style="{ minWidth: `${readoutWidth}ch` }" data-testid="bio-species-voi">{{
+      readout
+    }}</output>
     <Button
       icon="pi pi-sync"
       size="small"
@@ -102,6 +115,27 @@
           />
         </label>
         <fieldset class="species-playback__window">
+          <legend>Arrow widths</legend>
+          <label class="species-playback__field">
+            <span>Compare</span>
+            <select v-model="cursor.flowScale.group" class="species-playback__wide" data-testid="bio-species-width-group">
+              <option v-for="option in WIDTH_GROUPS" :key="option.group" :value="option.group">{{ option.label }}</option>
+            </select>
+          </label>
+          <p class="species-playback__note">{{ WIDTH_GROUPS.find((option) => option.group === cursor.flowScale.group).note }}</p>
+          <label class="species-playback__check">
+            <input v-model="cursor.flowScale.spikes" type="checkbox" data-testid="bio-species-width-spikes" />
+            Scale to brief spikes
+          </label>
+          <p class="species-playback__note">
+            {{
+              cursor.flowScale.spikes
+                ? 'The largest flow in the window is the widest, however briefly it lasts. A start-up transient counts too: set the window past it.'
+                : 'The few largest points are drawn as wide as the rest of the largest, so they don’t flatten everything else.'
+            }}
+          </p>
+        </fieldset>
+        <fieldset class="species-playback__window">
           <legend>Window ({{ unitLabel }})</legend>
           <label class="species-playback__field">
             <span>From</span>
@@ -149,6 +183,13 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { latestChartZoom } from '../../services/simulation/chartZoom'
 import { useVoiCursorStore } from '../../stores/voiCursorStore'
 
+/** What a path's width can be compared with, and what each shows. */
+const WIDTH_GROUPS = [
+  { group: 'species', label: 'Within each species', note: 'A path against the flows of its own species: which of a species’ paths carries most, and when.' },
+  { group: 'path', label: 'Each path with itself', note: 'A path against its own flow alone: every path’s own course, however small beside the others.' },
+  { group: 'all', label: 'Across all paths', note: 'Every path against every flow: which species and paths carry most overall.' },
+]
+
 /** The times the whole window can be played in, in seconds. */
 const PLAY_SECONDS = [5, 10, 30, 60]
 
@@ -160,7 +201,23 @@ const plotZoom = ref(null)
 /** A number short enough to read, as it is shown and typed. */
 const trim = (value) => Number(value.toPrecision(4))
 const unitLabel = computed(() => cursor.voi.unit || cursor.voi.name)
-const readout = computed(() => `${cursor.voi.name} = ${trim(cursor.value)}${cursor.voi.unit ? ` ${cursor.voi.unit}` : ''}`)
+/**
+ * How many decimals tell one point of the window from the next, so every point is read out to the same number of
+ * them and the bar keeps its width as the cursor moves.
+ */
+const decimals = computed(() => {
+  const points = cursor.range[1] - cursor.range[0]
+  const step = points > 0 ? (cursor.span.to - cursor.span.from) / points : 0
+  if (!(step > 0)) return 0
+  const places = Math.max(0, Math.ceil(-Math.log10(step)))
+  // One more where the step isn't a whole number of the last place, as 0.25 isn't of tenths.
+  const scaled = step * 10 ** places
+  return Math.min(8, Math.abs(scaled - Math.round(scaled)) > 1e-6 ? places + 1 : places)
+})
+const readoutOf = (value) => `${cursor.voi.name} = ${value.toFixed(decimals.value)}${cursor.voi.unit ? ` ${cursor.voi.unit}` : ''}`
+const readout = computed(() => readoutOf(cursor.value))
+/** The longest the readout gets over the window, in characters: room kept for it whichever point is shown. */
+const readoutWidth = computed(() => Math.max(readoutOf(cursor.span.from).length, readoutOf(cursor.span.to).length))
 /** The preset times, with the one set by a rate of the user's among them. */
 const playTimes = computed(() => [...new Set([...PLAY_SECONDS, cursor.playSeconds])].sort((a, b) => a - b))
 /** How much of the VoI a second of playing covers. */
@@ -249,7 +306,6 @@ onBeforeUnmount(() => {
 }
 
 .species-playback__readout {
-  min-width: 6.5rem;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: var(--p-text-color);
@@ -298,6 +354,24 @@ onBeforeUnmount(() => {
 .species-playback__window-actions {
   display: flex;
   justify-content: space-between;
+}
+
+.species-playback__wide.species-playback__wide {
+  width: 10.5rem;
+}
+
+.species-playback__note {
+  max-width: 17rem;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--p-text-muted-color);
+}
+
+.species-playback__check {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
 }
 
 .species-playback__window legend {

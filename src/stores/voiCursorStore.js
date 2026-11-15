@@ -44,6 +44,11 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
   const isLooping = ref(false)
   /** How long playing the whole window takes, in seconds. */
   const playSeconds = ref(DEFAULT_PLAY_SECONDS)
+  /**
+   * What a flow's width is compared with as the run is played, and whether brief spikes set the scale: see
+   * flowScales. `group` is 'species', 'path' or 'all'.
+   */
+  const flowScale = ref({ group: 'species', spikes: false })
   /** Whether a view is following the cursor and offering its playback, as species mode does. */
   const isFollowed = ref(false)
 
@@ -100,6 +105,13 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
     const after = Math.min(before + 1, values.length - 1)
     isPlaying.value = false
     seek(value - values[before] <= values[after] - value ? before : after)
+  }
+
+  /** Puts the cursor back at the window's start, and stops playing. */
+  function rewind() {
+    if (!range.value) return
+    isPlaying.value = false
+    seek(range.value[0])
   }
 
   /** Moves the cursor a number of points on, or back. */
@@ -166,6 +178,7 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
     isPlaying,
     isLooping,
     playSeconds,
+    flowScale,
     isFollowed,
     marker,
     range,
@@ -175,6 +188,7 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
     span,
     seek,
     seekValue,
+    rewind,
     step,
     play,
     pause,

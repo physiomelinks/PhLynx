@@ -28,6 +28,57 @@ const WIDTH = { min: 1.5, max: 5 }
 /** How many widths a path can have between the least and the most. */
 const WIDTH_STEPS = 14
 
+/**
+ * The share of the flows compared, over a stretch of a run, that the widest path stands for when brief spikes are
+ * left out: the few points above it, as a solver's first step or an upstroke are, are drawn as wide and no wider, so
+ * they don't flatten the rest.
+ */
+export const FLOW_SCALE_QUANTILE = 0.99
+
+/**
+ * What a path's width is compared with, each telling something else: 'species', the flows of its own species, so
+ * one with small flows isn't drawn thin beside one with large; 'path', its own flow alone, so every path shows its
+ * own course; 'all', every flow, so the paths that carry most stand out.
+ */
+export const FLOW_SCALE_GROUPS = Object.freeze(['species', 'path', 'all'])
+
+/**
+ * Gives the size of flow drawn widest over a stretch of a run, for each group of flows compared with one another, so
+ * a width means the same from one point to the next.
+ *
+ * @param {Iterable<{key: *, species: string, values: ArrayLike<number>}>} flows - Each path's or exchange's flow over
+ *   the run, and what it is known by.
+ * @param {number[]} range - The stretch's first and last points.
+ * @param {Object} [options]
+ * @param {'species'|'path'|'all'} [options.group='species'] - See FLOW_SCALE_GROUPS.
+ * @param {boolean} [options.spikes=false] - Whether the largest size sets the scale, brief spikes and all, in place
+ *   of FLOW_SCALE_QUANTILE of the sizes.
+ * @returns {(flow: {key: *, species: string}) => number} The size drawn widest for a flow; 0 where nothing flows.
+ */
+export function flowScales(flows, [first, last], { group = 'species', spikes = false } = {}) {
+  const groupOf = (flow) => (group === 'all' ? 'all' : group === 'path' ? flow.key : flow.species)
+  const sizes = new Map()
+  for (const flow of flows) {
+    const { values } = flow
+    const name = groupOf(flow)
+    const end = Math.min(last, values.length - 1)
+    const own = sizes.get(name) ?? sizes.set(name, []).get(name)
+    for (let index = Math.max(0, first); index <= end; index++) {
+      const size = Math.abs(values[index])
+      if (Number.isFinite(size)) own.push(size)
+    }
+  }
+  const scales = new Map()
+  for (const [name, own] of sizes) {
+    const sorted = Float64Array.from(own).sort()
+    const most = sorted[sorted.length - 1] ?? 0
+    // The size at the quantile, or the largest where so few points flow that it is none.
+    const at = spikes ? most : (sorted[Math.min(sorted.length - 1, Math.floor(FLOW_SCALE_QUANTILE * sorted.length))] ?? 0)
+    scales.set(name, at > 0 ? at : most)
+  }
+  return (flow) => scales.get(groupOf(flow)) ?? 0
+}
+
 /** The radius of the open circle a dependence link ends in at its protein (SBGN's modulation). */
 export const DEPENDENCE_END = 4
 
@@ -827,8 +878,9 @@ export function chipOrder(tokens, key, along) {
  * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {Array<Object>} tokens - From placeSpeciesTokens.
  * @param {Object} [options] - facesOf, arrowsOf and flowOf, as for layoutSpecies.
- * @param {number|null} [options.largest] - The flow drawn widest; the largest of those drawn, unless given, as
- *   when one point of a run is drawn to compare with its others.
+ * @param {number|((source: Object) => number)|null} [options.largest] - The flow drawn widest, for every path or
+ *   for each (asked of the network's own path or exchange); the largest of those drawn, unless given, as when one
+ *   point of a run is drawn to compare with its others. A larger flow is drawn as wide.
  * @returns {{paths: Array<Object>, dependences: Array<Object>}} Each with the `ends` its legs were drawn between,
  *   so driftSpecies can redraw a leg alone.
  */
@@ -866,8 +918,9 @@ export function routeSpecies(
   const largest =
     largestGiven ?? Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
   // In WIDTH_STEPS steps, so a flow followed through a run redraws its arrowheads only as it changes visibly.
-  const widthOf = (flow) => {
-    const share = largest > 0 && flow?.size ? Math.min(1, Math.sqrt(Math.abs(flow.size) / largest)) : 0
+  const widthOf = (flow, source) => {
+    const most = typeof largest === 'function' ? largest(source) : largest
+    const share = most > 0 && flow?.size ? Math.min(1, Math.sqrt(Math.abs(flow.size) / most)) : 0
     return WIDTH.min + ((WIDTH.max - WIDTH.min) * Math.round(share * WIDTH_STEPS)) / WIDTH_STEPS
   }
   const paths = []
@@ -882,7 +935,7 @@ export function routeSpecies(
     const out = facePoint(place, 'outside', size, anchors, offset)
     const into = facePoint(place, 'inside', size, anchors, offset)
     const flow = flows[index]
-    const width = widthOf(flow)
+    const width = widthOf(flow, path)
     const head = flow?.direction ? arrowHead(width) : 0
     paths.push({
       key: `${path.protein}::${path.species}::${path.outside}::${path.inside}`,
@@ -908,7 +961,7 @@ export function routeSpecies(
   // the process into the compartment, or 'in' to it.
   for (const [index, exchange] of exchanges.entries()) {
     const flow = exchangeFlows[index]
-    const width = widthOf(flow)
+    const width = widthOf(flow, exchange.source)
     const face = cardFace.get(exchange.id)
     const toToken = flow?.direction === 'out'
     paths.push({
