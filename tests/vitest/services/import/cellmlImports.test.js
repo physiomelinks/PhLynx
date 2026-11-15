@@ -176,4 +176,14 @@ describe('resolveCellmlImports', () => {
     expect(notify.warning).toHaveBeenCalledTimes(1)
     expect(notify.warning.mock.calls[0][0].message).toContain('orphan.cellml: units flow, fA from missing.cellml: file not found')
   })
+
+  it('reports component imports as a notice, not as unresolved units', async () => {
+    vi.clearAllMocks()
+    const assembled = model('cell', '<import xlink:href="NCX.cellml"><component name="exchanger" component_ref="NCX"/></import>')
+    await resolveCellmlImports([{ name: 'cell.cellml', path: 'reference/cell.cellml', content: assembled }])
+
+    expect(notify.warning).not.toHaveBeenCalled()
+    expect(notify.info).toHaveBeenCalledWith(expect.objectContaining({ title: 'Component Imports Not Supported Yet' }))
+    expect(notify.info.mock.calls[0][0].message).toContain('reference/cell.cellml: 1 imported component left out')
+  })
 })

@@ -233,7 +233,7 @@ export function buildBatchSummary({
   for (const { name, issues } of importIssues) {
     lines.push(`Unresolved in ${escapeHtml(name)}: ${issues.map(escapeHtml).join('; ')}`)
   }
-  if (importIssues.length) {
+  if (importIssues.some(({ issues }) => issues.some((issue) => issue.startsWith('units ')))) {
     lines.push('Unresolved units are looked up by name in the other loaded units files.')
   }
 

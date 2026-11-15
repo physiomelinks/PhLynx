@@ -1,6 +1,7 @@
 import { useVueFlow } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
+import { useFileDrop } from './useFileDrop'
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
@@ -42,6 +43,19 @@ export function useCellmlDrop({
   flowId = FLOW_IDS.MAIN,
 }) {
   const { addEdges, addNodes, nodes, toObject } = useVueFlow(flowId)
+  const { filesFromDataTransfer } = useFileDrop()
+
+  /**
+   * An entry's CellML text.
+   *
+   * @param {File|{ file?: File, content?: string }} entry
+   * @returns {Promise<string>}
+   */
+  const readEntry = (entry) => {
+    if (entry instanceof File) return readFileAsText(entry)
+    if (entry.file) return readFileAsText(entry.file)
+    return entry.content
+  }
 
   /** True while files from the OS are dragged over the workspace. */
   const isFileDragOver = ref(false)
@@ -75,8 +89,9 @@ export function useCellmlDrop({
   }
 
   /**
-   * Load an array of CellML entries, each being either a browser File object or a
-   * plain `{ name, content }` object (used when content is already in memory).
+   * Load an array of CellML entries, each being a browser File, a `{ name, path, file }` from a
+   * dropped folder or zip, or a `{ name, path?, content }` already in memory. Paths are relative to
+   * what was dropped and let CellML imports resolve against the other files.
    *
    * If a single file contains inter-component connections it is treated as a
    * connection graph and loaded into the workspace via loadFromCellML.
@@ -89,8 +104,8 @@ export function useCellmlDrop({
     // Single-file fast path: check for connections and load as a graph if present
     if (entries.length === 1) {
       const entry = entries[0]
-      const text = entry instanceof File ? await readFileAsText(entry) : entry.content
-      const [resolved] = await resolveCellmlImports([{ name: entry.name, content: text }])
+      const text = await readEntry(entry)
+      const [resolved] = await resolveCellmlImports([{ name: entry.name, path: entry.path, content: text }])
       const content = prepareCellmlImport(resolved, entry.name)
       const parsedCellmlPayload = parseCellMLConnections(content, entry.name)
 
@@ -176,7 +191,7 @@ export function useCellmlDrop({
     const texts = await Promise.all(
       entries.map(async (entry, index) => {
         try {
-          return entry instanceof File ? await readFileAsText(entry) : entry.content
+          return await readEntry(entry)
         } catch {
           unreadable.add(index)
           return null
@@ -184,7 +199,9 @@ export function useCellmlDrop({
       })
     )
     // Prepared together, so imports resolve against the other files and the batch gets one notice of each kind.
-    const resolved = await resolveCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: texts[index] })))
+    const resolved = await resolveCellmlImports(
+      entries.map((entry, index) => ({ name: entry.name, path: entry.path, content: texts[index] }))
+    )
     const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
     const results = await Promise.all(
       entries.map(async (entry, index) => {
@@ -275,6 +292,8 @@ export function useCellmlDrop({
     const files = event.dataTransfer?.files
     if (files && files.length > 0) {
       event.preventDefault()
+      // Read before anything else is awaited: the drop's items are only readable during the event.
+      const droppedPromise = filesFromDataTransfer(event.dataTransfer)
 
       if (loadingMessage.value) {
         notify.info({
@@ -284,14 +303,18 @@ export function useCellmlDrop({
         return
       }
 
-      const cellmlFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.cellml'))
-
-      const omexFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.omex'))
+      // Folders are walked and zips opened; loose files keep their names as paths.
+      const dropped = await droppedPromise
+      const hasExtension = (extension) => (entry) => entry.file.name.toLowerCase().endsWith(extension)
+      const cellmlFiles = dropped
+        .filter(hasExtension('.cellml'))
+        .map(({ file, path }) => ({ name: file.name, path, file }))
+      const omexFiles = dropped.filter(hasExtension('.omex')).map(({ file }) => file)
 
       if (cellmlFiles.length === 0 && omexFiles.length === 0) {
         notify.warning({
           title: 'Unsupported File Type',
-          message: 'Only .cellml and .omex files can be dropped onto the workspace.',
+          message: 'Only .cellml and .omex files, or folders and zips holding them, can be dropped onto the workspace.',
         })
         return
       }

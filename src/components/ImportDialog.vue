@@ -720,11 +720,12 @@ function isFilePresent(filename) {
  * @param {string} filename
  * @param {any} payload - Parsed file contents.
  */
-function setFieldFile(field, filename, payload) {
+function setFieldFile(field, filename, payload, path = filename) {
   if (!formState[field.key]) {
     formState[field.key] = createEmptyFieldState()
   }
-  formState[field.key].files.set(filename, { isValid: true, payload })
+  // The path lets CellML imports be resolved against the other files later.
+  formState[field.key].files.set(filename, { isValid: true, payload, path })
   if (!isFieldVisible(field.key)) {
     dynamicFields.value.push(field)
   }
@@ -766,7 +767,7 @@ async function parseEntries(entries, candidates, sourceEntries = entries) {
   for (const { file, path } of entries) {
     const result = await parseForRole(file, candidates, libraryStore, { path: path ?? file.name, source })
     if (!result.error) {
-      parsed.push({ ...result, file })
+      parsed.push({ ...result, file, path: path ?? file.name })
     } else if (result.skip) {
       skipped.push({ name: file.name, reason: result.error })
     } else {
@@ -788,7 +789,7 @@ function commitParsedFiles(parsed, skipped, { onlyRequiredCellML = false } = {})
   const placed = []
   const byKey = (key) => parsed.filter((result) => result.key === key)
   const place = (result) => {
-    setFieldFile(result.field, result.file.name, result.data)
+    setFieldFile(result.field, result.file.name, result.data, result.path)
     placed.push({ name: result.file.name, key: result.key })
   }
 

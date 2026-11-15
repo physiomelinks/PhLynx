@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCellmlDrop } from '../../../src/composables/useCellmlDrop.js'
 import { importOmexFile } from '../../../src/services/import/omex'
 import { parseCellMLConnections } from '../../../src/services/import/parseCellmlConnections'
-import { prepareCellmlImport, prepareCellmlImports } from '../../../src/services/import/prepareCellml'
+import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../../../src/services/import/prepareCellml'
 import { loadParametersFromCellML } from '../../../src/utils/cellml'
 import { readFileAsText } from '../../../src/utils/misc'
 import { notify } from '../../../src/utils/notify'
@@ -478,7 +478,7 @@ describe('useCellmlDrop', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(notify.warning).toHaveBeenCalledWith({
         title: 'Unsupported File Type',
-        message: 'Only .cellml and .omex files can be dropped onto the workspace.',
+        message: 'Only .cellml and .omex files, or folders and zips holding them, can be dropped onto the workspace.',
       })
       expect(deps.loadCellMLData).not.toHaveBeenCalled()
       expect(deps.onDropModule).not.toHaveBeenCalled()
@@ -504,6 +504,27 @@ describe('useCellmlDrop', () => {
 
       expect(notify.warning).toHaveBeenCalledTimes(1)
       expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Unsupported File Type' }))
+    })
+
+    it('walks a dropped folder and resolves imports by the paths inside it', async () => {
+      const fileEntry = (name) => ({ name, isFile: true, isDirectory: false, file: (resolve) => resolve(file(name)) })
+      const dirEntry = (name, children) => {
+        const queue = [children]
+        return { name, isFile: false, isDirectory: true, createReader: () => ({ readEntries: (resolve) => resolve(queue.shift() ?? []) }) }
+      }
+      const folder = dirEntry('CellML', [dirEntry('math', [fileEntry('NCX.cellml')]), dirEntry('units', [fileEntry('u.cellml')])])
+      readFileAsText.mockResolvedValue('<model/>')
+      const event = makeEvent({ files: [file('CellML')] })
+      event.dataTransfer.items = [{ webkitGetAsEntry: () => folder }]
+
+      await drop.onDrop(event)
+
+      expect(resolveCellmlImports).toHaveBeenCalledWith([
+        { name: 'NCX.cellml', path: 'CellML/math/NCX.cellml', content: '<model/>' },
+        { name: 'u.cellml', path: 'CellML/units/u.cellml', content: '<model/>' },
+      ])
+      expect(deps.loadCellMLData).toHaveBeenCalledTimes(2)
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<model/>', 'NCX.cellml', { notify: false })
     })
 
     it('loads .cellml files case-insensitively and ignores other dropped files', async () => {

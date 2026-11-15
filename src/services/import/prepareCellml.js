@@ -5,7 +5,8 @@ import { createMapSource, describeImportIssues, inlineUnitsImports } from './cel
 
 /**
  * Inlines the units imports of CellML files loaded together, looking each import up among the
- * other files by path and then by name, with one notice for every import that stays unresolved.
+ * other files by path and then by name. Units that stay unresolved get one warning for the batch;
+ * component imports, which are not resolved yet, get one notice.
  *
  * @param {Array<{name: string, path?: string, content: string|null}>} files - Null content is passed through.
  * @returns {Promise<Array<string|null>>} Each file's CellML, in order.
@@ -13,7 +14,8 @@ import { createMapSource, describeImportIssues, inlineUnitsImports } from './cel
 export async function resolveCellmlImports(files) {
   const pathOf = (file) => file.path ?? file.name
   const source = createMapSource(files.filter((file) => file.content != null).map((file) => [pathOf(file), file.content]))
-  const unresolved = []
+  const unresolvedUnits = []
+  const componentImports = []
   const resolved = []
   for (const file of files) {
     if (file.content == null) {
@@ -21,13 +23,31 @@ export async function resolveCellmlImports(files) {
       continue
     }
     const { cellml, issues } = await inlineUnitsImports(file.content, pathOf(file), source)
-    if (issues.length) unresolved.push(`${escapeHtml(file.name)}: ${describeImportIssues(issues).map(escapeHtml).join('; ')}`)
+    const unitsIssues = issues
+      .filter((issue) => issue.units.length)
+      .map((issue) => ({ ...issue, components: [] }))
+    if (unitsIssues.length) {
+      unresolvedUnits.push(`${escapeHtml(pathOf(file))}: ${describeImportIssues(unitsIssues).map(escapeHtml).join('; ')}`)
+    }
+    const components = issues.flatMap((issue) => issue.components)
+    if (components.length) componentImports.push({ file: pathOf(file), components })
     resolved.push(cellml)
   }
-  if (unresolved.length) {
+  if (unresolvedUnits.length) {
     notify.warning({
-      title: 'Some Imports Not Resolved',
-      message: [...unresolved, 'Unresolved units are looked up by name in the other loaded units files.'].join('<br>'),
+      title: 'Some Units Not Resolved',
+      message: [...unresolvedUnits, 'These units are looked up by name in the other loaded units files.'].join('<br>'),
+    })
+  }
+  if (componentImports.length) {
+    const lines = componentImports.map(
+      ({ file, components }) =>
+        `${escapeHtml(file)}: ${components.length} imported component${components.length === 1 ? '' : 's'} left out`
+    )
+    notify.info({
+      title: 'Component Imports Not Supported Yet',
+      message: [...lines, 'Load the files they import to use those components.'].join('<br>'),
+      duration: 6000,
     })
   }
   return resolved

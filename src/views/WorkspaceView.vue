@@ -1702,6 +1702,7 @@ async function runImportConfirm(importPayload, updateProgress) {
   } else if (currentImportMode.value.key === IMPORT_KEYS.CELLML_FILE) {
     const entries = [...importPayload.get(IMPORT_KEYS.CELLML_FILE)].map(([name, data]) => ({
       name,
+      path: data?.path,
       content: data?.payload,
     }))
     await loadCellMLFiles(entries)
