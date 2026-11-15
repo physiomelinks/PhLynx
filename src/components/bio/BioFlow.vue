@@ -245,6 +245,8 @@
         <BioTemplateTitle :data="props.data" />
       </template>
     </VueFlow>
+    <!-- Species mode after a run: play its flows through the run, or scrub to a point of it -->
+    <SpeciesPlaybackBar v-if="isSpeciesOn && species" />
     <div
       v-if="pointerLabel"
       class="bio-drop-label"
@@ -393,6 +395,7 @@ import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import BioTemplateTitle from './BioTemplateTitle.vue'
 import SpeciesMenu from './SpeciesMenu.vue'
+import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'

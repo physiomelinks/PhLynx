@@ -103,6 +103,21 @@ def coupling_pairs(flow):
     return sorted(pairs)
 
 
+# Gives the app a finished run of eleven points, t = 0..10 s, in which every given node's v_A_i goes 1, 0.8 ... -1.
+RUN_WITH_FALLING_FLOWS = """(ids) => {
+    const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationResults')
+    const t = Float64Array.from({ length: 11 }, (_, i) => i)
+    const variables = new Map()
+    const mapping = new Map()
+    for (const id of ids) {
+        variables.set(`${id}/v_A_i`, { kind: 'algebraic', unit: 'mol/s', values: t.map((x) => (5 - x) / 5) })
+        mapping.set(`${id}::v_A_i`, `${id}/v_A_i`)
+    }
+    store.mapping = mapping
+    store.results = { voi: { name: 't', unit: 's', values: t }, variables }
+}"""
+
+
 def piece(page, path):
     """An empty piece of the placed template, by its path in the template ('cell', 'apical-fluid', ...)."""
     return page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/{path}"]')
@@ -534,6 +549,41 @@ class TestAnnotationCoupling(unittest.TestCase):
         exchange = paths.and_(page.locator(f'[data-protein="{card.get_attribute("data-id")}"]'))
         expect(exchange).to_have_count(1)
         expect(exchange.locator(".bio-species-leg")).to_have_count(1)
+
+    def test_species_mode_scrubs_and_plays_a_run_s_flows(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        self.place_cell_pool()
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        self.show_species("Coupled Species", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
+        bar = page.locator("[data-testid=bio-species-playback]")
+        expect(bar).to_have_count(0)
+
+        # A run in which each porter's flow into the cell falls from 1 through nothing to -1.
+        page.evaluate(RUN_WITH_FALLING_FLOWS, [n["id"] for n in self.flow()["nodes"]])
+        expect(bar).to_be_visible()
+        readout = page.locator("[data-testid=bio-species-voi]")
+        expect(readout).to_have_text("t = 10 s")
+        apical = page.locator("[data-testid=bio-species-path]").first
+        expect(apical).to_have_attribute("data-direction", "out")
+
+        scrubber = page.locator("[data-testid=bio-species-scrubber]")
+        scrubber.fill("0")
+        expect(readout).to_have_text("t = 0 s")
+        expect(apical).to_have_attribute("data-direction", "in")
+        scrubber.fill("5")
+        expect(readout).to_have_text("t = 5 s")
+        expect(apical).to_have_attribute("data-direction", "")
+
+        # Played, the cursor moves on by itself; the way back shows the end of the run again.
+        scrubber.fill("0")
+        page.locator("[data-testid=bio-species-play]").click()
+        expect(readout).not_to_have_text("t = 0 s")
+        page.locator("[data-testid=bio-species-play]").click()
+        page.locator("[data-testid=bio-species-playback-reset]").click()
+        expect(readout).to_have_text("t = 10 s")
 
     def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
         page = self.page
