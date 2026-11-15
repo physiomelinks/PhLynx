@@ -111,6 +111,58 @@ class TestBioTemplates(unittest.TestCase):
         page.locator(".mlc__group-header").first.click()
         expect(page.locator(LIBRARY_CARD).nth(2)).to_be_visible()
 
+    def test_the_build_palette_builds_a_cell_with_a_compartment_beside_it(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=bio-palette-toggle]").click()
+
+        # An empty cell dropped on the view, as a template's: there to drop a module on.
+        page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
+            pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.45}
+        )
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+        expect(cell).to_contain_text("Drop a module")
+
+        # A compartment dropped above it lies against its top side.
+        spot = cell.bounding_box()
+        page.locator("[data-testid=bio-palette-tile][data-kind=compartment]").drag_to(
+            pane, target_position={"x": spot["x"] - box["x"] + spot["width"] / 2, "y": max(4, spot["y"] - box["y"] - 60)}
+        )
+        dialog = page.locator(".p-dialog")
+        dialog.locator("input").fill("Lumen")
+        dialog.get_by_role("button", name="Add").click()
+        lumen = page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")
+        expect(lumen).to_be_visible()
+        assert lumen.bounding_box()["y"] < cell.bounding_box()["y"]
+
+    def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+
+        # A template dragged from the palette, once opened, lands on the view.
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=bio-palette-templates]").click()
+        template = page.locator("[data-testid=bio-palette-template]").filter(has_text="Epithelial cell")
+        template.drag_to(pane, target_position={"x": box["width"] * 0.35, "y": box["height"] * 0.3})
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
+
+        # A tile clicked, then a click on the cell, adds the piece there; the tile is let go.
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+        zone = page.locator("[data-testid=bio-palette-tile][data-kind=zone]")
+        zone.click()
+        expect(zone).to_have_attribute("aria-pressed", "true")
+        spot = cell.bounding_box()
+        page.mouse.click(spot["x"] + spot["width"] / 2, spot["y"] + spot["height"] * 0.7)
+        expect(page.locator(BIO).get_by_text("Process zone 1")).to_be_visible()
+        expect(zone).to_have_attribute("aria-pressed", "false")
+
     def open_physiology_with_template(self, name):
         """Open the app, switch to the physiological view and place a template from the pane's menu."""
         page = self.page

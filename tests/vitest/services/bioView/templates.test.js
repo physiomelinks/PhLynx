@@ -347,6 +347,7 @@ describe('sitesOf', () => {
   it('counts the sites of every built-in', () => {
     expect(Object.fromEntries(BUILT_IN_TEMPLATES.map((template) => [template.id, sitesOf(template).length]))).toEqual({
       'epithelial-cell': 10,
+      cell: 6,
       'chemical-synapse': 11,
       'two-cell-epithelium': 15,
       'vessel-wall': 8,
@@ -376,9 +377,10 @@ describe('site references', () => {
 })
 
 describe('built-in templates', () => {
-  it('ships four, epithelial cell first and then by name', () => {
+  it('ships five, epithelial cell first and then by name', () => {
     expect(BUILT_IN_TEMPLATES.map((template) => template.id)).toEqual([
       'epithelial-cell',
+      'cell',
       'chemical-synapse',
       'two-cell-epithelium',
       'vessel-wall',
