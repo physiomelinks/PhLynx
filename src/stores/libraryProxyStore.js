@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useLibraryStore } from './libraryStore'
 import { parseMathRef, parseModuleRef } from '../utils/config'
+import { baseNameOf, sourceOfFileKey } from '../utils/sourceIdentity'
 
 /**
  * Labels a grouping for the library: its stem, spaced, and the format of a grouping not of CellML, e.g.
@@ -63,13 +64,20 @@ export const useLibraryProxyStore = defineStore('libraryProxy', () => {
       }
       cards.sort((a, b) => a.label.localeCompare(b.label))
 
+      // Labelled by file name, with the source beside it, so same-named files from different sources sit together.
       result.push({
         componentFile,
-        label: formatDisplayLabel(componentFile),
+        label: formatDisplayLabel(baseNameOf(componentFile)),
+        source: sourceOfFileKey(componentFile),
         cards
       })
     }
-    result.sort((a, b) => a.label.localeCompare(b.label))
+    result.sort(
+      (a, b) =>
+        a.label.localeCompare(b.label) ||
+        (a.source ?? '').localeCompare(b.source ?? '') ||
+        a.componentFile.localeCompare(b.componentFile)
+    )
 
     return result
   })

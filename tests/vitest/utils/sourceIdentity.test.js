@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { parseModuleRef, uniqueModuleRef } from '../../../src/utils/config.js'
 import {
   baseNameOf,
+  describeFileKey,
   fileKeyFromPath,
   findModule,
+  moduleRefLabel,
   moduleRefOf,
   renameSourceIn,
   resolveComponentFile,
@@ -91,5 +93,22 @@ describe('sources', () => {
     const taken = new Set(['CellML', 'CellML (2)'])
     expect(uniqueSourceName('CellML', (name) => taken.has(name))).toBe('CellML (3)')
     expect(uniqueSourceName('other', (name) => taken.has(name))).toBe('other')
+  })
+})
+
+describe('display', () => {
+  it('shows a file by name, with its source as a tag and its whole key on hover', () => {
+    expect(describeFileKey('repo/math/membrane.cellml')).toEqual({
+      name: 'membrane.cellml',
+      source: 'repo',
+      title: 'repo/math/membrane.cellml',
+    })
+    expect(describeFileKey('membrane.cellml')).toEqual({ name: 'membrane.cellml', source: null, title: 'membrane.cellml' })
+  })
+
+  it('shows a module ref without its source part, adding the source in brackets unless asked not to', () => {
+    expect(moduleRefLabel('membrane:membrane:repo (2)')).toBe('membrane:membrane (repo (2))')
+    expect(moduleRefLabel('membrane:membrane:repo', { withSource: false })).toBe('membrane:membrane')
+    expect(moduleRefLabel('membrane:membrane')).toBe('membrane:membrane')
   })
 })

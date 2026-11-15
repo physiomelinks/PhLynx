@@ -174,3 +174,30 @@ export function uniqueSourceName(source, isTaken) {
   while (isTaken(`${source} (${n})`)) n++
   return `${source} (${n})`
 }
+
+/**
+ * How a file key is shown: its file name, with its source as a tag, and the whole key for a
+ * tooltip. A loose file shows its name alone.
+ *
+ * @param {string} fileKey
+ * @returns {{ name: string, source: string|null, title: string }}
+ */
+export function describeFileKey(fileKey) {
+  return { name: baseNameOf(fileKey ?? ''), source: sourceOfFileKey(fileKey), title: fileKey ?? '' }
+}
+
+/**
+ * How a module ref is shown: `type:subtype`, then its source in brackets when it has one.
+ *
+ * @param {string} moduleRef
+ * @param {Object} [options]
+ * @param {boolean} [options.withSource=true] - False where the source is shown beside it already.
+ * @returns {string}
+ */
+export function moduleRefLabel(moduleRef, { withSource = true } = {}) {
+  if (!moduleRef) return ''
+  const source = sourceOfModuleRef(moduleRef)
+  if (!source) return moduleRef
+  const bare = moduleRef.slice(0, moduleRef.length - source.length - 1)
+  return withSource ? `${bare} (${source})` : bare
+}

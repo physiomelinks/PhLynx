@@ -3,7 +3,7 @@
     v-model:visible="visible"
     modal
     :dismissableMask="true"
-    :header="`Preview: ${moduleData?.moduleRef}`"
+    :header="`Preview: ${moduleRefLabel(moduleData?.moduleRef)}`"
     :style="{ width: '800px' }"
     :appendTo="'body'"
   >
@@ -85,6 +85,7 @@ import TabPanel from 'primevue/tabpanel'
 import TabView from 'primevue/tabview'
 import Tag from 'primevue/tag'
 import MultiportChip from './MultiportChip.vue'
+import { moduleRefLabel } from '../utils/sourceIdentity'
 
 const props = defineProps({
   modelValue: Boolean,

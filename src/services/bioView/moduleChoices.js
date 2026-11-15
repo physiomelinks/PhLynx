@@ -3,6 +3,7 @@
  */
 
 import { NEW_INSTANCE_MODULE_REF } from '../../utils/constants.js'
+import { moduleRefLabel } from '../../utils/sourceIdentity.js'
 
 /**
  * Lists modules to choose from: a new module first, then those whose annotations say they are the kind wanted,
@@ -19,7 +20,8 @@ export function moduleChoices(modules, kindOf, kind) {
     .filter((module) => module.mathRef)
     .map((module) => {
       const match = kindOf(module) === kind
-      return { moduleRef: module.moduleRef, label: match ? `${module.moduleRef} (${kind})` : module.moduleRef, match }
+      const label = moduleRefLabel(module.moduleRef)
+      return { moduleRef: module.moduleRef, label: match ? `${label} — ${kind}` : label, match }
     })
     .sort((a, b) => isNew(b) - isNew(a) || Number(b.match) - Number(a.match) || a.moduleRef.localeCompare(b.moduleRef))
 }

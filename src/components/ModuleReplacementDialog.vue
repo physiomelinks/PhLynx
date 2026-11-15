@@ -23,7 +23,7 @@
           </div>
 
           <div class="selected-file">
-            {{ selectedModule.moduleRef || '' }}
+            {{ moduleRefLabel(selectedModule.moduleRef) }}
           </div>
         </div>
 
@@ -58,6 +58,7 @@ import Checkbox from 'primevue/checkbox'
 
 import { useGtm } from '../composables/useGtm'
 import LibraryArea from './LibraryArea.vue'
+import { moduleRefLabel } from '../utils/sourceIdentity'
 import { replacementData } from '../services/moduleReplacement'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
@@ -116,7 +117,7 @@ function handleConfirm() {
   trackEvent('module_replacement_action', {
     category: 'ModuleReplacement',
     action: 'confirm',
-    label: `Module: ${selectedModule.value.moduleRef}`,
+    label: `Module: ${moduleRefLabel(selectedModule.value.moduleRef)}`,
     file_type: 'json',
   })
 

@@ -30,7 +30,10 @@
             @click="toggleGroup(collection.componentFile)"
           >
             <i class="pi pi-chevron-right mlc__group-chevron" />
-            <span class="mlc__group-name"><span class="mlc__group-name-text">{{ collection.label }}</span></span>
+            <span class="mlc__group-name" :title="collection.componentFile">
+              <span class="mlc__group-name-text">{{ collection.label }}</span>
+              <span v-if="collection.source" class="mlc__group-source">{{ collection.source }}</span>
+            </span>
             <Tag 
               severity="secondary" 
               rounded 
@@ -105,7 +108,7 @@
                       <Select
                         :modelValue="moduleIndex(card)"
                         @update:modelValue="(val) => selectedModuleIndex[card.cardKey] = val"
-                        :options="card.modules.map((m, idx) => ({ label: m.moduleRef, value: idx }))"
+                        :options="card.modules.map((m, idx) => ({ label: moduleRefLabel(m.moduleRef, { withSource: false }), value: idx }))"
                         optionLabel="label"
                         optionValue="value"
                         size="small"
@@ -197,6 +200,7 @@ import {
 import useDragAndDrop from '../composables/useDnD'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
 import { GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
+import { moduleRefLabel } from '../utils/sourceIdentity'
 
 const props = defineProps({
   selectable: { type: Boolean, default: false },
@@ -261,7 +265,10 @@ const filteredCollections = computed(() => {
   return view.groups
     .map((group) => ({
       ...group,
-      cards: group.cards.filter((card) => group.label.toLowerCase().includes(q) || cardMatches(card, q)),
+      cards: group.cards.filter(
+        (card) =>
+          group.label.toLowerCase().includes(q) || (group.source ?? '').toLowerCase().includes(q) || cardMatches(card, q)
+      ),
     }))
     .filter((group) => group.cards.length > 0)
 })
@@ -483,6 +490,22 @@ function handleSelect(module) {
   overflow-wrap: normal;
   word-break: normal;
   line-height: 1.4;
+}
+
+.mlc__group-source {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 3px;
+  padding: 0 0.5em;
+  border-radius: 999px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--mlc-text-muted);
+  background: color-mix(in srgb, var(--mlc-text-muted) 14%, transparent);
 }
 
 .mlc__group-count {

@@ -62,7 +62,7 @@
                       <span class="tag-content">
                         <i v-if="fileData.isValid" class="pi pi-check tag-icon" />
                         <i v-else class="pi pi-exclamation-triangle tag-icon" />
-                        <span>{{ filename }}</span>
+                        <FileLabel :file-key="filename" />
                         <i
                           class="pi pi-times tag-remove-icon"
                           role="button"
@@ -232,6 +232,7 @@ import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import Tag from 'primevue/tag'
+import FileLabel from './FileLabel.vue'
 
 import { useLibraryStore } from '../stores/libraryStore'
 import { useGtm } from '../composables/useGtm'
