@@ -469,6 +469,7 @@ import { useGlyphLibraryStore } from '../../stores/glyphLibraryStore'
 import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
+import { useVoiCursorStore } from '../../stores/voiCursorStore'
 import { BACKGROUND_DOTS, FLOW_IDS, NEW_INSTANCE_MODULE_REF } from '../../utils/constants'
 import { notify } from '../../utils/notify'
 import { legacyDownload } from '../../utils/save'
@@ -532,11 +533,14 @@ const speciesMode = computed(() => {
     keep: keptSpecies.value ? { nodeId, species: curie } : null,
   }
 })
+const cursor = useVoiCursorStore()
+/** The point of the latest run species mode shows, once its cursor has been moved off the run's end. */
+const voiCursor = computed(() => (cursor.isActive ? { index: cursor.index, range: cursor.range } : null))
 const { bioNodes, couplingEdges, layout, roles, sites, hasSpecies, species, speciesOrderPreview, loadSidecars } =
   useBioNodes(
   main.nodes,
   main.edges,
-  { speciesMode }
+  { speciesMode, voiCursor }
 )
 const {
   applyPlan,

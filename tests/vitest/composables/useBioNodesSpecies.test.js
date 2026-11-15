@@ -136,4 +136,49 @@ describe('species mode in the physiological view', () => {
     const { species } = useBioNodes(nodes, edges, { speciesMode: ref({ all: false }) })
     expect(species.value.paths[0].direction).toBe('out')
   })
+
+  it('follows the run to the cursor, sizing each point against the largest flow of the stretch played', () => {
+    run.results = {
+      voi: { name: 't', unit: 's', values: Float64Array.from([0, 1, 2, 3]) },
+      variables: new Map([['porter/v_Na_i', { values: Float64Array.from([4, 1, 0, -16]) }]]),
+    }
+    run.mapping = new Map([[mappingKey('porter', 'v_Na_i'), 'porter/v_Na_i']])
+    const voiCursor = ref(null)
+    const { species } = useBioNodes(nodes, edges, { speciesMode: ref({ all: false }), voiCursor })
+    const shown = () => [species.value.paths[0].direction, species.value.paths[0].width]
+    // With no cursor, the run's end, drawn as wide as a path gets.
+    expect(shown()).toEqual(['out', 5])
+
+    // Over the whole run the largest flow is its last: a quarter of it is half as wide a share.
+    voiCursor.value = { index: 0, range: [0, 3] }
+    expect(shown()).toEqual(['in', 1.5 + 3.5 * 0.5])
+    voiCursor.value = { index: 2, range: [0, 3] }
+    expect(shown()).toEqual([null, 1.5])
+    voiCursor.value = { index: 3, range: [0, 3] }
+    expect(shown()).toEqual(['out', 5])
+    // Over its first three points alone, the first is the largest.
+    voiCursor.value = { index: 0, range: [0, 2] }
+    expect(shown()).toEqual(['in', 5])
+    voiCursor.value = { index: 1, range: [0, 2] }
+    expect(shown()).toEqual(['in', 1.5 + 3.5 * 0.5])
+  })
+
+  it('points a process’s exchange the way its flow goes: out while it gives the species away', () => {
+    // A porter inside the cell is a process; its flow into the cytoplasm is what it gives the cell's pool.
+    const inside = ref([
+      node('cell', 'pool', { role: 'cytosol' }),
+      node('works', 'porter', { role: 'cytosolic', cell: 'cell' }),
+    ])
+    const coupled = ref([couple('works', 'cell', [['v_Na_i', 'v_Na']])])
+    run.results = {
+      voi: { name: 't', unit: 's', values: Float64Array.from([0, 1]) },
+      variables: new Map([['works/v_Na_i', { values: Float64Array.from([2, -1]) }]]),
+    }
+    run.mapping = new Map([[mappingKey('works', 'v_Na_i'), 'works/v_Na_i']])
+    const voiCursor = ref(null)
+    const { species } = useBioNodes(inside, coupled, { speciesMode: ref({ all: false }), voiCursor })
+    expect(species.value.paths.map(({ protein, direction }) => [protein, direction])).toEqual([['works', 'in']])
+    voiCursor.value = { index: 0, range: [0, 1] }
+    expect(species.value.paths[0].direction).toBe('out')
+  })
 })

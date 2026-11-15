@@ -44,15 +44,16 @@ export function transportedSpecies(sidecar) {
 }
 
 /**
- * Tells which way a species went, from its flow into the cell at the end of a run.
+ * Tells which way a species was going, from its flow into the cell at a point of a run: its end, unless told.
  *
  * @param {ArrayLike<number>|null|undefined} inward - The inside flow's values over the run.
  * @param {number} [tolerance=1e-12] - Smaller flows count as none.
+ * @param {number|null} [index] - The point of the run; its last by default.
  * @returns {'in'|'out'|null} null without a run, or when nothing is flowing.
  */
-export function flowDirection(inward, tolerance = 1e-12) {
+export function flowDirection(inward, tolerance = 1e-12, index = null) {
   if (!inward?.length) return null
-  const last = inward[inward.length - 1]
-  if (!Number.isFinite(last) || Math.abs(last) <= tolerance) return null
-  return last > 0 ? 'in' : 'out'
+  const flow = inward[index ?? inward.length - 1]
+  if (!Number.isFinite(flow) || Math.abs(flow) <= tolerance) return null
+  return flow > 0 ? 'in' : 'out'
 }

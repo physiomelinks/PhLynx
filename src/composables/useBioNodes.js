@@ -480,14 +480,16 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
  * @param {Ref<Array<Object>>} [edges] - The diagram's edges.
  * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null, hidden?: string[]}|null> }}
  *   [options] - Species mode, when on: whether it shows every annotated species, only those coupled, or only those
- *   with a path through a protein, a token it keeps whatever, and the species it hides (see speciesNetwork). A compartment's tokens follow its
+ *   with a path through a protein, a token it keeps whatever, and the species it hides (see speciesNetwork).
+ *   `voiCursor`, a Ref<{index: number, range: [number, number]}|null>: the point of the latest run whose flows
+ *   are shown, and the stretch of it they are sized against; null for the run's end, sized against each other. A compartment's tokens follow its
  *   bioView.speciesOrder.
  * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
  *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
  *   `species` is the species network and where it is drawn, while species mode is on; `speciesOrderPreview` places
  *   one compartment's tokens in an order of the caller's.
  */
-export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } = {}) {
+export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), voiCursor = ref(null) } = {}) {
   const libraryStore = useLibraryStore()
   const templateStore = useBioTemplateStore()
   const simulationResults = useSimulationResultsStore()
@@ -542,7 +544,9 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } 
     return new Map(
       [...carried.value].map(([id, list]) => [
         id,
-        arrowsFor(list, (inside) => flowDirection(readNodeSeries(results, mapping, id, inside)?.values)),
+        arrowsFor(list, (inside) =>
+          flowDirection(readNodeSeries(results, mapping, id, inside)?.values, undefined, unref(voiCursor)?.index)
+        ),
       ])
     )
   })
@@ -595,35 +599,59 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } 
     const orderOf = (id) => (id === nodeId ? order : byId.get(id)?.data?.bioView?.speciesOrder)
     return placeSpeciesTokens(speciesTokens.value.network, layout.value, { labelOf, orderOf, only: nodeId })
   }
-  // ...and its paths, which go the way the latest run took them.
+  // The flow each path and exchange follows in the latest run, and whether it going in is the path going 'out'.
+  const speciesFlows = computed(() => {
+    if (!speciesTokens.value) return null
+    const { network } = speciesTokens.value
+    const { results, mapping } = simulationResults
+    if (!results || !mapping || results.isSweep) return new Map()
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const valuesOf = (id, variable) => readNodeSeries(results, mapping, id, variable)?.values ?? null
+    const flows = new Map()
+    for (const path of network.paths) {
+      const crossing = crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
+      const values = crossing && valuesOf(path.protein, crossing.variable)
+      if (values) flows.set(path, { values, isFlipped: crossing.inward < 0 })
+    }
+    // A process's exchange with a compartment names its own flow, and which sign gives the species away.
+    for (const exchange of network.exchanges ?? []) {
+      const values = valuesOf(exchange.process, exchange.variable)
+      if (values) flows.set(exchange, { values, isFlipped: exchange.produces > 0 })
+    }
+    return flows
+  })
+  // The largest of those flows over the stretch of the run the cursor plays, so a path keeps its width's meaning
+  // from one point to the next. Worked out once for the stretch, not at each point.
+  const largestFlow = computed(() => {
+    const range = unref(voiCursor)?.range
+    if (!range || !speciesFlows.value) return null
+    let largest = 0
+    for (const { values } of speciesFlows.value.values()) {
+      const end = Math.min(range[1], values.length - 1)
+      for (let index = Math.max(0, range[0]); index <= end; index++) {
+        const size = Math.abs(values[index])
+        if (size > largest) largest = size
+      }
+    }
+    return largest
+  })
+  // ...and its paths, which go the way the latest run took them at the cursor: its end, until that is moved.
   const species = computed(() => {
     if (!speciesTokens.value) return null
     const { network, tokens } = speciesTokens.value
-    const byId = new Map(nodes.value.map((node) => [node.id, node]))
-    const { results, mapping } = simulationResults
-    const usable = results && mapping && !results.isSweep
+    const index = unref(voiCursor)?.index ?? null
     const flowOf = (path) => {
-      // A process's exchange with a compartment names its own flow, and which sign gives the species away.
-      if (path.process) {
-        const values = usable ? readNodeSeries(results, mapping, path.process, path.variable)?.values : null
-        const way = flowDirection(values)
-        const flip = { in: 'out', out: 'in' }
-        return {
-          direction: way && (path.produces > 0 ? flip[way] : way),
-          size: values?.length ? Math.abs(values[values.length - 1]) || 0 : 0,
-        }
-      }
-      const crossing = usable && crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
-      if (!crossing) return null
-      const values = readNodeSeries(results, mapping, path.protein, crossing.variable)?.values
-      const way = flowDirection(values)
+      const flow = speciesFlows.value.get(path)
+      if (!flow) return null
+      const way = flowDirection(flow.values, undefined, index)
       const flip = { in: 'out', out: 'in' }
       return {
-        direction: way && crossing.inward < 0 ? flip[way] : way,
-        size: values?.length ? Math.abs(values[values.length - 1]) || 0 : 0,
+        direction: way && flow.isFlipped ? flip[way] : way,
+        size: Math.abs(flow.values[index ?? flow.values.length - 1]) || 0,
       }
     }
-    return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf }) }
+    const largest = largestFlow.value
+    return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf, largest }) }
   })
 
   const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))

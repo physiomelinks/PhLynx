@@ -25,6 +25,8 @@ const REGION_DEPTH = 0.42
 const BEND = 40
 /** The thinnest and thickest a path is drawn, its width following the size of its flow after a run. */
 const WIDTH = { min: 1.5, max: 5 }
+/** How many widths a path can have between the least and the most. */
+const WIDTH_STEPS = 14
 
 /** The radius of the open circle a dependence link ends in at its protein (SBGN's modulation). */
 export const DEPENDENCE_END = 4
@@ -825,6 +827,8 @@ export function chipOrder(tokens, key, along) {
  * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {Array<Object>} tokens - From placeSpeciesTokens.
  * @param {Object} [options] - facesOf, arrowsOf and flowOf, as for layoutSpecies.
+ * @param {number|null} [options.largest] - The flow drawn widest; the largest of those drawn, unless given, as
+ *   when one point of a run is drawn to compare with its others.
  * @returns {{paths: Array<Object>, dependences: Array<Object>}} Each with the `ends` its legs were drawn between,
  *   so driftSpecies can redraw a leg alone.
  */
@@ -832,7 +836,7 @@ export function routeSpecies(
   network,
   layout,
   tokens,
-  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null } = {}
+  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null, largest: largestGiven = null } = {}
 ) {
   const proteinPlace = proteinPlaceIn(layout)
   const tokenAt = new Map(tokens.map((token) => [token.key, token]))
@@ -842,6 +846,7 @@ export function routeSpecies(
   const exchanges = (network.exchanges ?? [])
     .map((exchange) => ({
       ...exchange,
+      source: exchange,
       id: `${exchange.process}::${exchange.species}::${exchange.compartment}`,
       place: cardPlace(exchange.process),
       token: tokenAt.get(`${exchange.compartment}::${exchange.species}`),
@@ -856,11 +861,14 @@ export function routeSpecies(
     }))
     .filter((dependence) => dependence.place && dependence.token)
   const cardFace = cardFaces([...exchanges, ...read])
-  const exchangeFlows = exchanges.map((exchange) => flowOf(exchange))
-  const largest = Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
+  // Asked of the network's own exchange, as a path's flow is of its own path: a caller may know them by identity.
+  const exchangeFlows = exchanges.map((exchange) => flowOf(exchange.source))
+  const largest =
+    largestGiven ?? Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
+  // In WIDTH_STEPS steps, so a flow followed through a run redraws its arrowheads only as it changes visibly.
   const widthOf = (flow) => {
-    const share = largest > 0 && flow?.size ? Math.sqrt(Math.abs(flow.size) / largest) : 0
-    return WIDTH.min + (WIDTH.max - WIDTH.min) * share
+    const share = largest > 0 && flow?.size ? Math.min(1, Math.sqrt(Math.abs(flow.size) / largest)) : 0
+    return WIDTH.min + ((WIDTH.max - WIDTH.min) * Math.round(share * WIDTH_STEPS)) / WIDTH_STEPS
   }
   const paths = []
   for (const [index, path] of network.paths.entries()) {
