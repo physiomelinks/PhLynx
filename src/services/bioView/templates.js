@@ -623,11 +623,12 @@ const ADDED_KINDS = ['facets', 'processes', 'compartments']
  * Copies a placed template's own changes to its template, or gives null when there are none. Each added piece
  * is a template piece as written in a template file, a facet or process with the `cell` it belongs to; the
  * template's validation checks them once merged (see editedTemplate). Each removed path is a piece of the
- * template's own: a cell, a cell's membrane, facet or process, or a compartment.
+ * template's own: a cell, a cell's membrane, facet or process, or a compartment. Each label is the name a piece, its
+ * own or added, goes by here, by its path.
  *
  * @param {*} raw - From a saved instance.
  * @returns {{ added?: { facets?: Array<Object>, processes?: Array<Object>, compartments?: Array<Object> },
- *   removed?: string[] }|null}
+ *   removed?: string[], labels?: Object<string, string> }|null}
  */
 export function normaliseEdits(raw) {
   if (!isObject(raw)) return null
@@ -640,6 +641,10 @@ export function normaliseEdits(raw) {
   if (Object.keys(added).length) edits.added = added
   const removed = Array.isArray(raw.removed) ? raw.removed.filter((path) => typeof path === 'string' && SITE_PATH.test(path)) : []
   if (removed.length) edits.removed = [...new Set(removed)]
+  const labels = Object.entries(isObject(raw.labels) ? raw.labels : {})
+    .filter(([path, label]) => SITE_PATH.test(path) && typeof label === 'string' && label.trim())
+    .map(([path, label]) => [path, label.trim().slice(0, LIMITS.label)])
+  if (labels.length) edits.labels = Object.fromEntries(labels)
   return Object.keys(edits).length ? edits : null
 }
 
@@ -698,6 +703,15 @@ export function editedTemplate(template, edits) {
       if (cell) cell[key] = [...(cell[key] ?? []), piece]
       else return { template: null, errors: [`There is no cell "${cellId}" to add "${piece.id}" to.`] }
     }
+  }
+  for (const [path, label] of Object.entries(edits.labels ?? {})) {
+    const [first, second] = path.split('.')
+    const cell = raw.cells.find((entry) => entry.id === first)
+    const piece = second
+      ? [...(cell?.facets ?? []), ...(cell?.processes ?? [])].find((entry) => entry.id === second)
+      : cell ?? (raw.compartments ?? []).find((entry) => entry.id === first)
+    // A name for a piece no longer there waits for it to come back.
+    if (piece) piece.label = label
   }
   removePieces(raw, edits.removed ?? [])
   const { template: edited, errors } = validateTemplate(raw, { allowLocalId: true })
@@ -780,9 +794,28 @@ export function freePieceId(template, base, cellId, removed = []) {
  */
 export function addToEdits(template, edits, kind, piece) {
   const added = { ...edits?.added, [kind]: [...(edits?.added?.[kind] ?? []), piece] }
+  // (Its other changes, the names among them, carry over.)
   const next = { ...edits, added }
   const { template: edited, errors } = editedTemplate(template, next)
   return edited ? { edits: normaliseEdits(next), errors: [] } : { edits: null, errors }
+}
+
+/**
+ * Names a piece of a placed template, its own or one added, in the placement's changes.
+ *
+ * @param {Object} template - The instance's validated template, without its changes.
+ * @param {Object|null} edits - Its changes so far.
+ * @param {string} path - The piece's path.
+ * @param {string} label - Blank to go back to the name it had.
+ * @returns {{ edits: Object|null, errors: Array<string> }} The new changes, null for none.
+ */
+export function labelInEdits(template, edits, path, label) {
+  const labels = { ...edits?.labels }
+  if (label.trim()) labels[path] = label
+  else delete labels[path]
+  const next = normaliseEdits({ ...edits, labels })
+  const { template: edited, errors } = editedTemplate(template, next)
+  return edited ? { edits: next, errors: [] } : { edits: edits ?? null, errors }
 }
 
 /**
@@ -817,7 +850,7 @@ export function removeFromEdits(template, edits, path) {
       return kept.length ? [{ ...piece, against: kept }] : []
     })
   }
-  const next = normaliseEdits({ added, removed: [...(edits?.removed ?? []), ...(isAddition ? [] : [path])] })
+  const next = normaliseEdits({ ...edits, added, removed: [...(edits?.removed ?? []), ...(isAddition ? [] : [path])] })
   const { template: edited, errors } = editedTemplate(template, next)
   return edited ? { edits: next, errors: [] } : { edits: edits ?? null, errors }
 }

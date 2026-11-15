@@ -131,12 +131,18 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-tile][data-kind=compartment]").drag_to(
             pane, target_position={"x": spot["x"] - box["x"] + spot["width"] / 2, "y": max(4, spot["y"] - box["y"] - 60)}
         )
-        dialog = page.locator(".p-dialog")
-        dialog.locator("input").fill("Lumen")
-        dialog.get_by_role("button", name="Add").click()
-        lumen = page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")
-        expect(lumen).to_be_visible()
-        assert lumen.bounding_box()["y"] < cell.bounding_box()["y"]
+        # Straight away, unnamed.
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        compartment = page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Compartment")
+        expect(compartment).to_be_visible()
+        assert compartment.bounding_box()["y"] < cell.bounding_box()["y"]
+
+        # Named afterwards, from its menu.
+        compartment.click(button="right", position={"x": 30, "y": 30})
+        page.locator(".p-contextmenu").get_by_text("Rename Compartment…", exact=True).click()
+        page.locator("[data-testid=bio-template-rename-input]").fill("Lumen")
+        page.locator("[data-testid=bio-template-rename-confirm]").click()
+        expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")).to_be_visible()
 
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
         page = self.page

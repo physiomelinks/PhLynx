@@ -300,7 +300,7 @@
       v-if="renaming"
       :visible="true"
       modal
-      header="Rename Template"
+      :header="renaming.path ? 'Rename' : 'Rename Template'"
       :style="{ width: '360px' }"
       class="compact-dialog"
       data-testid="bio-template-rename"
@@ -460,6 +460,7 @@ import {
   MEMBRANE,
   TONES,
   addToEdits,
+  labelInEdits,
   editedTemplate,
   freePieceId,
   instanceTemplate,
@@ -1629,13 +1630,19 @@ function liesAgainstMenu(id, role) {
   }
 }
 
-/** Renaming a template instance: { id, label, placeholder }. */
+/** Renaming a template instance, or with `path` a piece of it: { id, label, placeholder, path? }. */
 const renaming = ref(null)
 
 function onRenameConfirm() {
-  const { id, label } = renaming.value
+  const { id, label, path } = renaming.value
   renaming.value = null
-  renameTemplate(id, label)
+  if (!path) return renameTemplate(id, label)
+  const instance = templateStore.getInstance(id)
+  const template = instance && templateStore.definitions.get(instance.template)
+  if (!template) return
+  const { edits, errors } = labelInEdits(template, instance.edits ?? null, path, label)
+  if (errors.length) return notify.error({ title: 'Could not rename it', message: summariseProblems(errors) })
+  editTemplate(id, edits, 'bio-template-rename-piece')
 }
 
 /** Renaming a diagram instance: { id, name }. */
@@ -1682,12 +1689,25 @@ function addPiece(instanceId, kind, piece) {
 function onNamingConfirm() {
   const { instance, against, label } = naming.value
   naming.value = null
+  addCompartment(instance, against, label)
+}
+
+/**
+ * Adds a compartment against a facet of a placed template's cell, in a tone no other of its compartments has.
+ *
+ * @param {string} instance
+ * @param {string} against - '<cell>.<facet>'.
+ * @param {string} [label] - Its name; unnamed, it is 'Compartment' and numbered after the first.
+ */
+function addCompartment(instance, against, label = '') {
   const template = placedTemplate(instance)
   if (!template) return
   const used = new Set(template.compartments.map((compartment) => compartment.tone))
-  addPiece(instance, 'compartments', {
-    id: freePieceId(template, 'compartment', undefined, templateStore.getInstance(instance)?.edits?.removed),
-    label: label.trim() || 'Compartment',
+  const id = freePieceId(template, 'compartment', undefined, templateStore.getInstance(instance)?.edits?.removed)
+  const number = id.split('-')[1]
+  return addPiece(instance, 'compartments', {
+    id,
+    label: label.trim() || (number && number !== '1' ? `Compartment ${number}` : 'Compartment'),
     against: [against],
     tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
   })
@@ -1786,7 +1806,8 @@ function applyTile(tile, point) {
   const edge = nearestEdge(found.rect, point, EDGES)
   const facet = cell.facets.find((each) => each.edge === edge)
   if (!facet) return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell.' })
-  naming.value = { instance: found.instance, against: `${found.path}.${facet.id}`, label: '' }
+  // Unnamed: Rename Compartment… in its menu names it.
+  return addCompartment(found.instance, `${found.path}.${facet.id}`)
 }
 
 /** Places the armed tile where the view is clicked; a click on the view's own controls is theirs. */
@@ -2047,6 +2068,16 @@ function templateMenu(instanceId, place = null) {
   const isPiece = place?.instance === instanceId && !!place.path
   return [
     { separator: true },
+    ...(isPiece && (place.kind === 'cell' || place.kind === 'region')
+      ? [
+          {
+            // Told from the Rename… of a module on it.
+            label: place.kind === 'cell' ? 'Rename Cell…' : 'Rename Compartment…',
+            icon: 'pi pi-pencil',
+            command: () => (renaming.value = { id: instanceId, path: place.path, label: place.label ?? '', placeholder: 'Name' }),
+          },
+        ]
+      : []),
     ...(place?.kind === 'cell' && isPiece ? addToCellMenu(instanceId, place.path) : []),
     ...(isPiece ? removeFromTemplateMenu(instanceId, place) : []),
     ...(instance.edits?.removed?.length
