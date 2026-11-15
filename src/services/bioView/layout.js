@@ -221,6 +221,14 @@ const HINT_ROOM = 36 + 8 + GLYPH_HEIGHT / 2 + 32
 const processZoneBottom = (count) =>
   count ? processZone({ x: 0, y: 0, width: 0 }, count - 1).y + CARD.height + 16 : FACET_BAND
 
+/** The smallest an organelle is drawn. */
+const ORGANELLE_MIN = { width: 200, height: 140 }
+/** The room round an organelle, for the proteins on its membrane and their names, and between two. */
+const ORGANELLE_ROOM = GLYPH_HEIGHT / 2 + 36
+const ORGANELLE_GAP = 2 * ORGANELLE_ROOM
+/** How far below a cell's top its organelles start: below its process areas and the proteins on its top facet. */
+const organelleTop = (cell) => Math.max(processZoneBottom(cell.processes.length), GLYPH_HEIGHT + 40) + ORGANELLE_ROOM
+
 /**
  * Gives where an empty template cell's name and hint go: the middle of its inside below its process areas and
  * above the reach of its bottom facet, so a drop on the hint goes to the cell itself.
@@ -296,7 +304,10 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
   const rects = new Map()
   const zones = new Map()
   for (const { id: instanceId, at } of instances) {
-    const cells = scaffold.cells.filter((cell) => cell.instance === instanceId)
+    // The cells that go in rows, and with them every organelle, each inside its cell.
+    const everyCell = scaffold.cells.filter((cell) => cell.instance === instanceId)
+    const cells = everyCell.filter((cell) => !cell.parent)
+    const organellesOf = (cell) => everyCell.filter((other) => other.parent === cell.key)
     if (!cells.length) continue
     const pieces = scaffold.compartments.filter((piece) => piece.instance === instanceId)
     const origin = isPoint(at) ? at : { x: 0, y: 0 }
@@ -326,12 +337,29 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
     // Cells, row by row.
     const rows = [...new Set(cells.map((cell) => cell.row))].sort((a, b) => a - b)
     const sizes = new Map(
-      cells.map((cell) => {
+      everyCell.map((cell) => {
         const counts = Object.fromEntries(cell.facets.map((facet) => [facet.id, facet.members.length]))
-        const fitted = fitCellRect({ x: 0, y: 0, ...cell.size }, counts, cell.shape, facetWidths(cell, widthOf))
-        return [cell.key, fitProcesses({ width: fitted.width, height: fitted.height }, cell.processes)]
+        const least = cell.parent ? ORGANELLE_MIN : MIN_CELL
+        const fitted = fitCellRect({ x: 0, y: 0, ...cell.size }, counts, cell.shape, facetWidths(cell, widthOf), least)
+        const size = { width: fitted.width, height: fitted.height }
+        // An organelle is only as big as what is on and in it needs.
+        return [cell.key, cell.parent && !cell.processes.length ? size : fitProcesses(size, cell.processes)]
       })
     )
+    // A cell grows to hold its organelles, side by side below its process areas.
+    for (const cell of cells) {
+      const inner = organellesOf(cell).map((organelle) => sizes.get(organelle.key))
+      if (!inner.length) continue
+      const size = sizes.get(cell.key)
+      const across = inner.reduce((total, each) => total + each.width, 0) + (inner.length - 1) * ORGANELLE_GAP
+      sizes.set(cell.key, {
+        width: Math.max(size.width, across + 2 * (CELL_RADIUS + ORGANELLE_ROOM)),
+        height: Math.max(
+          size.height,
+          organelleTop(cell) + Math.max(...inner.map((each) => each.height)) + ORGANELLE_ROOM + HINT_ROOM
+        ),
+      })
+    }
     // Cells in a row are as tall as its tallest, so a band along their bottoms meets every one.
     for (const row of rows) {
       const inRow = cells.filter((cell) => cell.row === row)
@@ -358,8 +386,21 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       y = bottom + (gap ? gapDepth(gap, REGION_HEIGHT) : bands + GAP)
     })
 
-    // What is bound to each cell: its membrane, the proteins on its facets and the processes inside it.
+    // Each cell's organelles, in a row inside it, centred.
     for (const cell of cells) {
+      const inner = organellesOf(cell)
+      if (!inner.length) continue
+      const rect = rects.get(cell.key)
+      const across = inner.reduce((total, each) => total + sizes.get(each.key).width, 0) + (inner.length - 1) * ORGANELLE_GAP
+      let x = rect.x + (rect.width - across) / 2
+      for (const organelle of inner) {
+        rects.set(organelle.key, { x, y: rect.y + organelleTop(cell), ...sizes.get(organelle.key) })
+        x += sizes.get(organelle.key).width + ORGANELLE_GAP
+      }
+    }
+
+    // What is bound to each cell: its membrane, the proteins on its facets and the processes inside it.
+    for (const cell of everyCell) {
       const rect = rects.get(cell.key)
       const cellZones = cell.processes.map((process, area) => ({
         processId: process.id,
@@ -367,9 +408,12 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         rect: processZone(rect, area),
       }))
       zones.set(cell.key, cellZones)
+      // An empty cell's name goes below its organelles, as below its process areas.
+      const taken = [...cellZones, ...organellesOf(cell).map((organelle) => ({ rect: rects.get(organelle.key) }))]
       layout.set(cell.key, {
-        hintAt: cellHint(rect, cellZones),
+        hintAt: cell.parent ? { x: rect.width / 2, y: rect.height / 2 + 10 } : cellHint(rect, taken),
         kind: 'cell',
+        ...(cell.parent && { parent: cell.parent }),
         rect,
         membrane: cell.membrane,
         instance: instanceId,

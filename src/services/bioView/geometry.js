@@ -227,9 +227,10 @@ export function nearestSlot(cells, point, maxDistance = 60) {
  * @param {Object<string, number>} counts - Proteins per part (the shape's facet ids).
  * @param {Object} [shape=EPITHELIAL_SHAPE]
  * @param {Object<string, number[]>} [widths] - The names' widths per part, in slot order.
+ * @param {{width: number, height: number}} [least=MIN_CELL] - The smallest it may be, as an organelle's is smaller.
  * @returns {{x: number, y: number, width: number, height: number}} The same corner, at least as big.
  */
-export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {}) {
+export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {}, least = MIN_CELL) {
   const along = (axis) => shape.facets.filter((facet) => EDGES[facet.edge]?.axis === axis)
   // The proteins' pitches, centred, and the spare's past the last, whose centre stays clear of the inset.
   const row = (facet, axis) => {
@@ -243,8 +244,8 @@ export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {})
   return {
     x: rect.x,
     y: rect.y,
-    width: Math.max(rect.width, MIN_CELL.width, length('x')),
-    height: Math.max(rect.height, MIN_CELL.height, length('y')),
+    width: Math.max(rect.width, least.width, length('x')),
+    height: Math.max(rect.height, least.height, length('y')),
   }
 }
 

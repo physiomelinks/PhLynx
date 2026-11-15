@@ -20,6 +20,7 @@ import {
   parseSiteRef,
   siteRef,
   sitesOf,
+  siteNeighbours,
   validateTemplate,
 } from '../../../../src/services/bioView/templates.js'
 
@@ -147,7 +148,7 @@ describe('validateTemplate', () => {
       raw.self = raw
       failsWith(raw, 'at most 64 KB')
     })
-    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 2 }), '"schemaVersion" must be 1'))
+    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 3 }), '"schemaVersion" must be 1 or 2'))
     it.each(['A-b', 'a', '1ab', 'a_b', 3])('a bad template id (%s)', (id) => failsWith(base({ id }), '"id" must start with a letter'))
     it('a missing name', () => failsWith(base({ name: '  ' }), '"name" is required'))
     it('a name that is not text', () => failsWith(base({ name: 3 }), 'Template: "name" must be text'))
@@ -435,7 +436,7 @@ describe('schema parity', () => {
     expect(defs.facet.properties.annotation.properties.at.enum).toEqual(ANNOTATION_SIDES)
     expect(schema.properties.id.pattern).toBe(TEMPLATE_ID.source)
     expect(defs.pieceId.pattern).toBe(PIECE_ID.source)
-    expect(schema.properties.schemaVersion.const).toBe(1)
+    expect(schema.properties.schemaVersion.enum).toEqual([1, 2])
   })
 
   it('lists the same limits as the validator', () => {
@@ -460,5 +461,50 @@ describe('schema parity', () => {
       for (const [key, value] of Object.entries(properties)) if (!value.description) undescribed.push(`${kind}.${key}`)
     }
     expect(undescribed).toEqual([])
+  })
+})
+
+describe('organelles', () => {
+  const nested = (extra = {}, more = {}) =>
+    base({ schemaVersion: 2, cells: [cell('a'), cell('sr', { in: 'a', ...extra })], ...more })
+
+  it('reads a cell in another, smaller and with a membrane of its own, at version 2', () => {
+    const { template, errors } = validateTemplate(nested())
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    const [, organelle] = template.cells
+    expect(organelle).toMatchObject({ in: 'a', size: { width: 280, height: 170 }, membrane: { label: 'Membrane' } })
+    // What it gives reads back the same, as a template kept on this device is.
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+  })
+
+  it('writes a template without one at version 1, whichever it was read at', () => {
+    expect(validateTemplate(base({ schemaVersion: 2 })).template.schemaVersion).toBe(1)
+  })
+
+  it('offers its inside, membrane and facets as a cell’s, and has its cell’s inside outside its facets', () => {
+    const { template } = validateTemplate(nested())
+    const paths = sitesOf(template).filter((site) => site.cell === 'sr').map((site) => site.path)
+    expect(paths.slice(0, 2)).toEqual(['sr', 'sr.membrane'])
+    expect(paths).toHaveLength(6)
+    const first = template.cells[1].facets[0].id
+    expect(siteNeighbours(template, `sr.${first}`)).toEqual(
+      expect.arrayContaining([
+        { path: 'sr', relation: 'inside' },
+        { path: 'a', relation: 'outside' },
+        { path: 'sr.membrane', relation: 'membrane' },
+      ])
+    )
+    expect(siteNeighbours(template, 'a')).toContainEqual({ path: `sr.${first}`, relation: 'protein' })
+  })
+
+  it('rejects one at version 1, in no cell, in itself, in another organelle, with a row, or with a compartment against it', () => {
+    failsWith(base({ cells: [cell('a'), cell('sr', { in: 'a' })] }), 'needs "schemaVersion" 2')
+    failsWith(nested({ in: 'nowhere' }), 'there is no other cell "nowhere"')
+    failsWith(nested({ in: 'sr' }), 'there is no other cell "sr"')
+    failsWith(base({ schemaVersion: 2, cells: [cell('a'), cell('sr', { in: 'a' }), cell('inner', { in: 'sr' })] }), 'organelles don’t nest'.replace('’', "'"))
+    failsWith(nested({ row: 1 }), 'an organelle has no "row"')
+    const first = fourFacets()[0].id
+    failsWith(nested({}, { compartments: [{ id: 'fluid', label: 'Fluid', against: [`sr.${first}`] }] }), 'is an organelle’s facet'.replace('’', "'"))
   })
 })

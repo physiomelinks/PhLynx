@@ -16,29 +16,34 @@ export const BLANK_CELL_TEMPLATE = 'cell'
 export const PALETTE_TILES = Object.freeze([
   { kind: 'cell', label: 'Cell', icon: 'pi pi-circle', hint: 'An empty cell, to drop a module on and build round' },
   { kind: 'compartment', label: 'Compartment', icon: 'pi pi-stop', hint: 'An empty compartment against the side of the cell it is dropped beside' },
-  { kind: 'site', label: 'Protein site', icon: 'pi pi-plus', hint: 'A stretch of membrane for proteins, on the nearest free side of a cell' },
+  { kind: 'organelle', label: 'Organelle', icon: 'pi pi-circle-fill', hint: 'An empty organelle inside the cell it is dropped on, with a membrane of its own' },
+  { kind: 'site', label: 'Protein site', icon: 'pi pi-plus', hint: 'A stretch of membrane for proteins, on the nearest free side of a cell or organelle' },
   { kind: 'zone', label: 'Process zone', icon: 'pi pi-box', hint: 'A place for processes inside a cell' },
 ])
 
 /**
- * Finds the placed template's cell a point is on, or within a margin of; the nearest centre where several are.
+ * Finds the placed template's cell a point is on, or within a margin of: an organelle the point is on before the
+ * cell it is in, and otherwise the nearest centre where several are.
  *
  * @param {Map<string, Object>} layout - The view's places, as layoutPhysiology gives them.
  * @param {{x: number, y: number}} point - In flow coordinates.
  * @param {number} [margin] - How far outside a cell still counts, as its membrane and its sides' labels do.
- * @returns {{key: string, instance: string, path: string, rect: Object}|null}
+ * @param {{ organelles?: boolean }} [options] - Whether an organelle counts; without, the cell it is in is found.
+ * @returns {{key: string, instance: string, path: string, rect: Object, isOrganelle: boolean}|null}
  */
-export function templateCellAt(layout, point, margin = 0) {
+export function templateCellAt(layout, point, margin = 0, { organelles = true } = {}) {
   let found = null
   let nearest = Infinity
   for (const [key, place] of layout) {
     if (place.kind !== 'cell' || !place.instance || !place.path || !place.rect) continue
+    if (place.parent && !organelles) continue
     const { x, y, width, height } = place.rect
     if (point.x < x - margin || point.x > x + width + margin || point.y < y - margin || point.y > y + height + margin) continue
-    const distance = Math.hypot(point.x - (x + width / 2), point.y - (y + height / 2))
+    // An organelle lies wholly within its cell, so it is chosen ahead of any cell.
+    const distance = Math.hypot(point.x - (x + width / 2), point.y - (y + height / 2)) - (place.parent ? 1e6 : 0)
     if (distance >= nearest) continue
     nearest = distance
-    found = { key, instance: place.instance, path: place.path, rect: place.rect }
+    found = { key, instance: place.instance, path: place.path, rect: place.rect, isOrganelle: !!place.parent }
   }
   return found
 }

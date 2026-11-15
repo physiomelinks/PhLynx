@@ -150,6 +150,39 @@ class TestBioTemplates(unittest.TestCase):
         field.press("Enter")
         expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")).to_be_visible()
 
+    def test_the_build_palette_puts_an_organelle_inside_a_cell(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
+            pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
+        )
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+        before = cell.bounding_box()
+
+        # An organelle dropped on the cell goes inside it, and the cell grows to hold it.
+        page.locator("[data-testid=bio-palette-tile][data-kind=organelle]").drag_to(
+            pane, target_position={"x": before["x"] - box["x"] + before["width"] / 2, "y": before["y"] - box["y"] + before["height"] / 2}
+        )
+        organelle = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/organelle-1"]')
+        expect(organelle).to_be_visible()
+        expect(organelle).to_contain_text("Organelle")
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer, inner = cell.bounding_box(), organelle.bounding_box()
+        assert outer["x"] < inner["x"] and inner["x"] + inner["width"] < outer["x"] + outer["width"], (outer, inner)
+        assert outer["y"] < inner["y"] and inner["y"] + inner["height"] < outer["y"] + outer["height"], (outer, inner)
+
+        # A module dropped on the organelle is its inside, not the cell's.
+        self.drop_module(2, (inner["x"] + inner["width"] / 2, inner["y"] + inner["height"] / 2))
+        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)
+        expect(organelle).to_have_count(0)
+        expect(cell).to_be_visible()
+
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
         page = self.page
         self.open_physiology()

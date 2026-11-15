@@ -10,8 +10,8 @@
       "type": "string"
     },
     "schemaVersion": {
-      "description": "The template format version. Must be 1.",
-      "const": 1
+      "description": "The template format version: 1, or 2 for a template with an organelle (a cell \"in\" another).",
+      "enum": [1, 2]
     },
     "id": {
       "description": "The template's id: a lower-case letter, then lower-case letters, digits and hyphens (2-48 characters).",
@@ -76,6 +76,10 @@
       "properties": {
         "id": { "$ref": "#/$defs/pieceId", "description": "The cell's id, unique among cells and compartments." },
         "label": { "$ref": "#/$defs/label", "description": "The cell's name." },
+        "in": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Makes this an organelle: the id of the cell it is drawn inside, which is the outside of the proteins on its membrane. Needs schemaVersion 2; an organelle has no row, and is not inside another organelle."
+        },
         "row": {
           "description": "The row the cell sits in, counting down from 0. Defaults to 0.",
           "type": "integer",

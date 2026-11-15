@@ -234,6 +234,8 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         label: cell.label,
         size: { ...cell.size },
         row: cell.row,
+        // An organelle's cell, by id until every cell has its key (below).
+        parent: cell.in ?? null,
         membrane: members(membranePath)[0] ?? null,
         membraneSite: siteOf(membranePath),
         membraneLabel: cell.membrane ? cell.membrane.label : null,
@@ -254,6 +256,9 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
       offer(cell.id, key)
       offer(membranePath, key)
       for (const piece of [...cell.facets, ...cell.processes]) offer(`${cell.id}.${piece.id}`, key)
+    }
+    for (const cell of scaffold.cells) {
+      if (cell.instance === instance.id && cell.parent) cell.parent = cellKeys.get(cell.parent) ?? null
     }
 
     for (const compartment of template.compartments) {

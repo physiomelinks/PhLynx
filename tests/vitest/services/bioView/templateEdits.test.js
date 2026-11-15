@@ -183,3 +183,24 @@ describe('a placed template’s own names', () => {
     expect(normaliseEdits({ labels: { paracellular: 'P', 'Bad Path': 'x', cell: '', other: 3 } })).toEqual({ labels: { paracellular: 'P' } })
   })
 })
+
+describe('a placed template’s added organelles', () => {
+  const organelle = { id: 'organelle-1', label: 'Organelle', in: 'cell', facets: [{ id: 'top', label: 'Top', edge: 'top' }] }
+
+  it('adds an organelle to a cell, at the version that reads it, and takes it out again', () => {
+    const { edits, errors } = addToEdits(epithelial, null, 'cells', organelle)
+    expect(errors).toEqual([])
+    const edited = editedTemplate(epithelial, edits).template
+    expect(edited.schemaVersion).toBe(2)
+    expect(edited.cells.map((cell) => cell.id)).toEqual(['cell', 'organelle-1'])
+    expect(removeFromEdits(epithelial, edits, 'organelle-1').edits).toBeNull()
+    expect(editedTemplate(epithelial, addToEdits(epithelial, null, 'compartments', { id: 'c-1', label: 'C', against: ['cell.apical'] }).edits).template.schemaVersion).toBe(1)
+  })
+
+  it('refuses one in no cell, and drops one with the cell it is in', () => {
+    expect(addToEdits(epithelial, null, 'cells', { ...organelle, in: 'nowhere' }).edits).toBeNull()
+    const { edits } = addToEdits(synapse, null, 'cells', { ...organelle, in: synapse.cells[0].id })
+    const without = removeFromEdits(synapse, edits, synapse.cells[0].id).edits
+    expect(editedTemplate(synapse, without).template.cells.map((cell) => cell.id)).not.toContain('organelle-1')
+  })
+})

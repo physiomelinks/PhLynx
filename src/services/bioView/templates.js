@@ -10,6 +10,15 @@ import { MIN_CELL } from './metrics.js'
 /** The template format this build understands. */
 export const TEMPLATE_SCHEMA_VERSION = 1
 
+/**
+ * The version of a template with pieces version 1 has none of: an organelle, which is a cell `in` another. A
+ * template is written at the lowest version that reads it, so one without them still loads in older PhLynx.
+ */
+export const TEMPLATE_SCHEMA_VERSION_NESTED = 2
+
+/** How big an organelle is drawn unless its template says. */
+export const ORGANELLE_SIZE = Object.freeze({ width: 280, height: 170 })
+
 /** A template's own id. */
 export const TEMPLATE_ID = /^[a-z][a-z0-9-]{1,47}$/
 
@@ -90,7 +99,7 @@ export const LIMITS = {
 /** The keys the validator knows for each kind of object, in the order a clean copy lists them. */
 export const TEMPLATE_KEYS = {
   template: ['$schema', 'schemaVersion', 'id', 'name', 'description', 'author', 'license', 'cells', 'compartments'],
-  cell: ['id', 'label', 'row', 'size', 'membrane', 'facets', 'processes', 'site'],
+  cell: ['id', 'label', 'in', 'row', 'size', 'membrane', 'facets', 'processes', 'site'],
   size: ['width', 'height'],
   membrane: ['label'],
   facet: ['id', 'label', 'edge', 'group', 'annotation', 'site'],
@@ -100,6 +109,7 @@ export const TEMPLATE_KEYS = {
 }
 
 const DEFAULT_MEMBRANE_LABEL = 'Plasma membrane'
+const DEFAULT_ORGANELLE_MEMBRANE_LABEL = 'Membrane'
 const DEFAULT_TONE = 'sky'
 const OPPOSITE = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
 const SITE_PATH = /^[a-z][a-z0-9-]{0,31}(?:\.[a-z][a-z0-9-]{0,31})?$/
@@ -209,8 +219,8 @@ function readProcess(raw, where, errors, warnings) {
   return process
 }
 
-function readSize(raw, where, errors, warnings) {
-  if (raw === undefined) return { ...MIN_CELL }
+function readSize(raw, where, errors, warnings, fallback = MIN_CELL) {
+  if (raw === undefined) return { ...fallback }
   if (!isObject(raw)) {
     errors.push(`${where}: "size" must be an object with "width" and "height".`)
     return { ...MIN_CELL }
@@ -222,8 +232,8 @@ function readSize(raw, where, errors, warnings) {
   }
 }
 
-function readMembrane(raw, where, errors, warnings) {
-  if (raw === undefined) return { label: DEFAULT_MEMBRANE_LABEL }
+function readMembrane(raw, where, errors, warnings, fallback = DEFAULT_MEMBRANE_LABEL) {
+  if (raw === undefined) return { label: fallback }
   if (raw === false) return false
   if (!isObject(raw)) {
     errors.push(`${where}: "membrane" must be an object with a "label", or false.`)
@@ -249,8 +259,16 @@ function readCell(raw, index, errors, warnings) {
       errors.push(`${where}: "row" must be a whole number from 0 to ${LIMITS.rows - 1}.`)
     } else cell.row = raw.row
   }
-  cell.size = readSize(raw.size, where, errors, warnings)
-  cell.membrane = readMembrane(raw.membrane, where, errors, warnings)
+  // An organelle: a cell inside another, which is checked once every cell is read (see validateTemplate).
+  const isOrganelle = raw.in !== undefined
+  if (isOrganelle) {
+    if (isPieceId(raw.in)) cell.in = raw.in
+    else errors.push(`${where}: "in" must be the id of the cell it is inside.`)
+    if (raw.row !== undefined) errors.push(`${where}: an organelle has no "row"; it goes inside its cell.`)
+    delete cell.row
+  }
+  cell.size = readSize(raw.size, where, errors, warnings, isOrganelle ? ORGANELLE_SIZE : MIN_CELL)
+  cell.membrane = readMembrane(raw.membrane, where, errors, warnings, isOrganelle ? DEFAULT_ORGANELLE_MEMBRANE_LABEL : DEFAULT_MEMBRANE_LABEL)
 
   const ids = new Set()
   const claim = (id, label) => {
@@ -324,6 +342,9 @@ function formOf(cells, against) {
     if (!facet) {
       return { form: null, error: `"against" entry ${i + 1} (${JSON.stringify(ref)}) does not name a cell's facet as "cell.facet".` }
     }
+    if (cell.in) {
+      return { form: null, error: `"against" entry ${i + 1} (${JSON.stringify(ref)}) is an organelle's facet; a compartment lies against a cell's.` }
+    }
     if (resolved.some((entry) => entry.cell === cell && entry.facet === facet)) {
       return { form: null, error: `"against" names "${ref}" more than once.` }
     }
@@ -346,7 +367,7 @@ function formOf(cells, against) {
     const a = first.cell
     const b = second.cell
     if (first.facet.edge === 'right') {
-      const row = cells.filter((cell) => cell.row === a.row)
+      const row = cells.filter((cell) => cell.row === a.row && !cell.in)
       if (b.row === a.row && row[row.indexOf(a) + 1] === b) return { form: 'gap' }
       const error = `"${a.id}" and "${b.id}" must be neighbours in one row, "${a.id}" first, to share a gap.`
       return { form: null, error: `${error} ${allowed}` }
@@ -420,9 +441,8 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
 
   const where = 'Template'
   warnUnknown(raw, TEMPLATE_KEYS.template, where, warnings)
-  if (raw.schemaVersion !== TEMPLATE_SCHEMA_VERSION) {
-    errors.push(`${where}: "schemaVersion" must be ${TEMPLATE_SCHEMA_VERSION}.`)
-  }
+  const versions = [TEMPLATE_SCHEMA_VERSION, TEMPLATE_SCHEMA_VERSION_NESTED]
+  if (!versions.includes(raw.schemaVersion)) errors.push(`${where}: "schemaVersion" must be ${versions.join(' or ')}.`)
   const id = typeof raw.id === 'string' && allowLocalId ? bareTemplateId(raw.id) : raw.id
   if (typeof id !== 'string' || !TEMPLATE_ID.test(id)) {
     errors.push(`${where}: "id" must start with a letter and use only lower-case letters, digits and hyphens (2-48 characters).`)
@@ -441,6 +461,18 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
       if (cell) cells.push(cell)
     })
   }
+
+  // Organelles: each inside a cell that is not itself one, and only where the template's version has them.
+  const organelles = cells.filter((cell) => cell.in)
+  if (organelles.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: an organelle (a cell "in" another) needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  for (const organelle of organelles) {
+    const parent = cells.find((cell) => cell.id === organelle.in)
+    if (!parent || parent === organelle) errors.push(`Cell "${organelle.id}": there is no other cell "${organelle.in}" for it to be in.`)
+    else if (parent.in) errors.push(`Cell "${organelle.id}": "${parent.id}" is itself inside a cell; organelles don't nest.`)
+  }
+  if (cells.length && organelles.length === cells.length) errors.push(`${where}: at least one cell must not be inside another.`)
 
   const compartments = []
   if (raw.compartments !== undefined) {
@@ -476,7 +508,8 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     seen.add(piece.id)
   }
 
-  const template = { schemaVersion: TEMPLATE_SCHEMA_VERSION, id: raw.id, name }
+  const schemaVersion = organelles.length ? TEMPLATE_SCHEMA_VERSION_NESTED : TEMPLATE_SCHEMA_VERSION
+  const template = { schemaVersion, id: raw.id, name }
   if (description) template.description = description
   if (author) template.author = author
   if (license) template.license = license
@@ -501,6 +534,7 @@ export function sitesOf(template) {
   const sites = []
   for (const cell of template.cells) {
     const piece = { cell: cell.id }
+    // An organelle's inside is a space enclosed by its membrane, as a cell's is: both are offered as one.
     if (cell.site !== false) sites.push({ path: cell.id, role: 'cytosol', kind: 'single', ...piece, label: cell.label })
     if (cell.membrane) {
       const label = cell.membrane.label
@@ -570,7 +604,8 @@ export function parseSiteRef(ref) {
 /**
  * The pairs of a template's sites that sit next to each other: each facet with its cell's inside and
  * membrane and with every compartment against it, each process area with its cell's inside, and each
- * cell's inside with its membrane. Only offered sites count.
+ * cell's inside with its membrane. An organelle's facets have the inside of the cell it is in as their outside.
+ * Only offered sites count.
  *
  * @param {Object} template - A validated template.
  * @returns {Array<[string, string, string, string]>} [path, its neighbour, how the neighbour lies to the first,
@@ -587,6 +622,7 @@ function neighbourPairs(template) {
       const path = `${cell.id}.${facet.id}`
       pair(path, cell.id, 'inside', 'protein')
       if (cell.membrane) pair(path, membrane, 'membrane', 'protein')
+      if (cell.in) pair(path, cell.in, 'outside', 'protein')
       for (const compartment of template.compartments) {
         if (compartment.against.includes(path)) pair(path, compartment.id, 'outside', 'protein')
       }
@@ -617,7 +653,7 @@ export function siteNeighbours(template, path) {
 }
 
 /** The pieces a placed template can add to its template's own, by the key its edits list them under. */
-const ADDED_KINDS = ['facets', 'processes', 'compartments']
+const ADDED_KINDS = ['cells', 'facets', 'processes', 'compartments']
 
 /**
  * Copies a placed template's own changes to its template, or gives null when there are none. Each added piece
@@ -627,8 +663,8 @@ const ADDED_KINDS = ['facets', 'processes', 'compartments']
  * own or added, goes by here, by its path.
  *
  * @param {*} raw - From a saved instance.
- * @returns {{ added?: { facets?: Array<Object>, processes?: Array<Object>, compartments?: Array<Object> },
- *   removed?: string[], labels?: Object<string, string> }|null}
+ * @returns {{ added?: { cells?: Array<Object>, facets?: Array<Object>, processes?: Array<Object>,
+ *   compartments?: Array<Object> }, removed?: string[], labels?: Object<string, string> }|null}
  */
 export function normaliseEdits(raw) {
   if (!isObject(raw)) return null
@@ -660,7 +696,8 @@ function removePieces(raw, paths) {
   for (const path of paths) {
     const [first, second] = path.split('.')
     if (second === undefined) {
-      raw.cells = raw.cells.filter((cell) => cell.id !== first)
+      // A cell takes its organelles with it.
+      raw.cells = raw.cells.filter((cell) => cell.id !== first && cell.in !== first)
       raw.compartments = (raw.compartments ?? []).filter((compartment) => compartment.id !== first)
       continue
     }
@@ -688,7 +725,10 @@ function removePieces(raw, paths) {
 export function editedTemplate(template, edits) {
   if (!edits) return { template, errors: [] }
   const raw = JSON.parse(JSON.stringify(template))
-  const { facets = [], processes = [], compartments = [] } = edits.added ?? {}
+  const { cells = [], facets = [], processes = [], compartments = [] } = edits.added ?? {}
+  // An added cell may be an organelle, which the higher version reads; the result is at the lowest that reads it.
+  raw.schemaVersion = TEMPLATE_SCHEMA_VERSION_NESTED
+  raw.cells = [...raw.cells, ...cells]
   for (const [pieces, key] of [
     [facets, 'facets'],
     [processes, 'processes'],
@@ -788,7 +828,7 @@ export function freePieceId(template, base, cellId, removed = []) {
  *
  * @param {Object} template - The instance's validated template, without its changes.
  * @param {Object|null} edits - Its changes so far.
- * @param {'facets'|'processes'|'compartments'} kind
+ * @param {'cells'|'facets'|'processes'|'compartments'} kind
  * @param {Object} piece - As in a template file, with `cell` for a facet or process.
  * @returns {{ edits: Object|null, errors: Array<string> }} The new changes; null when the piece doesn't fit.
  */
@@ -836,11 +876,13 @@ export function removeFromEdits(template, edits, path) {
   const added = JSON.parse(JSON.stringify(edits?.added ?? {}))
   const isAddition =
     second === undefined
-      ? (added.compartments ?? []).some((piece) => piece.id === first)
+      ? [...(added.compartments ?? []), ...(added.cells ?? [])].some((piece) => piece.id === first)
       : [...(added.facets ?? []), ...(added.processes ?? [])].some((piece) => piece.cell === first && piece.id === second)
   for (const kind of ['facets', 'processes']) {
     if (added[kind]) added[kind] = added[kind].filter((piece) => !goes(piece.cell, piece.id))
   }
+  // An added cell goes whole, and with the cell it is in.
+  if (added.cells && second === undefined) added.cells = added.cells.filter((cell) => cell.id !== first && cell.in !== first)
   if (added.compartments) {
     added.compartments = added.compartments.flatMap((piece) => {
       if (goes(undefined, piece.id)) return []

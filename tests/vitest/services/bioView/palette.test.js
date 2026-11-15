@@ -11,7 +11,7 @@ describe('the build palette', () => {
       ['tpl:t1/cell', { kind: 'cell', rect, instance: 't1', path: 'cell' }],
       ['tpl:t1/lumen', { kind: 'region', rect, instance: 't1', path: 'lumen' }],
     ])
-    expect(templateCellAt(layout, { x: 150, y: 150 })).toEqual({ key: 'tpl:t1/cell', instance: 't1', path: 'cell', rect })
+    expect(templateCellAt(layout, { x: 150, y: 150 })).toEqual({ key: 'tpl:t1/cell', instance: 't1', path: 'cell', rect, isOrganelle: false })
     expect(templateCellAt(layout, { x: 90, y: 150 })).toBeNull()
     expect(templateCellAt(layout, { x: 90, y: 150 }, 20)?.instance).toBe('t1')
     expect(templateCellAt(layout, { x: 50, y: 150 }, 20)).toBeNull()
@@ -31,5 +31,16 @@ describe('the build palette', () => {
     expect(nearestEdge(rect, { x: 200, y: 110 }, ['bottom', 'left'])).toBe('bottom')
     expect(nearestEdge(rect, { x: 290, y: 150 }, ['top', 'right'])).toBe('right')
     expect(nearestEdge(rect, { x: 200, y: 110 }, [])).toBeNull()
+  })
+
+  it('finds an organelle the point is on ahead of its cell, unless only cells are wanted', () => {
+    const inner = { x: 150, y: 120, width: 80, height: 40 }
+    const layout = new Map([
+      ['cell', { kind: 'cell', rect, instance: 't1', path: 'cell' }],
+      ['sr', { kind: 'cell', rect: inner, instance: 't1', path: 'sr', parent: 'cell' }],
+    ])
+    expect(templateCellAt(layout, { x: 200, y: 150 })).toMatchObject({ path: 'sr', isOrganelle: true })
+    expect(templateCellAt(layout, { x: 200, y: 150 }, 0, { organelles: false }).path).toBe('cell')
+    expect(templateCellAt(layout, { x: 280, y: 190 }).path).toBe('cell')
   })
 })

@@ -1690,7 +1690,7 @@ const placedTemplate = (instanceId) => {
  * Adds an empty piece to one placed template, as one step, or says why it doesn't fit.
  *
  * @param {string} instanceId
- * @param {'facets'|'processes'|'compartments'} kind
+ * @param {'cells'|'facets'|'processes'|'compartments'} kind
  * @param {Object} piece - As in a template file, with `cell` for a facet or process.
  * @returns {Promise<boolean>|undefined}
  */
@@ -1770,6 +1770,22 @@ function addSite(instanceId, cellId, edge) {
   return addPiece(instanceId, 'facets', { cell: cellId, id, label: `Protein site (${edge})`, edge })
 }
 
+/** Adds an empty organelle inside a placed template's cell, with a protein site along its top and bottom. */
+function addOrganelle(instanceId, cellId) {
+  const template = placedTemplate(instanceId)
+  const id = freePieceId(template, 'organelle', undefined, templateStore.getInstance(instanceId)?.edits?.removed)
+  const number = id.split('-')[1]
+  return addPiece(instanceId, 'cells', {
+    id,
+    label: number === '1' ? 'Organelle' : `Organelle ${number}`,
+    in: cellId,
+    facets: [
+      { id: 'top', label: 'Membrane (top)', edge: 'top' },
+      { id: 'bottom', label: 'Membrane (bottom)', edge: 'bottom' },
+    ],
+  })
+}
+
 /** Adds a process zone inside a placed template's cell. */
 function addZone(instanceId, cellId) {
   const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
@@ -1804,12 +1820,16 @@ function viewCentre() {
 function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
   if (tile.kind === 'cell') return placeTemplate(BLANK_CELL_TEMPLATE, point)
-  const found = templateCellAt(layout.value, point, tile.kind === 'compartment' ? COMPARTMENT_REACH : TILE_REACH)
+  // An organelle goes in a cell, and a compartment beside one; a site or zone on an organelle too.
+  const isForCell = tile.kind === 'compartment' || tile.kind === 'organelle'
+  const reach = tile.kind === 'compartment' ? COMPARTMENT_REACH : TILE_REACH
+  const found = templateCellAt(layout.value, point, reach, { organelles: !isForCell })
   const cell = found && placedTemplate(found.instance)?.cells.find((entry) => entry.id === found.path)
   if (!cell) {
     const where = tile.kind === 'compartment' ? 'beside a cell' : 'on a cell'
     return notify.info({ title: `Drop it ${where}`, message: 'Add a cell first, from the palette.' })
   }
+  if (tile.kind === 'organelle') return addOrganelle(found.instance, found.path)
   if (tile.kind === 'zone') {
     if (cell.processes.length >= LIMITS.processes) return notify.info({ title: 'This cell has all the process zones it can hold' })
     return addZone(found.instance, found.path)
