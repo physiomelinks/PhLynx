@@ -4,7 +4,7 @@ import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS, TTL_FILE_TYPES } from 
 import { isCellML, doesComponentExistInModel } from './cellml'
 import { csvToParameterFile, parseParametersJson } from './parameters/parse'
 import { readSidecarComponent } from '../services/annotations/sidecarFiles'
-import { findModule } from './sourceIdentity'
+import { findModule } from './namespaces'
 
 /** Columns an instance array CSV must have. */
 const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
@@ -97,12 +97,12 @@ export async function collectEntry(entry, path, depth, maxDepth, results) {
  * @param {Object[]} requestedModules - Instance array rows.
  * @param {{ availableModules: Map, availableMath: Map }} store
  * @param {Object} [options]
- * @param {string|null} [options.preferredSource] - The source the instance array came from (see findModule).
+ * @param {string|null} [options.preferredNamespace] - The namespace the instance array targets (see findModule).
  * @returns {{ warnings: string[], resourcesAreLoaded: boolean, missingResources: { modules: Set<string>,
  *   math: Set<string>, ambiguous: Map<string, string[]> } }} `modules` and `ambiguous` are keyed
- *   `type:subtype`, as the rows name them; `ambiguous` gives the sources that each define one.
+ *   `type:subtype`, as the rows name them; `ambiguous` gives the namespaces that each define one.
  */
-export const checkResourcesAreLoaded = (requestedModules, store, { preferredSource = null } = {}) => {
+export const checkResourcesAreLoaded = (requestedModules, store, { preferredNamespace = null } = {}) => {
   const warnings = []
   const missingResources = {
     modules: new Set(),
@@ -116,7 +116,7 @@ export const checkResourcesAreLoaded = (requestedModules, store, { preferredSour
 
   for (const row of requestedModules) {
     const moduleRef = `${row.module_type}:${row.module_subtype}`
-    const { module, ambiguous } = findModule(store.availableModules, row.module_type, row.module_subtype, preferredSource)
+    const { module, ambiguous } = findModule(store.availableModules, row.module_type, row.module_subtype, preferredNamespace)
     if (ambiguous.length) {
       missingResources.ambiguous.set(moduleRef, ambiguous)
     } else if (!module) {
@@ -131,8 +131,8 @@ export const checkResourcesAreLoaded = (requestedModules, store, { preferredSour
     warnings.push(`Missing modules: ${[...missingResources.modules].join(', ')}`)
   }
 
-  for (const [moduleRef, sources] of missingResources.ambiguous) {
-    warnings.push(`${moduleRef} is defined by several sources (${sources.join(', ')}); load only the one this instance array uses.`)
+  for (const [moduleRef, namespaces] of missingResources.ambiguous) {
+    warnings.push(`${moduleRef} is defined in several namespaces (${namespaces.join(', ')}); choose the one this instance array uses.`)
   }
 
   if (missingResources.math.size > 0) {

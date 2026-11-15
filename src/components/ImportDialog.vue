@@ -252,8 +252,16 @@ import {
 } from '../utils/importBatch'
 import { normaliseConfig, parseMathRef } from '../utils/config'
 import { createMapSource } from '../services/import/cellmlImports'
-import { findModule, resolveComponentFile, sourceOfFileKey } from '../utils/sourceIdentity'
-import { settleSourceClashes } from '../services/import/sourceClashes'
+import {
+  NO_NAMESPACE,
+  baseNameOf,
+  findModule,
+  instanceArrayNamespaces,
+  namespaceOfFileKey,
+  pickTargetNamespace,
+  resolveComponentFile,
+} from '../utils/namespaces'
+import { chooseTargetNamespace, configNamespace, planNamespaceImport } from '../services/import/namespaceImport'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 
 const props = defineProps({
@@ -267,7 +275,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 const { trackEvent } = useGtm()
-const { choose } = useConfirmDialog()
+const { choose, prompt } = useConfirmDialog()
 const libraryStore = useLibraryStore()
 
 // --- State Management ---
@@ -279,7 +287,7 @@ const isLoading = ref(false)
 const loadingText = ref('Loading...')
 const expandedFields = ref(new Set())
 const stagedFiles = ref({
-  mathFiles: [], // { filename: string, payload: object }; filename is the library key, a path for a source's file
+  mathFiles: [], // { filename: string, payload: object }; filename is the library key, `namespace/name` from a folder
   unitsFiles: [], // { filename: string, payload: string } - the units model
   configFiles: [], // { filename: string, payload: object }
 })
@@ -570,10 +578,64 @@ function resetFormState(keepInstanceArray = false) {
   importReadiness.value = null
 }
 
-/** The source the instance array came from, whose modules it prefers (see findModule). */
-const instanceArraySource = () => {
-  const [fileKey] = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files?.keys() ?? []
-  return fileKey ? sourceOfFileKey(fileKey) : null
+/**
+ * The namespace the instance array targets, whose modules it prefers (see findModule): the one settled for it, else
+ * its own, else the one namespace defining its modules, if only one does.
+ *
+ * @param {Map<string, Object>} [modules] - The modules it may use; by default the library's and the staged ones.
+ * @returns {string|null}
+ */
+const instanceArrayNamespace = (modules) => {
+  const [[fileKey, data] = []] = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files ?? []
+  if (!fileKey) return null
+  if (typeof data?.namespace === 'string') return data.namespace || null
+  if (namespaceOfFileKey(fileKey)) return namespaceOfFileKey(fileKey)
+  const candidates = instanceArrayTargets(data?.payload, modules)
+  return candidates.namespace || null
+}
+
+/**
+ * Where a loose instance array could go (pickTargetNamespace).
+ *
+ * @param {Object[]} rows
+ * @param {Map<string, Object>} [modules]
+ * @returns {{ namespace: string }|{ choices: string[] }}
+ */
+const instanceArrayTargets = (rows, modules = createTemporaryStore().availableModules) =>
+  pickTargetNamespace(instanceArrayNamespaces(rows, modules.keys()), [...modules.keys()].map((ref) => ref.split(':')[2]))
+
+/**
+ * Asks which namespace a loose instance array targets, when several define its modules, and records the answer with
+ * it, so its modules are found there. Asks once per instance array.
+ */
+async function settleInstanceArrayNamespace() {
+  const [[fileKey, data] = []] = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files ?? []
+  if (!fileKey || namespaceOfFileKey(fileKey) || typeof data?.namespace === 'string') return
+  const targets = instanceArrayTargets(data.payload)
+  if (!targets.choices) return
+  const answer = await chooseTargetNamespace(targets.choices, {
+    store: { loadedNamespaces: () => targets.choices },
+    prompt,
+    what: fileKey,
+  })
+  data.namespace = answer ?? NO_NAMESPACE
+  syncDynamicFields(checkReadiness(data.payload))
+}
+
+/**
+ * The namespace a staged loose config is checked in before it is loaded: the one holding its math, among the
+ * library's files and the staged ones, else the only one; none when several fit, until the import asks.
+ *
+ * @param {Object[]} configs
+ * @param {string[]} arriving - Keys of staged CellML files.
+ * @returns {string}
+ */
+function provisionalConfigNamespace(configs, arriving) {
+  const files = new Set(configs.map((config) => baseNameOf(config?.component_file ?? '')))
+  const matching = new Set(libraryStore.namespacesWithFiles(files))
+  for (const key of arriving) if (files.has(baseNameOf(key))) matching.add(namespaceOfFileKey(key) ?? NO_NAMESPACE)
+  const loaded = [...libraryStore.loadedNamespaces(), ...arriving.map(namespaceOfFileKey)]
+  return pickTargetNamespace(matching, loaded).namespace ?? NO_NAMESPACE
 }
 
 const getInstanceArrayPayload = () => {
@@ -589,17 +651,13 @@ const createTemporaryStore = () => {
   const availableModules = detachReactivity(libraryStore.availableModules)
   const availableMath = detachReactivity(libraryStore.availableMath)
   const availableCollections = detachReactivity(libraryStore.availableCollections)
-  // Files a staged config's component_file may name, as libraryStore.addConfigFile finds them.
-  const candidates = [
-    ...[...availableMath.keys()].map((mathRef) => parseMathRef(mathRef).componentFile),
-    ...stagedFiles.value.mathFiles.map(({ filename }) => filename),
-  ]
+  const arriving = stagedFiles.value.mathFiles.map(({ filename }) => filename)
 
   for (const { filename, payload: configs } of stagedFiles.value.configFiles) {
-    const source = sourceOfFileKey(filename)
+    const namespace = namespaceOfFileKey(filename) ?? provisionalConfigNamespace(configs, arriving)
     configs.forEach((config) => {
-      const componentFile = resolveComponentFile(filename, config.component_file, candidates)
-      const module = normaliseConfig({ ...config, component_file: componentFile }, { source })
+      const componentFile = resolveComponentFile(namespace || null, config.component_file)
+      const module = normaliseConfig({ ...config, component_file: componentFile }, { namespace: namespace || null })
       if (!availableMath.has(module.mathRef)) {
         module.isStub = true
       }
@@ -640,7 +698,7 @@ const checkReadiness = (instanceArrayPayload) => {
 
   const temporaryStore = createTemporaryStore()
   const resourcesLoadStatus = checkResourcesAreLoaded(instanceArrayPayload, temporaryStore, {
-    preferredSource: instanceArraySource(),
+    preferredNamespace: instanceArrayNamespace(temporaryStore.availableModules),
   })
 
   importReadiness.value = resourcesLoadStatus
@@ -744,7 +802,7 @@ function isFieldVisible(key) {
  */
 function formKeyOf(entry) {
   const fileKey = fileKeyOfEntry(entry)
-  if (sourceOfFileKey(fileKey)) return fileKey
+  if (namespaceOfFileKey(fileKey)) return fileKey
   const sameName = Object.values(formState)
     .flatMap((state) => [...(state.files?.keys() ?? [])])
     .filter((key) => key === fileKey || key.endsWith(`/${fileKey}`))
@@ -780,9 +838,12 @@ function setFieldFile(field, filename, payload, path = filename) {
 function getReferencedCellMLFilenames(instanceArrayPayload) {
   const { availableModules } = createTemporaryStore()
   const filenames = new Set()
+  const namespace = instanceArrayNamespace(availableModules)
   for (const row of instanceArrayPayload) {
-    const mathRef = findModule(availableModules, row.module_type, row.module_subtype, instanceArraySource()).module?.mathRef
-    if (mathRef) filenames.add(parseMathRef(mathRef).componentFile)
+    const { module, ambiguous } = findModule(availableModules, row.module_type, row.module_subtype, namespace)
+    // Until the namespace is chosen, the files of each that could be are used.
+    const modules = module ? [module] : ambiguous.map((each) => availableModules.get(`${row.module_type}:${row.module_subtype}:${each}`))
+    for (const { mathRef } of modules.filter(Boolean)) filenames.add(parseMathRef(mathRef).componentFile)
   }
   return filenames
 }
@@ -944,6 +1005,7 @@ async function runImportBatch(entries, { preferredKey, isSelection = false }) {
   skipped.unshift(...duplicates)
 
   const placed = commitParsedFiles(parsed, skipped)
+  await settleInstanceArrayNamespace()
   const placedNames = new Set(placed.map(({ name }) => name))
   const importIssues = parsed
     .filter((result) => result.importIssues?.length && placedNames.has(result.fileKey))
@@ -1025,7 +1087,7 @@ async function runAutoFillFromFolder() {
   const startGeneration = formGeneration
   isScanningFolder.value = true
   try {
-    // Paths start at the folder's name, which names the files' source.
+    // Paths start at the folder's name, which names the files' namespace.
     const folderEntries = (await scanFolder()).map(({ file, path }) => ({ file, path: `${folderName.value}/${path}` }))
     const entries = folderEntries.filter((entry) => {
       const fileKey = fileKeyOfEntry(entry)
@@ -1083,40 +1145,50 @@ function updateDynamicFields(completionStatus) {
 }
 
 /**
- * Adds the staged math, units and configs to the library, after asking what to do where they would
- * change what a source already has loaded. A source the user skips is left out; one kept beside
- * the loaded one is renamed, in the form as well, so the instance array still prefers it.
+ * Adds the staged math, units and configs to the library, after asking which namespace each folder's files go in and
+ * what to do where that namespace already has different versions. A loose config goes to the namespace holding its
+ * math. Form keys follow their files' namespaces, so the instance array still targets its own.
+ *
+ * @returns {Promise<void>}
  */
 const commitStagedFiles = async () => {
   const { mathFiles, unitsFiles, configFiles } = stagedFiles.value
-  const settlement = await settleSourceClashes(
-    {
-      mathFiles: mathFiles.map(({ filename, payload }) => ({ key: filename, components: payload })),
-      unitsFiles: unitsFiles.map(({ filename, payload }) => ({ key: filename, model: payload })),
-      configFiles: configFiles.map(({ filename, payload }) => ({ key: filename, configs: payload })),
-    },
-    { store: libraryStore, choose }
-  )
-  const kept = (files) => files.filter(({ filename }) => !settlement.isSkipped(filename))
+  const deps = { store: libraryStore, prompt, choose }
+  const keys = [...mathFiles, ...unitsFiles, ...configFiles].map(({ filename }) => filename)
+  const mapped = (files, mapKey) =>
+    files.filter(({ filename }) => mapKey(filename) !== null).map((file) => ({ ...file, key: mapKey(file.filename) }))
+  const plan = await planNamespaceImport(keys, {
+    ...deps,
+    incomingFor: (mapKey) => ({
+      mathFiles: mapped(mathFiles, mapKey).map(({ key, payload }) => ({ key, components: payload })),
+      unitsFiles: mapped(unitsFiles, mapKey).map(({ key, payload }) => ({ key, model: payload })),
+      // Loose configs are checked once their namespace is known, as they load.
+      configFiles: mapped(configFiles, mapKey)
+        .filter(({ filename }) => namespaceOfFileKey(filename))
+        .map(({ key, payload }) => ({ key, configs: payload })),
+    }),
+  })
+  const kept = (files) => files.filter(({ filename }) => !plan.isSkipped(filename))
 
   for (const { filename, payload } of kept(mathFiles)) {
-    libraryStore.addMathFile(settlement.mapKey(filename), payload)
+    libraryStore.addMathFile(plan.mapKey(filename), payload)
   }
   for (const { filename, payload } of kept(unitsFiles)) {
-    libraryStore.addUnitsFile({ componentFile: settlement.mapKey(filename), model: payload })
+    libraryStore.addUnitsFile({ componentFile: plan.mapKey(filename), model: payload })
   }
-  const candidates = kept(mathFiles).map(({ filename }) => settlement.mapKey(filename))
+  const arriving = kept(mathFiles).map(({ filename }) => plan.mapKey(filename))
   for (const { filename, payload } of kept(configFiles)) {
-    libraryStore.addConfigFile(settlement.mapKey(filename), payload, {
-      candidates,
-      replace: settlement.isReplaced(filename),
-    })
+    const namespace = await configNamespace(filename, payload, deps, plan, arriving)
+    if (namespace === null) continue
+    libraryStore.addConfigFile(plan.mapKey(filename), payload, { namespace, replace: plan.isReplaced(filename) })
   }
 
   for (const state of Object.values(formState)) {
     if (!state.files) continue
     for (const [fileKey, data] of [...state.files]) {
-      const renamed = settlement.mapKey(fileKey)
+      // An instance array settled on an imported namespace follows it, if renamed.
+      if (data.namespace) data.namespace = namespaceOfFileKey(plan.mapKey(`${data.namespace}/_`)) ?? NO_NAMESPACE
+      const renamed = plan.mapKey(fileKey)
       if (renamed === fileKey) continue
       state.files.delete(fileKey)
       state.files.set(renamed, { ...data, path: renamed })

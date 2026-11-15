@@ -524,31 +524,47 @@ describe('useCellmlDrop', () => {
         { name: 'u.cellml', path: 'CellML/units/u.cellml', content: '<model/>' },
       ])
       expect(deps.loadCellMLData).toHaveBeenCalledTimes(2)
-      expect(deps.loadCellMLData).toHaveBeenCalledWith('<model/>', 'CellML/math/NCX.cellml', { notify: false })
+      // Keyed in the folder's namespace, by name: the folders inside only resolve imports.
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<model/>', 'CellML/NCX.cellml', { notify: false })
     })
 
-    it('loads files under the names the clash settlement gives, leaving out skipped sources', async () => {
+    it('loads files in the namespaces the import plan gives, leaving out those it skips', async () => {
       readFileAsText.mockResolvedValue('<model/>')
-      const settleClashes = vi.fn(async () => ({
-        mapKey: (key) => key.replace(/^repo\//, 'repo (2)/'),
+      const planImport = vi.fn(async () => ({
+        mapKey: (key) => key.replace(/^repo\//, 'cardiac_ap/'),
         isSkipped: (key) => key.startsWith('other/'),
         isReplaced: () => false,
       }))
-      const withClashes = useCellmlDrop({ ...deps, settleClashes })
+      const planned = useCellmlDrop({ ...deps, planImport })
 
-      const results = await withClashes.loadCellMLFiles([
+      const results = await planned.loadCellMLFiles([
         { name: 'a.cellml', path: 'repo/math/a.cellml', file: file('a.cellml') },
         { name: 'b.cellml', path: 'other/b.cellml', file: file('b.cellml') },
         { name: 'loose.cellml', file: file('loose.cellml') },
       ])
 
-      expect(settleClashes).toHaveBeenCalledWith([
-        { key: 'repo/math/a.cellml', cellml: '<model/>' },
+      expect(planImport).toHaveBeenCalledWith([
+        { key: 'repo/a.cellml', cellml: '<model/>' },
         { key: 'other/b.cellml', cellml: '<model/>' },
         { key: 'loose.cellml', cellml: '<model/>' },
       ])
-      expect(deps.loadCellMLData.mock.calls.map(([, key]) => key)).toEqual(['repo (2)/math/a.cellml', 'loose.cellml'])
+      expect(deps.loadCellMLData.mock.calls.map(([, key]) => key)).toEqual(['cardiac_ap/a.cellml', 'loose.cellml'])
       expect(results).toHaveLength(2)
+    })
+
+    it('loads one file of a name per namespace, warning about the others', async () => {
+      readFileAsText.mockResolvedValue('<model/>')
+
+      await drop.loadCellMLFiles([
+        { name: 'm.cellml', path: 'repo/math/m.cellml', file: file('m.cellml') },
+        { name: 'm.cellml', path: 'repo/old/m.cellml', file: file('m.cellml') },
+        { name: 'm.cellml', path: 'other/m.cellml', file: file('m.cellml') },
+      ])
+
+      expect(deps.loadCellMLData.mock.calls.map(([, key]) => key)).toEqual(['repo/m.cellml', 'other/m.cellml'])
+      expect(notify.warning).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Same-Named Files Left Out', message: expect.stringContaining('repo/old/m.cellml') })
+      )
     })
 
     it('loads .cellml files case-insensitively and ignores other dropped files', async () => {

@@ -6,9 +6,9 @@ import {
   baseNameOf,
   moduleRefOf,
   resolveComponentFile,
-  sourceOfFileKey,
-  sourceOfModuleRef,
-} from '../utils/sourceIdentity'
+  namespaceOfFileKey,
+  namespaceOfModuleRef,
+} from '../utils/namespaces'
 import { areModelsEquivalent } from '../utils/cellml'
 import {
   AFFINE_UNIT_CONVERSIONS,
@@ -195,34 +195,29 @@ export const useLibraryStore = defineStore('library', () => {
   // --- SETTERS ---
 
   /**
-   * Adds the modules of a config file. A config from a source (its file key is a path, such as
-   * `repo/configurations/x.json`) gives modules qualified by that source, on math in that source.
+   * Adds the modules of a config file, in a namespace: qualified by it, on the math of that namespace.
    *
    * @param {string} filename - The config file's key.
    * @param {Object[]} configs
    * @param {Object} [options]
-   * @param {Iterable<string>} [options.candidates] - Keys of CellML files being loaded with the config,
-   *   besides those already in the library, that its `component_file` may name.
+   * @param {string|null} [options.namespace] - The namespace to load into; by default the file key's.
    * @param {boolean} [options.replace] - Replace modules already under the same refs, as when the user
-   *   chose to replace a source's files; otherwise the loaded ones stay.
+   *   chose to overwrite a namespace's clashes; otherwise the loaded ones stay.
    * @returns {number} How many modules were added or replaced.
    */
-  function addConfigFile(filename, configs, { candidates = [], replace = false } = {}) {
+  function addConfigFile(filename, configs, { namespace = namespaceOfFileKey(filename), replace = false } = {}) {
     let totalAdded = 0
 
     if (!configs || !Array.isArray(configs)) {
       return totalAdded
     }
 
-    const source = sourceOfFileKey(filename)
-    const known = source ? [...loadedFileKeys(), ...candidates] : []
     configs.forEach((config) => {
       if (!config.component_file || typeof config.component_file !== 'string') {
         return totalAdded
       }
 
-      const componentFile = resolveComponentFile(filename, config.component_file, known)
-      const module = normaliseConfig({ ...config, component_file: componentFile }, { source })
+      const module = configModule(config, namespace)
       if (replace && availableModules.value.has(module.moduleRef)) {
         replaceModule(module)
         totalAdded++
@@ -241,21 +236,49 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   /**
-   * Every source with files or modules in the library.
+   * The module a config gives in a namespace, on the file its `component_file` names there.
+   *
+   * @param {Object} config
+   * @param {string|null} namespace
+   * @returns {Object}
+   */
+  function configModule(config, namespace) {
+    const componentFile = resolveComponentFile(namespace || null, config.component_file)
+    return normaliseConfig({ ...config, component_file: componentFile }, { namespace: namespace || null })
+  }
+
+  /**
+   * Every namespace with files or modules in the library; none is not one.
    *
    * @returns {Set<string>}
    */
-  function loadedSources() {
-    const sources = new Set()
+  function loadedNamespaces() {
+    const namespaces = new Set()
     for (const key of loadedFileKeys()) {
-      const source = sourceOfFileKey(key)
-      if (source) sources.add(source)
+      const namespace = namespaceOfFileKey(key)
+      if (namespace) namespaces.add(namespace)
     }
     for (const moduleRef of availableModules.value.keys()) {
-      const source = sourceOfModuleRef(moduleRef)
-      if (source) sources.add(source)
+      const namespace = namespaceOfModuleRef(moduleRef)
+      if (namespace) namespaces.add(namespace)
     }
-    return sources
+    return namespaces
+  }
+
+  /**
+   * The namespaces ('' for none) holding any of the named files: where a config naming them, or a
+   * file of parameters for their modules, fits.
+   *
+   * @param {Iterable<string>} fileNames - Bare file names, such as a config's `component_file`s.
+   * @returns {Set<string>}
+   */
+  function namespacesWithFiles(fileNames) {
+    const names = new Set([...fileNames].filter(Boolean).map(baseNameOf))
+    const namespaces = new Set()
+    for (const key of loadedFileKeys()) {
+      if (names.has(baseNameOf(key))) namespaces.add(namespaceOfFileKey(key) ?? '')
+    }
+    return namespaces
   }
 
   /**
@@ -266,7 +289,8 @@ export const useLibraryStore = defineStore('library', () => {
    * @param {Object} incoming
    * @param {Array<{ key: string, components: Array<{ name: string, math: string }> }>} [incoming.mathFiles]
    * @param {Array<{ key: string, model: string }>} [incoming.unitsFiles]
-   * @param {Array<{ key: string, configs: Object[] }>} [incoming.configFiles]
+   * @param {Array<{ key: string, configs: Object[], namespace?: string|null }>} [incoming.configFiles] - namespace
+   *   is where the configs load, by default their key's.
    * @returns {Array<{ kind: 'math'|'units'|'module', key: string, existing: any, incoming: any }>}
    */
   function findClashes({ mathFiles = [], unitsFiles = [], configFiles = [] } = {}) {
@@ -297,16 +321,13 @@ export const useLibraryStore = defineStore('library', () => {
       }
     }
 
-    for (const { key, configs } of configFiles) {
-      const source = sourceOfFileKey(key)
-      const candidates = [...loadedFileKeys(), ...mathFiles.map((file) => file.key)]
+    for (const { key, configs, namespace = namespaceOfFileKey(key) } of configFiles) {
       for (const config of configs ?? []) {
         if (!config?.component_file) continue
-        const moduleRef = moduleRefOf(config.module_type, config.module_subtype, source)
+        const module = configModule(config, namespace)
+        const moduleRef = module.moduleRef
         const stored = availableModules.value.get(moduleRef)
         if (!stored) continue
-        const componentFile = resolveComponentFile(key, config.component_file, candidates)
-        const module = normaliseConfig({ ...config, component_file: componentFile }, { source })
         if (!sameModuleConfig(stored, module)) clashes.push({ kind: 'module', key: moduleRef, existing: stored, incoming: module })
       }
     }
@@ -441,28 +462,6 @@ export const useLibraryStore = defineStore('library', () => {
       addMath(mathRef, component.math, true, component.layout)
       createModuleForMath(mathRef)
     })
-    relinkStubs(filename, new Set(components.map((component) => component.name)))
-  }
-
-  /**
-   * Points stub modules of a source at a file of that source that has their math, when their
-   * config named the file by a path where it wasn't. Configs give bare file names, so the path is
-   * a guess until the file itself arrives.
-   *
-   * @param {string} filename - Key of the file just added.
-   * @param {Set<string>} componentNames - Its components.
-   */
-  function relinkStubs(filename, componentNames) {
-    const source = sourceOfFileKey(filename)
-    if (!source) return
-    const name = baseNameOf(filename)
-    for (const module of [...availableModules.value.values()]) {
-      if (!module.isStub) continue
-      const { componentFile, componentName } = parseMathRef(module.mathRef)
-      if (componentFile === filename || !componentNames.has(componentName)) continue
-      if (sourceOfFileKey(componentFile) !== source || baseNameOf(componentFile) !== name) continue
-      replaceModule({ ...module, mathRef: `${filename}:${componentName}` })
-    }
   }
 
   /**
@@ -741,7 +740,7 @@ export const useLibraryStore = defineStore('library', () => {
    */
   function defaultModuleRef(mathRef) {
     const { componentFile, componentName } = parseMathRef(mathRef)
-    const wanted = moduleRefOf(componentName, 'default', sourceOfFileKey(componentFile))
+    const wanted = moduleRefOf(componentName, 'default', namespaceOfFileKey(componentFile))
     return uniqueModuleRef(wanted, mathRef, (ref) => availableModules.value.get(ref))
   }
 
@@ -1019,7 +1018,8 @@ export const useLibraryStore = defineStore('library', () => {
     // Actions
     addConfigFile,
     findClashes,
-    loadedSources,
+    loadedNamespaces,
+    namespacesWithFiles,
     addModule,
     addMathFile,
     createModuleForMath,

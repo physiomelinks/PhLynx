@@ -27,10 +27,10 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
    * @param {{ instances: Object[] }} instanceArray
    * @param {Function} [progressCallback]
    * @param {Object} [options]
-   * @param {string|null} [options.preferredSource] - The source the instance array came from; its modules are
-   *   preferred where several sources define a row's type and subtype.
+   * @param {string|null} [options.preferredNamespace] - The namespace the instance array targets; its modules are
+   *   preferred where several namespaces define a row's type and subtype.
    */
-  const loadFromInstanceArray = async (instanceArray, progressCallback = null, { preferredSource = null } = {}) => {
+  const loadFromInstanceArray = async (instanceArray, progressCallback = null, { preferredNamespace = null } = {}) => {
     try {
       await clearWorkspace({ recordHistory: false })
 
@@ -46,7 +46,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
         progressCallback,
         store.getMathDefaults,
         defaultParameters.getSet,
-        preferredSource
+        preferredNamespace
       )
 
       // A parameter set's globals seed the constants not yet set.

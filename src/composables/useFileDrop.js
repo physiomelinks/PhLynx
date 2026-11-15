@@ -1,14 +1,14 @@
 import JSZip from 'jszip'
 
 import { hasRelevantExtension, collectEntry, fileFromEntry } from '../utils/import'
-import { sanitiseSourceName } from '../utils/sourceIdentity'
+import { sanitiseNamespace } from '../utils/namespaces'
 
 const isZip = (name) => name.toLowerCase().endsWith('.zip')
 
 /**
  * Lists the relevant files inside a zip, with paths relative to the zip's root, so a zipped
  * module repository resolves its CellML imports as the unzipped folder would. A path's first
- * folder names the files' source; when the zip has no single top folder, the zip's own name does.
+ * folder names the files' namespace; when the zip has no single top folder, the zip's own name does.
  *
  * @param {File} zipFile
  * @returns {Promise<{ file: File, path: string }[]>}
@@ -26,7 +26,7 @@ export async function entriesFromZip(zipFile) {
   }
   const tops = new Set(results.map(({ path }) => (path.includes('/') ? path.slice(0, path.indexOf('/')) : null)))
   if (tops.size === 1 && !tops.has(null)) return results
-  const stem = sanitiseSourceName((zipFile.name ?? 'archive').replace(/\.zip$/i, '')) || 'archive'
+  const stem = sanitiseNamespace((zipFile.name ?? 'archive').replace(/\.zip$/i, '')) || 'archive'
   return results.map(({ file, path }) => ({ file, path: `${stem}/${path}` }))
 }
 

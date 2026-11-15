@@ -2,15 +2,15 @@
  * Matching side-car files to the library modules they annotate, by the component each one names.
  */
 import { parseMathRef } from '../../utils/config'
-import { baseNameOf, sourceOfFileKey } from '../../utils/sourceIdentity'
+import { baseNameOf, namespaceOfFileKey } from '../../utils/namespaces'
 
 /**
  * Finds the library math a side-car's component subject names. A subject names its file by name
- * alone, while a source's files are keyed by path; such a file is looked for by name, in the
- * side-car's own source first.
+ * alone, while a namespace's files are keyed `namespace/name`; such a file is looked for by name,
+ * in the side-car's own namespace first.
  *
  * @param {string} mathRef - From the subject: `file:component`.
- * @param {string} sidecarKey - The side-car file's key, a path when it came from a source.
+ * @param {string} sidecarKey - The side-car file's key, in a namespace when it came from a folder or zip.
  * @param {(mathRef: string) => boolean} hasMath
  * @param {Iterable<string>} mathRefs - Every math ref in the library.
  * @returns {{ mathRef: string|null, candidates: string[] }} Null with several candidates when it is ambiguous.
@@ -23,8 +23,8 @@ export function resolveSidecarMathRef(mathRef, sidecarKey, hasMath, mathRefs) {
     const parts = parseMathRef(ref)
     return parts.componentName === componentName && baseNameOf(parts.componentFile) === name
   })
-  const source = sourceOfFileKey(sidecarKey)
-  const own = source ? candidates.filter((ref) => sourceOfFileKey(parseMathRef(ref).componentFile) === source) : []
+  const namespace = namespaceOfFileKey(sidecarKey)
+  const own = namespace ? candidates.filter((ref) => namespaceOfFileKey(parseMathRef(ref).componentFile) === namespace) : []
   if (own.length === 1) return { mathRef: own[0], candidates: [] }
   if (candidates.length === 1) return { mathRef: candidates[0], candidates: [] }
   return { mathRef: null, candidates: own.length > 1 ? own : candidates }
@@ -35,9 +35,9 @@ export function resolveSidecarMathRef(mathRef, sidecarKey, hasMath, mathRefs) {
  * the module its own component subject names; nothing is matched by file name.
  *
  * @param {Array<{ name: string, text: string, mathRef?: string|null }>} files - mathRef from readSidecarComponent;
- *   name is the file's key, a path when it came from a source.
+ *   name is the file's key, in a namespace when it came from a folder or zip.
  * @param {(mathRef: string) => boolean} hasMath - Whether the library has the math.
- * @param {Iterable<string>} [mathRefs] - Every math ref in the library, to find a source's file by name
+ * @param {Iterable<string>} [mathRefs] - Every math ref in the library, to find a namespace's file by name
  *   (see resolveSidecarMathRef).
  * @returns {{ matched: Array<{ name: string, text: string, mathRef: string }>,
  *   unmatched: Array<{ name: string, reason: string }> }} A second file for the same module is unmatched.
@@ -52,7 +52,7 @@ export function matchSidecarFiles(files, hasMath, mathRefs = []) {
       : { mathRef: null, candidates: [] }
     if (!named) unmatched.push({ name, reason: 'names no single module component' })
     else if (candidates.length) {
-      unmatched.push({ name, reason: `annotates ${named}, which several sources have: ${candidates.join(', ')}` })
+      unmatched.push({ name, reason: `annotates ${named}, which several namespaces have: ${candidates.join(', ')}` })
     } else if (!mathRef) unmatched.push({ name, reason: `annotates ${named}, which is not in the library` })
     else if (taken.has(mathRef)) unmatched.push({ name, reason: `annotates ${mathRef}, as an earlier file does` })
     else {

@@ -1,17 +1,17 @@
 <template>
   <span class="file-label" :title="described.title">
     <span class="file-label__name">{{ name ?? described.name }}</span>
-    <span v-if="described.source" class="file-label__source">{{ described.source }}</span>
+    <span v-if="described.namespace" class="file-label__namespace">{{ described.namespace }}</span>
   </span>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 
-import { describeFileKey } from '../utils/sourceIdentity'
+import { describeFileKey } from '../utils/namespaces'
 
 /**
- * A library file's name, with the source it came from as a small tag; the whole key shows on hover.
+ * A library file's name, with its namespace as a small tag; the whole key shows on hover.
  */
 const props = defineProps({
   fileKey: { type: String, default: '' },
@@ -38,7 +38,7 @@ const described = computed(() => describeFileKey(props.fileKey))
   min-width: 0;
 }
 
-.file-label__source {
+.file-label__namespace {
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;

@@ -851,20 +851,20 @@ describe('generateExportZip', () => {
     expect(library.availableMath.has('other_modules.cellml:vp_simple_type')).toBe(true)
   })
 
-  describe('modules from sources', () => {
-    /** Adds membrane.cellml's membrane, as a source's membrane:membrane module, and gives a node on it. */
-    function fromSource(source, name) {
-      const mathRef = `${source}/math/membrane.cellml:membrane`
+  describe('modules in namespaces', () => {
+    /** Adds membrane.cellml's membrane, as a namespace's membrane:membrane module, and gives a node on it. */
+    function inNamespace(namespace, name) {
+      const mathRef = `${namespace}/membrane.cellml:membrane`
       library.addMath(mathRef, VP_MATH.replace('vp_simple_type', 'membrane'))
-      library.addModule({ moduleRef: `membrane:membrane:${source}`, mathRef, ports: [], variables: [] })
-      return { id: name, data: { name, moduleRef: `membrane:membrane:${source}`, mathRef, ports: [], variables: [] } }
+      library.addModule({ moduleRef: `membrane:membrane:${namespace}`, mathRef, ports: [], variables: [] })
+      return { id: name, data: { name, moduleRef: `membrane:membrane:${namespace}`, mathRef, ports: [], variables: [] } }
     }
 
     const configOf = (files) => JSON.parse(files['modules/heart_module_config.json'])
     const arrayOf = (files) => JSON.parse(files['heart_module_array.json'])
 
-    it("writes one source's modules as CA knows them: flat file names, the subtype unqualified", async () => {
-      const files = await readZip(await generateExportZip('heart', [fromSource('enterocyte-modules', 'm')], [], library))
+    it("writes one namespace's modules as CA knows them: flat file names, the subtype unqualified", async () => {
+      const files = await readZip(await generateExportZip('heart', [inNamespace('enterocyte-modules', 'm')], [], library))
       expect(configOf(files)[0]).toMatchObject({
         module_type: 'membrane',
         module_subtype: 'membrane',
@@ -879,8 +879,8 @@ describe('generateExportZip', () => {
       expect(notified.warning).not.toHaveBeenCalled()
     })
 
-    it("tells two sources' same-named modules and files apart by source, only where they clash, and warns", async () => {
-      const nodes = [fromSource('enterocyte-modules', 'a'), fromSource('CellML', 'b'), nodeWith('vp', [])]
+    it("tells two namespaces' same-named modules and files apart by namespace, only where they clash, and warns", async () => {
+      const nodes = [inNamespace('enterocyte-modules', 'a'), inNamespace('CellML', 'b'), nodeWith('vp', [])]
       const files = await readZip(await generateExportZip('heart', nodes, [], library))
       const entries = configOf(files).map((entry) => [entry.module_subtype, entry.component_file, entry.component_type])
       expect(entries).toEqual([

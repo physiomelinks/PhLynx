@@ -8,7 +8,7 @@ import { combineComponentModels, uniqueComponentIds, whenLibCellMLReady } from '
 import { parseMathRef } from '../../utils/config'
 import { unitsModelXml } from '../../utils/unitExpression'
 import { groupingCellmlFile, unitsUsedBy } from '../userModules'
-import { baseNameOf, fileSafeSource, flatFileNames, sourceOfFileKey } from '../../utils/sourceIdentity'
+import { baseNameOf, fileSafeNamespace, flatFileNames, namespaceOfFileKey } from '../../utils/namespaces'
 
 // CA adds this component when a heart has one venous input; it comes from CA's built-in BG modules.
 const ZERO_FLOW_MATH_REF = 'BG_modules.cellml:zero_flow'
@@ -69,13 +69,13 @@ export function groupingTag(grouping) {
 }
 
 /**
- * Gives a source's tag for the components an export renames, as groupingTag does a grouping's.
+ * Gives a namespace's tag for the components an export renames, as groupingTag does a grouping's.
  *
- * @param {string} source
+ * @param {string} namespace
  * @returns {string}
  */
-function sourceTag(source) {
-  return fileSafeSource(source).toLowerCase().replace(/-/g, '_')
+function namespaceTag(namespace) {
+  return fileSafeNamespace(namespace).toLowerCase().replace(/-/g, '_')
 }
 
 /**
@@ -143,11 +143,11 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
   const missing = mathRefs.filter((mathRef) => !libraryStore.availableMath.has(mathRef))
   if (missing.length) throw new Error(`No math in the library for ${listNamed(missing)}.`)
 
-  // CA reads the files from one folder, so a file from a source goes by its name, prefixed with the source only
+  // CA reads the files from one folder, so a file in a namespace goes by its name, prefixed with the namespace only
   // where another file exported has the same name.
   const flatNames = flatFileNames(typesByFile.keys())
   const tagOf = (file) =>
-    flatNames.get(file) === baseNameOf(file) ? groupingTag(baseNameOf(file)) : sourceTag(sourceOfFileKey(file))
+    flatNames.get(file) === baseNameOf(file) ? groupingTag(baseNameOf(file)) : namespaceTag(namespaceOfFileKey(file))
   const renamedComponents = renameClashingComponents(typesByFile, tagOf)
   const exportNames = new Map(renamedComponents.map(({ file, from, to }) => [`${file}:${from}`, to]))
   const renames = new Map([...typesByFile.keys()].map((file) => [file, caModuleFileName(flatNames.get(file))]))

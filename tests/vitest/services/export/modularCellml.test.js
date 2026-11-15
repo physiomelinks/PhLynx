@@ -212,10 +212,10 @@ describe('buildModularModel', () => {
     expect(parsed.variables.map(({ variable }) => variable)).toEqual(['q'])
   })
 
-  it('writes the files of one source by their names alone, sidecars included', async () => {
-    store.addMathFile('repo/math/tank.cellml', [{ name: 'tank', math: TANK }])
-    store.setModuleAnnotations('repo/math/tank.cellml:tank', TANK_TTL)
-    const nodes = [buildNode('tank_a', 'repo/math/tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
+  it('writes the files of one namespace by their names alone, sidecars included', async () => {
+    store.addMathFile('repo/tank.cellml', [{ name: 'tank', math: TANK }])
+    store.setModuleAnnotations('repo/tank.cellml:tank', TANK_TTL)
+    const nodes = [buildNode('tank_a', 'repo/tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
     const { files, sidecars, warnings } = await expectEquivalent(nodes, [])
     expect(warnings).toEqual([])
     expect(files.map(({ location }) => location)).toEqual(['tank.cellml'])
@@ -225,14 +225,14 @@ describe('buildModularModel', () => {
     expect(parsed.variables.map(({ variable }) => variable)).toEqual(['q'])
   })
 
-  it("prefixes same-named files with their sources, each sidecar resolving against its own source's file", async () => {
-    for (const source of ['enterocyte-modules', 'CellML']) {
-      store.addMathFile(`${source}/math/tank.cellml`, [{ name: 'tank', math: TANK }])
-      store.setModuleAnnotations(`${source}/math/tank.cellml:tank`, TANK_TTL)
+  it("prefixes same-named files with their namespaces, each sidecar resolving against its own namespace's file", async () => {
+    for (const namespace of ['enterocyte-modules', 'CellML']) {
+      store.addMathFile(`${namespace}/tank.cellml`, [{ name: 'tank', math: TANK }])
+      store.setModuleAnnotations(`${namespace}/tank.cellml:tank`, TANK_TTL)
     }
     const nodes = [
-      buildNode('tank_a', 'enterocyte-modules/math/tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } }),
-      buildNode('tank_b', 'CellML/math/tank.cellml:tank', { values: { q_init: '2', v: '0.1', k: '0.5' } }),
+      buildNode('tank_a', 'enterocyte-modules/tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } }),
+      buildNode('tank_b', 'CellML/tank.cellml:tank', { values: { q_init: '2', v: '0.1', k: '0.5' } }),
     ]
     const { main, files, sidecars, warnings } = await expectEquivalent(nodes, [])
     expect(warnings).toEqual([])

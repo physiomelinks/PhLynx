@@ -3,6 +3,8 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { applyInstancesToNodes, planGlobals, planSetApply, planSetsForNodes, setApplyConfirmation } from '../utils/parameters/apply'
 import { applyParametersToNodes, skippedParametersMessage } from '../utils/parameters'
 import { csvToModuleFile } from '../utils/parameters/parse'
+import { chooseTargetNamespace } from '../services/import/namespaceImport'
+import { namespaceOfFileKey } from '../utils/namespaces'
 
 const isSame = (value, otherValue) => JSON.stringify(value) === JSON.stringify(otherValue)
 
@@ -21,8 +23,9 @@ const sameValues = (set, other) =>
  * @param {Function} deps.recordEdit - From useNodeDataHistory; makes each file one undo step.
  * @param {Function} deps.confirm - From useConfirmDialog.
  * @param {Function} deps.choose - From useConfirmDialog.
+ * @param {Function} [deps.prompt] - From useConfirmDialog; picks a namespace when several could take a set.
  */
-export function useParametersImport({ nodes, recordEdit, confirm, choose }) {
+export function useParametersImport({ nodes, recordEdit, confirm, choose, prompt = async () => null }) {
   const libraryStore = useLibraryStore()
   const defaults = useDefaultParametersStore()
 
@@ -91,16 +94,41 @@ export function useParametersImport({ nodes, recordEdit, confirm, choose }) {
   }
 
   /**
+   * The namespace a set goes to: the one given, else its file's own once the library has it, else the one whose
+   * configs name it as their default (asking when several do). One no config names yet links wherever one does.
+   *
+   * @param {Object} set
+   * @param {string} fileName - Its key, in a namespace when it came from a folder or zip.
+   * @param {string} [given] - The import's target, such as its instance array's namespace.
+   * @returns {Promise<string|undefined|null>} '' for none, undefined for any, null when the user cancels.
+   */
+  async function setNamespace(set, fileName, given) {
+    if (typeof given === 'string') return given
+    const own = namespaceOfFileKey(fileName)
+    if (own && libraryStore.loadedNamespaces().has(own)) return own
+    const matching = defaults.namespacesDefaulting(set.ref)
+    if (!matching.size) return undefined
+    return chooseTargetNamespace(matching, { store: libraryStore, prompt, what: `the parameter set "${set.ref}"` })
+  }
+
+  /**
    * Plans storing a module parameterisation, asking first when its ref is taken.
    *
+   * @param {Object} file
+   * @param {string} fileName
+   * @param {string} [given] - The namespace to store it for (see setNamespace).
    * @returns {Promise<{placements: Array}|{result: Object}>} The placements, or the result of a skipped file.
    */
-  async function planModuleFile(file, fileName) {
+  async function planModuleFile(file, fileName, given) {
     const set = toParamSet(file, fileName)
+    const namespace = await setNamespace(set, fileName, given)
+    if (namespace === null) {
+      return { result: { fileName, ok: false, count: 0, stored: [], warnings: ['skipped, as no namespace was chosen'] } }
+    }
     let onCollision = 'keep-both'
-    if (defaults.collisionsFor(set.ref).length) {
+    if (defaults.collisionsFor(set.ref, null, namespace).length) {
       // The same values loaded again replace the set without asking, so a model's files can be reloaded.
-      const again = defaults.planSet(set, { onCollision: 'replace' })
+      const again = defaults.planSet(set, { onCollision: 'replace', namespace })
       if (again.every((placement) => sameValues(placement.set, defaults.getSet(placement.mathRef, placement.ref)))) {
         return { placements: again }
       }
@@ -116,7 +144,7 @@ export function useParametersImport({ nodes, recordEdit, confirm, choose }) {
       }
       if (choice === 'extra') onCollision = 'replace'
     }
-    return { placements: defaults.planSet(set, { onCollision }) }
+    return { placements: defaults.planSet(set, { onCollision, namespace }) }
   }
 
   /**
@@ -177,15 +205,15 @@ export function useParametersImport({ nodes, recordEdit, confirm, choose }) {
    * Stores module parameterisations, as one undo step with the instance values they change once confirmed, and
    * seeds the globals the workspace uses.
    *
-   * @param {Array<{file: Object, fileName: string}>} entries - Module files.
+   * @param {Array<{file: Object, fileName: string, namespace?: string}>} entries - Module files.
    * @param {boolean} record
    * @returns {Promise<Array<Object>>} One result per file.
    */
   async function importModuleFiles(entries, record) {
     const results = new Array(entries.length)
     const planned = []
-    for (const [index, { file, fileName }] of entries.entries()) {
-      const plan = await planModuleFile(file, fileName)
+    for (const [index, { file, fileName, namespace }] of entries.entries()) {
+      const plan = await planModuleFile(file, fileName, namespace)
       if (plan.result) results[index] = plan.result
       else planned.push({ index, file, fileName, placements: plan.placements })
     }
@@ -327,11 +355,11 @@ export function useParametersImport({ nodes, recordEdit, confirm, choose }) {
    *
    * @param {import('../utils/parameters/parse').ParameterFile} file
    * @param {string} fileName
-   * @param {{record?: boolean}} [options]
+   * @param {{record?: boolean, namespace?: string}} [options] - namespace: the one to store a set for.
    * @returns {Promise<{fileName: string, ok: boolean, count: number, stored: Array, warnings: string[]}>}
    */
-  async function importParameterFile(file, fileName, options) {
-    const [result] = await importParameterFiles([{ file, fileName }], options)
+  async function importParameterFile(file, fileName, { namespace, ...options } = {}) {
+    const [result] = await importParameterFiles([{ file, fileName, namespace }], options)
     return result
   }
 

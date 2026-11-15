@@ -2,8 +2,8 @@ import { useVueFlow } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
 import { useFileDrop } from './useFileDrop'
-import { NO_CLASHES } from '../services/import/sourceClashes'
-import { fileKeyFromPath } from '../utils/sourceIdentity'
+import { AS_IS } from '../services/import/namespaceImport'
+import { fileKeyFromPath } from '../utils/namespaces'
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
@@ -29,8 +29,8 @@ const RESTORE_OFFSET_X = 1500
  * @param {Function} options.processImportedOmexArchive - Applies an imported OMEX archive.
  * @param {Function} options.onDragOverModule - Internal module-drag dragover handler (from useDnD).
  * @param {Function} options.onDropModule - Internal module-drag drop handler (from useDnD).
- * @param {(files: Array<{ key: string, cellml: string }>) => Promise<Object>} [options.settleClashes] - Asks
- *   what to do where files would change what a source already has loaded (see settleSourceClashes).
+ * @param {(files: Array<{ key: string, cellml: string }>) => Promise<Object>} [options.planImport] - Asks
+ *   which namespace files from a folder or zip go in, and what to do about clashes there (see planNamespaceImport).
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @returns {{ loadCellMLFiles: Function, onDragOver: Function, onFileDragLeave: Function, onDrop: Function,
  *   isFileDragOver: Ref<boolean>, dropLoadingMessage: ComputedRef<string> }}
@@ -44,7 +44,7 @@ export function useCellmlDrop({
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
-  settleClashes = async () => NO_CLASHES,
+  planImport = async () => AS_IS,
   flowId = FLOW_IDS.MAIN,
 }) {
   const { addEdges, addNodes, nodes, toObject } = useVueFlow(flowId)
@@ -63,8 +63,8 @@ export function useCellmlDrop({
   }
 
   /**
-   * The library key a file loads under: its path when it came from a folder or zip, which names
-   * its source, else its name.
+   * The library key a file is imported as: in the namespace of the folder or zip it came from, by
+   * its name; a loose file by its name alone.
    *
    * @param {{ name: string, path?: string }} entry
    * @returns {string}
@@ -121,9 +121,9 @@ export function useCellmlDrop({
       const text = await readEntry(entry)
       const [resolved] = await resolveCellmlImports([{ name: entry.name, path: entry.path, content: text }])
       const content = prepareCellmlImport(resolved, entry.name)
-      const settlement = await settleClashes([{ key: keyOf(entry), cellml: content }])
-      if (settlement.isSkipped(keyOf(entry))) return []
-      const key = settlement.mapKey(keyOf(entry))
+      const plan = await planImport([{ key: keyOf(entry), cellml: content }])
+      if (plan.isSkipped(keyOf(entry))) return []
+      const key = plan.mapKey(keyOf(entry))
       const parsedCellmlPayload = parseCellMLConnections(content, key)
 
       if (parsedCellmlPayload.edges.length > 0) {
@@ -220,18 +220,35 @@ export function useCellmlDrop({
       entries.map((entry, index) => ({ name: entry.name, path: entry.path, content: texts[index] }))
     )
     const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
-    const settlement = await settleClashes(
+    // A namespace holds one file of a name: a later one, from another folder of the same import, is left out.
+    const firstOfKey = new Map()
+    const duplicates = []
+    entries.forEach((entry, index) => {
+      if (unreadable.has(index)) return
+      if (firstOfKey.has(keyOf(entry))) duplicates.push(entry.path ?? entry.name)
+      else firstOfKey.set(keyOf(entry), index)
+    })
+    if (duplicates.length) {
+      notify.warning({
+        title: 'Same-Named Files Left Out',
+        message: `A namespace holds one file of each name, so these were left out: ${duplicates.join(', ')}.`,
+      })
+    }
+    const isLoaded = (entry, index) => unreadable.has(index) || firstOfKey.get(keyOf(entry)) === index
+    const plan = await planImport(
       entries
         .map((entry, index) => ({ key: keyOf(entry), cellml: contents[index] }))
-        .filter((file, index) => !unreadable.has(index))
+        .filter((file, index) => !unreadable.has(index) && isLoaded(entries[index], index))
     )
-    // Files the user chose to skip are left out, and not counted as failures.
-    const loading = entries.map((entry, index) => ({ entry, index })).filter(({ entry }) => !settlement.isSkipped(keyOf(entry)))
+    // Files the user chose to leave out are not counted as failures.
+    const loading = entries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry, index }) => isLoaded(entry, index) && !plan.isSkipped(keyOf(entry)))
     const results = await Promise.all(
       loading.map(async ({ entry, index }) => {
         if (unreadable.has(index)) return failed
         try {
-          return await loadCellMLData(contents[index], settlement.mapKey(keyOf(entry)), { notify: !multiFile })
+          return await loadCellMLData(contents[index], plan.mapKey(keyOf(entry)), { notify: !multiFile })
         } catch {
           return failed
         }

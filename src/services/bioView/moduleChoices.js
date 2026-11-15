@@ -3,7 +3,7 @@
  */
 
 import { NEW_INSTANCE_MODULE_REF } from '../../utils/constants.js'
-import { moduleRefLabel } from '../../utils/sourceIdentity.js'
+import { moduleRefLabel } from '../../utils/namespaces.js'
 
 /**
  * Lists modules to choose from: a new module first, then those whose annotations say they are the kind wanted,

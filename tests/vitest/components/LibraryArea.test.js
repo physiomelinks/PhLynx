@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import ConfirmationService from 'primevue/confirmationservice'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const onDragStart = vi.fn()
@@ -44,7 +45,7 @@ async function mountLibrary({ sets = ['lumen', 'enterocyte'], mathOnlyFirst = fa
   for (const ref of sets) parameters.addSet(paramSet(ref, [['C', param(ref === 'lumen' ? '140' : '15')]]), { mathRef: MATH_REF })
 
   wrapper = mount(LibraryArea, {
-    global: { plugins: [PrimeVue], stubs: { ModulePreviewDialog: true }, directives: { tooltip: {}, hint: {} } },
+    global: { plugins: [PrimeVue, ConfirmationService], stubs: { ModulePreviewDialog: true }, directives: { tooltip: {}, hint: {} } },
   })
   await wrapper.find('.mlc__group-header').trigger('click')
   await flushPromises()
@@ -209,31 +210,32 @@ describe('LibraryArea config preselection', () => {
   })
 })
 
-describe('LibraryArea sources', () => {
-  /** Mounts the library with a membrane.cellml from each of two sources. */
-  function mountTwoSources() {
+describe('LibraryArea namespaces', () => {
+  /** Mounts the library with a membrane.cellml in each of two namespaces. */
+  function mountTwoNamespaces() {
     const library = useLibraryStore()
-    for (const source of ['enterocyte-modules', 'CellML']) {
-      const mathRef = `${source}/math/membrane.cellml:membrane`
+    for (const namespace of ['enterocyte-modules', 'cardiac_ap']) {
+      const mathRef = `${namespace}/membrane.cellml:membrane`
       library.availableMath.set(mathRef, '<model/>')
-      library.addModule({ moduleRef: `membrane:membrane:${source}`, mathRef, ports: [], variables: [] })
+      library.addModule({ moduleRef: `membrane:membrane:${namespace}`, mathRef, ports: [], variables: [] })
     }
     wrapper = mount(LibraryArea, {
-      global: { plugins: [PrimeVue], stubs: { ModulePreviewDialog: true }, directives: { tooltip: {}, hint: {} } },
+      global: { plugins: [PrimeVue, ConfirmationService], stubs: { ModulePreviewDialog: true }, directives: { tooltip: {}, hint: {} } },
     })
     return wrapper
   }
 
-  it('labels same-named files by name, telling them apart by a source tag, with the whole path on hover', () => {
-    mountTwoSources()
+  it('labels same-named files by name, telling them apart by a namespace tag, with the whole key on hover', () => {
+    mountTwoNamespaces()
     const headers = wrapper.findAll('.mlc__group-name')
     expect(headers.map((header) => header.find('.mlc__group-name-text').text())).toEqual(['membrane', 'membrane'])
-    expect(headers.map((header) => header.find('.mlc__group-source').text())).toEqual(['CellML', 'enterocyte-modules'])
-    expect(headers[0].attributes('title')).toBe('CellML/math/membrane.cellml')
+    expect(headers.map((header) => header.find('.mlc__group-namespace').text())).toEqual(['cardiac_ap', 'enterocyte-modules'])
+    expect(headers[0].attributes('title')).toBe('cardiac_ap/membrane.cellml')
+    expect(headers[0].find('.mlc__group-namespace').attributes('aria-label')).toBe('Rename namespace cardiac_ap')
   })
 
-  it('names configs without their source, which the group shows, and finds a group by its source', async () => {
-    mountTwoSources()
+  it('names configs without their namespace, which the group shows, and finds a group by its namespace', async () => {
+    mountTwoNamespaces()
     await wrapper.find('.mlc__group-header').trigger('click')
     expect(selects()[0].props('options')).toEqual([{ label: 'membrane:membrane', value: 0 }])
 
@@ -242,6 +244,6 @@ describe('LibraryArea sources', () => {
     vi.advanceTimersByTime(200)
     vi.useRealTimers()
     await flushPromises()
-    expect(wrapper.findAll('.mlc__group-source').map((tag) => tag.text())).toEqual(['enterocyte-modules'])
+    expect(wrapper.findAll('.mlc__group-namespace').map((tag) => tag.text())).toEqual(['enterocyte-modules'])
   })
 })

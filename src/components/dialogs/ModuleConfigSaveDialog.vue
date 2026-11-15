@@ -49,7 +49,7 @@ import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import RadioButton from 'primevue/radiobutton'
 
-import { moduleRefLabel } from '../../utils/sourceIdentity'
+import { moduleRefLabel } from '../../utils/namespaces'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

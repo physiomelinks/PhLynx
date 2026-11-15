@@ -85,7 +85,7 @@ import TabPanel from 'primevue/tabpanel'
 import TabView from 'primevue/tabview'
 import Tag from 'primevue/tag'
 import MultiportChip from './MultiportChip.vue'
-import { moduleRefLabel } from '../utils/sourceIdentity'
+import { moduleRefLabel } from '../utils/namespaces'
 
 const props = defineProps({
   modelValue: Boolean,

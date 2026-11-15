@@ -58,7 +58,7 @@ import Checkbox from 'primevue/checkbox'
 
 import { useGtm } from '../composables/useGtm'
 import LibraryArea from './LibraryArea.vue'
-import { moduleRefLabel } from '../utils/sourceIdentity'
+import { moduleRefLabel } from '../utils/namespaces'
 import { replacementData } from '../services/moduleReplacement'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'

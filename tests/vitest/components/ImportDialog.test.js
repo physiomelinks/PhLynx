@@ -16,7 +16,9 @@ const notify = vi.hoisted(() => {
 vi.mock('../../../src/utils/notify', () => ({ notify }))
 vi.mock('../../../src/composables/useGtm', () => ({ useGtm: () => ({ trackEvent: vi.fn() }) }))
 const choose = vi.hoisted(() => vi.fn(async () => 'accept'))
-vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ choose }) }))
+// Accepts what each question offers first: a folder's own namespace, the first of several.
+const prompt = vi.hoisted(() => vi.fn(async ({ value }) => value))
+vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ choose, prompt }) }))
 
 const folder = vi.hoisted(() => ({ status: null, scanFolder: null }))
 vi.mock('../../../src/composables/useFolderImport', async () => {
@@ -227,10 +229,10 @@ describe('ImportDialog instance-array folder drop', () => {
   })
 })
 
-describe('ImportDialog with several sources', () => {
+describe('ImportDialog with several namespaces', () => {
   const { 'modules.csv': modules, ...repo } = FOLDER_FILES
 
-  it('keeps same-named files from two folders, preferring the instance array’s own source', async () => {
+  it('keeps same-named files from two folders, preferring the instance array’s own namespace', async () => {
     mountDialog()
     await drop(dropEvent(folderEntry('a', FOLDER_FILES), folderEntry('b', repo)))
 
@@ -239,13 +241,46 @@ describe('ImportDialog with several sources', () => {
     expect(wrapper.vm.importReadiness.resourcesAreLoaded).toBe(true)
   })
 
-  it('says which sources define a module when the instance array belongs to neither', async () => {
+  it('asks which namespace a loose instance array targets when several define its modules', async () => {
     mountDialog()
+    prompt.mockImplementationOnce(async () => 'b')
+    await drop(dropEvent(fileEntry('modules.csv', modules), folderEntry('a', repo), folderEntry('b', repo)))
+
+    expect(prompt).toHaveBeenCalledWith(
+      expect.objectContaining({ header: 'Choose a Namespace', choices: [{ label: 'a', value: 'a' }, { label: 'b', value: 'b' }] })
+    )
+    expect(wrapper.vm.formState[IMPORT_KEYS.INSTANCE_ARRAY].files.get('modules.csv').namespace).toBe('b')
+    expect(wrapper.vm.importReadiness.resourcesAreLoaded).toBe(true)
+  })
+
+  it('says which namespaces define a module when none is chosen', async () => {
+    mountDialog()
+    prompt.mockImplementationOnce(async () => null)
     await drop(dropEvent(fileEntry('modules.csv', modules), folderEntry('a', repo), folderEntry('b', repo)))
 
     expect(wrapper.vm.importReadiness.resourcesAreLoaded).toBe(false)
     expect([...wrapper.vm.importReadiness.missingResources.ambiguous]).toEqual([['heart:simple', ['a', 'b']]])
-    expect(toasts()[0].message).toContain('heart:simple is defined by several sources: a, b')
+  })
+
+  it('loads a folder into the namespace named on import, and the form follows it', async () => {
+    mountDialog()
+    await drop(dropEvent(folderEntry('CellML', FOLDER_FILES)))
+    const { useLibraryStore } = await import('../../../src/stores/libraryStore')
+    const libraryStore = useLibraryStore()
+    // Adding math analyses it with libCellML, which these tests leave out.
+    const addMathFile = vi.spyOn(libraryStore, 'addMathFile').mockImplementation(() => {})
+    const addConfigFile = vi.spyOn(libraryStore, 'addConfigFile')
+    prompt.mockImplementationOnce(async () => 'cardiac_ap')
+    await wrapper.vm.commitStagedFiles()
+
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ header: 'Import Into Namespace', value: 'CellML' }))
+    expect(addMathFile).toHaveBeenCalledWith('cardiac_ap/heart.cellml', expect.any(Array))
+    expect(addConfigFile).toHaveBeenCalledWith('cardiac_ap/config.json', expect.any(Array), {
+      namespace: 'cardiac_ap',
+      replace: false,
+    })
+    expect(libraryStore.availableModules.get('heart:simple:cardiac_ap').mathRef).toBe('cardiac_ap/heart.cellml:heart_simple')
+    expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['cardiac_ap/modules.csv'])
   })
 })
 

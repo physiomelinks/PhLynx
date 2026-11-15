@@ -1,6 +1,6 @@
 import { describeImportIssues, inlineUnitsImports } from '../services/import/cellmlImports'
 import { hoistEncapsulatedComponents, processCellMLData } from './cellml'
-import { fileKeyFromPath, sourceOfFileKey } from './sourceIdentity'
+import { fileKeyFromPath } from './namespaces'
 import { normaliseConfig, parseMathRef } from './config'
 import { extensionOf } from './import'
 
@@ -25,8 +25,8 @@ function pathDepth(path) {
 }
 
 /**
- * The library key a batch file loads under: its path when it came from a folder or zip, which
- * names its source (see sourceIdentity), else its name.
+ * The library key a batch file is imported as: in the namespace of the folder or zip it came from,
+ * by its name (see fileKeyFromPath); a loose file by its name alone.
  *
  * @param {{ file: File, path?: string }} entry
  * @returns {string}
@@ -37,8 +37,8 @@ export function fileKeyOfEntry({ file, path }) {
 
 /**
  * Orders entries (shallower paths first, then by path) and keeps one entry per file name in each
- * source. Same-named files from different sources, such as two repositories' `membrane.cellml`,
- * are both kept.
+ * namespace. Same-named files from different folders or zips, such as two repositories'
+ * `membrane.cellml`, are both kept.
  * @param {{ file: File, path: string }[]} entries
  * @returns {{ ordered: { file: File, path: string }[], duplicates: { name: string, reason: string }[] }}
  */
@@ -48,7 +48,7 @@ export function planBatchEntries(entries) {
   const kept = new Map()
   const duplicates = []
   for (const entry of sorted) {
-    const name = `${sourceOfFileKey(fileKeyOfEntry(entry)) ?? ''}/${entry.file.name}`
+    const name = fileKeyOfEntry(entry)
     const keptEntry = kept.get(name)
     if (keptEntry) {
       duplicates.push({ name: entry.path, reason: `same name as ${keptEntry.path}` })
@@ -233,8 +233,8 @@ export function buildBatchSummary({
     const { modules, math, ambiguous } = readiness?.missingResources ?? {}
     if (modules?.size) lines.push(`Missing configurations for: ${formatList([...modules])}`)
     if (math?.size) lines.push(`Missing CellML components: ${formatList([...math])}`)
-    for (const [moduleRef, sources] of ambiguous ?? []) {
-      lines.push(`${escapeHtml(moduleRef)} is defined by several sources: ${formatList(sources)}`)
+    for (const [moduleRef, namespaces] of ambiguous ?? []) {
+      lines.push(`${escapeHtml(moduleRef)} is defined in several namespaces: ${formatList(namespaces)}`)
     }
   } else if (failed.length) {
     type = 'warning'

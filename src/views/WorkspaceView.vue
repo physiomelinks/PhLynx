@@ -662,8 +662,8 @@ import { useLoadFromUrl } from '../composables/useLoadFromUrl'
 import { createUrlLoaders } from '../services/urlLoaders'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { prepareCellmlImport } from '../services/import/prepareCellml'
-import { incomingFromCellml, settleSourceClashes } from '../services/import/sourceClashes'
-import { sourceOfFileKey } from '../utils/sourceIdentity'
+import { configNamespace, incomingFromCellml, planNamespaceImport } from '../services/import/namespaceImport'
+import { namespaceOfFileKey } from '../utils/namespaces'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { installUnloadGuard, registerWorkspaceSaver, useUnsavedChanges } from '../composables/useUnsavedChanges'
@@ -809,7 +809,7 @@ const {
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.MAIN)
 const { processMacroGeneration } = useMacroGenerator()
-const { confirm, choose } = useConfirmDialog()
+const { confirm, choose, prompt } = useConfirmDialog()
 const toast = useToast()
 const route = useRoute()
 
@@ -841,6 +841,7 @@ const { importParameterFile, importParameterFiles, applyLinkedSets, applySetToNo
   recordEdit,
   confirm,
   choose,
+  prompt,
 })
 // Sets a config links as it arrives are offered to the instances named after them and reported then, or at the end
 // of the import that brought it.
@@ -1238,7 +1239,19 @@ const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dr
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
-  settleClashes: (files) => settleSourceClashes(incomingFromCellml(files), { store: libraryStore, choose }),
+  planImport: (files) =>
+    planNamespaceImport(
+      files.map(({ key }) => key),
+      {
+        store: libraryStore,
+        prompt,
+        choose,
+        incomingFor: (mapKey) =>
+          incomingFromCellml(
+            files.filter(({ key }) => mapKey(key) !== null).map(({ key, cellml }) => ({ key: mapKey(key), cellml }))
+          ),
+      }
+    ),
 })
 
 /**
@@ -1251,10 +1264,10 @@ const loadParametersData = async (content, filename, options = {}) => {
   const file = Array.isArray(content) ? { rows: content } : retryCsvAsModule(content ?? { rows: [] })
   if (file.rows) return { fileName: filename, ...(await loadParameterRows(file.rows, filename, options)) }
 
-  const { notify: shouldNotify = true, record = true } = options
+  const { notify: shouldNotify = true, record = true, namespace } = options
   let result
   try {
-    result = await importParameterFile(file, filename, { record })
+    result = await importParameterFile(file, filename, { record, namespace })
   } catch (error) {
     result = { fileName: filename, ok: false, count: 0, error: error.message }
   }
@@ -1344,9 +1357,9 @@ const loadParameterRows = async (content, filename, { notify: shouldNotify = tru
   }
 }
 
-const loadConfigData = async (content, filename, { notify: shouldNotify = true, replace = false } = {}) => {
+const loadConfigData = async (content, filename, { notify: shouldNotify = true, replace = false, namespace } = {}) => {
   try {
-    const added = libraryStore.addConfigFile(filename, content, { replace })
+    const added = libraryStore.addConfigFile(filename, content, { replace, ...(namespace !== undefined && { namespace }) })
     if (shouldNotify && added > 0) {
       notify.success({
         title: 'Configurations Loaded',
@@ -1660,6 +1673,8 @@ async function runImportConfirm(importPayload, updateProgress) {
     const instanceArrayFiles = importPayload.get(IMPORT_KEYS.INSTANCE_ARRAY)
     const [[instanceArrayKey, instanceData]] = instanceArrayFiles
     const instances = instanceData.payload
+    // The namespace the dialog settled for a loose instance array, else its own; its parameter sets go there too.
+    const namespace = instanceData.namespace ?? namespaceOfFileKey(instanceArrayKey) ?? undefined
     const parametersFiles = importPayload.get(IMPORT_KEYS.PARAMETER)
 
     if (!instances || instances.length === 0) {
@@ -1676,7 +1691,7 @@ async function runImportConfirm(importPayload, updateProgress) {
       const files = [...(parametersFiles ?? [])]
       const isModuleFile = ([, data]) => data?.payload?.kind === 'module'
       for (const [filename, data] of files.filter(isModuleFile)) {
-        parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false }))
+        parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false, namespace }))
       }
 
       await loadFromInstanceArray(
@@ -1686,7 +1701,7 @@ async function runImportConfirm(importPayload, updateProgress) {
             updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
           }
         },
-        { preferredSource: sourceOfFileKey(instanceArrayKey) }
+        { preferredNamespace: namespace || null }
       )
 
       for (const [filename, data] of files.filter((entry) => !isModuleFile(entry))) {
@@ -1722,20 +1737,32 @@ async function runImportConfirm(importPayload, updateProgress) {
   } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
     const multiFile = importPayload.size > 1
     const configFiles = [...importPayload.get(IMPORT_KEYS.MODULE_CONFIG)]
-    const settlement = await settleSourceClashes(
-      { configFiles: configFiles.map(([key, data]) => ({ key, configs: data?.payload })) },
-      { store: libraryStore, choose }
+    const deps = { store: libraryStore, prompt, choose }
+    const plan = await planNamespaceImport(
+      configFiles.map(([key]) => key),
+      {
+        ...deps,
+        incomingFor: (mapKey) => ({
+          configFiles: configFiles
+            .filter(([key]) => mapKey(key) !== null)
+            .map(([key, data]) => ({ key: mapKey(key), configs: data?.payload })),
+        }),
+      }
     )
-    const results = await Promise.all(
-      configFiles
-        .filter(([key]) => !settlement.isSkipped(key))
-        .map(([key, data]) =>
-          loadConfigData(data?.payload, settlement.mapKey(key), {
-            notify: !multiFile,
-            replace: settlement.isReplaced(key),
-          })
-        )
-    )
+    const results = []
+    for (const [key, data] of configFiles) {
+      if (plan.isSkipped(key)) continue
+      // A loose config goes to the namespace holding its math, asking only when several do.
+      const namespace = await configNamespace(key, data?.payload, deps, plan)
+      if (namespace === null) continue
+      results.push(
+        await loadConfigData(data?.payload, plan.mapKey(key), {
+          notify: !multiFile,
+          replace: plan.isReplaced(key),
+          namespace,
+        })
+      )
+    }
     if (multiFile) {
       notifyMultiFileResults(results, { successTitle: 'Configurations Loaded' })
     }

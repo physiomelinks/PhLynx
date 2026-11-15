@@ -5,7 +5,7 @@ import { parseModuleRef } from '../../utils/config'
 import { PORT_TYPE_OPTIONS } from '../../utils/constants'
 import { isAnnotatedPort } from '../../utils/portIdentity'
 import { isBlank } from '../../utils/variables'
-import { fileSafeSource, sourceOfModuleRef } from '../../utils/sourceIdentity'
+import { fileSafeNamespace, namespaceOfModuleRef } from '../../utils/namespaces'
 import { configSignature, librarySignatures, moduleConfigEntry } from '../moduleConfig'
 import { resolveBoundaryValues, storeOptions } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
@@ -328,8 +328,9 @@ function addParameterFile(parameterFiles, node, paramRef, getParameterSet) {
 
 /**
  * Gives each module ref the subtype it is exported under: its own, unless another module ref exported has the same
- * type and subtype from another source, when a ref from a source gets `<subtype>_<source>`. CA has no sources, so
- * this keeps an export using one source's modules as it was, and tells several sources' apart only where they clash.
+ * type and subtype in another namespace, when a ref in a namespace gets `<subtype>_<namespace>`. CA has no
+ * namespaces, so this keeps an export of one namespace's modules as it was, and tells several namespaces' apart only
+ * where they clash.
  *
  * @param {Iterable<string>} moduleRefs
  * @returns {Map<string, string>} The subtype for each module ref.
@@ -346,8 +347,9 @@ export function exportedSubtypes(moduleRefs) {
   for (const group of byName.values()) {
     for (const ref of group) {
       const { moduleSubtype } = parseModuleRef(ref)
-      const source = sourceOfModuleRef(ref)
-      subtypes.set(ref, group.length > 1 && source ? `${moduleSubtype}_${fileSafeSource(source).replace(/-/g, '_')}` : moduleSubtype)
+      const namespace = namespaceOfModuleRef(ref)
+      const qualified = `${moduleSubtype}_${fileSafeNamespace(namespace ?? '').replace(/-/g, '_')}`
+      subtypes.set(ref, group.length > 1 && namespace ? qualified : moduleSubtype)
     }
   }
   return subtypes
@@ -369,7 +371,7 @@ function assignSubtypes(configsByRef, libraryStore) {
   if (qualified.length) {
     notify.warning({
       title: 'Module Subtypes Renamed',
-      message: `Several sources have modules of the same type and subtype, which CA can't tell apart, so the export adds the source: ${listNamed(qualified.map(([ref, subtype]) => `${parseModuleRef(ref).moduleType}:${subtype}`))}. The library keeps the original names.`,
+      message: `Several namespaces have modules of the same type and subtype, which CA can't tell apart, so the export adds the namespace: ${listNamed(qualified.map(([ref, subtype]) => `${parseModuleRef(ref).moduleType}:${subtype}`))}. The library keeps the original names.`,
     })
   }
   const exportedName = (ref) => {
