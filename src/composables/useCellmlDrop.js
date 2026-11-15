@@ -2,6 +2,8 @@ import { useVueFlow } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
 import { useFileDrop } from './useFileDrop'
+import { NO_CLASHES } from '../services/import/sourceClashes'
+import { fileKeyFromPath } from '../utils/sourceIdentity'
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
@@ -27,6 +29,8 @@ const RESTORE_OFFSET_X = 1500
  * @param {Function} options.processImportedOmexArchive - Applies an imported OMEX archive.
  * @param {Function} options.onDragOverModule - Internal module-drag dragover handler (from useDnD).
  * @param {Function} options.onDropModule - Internal module-drag drop handler (from useDnD).
+ * @param {(files: Array<{ key: string, cellml: string }>) => Promise<Object>} [options.settleClashes] - Asks
+ *   what to do where files would change what a source already has loaded (see settleSourceClashes).
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @returns {{ loadCellMLFiles: Function, onDragOver: Function, onFileDragLeave: Function, onDrop: Function,
  *   isFileDragOver: Ref<boolean>, dropLoadingMessage: ComputedRef<string> }}
@@ -40,6 +44,7 @@ export function useCellmlDrop({
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
+  settleClashes = async () => NO_CLASHES,
   flowId = FLOW_IDS.MAIN,
 }) {
   const { addEdges, addNodes, nodes, toObject } = useVueFlow(flowId)
@@ -56,6 +61,15 @@ export function useCellmlDrop({
     if (entry.file) return readFileAsText(entry.file)
     return entry.content
   }
+
+  /**
+   * The library key a file loads under: its path when it came from a folder or zip, which names
+   * its source, else its name.
+   *
+   * @param {{ name: string, path?: string }} entry
+   * @returns {string}
+   */
+  const keyOf = (entry) => (entry.path?.includes('/') ? fileKeyFromPath(entry.path) : entry.name)
 
   /** True while files from the OS are dragged over the workspace. */
   const isFileDragOver = ref(false)
@@ -107,7 +121,10 @@ export function useCellmlDrop({
       const text = await readEntry(entry)
       const [resolved] = await resolveCellmlImports([{ name: entry.name, path: entry.path, content: text }])
       const content = prepareCellmlImport(resolved, entry.name)
-      const parsedCellmlPayload = parseCellMLConnections(content, entry.name)
+      const settlement = await settleClashes([{ key: keyOf(entry), cellml: content }])
+      if (settlement.isSkipped(keyOf(entry))) return []
+      const key = settlement.mapKey(keyOf(entry))
+      const parsedCellmlPayload = parseCellMLConnections(content, key)
 
       if (parsedCellmlPayload.edges.length > 0) {
         if (nodes.value.length > 0) {
@@ -124,10 +141,10 @@ export function useCellmlDrop({
             const snapshot = toObject()
 
             // Load new graph into clean workspace using the normal path
-            const result = await loadCellMLData(content, entry.name, { notify: false })
+            const result = await loadCellMLData(content, key, { notify: false })
             const parameters = loadParametersFromCellML(content)
             // Nothing placed means nothing was cleared, so there is nothing to restore.
-            if (!(await loadFromCellML(parsedCellmlPayload, entry.name, parameters))) return [result]
+            if (!(await loadFromCellML(parsedCellmlPayload, key, parameters))) return [result]
 
             // Remap snapshotted node IDs to avoid clashes with newly loaded nodes
             const existingIds = new Set(nodes.value.map((n) => n.id))
@@ -167,9 +184,9 @@ export function useCellmlDrop({
         }
 
         // Register modules/units in the store first, then build the graph.
-        const result = await loadCellMLData(content, entry.name, { notify: false })
+        const result = await loadCellMLData(content, key, { notify: false })
         const parameters = loadParametersFromCellML(content)
-        await loadFromCellML(parsedCellmlPayload, entry.name, parameters)
+        await loadFromCellML(parsedCellmlPayload, key, parameters)
 
         rebuildNodeEdgeIndex()
 
@@ -177,7 +194,7 @@ export function useCellmlDrop({
       }
       // No connections — fall through to the standard module-registration path - TODO - might be nice to still drop single modules into workspace
       try {
-        const result = await loadCellMLData(content, entry.name)
+        const result = await loadCellMLData(content, key)
         return [result]
       } catch {
         return [{ ok: false, moduleCount: 0, unitsCount: 0 }]
@@ -203,18 +220,25 @@ export function useCellmlDrop({
       entries.map((entry, index) => ({ name: entry.name, path: entry.path, content: texts[index] }))
     )
     const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
+    const settlement = await settleClashes(
+      entries
+        .map((entry, index) => ({ key: keyOf(entry), cellml: contents[index] }))
+        .filter((file, index) => !unreadable.has(index))
+    )
+    // Files the user chose to skip are left out, and not counted as failures.
+    const loading = entries.map((entry, index) => ({ entry, index })).filter(({ entry }) => !settlement.isSkipped(keyOf(entry)))
     const results = await Promise.all(
-      entries.map(async (entry, index) => {
+      loading.map(async ({ entry, index }) => {
         if (unreadable.has(index)) return failed
         try {
-          return await loadCellMLData(contents[index], entry.name, { notify: !multiFile })
+          return await loadCellMLData(contents[index], settlement.mapKey(keyOf(entry)), { notify: !multiFile })
         } catch {
           return failed
         }
       })
     )
 
-    if (multiFile) {
+    if (multiFile && results.length) {
       const succeeded = results.filter((r) => r.ok)
       const failed = results.length - succeeded.length
       const totalModules = succeeded.reduce((sum, r) => sum + r.moduleCount, 0)

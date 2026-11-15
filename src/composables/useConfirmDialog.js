@@ -55,6 +55,7 @@ export function useConfirmDialog() {
         acceptLabel: options.acceptLabel ?? 'OK',
         rejectLabel: options.rejectLabel ?? 'Cancel',
         extraLabel: options.extraLabel,
+        issues: options.issues,
         closeOnEscape: true,
         accept: () => resolve('accept'),
         extra: () => resolve('extra'),

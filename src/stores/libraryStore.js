@@ -203,9 +203,11 @@ export const useLibraryStore = defineStore('library', () => {
    * @param {Object} [options]
    * @param {Iterable<string>} [options.candidates] - Keys of CellML files being loaded with the config,
    *   besides those already in the library, that its `component_file` may name.
-   * @returns {number} How many modules were added.
+   * @param {boolean} [options.replace] - Replace modules already under the same refs, as when the user
+   *   chose to replace a source's files; otherwise the loaded ones stay.
+   * @returns {number} How many modules were added or replaced.
    */
-  function addConfigFile(filename, configs, { candidates = [] } = {}) {
+  function addConfigFile(filename, configs, { candidates = [], replace = false } = {}) {
     let totalAdded = 0
 
     if (!configs || !Array.isArray(configs)) {
@@ -220,7 +222,13 @@ export const useLibraryStore = defineStore('library', () => {
       }
 
       const componentFile = resolveComponentFile(filename, config.component_file, known)
-      if (addModule(normaliseConfig({ ...config, component_file: componentFile }, { source }))) totalAdded++
+      const module = normaliseConfig({ ...config, component_file: componentFile }, { source })
+      if (replace && availableModules.value.has(module.moduleRef)) {
+        replaceModule(module)
+        totalAdded++
+      } else if (addModule(module)) {
+        totalAdded++
+      }
     })
     return totalAdded
   }

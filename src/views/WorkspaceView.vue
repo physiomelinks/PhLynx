@@ -662,6 +662,8 @@ import { useLoadFromUrl } from '../composables/useLoadFromUrl'
 import { createUrlLoaders } from '../services/urlLoaders'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { prepareCellmlImport } from '../services/import/prepareCellml'
+import { incomingFromCellml, settleSourceClashes } from '../services/import/sourceClashes'
+import { sourceOfFileKey } from '../utils/sourceIdentity'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { installUnloadGuard, registerWorkspaceSaver, useUnsavedChanges } from '../composables/useUnsavedChanges'
@@ -1236,6 +1238,7 @@ const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dr
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
+  settleClashes: (files) => settleSourceClashes(incomingFromCellml(files), { store: libraryStore, choose }),
 })
 
 /**
@@ -1341,9 +1344,9 @@ const loadParameterRows = async (content, filename, { notify: shouldNotify = tru
   }
 }
 
-const loadConfigData = async (content, filename, { notify: shouldNotify = true } = {}) => {
+const loadConfigData = async (content, filename, { notify: shouldNotify = true, replace = false } = {}) => {
   try {
-    const added = libraryStore.addConfigFile(filename, content)
+    const added = libraryStore.addConfigFile(filename, content, { replace })
     if (shouldNotify && added > 0) {
       notify.success({
         title: 'Configurations Loaded',
@@ -1655,7 +1658,7 @@ const onImportConfirm = (importPayload, updateProgress) =>
 async function runImportConfirm(importPayload, updateProgress) {
   if (currentImportMode.value.key === IMPORT_KEYS.INSTANCE_ARRAY) {
     const instanceArrayFiles = importPayload.get(IMPORT_KEYS.INSTANCE_ARRAY)
-    const [[, instanceData]] = instanceArrayFiles
+    const [[instanceArrayKey, instanceData]] = instanceArrayFiles
     const instances = instanceData.payload
     const parametersFiles = importPayload.get(IMPORT_KEYS.PARAMETER)
 
@@ -1676,11 +1679,15 @@ async function runImportConfirm(importPayload, updateProgress) {
         parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false }))
       }
 
-      await loadFromInstanceArray({ instances }, (current, total, statusMessage) => {
-        if (updateProgress) {
-          updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
-        }
-      })
+      await loadFromInstanceArray(
+        { instances },
+        (current, total, statusMessage) => {
+          if (updateProgress) {
+            updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
+          }
+        },
+        { preferredSource: sourceOfFileKey(instanceArrayKey) }
+      )
 
       for (const [filename, data] of files.filter((entry) => !isModuleFile(entry))) {
         parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false }))
@@ -1714,10 +1721,20 @@ async function runImportConfirm(importPayload, updateProgress) {
     await loadCelldlFiles(entries)
   } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
     const multiFile = importPayload.size > 1
+    const configFiles = [...importPayload.get(IMPORT_KEYS.MODULE_CONFIG)]
+    const settlement = await settleSourceClashes(
+      { configFiles: configFiles.map(([key, data]) => ({ key, configs: data?.payload })) },
+      { store: libraryStore, choose }
+    )
     const results = await Promise.all(
-      [...importPayload.get(IMPORT_KEYS.MODULE_CONFIG)].map(([filename, data]) =>
-        loadConfigData(data?.payload, filename, { notify: !multiFile })
-      )
+      configFiles
+        .filter(([key]) => !settlement.isSkipped(key))
+        .map(([key, data]) =>
+          loadConfigData(data?.payload, settlement.mapKey(key), {
+            notify: !multiFile,
+            replace: settlement.isReplaced(key),
+          })
+        )
     )
     if (multiFile) {
       notifyMultiFileResults(results, { successTitle: 'Configurations Loaded' })

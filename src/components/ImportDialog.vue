@@ -243,6 +243,7 @@ import { createDynamicFields, checkResourcesAreLoaded, getImportConfig } from '.
 import {
   buildBatchSummary,
   escapeHtml,
+  fileKeyOfEntry,
   parseForRole,
   planBatchEntries,
   providesMissingModule,
@@ -250,7 +251,9 @@ import {
 } from '../utils/importBatch'
 import { normaliseConfig, parseMathRef } from '../utils/config'
 import { createMapSource } from '../services/import/cellmlImports'
-import { findModule } from '../utils/sourceIdentity'
+import { findModule, resolveComponentFile, sourceOfFileKey } from '../utils/sourceIdentity'
+import { settleSourceClashes } from '../services/import/sourceClashes'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
 
 const props = defineProps({
   modelValue: Boolean,
@@ -263,6 +266,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 const { trackEvent } = useGtm()
+const { choose } = useConfirmDialog()
 const libraryStore = useLibraryStore()
 
 // --- State Management ---
@@ -274,7 +278,8 @@ const isLoading = ref(false)
 const loadingText = ref('Loading...')
 const expandedFields = ref(new Set())
 const stagedFiles = ref({
-  mathFiles: [], // { filename: string, payload: object }
+  mathFiles: [], // { filename: string, payload: object }; filename is the library key, a path for a source's file
+  unitsFiles: [], // { filename: string, payload: string } - the units model
   configFiles: [], // { filename: string, payload: object }
 })
 
@@ -429,8 +434,9 @@ const removeFile = (fieldKey, filename) => {
     // A removed file must not come straight back from the connected folder.
     foldersAttemptedFilenames.value.add(filename)
 
-    stagedFiles.value.mathFiles = stagedFiles.value.mathFiles.filter((f) => f.filename !== filename)
-    stagedFiles.value.configFiles = stagedFiles.value.configFiles.filter((f) => f.filename !== filename)
+    for (const list of ['mathFiles', 'unitsFiles', 'configFiles']) {
+      stagedFiles.value[list] = stagedFiles.value[list].filter((f) => f.filename !== filename)
+    }
 
     const instanceArrayPayload = getInstanceArrayPayload()
     if (instanceArrayPayload) {
@@ -474,6 +480,7 @@ function initFormFromConfig(fields = []) {
 const unstageFiles = () => {
   stagedFiles.value = {
     mathFiles: [],
+    unitsFiles: [],
     configFiles: [],
   }
 }
@@ -562,6 +569,12 @@ function resetFormState(keepInstanceArray = false) {
   importReadiness.value = null
 }
 
+/** The source the instance array came from, whose modules it prefers (see findModule). */
+const instanceArraySource = () => {
+  const [fileKey] = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files?.keys() ?? []
+  return fileKey ? sourceOfFileKey(fileKey) : null
+}
+
 const getInstanceArrayPayload = () => {
   const instanceFiles = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files
   if (!instanceFiles || instanceFiles.size === 0) return null
@@ -575,10 +588,17 @@ const createTemporaryStore = () => {
   const availableModules = detachReactivity(libraryStore.availableModules)
   const availableMath = detachReactivity(libraryStore.availableMath)
   const availableCollections = detachReactivity(libraryStore.availableCollections)
+  // Files a staged config's component_file may name, as libraryStore.addConfigFile finds them.
+  const candidates = [
+    ...[...availableMath.keys()].map((mathRef) => parseMathRef(mathRef).componentFile),
+    ...stagedFiles.value.mathFiles.map(({ filename }) => filename),
+  ]
 
-  for (const { payload: configs } of stagedFiles.value.configFiles) {
+  for (const { filename, payload: configs } of stagedFiles.value.configFiles) {
+    const source = sourceOfFileKey(filename)
     configs.forEach((config) => {
-      const module = normaliseConfig(config)
+      const componentFile = resolveComponentFile(filename, config.component_file, candidates)
+      const module = normaliseConfig({ ...config, component_file: componentFile }, { source })
       if (!availableMath.has(module.mathRef)) {
         module.isStub = true
       }
@@ -618,7 +638,9 @@ const checkReadiness = (instanceArrayPayload) => {
   if (!instanceArrayPayload) return null
 
   const temporaryStore = createTemporaryStore()
-  const resourcesLoadStatus = checkResourcesAreLoaded(instanceArrayPayload, temporaryStore)
+  const resourcesLoadStatus = checkResourcesAreLoaded(instanceArrayPayload, temporaryStore, {
+    preferredSource: instanceArraySource(),
+  })
 
   importReadiness.value = resourcesLoadStatus
   if (formState[IMPORT_KEYS.INSTANCE_ARRAY]) {
@@ -711,6 +733,23 @@ function isFieldVisible(key) {
   return displayFields.value.some((field) => field.key === key)
 }
 
+/**
+ * The key a dropped or selected file takes in the form. A loose file whose name is that of exactly
+ * one file already in the form, such as a corrected copy of a file from a dropped folder, takes
+ * that file's key and so replaces it.
+ *
+ * @param {{ file: File, path?: string }} entry
+ * @returns {string}
+ */
+function formKeyOf(entry) {
+  const fileKey = fileKeyOfEntry(entry)
+  if (sourceOfFileKey(fileKey)) return fileKey
+  const sameName = Object.values(formState)
+    .flatMap((state) => [...(state.files?.keys() ?? [])])
+    .filter((key) => key === fileKey || key.endsWith(`/${fileKey}`))
+  return sameName.length === 1 ? sameName[0] : fileKey
+}
+
 function isFilePresent(filename) {
   return Object.values(formState).some((state) => state.files?.has(filename))
 }
@@ -741,7 +780,7 @@ function getReferencedCellMLFilenames(instanceArrayPayload) {
   const { availableModules } = createTemporaryStore()
   const filenames = new Set()
   for (const row of instanceArrayPayload) {
-    const mathRef = findModule(availableModules, row.module_type, row.module_subtype).module?.mathRef
+    const mathRef = findModule(availableModules, row.module_type, row.module_subtype, instanceArraySource()).module?.mathRef
     if (mathRef) filenames.add(parseMathRef(mathRef).componentFile)
   }
   return filenames
@@ -768,7 +807,7 @@ async function parseEntries(entries, candidates, sourceEntries = entries) {
   for (const { file, path } of entries) {
     const result = await parseForRole(file, candidates, libraryStore, { path: path ?? file.name, source })
     if (!result.error) {
-      parsed.push({ ...result, file, path: path ?? file.name })
+      parsed.push({ ...result, file, path: path ?? file.name, fileKey: formKeyOf({ file, path }) })
     } else if (result.skip) {
       skipped.push({ name: file.name, reason: result.error })
     } else {
@@ -790,17 +829,17 @@ function commitParsedFiles(parsed, skipped, { onlyRequiredCellML = false } = {})
   const placed = []
   const byKey = (key) => parsed.filter((result) => result.key === key)
   const place = (result) => {
-    setFieldFile(result.field, result.file.name, result.data, result.path)
-    placed.push({ name: result.file.name, key: result.key })
+    setFieldFile(result.field, result.fileKey, result.data, result.path)
+    placed.push({ name: result.fileKey, key: result.key })
   }
 
   const [instanceArray, ...extraArrays] = byKey(IMPORT_KEYS.INSTANCE_ARRAY)
   for (const extra of extraArrays) {
-    skipped.push({ name: extra.file.name, reason: `only one instance array per import (using ${instanceArray.file.name})` })
+    skipped.push({ name: extra.fileKey, reason: `only one instance array per import (using ${instanceArray.fileKey})` })
   }
   if (instanceArray) {
     const existingFiles = formState[IMPORT_KEYS.INSTANCE_ARRAY]?.files
-    if (existingFiles?.size > 0 && !existingFiles.has(instanceArray.file.name)) {
+    if (existingFiles?.size > 0 && !existingFiles.has(instanceArray.fileKey)) {
       resetForm()
     }
     place(instanceArray)
@@ -810,7 +849,7 @@ function commitParsedFiles(parsed, skipped, { onlyRequiredCellML = false } = {})
 
   for (const result of byKey(IMPORT_KEYS.MODULE_CONFIG)) {
     place(result)
-    if (result.field.processUpload === 'config') stageFile('configFiles', result.file.name, result.data)
+    if (result.field.processUpload === 'config') stageFile('configFiles', result.fileKey, result.data)
   }
 
   const instanceArrayPayload = getInstanceArrayPayload()
@@ -826,11 +865,12 @@ function commitParsedFiles(parsed, skipped, { onlyRequiredCellML = false } = {})
 
   for (const result of byKey(IMPORT_KEYS.CELLML_FILE)) {
     if (result.field.processUpload === 'cellml') {
-      if (allowedCellMLFiles && !allowedCellMLFiles.has(result.file.name)) {
-        skipped.push({ name: result.file.name, reason: 'not used by any module in the instance array' })
+      if (allowedCellMLFiles && !allowedCellMLFiles.has(result.fileKey)) {
+        skipped.push({ name: result.fileKey, reason: 'not used by any module in the instance array' })
         continue
       }
-      stageFile('mathFiles', result.file.name, result.components)
+      stageFile('mathFiles', result.fileKey, result.components)
+      if (result.units?.count) stageFile('unitsFiles', result.fileKey, result.units.model)
     }
     place(result)
   }
@@ -905,8 +945,8 @@ async function runImportBatch(entries, { preferredKey, isSelection = false }) {
   const placed = commitParsedFiles(parsed, skipped)
   const placedNames = new Set(placed.map(({ name }) => name))
   const importIssues = parsed
-    .filter((result) => result.importIssues?.length && placedNames.has(result.file.name))
-    .map((result) => ({ name: result.file.name, issues: result.importIssues }))
+    .filter((result) => result.importIssues?.length && placedNames.has(result.fileKey))
+    .map((result) => ({ name: result.fileKey, issues: result.importIssues }))
   const autoFill = await runAutoFillFromFolder()
 
   if (failed.length || placed.length === 0) {
@@ -984,10 +1024,12 @@ async function runAutoFillFromFolder() {
   const startGeneration = formGeneration
   isScanningFolder.value = true
   try {
-    const folderEntries = await scanFolder()
-    const entries = folderEntries.filter(
-      ({ file }) => !foldersAttemptedFilenames.value.has(file.name) && !isFilePresent(file.name)
-    )
+    // Paths start at the folder's name, which names the files' source.
+    const folderEntries = (await scanFolder()).map(({ file, path }) => ({ file, path: `${folderName.value}/${path}` }))
+    const entries = folderEntries.filter((entry) => {
+      const fileKey = fileKeyOfEntry(entry)
+      return !foldersAttemptedFilenames.value.has(fileKey) && !isFilePresent(fileKey)
+    })
     const { ordered } = planBatchEntries(entries)
     // Imports are resolved against the whole folder, including files already loaded.
     const { parsed, failed } = await parseEntries(ordered, AUTO_FILL_ROLE_KEYS.map(getRoleField), folderEntries)
@@ -1039,12 +1081,45 @@ function updateDynamicFields(completionStatus) {
   syncDynamicFields(completionStatus)
 }
 
-const commitStagedFiles = () => {
-  for (const { filename, payload } of stagedFiles.value.mathFiles) {
-    libraryStore.addMathFile(filename, payload)
+/**
+ * Adds the staged math, units and configs to the library, after asking what to do where they would
+ * change what a source already has loaded. A source the user skips is left out; one kept beside
+ * the loaded one is renamed, in the form as well, so the instance array still prefers it.
+ */
+const commitStagedFiles = async () => {
+  const { mathFiles, unitsFiles, configFiles } = stagedFiles.value
+  const settlement = await settleSourceClashes(
+    {
+      mathFiles: mathFiles.map(({ filename, payload }) => ({ key: filename, components: payload })),
+      unitsFiles: unitsFiles.map(({ filename, payload }) => ({ key: filename, model: payload })),
+      configFiles: configFiles.map(({ filename, payload }) => ({ key: filename, configs: payload })),
+    },
+    { store: libraryStore, choose }
+  )
+  const kept = (files) => files.filter(({ filename }) => !settlement.isSkipped(filename))
+
+  for (const { filename, payload } of kept(mathFiles)) {
+    libraryStore.addMathFile(settlement.mapKey(filename), payload)
   }
-  for (const { filename, payload } of stagedFiles.value.configFiles) {
-    libraryStore.addConfigFile(filename, payload)
+  for (const { filename, payload } of kept(unitsFiles)) {
+    libraryStore.addUnitsFile({ componentFile: settlement.mapKey(filename), model: payload })
+  }
+  const candidates = kept(mathFiles).map(({ filename }) => settlement.mapKey(filename))
+  for (const { filename, payload } of kept(configFiles)) {
+    libraryStore.addConfigFile(settlement.mapKey(filename), payload, {
+      candidates,
+      replace: settlement.isReplaced(filename),
+    })
+  }
+
+  for (const state of Object.values(formState)) {
+    if (!state.files) continue
+    for (const [fileKey, data] of [...state.files]) {
+      const renamed = settlement.mapKey(fileKey)
+      if (renamed === fileKey) continue
+      state.files.delete(fileKey)
+      state.files.set(renamed, { ...data, path: renamed })
+    }
   }
 }
 
@@ -1056,7 +1131,7 @@ const handleConfirm = async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 50))
 
-  commitStagedFiles()
+  await commitStagedFiles()
 
   const importPayload = new Map()
   displayFields.value.forEach((field) => {

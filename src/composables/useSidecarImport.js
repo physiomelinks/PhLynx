@@ -38,7 +38,11 @@ export function useSidecarImport(flowId = FLOW_IDS.MAIN, { lookup = lookupTerm }
    * @returns {Promise<number>} How many modules were annotated.
    */
   async function importSidecars(files) {
-    const { matched, unmatched } = matchSidecarFiles(files, (mathRef) => libraryStore.availableMath.has(mathRef))
+    const { matched, unmatched } = matchSidecarFiles(
+      files,
+      (mathRef) => libraryStore.availableMath.has(mathRef),
+      libraryStore.availableMath.keys()
+    )
     const skipped = unmatched.map(({ name, reason }) => `${name} ${reason}`)
     if (!matched.length) {
       notify.warning({ title: 'No Modules Annotated', message: lines(skipped) || 'No side-car files given.' })

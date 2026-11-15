@@ -191,6 +191,12 @@ describe('useFileDrop', () => {
       expect(await result.find((r) => r.file.name === 'NCX.cellml').file.text()).toBe('<model/>')
     })
 
+    it('names the source after the zip when it has no single top folder', async () => {
+      const zip = await zipOf({ 'math/a.cellml': '<model/>', 'units/u.cellml': '<model/>' })
+      const result = await filesFromDataTransfer({ files: [zip] })
+      expect(result.map((r) => r.path).sort()).toEqual(['repo/math/a.cellml', 'repo/units/u.cellml'])
+    })
+
     it('opens zips without the entries API too', async () => {
       const result = await filesFromDataTransfer({ files: [await zipOf(REPO)] })
       expect(result).toHaveLength(2)

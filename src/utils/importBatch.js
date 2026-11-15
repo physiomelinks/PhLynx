@@ -1,5 +1,6 @@
 import { describeImportIssues, inlineUnitsImports } from '../services/import/cellmlImports'
 import { hoistEncapsulatedComponents, processCellMLData } from './cellml'
+import { fileKeyFromPath, sourceOfFileKey } from './sourceIdentity'
 import { normaliseConfig, parseMathRef } from './config'
 import { extensionOf } from './import'
 
@@ -24,24 +25,38 @@ function pathDepth(path) {
 }
 
 /**
- * Orders entries (shallower paths first, then by path) and keeps one entry per file name.
+ * The library key a batch file loads under: its path when it came from a folder or zip, which
+ * names its source (see sourceIdentity), else its name.
+ *
+ * @param {{ file: File, path?: string }} entry
+ * @returns {string}
+ */
+export function fileKeyOfEntry({ file, path }) {
+  return path?.includes('/') ? fileKeyFromPath(path) : file.name
+}
+
+/**
+ * Orders entries (shallower paths first, then by path) and keeps one entry per file name in each
+ * source. Same-named files from different sources, such as two repositories' `membrane.cellml`,
+ * are both kept.
  * @param {{ file: File, path: string }[]} entries
  * @returns {{ ordered: { file: File, path: string }[], duplicates: { name: string, reason: string }[] }}
  */
 export function planBatchEntries(entries) {
   const sorted = [...entries].sort((a, b) => pathDepth(a.path) - pathDepth(b.path) || a.path.localeCompare(b.path))
 
-  const keptByName = new Map()
+  const kept = new Map()
   const duplicates = []
   for (const entry of sorted) {
-    const kept = keptByName.get(entry.file.name)
-    if (kept) {
-      duplicates.push({ name: entry.path, reason: `same name as ${kept.path}` })
+    const name = `${sourceOfFileKey(fileKeyOfEntry(entry)) ?? ''}/${entry.file.name}`
+    const keptEntry = kept.get(name)
+    if (keptEntry) {
+      duplicates.push({ name: entry.path, reason: `same name as ${keptEntry.path}` })
     } else {
-      keptByName.set(entry.file.name, entry)
+      kept.set(name, entry)
     }
   }
-  return { ordered: [...keptByName.values()], duplicates }
+  return { ordered: [...kept.values()], duplicates }
 }
 
 function isUnexpectedError(error) {
@@ -104,6 +119,7 @@ export async function parseForRole(file, candidates, store = null, { path = file
           field,
           data,
           components: result.components,
+          units: result.units,
           importIssues: describeImportIssues(resolved.issues),
         }
       }

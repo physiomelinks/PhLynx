@@ -524,7 +524,31 @@ describe('useCellmlDrop', () => {
         { name: 'u.cellml', path: 'CellML/units/u.cellml', content: '<model/>' },
       ])
       expect(deps.loadCellMLData).toHaveBeenCalledTimes(2)
-      expect(deps.loadCellMLData).toHaveBeenCalledWith('<model/>', 'NCX.cellml', { notify: false })
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<model/>', 'CellML/math/NCX.cellml', { notify: false })
+    })
+
+    it('loads files under the names the clash settlement gives, leaving out skipped sources', async () => {
+      readFileAsText.mockResolvedValue('<model/>')
+      const settleClashes = vi.fn(async () => ({
+        mapKey: (key) => key.replace(/^repo\//, 'repo (2)/'),
+        isSkipped: (key) => key.startsWith('other/'),
+        isReplaced: () => false,
+      }))
+      const withClashes = useCellmlDrop({ ...deps, settleClashes })
+
+      const results = await withClashes.loadCellMLFiles([
+        { name: 'a.cellml', path: 'repo/math/a.cellml', file: file('a.cellml') },
+        { name: 'b.cellml', path: 'other/b.cellml', file: file('b.cellml') },
+        { name: 'loose.cellml', file: file('loose.cellml') },
+      ])
+
+      expect(settleClashes).toHaveBeenCalledWith([
+        { key: 'repo/math/a.cellml', cellml: '<model/>' },
+        { key: 'other/b.cellml', cellml: '<model/>' },
+        { key: 'loose.cellml', cellml: '<model/>' },
+      ])
+      expect(deps.loadCellMLData.mock.calls.map(([, key]) => key)).toEqual(['repo (2)/math/a.cellml', 'loose.cellml'])
+      expect(results).toHaveLength(2)
     })
 
     it('loads .cellml files case-insensitively and ignores other dropped files', async () => {

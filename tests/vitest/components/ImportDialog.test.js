@@ -15,6 +15,8 @@ const notify = vi.hoisted(() => {
 })
 vi.mock('../../../src/utils/notify', () => ({ notify }))
 vi.mock('../../../src/composables/useGtm', () => ({ useGtm: () => ({ trackEvent: vi.fn() }) }))
+const choose = vi.hoisted(() => vi.fn(async () => 'accept'))
+vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ choose }) }))
 
 const folder = vi.hoisted(() => ({ status: null, scanFolder: null }))
 vi.mock('../../../src/composables/useFolderImport', async () => {
@@ -137,10 +139,10 @@ describe('ImportDialog instance-array folder drop', () => {
     const reversed = Object.fromEntries(Object.entries(FOLDER_FILES).reverse())
     await drop(dropEvent(folderEntry('model', reversed)))
 
-    expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['modules.csv'])
-    expect(fileNames(IMPORT_KEYS.PARAMETER)).toEqual(['parameters.csv'])
-    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['config.json'])
-    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['heart.cellml'])
+    expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['model/modules.csv'])
+    expect(fileNames(IMPORT_KEYS.PARAMETER)).toEqual(['model/parameters.csv'])
+    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['model/config.json'])
+    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['model/heart.cellml'])
     expect(toasts()).toEqual([expect.objectContaining({ type: 'success', title: 'Ready to Import' })])
     expect(importButton().attributes('disabled')).toBeUndefined()
   })
@@ -150,9 +152,9 @@ describe('ImportDialog instance-array folder drop', () => {
     const parameters = JSON.stringify({ schema_version: 1, k: { value: 1, units: 'second', data_reference: 'ref' } })
     await drop(dropEvent(folderEntry('model', { ...FOLDER_FILES, 'heart_parameters.json': parameters })))
 
-    expect(fileNames(IMPORT_KEYS.PARAMETER)).toEqual(['heart_parameters.json', 'parameters.csv'])
-    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['config.json'])
-    expect(wrapper.vm.formState[IMPORT_KEYS.PARAMETER].files.get('heart_parameters.json').payload.kind).toBe('module')
+    expect(fileNames(IMPORT_KEYS.PARAMETER)).toEqual(['model/heart_parameters.json', 'model/parameters.csv'])
+    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['model/config.json'])
+    expect(wrapper.vm.formState[IMPORT_KEYS.PARAMETER].files.get('model/heart_parameters.json').payload.kind).toBe('module')
   })
 
   it.each([IMPORT_KEYS.INSTANCE_ARRAY, IMPORT_KEYS.PARAMETER])(
@@ -162,8 +164,8 @@ describe('ImportDialog instance-array folder drop', () => {
       const field = getImportConfig(IMPORT_KEYS.INSTANCE_ARRAY).fields.find((f) => f.key === key)
       await drop(dropEvent(folderEntry('model', FOLDER_FILES)), field)
 
-      expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['modules.csv'])
-      expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['heart.cellml'])
+      expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['model/modules.csv'])
+      expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['model/heart.cellml'])
       expect(toasts()).toEqual([expect.objectContaining({ type: 'success' })])
     }
   )
@@ -188,9 +190,9 @@ describe('ImportDialog instance-array folder drop', () => {
     const { 'modules.csv': modules, ...rest } = FOLDER_FILES
     await drop(dropEvent(folderEntry('b', { ...rest, 'modules-b.csv': modules })))
 
-    expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['modules-b.csv'])
-    expect(wrapper.vm.stagedFiles.configFiles.map((f) => f.filename)).toEqual(['config.json'])
-    expect(wrapper.vm.stagedFiles.mathFiles.map((f) => f.filename)).toEqual(['heart.cellml'])
+    expect(fileNames(IMPORT_KEYS.INSTANCE_ARRAY)).toEqual(['b/modules-b.csv'])
+    expect(wrapper.vm.stagedFiles.configFiles.map((f) => f.filename)).toEqual(['b/config.json'])
+    expect(wrapper.vm.stagedFiles.mathFiles.map((f) => f.filename)).toEqual(['b/heart.cellml'])
   })
 
   it('locks the dialog while a drop is being read', async () => {
@@ -220,8 +222,30 @@ describe('ImportDialog instance-array folder drop', () => {
     mountDialog()
     await drop(dropEvent(folderEntry('model', { ...FOLDER_FILES, 'other.cellml': '<model name="other"/>' })))
 
-    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['heart.cellml'])
-    expect(toasts()[0].message).toContain('Ignored: other.cellml — not used by any module in the instance array')
+    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['model/heart.cellml'])
+    expect(toasts()[0].message).toContain('Ignored: model/other.cellml — not used by any module in the instance array')
+  })
+})
+
+describe('ImportDialog with several sources', () => {
+  const { 'modules.csv': modules, ...repo } = FOLDER_FILES
+
+  it('keeps same-named files from two folders, preferring the instance array’s own source', async () => {
+    mountDialog()
+    await drop(dropEvent(folderEntry('a', FOLDER_FILES), folderEntry('b', repo)))
+
+    expect(wrapper.vm.stagedFiles.configFiles.map((f) => f.filename).sort()).toEqual(['a/config.json', 'b/config.json'])
+    expect(wrapper.vm.stagedFiles.mathFiles.map((f) => f.filename)).toEqual(['a/heart.cellml'])
+    expect(wrapper.vm.importReadiness.resourcesAreLoaded).toBe(true)
+  })
+
+  it('says which sources define a module when the instance array belongs to neither', async () => {
+    mountDialog()
+    await drop(dropEvent(fileEntry('modules.csv', modules), folderEntry('a', repo), folderEntry('b', repo)))
+
+    expect(wrapper.vm.importReadiness.resourcesAreLoaded).toBe(false)
+    expect([...wrapper.vm.importReadiness.missingResources.ambiguous]).toEqual([['heart:simple', ['a', 'b']]])
+    expect(toasts()[0].message).toContain('heart:simple is defined by several sources: a, b')
   })
 })
 
@@ -233,7 +257,7 @@ describe('ImportDialog repeat drops', () => {
     await drop(dropEvent(fileEntry('heart.cellml', '<model name="heart_simple" version="2"/>')))
 
     expect(wrapper.vm.stagedFiles.mathFiles).toHaveLength(1)
-    expect(wrapper.vm.formState[IMPORT_KEYS.CELLML_FILE].files.get('heart.cellml').payload).toContain('version="2"')
+    expect(wrapper.vm.formState[IMPORT_KEYS.CELLML_FILE].files.get('model/heart.cellml').payload).toContain('version="2"')
     expect(toasts()).toEqual([expect.objectContaining({ type: 'success', title: 'Ready to Import' })])
   })
 
@@ -277,8 +301,9 @@ describe('ImportDialog connected-folder auto-fill', () => {
     mountDialog()
     await drop(dropEvent(fileEntry('modules.csv', MODULES_CSV)))
 
-    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['config.json'])
-    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['heart.cellml'])
+    // Connected-folder files are keyed under the folder's name, their source.
+    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['models/config.json'])
+    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['models/heart.cellml'])
     expect(fileNames(IMPORT_KEYS.PARAMETER)).toEqual([])
     const all = toasts()
     expect(all).toHaveLength(1)
@@ -306,9 +331,9 @@ describe('ImportDialog connected-folder auto-fill', () => {
     )
     mountDialog()
     await drop(dropEvent(fileEntry('modules.csv', MODULES_CSV)))
-    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['config.json'])
+    expect(fileNames(IMPORT_KEYS.MODULE_CONFIG)).toEqual(['models/config.json'])
 
-    wrapper.vm.removeFile(IMPORT_KEYS.MODULE_CONFIG, 'config.json')
+    wrapper.vm.removeFile(IMPORT_KEYS.MODULE_CONFIG, 'models/config.json')
     await flushPromises()
     await new Promise((resolve) => setTimeout(resolve, 20))
     await flushPromises()
@@ -331,7 +356,7 @@ describe('ImportDialog single-type dialogs', () => {
     await drop(dropEvent(folderEntry('model', FOLDER_FILES)))
 
     expect(wrapper.vm.formState[IMPORT_KEYS.INSTANCE_ARRAY]).toBeUndefined()
-    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['heart.cellml'])
+    expect(fileNames(IMPORT_KEYS.CELLML_FILE)).toEqual(['model/heart.cellml'])
     expect(wrapper.vm.stagedFiles.mathFiles).toEqual([])
     expect(importButton().attributes('disabled')).toBeUndefined()
   })
