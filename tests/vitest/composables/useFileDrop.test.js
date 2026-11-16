@@ -61,6 +61,13 @@ describe('useFileDrop', () => {
       expect(result).toHaveLength(1)
     })
 
+    it('reads a file item with no entry as a file, as for a DataTransfer a script made', async () => {
+      const model = { name: 'model.cellml' }
+      const items = [{ kind: 'file', webkitGetAsEntry: () => null, getAsFile: () => model }]
+      const result = await filesFromDataTransfer({ items, files: [model] })
+      expect(result).toEqual([{ file: model, path: 'model.cellml' }])
+    })
+
     it('uses the entries path when only a later item lacks webkitGetAsEntry', async () => {
       const csv = fileEntry('a.csv')
       const items = [...itemsOf([csv]), { getAsFile: () => ({ name: 'x.csv' }) }]

@@ -46,13 +46,28 @@ export function useFileDrop() {
 
     const supportsEntries = items && items.length > 0 && typeof items[0]?.webkitGetAsEntry === 'function'
 
-    if (supportsEntries) {
-      const entries = Array.from(items)
-        .map((item) => item.webkitGetAsEntry?.())
-        .filter(Boolean)
+    /** Adds a loose file: a zip's contents, or the file itself when it is of a kind imported. */
+    const addFile = async (file) => {
+      if (!file) return
+      if (isZip(file.name)) {
+        results.push(...(await entriesFromZip(file)))
+      } else if (hasRelevantExtension(file.name)) {
+        results.push({ file, path: file.name })
+      }
+    }
 
-      for (const entry of entries) {
-        if (entry.isFile && isZip(entry.name)) {
+    if (supportsEntries) {
+      // Every item is read now, as the drop's items are only readable during the event. An item with no entry, such
+      // as a file a script put in the DataTransfer, is read as a file.
+      const dropped = Array.from(items).map((item) => ({
+        entry: item.webkitGetAsEntry?.() ?? null,
+        file: item.kind === 'file' ? item.getAsFile?.() ?? null : null,
+      }))
+
+      for (const { entry, file } of dropped) {
+        if (!entry) {
+          await addFile(file)
+        } else if (entry.isFile && isZip(entry.name)) {
           results.push(...(await entriesFromZip(await fileFromEntry(entry))))
         } else {
           await collectEntry(entry, '', 0, maxDepth, results)
@@ -61,14 +76,7 @@ export function useFileDrop() {
       return results
     }
 
-    const files = Array.from(dataTransfer?.files || [])
-    for (const file of files) {
-      if (isZip(file.name)) {
-        results.push(...(await entriesFromZip(file)))
-      } else if (hasRelevantExtension(file.name)) {
-        results.push({ file, path: file.name })
-      }
-    }
+    for (const file of Array.from(dataTransfer?.files || [])) await addFile(file)
     return results
   }
 
