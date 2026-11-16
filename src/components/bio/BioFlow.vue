@@ -1220,7 +1220,16 @@ async function settleNodeDrag({ nodes: dragged }) {
 }
 
 function onNodeDoubleClick({ node }) {
-  const instance = main.findNode(node.id)
+  openEditor(node.id)
+}
+
+/**
+ * Opens an instance in the instance editor, as a double-click on it does.
+ *
+ * @param {string} id
+ */
+function openEditor(id) {
+  const instance = id && main.findNode(id)
   if (!instance) return
   const { name, mathRef, variables, ports, handles } = instance.data
   emit('open-instance-editor', {
@@ -1874,13 +1883,18 @@ function viewCentre() {
 
 /**
  * Places what a palette tile stands for at a point of the view: a template, an empty cell (a template of one plain
- * cell), or a piece added to the cell there, a compartment against the side of the cell it is dropped beside.
+ * cell), a piece added to the cell there, a compartment against the side of the cell it is dropped beside, or a
+ * new module, as a drop of one from the library would be.
  *
  * @param {{kind: string, template?: string}} tile
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
+  if (tile.kind === 'module') {
+    const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
+    return module && props.createInstance ? placeModuleAt(module, point) : null
+  }
   if (tile.kind === 'cell') return placeTemplate(BLANK_CELL_TEMPLATE, point)
   // An organelle goes in a cell, and a compartment beside one; a site or zone on an organelle too.
   const isForCell = ['compartment', 'organelle', 'microdomain', 'fold', 'junction'].includes(tile.kind)
@@ -2455,14 +2469,28 @@ async function onModuleDrop(event) {
   libraryDrag.draggedType.value = null
   libraryDrag.isDragging.value = false
   libraryDrag.isDragOver.value = false
-  const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
-  const target = targetAt(point)
   draggingId.value = activeTarget.value = pointer.value = null
+  return placeModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+}
 
+/**
+ * Adds a library module where it was dropped or the armed New Module tile put: into the membrane slot or onto the
+ * template site there, as one step, or loose, asking what it is. A new module opens in the instance editor once
+ * placed, its math being what is wanted of it.
+ *
+ * @param {Object} module - A library module.
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @returns {Promise<void>}
+ */
+async function placeModuleAt(module, point) {
+  const isNew = module.moduleRef === NEW_INSTANCE_MODULE_REF
+  const target = targetAt(point)
   if (target) {
     const { site } = target
     if (site && !(await confirmReplace(site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
-    return addModuleAt(module, target)
+    const id = await addModuleAt(module, target)
+    if (isNew) openEditor(id)
+    return
   }
   const position = whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 })
   // Adding it and saying what it is make one step, which Cancel takes back (see endAssign).
@@ -2483,6 +2511,7 @@ async function onModuleDrop(event) {
     at: point,
     name: main.findNode(id)?.data?.name ?? id,
     initialRole: roles.value.get(id)?.role ?? 'none',
+    openEditor: isNew,
   }
 }
 
@@ -2492,7 +2521,7 @@ async function onModuleDrop(event) {
  *
  * @param {Object} module - A library module.
  * @param {{site: Object}|{slot: Object}|{area: Object}} target - From targetAt.
- * @returns {Promise<void>}
+ * @returns {Promise<string>} The instance's id.
  */
 async function addModuleAt(module, { site, slot, area }) {
   history.startBatch()
@@ -2501,17 +2530,20 @@ async function addModuleAt(module, { site, slot, area }) {
       // A node-owned cell's membrane, or a process in it.
       const id = props.createInstance(module, { role: area.role, cell: area.cellId })
       await connectToCellNeighbours(id)
-    } else if (site) {
+      return id
+    }
+    if (site) {
       // An instance of the module, bound to the site; planned against the sites as they were drawn.
       const id = props.createInstance(module, { role: site.role, facet: null })
       await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
       await connectToNeighbours(id, site)
-    } else {
-      // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
-      const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
-      await applyPlan(slotPlan(id, slot), 'bio-add')
-      await connectToCellNeighbours(id)
+      return id
     }
+    // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
+    const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
+    await applyPlan(slotPlan(id, slot), 'bio-add')
+    await connectToCellNeighbours(id)
+    return id
   } finally {
     history.endBatch('bio-add')
   }
@@ -2529,7 +2561,9 @@ function newModuleItem(event) {
   if (!module || !props.createInstance) return []
   const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
   if (!target || (target.site && replacedOccupant(target.site, null))) return []
-  return [{ label: 'New Module Here', icon: 'pi pi-file-plus', command: () => addModuleAt(module, target) }]
+  return [
+    { label: 'New Module Here', icon: 'pi pi-file-plus', command: async () => openEditor(await addModuleAt(module, target)) },
+  ]
 }
 
 /**
@@ -2578,13 +2612,15 @@ const regionRectAt = (at) => ({ x: at.x - 160, y: at.y - REGION_HEIGHT / 2, widt
 async function onPlaceConfirm(choice) {
   const { mode } = placing.value
   if (mode === 'assign') {
-    const { id, at } = placing.value
+    const { id, at, openEditor: isNew } = placing.value
     placing.value = null
-    return endAssign(async () => {
+    await endAssign(async () => {
       await assignRole(id, at, choice)
       // Put on a node-owned cell, it joins its neighbours there in the same step.
       if (choice.cell || choice.placement) await connectToCellNeighbours(id)
     })
+    if (isNew) openEditor(id)
+    return
   }
   const { moduleRef, membraneRef, placement } = choice
   const { at } = placing.value

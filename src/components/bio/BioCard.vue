@@ -4,12 +4,14 @@
     <!-- A process's cartoon, when it has one, beside its name -->
     <ProteinGlyph v-if="data.glyph" class="bio-card__glyph" :glyph="data.glyph" data-testid="bio-card-glyph" />
     <span class="bio-card__name">{{ data.name }}</span>
+    <BioUncoupledBadge v-if="data.uncoupled" :name="data.name" />
   </div>
 </template>
 
 <script setup>
 import BioHandles from './BioHandles.vue'
 import ProteinGlyph from './ProteinGlyph.vue'
+import BioUncoupledBadge from './BioUncoupledBadge.vue'
 import { computed } from 'vue'
 import { useNodeThemeStore } from '../../stores/nodeThemeStore'
 import { categoryStyle as themeCategoryStyle } from '../../utils/nodeThemes'
@@ -26,6 +28,7 @@ const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeThe
 
 <style scoped>
 .bio-card {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;

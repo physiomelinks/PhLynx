@@ -665,6 +665,17 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
     ...templateTitleNodes(templateStore.instances, templateStore.definitions, layout.value),
     ...bioFlowNodes(nodes.value, roles.value, layout.value, carriedArrows.value, { selection: false }),
   ])
+  // The nodes some edge couples to another: a protein or card outside it is placed but joined to nothing yet, as a
+  // new module is until its math has ports.
+  const coupledIds = computed(() => {
+    const ids = new Set()
+    for (const edge of edges.value) {
+      if (!edge.data?.couplings?.length) continue
+      ids.add(edge.source)
+      ids.add(edge.target)
+    }
+    return ids
+  })
   // Each node's data keeps its identity while it doesn't change, so vue-flow re-renders only the nodes a selection
   // or a run touches.
   const bioNodes = computed((previous) => {
@@ -680,6 +691,7 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
           ...(node.type === 'bioProtein' && { arrows: transport.value.get(node.id) ?? [] }),
           handles: focus.value.handles.get(node.id) ?? [],
           coupled: focus.value.partners.has(node.id),
+          ...((node.type === 'bioProtein' || node.type === 'bioCard') && { uncoupled: !coupledIds.value.has(node.id) }),
         },
       }
     })
