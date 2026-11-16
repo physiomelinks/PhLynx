@@ -614,3 +614,46 @@ describe('folds', () => {
     failsWith(base({ cells: [cell('a', { facets: [{ ...first, depth: 100 }] })] }), 'only a fold has a "depth"')
   })
 })
+
+describe('junctions', () => {
+  const [top, bottom] = fourFacets()
+  const rod = (junction = {}, more = {}) =>
+    base({
+      schemaVersion: 2,
+      cells: [cell('a', { processes: [{ id: 'cilium', label: 'Cilium', between: ['outer', 'inner'], ...junction }] })],
+      compartments: [
+        { id: 'outer', label: 'Outer segment', in: 'a', against: [`a.${top.id}`], term: 'GO:0001750' },
+        { id: 'inner', label: 'Inner segment', in: 'a', against: [`a.${bottom.id}`] },
+      ],
+      ...more,
+    })
+
+  it('reads a process between two spaces of its cell, and a space’s own term, at version 2', () => {
+    const { template, errors } = validateTemplate(rod())
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    expect(template.cells[0].processes[0]).toEqual({ id: 'cilium', label: 'Cilium', between: ['outer', 'inner'] })
+    expect(template.compartments[0].term).toBe('GO:0001750')
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+    expect(validateTemplate(rod({ between: ['outer', 'a'] })).errors).toEqual([])
+  })
+
+  it('lies along the way from its first space to its second, and not in the cell’s inside', () => {
+    const { template } = validateTemplate(rod())
+    expect(siteNeighbours(template, 'a.cilium')).toEqual([
+      { path: 'outer', relation: 'upstream' },
+      { path: 'inner', relation: 'downstream' },
+    ])
+    expect(siteNeighbours(template, 'outer')).toContainEqual({ path: 'a.cilium', relation: 'downstream' })
+    expect(siteNeighbours(template, 'inner')).toContainEqual({ path: 'a.cilium', relation: 'upstream' })
+    expect(siteNeighbours(template, 'a')).not.toContainEqual(expect.objectContaining({ path: 'a.cilium' }))
+  })
+
+  it('rejects one between one space, the same twice, or a space that is not its cell’s', () => {
+    failsWith(base({ schemaVersion: 2, cells: [cell('a', { processes: [{ id: 'cilium', label: 'Cilium', between: ['a', 'b'] }] }), cell('b')] }), '"b" is not the cell or a microdomain in it')
+    failsWith(rod({ between: ['outer'] }), '"between" must name two different spaces')
+    failsWith(rod({ between: ['outer', 'outer'] }), '"between" must name two different spaces')
+    failsWith(rod({ between: ['outer', 'elsewhere'] }), '"elsewhere" is not the cell or a microdomain in it')
+    failsWith(rod({}, { compartments: [{ id: 'outer', label: 'O', in: 'a', against: [`a.${top.id}`], term: 'not a term' }, { id: 'inner', label: 'I', in: 'a', against: [`a.${bottom.id}`] }] }), '"term" must be an ontology term')
+  })
+})

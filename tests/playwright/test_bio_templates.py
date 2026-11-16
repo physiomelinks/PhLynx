@@ -215,6 +215,39 @@ class TestBioTemplates(unittest.TestCase):
         expect(organelle).to_have_count(0)
         expect(cell).to_be_visible()
 
+    def test_the_build_palette_joins_a_microdomain_to_its_cell_with_a_junction(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
+            pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
+        )
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+
+        def on_cell(across, down):
+            spot = cell.bounding_box()
+            return {"x": spot["x"] - box["x"] + spot["width"] * across, "y": spot["y"] - box["y"] + spot["height"] * down}
+
+        # A microdomain under the cell's top side, then a junction: between the microdomain and the cell's inside.
+        page.locator("[data-testid=bio-palette-tile][data-kind=microdomain]").drag_to(pane, target_position=on_cell(0.5, 0.12))
+        microdomain = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/microdomain-1"]')
+        expect(microdomain).to_be_visible()
+        page.locator("[data-testid=bio-palette-tile][data-kind=junction]").drag_to(pane, target_position=on_cell(0.5, 0.6))
+        junction = cell.locator("[data-testid=bio-process-zone]").filter(has_text="Junction")
+        expect(junction).to_have_count(1)
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        # It lies just inside the cell from the microdomain, and a module dropped on it is bound to it.
+        zone, above = junction.bounding_box(), microdomain.bounding_box()
+        assert zone["y"] >= above["y"] + above["height"], (above, zone)
+        self.drop_module(2, (zone["x"] + zone["width"] / 2, zone["y"] + zone["height"] / 2))
+        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)
+        expect(bound(page, "bioCard")).to_have_count(1)
+
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
         page = self.page
         self.open_physiology()

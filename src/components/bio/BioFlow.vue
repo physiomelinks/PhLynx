@@ -1826,6 +1826,32 @@ function addMicrodomain(found, point) {
   })
 }
 
+/**
+ * Adds an empty junction to a placed template's cell, between the two microdomains nearest the drop, or, with one
+ * microdomain, between it and the cell's own inside.
+ *
+ * @param {{key: string, instance: string, path: string}} found - The cell, from templateCellAt.
+ * @param {{x: number, y: number}} point - Where it was dropped.
+ */
+function addJunction(found, point) {
+  const template = placedTemplate(found.instance)
+  const cell = template.cells.find((entry) => entry.id === found.path)
+  const distance = (rect) => Math.hypot(point.x - rect.x - rect.width / 2, point.y - rect.y - rect.height / 2)
+  const nearest = [...layout.value.values()]
+    .filter((place) => place.form === 'inner' && place.parent === found.key && place.rect)
+    .sort((a, b) => distance(a.rect) - distance(b.rect))
+    .map((place) => place.path)
+  // The cell's own inside is the other space only where it is one a module can be.
+  const spaces = cell.site === false ? nearest.slice(0, 2) : [nearest[0], cell.id]
+  if (spaces.length < 2 || !spaces[0]) {
+    return notify.info({ title: 'A junction joins two spaces', message: 'Add a microdomain to the cell first, from the palette.' })
+  }
+  const removed = templateStore.getInstance(found.instance)?.edits?.removed ?? []
+  const id = freePieceId(template, 'junction', cell.id, removed)
+  const number = id.split('-')[1]
+  return addPiece(found.instance, 'processes', { cell: cell.id, id, label: number === '1' ? 'Junction' : `Junction ${number}`, between: spaces })
+}
+
 /** Adds a process zone inside a placed template's cell. */
 function addZone(instanceId, cellId) {
   const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
@@ -1861,7 +1887,7 @@ function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
   if (tile.kind === 'cell') return placeTemplate(BLANK_CELL_TEMPLATE, point)
   // An organelle goes in a cell, and a compartment beside one; a site or zone on an organelle too.
-  const isForCell = ['compartment', 'organelle', 'microdomain', 'fold'].includes(tile.kind)
+  const isForCell = ['compartment', 'organelle', 'microdomain', 'fold', 'junction'].includes(tile.kind)
   const reach = tile.kind === 'compartment' ? COMPARTMENT_REACH : TILE_REACH
   const found = templateCellAt(layout.value, point, reach, { organelles: !isForCell })
   const cell = found && placedTemplate(found.instance)?.cells.find((entry) => entry.id === found.path)
@@ -1871,6 +1897,7 @@ function applyTile(tile, point) {
   }
   if (tile.kind === 'organelle') return addOrganelle(found.instance, found.path)
   if (tile.kind === 'microdomain') return addMicrodomain(found, point)
+  if (tile.kind === 'junction') return addJunction(found, point)
   if (tile.kind === 'fold') {
     const edge = nearestEdge(found.rect, point, EDGES.filter((each) => !cell.facets.some((facet) => facet.fold === each)))
     if (!edge) return notify.info({ title: 'Every side of this cell has a fold' })

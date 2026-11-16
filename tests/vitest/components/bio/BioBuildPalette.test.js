@@ -22,7 +22,7 @@ afterEach(() => {
 describe('the build palette', () => {
   it('offers the empty pieces a view is built from', () => {
     mountPalette()
-    expect(wrapper.findAll('[data-testid="bio-palette-tile"]').map((each) => each.attributes('data-kind'))).toEqual(['cell', 'compartment', 'organelle', 'microdomain', 'fold', 'site', 'zone'])
+    expect(wrapper.findAll('[data-testid="bio-palette-tile"]').map((each) => each.attributes('data-kind'))).toEqual(['cell', 'compartment', 'organelle', 'microdomain', 'junction', 'fold', 'site', 'zone'])
   })
 
   it('arms a tile on a click, and lets go of it on another', async () => {
@@ -62,9 +62,9 @@ describe('the build palette', () => {
     mountPalette({}, false)
     expect(wrapper.findAll('[data-testid="bio-palette-tile"]')).toHaveLength(0)
     await wrapper.find('[data-testid="bio-palette-toggle"]').trigger('click')
-    expect(wrapper.findAll('[data-testid="bio-palette-tile"]')).toHaveLength(7)
+    expect(wrapper.findAll('[data-testid="bio-palette-tile"]')).toHaveLength(8)
     wrapper.unmount()
     mountPalette({}, false)
-    expect(wrapper.findAll('[data-testid="bio-palette-tile"]')).toHaveLength(7)
+    expect(wrapper.findAll('[data-testid="bio-palette-tile"]')).toHaveLength(8)
   })
 })

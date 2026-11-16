@@ -66,8 +66,11 @@ function sitePlaces(ref, { instances, definitions }) {
 
   const facet = cell.facets.find((candidate) => candidate.id === pieceId)
   if (facet) {
+    // A space with a term of its own answers to it too, which tells it from the cell's other spaces.
     const region = (candidate, as) =>
-      place(key(candidate.id), candidate.label, 'region', as, { sides: compartmentSides(template, candidate) })
+      place(key(candidate.id), candidate.label, 'region', candidate.term ? [...as, candidate.term] : as, {
+        sides: compartmentSides(template, candidate),
+      })
     // The microdomain against it stands where the cell's inside would: within a cell's facet, and outside an
     // organelle's, whose own inside is its lumen.
     const microdomain = template.compartments.find((candidate) => candidate.in !== undefined && candidate.against.includes(parsed.path))
@@ -92,6 +95,15 @@ function sitePlaces(ref, { instances, definitions }) {
     ]
   }
   const process = cell.processes.find((candidate) => candidate.id === pieceId)
+  // A junction is between two spaces: each by its own term where it has one, as both are cytoplasm.
+  if (process.between) {
+    const spaces = process.between.map((id) => {
+      const space = template.compartments.find((candidate) => candidate.id === id)
+      if (!space) return cytosol([GO.cytoplasm])
+      return place(key(space.id), space.label, 'region', [space.term ?? GO.cytoplasm], { sides: compartmentSides(template, space) })
+    })
+    return [place(key(parsed.path), process.label, 'cytosolic', []), ...spaces]
+  }
   return [place(key(parsed.path), process.label, 'cytosolic', []), cytosol([GO.cytoplasm])]
 }
 

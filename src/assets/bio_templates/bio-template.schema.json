@@ -180,6 +180,13 @@
           "description": "The process's id, unique within its cell; 'membrane' is reserved."
         },
         "label": { "$ref": "#/$defs/label", "description": "The process's name." },
+        "between": {
+          "description": "Makes this a junction: the two spaces inside the cell it carries a flux between, each the cell's own id (its inside) or a microdomain in it, the first upstream of the second. Needs schemaVersion 2.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/pieceId" }
+        },
         "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
       }
     },
@@ -190,6 +197,11 @@
       "properties": {
         "id": { "$ref": "#/$defs/pieceId", "description": "The compartment's id, unique among cells and compartments." },
         "label": { "$ref": "#/$defs/label", "description": "The compartment's name." },
+        "term": {
+          "description": "What annotations call the place, as an ontology term's CURIE (GO:0001750, say), which tells it from the cell's other spaces.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}:[A-Za-z0-9_]{1,32}$"
+        },
         "in": {
           "$ref": "#/$defs/pieceId",
           "description": "Makes this a microdomain: the id of the cell it is inside. It then lies against one facet of that cell, one facet of an organelle in it, or one of each on the same side, and the proteins on those facets meet it in place of the cell's inside. Needs schemaVersion 2."

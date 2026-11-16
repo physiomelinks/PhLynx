@@ -106,8 +106,8 @@ export const TEMPLATE_KEYS = {
   membrane: ['label'],
   facet: ['id', 'label', 'edge', 'fold', 'depth', 'group', 'annotation', 'site'],
   annotation: ['facet', 'at'],
-  process: ['id', 'label', 'site'],
-  compartment: ['id', 'label', 'in', 'against', 'tone', 'depth', 'site'],
+  process: ['id', 'label', 'between', 'site'],
+  compartment: ['id', 'label', 'in', 'against', 'term', 'tone', 'depth', 'site'],
 }
 
 const DEFAULT_MEMBRANE_LABEL = 'Plasma membrane'
@@ -227,6 +227,13 @@ function readProcess(raw, where, errors, warnings) {
   warnUnknown(raw, TEMPLATE_KEYS.process, where, warnings)
   if (!isPieceId(raw.id)) errors.push(`${where}: ${PIECE_ID_RULE}`)
   const process = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors) }
+  // A junction: what carries a flux between two spaces inside the cell, which are checked once the template's
+  // compartments are read (see validateTemplate).
+  if (raw.between !== undefined) {
+    const isPair = Array.isArray(raw.between) && raw.between.length === 2 && raw.between.every(isPieceId) && raw.between[0] !== raw.between[1]
+    if (isPair) process.between = [...raw.between]
+    else errors.push(`${where}: "between" must name two different spaces inside the cell: the cell itself, or microdomains in it.`)
+  }
   if (!siteFlag(raw, where, errors)) process.site = false
   return process
 }
@@ -434,6 +441,9 @@ function microdomainError(cells, inside, against) {
   return null
 }
 
+/** An ontology term as a CURIE: a prefix, a colon and a local id. */
+const TERM = /^[A-Za-z][A-Za-z0-9_]{0,15}:[A-Za-z0-9_]{1,32}$/
+
 /** The side of an organelle that faces a fold in from each side of its cell. */
 export const FOLD_FACES = Object.freeze({ top: 'right', bottom: 'right', left: 'bottom', right: 'bottom' })
 
@@ -468,6 +478,11 @@ function readCompartment(raw, index, cells, errors, warnings) {
     else compartment.tone = raw.tone
   }
   if (raw.depth !== undefined) compartment.depth = boundedNumber(raw.depth, LIMITS.depth, `${where}: "depth"`, errors)
+  // What annotations call the place, to tell it from the cell's other spaces: an ontology term, as a CURIE.
+  if (raw.term !== undefined) {
+    if (typeof raw.term === 'string' && TERM.test(raw.term)) compartment.term = raw.term
+    else errors.push(`${where}: "term" must be an ontology term as a CURIE, such as GO:0001750.`)
+  }
   if (!siteFlag(raw, where, errors)) compartment.site = false
   return compartment
 }
@@ -571,6 +586,18 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     }
   }
 
+  // Junctions: each between two of its cell's own spaces, and only where the template's version has them.
+  const junctions = cells.flatMap((cell) => cell.processes.filter((process) => process.between).map((process) => [cell, process]))
+  if (junctions.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: a junction (a process "between" two spaces) needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  for (const [cell, process] of junctions) {
+    const isSpace = (id) => id === cell.id || microdomains.some((microdomain) => microdomain.id === id && microdomain.in === cell.id)
+    const unknown = process.between.find((id) => !isSpace(id))
+    if (cell.in) errors.push(`Cell "${cell.id}": an organelle has no junctions.`)
+    else if (unknown) errors.push(`Cell "${cell.id}", process "${process.id}": "${unknown}" is not the cell or a microdomain in it.`)
+  }
+
   const filledBy = new Map()
   for (const compartment of compartments) {
     if (compartment.in !== undefined || formOf(cells, compartment.against).form !== 'gap') continue
@@ -592,7 +619,7 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     seen.add(piece.id)
   }
 
-  const isNested = organelles.length || microdomains.length || folded.length
+  const isNested = organelles.length || microdomains.length || folded.length || junctions.length
   const schemaVersion = isNested ? TEMPLATE_SCHEMA_VERSION_NESTED : TEMPLATE_SCHEMA_VERSION
   const template = { schemaVersion, id: raw.id, name }
   if (description) template.description = description
@@ -726,7 +753,14 @@ function neighbourPairs(template) {
         if (compartment.in === undefined && compartment.against.includes(outer)) pair(path, compartment.id, 'outside', 'protein')
       }
     }
-    for (const process of cell.processes) pair(`${cell.id}.${process.id}`, cell.id, 'inside', 'process')
+    for (const process of cell.processes) {
+      const path = `${cell.id}.${process.id}`
+      // A junction lies along the way from its first space to its second; any other process in its cell's inside.
+      if (process.between) {
+        pair(path, process.between[0], 'upstream', 'downstream')
+        pair(path, process.between[1], 'downstream', 'upstream')
+      } else pair(path, cell.id, 'inside', 'process')
+    }
   }
   return pairs
 }
@@ -739,9 +773,10 @@ function neighbourPairs(template) {
  *
  * @param {Object} template - A validated template.
  * @param {string} path - One of its site paths.
- * @returns {Array<{path: string, relation: 'inside'|'outside'|'membrane'|'protein'|'process'|'embedded'}>}
+ * @returns {Array<{path: string, relation: 'inside'|'outside'|'membrane'|'protein'|'process'|'embedded'|'upstream'|'downstream'}>}
  *   relation: how the neighbour lies to the site ('embedded': a protein in the cell's membrane that meets a
- *   microdomain, not the cell's inside); empty for a path the template doesn't offer.
+ *   microdomain, not the cell's inside; 'upstream' and 'downstream': a junction and the spaces it joins); empty for
+ *   a path the template doesn't offer.
  */
 export function siteNeighbours(template, path) {
   const neighbours = []

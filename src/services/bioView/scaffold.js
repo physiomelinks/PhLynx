@@ -247,9 +247,11 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
           site: siteOf(`${cell.id}.${id}`),
           members: members(`${cell.id}.${id}`),
         })),
-        processes: cell.processes.map(({ id, label }) => ({
+        processes: cell.processes.map(({ id, label, between }) => ({
           id,
           label,
+          // A junction's two spaces, each by its key: the cell's own, or a microdomain's.
+          ...(between && { between: between.map((space) => keyOf(space)) }),
           site: siteOf(`${cell.id}.${id}`),
           members: members(`${cell.id}.${id}`),
         })),

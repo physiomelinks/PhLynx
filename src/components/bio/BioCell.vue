@@ -65,7 +65,8 @@
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-cell__label" :style="labelStyle">
       <BioPieceName :id="id" :name="data.name" />
-      <small v-if="data.empty" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
+      <!-- Not on a template's cell that takes no module of its own, as one that is all microdomains inside -->
+      <small v-if="data.empty && data.site !== null" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
 </template>

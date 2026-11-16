@@ -331,3 +331,20 @@ describe('where a microdomain goes', () => {
     expect(microdomainRect({ parent: 'cell', against: [fold] }, rects)).toBeNull()
   })
 })
+
+describe('where a junction goes', () => {
+  const cell = { x: 0, y: 0, width: 400, height: 600 }
+
+  it('is midway between two microdomains, or just inside the cell from one', async () => {
+    const { junctionZone } = await import('../../../../src/services/bioView/layout.js')
+    const outer = { rect: { x: 40, y: 10, width: 320, height: 150 }, edge: 'top' }
+    const inner = { rect: { x: 40, y: 440, width: 320, height: 150 }, edge: 'bottom' }
+    const between = junctionZone(cell, [outer, inner])
+    expect(between).toMatchObject({ x: 200 - between.width / 2, y: 300 - between.height / 2 })
+    const below = junctionZone(cell, [outer, {}])
+    expect(below.y).toBe(160 + 12)
+    expect(below.x + below.width / 2).toBe(200)
+    const above = junctionZone(cell, [{}, inner])
+    expect(above.y + above.height).toBe(440 - 12)
+  })
+})
