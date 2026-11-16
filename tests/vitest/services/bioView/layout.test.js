@@ -204,6 +204,81 @@ describe('physiological view layout of regions sharing a place', () => {
 })
 
 describe('physiological view layout with cells the user added', () => {
+  it('keeps a cell’s processes inside its membrane, in an area drawn round them, and grows the cell for a row of them', () => {
+    const ids = ['a', 'b', 'c']
+    const roles = new Map([['cell', role('cytosol')], ...ids.map((id) => [id, role('cytosolic', { cell: 'cell' })])])
+    const cellAt = { rect: { x: 100, y: 100, width: 320, height: 240 } }
+    // One left over the bottom membrane, as a drag to the cell's edge used to leave it.
+    const nodes = [node('cell', cellAt), node('a'), node('b'), node('c', { position: { x: 150, y: 330 } })]
+    const layout = layoutBioView(nodes, roles)
+    const cell = layout.get('cell')
+    for (const id of ids) {
+      const card = layout.get(id)
+      expect(card.x).toBeGreaterThanOrEqual(cell.rect.x + 16)
+      expect(card.x + CARD.width).toBeLessThanOrEqual(cell.rect.x + cell.rect.width - 16)
+      expect(card.y + CARD.height).toBeLessThanOrEqual(cell.rect.y + cell.rect.height - 16)
+    }
+    expect(layout.get('c').y).toBe(100 + 240 - 16 - CARD.height)
+    // Wide enough for the three in a row, and the area holds all of them.
+    expect(cell.rect.width).toBeGreaterThanOrEqual(2 * 40 + 3 * CARD.width + 2 * 16)
+    const [zone] = cell.zones
+    expect(zone.label).toBe('Processes')
+    for (const id of ids) {
+      expect(layout.get(id).x).toBeGreaterThan(zone.rect.x)
+      expect(layout.get(id).y + CARD.height).toBeLessThan(zone.rect.y + zone.rect.height)
+    }
+    // A cell with none has no such area.
+    expect(layoutBioView([node('cell', cellAt)], new Map([['cell', role('cytosol')]])).get('cell').zones).toBeUndefined()
+  })
+
+  it('keeps a region against its cell as the cell moves and grows, whatever place the region had', () => {
+    const ids = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    const roles = new Map([
+      ['cell', role('cytosol')],
+      ['lumen', role('region', { adjacent: [{ cell: 'cell', facet: 'apical' }] })],
+      ['far', role('region')],
+      ...ids.map((id) => [id, role('membraneProtein', { cell: 'cell', facet: 'apical' })]),
+    ])
+    const kept = { x: -900, y: -900, width: 300, height: 100 }
+    const nodes = [
+      node('cell', { rect: { x: 500, y: 300, width: 320, height: 240 } }),
+      // A place kept from before the cell moved and took more proteins.
+      node('lumen', { rect: { x: 0, y: 0, width: 344, height: 150 } }),
+      node('far', { rect: kept }),
+      ...ids.map((id) => node(id)),
+    ]
+    const layout = layoutBioView(nodes, roles)
+    const cell = layout.get('cell').rect
+    const lumen = layout.get('lumen')
+    expect(lumen.anchored).toBe(true)
+    // Across the whole cell, meeting its apical membrane.
+    expect(lumen.rect.x).toBeLessThanOrEqual(cell.x)
+    expect(lumen.rect.x + lumen.rect.width).toBeGreaterThanOrEqual(cell.x + cell.width)
+    expect(lumen.rect.y).toBeLessThan(cell.y)
+    expect(lumen.rect.y + lumen.rect.height).toBeGreaterThanOrEqual(cell.y)
+    // One against no cell keeps the place it was given.
+    expect(layout.get('far').rect).toEqual(kept)
+    expect(layout.get('far').anchored).toBeUndefined()
+  })
+
+  it('grows a cell the user moved to fit its proteins, where it was put', () => {
+    const stored = { x: 500, y: -300, width: 320, height: 240 }
+    const ids = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    const nodes = [node('cell', { rect: stored }), ...ids.map((id) => node(id))]
+    const roles = new Map([
+      ['cell', role('cytosol')],
+      ...ids.map((id) => [id, role('membraneProtein', { cell: 'cell', facet: 'apical' })]),
+    ])
+    const layout = layoutBioView(nodes, roles)
+    const { rect } = layout.get('cell')
+    expect(rect).toMatchObject({ x: 500, y: -300 })
+    // Every protein sits on the straight part of the membrane, clear of the corners.
+    for (const id of ids) {
+      expect(layout.get(id).x).toBeGreaterThan(rect.x + 40)
+      expect(layout.get(id).x).toBeLessThan(rect.x + rect.width - 40)
+    }
+  })
+
   it('keeps a region against the cell it lies against, not ones the user added', () => {
     const nodes = [node('cell', { role: 'cytosol' }), node('added', { rect: { x: -800, y: -600, width: 320, height: 240 }, added: true }), node('lumen')]
     const roles = new Map([

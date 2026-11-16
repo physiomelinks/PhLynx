@@ -48,7 +48,26 @@
         >
           <i class="pi pi-share-alt"></i>
         </ControlButton>
+        <!-- Beside the species button, which is the last of the column -->
+        <ControlButton
+          v-if="hasSpecies && isSpeciesOn"
+          class="bio-species-menu-button"
+          title="Choose which species are shown"
+          aria-haspopup="dialog"
+          data-testid="bio-species-menu-button"
+          @click="speciesMenuRef?.toggle($event)"
+        >
+          <i class="pi pi-angle-right"></i>
+        </ControlButton>
       </Controls>
+      <SpeciesMenu
+        ref="speciesMenuRef"
+        :species="menuSpecies"
+        :hidden="viewMode.hiddenSpecies"
+        :scope="viewMode.speciesScope"
+        @update:hidden="setHiddenSpecies"
+        @update:scope="setSpeciesScope"
+      />
       <template #zoom-pane>
         <!-- Species mode: each compartment's species, and the paths they take through proteins; only tokens are hit -->
         <svg
@@ -373,6 +392,7 @@ import BioMembrane from './BioMembrane.vue'
 import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import BioTemplateTitle from './BioTemplateTitle.vue'
+import SpeciesMenu from './SpeciesMenu.vue'
 import SanitisedInput from '../SanitisedInput.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
@@ -398,7 +418,14 @@ import {
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
 import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
-import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
+import {
+  cellContents,
+  deleteConnection,
+  deleteInstances,
+  deletionLabel,
+  deletionScope,
+  releaseFromCell,
+} from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { ROLE_LABELS } from '../../services/bioView/roles'
@@ -501,6 +528,7 @@ const speciesMode = computed(() => {
   return {
     all: viewMode.speciesScope === 'all',
     fluxes: viewMode.speciesScope === 'fluxes',
+    hidden: viewMode.hiddenSpecies,
     keep: keptSpecies.value ? { nodeId, species: curie } : null,
   }
 })
@@ -1147,6 +1175,9 @@ async function settleNodeDrag({ nodes: dragged }) {
           bioViews: bioViews(),
         })
       )
+    } else if (place?.kind === 'region' && place.anchored) {
+      // A compartment lying against cells is placed by them: it goes back, and moves when they do.
+      putBack([moved])
     } else {
       plan.set(moved.id, {
         ...main.findNode(moved.id)?.data?.bioView,
@@ -1271,9 +1302,14 @@ const SPECIES_COLOURS = [
   'var(--p-lime-700)',
   'var(--p-indigo-600)',
 ]
-const shownSpecies = computed(() => [...new Set((species.value?.tokens ?? []).map((token) => token.species))].sort())
-const colourIndex = (curie) => Math.max(0, shownSpecies.value.indexOf(curie)) % SPECIES_COLOURS.length
+/** Every species in scope, hidden ones too, so hiding one leaves the others their colours. */
+const scopedSpecies = computed(() => species.value?.network.species ?? [])
+const colourIndex = (curie) =>
+  Math.max(0, scopedSpecies.value.findIndex((entry) => entry.species === curie)) % SPECIES_COLOURS.length
 const colourOf = (curie) => SPECIES_COLOURS[colourIndex(curie)]
+/** The species menu's rows. */
+const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
+const speciesMenuRef = ref(null)
 const isFocused = (token) =>
   viewMode.focusedSpecies?.nodeId === token.nodeId && viewMode.focusedSpecies?.species === token.species
 /** Whether a species is set back while another is focused. */
@@ -1298,6 +1334,12 @@ function setSpeciesScope(scope) {
   viewMode.speciesScope = scope
   saveAppSettings({ speciesOverlay: true })
   if (scope !== 'fluxes') clearSpeciesFocus()
+}
+
+/** Hides these species in every compartment, with their paths; a focused one hidden is no longer focused. */
+function setHiddenSpecies(hidden) {
+  viewMode.hiddenSpecies = hidden
+  if (hidden.includes(viewMode.focusedSpecies?.species)) clearSpeciesFocus()
 }
 
 /** How far, in screen pixels, a species chip must be dragged before it moves: less is a click. */
@@ -2035,11 +2077,42 @@ function onNodeContextMenu({ event, node }) {
  * @param {Array<string>} ids - Diagram node ids.
  * @returns {Promise<boolean>} Whether anything was asked to go.
  */
-const deleteNodes = (ids) =>
-  deleteInstances(
-    ids.filter((id) => main.findNode(id)),
-    { removeNodes: main.removeNodes, history }
-  )
+async function deleteNodes(ids) {
+  let going = ids.filter((id) => main.findNode(id))
+  // A cell's contents are asked about: left behind they have no cell, which looked as if they had gone too.
+  const contents = cellContents(going, layout.value)
+  let before
+  if (contents.length) {
+    const cells = going.filter((id) => layout.value.get(id)?.kind === 'cell')
+    const subject = cells.length === 1 ? nameOf(cells[0]) : `These ${cells.length} cells`
+    const holds = cells.length === 1 ? 'holds' : 'hold'
+    const listed = contents.slice(0, 6).map(nameOf).join(', ') + (contents.length > 6 ? `, and ${contents.length - 6} more` : '')
+    isConfirming.value = true
+    let answer
+    try {
+      answer = await choose({
+        header: cells.length === 1 ? 'Delete cell?' : 'Delete cells?',
+        message:
+          `${subject} ${holds} ${listed}. Delete only the cell, leaving them where they are and in the diagram ` +
+          'without a cell, or delete them with it, from the diagram too?',
+        severity: 'warning',
+        acceptLabel: 'Delete Cell Only',
+        extraLabel: 'Delete Cell and Contents',
+        rejectLabel: 'Cancel',
+      })
+    } finally {
+      isConfirming.value = false
+    }
+    if (answer === 'reject') return false
+    if (answer === 'extra') going = [...going, ...contents]
+    else {
+      const patches = releaseFromCell(contents, layout.value, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
+      before = () =>
+        applyPlan(new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])))
+    }
+  }
+  return deleteInstances(going, { removeNodes: main.removeNodes, history, before })
+}
 
 /** Deletes the selected instances, for the workspace's Delete and Backspace keys. */
 const deleteSelection = () => deleteNodes(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
@@ -2494,6 +2567,16 @@ function assignRole(id, at, { role, cell, placement }) {
 .bio-species-toggle--on {
   color: var(--p-primary-color);
   background: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
+}
+
+/* Out of the column, against the species button's right side */
+.bio-species-menu-button {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  margin-left: 2px;
+  border-radius: 4px;
+  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
 }
 
 /* The selection's coupling lines are hidden while dragging, and so are their ends. */

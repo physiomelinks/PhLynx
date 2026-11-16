@@ -1,5 +1,5 @@
 <template>
-  <div :class="['bio-card', { 'bio-card--selected': selected }]" :style="categoryStyle" data-testid="bio-card">
+  <div :class="['bio-card', { 'bio-card--selected': selected, 'bio-card--inside': data.inside }]" :style="categoryStyle" data-testid="bio-card">
     <BioHandles :handles="data.handles ?? []" />
     <!-- A process's cartoon, when it has one, beside its name -->
     <ProteinGlyph v-if="data.glyph" class="bio-card__glyph" :glyph="data.glyph" data-testid="bio-card-glyph" />
@@ -42,6 +42,13 @@ const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeThe
   flex: none;
   width: 64px;
   height: 48px;
+}
+
+/* A process in a cell: tinted by the cell behind it, so it reads as part of the cell */
+.bio-card--inside {
+  border-color: color-mix(in srgb, var(--p-amber-500) 55%, transparent);
+  background: color-mix(in srgb, var(--node-fill, var(--p-content-background)) 40%, transparent);
+  box-shadow: none;
 }
 
 .bio-card--selected {

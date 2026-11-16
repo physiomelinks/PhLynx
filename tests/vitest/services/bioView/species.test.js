@@ -94,6 +94,18 @@ describe('the species network', () => {
     expect(toyNetwork({ fluxes: true, all: true }).network.compartments.get('lumen')).toHaveLength(1)
   })
 
+  it('hides a species everywhere, with its paths, and still lists it', () => {
+    const all = toyNetwork({ all: true }).network
+    expect(all.species.map(({ label }) => label).sort()).toEqual(['D-glucose', 'Na⁺'])
+    const hidden = toyNetwork({ all: true, hidden: [CHEBI.sodium] }).network
+    expect(hidden.compartments.get('lumen').map(({ label }) => label)).toEqual(['D-glucose'])
+    expect(hidden.paths).toEqual([])
+    // The list is what a menu offers and colours are counted along: unchanged by hiding.
+    expect(hidden.species).toEqual(all.species)
+    // A compartment left with nothing shown goes.
+    expect(toyNetwork({ hidden: [CHEBI.sodium] }).network.compartments.size).toBe(0)
+  })
+
   it('counts a held reservoir with only a dependence as no flux, unless it is the focused one', () => {
     const held = toyNetwork({ held: true, fluxes: true }).network
     expect(held.compartments.size).toBe(0)

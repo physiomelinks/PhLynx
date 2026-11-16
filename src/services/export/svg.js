@@ -278,6 +278,7 @@ export function serialiseInlineSvg(svg, { getStyle, colour, idPrefix, serialise 
       ...paint('stroke'),
       'stroke-width': style.stroke && style.stroke !== 'none' ? parseFloat(style.strokeWidth) || 1 : null,
       'stroke-dasharray': style.strokeDasharray && style.strokeDasharray !== 'none' ? style.strokeDasharray : null,
+      'stroke-dashoffset': style.strokeDasharray && style.strokeDasharray !== 'none' && parseFloat(style.strokeDashoffset) ? style.strokeDashoffset : null,
       'stroke-linecap': style.strokeLinecap && style.strokeLinecap !== 'butt' ? style.strokeLinecap : null,
       'stroke-linejoin': style.strokeLinejoin && style.strokeLinejoin !== 'miter' ? style.strokeLinejoin : null,
       'fill-rule': style.fillRule === 'evenodd' ? 'evenodd' : null,
@@ -372,6 +373,38 @@ export function markerPlacement(path, atStart, orient) {
   else if (value === 'auto-start-reverse') angle = atStart ? direction + 180 : direction
   else angle = parseFloat(value) || 0
   return { point: { x: point.x, y: point.y }, angle }
+}
+
+/**
+ * Orders elements as they are stacked on screen: by z-index, lowest first, keeping document order within one.
+ *
+ * @param {Element[]} elements
+ * @param {(element: Element) => string} zIndexOf - Each one's computed z-index ('auto' counts as 0).
+ * @returns {Element[]}
+ */
+export function inStackingOrder(elements, zIndexOf) {
+  return elements
+    .map((element, index) => ({ element, index, z: parseInt(zIndexOf(element), 10) || 0 }))
+    .sort((a, b) => a.z - b.z || a.index - b.index)
+    .map(({ element }) => element)
+}
+
+/**
+ * Works out how far text is turned from reading left to right: a quarter turn for vertical writing, and whatever
+ * the transforms of the elements around it add.
+ *
+ * @param {string} writingMode - The computed writing-mode of the text's element.
+ * @param {string[]} transforms - The computed transform ('none' or a matrix) of that element and those around it.
+ * @returns {number} Degrees clockwise, from -180 (exclusive) to 180.
+ */
+export function textTurn(writingMode, transforms = []) {
+  let degrees = /^(vertical|sideways)-(rl|lr)$/.test(writingMode ?? '') ? 90 : 0
+  for (const transform of transforms) {
+    const [a, b] = /^matrix\(([^)]+)\)$/.exec(transform ?? '')?.[1].split(',').map(Number) ?? []
+    if (Number.isFinite(a) && Number.isFinite(b)) degrees += (Math.atan2(b, a) * 180) / Math.PI
+  }
+  degrees = Math.round(((degrees % 360) + 360) % 360)
+  return degrees > 180 ? degrees - 360 : degrees
 }
 
 /**
@@ -515,6 +548,9 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
         rx: radius > 0 ? Math.max(0, radius - inset) : null,
         ...paintAttrs('fill', fill),
         ...(border ? { ...paintAttrs('stroke', border), 'stroke-width': borderWidth } : {}),
+        // A dashed or dotted border, as browsers draw it: dashes three widths long, dots one.
+        ...(border && style.borderTopStyle === 'dashed' ? { 'stroke-dasharray': `${num(3 * borderWidth)} ${num(2 * borderWidth)}` } : {}),
+        ...(border && style.borderTopStyle === 'dotted' ? { 'stroke-dasharray': `0 ${num(2 * borderWidth)}`, 'stroke-linecap': 'round' } : {}),
       })
     )
     bounds.add(rect.x, rect.y, rect.width, rect.height)
@@ -594,6 +630,40 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
         lines.push(words.slice(0, take).join(' '))
         words = words.slice(take)
       }
+    }
+
+    // Text turned on its side (a facet's name down a cell's edge): each line about the middle of its box.
+    const around = []
+    for (let current = parent; current; current = current === nodeRoot ? null : current.parentElement) {
+      around.push(current === parent ? style.transform : win.getComputedStyle(current).transform)
+    }
+    const turn = textTurn(style.writingMode, around)
+    if (turn) {
+      lines.forEach((line, i) => {
+        const rect = lineRects[i]
+        if (!line || !rect) return
+        const cx = rect.x + rect.width / 2
+        const cy = rect.y + rect.height / 2
+        out.push(
+          el(
+            'text',
+            {
+              x: cx,
+              y: cy + (ascent - descent) / 2,
+              'text-anchor': 'middle',
+              transform: `rotate(${turn} ${num(cx)} ${num(cy)})`,
+              'font-family': style.fontFamily,
+              'font-size': size,
+              'font-weight': style.fontWeight !== '400' ? style.fontWeight : null,
+              'font-style': style.fontStyle !== 'normal' ? style.fontStyle : null,
+              ...paintAttrs('fill', ink),
+            },
+            escapeXml(line)
+          )
+        )
+        bounds.add(rect.x, rect.y, rect.width, rect.height)
+      })
+      return
     }
 
     const clip = clipFor(parent, nodeRoot)
@@ -679,7 +749,9 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
   }
 
   const nodeParts = []
-  for (const node of root.querySelectorAll('.vue-flow__nodes .vue-flow__node')) {
+  // Nodes overlap in the physiology view (a compartment reaches under its cell), so they are drawn as stacked.
+  const flowNodes = [...root.querySelectorAll('.vue-flow__nodes .vue-flow__node')]
+  for (const node of inStackingOrder(flowNodes, (each) => win.getComputedStyle(each).zIndex)) {
     const parts = []
     walk(node, node, parts)
     if (!parts.length) continue

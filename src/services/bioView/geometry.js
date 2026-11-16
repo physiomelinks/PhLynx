@@ -311,7 +311,8 @@ export const LIPID_PITCH = 5
 
 /**
  * Gives the straight sides of a cell's outline, each as the transform that lays a strip along it: x runs along the
- * side, from 0 to `length`, and y across it. Each length is a whole number of lipids, centred on its side.
+ * side, from 0 to `length`, and y across it. Each length is a whole number of lipids, stretched or squeezed a
+ * little to fill its side exactly, so the lipids meet the corners' (see cornerLipids) without a gap or a crowd.
  *
  * @param {number} width - The cell's width.
  * @param {number} height - The cell's height.
@@ -326,12 +327,26 @@ export function leafletSides(width, height) {
     { edge: 'left', x: 0, y: height - r, angle: 270, span: height - 2 * r },
   ]
   return sides
+    .filter((side) => side.span >= LIPID_PITCH / 2)
     .map(({ edge, x, y, angle, span }) => {
-      const length = Math.floor(span / LIPID_PITCH) * LIPID_PITCH
-      const transform = `translate(${x} ${y}) rotate(${angle}) translate(${(span - length) / 2} 0)`
+      const length = Math.max(1, Math.round(span / LIPID_PITCH)) * LIPID_PITCH
+      const transform = `translate(${x} ${y}) rotate(${angle}) scale(${span / length} 1)`
       return { edge, length, transform }
     })
-    .filter((side) => side.length > 0)
+}
+
+/**
+ * Counts the lipids round each corner of a cell's outline: a whole number, as near the usual pitch along the
+ * outline as fits. Drawn evenly, half a space in from each end, a corner's lipids line up across its leaflets and
+ * carry on from those of the sides it joins.
+ *
+ * @param {number} width - The cell's width.
+ * @param {number} height - The cell's height.
+ * @returns {number} At least 1.
+ */
+export function cornerLipids(width, height) {
+  const r = Math.max(0, Math.min(CELL_RADIUS, width / 2, height / 2))
+  return Math.max(1, Math.round(((Math.PI / 2) * r) / LIPID_PITCH))
 }
 
 /**

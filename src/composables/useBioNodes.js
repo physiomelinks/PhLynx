@@ -11,7 +11,7 @@ import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, routeSpec
 import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
-import { CARD, layoutPhysiology } from '../services/bioView/layout'
+import { CARD, PROCESS_INSET, layoutPhysiology } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
 import { locationSource } from '../services/annotations/locationSources'
 
@@ -26,16 +26,18 @@ const Z = { region: -20, cell: -10 }
  * @returns {Object} Nothing for a piece that is not a template's.
  */
 function templateData(place) {
-  if (!place.instance) return {}
+  // A cell that is a node of its own still shows the area its processes take up.
+  if (!place.instance) return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
   const { instance, site = null, tone = null, edge = null } = place
   const data = { instance, site, tone, edge }
   if (place.kind !== 'cell') return data
+  return { ...data, facetLabels: place.facetLabels ?? [], zones: zonesIn(place), ...(place.hintAt && { hintAt: { ...place.hintAt } }) }
+}
+
+/** A cell's process zones, relative to the cell. */
+function zonesIn(place) {
   const { x, y } = place.rect
-  const zones = (place.zones ?? []).map(({ rect, ...zone }) => ({
-    ...zone,
-    rect: { ...rect, x: rect.x - x, y: rect.y - y },
-  }))
-  return { ...data, facetLabels: place.facetLabels ?? [], zones, ...(place.hintAt && { hintAt: { ...place.hintAt } }) }
+  return (place.zones ?? []).map(({ rect, ...zone }) => ({ ...zone, rect: { ...rect, x: rect.x - x, y: rect.y - y } }))
 }
 
 /**
@@ -70,6 +72,13 @@ const isEmptyPiece = (place) => !!place.instance && place.empty && (place.kind =
  *   itself, so a selection doesn't lay the nodes out again.
  * @returns {Array<Object>} vue-flow nodes; parents come before their children.
  */
+/**
+ * What only some kinds of node set, cleared on every node: vue-flow merges a node onto the one it had under the
+ * same id, so a field left out keeps its old value when an instance is shown as something else. A card that
+ * became a protein stayed held inside its cell, and a membrane that became one could not be clicked.
+ */
+const UNSET = Object.freeze({ extent: undefined, zIndex: undefined, style: undefined, selectable: undefined, draggable: undefined })
+
 export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { selection = true } = {}) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const labelOf = viewLabels(byId, layout, transport)
@@ -78,9 +87,10 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
     if (!node) {
       const place = layout.get(id)
       const data = { name: place.label ?? id, domainType: null, empty: true }
-      return { id, selectable: false, draggable: true, data }
+      return { ...UNSET, id, selectable: false, draggable: true, data }
     }
     return {
+      ...UNSET,
       id,
       ...(selection && { selected: !!node.selected }),
       data: { name: node.data?.name ?? id, domainType: node.data?.domainType ?? null },
@@ -182,13 +192,13 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           ...base(id),
           type: 'bioCard',
           parentNode: place.cell,
-          ...(!bound && { extent: 'parent' }),
+          // Held inside its cell, clear of the membrane.
+          ...(!bound && { extent: { range: 'parent', padding: [PROCESS_INSET + 12, PROCESS_INSET, PROCESS_INSET, PROCESS_INSET] } }),
           position: { x: place.x - cell.x, y: place.y - cell.y },
           width: CARD.width,
           height: CARD.height,
-          ...((bound || glyph) && {
-            data: { ...base(id).data, ...(glyph && { glyph }), ...(bound && { droppable: true }) },
-          }),
+          // Drawn as part of its cell, not as a card left on it.
+          data: { ...base(id).data, inside: true, ...(glyph && { glyph }), ...(bound && { droppable: true }) },
         })
         break
       }
@@ -468,9 +478,9 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
  *
  * @param {Ref<Array<Object>>} nodes - The diagram's nodes.
  * @param {Ref<Array<Object>>} [edges] - The diagram's edges.
- * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null}|null> }} [options] - Species
- *   mode, when on: whether it shows every annotated species, only those coupled, or only those with a path through a
- *   protein, and a token it keeps whatever (see speciesNetwork). A compartment's tokens follow its
+ * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null, hidden?: string[]}|null> }}
+ *   [options] - Species mode, when on: whether it shows every annotated species, only those coupled, or only those
+ *   with a path through a protein, a token it keeps whatever, and the species it hides (see speciesNetwork). A compartment's tokens follow its
  *   bioView.speciesOrder.
  * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
  *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
@@ -562,6 +572,7 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } 
       all: !!mode.all,
       fluxes: !!mode.fluxes,
       keep: mode.keep ?? null,
+      hidden: mode.hidden ?? [],
     })
     const byId = new Map(nodes.value.map((node) => [node.id, node]))
     const labelOf = viewLabels(byId, layout.value, carriedArrows.value)

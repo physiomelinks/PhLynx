@@ -480,6 +480,40 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.drop_module("pool", (hint["x"] + hint["width"] / 2, hint["y"] + hint["height"] / 2))
         expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count + 1)
 
+    def test_the_species_menu_hides_a_species_with_its_paths_and_still_lists_it(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        self.place_cell_pool()
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        spare = (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2)
+        self.show_species("Coupled Species", spare)
+        tokens = page.locator("[data-testid=bio-species-token]")
+        paths = page.locator("[data-testid=bio-species-path]")
+        expect(tokens).to_have_count(3)
+        expect(paths).to_have_count(2)
+
+        page.locator("[data-testid=bio-species-menu-button]").click()
+        menu = page.locator("[data-testid=bio-species-menu]")
+        sodium = menu.locator("[data-testid=bio-species-menu-item]")
+        expect(sodium).to_have_count(1)
+        expect(sodium).to_have_text("Na⁺")
+        expect(menu.locator("input[type=radio]:checked")).to_have_value("coupled")
+
+        sodium.locator("input").uncheck()
+        expect(tokens).to_have_count(0)
+        expect(paths).to_have_count(0)
+        expect(sodium).to_have_count(1)
+
+        menu.get_by_role("button", name="All").click()
+        expect(tokens).to_have_count(3)
+        expect(paths).to_have_count(2)
+
+        # The same choice of scope as the pane's menu.
+        menu.get_by_label("Species with fluxes").check()
+        expect(menu.locator("input[type=radio]:checked")).to_have_value("fluxes")
+
     def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
         page = self.page
         self.open_physiology_with_template()

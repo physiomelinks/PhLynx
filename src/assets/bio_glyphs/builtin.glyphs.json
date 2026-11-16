@@ -128,6 +128,15 @@
       }
     },
     {
+      "id": "process",
+      "name": "Process",
+      "sbo": "SBO:0000375",
+      "elements": [
+        { "type": "path", "d": "M8 24L22 24M42 24L56 24", "fill": "none", "stroke": "outline", "strokeWidth": 2 },
+        { "type": "rect", "x": 22, "y": 14, "width": 20, "height": 20, "fill": "body", "stroke": "outline", "strokeWidth": 2 }
+      ]
+    },
+    {
       "id": "generic",
       "name": "Generic",
       "elements": [
