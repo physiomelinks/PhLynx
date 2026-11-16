@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { parseSidecar } from '../../../../src/services/annotations/sidecar.js'
 import {
   entryTerms,
+  findMisplacedTerms,
   findUnknownTerms,
+  sidecarPlaceTerms,
   sidecarTerms,
   termIdProblem,
   termIdProblems,
@@ -90,5 +92,31 @@ describe('findUnknownTerms', () => {
       throw new Error('offline')
     })
     expect(await findUnknownTerms(terms, lookup)).toEqual([])
+  })
+})
+
+describe('places taken on trust', () => {
+  it('lists the places a side-car names beyond the three every cell has, with what names each', () => {
+    const variable = (name, location, from = null) => ({ variable: name, location, from, process: null })
+    const sidecar = { variables: [variable('c_a', 'GO:0001750'), variable('c_i', 'GO:0005737'), variable('v', 'self', 'GO:0001917'), variable('m', 'self+GO:0005886')] }
+    expect(sidecarPlaceTerms(sidecar)).toEqual([
+      { where: 'c_a', curie: 'GO:0001750' },
+      { where: 'v', curie: 'GO:0001917' },
+    ])
+    expect(sidecarPlaceTerms(null)).toEqual([])
+  })
+
+  it('flags those the ontology service says are not cellular components, and none when it can’t say', async () => {
+    const terms = [
+      { where: 'c_a', curie: 'GO:0001750' },
+      { where: 'v', curie: 'GO:0006811' },
+      { where: 'w', curie: 'GO:0000001' },
+    ]
+    const namespaces = { 'GO:0001750': 'cellular_component', 'GO:0006811': 'biological_process', 'GO:0000001': null }
+    const lookup = vi.fn(async (curie) => namespaces[curie])
+    expect(await findMisplacedTerms(terms, lookup)).toEqual([
+      { where: 'v', curie: 'GO:0006811', problem: 'GO:0006811 is a GO biological process, not a cellular component, so nothing can be located there' },
+    ])
+    expect(await findMisplacedTerms(terms, async () => Promise.reject(new Error('offline')))).toEqual([])
   })
 })

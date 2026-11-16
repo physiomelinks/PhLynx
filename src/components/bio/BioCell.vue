@@ -10,11 +10,19 @@
       <!-- A template's cell with no module in it yet: just where it goes -->
       <path v-if="data.empty" class="bio-cell__outline" :d="leaflet(0)" data-testid="bio-cell-outline" />
       <path v-else class="bio-cell__cytosol" :d="leaflet(-HEAD_OFFSET)" />
+      <!-- A fold's lumen is the space outside: in the colour of the compartment against that side -->
+      <path
+        v-for="fold in folds"
+        :key="`lumen-${fold.facetId}`"
+        :class="['bio-cell__lumen', fold.tone && `bio-cell__lumen--${fold.tone}`]"
+        :d="lumenPath(fold)"
+        data-testid="bio-fold"
+      />
       <!-- The lipid bilayer: two rows of head groups with their tails meeting in the middle; drawn too round an
            empty inside once a module is the membrane, so a bound membrane shows -->
       <g v-if="hasBilayer" class="bio-cell__bilayer" data-testid="bio-bilayer">
         <path class="bio-cell__core" :d="leaflet(0)" />
-        <BioBilayer :width="width" :height="height" />
+        <BioBilayer :width="width" :height="height" :folds="folds" />
       </g>
       <!-- Selected with its membrane a node of its own: a ring just inside the bilayer, which is the membrane's -->
       <path
@@ -30,7 +38,8 @@
         class="bio-cell__zone"
         data-testid="bio-process-zone"
       >
-        <rect :x="zone.rect.x" :y="zone.rect.y" :width="zone.rect.width" :height="zone.rect.height" rx="8" />
+        <!-- Outlined only while empty, to say where a process goes: one in it is drawn as itself, as a protein is -->
+        <rect v-if="!zone.filled" :x="zone.rect.x" :y="zone.rect.y" :width="zone.rect.width" :height="zone.rect.height" rx="8" />
         <text v-if="zone.label" :x="zone.rect.x + 8" :y="zone.rect.y + 12">{{ zone.label }}</text>
       </g>
     </svg>
@@ -44,10 +53,21 @@
     >
       {{ label.label }}
     </span>
+    <!-- Each fold's name, past its end -->
+    <span
+      v-for="fold in folds"
+      :key="`name-${fold.facetId}`"
+      class="bio-cell__facet bio-cell__fold-name"
+      :style="foldNameStyle(fold)"
+      data-testid="bio-facet-label"
+    >
+      {{ fold.label }}
+    </span>
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-cell__label" :style="labelStyle">
-      {{ data.name }}
-      <small v-if="data.empty" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
+      <BioPieceName :id="id" :name="data.name" />
+      <!-- Not on a template's cell that takes no module of its own, as one that is all microdomains inside -->
+      <small v-if="data.empty && data.site !== null" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
 </template>
@@ -56,9 +76,12 @@
 import { computed } from 'vue'
 import BioBilayer from './BioBilayer.vue'
 import BioHandles from './BioHandles.vue'
-import { HEAD_OFFSET, leafletPath } from '../../services/bioView/geometry'
+import BioPieceName from './BioPieceName.vue'
+import { HEAD_OFFSET, foldPoint, leafletPath } from '../../services/bioView/geometry'
 
 const props = defineProps({
+  /** Its node id, for renaming it. */
+  id: { type: String, default: null },
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
   width: { type: Number, required: true },
@@ -110,8 +133,31 @@ const labelStyle = computed(() => {
   return { left: `${at.x}px`, top: `${at.y}px`, bottom: 'auto', transform: 'none', whiteSpace: 'nowrap' }
 })
 
-/** The cell's outline grown by an offset, outward when positive. */
-const leaflet = (offset) => leafletPath(props.width, props.height, offset)
+/** The cell's folds, each where it is in the cell (see foldPocket). */
+const folds = computed(() => props.data.folds ?? [])
+
+/** The cell's outline grown by an offset, outward when positive; it dips in round each fold. */
+const leaflet = (offset) => leafletPath(props.width, props.height, offset, folds.value)
+
+const box = computed(() => ({ x: 0, y: 0, width: props.width, height: props.height }))
+
+/** A fold's lumen: from its mouth down between its walls and round its end. */
+function lumenPath({ edge, at, half, depth }) {
+  const point = (along, inward) => {
+    const { x, y } = foldPoint(box.value, edge, along, inward)
+    return `${x} ${y}`
+  }
+  const end = depth - half
+  // The end is rounded the same way whichever side the fold is in from, as seen from its mouth.
+  const sweep = edge === 'top' || edge === 'right' ? 0 : 1
+  return `M ${point(at - half, 0)} L ${point(at - half, end)} A ${half} ${half} 0 0 ${sweep} ${point(at + half, end)} L ${point(at + half, 0)} Z`
+}
+
+/** Where a fold's name goes: centred a little past its end. */
+function foldNameStyle({ edge, at, depth }) {
+  const { x, y } = foldPoint(box.value, edge, at, depth + 14)
+  return { left: `${x}px`, top: `${y}px`, transform: 'translate(-50%, -50%)', whiteSpace: 'nowrap' }
+}
 </script>
 
 <style scoped>
@@ -126,6 +172,40 @@ const leaflet = (offset) => leafletPath(props.width, props.height, offset)
 .bio-cell__art {
   position: absolute;
   inset: 0;
+}
+
+/* A fold's lumen: the view's own background, tinted as the compartment that fills it is */
+.bio-cell__lumen {
+  fill: var(--p-content-background);
+  stroke: none;
+}
+
+.bio-cell__lumen--sky {
+  fill: color-mix(in srgb, var(--p-sky-200) 40%, var(--p-content-background));
+}
+
+.bio-cell__lumen--rose {
+  fill: color-mix(in srgb, var(--p-rose-200) 40%, var(--p-content-background));
+}
+
+.bio-cell__lumen--teal {
+  fill: color-mix(in srgb, var(--p-teal-200) 45%, var(--p-content-background));
+}
+
+.bio-cell__lumen--amber {
+  fill: color-mix(in srgb, var(--p-amber-200) 40%, var(--p-content-background));
+}
+
+.bio-cell__lumen--violet {
+  fill: color-mix(in srgb, var(--p-violet-200) 40%, var(--p-content-background));
+}
+
+.bio-cell__lumen--lime {
+  fill: color-mix(in srgb, var(--p-lime-200) 40%, var(--p-content-background));
+}
+
+.bio-cell__lumen--slate {
+  fill: color-mix(in srgb, var(--p-slate-200) 40%, var(--p-content-background));
 }
 
 .bio-cell__cytosol {

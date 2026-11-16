@@ -103,3 +103,70 @@ describe('rankPlace', () => {
     expect(rankPlace(undefined)).toBe(5)
   })
 })
+
+describe('placementsOf on a template’s nested pieces', () => {
+  const CARDIOMYOCYTE = {
+    instances: [{ id: 'bt-1', template: 'cardiomyocyte', at: { x: 0, y: 0 } }],
+    definitions: new Map([['cardiomyocyte', getBuiltInTemplate('cardiomyocyte')]]),
+  }
+  const placesOf = (path) => summary(placementsOf([onSite('p', path)], CARDIOMYOCYTE).get('p')).slice(1)
+  const key = (path) => `site:bt-1/${path}`
+
+  it('has a fold’s protein between the outside of the side it dips in from and the microdomain against it', () => {
+    expect(placesOf('myocyte.t-tubule')).toEqual([
+      { key: key('cleft'), kind: 'region', as: [GO.cytoplasm] },
+      { key: key('myocyte.membrane'), kind: 'membrane', as: [GO.plasmaMembrane], facets: ['t-tubule'] },
+      { key: key('extracellular'), kind: 'region', as: [GO.extracellularRegion] },
+    ])
+  })
+
+  it('has an organelle’s protein between its lumen and the cell’s inside, or the microdomain against it', () => {
+    expect(placesOf('sr.network')).toEqual([
+      { key: key('sr'), kind: 'cytosol', as: [GO.cytoplasm] },
+      { key: key('sr.membrane'), kind: 'membrane', as: [GO.plasmaMembrane], facets: ['network'] },
+      { key: key('myocyte'), kind: 'cytosol', as: [GO.extracellularRegion] },
+    ])
+    expect(placesOf('sr.junctional').at(-1)).toEqual({ key: key('cleft'), kind: 'region', as: [GO.extracellularRegion] })
+  })
+
+  it('leaves a protein along a side as it was', () => {
+    expect(placesOf('myocyte.sarcolemma')).toEqual([
+      { key: key('myocyte'), kind: 'cytosol', as: [GO.cytoplasm] },
+      { key: key('myocyte.membrane'), kind: 'membrane', as: [GO.plasmaMembrane], facets: ['sarcolemma'] },
+      { key: key('extracellular'), kind: 'region', as: [GO.extracellularRegion] },
+    ])
+  })
+})
+
+describe('placementsOf on a junction', () => {
+  const rod = {
+    schemaVersion: 2,
+    id: 'rod',
+    name: 'Rod',
+    cells: [
+      {
+        id: 'rod',
+        label: 'Rod',
+        facets: [
+          { id: 'os', label: 'OS membrane', edge: 'top' },
+          { id: 'is', label: 'IS membrane', edge: 'bottom' },
+        ],
+        processes: [{ id: 'cilium', label: 'Cilium', between: ['outer', 'inner'] }],
+      },
+    ],
+    compartments: [
+      { id: 'outer', label: 'Outer segment', in: 'rod', against: ['rod.os'], term: 'GO:0001750' },
+      { id: 'inner', label: 'Inner segment', in: 'rod', against: ['rod.is'] },
+    ],
+  }
+  it('has the junction between its two spaces, each by its own term where it has one', async () => {
+    const { validateTemplate } = await import('../../../../src/services/bioView/templates.js')
+    const options = { instances: [{ id: 'bt-1', template: 'rod', at: { x: 0, y: 0 } }], definitions: new Map([['rod', validateTemplate(rod).template]]) }
+    expect(summary(placementsOf([onSite('j', 'rod.cilium')], options).get('j')).slice(1)).toEqual([
+      { key: 'site:bt-1/outer', kind: 'region', as: ['GO:0001750'] },
+      { key: 'site:bt-1/inner', kind: 'region', as: [GO.cytoplasm] },
+    ])
+    // A protein on the outer segment's membrane finds it as cytoplasm, and by its term.
+    expect(summary(placementsOf([onSite('p', 'rod.os')], options).get('p'))[1]).toEqual({ key: 'site:bt-1/outer', kind: 'region', as: [GO.cytoplasm, 'GO:0001750'] })
+  })
+})

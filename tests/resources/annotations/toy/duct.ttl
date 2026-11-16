@@ -1,0 +1,29 @@
+# Toy junction sidecar: _a is the photoreceptor outer segment and _b the inner segment, each a GO cellular component
+# that is none of the three every cell has, so only a template space with that term answers to it.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix m: <./duct.cellml#> .
+@prefix local: <./duct.ttl#> .
+
+# A module says what it is: here a (made-up) protein, as the porter is.
+m:duct bqbiol:is <http://identifiers.org/uniprot/Q0TOY2> .
+local:outer bqbiol:is <http://purl.obolibrary.org/obo/GO_0001750> .
+local:inner bqbiol:is <http://purl.obolibrary.org/obo/GO_0001917> .
+local:Na_outer bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> ;
+    bqbiol:isPartOf local:outer .
+local:Na_inner bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> ;
+    bqbiol:isPartOf local:inner .
+
+m:ca bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00340> ;
+    bqbiol:isPropertyOf local:Na_outer .
+m:cb bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00340> ;
+    bqbiol:isPropertyOf [ bqbiol:is <http://purl.obolibrary.org/obo/CHEBI_29101> ;
+        bqbiol:isPartOf <http://purl.obolibrary.org/obo/GO_0001917> ] .
+m:va bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00592> ;
+    bqbiol:isPropertyOf local:flux_to_outer .
+local:flux_to_outer semsim:hasSourceParticipant [ semsim:hasPhysicalEntityReference local:Na_inner ] ;
+    semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:Na_outer ] .
+m:vb bqbiol:isVersionOf <http://identifiers.org/opb/OPB_00592> ;
+    bqbiol:isPropertyOf local:flux_to_inner .
+local:flux_to_inner semsim:hasSourceParticipant [ semsim:hasPhysicalEntityReference local:Na_outer ] ;
+    semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:Na_inner ] .

@@ -469,6 +469,7 @@ function openContextMenu(event) {
 
 .instance-name :deep(.p-inputtext) {
   width: 100%;
+  text-align: center;
   padding-top: 0.2rem;
   padding-bottom: 0.2rem;
 }
@@ -630,7 +631,6 @@ function openContextMenu(event) {
 .popover-bottom {
   top: 50%;
   left: 50%;
-  /* Pushes it down */
   transform: translate(-50%, 14px);
 }
 

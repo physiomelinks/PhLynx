@@ -198,7 +198,9 @@
               :note="chart.note"
               :series="chart.series"
               :references="chart.references"
+              :marker="chart.x ? null : voiCursor.marker"
               fill
+              @seek="voiCursor.seekValue"
             />
           </template>
           <div v-else class="viewer-empty">
@@ -265,6 +267,7 @@ import { INSPECTION_COMPONENT, buildVariableIndex, isInspectionNodeId, resolvePl
 import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../../stores/simulationSettingsStore'
+import { useVoiCursorStore } from '../../stores/voiCursorStore'
 import { FLOW_IDS } from '../../utils/constants'
 
 const props = defineProps({
@@ -277,6 +280,7 @@ const props = defineProps({
 const { state, returnToTab } = useFloatingViewer()
 const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const store = useSimulationResultsStore()
+const voiCursor = useVoiCursorStore()
 const { trackBlocker, track } = useTrackRun()
 const settingsStore = useSimulationSettingsStore()
 const inspectionStore = useInspectionModuleStore()

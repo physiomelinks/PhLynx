@@ -10,6 +10,16 @@ import { MIN_CELL } from './metrics.js'
 /** The template format this build understands. */
 export const TEMPLATE_SCHEMA_VERSION = 1
 
+/**
+ * The version of a template with pieces version 1 has none of: an organelle, which is a cell `in` another; a
+ * microdomain, which is a compartment `in` a cell; and a fold, which is a facet that dips in from a side of its cell. A template is written at the lowest version that reads it, so
+ * one without them still loads in older PhLynx.
+ */
+export const TEMPLATE_SCHEMA_VERSION_NESTED = 2
+
+/** How big an organelle is drawn unless its template says. */
+export const ORGANELLE_SIZE = Object.freeze({ width: 280, height: 170 })
+
 /** A template's own id. */
 export const TEMPLATE_ID = /^[a-z][a-z0-9-]{1,47}$/
 
@@ -85,21 +95,23 @@ export const LIMITS = {
   bytes: 64 * 1024,
   size: { min: 120, max: 4000 },
   depth: { min: 20, max: 1000 },
+  fold: { min: 80, max: 1000 },
 }
 
 /** The keys the validator knows for each kind of object, in the order a clean copy lists them. */
 export const TEMPLATE_KEYS = {
   template: ['$schema', 'schemaVersion', 'id', 'name', 'description', 'author', 'license', 'cells', 'compartments'],
-  cell: ['id', 'label', 'row', 'size', 'membrane', 'facets', 'processes', 'site'],
+  cell: ['id', 'label', 'in', 'row', 'size', 'membrane', 'facets', 'processes', 'site'],
   size: ['width', 'height'],
   membrane: ['label'],
-  facet: ['id', 'label', 'edge', 'group', 'annotation', 'site'],
+  facet: ['id', 'label', 'edge', 'fold', 'depth', 'group', 'annotation', 'site'],
   annotation: ['facet', 'at'],
-  process: ['id', 'label', 'site'],
-  compartment: ['id', 'label', 'against', 'tone', 'depth', 'site'],
+  process: ['id', 'label', 'between', 'site'],
+  compartment: ['id', 'label', 'in', 'against', 'term', 'tone', 'depth', 'site'],
 }
 
 const DEFAULT_MEMBRANE_LABEL = 'Plasma membrane'
+const DEFAULT_ORGANELLE_MEMBRANE_LABEL = 'Membrane'
 const DEFAULT_TONE = 'sky'
 const OPPOSITE = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' }
 const SITE_PATH = /^[a-z][a-z0-9-]{0,31}(?:\.[a-z][a-z0-9-]{0,31})?$/
@@ -185,8 +197,18 @@ function readFacet(raw, where, errors, warnings) {
   }
   warnUnknown(raw, TEMPLATE_KEYS.facet, where, warnings)
   if (!isPieceId(raw.id)) errors.push(`${where}: ${PIECE_ID_RULE}`)
-  const facet = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors), edge: raw.edge }
-  if (!EDGES.includes(raw.edge)) errors.push(`${where}: "edge" must be one of ${EDGES.join(', ')}.`)
+  const facet = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors) }
+  // A fold: an invagination of the membrane, in from the side named, in place of a stretch along a side.
+  if (raw.fold !== undefined) {
+    facet.fold = raw.fold
+    if (!EDGES.includes(raw.fold)) errors.push(`${where}: "fold" must be the side it dips in from: one of ${EDGES.join(', ')}.`)
+    if (raw.edge !== undefined) errors.push(`${where}: a fold has no "edge"; "fold" names the side it dips in from.`)
+    if (raw.depth !== undefined) facet.depth = boundedNumber(raw.depth, LIMITS.fold, `${where}: "depth"`, errors)
+  } else {
+    facet.edge = raw.edge
+    if (!EDGES.includes(raw.edge)) errors.push(`${where}: "edge" must be one of ${EDGES.join(', ')}.`)
+    if (raw.depth !== undefined) errors.push(`${where}: only a fold has a "depth".`)
+  }
   if (raw.group !== undefined) {
     if (isPieceId(raw.group)) facet.group = raw.group
     else errors.push(`${where}: "group" must start with a letter and use only lower-case letters, digits and hyphens.`)
@@ -205,12 +227,19 @@ function readProcess(raw, where, errors, warnings) {
   warnUnknown(raw, TEMPLATE_KEYS.process, where, warnings)
   if (!isPieceId(raw.id)) errors.push(`${where}: ${PIECE_ID_RULE}`)
   const process = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors) }
+  // A junction: what carries a flux between two spaces inside the cell, which are checked once the template's
+  // compartments are read (see validateTemplate).
+  if (raw.between !== undefined) {
+    const isPair = Array.isArray(raw.between) && raw.between.length === 2 && raw.between.every(isPieceId) && raw.between[0] !== raw.between[1]
+    if (isPair) process.between = [...raw.between]
+    else errors.push(`${where}: "between" must name two different spaces inside the cell: the cell itself, or microdomains in it.`)
+  }
   if (!siteFlag(raw, where, errors)) process.site = false
   return process
 }
 
-function readSize(raw, where, errors, warnings) {
-  if (raw === undefined) return { ...MIN_CELL }
+function readSize(raw, where, errors, warnings, fallback = MIN_CELL) {
+  if (raw === undefined) return { ...fallback }
   if (!isObject(raw)) {
     errors.push(`${where}: "size" must be an object with "width" and "height".`)
     return { ...MIN_CELL }
@@ -222,8 +251,8 @@ function readSize(raw, where, errors, warnings) {
   }
 }
 
-function readMembrane(raw, where, errors, warnings) {
-  if (raw === undefined) return { label: DEFAULT_MEMBRANE_LABEL }
+function readMembrane(raw, where, errors, warnings, fallback = DEFAULT_MEMBRANE_LABEL) {
+  if (raw === undefined) return { label: fallback }
   if (raw === false) return false
   if (!isObject(raw)) {
     errors.push(`${where}: "membrane" must be an object with a "label", or false.`)
@@ -249,8 +278,16 @@ function readCell(raw, index, errors, warnings) {
       errors.push(`${where}: "row" must be a whole number from 0 to ${LIMITS.rows - 1}.`)
     } else cell.row = raw.row
   }
-  cell.size = readSize(raw.size, where, errors, warnings)
-  cell.membrane = readMembrane(raw.membrane, where, errors, warnings)
+  // An organelle: a cell inside another, which is checked once every cell is read (see validateTemplate).
+  const isOrganelle = raw.in !== undefined
+  if (isOrganelle) {
+    if (isPieceId(raw.in)) cell.in = raw.in
+    else errors.push(`${where}: "in" must be the id of the cell it is inside.`)
+    if (raw.row !== undefined) errors.push(`${where}: an organelle has no "row"; it goes inside its cell.`)
+    delete cell.row
+  }
+  cell.size = readSize(raw.size, where, errors, warnings, isOrganelle ? ORGANELLE_SIZE : MIN_CELL)
+  cell.membrane = readMembrane(raw.membrane, where, errors, warnings, isOrganelle ? DEFAULT_ORGANELLE_MEMBRANE_LABEL : DEFAULT_MEMBRANE_LABEL)
 
   const ids = new Set()
   const claim = (id, label) => {
@@ -265,12 +302,18 @@ function readCell(raw, index, errors, warnings) {
     errors.push(`${where}: "facets" must be a non-empty list.`)
   } else {
     const edges = new Map()
+    const folds = new Map()
     const aliases = new Map()
     raw.facets.forEach((rawFacet, i) => {
       const label = `facet ${i + 1}`
       const facet = readFacet(rawFacet, `${where}, ${label}`, errors, warnings)
       if (!facet) return
       claim(facet.id, label)
+      if (EDGES.includes(facet.fold)) {
+        if (folds.has(facet.fold)) {
+          errors.push(`${where}, ${label}: the ${facet.fold} side already has the fold "${folds.get(facet.fold)}"; a side has one at most.`)
+        } else folds.set(facet.fold, facet.id)
+      }
       if (EDGES.includes(facet.edge)) {
         const taken = edges.get(facet.edge)
         if (taken) {
@@ -324,6 +367,12 @@ function formOf(cells, against) {
     if (!facet) {
       return { form: null, error: `"against" entry ${i + 1} (${JSON.stringify(ref)}) does not name a cell's facet as "cell.facet".` }
     }
+    if (cell.in) {
+      return { form: null, error: `"against" entry ${i + 1} (${JSON.stringify(ref)}) is an organelle's facet; a compartment lies against a cell's.` }
+    }
+    if (facet.fold) {
+      return { form: null, error: `"against" entry ${i + 1} (${JSON.stringify(ref)}) is a fold; a compartment lies against a side of a cell, and fills the folds in from it.` }
+    }
     if (resolved.some((entry) => entry.cell === cell && entry.facet === facet)) {
       return { form: null, error: `"against" names "${ref}" more than once.` }
     }
@@ -346,7 +395,7 @@ function formOf(cells, against) {
     const a = first.cell
     const b = second.cell
     if (first.facet.edge === 'right') {
-      const row = cells.filter((cell) => cell.row === a.row)
+      const row = cells.filter((cell) => cell.row === a.row && !cell.in)
       if (b.row === a.row && row[row.indexOf(a) + 1] === b) return { form: 'gap' }
       const error = `"${a.id}" and "${b.id}" must be neighbours in one row, "${a.id}" first, to share a gap.`
       return { form: null, error: `${error} ${allowed}` }
@@ -356,6 +405,47 @@ function formOf(cells, against) {
   }
   return { form: null, error: allowed }
 }
+
+/**
+ * Says what is wrong with a microdomain's place, if anything.
+ *
+ * @param {Array<Object>} cells - Clean cells.
+ * @param {*} inside - The id of the cell it is in.
+ * @param {*} against - 'cell.facet' references.
+ * @returns {string|null}
+ */
+function microdomainError(cells, inside, against) {
+  const cell = isPieceId(inside) && cells.find((entry) => entry.id === inside)
+  if (!cell) return `"in" must be the id of the cell it is inside.`
+  if (cell.in) return `"${cell.id}" is an organelle; a microdomain is in a cell.`
+  const rule =
+    'A microdomain lies against one facet of its cell, one facet of an organelle in that cell, or one of each on the same side; ' +
+    'against a fold and an organelle, the organelle’s facet is its right one for a fold in from the top or bottom, and its bottom one for a fold in from the left or right.'
+  if (!Array.isArray(against) || against.length < 1 || against.length > 2) return `"against" must name one or two facets. ${rule}`
+  const found = []
+  for (const ref of against) {
+    const [cellId, facetId, extra] = typeof ref === 'string' ? ref.split('.') : []
+    const owner = cells.find((entry) => entry.id === cellId)
+    const facet = extra === undefined && owner?.facets.find((entry) => entry.id === facetId)
+    if (!facet || (owner !== cell && owner.in !== cell.id)) return `"against" entry ${JSON.stringify(ref)} is not a facet of "${cell.id}" or of an organelle in it. ${rule}`
+    found.push({ isOwn: owner === cell, edge: facet.edge, fold: facet.fold })
+  }
+  if (found.length === 2) {
+    if (found[0].isOwn === found[1].isOwn) return rule
+    const own = found.find((entry) => entry.isOwn)
+    const other = found.find((entry) => !entry.isOwn)
+    // A fold comes in at the far end of its side, so it is the organelle's far side that faces it.
+    const facing = own.fold ? FOLD_FACES[own.fold] : own.edge
+    if (other.edge !== facing) return rule
+  }
+  return null
+}
+
+/** An ontology term as a CURIE: a prefix, a colon and a local id. */
+const TERM = /^[A-Za-z][A-Za-z0-9_]{0,15}:[A-Za-z0-9_]{1,32}$/
+
+/** The side of an organelle that faces a fold in from each side of its cell. */
+export const FOLD_FACES = Object.freeze({ top: 'right', bottom: 'right', left: 'bottom', right: 'bottom' })
 
 function readCompartment(raw, index, cells, errors, warnings) {
   if (!isObject(raw)) {
@@ -367,7 +457,13 @@ function readCompartment(raw, index, cells, errors, warnings) {
   if (!isPieceId(raw.id)) errors.push(`${where}: ${PIECE_ID_RULE}`)
   const compartment = { id: raw.id, label: requiredText(raw, 'label', LIMITS.label, where, errors), against: [] }
 
-  if (raw.against !== undefined) {
+  // A microdomain: a compartment inside a cell, against a facet of the cell, of an organelle in it, or of both.
+  if (raw.in !== undefined) {
+    compartment.in = raw.in
+    const error = microdomainError(cells, raw.in, raw.against)
+    if (error) errors.push(`${where}: ${error}`)
+    else compartment.against = [...raw.against]
+  } else if (raw.against !== undefined) {
     if (!Array.isArray(raw.against)) errors.push(`${where}: "against" must be a list of "cell.facet" names.`)
     else {
       const { form, error } = formOf(cells, raw.against)
@@ -382,6 +478,11 @@ function readCompartment(raw, index, cells, errors, warnings) {
     else compartment.tone = raw.tone
   }
   if (raw.depth !== undefined) compartment.depth = boundedNumber(raw.depth, LIMITS.depth, `${where}: "depth"`, errors)
+  // What annotations call the place, to tell it from the cell's other spaces: an ontology term, as a CURIE.
+  if (raw.term !== undefined) {
+    if (typeof raw.term === 'string' && TERM.test(raw.term)) compartment.term = raw.term
+    else errors.push(`${where}: "term" must be an ontology term as a CURIE, such as GO:0001750.`)
+  }
   if (!siteFlag(raw, where, errors)) compartment.site = false
   return compartment
 }
@@ -420,9 +521,8 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
 
   const where = 'Template'
   warnUnknown(raw, TEMPLATE_KEYS.template, where, warnings)
-  if (raw.schemaVersion !== TEMPLATE_SCHEMA_VERSION) {
-    errors.push(`${where}: "schemaVersion" must be ${TEMPLATE_SCHEMA_VERSION}.`)
-  }
+  const versions = [TEMPLATE_SCHEMA_VERSION, TEMPLATE_SCHEMA_VERSION_NESTED]
+  if (!versions.includes(raw.schemaVersion)) errors.push(`${where}: "schemaVersion" must be ${versions.join(' or ')}.`)
   const id = typeof raw.id === 'string' && allowLocalId ? bareTemplateId(raw.id) : raw.id
   if (typeof id !== 'string' || !TEMPLATE_ID.test(id)) {
     errors.push(`${where}: "id" must start with a letter and use only lower-case letters, digits and hyphens (2-48 characters).`)
@@ -442,6 +542,24 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     })
   }
 
+  // Organelles: each inside a cell that is not itself one, and only where the template's version has them.
+  const organelles = cells.filter((cell) => cell.in)
+  if (organelles.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: an organelle (a cell "in" another) needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  for (const organelle of organelles) {
+    const parent = cells.find((cell) => cell.id === organelle.in)
+    if (!parent || parent === organelle) errors.push(`Cell "${organelle.id}": there is no other cell "${organelle.in}" for it to be in.`)
+    else if (parent.in) errors.push(`Cell "${organelle.id}": "${parent.id}" is itself inside a cell; organelles don't nest.`)
+  }
+  if (cells.length && organelles.length === cells.length) errors.push(`${where}: at least one cell must not be inside another.`)
+  // Folds, too, are read only at the version that has them, and only a cell has them.
+  const folded = cells.filter((cell) => cell.facets.some((facet) => facet.fold))
+  if (folded.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: a fold (a facet with "fold") needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  for (const cell of folded) if (cell.in) errors.push(`Cell "${cell.id}": an organelle has no folds.`)
+
   const compartments = []
   if (raw.compartments !== undefined) {
     if (!Array.isArray(raw.compartments)) errors.push(`${where}: "compartments" must be a list.`)
@@ -455,9 +573,34 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     }
   }
 
+  // Microdomains, too, are read only at the version that has them; each facet is against one at most.
+  const microdomains = compartments.filter((compartment) => compartment.in !== undefined)
+  if (microdomains.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: a microdomain (a compartment "in" a cell) needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  const within = new Map()
+  for (const microdomain of microdomains) {
+    for (const name of microdomain.against) {
+      if (within.has(name)) errors.push(`Compartment "${microdomain.id}": facet "${name}" is already against the microdomain "${within.get(name)}".`)
+      else within.set(name, microdomain.id)
+    }
+  }
+
+  // Junctions: each between two of its cell's own spaces, and only where the template's version has them.
+  const junctions = cells.flatMap((cell) => cell.processes.filter((process) => process.between).map((process) => [cell, process]))
+  if (junctions.length && raw.schemaVersion === TEMPLATE_SCHEMA_VERSION) {
+    errors.push(`${where}: a junction (a process "between" two spaces) needs "schemaVersion" ${TEMPLATE_SCHEMA_VERSION_NESTED}.`)
+  }
+  for (const [cell, process] of junctions) {
+    const isSpace = (id) => id === cell.id || microdomains.some((microdomain) => microdomain.id === id && microdomain.in === cell.id)
+    const unknown = process.between.find((id) => !isSpace(id))
+    if (cell.in) errors.push(`Cell "${cell.id}": an organelle has no junctions.`)
+    else if (unknown) errors.push(`Cell "${cell.id}", process "${process.id}": "${unknown}" is not the cell or a microdomain in it.`)
+  }
+
   const filledBy = new Map()
   for (const compartment of compartments) {
-    if (formOf(cells, compartment.against).form !== 'gap') continue
+    if (compartment.in !== undefined || formOf(cells, compartment.against).form !== 'gap') continue
     compartment.against.forEach(name => filledBy.set(name, compartment.id))
   }
   for (const compartment of compartments) {
@@ -476,7 +619,9 @@ export function validateTemplate(raw, { allowLocalId = false } = {}) {
     seen.add(piece.id)
   }
 
-  const template = { schemaVersion: TEMPLATE_SCHEMA_VERSION, id: raw.id, name }
+  const isNested = organelles.length || microdomains.length || folded.length || junctions.length
+  const schemaVersion = isNested ? TEMPLATE_SCHEMA_VERSION_NESTED : TEMPLATE_SCHEMA_VERSION
+  const template = { schemaVersion, id: raw.id, name }
   if (description) template.description = description
   if (author) template.author = author
   if (license) template.license = license
@@ -501,6 +646,7 @@ export function sitesOf(template) {
   const sites = []
   for (const cell of template.cells) {
     const piece = { cell: cell.id }
+    // An organelle's inside is a space enclosed by its membrane, as a cell's is: both are offered as one.
     if (cell.site !== false) sites.push({ path: cell.id, role: 'cytosol', kind: 'single', ...piece, label: cell.label })
     if (cell.membrane) {
       const label = cell.membrane.label
@@ -530,12 +676,14 @@ export function sitesOf(template) {
  *
  * @param {Object} template - A validated template.
  * @param {Object|string} compartment - The compartment, or its id.
- * @returns {'band'|'gap'|'column'|'free'|null} null when the template has no such compartment.
+ * @returns {'band'|'gap'|'column'|'free'|'inner'|null} 'inner' for a microdomain; null when the template has no
+ *   such compartment.
  */
 export function compartmentForm(template, compartment) {
   const entry =
     typeof compartment === 'string' ? template.compartments.find((c) => c.id === compartment) : compartment
   if (!entry) return null
+  if (entry.in !== undefined) return 'inner'
   return formOf(template.cells, entry.against ?? []).form
 }
 
@@ -570,7 +718,9 @@ export function parseSiteRef(ref) {
 /**
  * The pairs of a template's sites that sit next to each other: each facet with its cell's inside and
  * membrane and with every compartment against it, each process area with its cell's inside, and each
- * cell's inside with its membrane. Only offered sites count.
+ * cell's inside with its membrane. An organelle's facets have the inside of the cell it is in as their outside.
+ * A facet against a microdomain has it, in place of the cell's inside, on the side the cell's inside would be.
+ * Only offered sites count.
  *
  * @param {Object} template - A validated template.
  * @returns {Array<[string, string, string, string]>} [path, its neighbour, how the neighbour lies to the first,
@@ -585,13 +735,32 @@ function neighbourPairs(template) {
     if (cell.membrane) pair(cell.id, membrane, 'membrane', 'inside')
     for (const facet of cell.facets) {
       const path = `${cell.id}.${facet.id}`
-      pair(path, cell.id, 'inside', 'protein')
+      // The microdomain against it, if it offers a site: what the facet's proteins meet, not the cell's inside.
+      const microdomain = template.compartments.find((entry) => entry.in !== undefined && entry.against.includes(path) && offered.has(entry.id))
+      if (cell.in) {
+        pair(path, cell.id, 'inside', 'protein')
+        pair(path, microdomain?.id ?? cell.in, 'outside', 'protein')
+      } else {
+        pair(path, microdomain?.id ?? cell.id, 'inside', 'protein')
+        // It is still in its cell's membrane, whose area and potential are the cell's to give.
+        if (microdomain) pair(path, cell.id, 'membrane', 'embedded')
+      }
       if (cell.membrane) pair(path, membrane, 'membrane', 'protein')
+      // A fold's outside is that of the side it dips in from: its lumen is the same space.
+      const side = facet.fold ? cell.facets.find((entry) => entry.edge === facet.fold) : facet
+      const outer = side && `${cell.id}.${side.id}`
       for (const compartment of template.compartments) {
-        if (compartment.against.includes(path)) pair(path, compartment.id, 'outside', 'protein')
+        if (compartment.in === undefined && compartment.against.includes(outer)) pair(path, compartment.id, 'outside', 'protein')
       }
     }
-    for (const process of cell.processes) pair(`${cell.id}.${process.id}`, cell.id, 'inside', 'process')
+    for (const process of cell.processes) {
+      const path = `${cell.id}.${process.id}`
+      // A junction lies along the way from its first space to its second; any other process in its cell's inside.
+      if (process.between) {
+        pair(path, process.between[0], 'upstream', 'downstream')
+        pair(path, process.between[1], 'downstream', 'upstream')
+      } else pair(path, cell.id, 'inside', 'process')
+    }
   }
   return pairs
 }
@@ -604,8 +773,10 @@ function neighbourPairs(template) {
  *
  * @param {Object} template - A validated template.
  * @param {string} path - One of its site paths.
- * @returns {Array<{path: string, relation: 'inside'|'outside'|'membrane'|'protein'|'process'}>} relation:
- *   how the neighbour lies to the site; empty for a path the template doesn't offer.
+ * @returns {Array<{path: string, relation: 'inside'|'outside'|'membrane'|'protein'|'process'|'embedded'|'upstream'|'downstream'}>}
+ *   relation: how the neighbour lies to the site ('embedded': a protein in the cell's membrane that meets a
+ *   microdomain, not the cell's inside; 'upstream' and 'downstream': a junction and the spaces it joins); empty for
+ *   a path the template doesn't offer.
  */
 export function siteNeighbours(template, path) {
   const neighbours = []
@@ -617,17 +788,18 @@ export function siteNeighbours(template, path) {
 }
 
 /** The pieces a placed template can add to its template's own, by the key its edits list them under. */
-const ADDED_KINDS = ['facets', 'processes', 'compartments']
+const ADDED_KINDS = ['cells', 'facets', 'processes', 'compartments']
 
 /**
  * Copies a placed template's own changes to its template, or gives null when there are none. Each added piece
  * is a template piece as written in a template file, a facet or process with the `cell` it belongs to; the
  * template's validation checks them once merged (see editedTemplate). Each removed path is a piece of the
- * template's own: a cell, a cell's membrane, facet or process, or a compartment.
+ * template's own: a cell, a cell's membrane, facet or process, or a compartment. Each label is the name a piece, its
+ * own or added, goes by here, by its path.
  *
  * @param {*} raw - From a saved instance.
- * @returns {{ added?: { facets?: Array<Object>, processes?: Array<Object>, compartments?: Array<Object> },
- *   removed?: string[] }|null}
+ * @returns {{ added?: { cells?: Array<Object>, facets?: Array<Object>, processes?: Array<Object>,
+ *   compartments?: Array<Object> }, removed?: string[], labels?: Object<string, string> }|null}
  */
 export function normaliseEdits(raw) {
   if (!isObject(raw)) return null
@@ -640,6 +812,10 @@ export function normaliseEdits(raw) {
   if (Object.keys(added).length) edits.added = added
   const removed = Array.isArray(raw.removed) ? raw.removed.filter((path) => typeof path === 'string' && SITE_PATH.test(path)) : []
   if (removed.length) edits.removed = [...new Set(removed)]
+  const labels = Object.entries(isObject(raw.labels) ? raw.labels : {})
+    .filter(([path, label]) => SITE_PATH.test(path) && typeof label === 'string' && label.trim())
+    .map(([path, label]) => [path, label.trim().slice(0, LIMITS.label)])
+  if (labels.length) edits.labels = Object.fromEntries(labels)
   return Object.keys(edits).length ? edits : null
 }
 
@@ -651,11 +827,15 @@ export function normaliseEdits(raw) {
  * @param {string[]} paths
  */
 function removePieces(raw, paths) {
-  const gone = (entry) => paths.includes(entry) || paths.includes(entry.split('.')[0])
+  // A cell that goes takes its organelles with it, and with them what was against them.
+  const cellsGone = new Set(paths.filter((path) => !path.includes('.')))
+  for (const cell of raw.cells) if (cellsGone.has(cell.in)) cellsGone.add(cell.id)
+  const gone = (entry) => paths.includes(entry) || cellsGone.has(entry.split('.')[0])
   for (const path of paths) {
     const [first, second] = path.split('.')
     if (second === undefined) {
-      raw.cells = raw.cells.filter((cell) => cell.id !== first)
+      // A cell takes its organelles with it.
+      raw.cells = raw.cells.filter((cell) => cell.id !== first && cell.in !== first)
       raw.compartments = (raw.compartments ?? []).filter((compartment) => compartment.id !== first)
       continue
     }
@@ -683,7 +863,10 @@ function removePieces(raw, paths) {
 export function editedTemplate(template, edits) {
   if (!edits) return { template, errors: [] }
   const raw = JSON.parse(JSON.stringify(template))
-  const { facets = [], processes = [], compartments = [] } = edits.added ?? {}
+  const { cells = [], facets = [], processes = [], compartments = [] } = edits.added ?? {}
+  // An added cell may be an organelle, which the higher version reads; the result is at the lowest that reads it.
+  raw.schemaVersion = TEMPLATE_SCHEMA_VERSION_NESTED
+  raw.cells = [...raw.cells, ...cells]
   for (const [pieces, key] of [
     [facets, 'facets'],
     [processes, 'processes'],
@@ -698,6 +881,15 @@ export function editedTemplate(template, edits) {
       if (cell) cell[key] = [...(cell[key] ?? []), piece]
       else return { template: null, errors: [`There is no cell "${cellId}" to add "${piece.id}" to.`] }
     }
+  }
+  for (const [path, label] of Object.entries(edits.labels ?? {})) {
+    const [first, second] = path.split('.')
+    const cell = raw.cells.find((entry) => entry.id === first)
+    const piece = second
+      ? [...(cell?.facets ?? []), ...(cell?.processes ?? [])].find((entry) => entry.id === second)
+      : cell ?? (raw.compartments ?? []).find((entry) => entry.id === first)
+    // A name for a piece no longer there waits for it to come back.
+    if (piece) piece.label = label
   }
   removePieces(raw, edits.removed ?? [])
   const { template: edited, errors } = validateTemplate(raw, { allowLocalId: true })
@@ -774,15 +966,34 @@ export function freePieceId(template, base, cellId, removed = []) {
  *
  * @param {Object} template - The instance's validated template, without its changes.
  * @param {Object|null} edits - Its changes so far.
- * @param {'facets'|'processes'|'compartments'} kind
+ * @param {'cells'|'facets'|'processes'|'compartments'} kind
  * @param {Object} piece - As in a template file, with `cell` for a facet or process.
  * @returns {{ edits: Object|null, errors: Array<string> }} The new changes; null when the piece doesn't fit.
  */
 export function addToEdits(template, edits, kind, piece) {
   const added = { ...edits?.added, [kind]: [...(edits?.added?.[kind] ?? []), piece] }
+  // (Its other changes, the names among them, carry over.)
   const next = { ...edits, added }
   const { template: edited, errors } = editedTemplate(template, next)
   return edited ? { edits: normaliseEdits(next), errors: [] } : { edits: null, errors }
+}
+
+/**
+ * Names a piece of a placed template, its own or one added, in the placement's changes.
+ *
+ * @param {Object} template - The instance's validated template, without its changes.
+ * @param {Object|null} edits - Its changes so far.
+ * @param {string} path - The piece's path.
+ * @param {string} label - Blank to go back to the name it had.
+ * @returns {{ edits: Object|null, errors: Array<string> }} The new changes, null for none.
+ */
+export function labelInEdits(template, edits, path, label) {
+  const labels = { ...edits?.labels }
+  if (label.trim()) labels[path] = label
+  else delete labels[path]
+  const next = normaliseEdits({ ...edits, labels })
+  const { template: edited, errors } = editedTemplate(template, next)
+  return edited ? { edits: next, errors: [] } : { edits: edits ?? null, errors }
 }
 
 /**
@@ -803,11 +1014,13 @@ export function removeFromEdits(template, edits, path) {
   const added = JSON.parse(JSON.stringify(edits?.added ?? {}))
   const isAddition =
     second === undefined
-      ? (added.compartments ?? []).some((piece) => piece.id === first)
+      ? [...(added.compartments ?? []), ...(added.cells ?? [])].some((piece) => piece.id === first)
       : [...(added.facets ?? []), ...(added.processes ?? [])].some((piece) => piece.cell === first && piece.id === second)
   for (const kind of ['facets', 'processes']) {
     if (added[kind]) added[kind] = added[kind].filter((piece) => !goes(piece.cell, piece.id))
   }
+  // An added cell goes whole, and with the cell it is in.
+  if (added.cells && second === undefined) added.cells = added.cells.filter((cell) => cell.id !== first && cell.in !== first)
   if (added.compartments) {
     added.compartments = added.compartments.flatMap((piece) => {
       if (goes(undefined, piece.id)) return []
@@ -817,7 +1030,7 @@ export function removeFromEdits(template, edits, path) {
       return kept.length ? [{ ...piece, against: kept }] : []
     })
   }
-  const next = normaliseEdits({ added, removed: [...(edits?.removed ?? []), ...(isAddition ? [] : [path])] })
+  const next = normaliseEdits({ ...edits, added, removed: [...(edits?.removed ?? []), ...(isAddition ? [] : [path])] })
   const { template: edited, errors } = editedTemplate(template, next)
   return edited ? { edits: next, errors: [] } : { edits: edits ?? null, errors }
 }

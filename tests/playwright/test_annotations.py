@@ -76,6 +76,10 @@ OLS_TERMS = [
      "synonym": ["Na"], "is_obsolete": False},
     {"iri": "http://purl.obolibrary.org/obo/CHEBI_29101", "obo_id": "CHEBI:29101", "label": "sodium(1+)",
      "synonym": ["Na+"], "is_obsolete": False},
+    {"iri": "http://purl.obolibrary.org/obo/GO_0001750", "obo_id": "GO:0001750", "label": "photoreceptor outer segment",
+     "synonym": [], "is_obsolete": False, "annotation": {"has_obo_namespace": ["cellular_component"]}},
+    {"iri": "http://purl.obolibrary.org/obo/GO_0001917", "obo_id": "GO:0001917", "label": "photoreceptor inner segment",
+     "synonym": [], "is_obsolete": False, "annotation": {"has_obo_namespace": ["cellular_component"]}},
 ]
 
 
@@ -101,6 +105,21 @@ def coupling_pairs(flow):
             ends = sorted([f"{names[e['source']]}.{c['source']}", f"{names[e['target']]}.{c['target']}"])
             pairs.append(" - ".join(ends))
     return sorted(pairs)
+
+
+# Gives the app a finished run of eleven points, t = 0..10 s, in which every given node's v_A_i goes 1, 0.8 ... -1.
+RUN_WITH_FALLING_FLOWS = """(ids) => {
+    const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationResults')
+    const t = Float64Array.from({ length: 11 }, (_, i) => i)
+    const variables = new Map()
+    const mapping = new Map()
+    for (const id of ids) {
+        variables.set(`${id}/v_A_i`, { kind: 'algebraic', unit: 'mol/s', values: t.map((x) => (5 - x) / 5) })
+        mapping.set(`${id}::v_A_i`, `${id}/v_A_i`)
+    }
+    store.mapping = mapping
+    store.results = { voi: { name: 't', unit: 's', values: t }, variables }
+}"""
 
 
 def piece(page, path):
@@ -479,6 +498,220 @@ class TestAnnotationCoupling(unittest.TestCase):
         count = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])').count()
         self.drop_module("pool", (hint["x"] + hint["width"] / 2, hint["y"] + hint["height"] / 2))
         expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count + 1)
+
+    def test_a_cardiomyocyte_couples_each_protein_to_the_spaces_either_side_of_it(self):
+        page = self.page
+        open_app(page)
+        import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
+        page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
+        expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
+        page.mouse.click(450, 200, button="right")
+        menu = page.locator(".p-contextmenu")
+        menu.get_by_text("Add Template", exact=True).hover()
+        menu.get_by_text("Cardiomyocyte", exact=True).click()
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.keyboard.press("Escape")
+        expect(menu).to_be_hidden()
+        fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
+        placed = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')
+
+        def drop(name, point):
+            count = placed.count()
+            self.drop_module(name, point)
+            expect(placed).to_have_count(count + 1)
+            fit.click()
+            page.wait_for_timeout(400)
+
+        def centre(box):
+            return (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+        def cells():
+            """The cell nodes' boxes, smallest first: the SR, then the myocyte."""
+            boxes = page.locator(f"{BIO} .vue-flow__node-bioCell").evaluate_all(
+                "els => els.map(e => { const r = e.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height} })"
+            )
+            return sorted(boxes, key=lambda box: box["width"])
+
+        fit.click()
+        page.wait_for_timeout(400)
+        # A pool in each space: the cleft, the SR, the cytosol and outside the cell.
+        drop("pool", centre(piece(page, "cleft").bounding_box()))
+        drop("pool", centre(piece(page, "sr").bounding_box()))
+        hint = piece(page, "myocyte").get_by_text("Drop a module").last.bounding_box()
+        drop("pool", (hint["x"] + hint["width"] / 2, hint["y"] + 6))
+        outside = piece(page, "extracellular").bounding_box()
+        drop("pool", (outside["x"] + 40, outside["y"] + 40))
+        # A porter on the T-tubule, and one on each side of the SR.
+        fold = page.locator("[data-testid=bio-fold]").bounding_box()
+        drop("porter", (fold["x"] + 2, fold["y"] + fold["height"] * 0.6))
+        sr = cells()[0]
+        drop("porter", (sr["x"] + sr["width"], sr["y"] + sr["height"] / 2))
+        sr = cells()[0]
+        drop("porter", (sr["x"] + sr["width"] / 2, sr["y"] + sr["height"]))
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+
+        def couplings():
+            flow = self.flow()
+            site = {n["name"]: (n["site"] or "/").split("/", 1)[1] for n in flow["nodes"]}
+            found = set()
+            for edge in flow["edges"]:
+                for c in edge["couplings"]:
+                    found.add(" - ".join(sorted([f"{site[edge['source']]}:{c['source']}", f"{site[edge['target']]}:{c['target']}"])))
+            return found
+
+        expected = {
+            # The T-tubule's porter: the space outside the cell beyond it, the cleft within, and its cell's membrane.
+            "extracellular:c_A - myocyte.t-tubule:c_A_o",
+            "cleft:c_A - myocyte.t-tubule:c_A_i",
+            "myocyte.t-tubule:area - myocyte:area",
+            # The junctional SR's: the cleft outside it, the SR's lumen within.
+            "cleft:c_A - sr.junctional:c_A_o",
+            "sr.junctional:c_A_i - sr:c_A",
+            # The network SR's: the cytosol outside it.
+            "myocyte:c_A - sr.network:c_A_o",
+            "sr.network:c_A_i - sr:c_A",
+        }
+        self.assertTrue(expected <= couplings(), expected - couplings())
+
+    def test_a_junction_couples_the_two_spaces_of_a_cell_it_lies_between(self):
+        page = self.page
+        open_app(page)
+        import_files(page, "CellML File", [toy(name) for name in [*TOY_MATHS, "duct.cellml"]])
+        page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
+        expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
+        # A rod: an outer and an inner segment inside one cell, each with its own GO term, and a cilium between them.
+        page.locator("[data-testid=library-tab-build]").click()
+        with page.expect_file_chooser() as chooser:
+            page.locator("[data-testid=bio-palette-load-template]").click()
+        chooser.value.set_files(toy("rod.template.json"))
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.locator("[data-testid=library-tab-modules]").click()
+        fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
+        placed = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')
+
+        def drop(name, box):
+            count = placed.count()
+            self.drop_module(name, (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2))
+            expect(placed).to_have_count(count + 1)
+            fit.click()
+            page.wait_for_timeout(400)
+
+        fit.click()
+        page.wait_for_timeout(400)
+        drop("pool", piece(page, "outer-segment").bounding_box())
+        drop("pool", piece(page, "inner-segment").bounding_box())
+        drop("duct", page.locator("[data-testid=bio-process-zone]").bounding_box())
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("duct.ttl")])
+
+        flow = self.flow()
+        site = {n["name"]: (n["site"] or "/").split("/", 1)[1] for n in flow["nodes"]}
+        found = set()
+        for edge in flow["edges"]:
+            for c in edge["couplings"]:
+                found.add(" - ".join(sorted([f"{site[edge['source']]}:{c['source']}", f"{site[edge['target']]}:{c['target']}"])))
+        # Each end of the duct finds its own segment by the segment's term, though both are cytoplasm.
+        expected = {
+            "outer-segment:c_A - rod.cilium:c_A_a",
+            "inner-segment:c_A - rod.cilium:c_A_b",
+            "outer-segment:v_A - rod.cilium:v_A_a",
+            "inner-segment:v_A - rod.cilium:v_A_b",
+        }
+        self.assertTrue(expected <= found, (expected - found, found))
+
+        # Species mode draws the flux from one segment to the other through the cilium.
+        page.locator("[data-testid=bio-species-toggle]").click()
+        expect(page.locator("[data-testid=bio-species-token]")).to_have_count(2)
+        expect(page.locator(f'[data-testid=bio-species-path][data-protein]')).to_have_count(2)
+
+    def test_the_species_menu_hides_a_species_with_its_paths_and_still_lists_it(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        self.place_cell_pool()
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        spare = (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2)
+        self.show_species("Coupled Species", spare)
+        tokens = page.locator("[data-testid=bio-species-token]")
+        paths = page.locator("[data-testid=bio-species-path]")
+        expect(tokens).to_have_count(3)
+        expect(paths).to_have_count(2)
+
+        page.locator("[data-testid=bio-species-menu-button]").click()
+        menu = page.locator("[data-testid=bio-species-menu]")
+        sodium = menu.locator("[data-testid=bio-species-menu-item]")
+        expect(sodium).to_have_count(1)
+        expect(sodium).to_have_text("Na⁺")
+        expect(menu.locator("input[type=radio]:checked")).to_have_value("coupled")
+
+        sodium.locator("input").uncheck()
+        expect(tokens).to_have_count(0)
+        expect(paths).to_have_count(0)
+        expect(sodium).to_have_count(1)
+
+        menu.get_by_role("button", name="All").click()
+        expect(tokens).to_have_count(3)
+        expect(paths).to_have_count(2)
+
+        # The same choice of scope as the pane's menu.
+        menu.get_by_label("Species with fluxes").check()
+        expect(menu.locator("input[type=radio]:checked")).to_have_value("fluxes")
+
+    def test_species_mode_joins_a_process_in_the_cell_to_the_species_it_exchanges(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        cell = piece(page, "cell").bounding_box()
+        self.place_cell_pool()
+        # A porter dropped in the cell's process area is a process, coupled to the cell's pool.
+        self.drop_module("porter", (cell["x"] + cell["width"] * 0.3, cell["y"] + cell["height"] * 0.42))
+        card = page.locator(f"{BIO} .vue-flow__node-bioCard")
+        expect(card).to_have_count(1)
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        self.show_species("Species with Fluxes", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
+
+        # One leg between the process and the cell's Na⁺, beside the two proteins' paths of two legs each.
+        paths = page.locator("[data-testid=bio-species-path]")
+        expect(paths).to_have_count(3)
+        exchange = paths.and_(page.locator(f'[data-protein="{card.get_attribute("data-id")}"]'))
+        expect(exchange).to_have_count(1)
+        expect(exchange.locator(".bio-species-leg")).to_have_count(1)
+
+    def test_species_mode_scrubs_and_plays_a_run_s_flows(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        self.place_cell_pool()
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        self.show_species("Coupled Species", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
+        bar = page.locator("[data-testid=bio-species-playback]")
+        expect(bar).to_have_count(0)
+
+        # A run in which each porter's flow into the cell falls from 1 through nothing to -1.
+        page.evaluate(RUN_WITH_FALLING_FLOWS, [n["id"] for n in self.flow()["nodes"]])
+        expect(bar).to_be_visible()
+        readout = page.locator("[data-testid=bio-species-voi]")
+        expect(readout).to_have_text("t = 10 s")
+        apical = page.locator("[data-testid=bio-species-path]").first
+        expect(apical).to_have_attribute("data-direction", "out")
+
+        scrubber = page.locator("[data-testid=bio-species-scrubber]")
+        scrubber.fill("0")
+        expect(readout).to_have_text("t = 0 s")
+        expect(apical).to_have_attribute("data-direction", "in")
+        scrubber.fill("5")
+        expect(readout).to_have_text("t = 5 s")
+        expect(apical).to_have_attribute("data-direction", "")
+
+        # Played, the cursor moves on by itself; the way back shows the end of the run again.
+        scrubber.fill("0")
+        page.locator("[data-testid=bio-species-play]").click()
+        expect(readout).not_to_have_text("t = 0 s")
+        page.locator("[data-testid=bio-species-play]").click()
+        page.locator("[data-testid=bio-species-playback-reset]").click()
+        expect(readout).to_have_text("t = 10 s")
 
     def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
         page = self.page

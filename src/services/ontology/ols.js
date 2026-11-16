@@ -248,3 +248,30 @@ export async function lookupTerm(iriOrCurie, { signal, fetch } = {}) {
   rememberTerms([term])
   return { curie, label: term.label, isObsolete: term.isObsolete }
 }
+
+/** The GO namespace of a term that names a place. */
+export const GO_CELLULAR_COMPONENT = 'cellular_component'
+
+/**
+ * Looks up which of GO's three namespaces a term is in: whether it is a cellular component, which a place must be.
+ * Nothing is kept of the ontology here; the answer comes from OLS each time it is needed.
+ *
+ * @param {string} iriOrCurie - A GO term.
+ * @param {{ signal?: AbortSignal, fetch?: typeof fetch }} [options]
+ * @returns {Promise<string|null>} 'cellular_component', 'biological_process' or 'molecular_function'; null when
+ *   OLS has no such term or doesn't say.
+ */
+export async function lookupGoNamespace(iriOrCurie, { signal, fetch } = {}) {
+  const url = buildTermUrl(canonicalCurie(iriOrCurie))
+  if (!url) return null
+  let body
+  try {
+    body = await fetchJson(url, { signal, fetch })
+  } catch (error) {
+    if (error?.status === 404) return null
+    throw error
+  }
+  const namespace = body?.annotation?.has_obo_namespace ?? body?.has_obo_namespace ?? body?.obo_namespace
+  const name = Array.isArray(namespace) ? namespace[0] : namespace
+  return typeof name === 'string' ? name : null
+}

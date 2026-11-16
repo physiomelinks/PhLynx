@@ -54,6 +54,13 @@ describe('template artwork', () => {
     expect(bound.find('[data-testid=bio-empty-hint]').exists()).toBe(false)
   })
 
+  it('outlines a process area only while it is empty, and keeps its name', () => {
+    const filled = cell({ instance: 'bt-1', zones: zones.map((zone) => ({ ...zone, filled: true })) })
+    const zone = filled.find('[data-testid=bio-process-zone]')
+    expect(zone.find('rect').exists()).toBe(false)
+    expect(zone.find('text').text()).toBe('Metabolism')
+  })
+
   it('draws an annotation cell as before: no facet names, zones or hint', () => {
     const plain = cell({})
     expect(plain.findAll('[data-testid=bio-facet-label]')).toHaveLength(0)

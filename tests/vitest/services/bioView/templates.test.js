@@ -20,6 +20,7 @@ import {
   parseSiteRef,
   siteRef,
   sitesOf,
+  siteNeighbours,
   validateTemplate,
 } from '../../../../src/services/bioView/templates.js'
 
@@ -147,7 +148,7 @@ describe('validateTemplate', () => {
       raw.self = raw
       failsWith(raw, 'at most 64 KB')
     })
-    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 2 }), '"schemaVersion" must be 1'))
+    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 3 }), '"schemaVersion" must be 1 or 2'))
     it.each(['A-b', 'a', '1ab', 'a_b', 3])('a bad template id (%s)', (id) => failsWith(base({ id }), '"id" must start with a letter'))
     it('a missing name', () => failsWith(base({ name: '  ' }), '"name" is required'))
     it('a name that is not text', () => failsWith(base({ name: 3 }), 'Template: "name" must be text'))
@@ -347,9 +348,10 @@ describe('sitesOf', () => {
   it('counts the sites of every built-in', () => {
     expect(Object.fromEntries(BUILT_IN_TEMPLATES.map((template) => [template.id, sitesOf(template).length]))).toEqual({
       'epithelial-cell': 10,
+      cell: 6,
       'chemical-synapse': 11,
       'two-cell-epithelium': 15,
-      'vessel-wall': 8,
+      cardiomyocyte: 12,
     })
   })
 })
@@ -376,12 +378,13 @@ describe('site references', () => {
 })
 
 describe('built-in templates', () => {
-  it('ships four, epithelial cell first and then by name', () => {
+  it('ships five, epithelial cell first and then by name', () => {
     expect(BUILT_IN_TEMPLATES.map((template) => template.id)).toEqual([
       'epithelial-cell',
+      'cardiomyocyte',
+      'cell',
       'chemical-synapse',
       'two-cell-epithelium',
-      'vessel-wall',
     ])
     expect(Object.isFrozen(BUILT_IN_TEMPLATES)).toBe(true)
     expect(getBuiltInTemplate('nowhere')).toBeNull()
@@ -399,7 +402,7 @@ describe('built-in templates', () => {
     const forms = (id) => Object.fromEntries(getBuiltInTemplate(id).compartments.map((entry) => [entry.id, compartmentForm(getBuiltInTemplate(id), entry)]))
     expect(forms('epithelial-cell')).toEqual({ 'apical-fluid': 'band', 'basolateral-fluid': 'band', paracellular: 'column' })
     expect(forms('two-cell-epithelium')).toEqual({ 'apical-fluid': 'band', 'basolateral-fluid': 'band', paracellular: 'gap' })
-    expect(forms('vessel-wall')).toEqual({ lumen: 'band', interstitium: 'band', 'junction-cleft': 'column' })
+    expect(forms('cardiomyocyte')).toEqual({ extracellular: 'band', cleft: 'inner' })
     expect(forms('chemical-synapse')).toEqual({ cleft: 'gap', ecs: 'band' })
   })
 
@@ -433,7 +436,7 @@ describe('schema parity', () => {
     expect(defs.facet.properties.annotation.properties.at.enum).toEqual(ANNOTATION_SIDES)
     expect(schema.properties.id.pattern).toBe(TEMPLATE_ID.source)
     expect(defs.pieceId.pattern).toBe(PIECE_ID.source)
-    expect(schema.properties.schemaVersion.const).toBe(1)
+    expect(schema.properties.schemaVersion.enum).toEqual([1, 2])
   })
 
   it('lists the same limits as the validator', () => {
@@ -458,5 +461,199 @@ describe('schema parity', () => {
       for (const [key, value] of Object.entries(properties)) if (!value.description) undescribed.push(`${kind}.${key}`)
     }
     expect(undescribed).toEqual([])
+  })
+})
+
+describe('organelles', () => {
+  const nested = (extra = {}, more = {}) =>
+    base({ schemaVersion: 2, cells: [cell('a'), cell('sr', { in: 'a', ...extra })], ...more })
+
+  it('reads a cell in another, smaller and with a membrane of its own, at version 2', () => {
+    const { template, errors } = validateTemplate(nested())
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    const [, organelle] = template.cells
+    expect(organelle).toMatchObject({ in: 'a', size: { width: 280, height: 170 }, membrane: { label: 'Membrane' } })
+    // What it gives reads back the same, as a template kept on this device is.
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+  })
+
+  it('writes a template without one at version 1, whichever it was read at', () => {
+    expect(validateTemplate(base({ schemaVersion: 2 })).template.schemaVersion).toBe(1)
+  })
+
+  it('offers its inside, membrane and facets as a cell’s, and has its cell’s inside outside its facets', () => {
+    const { template } = validateTemplate(nested())
+    const paths = sitesOf(template).filter((site) => site.cell === 'sr').map((site) => site.path)
+    expect(paths.slice(0, 2)).toEqual(['sr', 'sr.membrane'])
+    expect(paths).toHaveLength(6)
+    const first = template.cells[1].facets[0].id
+    expect(siteNeighbours(template, `sr.${first}`)).toEqual(
+      expect.arrayContaining([
+        { path: 'sr', relation: 'inside' },
+        { path: 'a', relation: 'outside' },
+        { path: 'sr.membrane', relation: 'membrane' },
+      ])
+    )
+    expect(siteNeighbours(template, 'a')).toContainEqual({ path: `sr.${first}`, relation: 'protein' })
+  })
+
+  it('rejects one at version 1, in no cell, in itself, in another organelle, with a row, or with a compartment against it', () => {
+    failsWith(base({ cells: [cell('a'), cell('sr', { in: 'a' })] }), 'needs "schemaVersion" 2')
+    failsWith(nested({ in: 'nowhere' }), 'there is no other cell "nowhere"')
+    failsWith(nested({ in: 'sr' }), 'there is no other cell "sr"')
+    failsWith(base({ schemaVersion: 2, cells: [cell('a'), cell('sr', { in: 'a' }), cell('inner', { in: 'sr' })] }), 'organelles don’t nest'.replace('’', "'"))
+    failsWith(nested({ row: 1 }), 'an organelle has no "row"')
+    const first = fourFacets()[0].id
+    failsWith(nested({}, { compartments: [{ id: 'fluid', label: 'Fluid', against: [`sr.${first}`] }] }), 'is an organelle’s facet'.replace('’', "'"))
+  })
+})
+
+describe('microdomains', () => {
+  const [first] = fourFacets()
+  const nested = (compartment, more = {}) =>
+    base({
+      schemaVersion: 2,
+      cells: [cell('a'), cell('sr', { in: 'a' })],
+      compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`, `sr.${first.id}`], ...compartment }],
+      ...more,
+    })
+
+  it('reads a compartment in a cell, against a facet of the cell and of an organelle in it, at version 2', () => {
+    const { template, errors } = validateTemplate(nested())
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    expect(template.compartments[0]).toMatchObject({ in: 'a', against: [`a.${first.id}`, `sr.${first.id}`] })
+    expect(compartmentForm(template, 'cleft')).toBe('inner')
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+  })
+
+  it('stands between the proteins against it and the cell’s inside', () => {
+    const { template } = validateTemplate(nested())
+    expect(siteNeighbours(template, `a.${first.id}`)).toContainEqual({ path: 'cleft', relation: 'inside' })
+    expect(siteNeighbours(template, `a.${first.id}`)).not.toContainEqual({ path: 'a', relation: 'inside' })
+    // Still in the cell's membrane, for what the cell gives of it.
+    expect(siteNeighbours(template, `a.${first.id}`)).toContainEqual({ path: 'a', relation: 'membrane' })
+    expect(siteNeighbours(template, 'a')).toContainEqual({ path: `a.${first.id}`, relation: 'embedded' })
+    expect(siteNeighbours(template, `sr.${first.id}`)).toEqual(
+      expect.arrayContaining([
+        { path: 'cleft', relation: 'outside' },
+        { path: 'sr', relation: 'inside' },
+      ])
+    )
+    expect(siteNeighbours(template, `sr.${first.id}`)).not.toContainEqual({ path: 'a', relation: 'outside' })
+    expect(siteNeighbours(template, 'cleft').map((entry) => entry.path).sort()).toEqual([`a.${first.id}`, `sr.${first.id}`].sort())
+    // Another facet of the cell still meets the cell's inside.
+    const other = fourFacets()[1]
+    expect(siteNeighbours(template, `a.${other.id}`)).toContainEqual({ path: 'a', relation: 'inside' })
+  })
+
+  it('rejects one at version 1, in no cell or an organelle, against nothing, another cell’s facet, or two sides', () => {
+    failsWith({ ...nested(), schemaVersion: 1, cells: [cell('a')], compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`] }] }, 'needs "schemaVersion" 2')
+    failsWith(nested({ in: 'nowhere' }), '"in" must be the id of the cell it is inside')
+    failsWith(nested({ in: 'sr' }), 'is an organelle')
+    failsWith(nested({ against: [] }), '"against" must name one or two facets')
+    failsWith(nested({ against: ['b.x'] }), 'is not a facet of "a"')
+    const other = fourFacets()[1]
+    failsWith(nested({ against: [`a.${first.id}`, `sr.${other.id}`] }), 'A microdomain lies against')
+    failsWith(nested({ against: [`a.${first.id}`, `a.${other.id}`] }), 'A microdomain lies against')
+  })
+
+  it('lets a facet be against one microdomain only', () => {
+    const second = { id: 'other', label: 'Other', in: 'a', against: [`a.${first.id}`] }
+    failsWith(nested({}, { compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`] }, second] }), 'is already against the microdomain "cleft"')
+  })
+})
+
+describe('folds', () => {
+  const [first] = fourFacets()
+  const fold = (extra = {}) => ({ id: 'tubule', label: 'T-tubule', fold: first.edge, ...extra })
+  const folded = (extra = {}, more = {}) => base({ schemaVersion: 2, cells: [cell('a', { facets: [...fourFacets(), fold(extra)] })], ...more })
+
+  it('reads a facet that dips in from a side, beside the facet along that side, at version 2', () => {
+    const { template, errors } = validateTemplate(folded({ depth: 200 }))
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    expect(template.cells[0].facets.at(-1)).toEqual({ id: 'tubule', label: 'T-tubule', fold: first.edge, depth: 200 })
+    expect(sitesOf(template).find((site) => site.path === 'a.tubule')).toMatchObject({ role: 'membraneProtein', kind: 'slots' })
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+  })
+
+  it('has the outside of the side it dips in from as its own, and the cell’s inside or a microdomain within', () => {
+    const outside = { id: 'fluid', label: 'Fluid', against: [`a.${first.id}`] }
+    const { template } = validateTemplate(folded({}, { compartments: [outside] }))
+    expect(siteNeighbours(template, 'a.tubule')).toEqual(
+      expect.arrayContaining([
+        { path: 'fluid', relation: 'outside' },
+        { path: 'a', relation: 'inside' },
+      ])
+    )
+    const cleft = { id: 'cleft', label: 'Cleft', in: 'a', against: ['a.tubule'] }
+    const within = validateTemplate(folded({}, { compartments: [outside, cleft] })).template
+    expect(siteNeighbours(within, 'a.tubule')).toContainEqual({ path: 'cleft', relation: 'inside' })
+    expect(siteNeighbours(within, 'a.tubule')).not.toContainEqual({ path: 'a', relation: 'inside' })
+  })
+
+  it('pairs with the side of an organelle that faces it, for a microdomain between them', () => {
+    const facing = { top: 'right', bottom: 'right', left: 'bottom', right: 'bottom' }[first.edge]
+    const side = (edge) => ({ id: `s-${edge}`, label: edge, edge })
+    const cells = [cell('a', { facets: [...fourFacets(), fold()] }), cell('sr', { in: 'a', facets: ['top', 'bottom', 'left', 'right'].map(side) })]
+    const cleft = (edge) => ({ id: 'cleft', label: 'Cleft', in: 'a', against: ['a.tubule', `sr.s-${edge}`] })
+    expect(validateTemplate(base({ schemaVersion: 2, cells, compartments: [cleft(facing)] })).errors).toEqual([])
+    const away = ['top', 'bottom', 'left', 'right'].find((edge) => edge !== facing)
+    failsWith(base({ schemaVersion: 2, cells, compartments: [cleft(away)] }), 'against a fold and an organelle')
+  })
+
+  it('rejects one at version 1, with an edge too, a second in from the same side, in an organelle, or with a compartment against it', () => {
+    failsWith({ ...folded(), schemaVersion: 1 }, 'needs "schemaVersion" 2')
+    failsWith(folded({ edge: first.edge }), 'a fold has no "edge"')
+    failsWith(folded({ fold: 'inward' }), '"fold" must be the side it dips in from')
+    failsWith(base({ schemaVersion: 2, cells: [cell('a', { facets: [...fourFacets(), fold(), fold({ id: 'other' })] })] }), 'already has the fold "tubule"')
+    failsWith(base({ schemaVersion: 2, cells: [cell('a'), cell('sr', { in: 'a', facets: [...fourFacets(), fold()] })] }), 'an organelle has no folds')
+    failsWith(folded({}, { compartments: [{ id: 'fluid', label: 'Fluid', against: ['a.tubule'] }] }), 'is a fold')
+    failsWith(base({ cells: [cell('a', { facets: [{ ...first, depth: 100 }] })] }), 'only a fold has a "depth"')
+  })
+})
+
+describe('junctions', () => {
+  const [top, bottom] = fourFacets()
+  const rod = (junction = {}, more = {}) =>
+    base({
+      schemaVersion: 2,
+      cells: [cell('a', { processes: [{ id: 'cilium', label: 'Cilium', between: ['outer', 'inner'], ...junction }] })],
+      compartments: [
+        { id: 'outer', label: 'Outer segment', in: 'a', against: [`a.${top.id}`], term: 'GO:0001750' },
+        { id: 'inner', label: 'Inner segment', in: 'a', against: [`a.${bottom.id}`] },
+      ],
+      ...more,
+    })
+
+  it('reads a process between two spaces of its cell, and a space’s own term, at version 2', () => {
+    const { template, errors } = validateTemplate(rod())
+    expect(errors).toEqual([])
+    expect(template.schemaVersion).toBe(2)
+    expect(template.cells[0].processes[0]).toEqual({ id: 'cilium', label: 'Cilium', between: ['outer', 'inner'] })
+    expect(template.compartments[0].term).toBe('GO:0001750')
+    expect(validateTemplate(JSON.parse(JSON.stringify(template))).template).toEqual(template)
+    expect(validateTemplate(rod({ between: ['outer', 'a'] })).errors).toEqual([])
+  })
+
+  it('lies along the way from its first space to its second, and not in the cell’s inside', () => {
+    const { template } = validateTemplate(rod())
+    expect(siteNeighbours(template, 'a.cilium')).toEqual([
+      { path: 'outer', relation: 'upstream' },
+      { path: 'inner', relation: 'downstream' },
+    ])
+    expect(siteNeighbours(template, 'outer')).toContainEqual({ path: 'a.cilium', relation: 'downstream' })
+    expect(siteNeighbours(template, 'inner')).toContainEqual({ path: 'a.cilium', relation: 'upstream' })
+    expect(siteNeighbours(template, 'a')).not.toContainEqual(expect.objectContaining({ path: 'a.cilium' }))
+  })
+
+  it('rejects one between one space, the same twice, or a space that is not its cell’s', () => {
+    failsWith(base({ schemaVersion: 2, cells: [cell('a', { processes: [{ id: 'cilium', label: 'Cilium', between: ['a', 'b'] }] }), cell('b')] }), '"b" is not the cell or a microdomain in it')
+    failsWith(rod({ between: ['outer'] }), '"between" must name two different spaces')
+    failsWith(rod({ between: ['outer', 'outer'] }), '"between" must name two different spaces')
+    failsWith(rod({ between: ['outer', 'elsewhere'] }), '"elsewhere" is not the cell or a microdomain in it')
+    failsWith(rod({}, { compartments: [{ id: 'outer', label: 'O', in: 'a', against: [`a.${top.id}`], term: 'not a term' }, { id: 'inner', label: 'I', in: 'a', against: [`a.${bottom.id}`] }] }), '"term" must be an ontology term')
   })
 })

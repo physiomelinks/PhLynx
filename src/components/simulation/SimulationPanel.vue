@@ -69,7 +69,9 @@
               :series="chart.series"
               :height="chartHeight"
               :sync-key="chart.x ? null : 'simulation-panel'"
+              :marker="chart.x ? null : voiCursor.marker"
               data-testid="selection-plot"
+              @seek="voiCursor.seekValue"
             />
             <p v-if="selectionPlot.note.value" class="panel-selection-hint">{{ selectionPlot.note.value }}</p>
           </template>
@@ -90,6 +92,8 @@
             :references="chart.references"
             :height="chartHeight"
             :sync-key="chart.x ? null : 'simulation-panel'"
+            :marker="chart.x ? null : voiCursor.marker"
+            @seek="voiCursor.seekValue"
           />
           <section v-if="predictionPlotCharts.length" class="panel-prediction-plots" aria-labelledby="panel-prediction-plots-title">
             <h3 id="panel-prediction-plots-title" class="panel-prediction-plots-title">Prediction plots</h3>
@@ -152,6 +156,7 @@ import { useSelectionAutoRun } from '../../composables/useSelectionAutoRun'
 import { useSelectionPlot } from '../../composables/useSelectionPlot'
 import { useSliderReruns } from '../../composables/useSliderReruns'
 import { SELECTION_PLOT_ID } from '../../services/bioView/autoPlot'
+import { useVoiCursorStore } from '../../stores/voiCursorStore'
 
 const props = defineProps({
   // In the instance editor: play runs the whole model, or this instance on its own.
@@ -164,6 +169,7 @@ const props = defineProps({
 const emit = defineEmits(['update:plotConfig'])
 
 const router = useRouter()
+const voiCursor = useVoiCursorStore()
 const {
   nodes,
   edges,

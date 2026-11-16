@@ -1,7 +1,8 @@
 <template>
   <!-- One root, so the class the workspace gives it (its place over the diagram) lands -->
   <div
-    :class="['bio-flow-root', { 'bio-flow-root--dragging': draggingId }]"
+    :class="['bio-flow-root', { 'bio-flow-root--dragging': draggingId, 'bio-flow-root--placing': armedTile }]"
+    @click.capture="onArmedClick"
     @dragover="onModuleDragOver"
     @dragleave="onModuleDragLeave"
     @drop="onModuleDrop"
@@ -48,7 +49,26 @@
         >
           <i class="pi pi-share-alt"></i>
         </ControlButton>
+        <!-- Beside the species button, which is the last of the column -->
+        <ControlButton
+          v-if="hasSpecies && isSpeciesOn"
+          class="bio-species-menu-button"
+          title="Choose which species are shown"
+          aria-haspopup="dialog"
+          data-testid="bio-species-menu-button"
+          @click="speciesMenuRef?.toggle($event)"
+        >
+          <i class="pi pi-angle-right"></i>
+        </ControlButton>
       </Controls>
+      <SpeciesMenu
+        ref="speciesMenuRef"
+        :species="menuSpecies"
+        :hidden="viewMode.hiddenSpecies"
+        :scope="viewMode.speciesScope"
+        @update:hidden="setHiddenSpecies"
+        @update:scope="setSpeciesScope"
+      />
       <template #zoom-pane>
         <!-- Species mode: each compartment's species, and the paths they take through proteins; only tokens are hit -->
         <svg
@@ -208,13 +228,13 @@
         <BioCouplingEdge v-bind="props" />
       </template>
       <template #node-bioCell="props">
-        <BioCell :data="props.data" :selected="props.selected" :width="props.data.width" :height="props.data.height" />
+        <BioCell :id="props.id" :data="props.data" :selected="props.selected" :width="props.data.width" :height="props.data.height" />
       </template>
       <template #node-bioMembrane="props">
         <BioMembrane :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioRegion="props">
-        <BioRegion :data="props.data" :selected="props.selected" />
+        <BioRegion :id="props.id" :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioProtein="props">
         <BioProtein :data="props.data" :selected="props.selected" />
@@ -226,6 +246,8 @@
         <BioTemplateTitle :data="props.data" />
       </template>
     </VueFlow>
+    <!-- Species mode after a run: play its flows through the run, or scrub to a point of it -->
+    <SpeciesPlaybackBar v-if="isSpeciesOn && species" />
     <div
       v-if="pointerLabel"
       class="bio-drop-label"
@@ -356,7 +378,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { storeToRefs } from 'pinia'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { ControlButton, Controls } from '@vue-flow/controls'
@@ -373,6 +396,8 @@ import BioMembrane from './BioMembrane.vue'
 import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import BioTemplateTitle from './BioTemplateTitle.vue'
+import SpeciesMenu from './SpeciesMenu.vue'
+import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
@@ -398,9 +423,17 @@ import {
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
 import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
-import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
+import {
+  cellContents,
+  deleteConnection,
+  deleteInstances,
+  deletionLabel,
+  deletionScope,
+  releaseFromCell,
+} from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
+import { BLANK_CELL_TEMPLATE, TILE_DRAG_TYPE, nearestEdge, templateCellAt } from '../../services/bioView/palette'
 import { ROLE_LABELS } from '../../services/bioView/roles'
 import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
 import { glyphLibraryFile } from '../../services/bioView/glyphLibrary'
@@ -420,6 +453,7 @@ import {
   MEMBRANE,
   TONES,
   addToEdits,
+  labelInEdits,
   editedTemplate,
   freePieceId,
   instanceTemplate,
@@ -442,6 +476,7 @@ import { useGlyphLibraryStore } from '../../stores/glyphLibraryStore'
 import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
+import { useVoiCursorStore } from '../../stores/voiCursorStore'
 import { BACKGROUND_DOTS, FLOW_IDS, NEW_INSTANCE_MODULE_REF } from '../../utils/constants'
 import { notify } from '../../utils/notify'
 import { legacyDownload } from '../../utils/save'
@@ -501,14 +536,18 @@ const speciesMode = computed(() => {
   return {
     all: viewMode.speciesScope === 'all',
     fluxes: viewMode.speciesScope === 'fluxes',
+    hidden: viewMode.hiddenSpecies,
     keep: keptSpecies.value ? { nodeId, species: curie } : null,
   }
 })
+const cursor = useVoiCursorStore()
+/** The point of the latest run species mode shows, once its cursor has been moved off the run's end. */
+const voiCursor = computed(() => (cursor.isActive ? { index: cursor.index, range: cursor.range } : null))
 const { bioNodes, couplingEdges, layout, roles, sites, hasSpecies, species, speciesOrderPreview, loadSidecars } =
   useBioNodes(
   main.nodes,
   main.edges,
-  { speciesMode }
+  { speciesMode, voiCursor, flowScale: computed(() => cursor.flowScale) }
 )
 const {
   applyPlan,
@@ -1147,6 +1186,9 @@ async function settleNodeDrag({ nodes: dragged }) {
           bioViews: bioViews(),
         })
       )
+    } else if (place?.kind === 'region' && place.anchored) {
+      // A compartment lying against cells is placed by them: it goes back, and moves when they do.
+      putBack([moved])
     } else {
       plan.set(moved.id, {
         ...main.findNode(moved.id)?.data?.bioView,
@@ -1271,9 +1313,14 @@ const SPECIES_COLOURS = [
   'var(--p-lime-700)',
   'var(--p-indigo-600)',
 ]
-const shownSpecies = computed(() => [...new Set((species.value?.tokens ?? []).map((token) => token.species))].sort())
-const colourIndex = (curie) => Math.max(0, shownSpecies.value.indexOf(curie)) % SPECIES_COLOURS.length
+/** Every species in scope, hidden ones too, so hiding one leaves the others their colours. */
+const scopedSpecies = computed(() => species.value?.network.species ?? [])
+const colourIndex = (curie) =>
+  Math.max(0, scopedSpecies.value.findIndex((entry) => entry.species === curie)) % SPECIES_COLOURS.length
 const colourOf = (curie) => SPECIES_COLOURS[colourIndex(curie)]
+/** The species menu's rows. */
+const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
+const speciesMenuRef = ref(null)
 const isFocused = (token) =>
   viewMode.focusedSpecies?.nodeId === token.nodeId && viewMode.focusedSpecies?.species === token.species
 /** Whether a species is set back while another is focused. */
@@ -1298,6 +1345,12 @@ function setSpeciesScope(scope) {
   viewMode.speciesScope = scope
   saveAppSettings({ speciesOverlay: true })
   if (scope !== 'fluxes') clearSpeciesFocus()
+}
+
+/** Hides these species in every compartment, with their paths; a focused one hidden is no longer focused. */
+function setHiddenSpecies(hidden) {
+  viewMode.hiddenSpecies = hidden
+  if (hidden.includes(viewMode.focusedSpecies?.species)) clearSpeciesFocus()
 }
 
 /** How far, in screen pixels, a species chip must be dragged before it moves: less is a click. */
@@ -1578,6 +1631,29 @@ function onRenameConfirm() {
   renameTemplate(id, label)
 }
 
+/**
+ * Names a cell or compartment from the field its name becomes on a click: the module on it, as the diagram renames
+ * an instance, or an empty piece of a placed template, in that placement's changes.
+ *
+ * @param {string} id - The piece's node id.
+ * @param {string} name
+ */
+async function renamePiece(id, name) {
+  if (main.findNode(id)) {
+    const error = await renameInstance(id, name)
+    if (error) notify.error({ title: 'Could not rename it', message: error })
+    return
+  }
+  const place = layout.value.get(id)
+  const instance = place?.instance && templateStore.getInstance(place.instance)
+  const template = instance && templateStore.definitions.get(instance.template)
+  if (!template || !place.path) return
+  const { edits, errors } = labelInEdits(template, instance.edits ?? null, place.path, name)
+  if (errors.length) return notify.error({ title: 'Could not rename it', message: summariseProblems(errors) })
+  editTemplate(instance.id, edits, 'bio-template-rename-piece')
+}
+provide('bioRenamePiece', renamePiece)
+
 /** Renaming a diagram instance: { id, name }. */
 const renamingNode = ref(null)
 const renameNodeError = computed(() => renamingNode.value && nameError(renamingNode.value.id, renamingNode.value.name))
@@ -1606,7 +1682,7 @@ const placedTemplate = (instanceId) => {
  * Adds an empty piece to one placed template, as one step, or says why it doesn't fit.
  *
  * @param {string} instanceId
- * @param {'facets'|'processes'|'compartments'} kind
+ * @param {'cells'|'facets'|'processes'|'compartments'} kind
  * @param {Object} piece - As in a template file, with `cell` for a facet or process.
  * @returns {Promise<boolean>|undefined}
  */
@@ -1622,12 +1698,25 @@ function addPiece(instanceId, kind, piece) {
 function onNamingConfirm() {
   const { instance, against, label } = naming.value
   naming.value = null
+  addCompartment(instance, against, label)
+}
+
+/**
+ * Adds a compartment against a facet of a placed template's cell, in a tone no other of its compartments has.
+ *
+ * @param {string} instance
+ * @param {string} against - '<cell>.<facet>'.
+ * @param {string} [label] - Its name; unnamed, it is 'Compartment' and numbered after the first.
+ */
+function addCompartment(instance, against, label = '') {
   const template = placedTemplate(instance)
   if (!template) return
   const used = new Set(template.compartments.map((compartment) => compartment.tone))
-  addPiece(instance, 'compartments', {
-    id: freePieceId(template, 'compartment', undefined, templateStore.getInstance(instance)?.edits?.removed),
-    label: label.trim() || 'Compartment',
+  const id = freePieceId(template, 'compartment', undefined, templateStore.getInstance(instance)?.edits?.removed)
+  const number = id.split('-')[1]
+  return addPiece(instance, 'compartments', {
+    id,
+    label: label.trim() || (number && number !== '1' ? `Compartment ${number}` : 'Compartment'),
     against: [against],
     tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
   })
@@ -1639,8 +1728,6 @@ function addToCellMenu(instanceId, cellId) {
   const cell = template?.cells.find((entry) => entry.id === cellId)
   if (!cell) return []
   const free = EDGES.filter((edge) => !cell.facets.some((facet) => facet.edge === edge))
-  const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
-  const zone = freePieceId(template, 'zone', cellId, removed)
   return [
     {
       label: 'Add Protein Site',
@@ -1648,13 +1735,7 @@ function addToCellMenu(instanceId, cellId) {
       disabled: !free.length,
       items: free.map((edge) => ({
         label: EDGE_LABELS[edge],
-        command: () =>
-          addPiece(instanceId, 'facets', {
-            cell: cellId,
-            id: freePieceId(template, 'site', cellId, removed),
-            label: `Protein site (${edge})`,
-            edge,
-          }),
+        command: () => addSite(instanceId, cellId, edge),
       })),
     },
     {
@@ -1669,11 +1750,195 @@ function addToCellMenu(instanceId, cellId) {
       label: 'Add Process Zone',
       icon: 'pi pi-box',
       disabled: cell.processes.length >= LIMITS.processes,
-      command: () =>
-        addPiece(instanceId, 'processes', { cell: cellId, id: zone, label: `Process zone ${zone.split('-')[1]}` }),
+      command: () => addZone(instanceId, cellId),
     },
   ]
 }
+
+/** Adds a protein site along one side of a placed template's cell. */
+function addSite(instanceId, cellId, edge) {
+  const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
+  const id = freePieceId(placedTemplate(instanceId), 'site', cellId, removed)
+  return addPiece(instanceId, 'facets', { cell: cellId, id, label: `Protein site (${edge})`, edge })
+}
+
+/** Adds an empty organelle inside a placed template's cell, with a protein site along its top and bottom. */
+function addOrganelle(instanceId, cellId) {
+  const template = placedTemplate(instanceId)
+  const id = freePieceId(template, 'organelle', undefined, templateStore.getInstance(instanceId)?.edits?.removed)
+  const number = id.split('-')[1]
+  return addPiece(instanceId, 'cells', {
+    id,
+    label: number === '1' ? 'Organelle' : `Organelle ${number}`,
+    in: cellId,
+    facets: [
+      { id: 'top', label: 'Membrane (top)', edge: 'top' },
+      { id: 'bottom', label: 'Membrane (bottom)', edge: 'bottom' },
+    ],
+  })
+}
+
+/**
+ * Adds an empty microdomain to a placed template's cell: under the side of the cell nearest the drop, and, dropped
+ * between that side and an organelle, between the two.
+ *
+ * @param {{key: string, instance: string, path: string, rect: Object}} found - The cell, from templateCellAt.
+ * @param {{x: number, y: number}} point - Where it was dropped.
+ */
+function addMicrodomain(found, point) {
+  const template = placedTemplate(found.instance)
+  const cell = template.cells.find((entry) => entry.id === found.path)
+  const taken = new Set(template.compartments.filter((entry) => entry.in !== undefined).flatMap((entry) => entry.against))
+  const edge = nearestEdge(found.rect, point, cell.facets.filter((facet) => !taken.has(`${cell.id}.${facet.id}`)).map((facet) => facet.edge))
+  if (!edge) return notify.info({ title: 'Every protein site of this cell already has a microdomain' })
+  const against = [`${cell.id}.${cell.facets.find((facet) => facet.edge === edge).id}`]
+  // An organelle the drop lies between and that side, with a protein site facing it.
+  const isBetween = (rect) =>
+    ({
+      top: point.y < rect.y && point.x >= rect.x && point.x <= rect.x + rect.width,
+      bottom: point.y > rect.y + rect.height && point.x >= rect.x && point.x <= rect.x + rect.width,
+      left: point.x < rect.x && point.y >= rect.y && point.y <= rect.y + rect.height,
+      right: point.x > rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height,
+    })[edge]
+  for (const [, place] of layout.value) {
+    if (place.kind !== 'cell' || place.parent !== found.key || !isBetween(place.rect)) continue
+    const facet = template.cells.find((entry) => entry.id === place.path)?.facets.find((entry) => entry.edge === edge)
+    if (facet && !taken.has(`${place.path}.${facet.id}`)) against.push(`${place.path}.${facet.id}`)
+    break
+  }
+  const used = new Set(template.compartments.map((compartment) => compartment.tone))
+  const id = freePieceId(template, 'microdomain', undefined, templateStore.getInstance(found.instance)?.edits?.removed)
+  const number = id.split('-')[1]
+  return addPiece(found.instance, 'compartments', {
+    id,
+    label: number === '1' ? 'Microdomain' : `Microdomain ${number}`,
+    in: cell.id,
+    against,
+    tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
+  })
+}
+
+/**
+ * Adds an empty junction to a placed template's cell, between the two microdomains nearest the drop, or, with one
+ * microdomain, between it and the cell's own inside.
+ *
+ * @param {{key: string, instance: string, path: string}} found - The cell, from templateCellAt.
+ * @param {{x: number, y: number}} point - Where it was dropped.
+ */
+function addJunction(found, point) {
+  const template = placedTemplate(found.instance)
+  const cell = template.cells.find((entry) => entry.id === found.path)
+  const distance = (rect) => Math.hypot(point.x - rect.x - rect.width / 2, point.y - rect.y - rect.height / 2)
+  const nearest = [...layout.value.values()]
+    .filter((place) => place.form === 'inner' && place.parent === found.key && place.rect)
+    .sort((a, b) => distance(a.rect) - distance(b.rect))
+    .map((place) => place.path)
+  // The cell's own inside is the other space only where it is one a module can be.
+  const spaces = cell.site === false ? nearest.slice(0, 2) : [nearest[0], cell.id]
+  if (spaces.length < 2 || !spaces[0]) {
+    return notify.info({ title: 'A junction joins two spaces', message: 'Add a microdomain to the cell first, from the palette.' })
+  }
+  const removed = templateStore.getInstance(found.instance)?.edits?.removed ?? []
+  const id = freePieceId(template, 'junction', cell.id, removed)
+  const number = id.split('-')[1]
+  return addPiece(found.instance, 'processes', { cell: cell.id, id, label: number === '1' ? 'Junction' : `Junction ${number}`, between: spaces })
+}
+
+/** Adds a process zone inside a placed template's cell. */
+function addZone(instanceId, cellId) {
+  const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
+  const id = freePieceId(placedTemplate(instanceId), 'zone', cellId, removed)
+  return addPiece(instanceId, 'processes', { cell: cellId, id, label: `Process zone ${id.split('-')[1]}` })
+}
+
+// ── The build palette ──────────────────────────────────────────────────
+// The tiles are in the library's Build tab (see BioBuildPalette): what is clicked or dragged there is kept in the
+// view-mode store, and placed here.
+const { armedTile, draggedTile } = storeToRefs(viewMode)
+// A template file asked for there is loaded here, into the middle of the view.
+watch(
+  () => viewMode.templateFileRequests,
+  () => loadTemplateFile(viewCentre())
+)
+/** How far outside a cell a piece dropped for it still lands on it; a compartment, dropped beside it, from further. */
+const TILE_REACH = 40
+const COMPARTMENT_REACH = 320
+
+const isTileDrag = (event) => [...(event.dataTransfer?.types ?? [])].includes(TILE_DRAG_TYPE)
+
+/** The middle of the view as shown, in flow coordinates. */
+function viewCentre() {
+  const { left, top, width, height } = vueFlowRef.value.getBoundingClientRect()
+  return screenToFlowCoordinate({ x: left + width / 2, y: top + height / 2 })
+}
+
+/**
+ * Places what a palette tile stands for at a point of the view: a template, an empty cell (a template of one plain
+ * cell), or a piece added to the cell there, a compartment against the side of the cell it is dropped beside.
+ *
+ * @param {{kind: string, template?: string}} tile
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ */
+function applyTile(tile, point) {
+  if (tile.kind === 'template') return placeTemplate(tile.template, point)
+  if (tile.kind === 'cell') return placeTemplate(BLANK_CELL_TEMPLATE, point)
+  // An organelle goes in a cell, and a compartment beside one; a site or zone on an organelle too.
+  const isForCell = ['compartment', 'organelle', 'microdomain', 'fold', 'junction'].includes(tile.kind)
+  const reach = tile.kind === 'compartment' ? COMPARTMENT_REACH : TILE_REACH
+  const found = templateCellAt(layout.value, point, reach, { organelles: !isForCell })
+  const cell = found && placedTemplate(found.instance)?.cells.find((entry) => entry.id === found.path)
+  if (!cell) {
+    const where = tile.kind === 'compartment' ? 'beside a cell' : 'on a cell'
+    return notify.info({ title: `Drop it ${where}`, message: 'Add a cell first, from the palette.' })
+  }
+  if (tile.kind === 'organelle') return addOrganelle(found.instance, found.path)
+  if (tile.kind === 'microdomain') return addMicrodomain(found, point)
+  if (tile.kind === 'junction') return addJunction(found, point)
+  if (tile.kind === 'fold') {
+    const edge = nearestEdge(found.rect, point, EDGES.filter((each) => !cell.facets.some((facet) => facet.fold === each)))
+    if (!edge) return notify.info({ title: 'Every side of this cell has a fold' })
+    const removed = templateStore.getInstance(found.instance)?.edits?.removed ?? []
+    const id = freePieceId(placedTemplate(found.instance), 'fold', found.path, removed)
+    return addPiece(found.instance, 'facets', { cell: found.path, id, label: 'Fold', fold: edge })
+  }
+  if (tile.kind === 'zone') {
+    if (cell.processes.length >= LIMITS.processes) return notify.info({ title: 'This cell has all the process zones it can hold' })
+    return addZone(found.instance, found.path)
+  }
+  if (tile.kind === 'site') {
+    // On an organelle the point is on, or the cell's.
+    const edge = nearestEdge(found.rect, point, EDGES.filter((each) => !cell.facets.some((facet) => facet.edge === each)))
+    if (!edge) return notify.info({ title: 'Every side of this cell has a protein site' })
+    return addSite(found.instance, found.path, edge)
+  }
+  // A compartment lies against the cell's side nearest the drop, which needs a protein site to lie against.
+  const edge = nearestEdge(found.rect, point, EDGES)
+  const facet = cell.facets.find((each) => each.edge === edge)
+  if (!facet) return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell.' })
+  // Unnamed: a click on its name names it.
+  return addCompartment(found.instance, `${found.path}.${facet.id}`)
+}
+
+/** Places the armed tile where the view is clicked; a click on the view's own controls is theirs. */
+function onArmedClick(event) {
+  if (!armedTile.value || !event.target.closest('.vue-flow')) return
+  if (event.target.closest('.vue-flow__controls, .vue-flow__minimap, .vue-flow__panel')) return
+  event.stopPropagation()
+  event.preventDefault()
+  const tile = armedTile.value
+  armedTile.value = null
+  applyTile(tile, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+}
+
+/** Escape lets go of the armed tile. */
+function onArmedKey(event) {
+  if (event.key === 'Escape') armedTile.value = null
+}
+watch(armedTile, (tile) => {
+  if (tile) window.addEventListener('keydown', onArmedKey)
+  else window.removeEventListener('keydown', onArmedKey)
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', onArmedKey))
 
 // ── Removing from a placed template ────────────────────────────────────
 /**
@@ -2035,11 +2300,42 @@ function onNodeContextMenu({ event, node }) {
  * @param {Array<string>} ids - Diagram node ids.
  * @returns {Promise<boolean>} Whether anything was asked to go.
  */
-const deleteNodes = (ids) =>
-  deleteInstances(
-    ids.filter((id) => main.findNode(id)),
-    { removeNodes: main.removeNodes, history }
-  )
+async function deleteNodes(ids) {
+  let going = ids.filter((id) => main.findNode(id))
+  // A cell's contents are asked about: left behind they have no cell, which looked as if they had gone too.
+  const contents = cellContents(going, layout.value)
+  let before
+  if (contents.length) {
+    const cells = going.filter((id) => layout.value.get(id)?.kind === 'cell')
+    const subject = cells.length === 1 ? nameOf(cells[0]) : `These ${cells.length} cells`
+    const holds = cells.length === 1 ? 'holds' : 'hold'
+    const listed = contents.slice(0, 6).map(nameOf).join(', ') + (contents.length > 6 ? `, and ${contents.length - 6} more` : '')
+    isConfirming.value = true
+    let answer
+    try {
+      answer = await choose({
+        header: cells.length === 1 ? 'Delete cell?' : 'Delete cells?',
+        message:
+          `${subject} ${holds} ${listed}. Delete only the cell, leaving them where they are and in the diagram ` +
+          'without a cell, or delete them with it, from the diagram too?',
+        severity: 'warning',
+        acceptLabel: 'Delete Cell Only',
+        extraLabel: 'Delete Cell and Contents',
+        rejectLabel: 'Cancel',
+      })
+    } finally {
+      isConfirming.value = false
+    }
+    if (answer === 'reject') return false
+    if (answer === 'extra') going = [...going, ...contents]
+    else {
+      const patches = releaseFromCell(contents, layout.value, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
+      before = () =>
+        applyPlan(new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])))
+    }
+  }
+  return deleteInstances(going, { removeNodes: main.removeNodes, history, before })
+}
 
 /** Deletes the selected instances, for the workspace's Delete and Backspace keys. */
 const deleteSelection = () => deleteNodes(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
@@ -2121,6 +2417,11 @@ function isLibraryDrag(event) {
 }
 
 function onModuleDragOver(event) {
+  if (isTileDrag(event)) {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    return
+  }
   if (!isLibraryDrag(event)) return
   event.preventDefault()
   const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
@@ -2138,6 +2439,14 @@ function onModuleDragLeave(event) {
  * one step, or where it was dropped, asking what it is. Files dropped here go on to the workspace.
  */
 async function onModuleDrop(event) {
+  if (isTileDrag(event)) {
+    event.preventDefault()
+    event.stopPropagation()
+    const tile = draggedTile.value ?? JSON.parse(event.dataTransfer.getData(TILE_DRAG_TYPE) || 'null')
+    draggedTile.value = null
+    if (tile) applyTile(tile, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+    return
+  }
   const module = libraryDrag.draggedType.value
   if (!isLibraryDrag(event) || !props.createInstance) return
   event.preventDefault()
@@ -2494,6 +2803,22 @@ function assignRole(id, at, { role, cell, placement }) {
 .bio-species-toggle--on {
   color: var(--p-primary-color);
   background: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
+}
+
+/* Out of the column, against the species button's right side */
+/* A palette tile is armed: the next click on the view places it */
+.bio-flow-root--placing :deep(.vue-flow__pane),
+.bio-flow-root--placing :deep(.vue-flow__node) {
+  cursor: crosshair;
+}
+
+.bio-species-menu-button {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  margin-left: 2px;
+  border-radius: 4px;
+  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
 }
 
 /* The selection's coupling lines are hidden while dragging, and so are their ends. */

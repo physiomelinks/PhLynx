@@ -1,6 +1,7 @@
 /**
  * The species network of the physiological view's species mode: the species each compartment holds, which
- * proteins they are coupled to, and the paths species take through a protein from one compartment to another.
+ * proteins they are coupled to, the paths species take through a protein from one compartment to another, and
+ * what the processes inside a cell take from and give to its compartments.
  * Read from the sidecars and the user's coupling edges alone: a species is in a compartment when the
  * compartment's own concentration or amount of it is annotated, and a protein carries it to or from there when a
  * coupling joins two ports annotated with that species. Nothing is guessed from names.
@@ -96,19 +97,35 @@ export function proteinFlow(sidecar, species, side) {
  *   their compartment: one a protein only reads the amount of, as a pump does its ATP, is left out.
  * @param {{nodeId: string, species: string}|null} [options.keep] - A token shown whatever the rest say, as the
  *   focused one is, if its compartment annotates the species as its own.
+ * @param {string[]} [options.hidden] - Species left out of every compartment, with their paths, by CURIE.
  * @returns {{
  *   compartments: Map<string, Array<{species: string, label: string, variable: string, annotation: Object,
  *     flow: Object|null}>>,
  *   links: Array<{protein: string, compartment: string, species: string, kind: 'flow'|'amount',
  *     side: 'inside'|'outside'|null, proteinAnnotation: Object, compartmentAnnotation: Object}>,
  *   paths: Array<{protein: string, species: string, label: string, outside: string, inside: string}>,
+ *   exchanges: Array<{process: string, compartment: string, species: string, label: string, variable: string,
+ *     produces: 1|-1}>,
  *   dependences: Array<{protein: string, compartment: string, species: string, label: string,
- *     side: 'inside'|'outside'|null}>
+ *     side: 'inside'|'outside'|null}>,
+ *   species: Array<{species: string, label: string}>
  * }} Compartment id -> its species tokens; each coupling of a species between a protein and a compartment; each
  *   way a membrane protein carries a species from outside its cell to inside, through flows coupled on both sides;
- *   and each compartment species a protein reads only the amount of, as a pump does its ATP, with no flow coupled.
+ *   each flow of a species between a process inside a cell and a compartment (`variable`: the process's flow,
+ *   which times `produces` is positive while the process gives the species to the compartment);
+ *   each compartment species a protein reads only the amount of, as a pump does its ATP, with no flow coupled;
+ *   and every species in scope, hidden ones too, in CURIE order.
  */
-export function speciesNetwork({ nodes, edges, roleOf, sidecarOf, all = false, fluxes = false, keep = null }) {
+export function speciesNetwork({
+  nodes,
+  edges,
+  roleOf,
+  sidecarOf,
+  all = false,
+  fluxes = false,
+  keep = null,
+  hidden = [],
+}) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const sidecars = new Map()
   const sidecarFor = (id) => {
@@ -198,11 +215,33 @@ export function speciesNetwork({ nodes, edges, roleOf, sidecarOf, all = false, f
     }
   }
 
-  // Only the species a path runs to or from, and the one kept.
+  // What a process inside a cell takes from or gives to a compartment: each flow of a species coupled between them.
+  // Two processes exchanging a species with one compartment are joined through its token.
+  const exchanges = []
+  const exchangeKeys = new Set()
+  for (const link of links) {
+    if (link.kind !== 'flow' || roleOf(link.protein) !== 'cytosolic') continue
+    if (!holds(link.compartment, link.species) || !link.proteinAnnotation.variable) continue
+    const key = [link.protein, link.compartment, link.species].join('|')
+    if (exchangeKeys.has(key)) continue
+    exchangeKeys.add(key)
+    exchanges.push({
+      process: link.protein,
+      compartment: link.compartment,
+      species: link.species,
+      label: displayLabel(link.species),
+      variable: link.proteinAnnotation.variable,
+      // A flow is the rate into where it is annotated: into the process itself, or into the place it names.
+      produces: link.proteinAnnotation.location === 'self' ? -1 : 1,
+    })
+  }
+
+  // Only the species a path or an exchange runs to or from, and the one kept.
   if (fluxes) {
-    const flowing = new Set(
-      paths.flatMap((path) => [`${path.outside}|${path.species}`, `${path.inside}|${path.species}`])
-    )
+    const flowing = new Set([
+      ...paths.flatMap((path) => [`${path.outside}|${path.species}`, `${path.inside}|${path.species}`]),
+      ...exchanges.map((exchange) => `${exchange.compartment}|${exchange.species}`),
+    ])
     for (const [id, entries] of compartments) {
       const kept = entries.filter(({ species }) => flowing.has(`${id}|${species}`) || isKept(id, species))
       if (kept.length) compartments.set(id, kept)
@@ -219,7 +258,30 @@ export function speciesNetwork({ nodes, edges, roleOf, sidecarOf, all = false, f
     const { protein, compartment, species, side } = link
     dependences.push({ protein, compartment, species, label: displayLabel(species), side })
   }
-  return { compartments, links, paths, dependences }
+
+  // Every species in scope, hidden or not: what a menu of them lists, and what their colours are counted along.
+  const inScope = new Map()
+  for (const entries of compartments.values()) for (const { species, label } of entries) inScope.set(species, label)
+  const species = [...inScope]
+    .map(([curie, label]) => ({ species: curie, label }))
+    .sort((a, b) => (a.species < b.species ? -1 : a.species > b.species ? 1 : 0))
+  const off = new Set(hidden)
+  if (!off.size) return { compartments, links, paths, exchanges, dependences, species }
+
+  const isShown = (entry) => !off.has(entry.species)
+  const left = new Map()
+  for (const [id, entries] of compartments) {
+    const kept = entries.filter(isShown)
+    if (kept.length) left.set(id, kept)
+  }
+  return {
+    compartments: left,
+    links,
+    paths: paths.filter(isShown),
+    exchanges: exchanges.filter(isShown),
+    dependences: dependences.filter(isShown),
+    species,
+  }
 }
 
 /**

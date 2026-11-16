@@ -4,10 +4,11 @@ import { BUILT_IN_TEMPLATES, getBuiltInTemplate } from '../../../../src/services
 import { CELL_RADIUS } from '../../../../src/services/bioView/geometry.js'
 import { GAP, layoutPhysiology } from '../../../../src/services/bioView/layout.js'
 import { compartmentForm } from '../../../../src/services/bioView/templates.js'
+import { VESSEL_WALL } from '../../fixtures/vesselWall.js'
 
 const node = (id, bioView) => ({ id, data: { name: id, ...(bioView && { bioView }) } })
 const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
-const definitions = new Map(BUILT_IN_TEMPLATES.map((template) => [template.id, template]))
+const definitions = new Map([...BUILT_IN_TEMPLATES, VESSEL_WALL].map((template) => [template.id, template]))
 const instance = (template, id = 'bt-1', at = { x: 0, y: 0 }) => ({ id, template, at })
 
 const right = (rect) => rect.x + rect.width
@@ -39,10 +40,19 @@ describe('template layout, nothing bound', () => {
 
       for (const [i, cell] of cells.entries()) {
         expect(cell).toMatchObject({ kind: 'cell', membrane: null, instance: 'bt-1', empty: true, label: template.cells[i].label })
-        expect(cell.facetLabels.map((facet) => facet.facetId)).toEqual(template.cells[i].facets.map((facet) => facet.id))
+        // A side's facet is named along it, and a fold drawn in from it.
+        const own = template.cells[i].facets
+        expect(cell.facetLabels.map((facet) => facet.facetId)).toEqual(own.filter((facet) => !facet.fold).map((facet) => facet.id))
+        expect((cell.folds ?? []).map((fold) => fold.facetId)).toEqual(own.filter((facet) => facet.fold).map((facet) => facet.id))
       }
+      const inside = (inner, outer) => inner.x >= outer.x && inner.y >= outer.y && right(inner) <= right(outer) && bottom(inner) <= bottom(outer)
       for (const [piece, place] of compartments) {
         expect(place).toMatchObject({ kind: 'region', instance: 'bt-1', site: `bt-1/${piece.id}`, empty: true, tone: piece.tone })
+        // A microdomain lies within its cell.
+        if (piece.in) {
+          expect(inside(place.rect, places.get(key(piece.in)).rect)).toBe(true)
+          continue
+        }
         // Each lies right against its facets: a band meets the cells' edge, a column its cell's side.
         for (const ref of piece.against) {
           const [cellId, facetId] = ref.split('.')
@@ -56,10 +66,15 @@ describe('template layout, nothing bound', () => {
         }
       }
 
+      // An organelle lies within its cell, clear of any other.
+      const organelles = template.cells.filter((cell) => cell.in).map((cell) => [places.get(key(cell.id)).rect, places.get(key(cell.in)).rect])
+      for (const [organelle, cell] of organelles) expect(inside(organelle, cell)).toBe(true)
+      for (const [[a], [b]] of organelles.flatMap((one, i) => organelles.slice(i + 1).map((other) => [one, other]))) expect(overlaps(a, b)).toBe(false)
+
       // No two cells overlap, nor two compartments once off the cells' corners, nor a compartment a cell.
-      const cellRects = cells.map((cell) => cell.rect)
+      const cellRects = cells.filter((_, i) => !template.cells[i].in).map((cell) => cell.rect)
       const isGap = (piece) => compartmentForm(template, piece) === 'gap'
-      const regionRects = compartments.map(([piece, place]) => clear(place.rect, place.edge, isGap(piece)))
+      const regionRects = compartments.filter(([piece]) => !piece.in).map(([piece, place]) => clear(place.rect, place.edge, isGap(piece)))
       const pairs = (list) => list.flatMap((a, i) => list.slice(i + 1).map((b) => [a, b]))
       for (const [a, b] of pairs(cellRects)) expect(overlaps(a, b)).toBe(false)
       for (const [a, b] of pairs(regionRects)) expect(overlaps(a, b)).toBe(false)
@@ -194,6 +209,9 @@ describe('template layout, with nodes bound', () => {
     expect(apical).toMatchObject({ kind: 'slots', role: 'membraneProtein', occupant: null, occupants: ['enac', 'nhe'] })
     expect(apical.slots).toHaveLength(3)
     expect(sites.find((site) => site.ref === 'bt-1/cell.metabolism').slots).toHaveLength(3)
+    // The area with processes in it is marked, to be drawn without its outline.
+    expect(places.get(key('cell')).zones[0].filled).toBe(true)
+    expect(layOut('epithelial-cell').places.get(key('cell')).zones[0].filled).toBeUndefined()
   })
 
   it('keys a bound cell, membrane and compartment by their nodes in place of the empty pieces', () => {

@@ -9,6 +9,7 @@ import {
   facetOfPart,
   facetSlots,
   fitCellRect,
+  cornerLipids,
   leafletCorners,
   leafletDistance,
   leafletPath,
@@ -133,15 +134,18 @@ describe('physiological view geometry', () => {
 
   it('splits a leaflet into straight sides of whole lipids and the corner arcs between them', () => {
     const sides = leafletSides(203, 100)
-    // 123 of straight top and bottom hold 24 lipids, centred; 20 of left and right hold 4.
+    // 123 of straight top and bottom hold 25 lipids, squeezed to fill it; 20 of left and right hold 4.
     expect(sides.map(({ edge, length }) => [edge, length])).toEqual([
-      ['top', 120],
+      ['top', 125],
       ['right', 20],
-      ['bottom', 120],
+      ['bottom', 125],
       ['left', 20],
     ])
-    expect(sides[0].transform).toBe('translate(40 0) rotate(0) translate(1.5 0)')
-    expect(sides[1].transform).toBe('translate(203 40) rotate(90) translate(0 0)')
+    expect(sides[0].transform).toBe(`translate(40 0) rotate(0) scale(${123 / 125} 1)`)
+    expect(sides[1].transform).toBe('translate(203 40) rotate(90) scale(1 1)')
+    // A corner's quarter turn of radius 40 is 62.8 long: 13 lipids, the same on every leaflet.
+    expect(cornerLipids(203, 100)).toBe(13)
+    expect(cornerLipids(10, 10)).toBe(2)
     // The arcs are the outline's own corners, grown with it.
     const arcs = (path) => path.match(/A [^A-Z]*/g).map((arc) => arc.trim()).sort()
     expect(arcs(leafletCorners(203, 100, 7))).toEqual(arcs(leafletPath(203, 100, 7)))
@@ -155,5 +159,67 @@ describe('physiological view geometry', () => {
     expect(roundedRectPath({ x: 0, y: 0, width: 100, height: 50 }, 10)).toBe(
       'M 10 0 H 90 A 10 10 0 0 1 100 10 V 40 A 10 10 0 0 1 90 50 H 10 A 10 10 0 0 1 0 40 V 10 A 10 10 0 0 1 10 0 Z'
     )
+  })
+})
+
+describe('a fold', () => {
+  const rect = { x: 100, y: 50, width: 600, height: 500 }
+  const shape = {
+    facets: [
+      { id: 'top', label: 'Top', edge: 'top' },
+      { id: 'tubule', label: 'T-tubule', fold: 'top', depth: 300 },
+    ],
+    processes: [],
+  }
+
+  it('comes in near the far end of its side, as deep as it is given, short of the cell’s far side', async () => {
+    const { foldPocket } = await import('../../../../src/services/bioView/geometry.js')
+    expect(foldPocket(rect, shape.facets[1])).toEqual({ edge: 'top', at: 600 - 40 - 24 - 38, half: 38, depth: 300 })
+    expect(foldPocket(rect, { fold: 'left', depth: 900 })).toMatchObject({ edge: 'left', at: 500 - 40 - 24 - 38, depth: 560 })
+  })
+
+  it('has its proteins down its two walls in turn, each facing into its lumen', async () => {
+    const { proteinPlacement, facetSlots } = await import('../../../../src/services/bioView/geometry.js')
+    const first = proteinPlacement(rect, 'tubule', 0, 3, shape)
+    const second = proteinPlacement(rect, 'tubule', 1, 3, shape)
+    const third = proteinPlacement(rect, 'tubule', 2, 3, shape)
+    expect(first).toMatchObject({ x: 100 + 498 - 38, y: 50 + 30 + 32, rotation: 90 })
+    expect(second).toMatchObject({ x: 100 + 498 + 38, y: first.y, rotation: -90 })
+    expect(third).toMatchObject({ x: first.x, y: first.y + 88 })
+    // The spare slot is the next place down.
+    expect(facetSlots(rect, 'tubule', 1, shape).at(-1)).toMatchObject({ x: second.x, y: second.y, order: 1, spare: true })
+  })
+
+  it('has them down the one wall, from further in, where it is drawn facing an organelle', async () => {
+    const { proteinPlacement } = await import('../../../../src/services/bioView/geometry.js')
+    const facing = { facets: [{ ...shape.facets[1], lead: 120, facing: true }], processes: [] }
+    const [a, b] = [0, 1].map((order) => proteinPlacement(rect, 'tubule', order, 2, facing))
+    expect([a.x, b.x]).toEqual([560, 560])
+    expect([a.y, b.y]).toEqual([50 + 120 + 32, 50 + 120 + 32 + 88])
+  })
+
+  it('takes the far end of its side from the side’s own proteins, and makes the cell big enough to hold it', async () => {
+    const { slotPositions, fitCellRect } = await import('../../../../src/services/bioView/geometry.js')
+    const plain = { facets: [shape.facets[0]], processes: [] }
+    expect(slotPositions(rect, 'top', 1, shape)[0].x).toBeLessThan(slotPositions(rect, 'top', 1, plain)[0].x)
+    const fitted = fitCellRect({ x: 0, y: 0, width: 100, height: 100 }, { tubule: 4 }, shape)
+    expect(fitted.height).toBeGreaterThanOrEqual(300 + 40)
+    expect(fitted.width).toBeGreaterThan(fitCellRect({ x: 0, y: 0, width: 100, height: 100 }, {}, plain).width)
+  })
+
+  it('is followed by the outline, the strips of the bilayer and its rounded end', async () => {
+    const { foldPocket, leafletPath, leafletSides, leafletFoldEnds } = await import('../../../../src/services/bioView/geometry.js')
+    const folds = [foldPocket(rect, shape.facets[1])]
+    expect(leafletPath(600, 500, 0, folds)).toContain('H 460 V 262 A 38 38 0 0 0 536 262 V 0')
+    // Grown outward, the pocket narrows.
+    expect(leafletPath(600, 500, 7, folds)).toContain('H 467 V 262 A 31 31 0 0 0 529 262 V -7')
+    expect(leafletPath(600, 500, 0, [])).toBe(leafletPath(600, 500))
+    const sides = leafletSides(600, 500, folds)
+    expect(sides.filter((side) => side.edge === 'top')).toHaveLength(4)
+    expect(sides.filter((side) => side.transform.includes('rotate(0) translate(') && side.transform.includes('rotate(90)'))).toHaveLength(2)
+    expect(leafletSides(600, 500)).toHaveLength(4)
+    const [end] = leafletFoldEnds(600, 500, folds)
+    expect(end).toMatchObject({ edge: 'top', transform: 'translate(40 0)', d: 'M 420 262 A 38 38 0 0 0 496 262' })
+    expect(end.lipids).toBe(Math.round((Math.PI * 38) / 5))
   })
 })

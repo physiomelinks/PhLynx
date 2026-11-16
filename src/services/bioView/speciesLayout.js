@@ -11,7 +11,7 @@
  */
 
 import { facePoint } from './faces.js'
-import { GLYPH_HEIGHT, GLYPH_WIDTH, HEAD_OFFSET, partOf, proteinLabelWidth } from './geometry.js'
+import { GLYPH_HEIGHT, GLYPH_WIDTH, HEAD_OFFSET, foldPoint, partOf, proteinLabelWidth } from './geometry.js'
 import { DEFAULT_ARROW_ROOM } from './glyphLibrary.js'
 import { CARD } from './layout.js'
 import { CELL_RADIUS, FACET_BAND } from './metrics.js'
@@ -25,6 +25,59 @@ const REGION_DEPTH = 0.42
 const BEND = 40
 /** The thinnest and thickest a path is drawn, its width following the size of its flow after a run. */
 const WIDTH = { min: 1.5, max: 5 }
+/** How many widths a path can have between the least and the most. */
+const WIDTH_STEPS = 14
+
+/**
+ * The share of the flows compared, over a stretch of a run, that the widest path stands for when brief spikes are
+ * left out: the few points above it, as a solver's first step or an upstroke are, are drawn as wide and no wider, so
+ * they don't flatten the rest.
+ */
+export const FLOW_SCALE_QUANTILE = 0.99
+
+/**
+ * What a path's width is compared with, each telling something else: 'species', the flows of its own species, so
+ * one with small flows isn't drawn thin beside one with large; 'path', its own flow alone, so every path shows its
+ * own course; 'all', every flow, so the paths that carry most stand out.
+ */
+export const FLOW_SCALE_GROUPS = Object.freeze(['species', 'path', 'all'])
+
+/**
+ * Gives the size of flow drawn widest over a stretch of a run, for each group of flows compared with one another, so
+ * a width means the same from one point to the next.
+ *
+ * @param {Iterable<{key: *, species: string, values: ArrayLike<number>}>} flows - Each path's or exchange's flow over
+ *   the run, and what it is known by.
+ * @param {number[]} range - The stretch's first and last points.
+ * @param {Object} [options]
+ * @param {'species'|'path'|'all'} [options.group='species'] - See FLOW_SCALE_GROUPS.
+ * @param {boolean} [options.spikes=false] - Whether the largest size sets the scale, brief spikes and all, in place
+ *   of FLOW_SCALE_QUANTILE of the sizes.
+ * @returns {(flow: {key: *, species: string}) => number} The size drawn widest for a flow; 0 where nothing flows.
+ */
+export function flowScales(flows, [first, last], { group = 'species', spikes = false } = {}) {
+  const groupOf = (flow) => (group === 'all' ? 'all' : group === 'path' ? flow.key : flow.species)
+  const sizes = new Map()
+  for (const flow of flows) {
+    const { values } = flow
+    const name = groupOf(flow)
+    const end = Math.min(last, values.length - 1)
+    const own = sizes.get(name) ?? sizes.set(name, []).get(name)
+    for (let index = Math.max(0, first); index <= end; index++) {
+      const size = Math.abs(values[index])
+      if (Number.isFinite(size)) own.push(size)
+    }
+  }
+  const scales = new Map()
+  for (const [name, own] of sizes) {
+    const sorted = Float64Array.from(own).sort()
+    const most = sorted[sorted.length - 1] ?? 0
+    // The size at the quantile, or the largest where so few points flow that it is none.
+    const at = spikes ? most : (sorted[Math.min(sorted.length - 1, Math.floor(FLOW_SCALE_QUANTILE * sorted.length))] ?? 0)
+    scales.set(name, at > 0 ? at : most)
+  }
+  return (flow) => scales.get(groupOf(flow)) ?? 0
+}
 
 /** The radius of the open circle a dependence link ends in at its protein (SBGN's modulation). */
 export const DEPENDENCE_END = 4
@@ -364,7 +417,15 @@ export function obstaclesOf(nodeId, layout, labelOf = () => undefined) {
     const named = cellNameBox(nodeId, layout, labelOf)
     if (named) boxes.push(named)
     for (const zone of place.zones ?? []) boxes.push(zone.rect)
+    // What lies within it and is not its inside: its organelles, its microdomains and its folds.
+    for (const fold of place.folds ?? []) {
+      const reach = fold.half + HEAD_OFFSET + 4
+      const a = foldPoint(place.rect, fold.edge, fold.at - reach, 0)
+      const b = foldPoint(place.rect, fold.edge, fold.at + reach, fold.depth + HEAD_OFFSET + 4)
+      boxes.push(box(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(a.x - b.x), Math.abs(a.y - b.y)))
+    }
     for (const [id, other] of layout) {
+      if (other.parent === nodeId && other.rect) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
       if (other.cell !== nodeId) continue
       if (other.kind === 'protein') boxes.push(...proteinBoxes(other, labelOf(id)))
       if (other.kind === 'cytosolic') boxes.push(box(other.x, other.y, CARD.width, CARD.height))
@@ -373,7 +434,8 @@ export function obstaclesOf(nodeId, layout, labelOf = () => undefined) {
   }
   if (name) boxes.push(regionNameBox(place, name))
   for (const [id, other] of layout) {
-    if (other.kind === 'cell') boxes.push(grow(other.rect, HEAD_OFFSET + 4))
+    // A microdomain lies within its cell, which is no obstacle to it; the cell's organelles are.
+    if (other.kind === 'cell' && id !== place.parent) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
     for (const facet of other.kind === 'cell' ? facetLabelBoxes(id, layout, labelOf) : []) {
       boxes.push(box(other.rect.x + facet.x, other.rect.y + facet.y, facet.width, facet.height))
     }
@@ -649,6 +711,79 @@ const proteinPlaceIn = (layout) => (id) => {
 }
 
 /**
+ * Gives the way into a fold for a path to the outside of a protein on it: the fold's mouth, met from outside the
+ * cell, and the point in its lumen level with the protein. A path from the space outside then runs down the fold, in
+ * place of across the cell.
+ *
+ * @param {Object} place - The protein's place.
+ * @param {Map<string, Object>} layout
+ * @returns {{through?: {mouth: {point: Object, direction: Object}, lumen: Object}}} Nothing for a protein on a side.
+ */
+function foldWay(place, layout) {
+  const cell = layout.get(place.cell)
+  const fold = cell?.folds?.find((each) => each.facetId === place.part)
+  if (!fold) return {}
+  const { rect } = cell
+  const inward = { top: place.y - rect.y, bottom: rect.y + rect.height - place.y, left: place.x - rect.x, right: rect.x + rect.width - place.x }[fold.edge]
+  const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[fold.edge]
+  return { through: { mouth: { point: foldPoint(rect, fold.edge, fold.at, 0), direction }, lumen: foldPoint(rect, fold.edge, fold.at, inward) } }
+}
+
+/** A process card's place in the layout: in a cell or free. Its x and y are its top-left corner. */
+const cardPlaceIn = (layout) => (id) => {
+  const place = layout.get(id)
+  return place?.kind === 'cytosolic' || place?.kind === 'card' ? place : null
+}
+
+/** How far apart the legs meeting one side of a process card are kept. */
+const CARD_LEG_GAP = 20
+
+/**
+ * Where the legs between process cards and tokens meet the cards: each on the side of its card that faces its
+ * token, those sharing a side spread along it in the order of their tokens, so they don't cross.
+ *
+ * @param {Array<{id: string, place: Object, token: Object}>} legs - Each leg's own key, its card's place and its
+ *   token.
+ * @returns {Map<string, {point: {x: number, y: number}, direction: {x: number, y: number}}>} Leg id -> its face.
+ */
+export function cardFaces(legs) {
+  const sideOf = ({ place, token }) => {
+    const dx = token.x - (place.x + CARD.width / 2)
+    const dy = token.y - (place.y + CARD.height / 2)
+    if (Math.abs(dy) * CARD.width >= Math.abs(dx) * CARD.height) return dy < 0 ? 'top' : 'bottom'
+    return dx < 0 ? 'left' : 'right'
+  }
+  const groups = new Map()
+  for (const entry of legs) {
+    const side = sideOf(entry)
+    const key = `${entry.place.x},${entry.place.y},${side}`
+    groups.set(key, [...(groups.get(key) ?? []), { ...entry, side }])
+  }
+  const faces = new Map()
+  for (const group of groups.values()) {
+    const { side, place } = group[0]
+    const isFlat = side === 'top' || side === 'bottom'
+    const length = isFlat ? CARD.width : CARD.height
+    const gap = Math.min(CARD_LEG_GAP, (length - CARD_LEG_GAP) / group.length)
+    const along = (entry) => (isFlat ? entry.token.x : entry.token.y)
+    group.sort((a, b) => along(a) - along(b) || byLabel(a, b))
+    for (const [index, entry] of group.entries()) {
+      const offset = (index - (group.length - 1) / 2) * gap
+      const centre = { x: place.x + CARD.width / 2, y: place.y + CARD.height / 2 }
+      const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[side]
+      faces.set(entry.id, {
+        point: {
+          x: centre.x + (direction.x * CARD.width) / 2 + (isFlat ? offset : 0),
+          y: centre.y + (direction.y * CARD.height) / 2 + (isFlat ? 0 : offset),
+        },
+        direction,
+      })
+    }
+  }
+  return faces
+}
+
+/**
  * Places the network's tokens: the part of layoutSpecies a run doesn't change.
  *
  * @param {Object} network - From speciesNetwork.
@@ -763,13 +898,17 @@ export function chipOrder(tokens, key, along) {
 }
 
 /**
- * Draws the network's paths and dependences between placed tokens and proteins: the part of layoutSpecies that
+ * Draws the network's paths, exchanges and dependences between placed tokens, proteins and process cards (an
+ * exchange is a path of one leg, `legs.process`, with its process as `protein`): the part of layoutSpecies that
  * follows a run.
  *
  * @param {Object} network - From speciesNetwork.
  * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {Array<Object>} tokens - From placeSpeciesTokens.
  * @param {Object} [options] - facesOf, arrowsOf and flowOf, as for layoutSpecies.
+ * @param {number|((source: Object) => number)|null} [options.largest] - The flow drawn widest, for every path or
+ *   for each (asked of the network's own path or exchange); the largest of those drawn, unless given, as when one
+ *   point of a run is drawn to compare with its others. A larger flow is drawn as wide.
  * @returns {{paths: Array<Object>, dependences: Array<Object>}} Each with the `ends` its legs were drawn between,
  *   so driftSpecies can redraw a leg alone.
  */
@@ -777,12 +916,41 @@ export function routeSpecies(
   network,
   layout,
   tokens,
-  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null } = {}
+  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null, largest: largestGiven = null } = {}
 ) {
   const proteinPlace = proteinPlaceIn(layout)
   const tokenAt = new Map(tokens.map((token) => [token.key, token]))
+  const cardPlace = cardPlaceIn(layout)
   const flows = network.paths.map((path) => flowOf(path))
-  const largest = Math.max(0, ...flows.map((flow) => Math.abs(flow?.size ?? 0)))
+  // A process's exchanges with compartments, and the species its card only reads: the legs that meet a card.
+  const exchanges = (network.exchanges ?? [])
+    .map((exchange) => ({
+      ...exchange,
+      source: exchange,
+      id: `${exchange.process}::${exchange.species}::${exchange.compartment}`,
+      place: cardPlace(exchange.process),
+      token: tokenAt.get(`${exchange.compartment}::${exchange.species}`),
+    }))
+    .filter((exchange) => exchange.place && exchange.token)
+  const read = (network.dependences ?? [])
+    .map((dependence) => ({
+      ...dependence,
+      id: `read::${dependence.protein}::${dependence.species}::${dependence.compartment}`,
+      place: cardPlace(dependence.protein),
+      token: tokenAt.get(`${dependence.compartment}::${dependence.species}`),
+    }))
+    .filter((dependence) => dependence.place && dependence.token)
+  const cardFace = cardFaces([...exchanges, ...read])
+  // Asked of the network's own exchange, as a path's flow is of its own path: a caller may know them by identity.
+  const exchangeFlows = exchanges.map((exchange) => flowOf(exchange.source))
+  const largest =
+    largestGiven ?? Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
+  // In WIDTH_STEPS steps, so a flow followed through a run redraws its arrowheads only as it changes visibly.
+  const widthOf = (flow, source) => {
+    const most = typeof largest === 'function' ? largest(source) : largest
+    const share = most > 0 && flow?.size ? Math.min(1, Math.sqrt(Math.abs(flow.size) / most)) : 0
+    return WIDTH.min + ((WIDTH.max - WIDTH.min) * Math.round(share * WIDTH_STEPS)) / WIDTH_STEPS
+  }
   const paths = []
   for (const [index, path] of network.paths.entries()) {
     const place = proteinPlace(path.protein)
@@ -792,11 +960,10 @@ export function routeSpecies(
     const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
     const anchors = facesOf(path.protein)
     const offset = arrowOffset(arrowsOf(path.protein), path.species)
-    const out = facePoint(place, 'outside', size, anchors, offset)
+    const out = { ...facePoint(place, 'outside', size, anchors, offset), ...foldWay(place, layout) }
     const into = facePoint(place, 'inside', size, anchors, offset)
     const flow = flows[index]
-    const share = largest > 0 && flow?.size ? Math.sqrt(Math.abs(flow.size) / largest) : 0
-    const width = WIDTH.min + (WIDTH.max - WIDTH.min) * share
+    const width = widthOf(flow, path)
     const head = flow?.direction ? arrowHead(width) : 0
     paths.push({
       key: `${path.protein}::${path.species}::${path.outside}::${path.inside}`,
@@ -818,6 +985,26 @@ export function routeSpecies(
     })
   }
 
+  // A process's exchange is one leg between its card and the token, running the way the species goes: 'out' of
+  // the process into the compartment, or 'in' to it.
+  for (const [index, exchange] of exchanges.entries()) {
+    const flow = exchangeFlows[index]
+    const width = widthOf(flow, exchange.source)
+    const face = cardFace.get(exchange.id)
+    const toToken = flow?.direction === 'out'
+    paths.push({
+      key: exchange.id,
+      protein: exchange.process,
+      species: exchange.species,
+      compartment: exchange.compartment,
+      direction: flow?.direction ?? null,
+      width,
+      head: flow?.direction ? arrowHead(width) : 0,
+      legs: { process: leg(exchange.token, face, toToken) },
+      ends: { process: { token: exchange.token.key, face, toToken } },
+    })
+  }
+
   // A dependence goes to the face on its compartment's side: under the species' arrow if the cartoon has one, else
   // spread with the protein's other such dependences on that face, in the order of their tokens along it.
   const placedDependences = []
@@ -828,7 +1015,22 @@ export function routeSpecies(
     const face = dependence.side ?? (layout.get(dependence.compartment)?.kind === 'cell' ? 'inside' : 'outside')
     placedDependences.push({ ...dependence, place, token, face })
   }
-  const dependences = []
+  const dependences = read.map(({ id, protein, compartment, species, token }) => {
+    const at = cardFace.get(id)
+    return {
+      key: `${protein}::${species}::${compartment}`,
+      protein,
+      compartment,
+      species,
+      d: leg(token, at, false, 2 * DEPENDENCE_END),
+      ends: { token: token.key, face: at, toToken: false, head: 2 * DEPENDENCE_END },
+      end: {
+        x: at.point.x + at.direction.x * DEPENDENCE_END,
+        y: at.point.y + at.direction.y * DEPENDENCE_END,
+        r: DEPENDENCE_END,
+      },
+    }
+  })
   for (const dependence of placedDependences) {
     const { protein, compartment, species, place, token, face } = dependence
     const arrows = arrowsOf(protein)
@@ -895,17 +1097,23 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
     if (!offset && !shift) return d
     const token = tokenOf.get(ends.token)
     const at = offset ? { ...token, x: token.x + offset.x, y: token.y + offset.y } : token
+    const move = (point) => ({ x: point.x + shift.x, y: point.y + shift.y })
+    const through = shift && ends.face.through
     const face = shift
-      ? { ...ends.face, point: { x: ends.face.point.x + shift.x, y: ends.face.point.y + shift.y } }
+      ? {
+          ...ends.face,
+          point: move(ends.face.point),
+          ...(through && { through: { mouth: { ...through.mouth, point: move(through.mouth.point) }, lumen: move(through.lumen) } }),
+        }
       : ends.face
     return leg(at, face, ends.toToken, ends.head)
   }
   const paths = species.paths.map((path) => {
     if (!path.ends) return path
     const shift = faceShift(path.protein)
-    const outside = redraw(path.ends.outside, path.legs.outside, shift)
-    const inside = redraw(path.ends.inside, path.legs.inside, shift)
-    return outside === path.legs.outside && inside === path.legs.inside ? path : { ...path, legs: { outside, inside } }
+    const sides = Object.keys(path.legs)
+    const legs = Object.fromEntries(sides.map((side) => [side, redraw(path.ends[side], path.legs[side], shift)]))
+    return sides.every((side) => legs[side] === path.legs[side]) ? path : { ...path, legs }
   })
   const dependences = species.dependences.map((dependence) => {
     if (!dependence.ends) return dependence
@@ -928,6 +1136,15 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
  * @returns {string} An SVG path.
  */
 function leg(token, face, toToken, head = 0) {
+  // To a protein down a fold: to the fold's mouth as to a face, then down its lumen to the protein.
+  if (face.through) {
+    const { mouth, lumen } = face.through
+    const round = (point) => `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`
+    const curve = leg(token, mouth, toToken)
+    return toToken
+      ? `M${round(face.point)} L${round(lumen)} L${round(mouth.point)} ${curve.slice(curve.indexOf('C'))}`
+      : `${curve} L${round(lumen)} L${round(face.point)}`
+  }
   const dx = face.point.x - token.x
   const dy = face.point.y - token.y
   const isVertical = Math.abs(dy) * token.width >= Math.abs(dx) * token.height

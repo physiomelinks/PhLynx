@@ -3,8 +3,14 @@ import { useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
 import { buildRestoredPorts } from '../services/import/omexAnnotations'
 import { matchSidecarFiles } from '../services/annotations/importSidecars'
-import { findUnknownTerms, sidecarTerms, termIdProblems } from '../services/annotations/termIds'
-import { lookupTerm } from '../services/ontology/ols'
+import {
+  findMisplacedTerms,
+  findUnknownTerms,
+  sidecarPlaceTerms,
+  sidecarTerms,
+  termIdProblems,
+} from '../services/annotations/termIds'
+import { lookupGoNamespace, lookupTerm } from '../services/ontology/ols'
 import { escapeHtml } from '../utils/importBatch'
 import { notify } from '../utils/notify'
 import { FLOW_IDS } from '../utils/constants'
@@ -21,9 +27,11 @@ const lines = (texts) => texts.map(escapeHtml).join('<br>')
  * @param {string} [flowId=FLOW_IDS.MAIN]
  * @param {Object} [options]
  * @param {(curie: string) => Promise<Object|null>} [options.lookup] - Looks a ChEBI or GO term up on OLS.
+ * @param {(curie: string) => Promise<string|null>} [options.lookupNamespace] - Looks up which GO namespace a term
+ *   is in, on OLS.
  * @returns {{ importSidecars: Function }}
  */
-export function useSidecarImport(flowId = FLOW_IDS.MAIN, { lookup = lookupTerm } = {}) {
+export function useSidecarImport(flowId = FLOW_IDS.MAIN, { lookup = lookupTerm, lookupNamespace = lookupGoNamespace } = {}) {
   const { nodes, updateNodeData } = useVueFlow(flowId)
   const libraryStore = useLibraryStore()
   const { recordEdit, findIncidentEdgeIds } = useNodeDataHistory(flowId)
@@ -108,6 +116,7 @@ export function useSidecarImport(flowId = FLOW_IDS.MAIN, { lookup = lookupTerm }
     if (notes.length) notify.warning({ title: 'Annotations Imported', message })
     else notify.success({ title: 'Annotations Imported', message })
     warnOfUnknownTerms(terms, cited)
+    warnOfMisplacedTerms(parsed.map((sidecar) => sidecarPlaceTerms(sidecar)), cited)
     return matched.length
   }
 
@@ -122,6 +131,18 @@ export function useSidecarImport(flowId = FLOW_IDS.MAIN, { lookup = lookupTerm }
       terms.map(async (fileTerms, i) => cited(await findUnknownTerms(fileTerms, lookup), i))
     )
     if (unknown.flat().length) notify.warning({ title: 'Unknown Ontology Terms', message: lines(unknown.flat()) })
+  }
+
+  /**
+   * Warns, once OLS answers, of the places the imported side-cars name that are not GO cellular components; offline,
+   * it says nothing.
+   *
+   * @param {Array<Array<{ where: string, curie: string }>>} places - Each matched file's.
+   * @param {Function} cited - Names the file in each problem.
+   */
+  async function warnOfMisplacedTerms(places, cited) {
+    const wrong = await Promise.all(places.map(async (filePlaces, i) => cited(await findMisplacedTerms(filePlaces, lookupNamespace), i)))
+    if (wrong.flat().length) notify.warning({ title: 'Places That Are Not Cellular Components', message: lines(wrong.flat()) })
   }
 
   return { importSidecars }
