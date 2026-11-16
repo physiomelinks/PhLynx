@@ -3,15 +3,23 @@
   "title": "PhLynx physiology template",
   "description": "A scaffold of cells, membrane facets, process areas and compartments for the physiological view. Each piece offers a site that a library module can be dropped onto. Keys this schema does not list are ignored with a warning.",
   "type": "object",
-  "required": ["schemaVersion", "id", "name", "cells"],
+  "required": [
+    "schemaVersion",
+    "id",
+    "name"
+  ],
   "properties": {
     "$schema": {
       "description": "Path to this schema, for editors. Ignored by PhLynx.",
       "type": "string"
     },
     "schemaVersion": {
-      "description": "The template format version: 1, or 2 for a template with an organelle (a cell \"in\" another) or a microdomain (a compartment \"in\" a cell).",
-      "enum": [1, 2]
+      "description": "The template format version: 1; 2 for a template with an organelle, microdomain, fold or junction; 3 for one with a piece placed freely (\"at\"), a compartment's \"size\" or \"shape\", links, or no cells.",
+      "enum": [
+        1,
+        2,
+        3
+      ]
     },
     "id": {
       "description": "The template's id: a lower-case letter, then lower-case letters, digits and hyphens (2-48 characters).",
@@ -40,31 +48,58 @@
       "maxLength": 64
     },
     "cells": {
-      "description": "The cells, laid out in rows in declaration order.",
+      "description": "The cells, laid out in rows in declaration order. May be left out, or empty, in a template of compartments alone (schemaVersion 3).",
       "type": "array",
       "minItems": 1,
       "maxItems": 16,
-      "items": { "$ref": "#/$defs/cell" }
+      "items": {
+        "$ref": "#/$defs/cell"
+      }
     },
     "compartments": {
       "description": "The fluid compartments around the cells. Several against the same facet stack outward in declaration order.",
       "type": "array",
       "maxItems": 32,
-      "items": { "$ref": "#/$defs/compartment" }
+      "items": {
+        "$ref": "#/$defs/compartment"
+      }
+    },
+    "links": {
+      "description": "What carries a flux between two of the template's spaces, as a flow between two stretches of vessel or a gap junction between two cells. Each takes one module, coupled to both spaces. Needs schemaVersion 3.",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/link"
+      }
     }
   },
   "$defs": {
     "skin": {
       "description": "Artwork the piece is drawn with: an SVG skin of the workspace's, by its id. Ignored where the workspace has no such skin.",
       "type": "object",
-      "required": ["ref"],
+      "required": [
+        "ref"
+      ],
       "properties": {
-        "ref": { "description": "The skin's id.", "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
+        "ref": {
+          "description": "The skin's id.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,47}$"
+        },
         "mode": {
           "description": "How the skin fills the piece: all of it as big as fits (contain), filling the piece and cut where it overflows (cover), or filling it exactly, out of proportion (stretch). Defaults to contain.",
-          "enum": ["contain", "cover", "stretch"]
+          "enum": [
+            "contain",
+            "cover",
+            "stretch"
+          ]
         },
-        "opacity": { "description": "How solid the skin is drawn, above 0 and up to 1. Defaults to 1.", "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+        "opacity": {
+          "description": "How solid the skin is drawn, above 0 and up to 1. Defaults to 1.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        }
       }
     },
     "pieceId": {
@@ -85,10 +120,20 @@
     "cell": {
       "description": "A cell: its body is a cytosol site, its membrane a membrane site, each facet a row of membrane protein slots and each process a row of cytosolic slots.",
       "type": "object",
-      "required": ["id", "label", "facets"],
+      "required": [
+        "id",
+        "label",
+        "facets"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/pieceId", "description": "The cell's id, unique among cells and compartments." },
-        "label": { "$ref": "#/$defs/label", "description": "The cell's name." },
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The cell's id, unique among cells and compartments."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "The cell's name."
+        },
         "in": {
           "$ref": "#/$defs/pieceId",
           "description": "Makes this an organelle: the id of the cell it is drawn inside, which is the outside of the proteins on its membrane. Needs schemaVersion 2; an organelle has no row, and is not inside another organelle."
@@ -102,10 +147,23 @@
         "size": {
           "description": "The cell's smallest drawn size, in pixels. Defaults to 320 by 240.",
           "type": "object",
-          "required": ["width", "height"],
+          "required": [
+            "width",
+            "height"
+          ],
           "properties": {
-            "width": { "description": "Width in pixels.", "type": "number", "minimum": 120, "maximum": 4000 },
-            "height": { "description": "Height in pixels.", "type": "number", "minimum": 120, "maximum": 4000 }
+            "width": {
+              "description": "Width in pixels.",
+              "type": "number",
+              "minimum": 120,
+              "maximum": 4000
+            },
+            "height": {
+              "description": "Height in pixels.",
+              "type": "number",
+              "minimum": 120,
+              "maximum": 4000
+            }
           }
         },
         "membrane": {
@@ -113,12 +171,19 @@
           "oneOf": [
             {
               "type": "object",
-              "required": ["label"],
+              "required": [
+                "label"
+              ],
               "properties": {
-                "label": { "$ref": "#/$defs/label", "description": "The membrane's name." }
+                "label": {
+                  "$ref": "#/$defs/label",
+                  "description": "The membrane's name."
+                }
               }
             },
-            { "const": false }
+            {
+              "const": false
+            }
           ]
         },
         "facets": {
@@ -126,31 +191,56 @@
           "type": "array",
           "minItems": 1,
           "maxItems": 4,
-          "items": { "$ref": "#/$defs/facet" }
+          "items": {
+            "$ref": "#/$defs/facet"
+          }
         },
         "processes": {
           "description": "Areas inside the cell that hold cytosolic processes.",
           "type": "array",
           "maxItems": 8,
-          "items": { "$ref": "#/$defs/process" }
+          "items": {
+            "$ref": "#/$defs/process"
+          }
         },
-        "skin": { "$ref": "#/$defs/skin", "description": "Artwork the piece is drawn with, in place of its plain fill." },
-        "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
+        "skin": {
+          "$ref": "#/$defs/skin",
+          "description": "Artwork the piece is drawn with, in place of its plain fill."
+        },
+        "site": {
+          "$ref": "#/$defs/site",
+          "description": "Set to false to offer no site on this piece."
+        },
+        "at": {
+          "$ref": "#/$defs/at",
+          "description": "A place of the cell's own, in place of one in a row; such a cell shares no band or gap with another. Not on an organelle. Needs schemaVersion 3."
+        }
       }
     },
     "facet": {
       "description": "A part of a cell's membrane: along one edge, or, with \"fold\" in place of \"edge\", an invagination in from one.",
       "type": "object",
-      "required": ["id", "label"],
+      "required": [
+        "id",
+        "label"
+      ],
       "properties": {
         "id": {
           "$ref": "#/$defs/pieceId",
           "description": "The facet's id, unique within its cell; 'membrane' is reserved."
         },
-        "label": { "$ref": "#/$defs/label", "description": "The facet's name." },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "The facet's name."
+        },
         "fold": {
           "description": "Makes this a fold (an invagination, such as a T-tubule): the edge of the cell it dips in from, near that edge's right or bottom end. Its proteins sit down its two walls, and its lumen is the outside of the facet along that edge. One per edge; needs schemaVersion 2.",
-          "enum": ["top", "bottom", "left", "right"]
+          "enum": [
+            "top",
+            "bottom",
+            "left",
+            "right"
+          ]
         },
         "depth": {
           "description": "A fold's least depth in from its edge, in pixels. Defaults to 160; it is drawn deeper for more proteins.",
@@ -160,7 +250,12 @@
         },
         "edge": {
           "description": "The edge of the cell the facet lies along.",
-          "enum": ["top", "bottom", "left", "right"]
+          "enum": [
+            "top",
+            "bottom",
+            "left",
+            "right"
+          ]
         },
         "group": {
           "$ref": "#/$defs/pieceId",
@@ -169,48 +264,80 @@
         "annotation": {
           "description": "The annotated facet this facet stands for, so annotated proteins land on it.",
           "type": "object",
-          "required": ["facet"],
+          "required": [
+            "facet"
+          ],
           "properties": {
             "facet": {
               "description": "The facet as annotations name it.",
-              "enum": ["apical", "lateral", "basolateral"]
+              "enum": [
+                "apical",
+                "lateral",
+                "basolateral"
+              ]
             },
             "at": {
               "description": "Which side of the lateral facet; only for the lateral facet.",
-              "enum": ["left", "right"]
+              "enum": [
+                "left",
+                "right"
+              ]
             }
           }
         },
-        "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
+        "site": {
+          "$ref": "#/$defs/site",
+          "description": "Set to false to offer no site on this piece."
+        }
       }
     },
     "process": {
       "description": "An area inside a cell for cytosolic processes.",
       "type": "object",
-      "required": ["id", "label"],
+      "required": [
+        "id",
+        "label"
+      ],
       "properties": {
         "id": {
           "$ref": "#/$defs/pieceId",
           "description": "The process's id, unique within its cell; 'membrane' is reserved."
         },
-        "label": { "$ref": "#/$defs/label", "description": "The process's name." },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "The process's name."
+        },
         "between": {
           "description": "Makes this a junction: the two spaces inside the cell it carries a flux between, each the cell's own id (its inside) or a microdomain in it, the first upstream of the second. Needs schemaVersion 2.",
           "type": "array",
           "minItems": 2,
           "maxItems": 2,
-          "items": { "$ref": "#/$defs/pieceId" }
+          "items": {
+            "$ref": "#/$defs/pieceId"
+          }
         },
-        "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
+        "site": {
+          "$ref": "#/$defs/site",
+          "description": "Set to false to offer no site on this piece."
+        }
       }
     },
     "compartment": {
       "description": "A fluid compartment outside the cells; its body is a region site.",
       "type": "object",
-      "required": ["id", "label"],
+      "required": [
+        "id",
+        "label"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/pieceId", "description": "The compartment's id, unique among cells and compartments." },
-        "label": { "$ref": "#/$defs/label", "description": "The compartment's name." },
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The compartment's id, unique among cells and compartments."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "The compartment's name."
+        },
         "term": {
           "description": "What annotations call the place, as an ontology term's CURIE (GO:0001750, say), which tells it from the cell's other spaces.",
           "type": "string",
@@ -224,11 +351,22 @@
           "description": "The facets the compartment lies against, as 'cell.facet': facets on the same top or bottom edge of cells in one row (a band), two facing facets of neighbouring cells (the gap between them), one left or right facet (a column), or none (a free band below everything).",
           "type": "array",
           "maxItems": 16,
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,31}\\.[a-z][a-z0-9-]{0,31}$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}\\.[a-z][a-z0-9-]{0,31}$"
+          }
         },
         "tone": {
           "description": "The compartment's colour. Defaults to sky.",
-          "enum": ["sky", "rose", "teal", "amber", "violet", "lime", "slate"]
+          "enum": [
+            "sky",
+            "rose",
+            "teal",
+            "amber",
+            "violet",
+            "lime",
+            "slate"
+          ]
         },
         "depth": {
           "description": "How far the compartment reaches out from the facets, in pixels. Leave it out for the usual depth.",
@@ -236,8 +374,106 @@
           "minimum": 20,
           "maximum": 1000
         },
-        "skin": { "$ref": "#/$defs/skin", "description": "Artwork the piece is drawn with, in place of its plain fill." },
-        "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
+        "skin": {
+          "$ref": "#/$defs/skin",
+          "description": "Artwork the piece is drawn with, in place of its plain fill."
+        },
+        "site": {
+          "$ref": "#/$defs/site",
+          "description": "Set to false to offer no site on this piece."
+        },
+        "at": {
+          "$ref": "#/$defs/at",
+          "description": "A place of the compartment's own, for one that lies against nothing. Needs schemaVersion 3."
+        },
+        "size": {
+          "description": "How big the compartment is drawn, for one that lies against nothing. Needs schemaVersion 3.",
+          "type": "object",
+          "required": [
+            "width",
+            "height"
+          ],
+          "properties": {
+            "width": {
+              "type": "number",
+              "minimum": 120,
+              "maximum": 4000
+            },
+            "height": {
+              "type": "number",
+              "minimum": 120,
+              "maximum": 4000
+            }
+          }
+        },
+        "shape": {
+          "description": "Drawn as a tube: a stretch of vessel or duct, walled along its length and open at its ends. Not on a microdomain. Needs schemaVersion 3.",
+          "enum": [
+            "tube"
+          ]
+        }
+      }
+    },
+    "at": {
+      "description": "A place of the piece's own: its top-left, from the template's own corner. Needs schemaVersion 3.",
+      "type": "object",
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "description": "How far right of the template's corner.",
+          "type": "number",
+          "minimum": -20000,
+          "maximum": 20000
+        },
+        "y": {
+          "description": "How far below the template's corner.",
+          "type": "number",
+          "minimum": -20000,
+          "maximum": 20000
+        }
+      }
+    },
+    "link": {
+      "description": "What carries a flux between two spaces of the template; its body is a site for one module.",
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "between"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The link's id, unique among cells, compartments and links."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "The link's name."
+        },
+        "between": {
+          "description": "The two spaces it joins, each a cell's id (its inside) or a compartment's, the first upstream of a flow.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/pieceId"
+          }
+        },
+        "kind": {
+          "description": "What it carries: a flow along a conduit (the default), a junction between two cells, or diffusion between two spaces.",
+          "enum": [
+            "flow",
+            "junction",
+            "diffusion"
+          ]
+        },
+        "site": {
+          "$ref": "#/$defs/site",
+          "description": "Set to false to offer no site on this piece."
+        }
       }
     }
   }

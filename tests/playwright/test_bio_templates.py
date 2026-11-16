@@ -150,6 +150,107 @@ class TestBioTemplates(unittest.TestCase):
         field.press("Enter")
         expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")).to_be_visible()
 
+    def test_the_build_palette_joins_two_tubes_into_one_vessel(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=library-tab-build]").click()
+
+        def at(across, down):
+            return {"x": box["width"] * across, "y": box["height"] * down}
+
+        # A tube on its own is a template of its own; a second dropped near it joins that template.
+        tile = lambda kind: page.locator(f"[data-testid=bio-palette-tile][data-kind={kind}]")
+        tile("tube").drag_to(pane, target_position=at(0.3, 0.4))
+        first = piece(page, "segment")
+        expect(first.locator(".bio-region--tube")).to_be_visible()
+        # Placing a template moves the view, so the second goes by where the first is drawn: a little to its right.
+        one = first.bounding_box()
+        tile("tube").drag_to(pane, target_position={"x": one["x"] - box["x"] + one["width"] * 1.7, "y": one["y"] - box["y"] + one["height"] / 2})
+        second = piece(page, "segment-1")
+        expect(second.locator(".bio-region--tube")).to_be_visible()
+        expect(second).to_contain_text("Segment 2")
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.wait_for_timeout(300)
+        one, two = first.bounding_box(), second.bounding_box()
+        assert two["x"] > one["x"] + one["width"], (one, two)
+
+        # A link dropped between them is a flow from the first into the second, which goes on from its end: one
+        # vessel, with the link the joint between them, a place for a module.
+        gap = (one["x"] + one["width"] + two["x"]) / 2 - box["x"]
+        tile("link").drag_to(pane, target_position={"x": gap, "y": one["y"] - box["y"] + one["height"] / 2})
+        link = page.locator("[data-testid=bio-link]")
+        expect(link).to_contain_text("Flow")
+        expect(link).to_contain_text("Drop a module")
+        page.wait_for_timeout(300)
+        one, two = first.bounding_box(), second.bounding_box()
+        joint = link.locator("[data-testid=bio-joint-glyph]").bounding_box()
+        self.assertAlmostEqual(joint["x"], one["x"] + one["width"], delta=2)
+        self.assertAlmostEqual(two["x"], joint["x"] + joint["width"], delta=2)
+        self.assertAlmostEqual(two["y"], one["y"], delta=2)
+
+        # A module dropped on the joint is drawn as it, named.
+        page.locator("[data-testid=library-tab-modules]").click()
+        self.drop_module(0, centre(joint))
+        expect(page.locator("[data-testid=bio-joint]")).to_have_count(1)
+        expect(link).not_to_contain_text("Drop a module")
+
+        # The vessel drags as one, from either tube, and one step back puts it where it was.
+        self.drag((two["x"] + two["width"] - 40, two["y"] + two["height"] / 2), (0, 160))
+        page.wait_for_timeout(300)
+        moved = second.bounding_box()["y"] - two["y"]
+        self.assertGreater(moved, 120)
+        self.assertAlmostEqual(first.bounding_box()["y"] - one["y"], moved, delta=2)
+        undo(page)
+        page.wait_for_timeout(300)
+        self.assert_moved(two, second.bounding_box(), (0, 0), delta=2)
+
+    def test_the_build_palette_joins_two_cells_with_a_gap_junction(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=library-tab-build]").click()
+        tile = lambda kind: page.locator(f"[data-testid=bio-palette-tile][data-kind={kind}]")
+
+        tile("cell").drag_to(pane, target_position={"x": box["width"] * 0.3, "y": box["height"] * 0.4})
+        first = piece(page, "cell")
+        expect(first).to_be_visible()
+        # A second dropped beside it joins its template, centred where it was dropped, level with the first.
+        one = first.bounding_box()
+        tile("cell").drag_to(pane, target_position={"x": one["x"] - box["x"] + one["width"] * 1.9, "y": one["y"] - box["y"] + one["height"] / 2})
+        second = piece(page, "cell-1")
+        expect(second).to_contain_text("Cell 2")
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.wait_for_timeout(300)
+        one, two = first.bounding_box(), second.bounding_box()
+        assert two["x"] > one["x"] + one["width"], (one, two)
+        self.assertAlmostEqual(two["y"], one["y"], delta=4)
+
+        # A link between two cells is a junction: the second goes against the first, with a channel across both
+        # their membranes.
+        gap = (one["x"] + one["width"] + two["x"]) / 2 - box["x"]
+        tile("link").drag_to(pane, target_position={"x": gap, "y": one["y"] - box["y"] + one["height"] / 2})
+        link = page.locator("[data-testid=bio-link]")
+        expect(link).to_contain_text("Junction")
+        expect(link.locator("[data-testid=bio-joint-glyph] rect")).to_have_count(2)
+        page.wait_for_timeout(300)
+        one, two = first.bounding_box(), second.bounding_box()
+        assert 0 < two["x"] - (one["x"] + one["width"]) < 30, (one, two)
+
+        # A module dropped on the channel goes in the junction, not on either membrane.
+        page.locator("[data-testid=library-tab-modules]").click()
+        self.drop_module(0, centre(link.locator("[data-testid=bio-joint-glyph]").bounding_box()))
+        expect(page.locator("[data-testid=bio-joint]")).to_have_count(1)
+        expect(bound(page, "bioProtein")).to_have_count(0)
+
+        # Its menu on a cell takes it away again; the module in it stays in the diagram.
+        self.piece_menu("cell", "Remove from This Template", "Junction")
+        expect(page.locator(".p-dialog")).to_be_visible()
+        page.locator(".p-dialog").get_by_role("button", name="Remove").click()
+        expect(link).to_have_count(0)
+
     def test_the_build_palette_puts_an_organelle_inside_a_cell(self):
         page = self.page
         self.open_physiology()

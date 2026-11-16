@@ -341,7 +341,7 @@ export function dropSites(sites, dragged = null) {
       targets.push({ ...base, type: 'area', area: 'membrane', rect: site.rect })
       continue
     }
-    const inner = site.inner ? { inner: true } : {}
+    const inner = { ...(site.inner && { inner: true }), ...(site.joint && { joint: true }) }
     targets.push({ ...base, type: 'area', area: role === 'cytosol' ? 'cell' : 'compartment', rect: site.rect, ...inner })
   }
   return targets
@@ -436,6 +436,9 @@ export function nearestSite(targets, point, snap = 60, { areas = true, membrane 
     if (distance <= snap && (!best || distance < best.distance)) best = { ...target, distance }
   }
   if (!areas) return best
+  // A link's joint lies across the membranes or tube ends it joins, so a drop on it is on it, before their slots.
+  const joint = targets.find((target) => target.joint && contains(target.rect, point))
+  if (joint) return joint
   if (best && best.distance <= AREA_SNAP) return best
   const covering = targets.find((target) => target.type === 'slot' && onSlot(target, point))
   if (covering) return { ...covering, distance: Math.hypot(covering.x - point.x, covering.y - point.y) }
@@ -676,6 +679,10 @@ export function dragCompanions(layout, node) {
   const id = node.type === 'bioMembrane' ? layout.get(node.id)?.cell : node.id
   const place = layout.get(id)
   const instance = node.type === 'bioTemplateTitle' ? node.data?.instance : place?.instance
+  // A piece with a place of its own moves alone, with what is in or against it: its block.
+  if (instance && place?.block && node.type !== 'bioTemplateTitle') {
+    return [...layout].filter(([other, entry]) => other !== id && entry.instance === instance && entry.block === place.block).map(([other]) => other)
+  }
   if (instance) {
     const pieces = [...layout]
       .filter(([, other]) => other.instance === instance && (other.kind === 'cell' || other.kind === 'region'))

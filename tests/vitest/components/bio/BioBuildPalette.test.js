@@ -20,7 +20,7 @@ afterEach(() => wrapper.unmount())
 
 describe('the build palette', () => {
   it('offers the empty pieces a view is built from', () => {
-    expect(wrapper.findAll('[data-testid="bio-palette-tile"]').map((each) => each.attributes('data-kind'))).toEqual(['cell', 'compartment', 'organelle', 'microdomain', 'junction', 'fold', 'site', 'zone'])
+    expect(wrapper.findAll('[data-testid="bio-palette-tile"]').map((each) => each.attributes('data-kind'))).toEqual(['cell', 'tube', 'link', 'compartment', 'organelle', 'microdomain', 'junction', 'fold', 'site', 'zone'])
   })
 
   it('arms a tile on a click, for the view to place, and lets go of it on another', async () => {

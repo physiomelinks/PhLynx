@@ -10,6 +10,7 @@
         'bio-region--template': data.instance,
         'bio-region--inner': data.form === 'inner' && !data.clip,
         'bio-region--drawn': !!data.clip,
+        'bio-region--tube': data.shape === 'tube',
       },
     ]"
     :style="cutoutStyle"
@@ -172,6 +173,21 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   z-index: -1;
   border-radius: inherit;
   background: var(--p-content-background);
+}
+
+/* A tube, a stretch of vessel or duct: walls along its length, open at its ends */
+.bio-region--tube,
+.bio-region--tube.bio-region--empty {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 6px solid color-mix(in srgb, var(--p-text-muted-color) 55%, transparent);
+  border-bottom: 6px solid color-mix(in srgb, var(--p-text-muted-color) 55%, transparent);
+}
+
+.bio-region--tube.bio-region--selected {
+  border-top-color: var(--p-primary-color);
+  border-bottom-color: var(--p-primary-color);
 }
 
 /* An area a skin draws shows the skin's artwork through its tint, and is outlined by the skin, not by a box */

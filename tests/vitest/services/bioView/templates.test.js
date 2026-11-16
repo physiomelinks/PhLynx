@@ -9,6 +9,8 @@ import {
 import { FACETS } from '../../../../src/services/bioView/facets.js'
 import {
   ANNOTATION_FACETS,
+  COMPARTMENT_SHAPES,
+  LINK_KINDS,
   ANNOTATION_SIDES,
   EDGES,
   LIMITS,
@@ -148,7 +150,7 @@ describe('validateTemplate', () => {
       raw.self = raw
       failsWith(raw, 'at most 64 KB')
     })
-    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 3 }), '"schemaVersion" must be 1 or 2'))
+    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 4 }), '"schemaVersion" must be 1, 2 or 3'))
     it.each(['A-b', 'a', '1ab', 'a_b', 3])('a bad template id (%s)', (id) => failsWith(base({ id }), '"id" must start with a letter'))
     it('a missing name', () => failsWith(base({ name: '  ' }), '"name" is required'))
     it('a name that is not text', () => failsWith(base({ name: 3 }), 'Template: "name" must be text'))
@@ -157,7 +159,7 @@ describe('validateTemplate', () => {
     it('a long description', () => failsWith(base({ description: 'x'.repeat(281) }), '"description" must be at most 280'))
     it('a long author', () => failsWith(base({ author: 'x'.repeat(65) }), '"author" must be at most 64'))
     it('a long license', () => failsWith(base({ license: 'x'.repeat(65) }), '"license" must be at most 64'))
-    it('missing cells', () => failsWith(base({ cells: [] }), '"cells" must be a non-empty list'))
+    it('missing cells', () => failsWith(base({ cells: [], compartments: [] }), '"cells" must be a non-empty list'))
     it('too many cells', () => {
       const cells = Array.from({ length: 17 }, (_, i) => cell(`c${i}`, { facets: [facet('top', 'top')] }))
       failsWith(base({ cells }), 'at most 16 cells')
@@ -346,6 +348,7 @@ describe('sitesOf', () => {
       'two-cell-epithelium': 15,
       cardiomyocyte: 12,
       'rod-photoreceptor': 11,
+      tube: 1,
     })
   })
 })
@@ -372,13 +375,14 @@ describe('site references', () => {
 })
 
 describe('built-in templates', () => {
-  it('ships six, epithelial cell first and then by name', () => {
+  it('ships seven, epithelial cell first and then by name', () => {
     expect(BUILT_IN_TEMPLATES.map((template) => template.id)).toEqual([
       'epithelial-cell',
       'cardiomyocyte',
       'cell',
       'chemical-synapse',
       'rod-photoreceptor',
+      'tube',
       'two-cell-epithelium',
     ])
     expect(Object.isFrozen(BUILT_IN_TEMPLATES)).toBe(true)
@@ -422,6 +426,8 @@ describe('schema parity', () => {
     process: defs.process.properties,
     compartment: defs.compartment.properties,
     skin: defs.skin.properties,
+    at: defs.at.properties,
+    link: defs.link.properties,
   }
 
   it('lists the same enums and id patterns as the validator', () => {
@@ -432,7 +438,10 @@ describe('schema parity', () => {
     expect(defs.facet.properties.annotation.properties.at.enum).toEqual(ANNOTATION_SIDES)
     expect(schema.properties.id.pattern).toBe(TEMPLATE_ID.source)
     expect(defs.pieceId.pattern).toBe(PIECE_ID.source)
-    expect(schema.properties.schemaVersion.enum).toEqual([1, 2])
+    expect(schema.properties.schemaVersion.enum).toEqual([1, 2, 3])
+    expect(defs.compartment.properties.shape.enum).toEqual(COMPARTMENT_SHAPES)
+    expect(defs.link.properties.kind.enum).toEqual(LINK_KINDS)
+    expect(schema.properties.links.maxItems).toBe(LIMITS.links)
   })
 
   it('lists the same limits as the validator', () => {

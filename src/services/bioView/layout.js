@@ -279,6 +279,121 @@ export function junctionZone(cell, spaces) {
   return { x: centre.x - JUNCTION.width / 2, y: centre.y - JUNCTION.height / 2, width: JUNCTION.width, height: JUNCTION.height }
 }
 
+/** How big a compartment with a place of its own is drawn unless it says, and one drawn as a tube. */
+const FREE_COMPARTMENT = { width: 320 }
+export const TUBE = Object.freeze({ width: 360, height: 120 })
+
+/** A joint between two tubes: as long as this, and as tall as the narrower tube. */
+export const JOINT = Object.freeze({ width: 64 })
+/** How far apart two joined cells are drawn, their membranes all but touching, and the channel across them. */
+const JOINED_GAP = 12
+const CHANNEL = { width: 64, height: 96 }
+
+/**
+ * Finds the links that draw their pieces together: a flow from one tube into another, which goes on from its end,
+ * and a junction from one cell to another placed freely, which goes against its right side. Each piece is joined
+ * once, from one other, and each joins on one at most, so they make chains; a branch, a loop, or any other link is
+ * drawn as a line between its pieces.
+ *
+ * @param {Array<Object>} links - The instance's links, from scaffoldFromTemplates.
+ * @param {Array<Object>} cells - Its cells in rows or placed freely, not organelles.
+ * @param {Array<Object>} pieces - Its compartments.
+ * @returns {Map<string, {to: string, link: string, kind: 'flow'|'junction'}>} Joined piece's key -> what it is
+ *   joined to, by which link.
+ */
+function joinsOf(links, cells, pieces) {
+  const tubes = new Set(pieces.filter((piece) => piece.shape === 'tube' && piece.form === 'free').map((piece) => piece.key))
+  const freeCells = new Set(cells.filter((cell) => cell.at).map((cell) => cell.key))
+  const isCell = new Set(cells.map((cell) => cell.key))
+  const joins = new Map()
+  const onward = new Set()
+  const rootOf = (key) => (joins.has(key) ? rootOf(joins.get(key).to) : key)
+  for (const link of links) {
+    const [from, to] = link.between
+    const kind =
+      link.flow === 'flow' && tubes.has(from) && tubes.has(to)
+        ? 'flow'
+        : link.flow === 'junction' && isCell.has(from) && freeCells.has(to)
+          ? 'junction'
+          : null
+    if (!kind || joins.has(to) || onward.has(from) || rootOf(from) === to) continue
+    joins.set(to, { to: from, link: link.key, kind })
+    onward.add(from)
+  }
+  return joins
+}
+
+/**
+ * Gives the joint a link draws between the pieces it joins: between two tubes, the stretch from the end of the
+ * first to the start of the second; between two cells, a channel across both their membranes, midway along where
+ * they face each other.
+ *
+ * @param {'flow'|'junction'} kind
+ * @param {Object} a - The first piece's rect.
+ * @param {Object} b - The second's, on from its right.
+ * @returns {{x: number, y: number, width: number, height: number}}
+ */
+export function jointRect(kind, a, b) {
+  if (kind === 'flow') {
+    const height = Math.min(a.height, b.height)
+    return { x: a.x + a.width, y: a.y + (a.height - height) / 2, width: b.x - a.x - a.width, height }
+  }
+  const middle = (Math.max(a.y, b.y) + Math.min(a.y + a.height, b.y + b.height)) / 2
+  const contact = (a.x + a.width + b.x) / 2
+  return { x: contact - CHANNEL.width / 2, y: middle - CHANNEL.height / 2, ...CHANNEL }
+}
+
+/** The room a link leaves midway for the module it takes: a card's, with a little round it. */
+const LINK_ZONE = { width: CARD.width + 16, height: CARD.height + 16 }
+
+/**
+ * Gives where a link between two spaces is drawn: a line from the edge of the first to the edge of the second,
+ * along the way between their middles, and the room midway along it for the module the link takes. Where one
+ * space lies within or over the other, the line runs between their middles.
+ *
+ * @param {{x: number, y: number, width: number, height: number}} a - The first space.
+ * @param {{x: number, y: number, width: number, height: number}} b - The second.
+ * @returns {{line: {from: {x: number, y: number}, to: {x: number, y: number}}, zone: {x: number, y: number,
+ *   width: number, height: number}}}
+ */
+export function linkGeometry(a, b) {
+  const middle = (rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 })
+  const [ca, cb] = [middle(a), middle(b)]
+  // How far along the way from a rect's middle to a point its edge is, as a share of the way.
+  const reach = (rect, from, to) => {
+    const dx = Math.abs(to.x - from.x)
+    const dy = Math.abs(to.y - from.y)
+    return Math.min(dx ? rect.width / 2 / dx : Infinity, dy ? rect.height / 2 / dy : Infinity)
+  }
+  const [ta, tb] = [reach(a, ca, cb), reach(b, cb, ca)]
+  const isApart = Number.isFinite(ta) && Number.isFinite(tb) && ta + tb < 1
+  const along = (from, to, t) => ({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t })
+  const line = isApart ? { from: along(ca, cb, ta), to: along(cb, ca, tb) } : { from: ca, to: cb }
+  const mid = along(line.from, line.to, 0.5)
+  const zoneAt = (centre) => ({ x: centre.x - LINK_ZONE.width / 2, y: centre.y - LINK_ZONE.height / 2, ...LINK_ZONE })
+  const zone = zoneAt(mid)
+  const overlaps = (r, s) => r.x < s.x + s.width && s.x < r.x + r.width && r.y < s.y + s.height && s.y < r.y + r.height
+  if (!overlaps(zone, a) && !overlaps(zone, b)) return { line, zone }
+  // Too little room between them: its room goes beside the way, clear of both, nearer side first, and the link
+  // runs from each space's edge through it.
+  const length = Math.hypot(cb.x - ca.x, cb.y - ca.y)
+  const normal = length ? { x: -(cb.y - ca.y) / length, y: (cb.x - ca.x) / length } : { x: 0, y: -1 }
+  for (let shift = LINK_STEP; shift <= LINK_SHIFT_MAX; shift += LINK_STEP) {
+    for (const sign of [-1, 1]) {
+      const via = { x: mid.x + normal.x * shift * sign, y: mid.y + normal.y * shift * sign }
+      const moved = zoneAt(via)
+      if (overlaps(moved, a) || overlaps(moved, b)) continue
+      const edge = (rect, centre) => along(centre, via, Math.min(1, reach(rect, centre, via)))
+      return { line: { from: edge(a, ca), to: edge(b, cb), via }, zone: moved }
+    }
+  }
+  return { line, zone }
+}
+
+/** How far, and in what steps, a link's room is moved beside its way to clear the spaces it joins. */
+const LINK_STEP = 8
+const LINK_SHIFT_MAX = 800
+
 /** Where the card at a place in a process area's row goes: in from the area's corner, as processSlot puts it. */
 const zoneSlot = (zone, order) => ({ x: zone.rect.x + CELL_RADIUS / 2 + order * (CARD.width + 16), y: zone.rect.y + 8 })
 
@@ -449,6 +564,8 @@ function fitProcesses(size, processes) {
 function clipBand(rect, piece, cells, rects) {
   const spanned = new Set(piece.against.map((entry) => entry.cellKey))
   const { row } = cells.find((cell) => spanned.has(cell.key))
+  // A cell with a place of its own is in no row, so nothing beside it stops its band.
+  if (row === undefined) return rect
   const span = spanOf([...spanned].map((key) => rects.get(key)))
   const others = cells.filter((cell) => cell.row === row && !spanned.has(cell.key)).map((cell) => rects.get(cell.key))
   const before = others.filter((other) => other.x + other.width <= span.left).map((other) => other.x + other.width)
@@ -483,8 +600,8 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
     const everyCell = scaffold.cells.filter((cell) => cell.instance === instanceId)
     const cells = everyCell.filter((cell) => !cell.parent)
     const organellesOf = (cell) => everyCell.filter((other) => other.parent === cell.key)
-    if (!cells.length) continue
     const pieces = scaffold.compartments.filter((piece) => piece.instance === instanceId)
+    if (!cells.length && !pieces.length) continue
     const origin = isPoint(at) ? at : { x: 0, y: 0 }
 
     // How far out each band and column starts, stacked per cell and facet in declaration order.
@@ -515,7 +632,9 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
     const gapDepth = (piece, fallback) => piece.depth ?? fallback
 
     // Cells, row by row.
-    const rows = [...new Set(cells.map((cell) => cell.row))].sort((a, b) => a - b)
+    // Those with a place of their own are in no row.
+    const rowCells = cells.filter((cell) => !cell.at)
+    const rows = [...new Set(rowCells.map((cell) => cell.row))].sort((a, b) => a - b)
     // A fold is as deep as its proteins need, at least: the cell is sized for it, and its slots are found down it.
     const redraw = (cell, drawnAs) => (cell.shape = withFolds(cell.shape, drawnAs))
     const membersOf = (cell, facetId) => cell.facets.find((facet) => facet.id === facetId)?.members.length ?? 0
@@ -582,7 +701,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
     }
     /** A box of a cell's skin, where the cell is placed. */
     const boxIn = (cell, box) => ({ ...box, x: rects.get(cell.key).x + box.x, y: rects.get(cell.key).y + box.y })
-    let y = origin.y + Math.max(0, ...cells.filter((cell) => cell.row === rows[0]).map((cell) => outOf(cell, 'top')))
+    let y = origin.y + Math.max(0, ...rowCells.filter((cell) => cell.row === rows[0]).map((cell) => outOf(cell, 'top')))
     rows.forEach((row, r) => {
       const inRow = cells.filter((cell) => cell.row === row)
       let x = origin.x + outOf(inRow[0], 'left')
@@ -601,6 +720,40 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
       const bands = deepest(inRow, 'bottom') + deepest(below, 'top')
       y = bottom + (gap ? gapDepth(gap, REGION_HEIGHT) : bands + GAP)
     })
+    // Each cell with a place of its own, there: from the template's own corner.
+    for (const cell of cells.filter((each) => each.at)) {
+      rects.set(cell.key, { x: origin.x + cell.at.x, y: origin.y + cell.at.y, ...sizes.get(cell.key) })
+    }
+    // The links that draw their two pieces together, and what each joined piece is joined to.
+    const instanceLinks = scaffold.links.filter((each) => each.instance === instanceId)
+    const joins = joinsOf(instanceLinks, cells, pieces)
+    const rootOf = (key) => (joins.has(key) ? rootOf(joins.get(key).to) : key)
+    // A cell joined to another goes against its right side, level with it, and their facing sides keep no names.
+    const joinedSides = new Map()
+    const side = (key, edge) => joinedSides.set(key, new Set([...(joinedSides.get(key) ?? []), edge]))
+    const placeJoined = (key) => {
+      const join = joins.get(key)
+      if (!join || join.kind !== 'junction' || join.isPlaced) return
+      placeJoined(join.to)
+      const to = rects.get(join.to)
+      rects.set(key, { x: to.x + to.width + JOINED_GAP, y: to.y, ...sizes.get(key) })
+      side(join.to, 'right')
+      side(key, 'left')
+      join.isPlaced = true
+    }
+    for (const key of joins.keys()) placeJoined(key)
+    // What a drag of one piece takes with it: a freely placed cell or compartment, what is joined to it, and all in
+    // or against them; everything else moves with the template.
+    const pieceAt = (key) => cells.find((cell) => cell.key === key)?.at ?? pieces.find((piece) => piece.key === key)?.at
+    const blockOf = (key) => (pieceAt(rootOf(key)) ? rootOf(key) : null)
+    const blocks = new Map()
+    for (const cell of cells) if (blockOf(cell.key)) blocks.set(cell.key, blockOf(cell.key))
+    for (const cell of everyCell) if (cell.parent && blocks.has(cell.parent)) blocks.set(cell.key, blocks.get(cell.parent))
+    for (const piece of pieces) {
+      const host = piece.form === 'inner' ? piece.parent : piece.against[0]?.cellKey
+      if (host && blocks.has(host)) blocks.set(piece.key, blocks.get(host))
+      else if (!host && blockOf(piece.key)) blocks.set(piece.key, blockOf(piece.key))
+    }
 
     // Each cell's organelles, in a row inside it, centred.
     for (const cell of cells) {
@@ -728,10 +881,12 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
         path: cell.owner.cell,
         site: cell.site,
         empty: !cell.node,
+        ...(blocks.has(cell.key) && { block: blocks.get(cell.key) }),
         tone: null,
         ...(cell.skin && { skin: cell.skin }),
         label: cell.label,
-        facetLabels: cell.facets.filter((facet) => !facet.fold).map(({ id, label, edge }) => {
+        // Not on a side joined to another cell's, where the two touch.
+        facetLabels: cell.facets.filter((facet) => !facet.fold && !joinedSides.get(cell.key)?.has(facet.edge)).map(({ id, label, edge }) => {
           // A facet a skin draws is named by its own stretch of membrane, on the side it faces.
           if (!facetById(cell.shape, id)?.path) return { facetId: id, label, edge }
           const middle = proteinPlacement(rect, id, 0, 1, cell.shape)
@@ -768,14 +923,36 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
       placed.push([piece, piece.form === 'band' ? clipBand(rect, piece, cells, rects) : rect])
     }
     const all = [...cells.map((cell) => rects.get(cell.key)), ...placed.map(([, rect]) => rect)]
-    const span = spanOf(all)
-    const cellSpan = spanOf(cells.map((cell) => rects.get(cell.key)))
+    // With no cells to go below, from the template's own corner, as wide as one placed freely.
+    const span = all.length ? spanOf(all) : { bottom: origin.y - GAP }
+    const cellSpan = cells.length
+      ? spanOf(cells.map((cell) => rects.get(cell.key)))
+      : { left: origin.x + GAP, right: origin.x + FREE_COMPARTMENT.width - GAP }
     let freeY = span.bottom + GAP
     for (const piece of pieces.filter((piece) => piece.form === 'free')) {
-      const height = piece.depth ?? REGION_HEIGHT
-      placed.push([piece, { x: cellSpan.left - GAP, y: freeY, width: cellSpan.right - cellSpan.left + 2 * GAP, height }])
+      const height = piece.size?.height ?? piece.depth ?? (piece.shape === 'tube' ? TUBE.height : REGION_HEIGHT)
+      // One with a place of its own goes there, from the template's own corner.
+      if (piece.at) {
+        const width = piece.size?.width ?? (piece.shape === 'tube' ? TUBE.width : FREE_COMPARTMENT.width)
+        placed.push([piece, { x: origin.x + piece.at.x, y: origin.y + piece.at.y, width, height }])
+        continue
+      }
+      const width = piece.size?.width ?? cellSpan.right - cellSpan.left + 2 * GAP
+      placed.push([piece, { x: cellSpan.left - GAP, y: freeY, width, height }])
       freeY += height + GAP / 2
     }
+    // A tube joined downstream of another goes on from its end, level with it, past the joint between them.
+    const freeRects = new Map(placed.map(([piece, rect], i) => [piece.key, i]))
+    const placeTube = (key) => {
+      const join = joins.get(key)
+      if (!join || join.kind !== 'flow' || join.isPlaced || !freeRects.has(key) || !freeRects.has(join.to)) return
+      placeTube(join.to)
+      const to = placed[freeRects.get(join.to)][1]
+      const [piece, rect] = placed[freeRects.get(key)]
+      placed[freeRects.get(key)] = [piece, { ...rect, x: to.x + to.width + JOINT.width, y: to.y + (to.height - rect.height) / 2 }]
+      join.isPlaced = true
+    }
+    for (const key of joins.keys()) placeTube(key)
     // Microdomains, each inside its cell; they change no other piece's place.
     for (const piece of pieces) if (innerRects.has(piece.key)) placed.push([piece, innerRects.get(piece.key)])
     for (const [piece, rect] of placed) {
@@ -798,8 +975,45 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
         ...(clips.has(piece.key) && { clip: clips.get(piece.key) }),
         ...(edge && { edge }),
         ...(piece.skin && { skin: piece.skin }),
+        ...(piece.shape && { shape: piece.shape }),
+        ...(blocks.has(piece.key) && { block: blocks.get(piece.key) }),
         label: piece.label,
       })
+    }
+
+    // Links, each from the edge of one of its spaces to the other's, with room midway for the module it takes.
+    // A link that joins its pieces is drawn as the joint between them, with its module in it.
+    for (const link of instanceLinks) {
+      const [a, b] = link.between.map((key) => layout.get(key)?.rect)
+      if (!a || !b) continue
+      const join = joins.get(link.between[1])
+      const joint = join?.isPlaced && join.link === link.key ? jointRect(join.kind, a, b) : null
+      const { line, zone } = joint ? { line: null, zone: joint } : linkGeometry(a, b)
+      const box = line ? spanOf([zone, ...[line.from, line.to].map((point) => ({ ...point, width: 0, height: 0 }))]) : spanOf([zone])
+      layout.set(link.key, {
+        kind: 'link',
+        rect: { x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top },
+        ...(joint ? { joint: join.kind, tone: pieces.find((piece) => piece.key === link.between[0])?.tone ?? null } : { line }),
+        zone,
+        instance: instanceId,
+        path: link.owner.link,
+        site: link.site,
+        empty: !link.node,
+        flow: link.flow,
+        label: link.label,
+      })
+      // The module on it is drawn as a card, in the room the link leaves it, or in its joint.
+      if (link.node) {
+        layout.set(link.node, {
+          kind: 'card',
+          ...(joint && { joint: join.kind }),
+          x: zone.x + (zone.width - CARD.width) / 2,
+          y: zone.y + (zone.height - CARD.height) / 2,
+          instance: instanceId,
+          site: link.site,
+          link: link.key,
+        })
+      }
     }
   }
 
@@ -810,8 +1024,13 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
     const entry = { ref, instance, path, role, kind, label, occupant: kind === 'single' ? (occupants[0] ?? null) : null }
     const cell = scaffold.cells.find((piece) => piece.key === key)
     if (kind === 'single') {
-      // A microdomain lies inside its cell, so a drop on it is told from one on the cell (see nearestSite).
-      sites.push({ ...entry, key, rect: layout.get(key).rect, ...(layout.get(key).form === 'inner' && { inner: true }) })
+      const place = layout.get(key)
+      // A link whose spaces have no place has none either.
+      if (!place) continue
+      // A microdomain lies inside its cell, so a drop on it is told from one on the cell (see nearestSite); a link's
+      // room may lie over the spaces it joins, and is told from them the same way.
+      const isWithin = place.form === 'inner' || place.kind === 'link'
+      sites.push({ ...entry, key, rect: place.zone ?? place.rect, ...(isWithin && { inner: true }), ...(place.joint && { joint: true }) })
       continue
     }
     const rect = rects.get(key)
