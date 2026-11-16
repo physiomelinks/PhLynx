@@ -36,6 +36,7 @@ import { ensureExtension, legacyDownload, saveFileHandle, writeFileHandle } from
  *   handleSaveWorkspace: () => Promise<void>,
  *   onSaveConfirm: (fileName: string) => Promise<void>,
  *   applyWorkspaceState: (loadedState: Object, options?: { source?: string }) => Promise<void>,
+ *   buildSaveState: () => Object,
  * }}
  */
 export function useWorkspaceSaveLoad({
@@ -104,11 +105,9 @@ export function useWorkspaceSaveLoad({
     return 'dialog'
   }
 
-  /**
-   * Collects all state and creates blob from it.
-   */
-  function createSaveBlob() {
-    const saveState = buildWorkspaceFile({
+  /** The workspace, as a save writes it. */
+  function buildSaveState() {
+    return buildWorkspaceFile({
       flow: toObject(),
       library: libraryStore,
       simulation: simulationSettingsStore,
@@ -119,8 +118,13 @@ export function useWorkspaceSaveLoad({
       bioGlyphs: glyphLibraryStore,
       nodeTheme: nodeThemeStore,
     })
+  }
 
-    const jsonString = JSON.stringify(saveState, null, 2)
+  /**
+   * Collects all state and creates blob from it.
+   */
+  function createSaveBlob() {
+    const jsonString = JSON.stringify(buildSaveState(), null, 2)
     return new Blob([jsonString], { type: 'application/json' })
   }
 
@@ -231,7 +235,7 @@ export function useWorkspaceSaveLoad({
         file_type: source,
       })
       notify.success({
-        title: 'Workflow loaded successfully!',
+        title: source === 'recovery' ? 'Unsaved work restored' : 'Workflow loaded successfully!',
         ...(driven ? { message: driven } : {}),
       })
     } catch (error) {
@@ -245,5 +249,5 @@ export function useWorkspaceSaveLoad({
     }
   }
 
-  return { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState }
+  return { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState, buildSaveState }
 }

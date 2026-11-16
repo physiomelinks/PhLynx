@@ -550,6 +550,14 @@
             @open-edge-dialog="(edgeId) => onEdgeDoubleClick({ edge: findEdge(edgeId) })"
             @export-image="exportImageOf"
           />
+          <div v-if="showRecovery" class="recovery-layer">
+            <RecoveryPanel
+              :drafts="recovery.drafts.value"
+              :restoring="recovery.restoring.value"
+              @restore="onRestoreDraft"
+              @discard="onDiscardDraft"
+            />
+          </div>
         </div>
       </main>
       <ContextSidebar
@@ -706,6 +714,8 @@ import { useImportExportSend } from '../composables/useImportExportSend'
 import LibraryArea from '../components/LibraryArea.vue'
 import BioBuildPalette from '../components/bio/BioBuildPalette.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
+import RecoveryPanel from '../components/RecoveryPanel.vue'
+import { useWorkspaceRecovery } from '../composables/useWorkspaceRecovery'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
 import InstanceNode from '../components/InstanceNode.vue'
@@ -772,6 +782,7 @@ import { cyrb53, takeInputFile } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
 import {
+  DEFAULT_PROJECT_NAME,
   edgeLineOptions,
   FLOW_IDS,
   IMPORT_KEYS,
@@ -2445,7 +2456,7 @@ function snapshotFlowState(nodeIds = null) {
   })
 }
 
-const { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState } = useWorkspaceSaveLoad({
+const { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState, buildSaveState } = useWorkspaceSaveLoad({
   saveDialogVisible,
   nodes,
   edges,
@@ -2798,6 +2809,48 @@ const unregisterSaver = registerWorkspaceSaver({
   hasContent: () => hasWorkspaceContent.value,
 })
 
+// Keeps a recovery draft of unsaved work, and offers back on the empty canvas the drafts of tabs closed without saving.
+const recovery = useWorkspaceRecovery({
+  hasUnsavedChanges,
+  enabled: () => appSettings.workspaceRecovery,
+  changeSignal: () => historyStore.pointerIndex,
+  isEmpty: () => !hasWorkspaceContent.value,
+  buildState: buildSaveState,
+  describe: () => ({
+    name: sessionMetadataStore.lastSaveName === DEFAULT_PROJECT_NAME ? null : sessionMetadataStore.lastSaveName,
+    nodeCount: nodes.value.length,
+  }),
+  applyState: async (state, draft) => {
+    await builtInLibraryReady
+    await applyWorkspaceState(state, { source: 'recovery' })
+    // Saved nowhere yet, and its undo history stayed with the tab it came from.
+    historyStore.clear()
+    historyStore.markUnsaved()
+    if (draft.name) sessionMetadataStore.setLastSaveName(draft.name)
+  },
+})
+const showRecovery = computed(() => !hasWorkspaceContent.value && !isDragOver.value && recovery.drafts.value.length > 0)
+
+async function onRestoreDraft(id) {
+  try {
+    await recovery.restore(id)
+  } catch (error) {
+    notify.error({ title: 'Failed to restore unsaved work', message: error.message })
+  }
+}
+
+async function onDiscardDraft(id) {
+  const discard = await confirm({
+    header: 'Discard unsaved work?',
+    message: 'Once discarded, this work cannot be recovered.',
+    severity: 'warning',
+    acceptLabel: 'Discard',
+    rejectLabel: 'Cancel',
+    isRejectDefault: true,
+  })
+  if (discard) await recovery.discard(id)
+}
+
 onUnmounted(() => {
   setWorkspaceMounted(false)
   removeUnloadGuard()
@@ -2964,6 +3017,21 @@ watch(
 .bio-flow-layer {
   position: absolute;
   inset: 0;
+}
+
+/* Centres the recovery panel on the canvas left showing between the side panels, letting clicks through around it. */
+.recovery-layer {
+  position: absolute;
+  inset: 0 var(--context-panel-cover, 0px) 0 var(--library-panel-width, 0px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.recovery-layer > * {
+  pointer-events: auto;
 }
 
 /* Tutorial Slate Background for Dark Mode */

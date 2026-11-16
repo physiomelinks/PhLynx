@@ -42,6 +42,19 @@ describe('useUnsavedChanges', () => {
     expect(dirty.value).toBe(false)
   })
 
+  it('stays unsaved after markUnsaved, as for restored work, however it is undone, until saved', async () => {
+    const history = useFlowHistoryStore()
+    const dirty = useUnsavedChanges(() => true)
+    history.clear()
+    history.markUnsaved()
+    expect(dirty.value).toBe(true)
+    await history.executeAndAddCommand(step())
+    await history.undo()
+    expect(dirty.value).toBe(true)
+    history.markSaved()
+    expect(dirty.value).toBe(false)
+  })
+
   it('never guards an empty workspace, as for the isolation reload of a first visit', async () => {
     const history = useFlowHistoryStore()
     await history.executeAndAddCommand(step())

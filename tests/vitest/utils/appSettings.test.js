@@ -43,6 +43,7 @@ describe('app settings registry', () => {
       'CellDL diagrams',
       'Image export',
       'Appearance',
+      'Workspace',
       'Toolbar',
     ])
   })
