@@ -9,15 +9,15 @@ const CELLML_FORMAT = 'http://identifiers.org/combine.specifications/cellml'
 const SEDML_FORMAT = 'http://identifiers.org/combine.specifications/sed-ml'
 
 /**
- * Picks an archive's model: its only CellML file, its master one, or else the one its SED-ML runs, as a modular
- * archive's module files are CellML too.
+ * Picks the model CellML: the only one, the one master, or else the one the SED-ML's models use, as a PhLynx export
+ * marks only the SED-ML as master and also carries module and units CellML files.
  *
- * @param {Array<{location: string, isMaster: boolean}>} cellmlEntries
- * @param {string|null} [sedmlSource] - The location the SED-ML's model reads.
- * @returns {string}
+ * @param {Array<{ location: string, isMaster: boolean }>} cellmlEntries
+ * @param {string[]} [modelSources] - Archive locations the SED-ML's models name.
+ * @returns {string} The model CellML's location.
  * @throws {Error} When none of these picks one.
  */
-export function validateCellmlEntries(cellmlEntries, sedmlSource = null) {
+export function validateCellmlEntries(cellmlEntries, modelSources = []) {
   if (!Array.isArray(cellmlEntries) || cellmlEntries.length === 0) {
     throw new Error('Invalid OMEX file: no CellML files found.')
   }
@@ -27,9 +27,8 @@ export function validateCellmlEntries(cellmlEntries, sedmlSource = null) {
   }
 
   const masters = cellmlEntries.filter((entry) => entry.isMaster)
-  if (!masters.length && cellmlEntries.some((entry) => entry.location === sedmlSource)) return sedmlSource
-  if (masters.length !== 1) {
-    throw new Error('Invalid OMEX file: multiple CellML files require exactly one master CellML file.')
+  if (masters.length === 1) {
+    return masters[0].location
   }
 
   const sourced = cellmlEntries.filter((entry) => modelSources.includes(entry.location))
@@ -57,7 +56,31 @@ export function readSedmlModelSources(sedmlText, sedmlLocation) {
     .map((model) => model.getAttribute('source'))
     .filter(Boolean)
     .map((source) => (source.startsWith('./') ? source.slice(2) : source))
+    // An export's SED-ML runs the flattened copy of its modular main model (see generateOmexArchive).
+    .map((source) => (source.startsWith(`${FLATTENED_FOLDER}/`) ? source.slice(FLATTENED_FOLDER.length + 1) : source))
     .flatMap((source) => (folder ? [folder + source, source] : [source]))
+}
+
+/**
+ * Reads the archive locations a CellML model imports components from, resolved against the model's folder.
+ *
+ * @param {string} cellmlText
+ * @param {string} cellmlLocation
+ * @returns {Set<string>}
+ */
+export function readComponentImports(cellmlText, cellmlLocation) {
+  const document = new DOMParser().parseFromString(cellmlText, 'application/xml')
+  if (document.getElementsByTagName('parsererror')[0]) return new Set()
+
+  const folder = cellmlLocation.includes('/') ? cellmlLocation.slice(0, cellmlLocation.lastIndexOf('/') + 1) : ''
+  return new Set(
+    Array.from(document.getElementsByTagName('*'))
+      .filter((element) => element.localName === 'import')
+      .filter((element) => Array.from(element.children).some((child) => child.localName === 'component'))
+      .map((element) => element.getAttribute('xlink:href') ?? element.getAttributeNS('http://www.w3.org/1999/xlink', 'href'))
+      .filter(Boolean)
+      .map((href) => folder + (href.startsWith('./') ? href.slice(2) : href)),
+  )
 }
 
 /**
@@ -83,18 +106,6 @@ export async function registerArchiveUnits(archive, locations, libraryStore) {
     added.push(componentFile)
   }
   return added
-}
-
-/**
- * The location a SED-ML document's first model reads.
- *
- * @param {string} sedml
- * @returns {string|null}
- */
-function sedmlModelSource(sedml) {
-  const source = /<(?:\w+:)?model\b[^>]*\bsource\s*=\s*"([^"]*)"/.exec(sedml)?.[1]
-  // An export's SED-ML runs the flattened copy of its modular main model (see generateOmexArchive).
-  return source ? source.replace(/^\.\//, '').replace(new RegExp(`^${FLATTENED_FOLDER}/`), '') : null
 }
 
 export const extractOmexArchive = async (importPayload, updateProgress) => {
@@ -232,8 +243,11 @@ export const importOmexFile = async (payload, updateProgress) => {
     updateProgress('Importing OMEX file... (70/100)')
   }
 
-  const sedmlSource = foundFiles.sedml ? sedmlModelSource(await archive.file(foundFiles.sedml).async('string')) : null
-  const cellmlLocation = validateCellmlEntries(foundFiles.cellmls, sedmlSource)
+  const sedmlFile = foundFiles.sedml && archive.file(foundFiles.sedml)
+  const modelSources = sedmlFile ? readSedmlModelSources(await sedmlFile.async('string'), foundFiles.sedml) : []
+  const cellmlLocation = validateCellmlEntries(foundFiles.cellmls, modelSources)
+  // The flattened copy and the modules the model imports components from carry the model's math, not units files.
+  const moduleLocations = readComponentImports(await archive.file(cellmlLocation).async('string'), cellmlLocation)
 
   if (typeof updateProgress === 'function') {
     updateProgress('Importing OMEX file... (100/100)')
@@ -248,7 +262,9 @@ export const importOmexFile = async (payload, updateProgress) => {
       moduleConfig: foundFiles.moduleConfig,
     },
     // Not files, so the archive's other files aren't kept as extras: their units go to the library.
-    otherCellmls: foundFiles.cellmls.map(({ location }) => location).filter((location) => location !== cellmlLocation),
+    otherCellmls: foundFiles.cellmls
+      .map(({ location }) => location)
+      .filter((location) => location !== cellmlLocation && !location.startsWith(`${FLATTENED_FOLDER}/`) && !moduleLocations.has(location)),
     extras: foundFiles.extras,
     annotations: foundFiles.annotations,
     formats,

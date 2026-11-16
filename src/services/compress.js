@@ -8,7 +8,6 @@ import { resolveParamsForIdExport } from './simulation/paramsForId'
 import { PHLYNX_PROJECT_VERSION } from '../utils/constants'
 
 import { useOmexStore } from '../stores/omexStore.js'
-import { Location } from 'happy-dom'
 
 const CELLML_FORMAT = 'http://identifiers.org/combine.specifications/cellml'
 const SEDML_FORMAT = 'http://identifiers.org/combine.specifications/sed-ml'
@@ -130,7 +129,8 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   const manifestEntries = [
     { location: 'document.sedml', format: SEDML_FORMAT, master: true },
     { location: cellmlFileName, format: CELLML_FORMAT },
-    ...Array.from(unitsFiles.keys(), (location) => (flatLocation ? [{ location, format: CELLML_FORMAT }] : [])),
+    ...(flatLocation ? [{ location: flatLocation, format: CELLML_FORMAT }] : []),
+    ...Array.from(unitsFiles.keys(), (location) => ({ location, format: CELLML_FORMAT })),
     { location: 'flow-snapshot.json', format: 'application/x.vnd.phlynx-flow+json' },
     { location: 'changes.json', format: 'application/x.vnd.phlynx-changes+json' },
   ]

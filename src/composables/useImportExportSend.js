@@ -193,6 +193,7 @@ export function useImportExportSend({
         plotConfig: resolvePlotConfig(plotConfig.value, scope?.nodes ?? nodes.value),
         parameterScanConfig: scanConfig,
       },
+      // A selection is never the model as imported.
       {
         extractedData,
         modified: scope ? true : hasModelChanged.value,

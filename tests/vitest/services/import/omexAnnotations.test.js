@@ -73,7 +73,10 @@ describe('OMEX export and import of annotations', () => {
     expect(manifest).toContain('<content location="flattened/model.cellml" format="http://identifiers.org/combine.specifications/cellml"/>')
     expect(await archive.file('document.sedml').async('string')).toContain('source="flattened/model.cellml"')
     expect(await archive.file('flattened/model.cellml').async('string')).not.toMatch(/<import\b/)
-    expect((await importOmexFile(omex)).files.cellml).toBe('model.cellml')
+    const result = await importOmexFile(omex)
+    expect(result.files.cellml).toBe('model.cellml')
+    // Neither the flattened copy nor the modules are units files.
+    expect(result.otherCellmls.every((location) => location.startsWith('units/'))).toBe(true)
   })
 
   it('brings the sidecars back', async () => {

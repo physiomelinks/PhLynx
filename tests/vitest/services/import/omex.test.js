@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import JSZip from 'jszip'
 
-import { extractOmexArchive, importOmexFile, readSedmlModelSources, validateCellmlEntries } from '../../../../src/services/import/omex.js'
+import { extractOmexArchive, importOmexFile, readComponentImports, readSedmlModelSources, validateCellmlEntries } from '../../../../src/services/import/omex.js'
 import { isSimulationJsonFile, isPhlynxFlowSnapshotFile } from '../../../../src/services/import/omexClassifiers.js'
 import { PHLYNX_PROJECT_VERSION } from '../../../../src/utils/constants.js'
 
@@ -157,6 +157,19 @@ describe('CellML master selection', () => {
   it('resolves SED-ML sources against its folder', () => {
     const sedml = '<sedML><listOfModels><model source="model.cellml"/></listOfModels></sedML>'
     expect(readSedmlModelSources(sedml, 'sim/document.sedml')).toEqual(['sim/model.cellml', 'model.cellml'])
+  })
+
+  it('reads a SED-ML source in flattened/ as the modular main model', () => {
+    const sedml = '<sedML><listOfModels><model source="flattened/model.cellml"/></listOfModels></sedML>'
+    expect(readSedmlModelSources(sedml, 'document.sedml')).toEqual(['model.cellml'])
+  })
+
+  it('reads the files a model imports components from, not units', () => {
+    const cellml = `<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:xlink="http://www.w3.org/1999/xlink" name="m">
+      <import xlink:href="decay.cellml"><component name="d" component_ref="decay"/></import>
+      <import xlink:href="units.cellml"><units name="u" units_ref="u"/></import>
+    </model>`
+    expect([...readComponentImports(cellml, 'model.cellml')]).toEqual(['decay.cellml'])
   })
 })
 
