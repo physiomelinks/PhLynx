@@ -421,7 +421,9 @@ describe('AnnotationTab', () => {
 
     it('offers the places the module kind has, and keeps a saved one it does not', async () => {
       await mountTab()
-      const places = (name) => cell(name, 'whose').props('options').map(({ value, label }) => [value, label])
+      // Each list ends with the way to any other place, which is tested on its own.
+      const places = (name) => cell(name, 'whose').props('options').slice(0, -1).map(({ value, label }) => [value, label])
+      expect(cell('J', 'whose').props('options').at(-1)).toEqual({ value: '__other-place__', label: 'Another place…' })
       expect(places('J')).toEqual([
         ['self', 'This compartment'],
         ['self+GO:0005886', 'Its membrane'],
@@ -465,7 +467,7 @@ describe('AnnotationTab', () => {
       await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
       await edit('J', 'whose', 'GO:0005737')
       expect(cell('J', 'from').props('modelValue')).toBeNull()
-      expect(cell('J', 'from').props('options').map(({ value }) => value)).toEqual(['GO:0005576'])
+      expect(cell('J', 'from').props('options').map(({ value }) => value)).toEqual(['GO:0005576', '__other-place__'])
 
       await edit('J', 'from', 'GO:0005576')
       expect(entryOf('J')).toMatchObject({ location: 'GO:0005737', from: 'GO:0005576' })
@@ -751,5 +753,44 @@ describe('AnnotationTab placement and held flows', () => {
   it('shows the flows as held only when the instance holds them, whatever their rows', async () => {
     await mountPool({ rows: POOL_ROWS.map((row) => (row.name === 'v_A' ? { ...row, type: 'constant', value: '0' } : row)) })
     expect(holdBox().props('modelValue')).toBe(false)
+  })
+
+  describe('a place that is none of the usual ones', () => {
+    const OUTER = { curie: 'GO:0001750', label: 'photoreceptor outer segment' }
+
+    it('is searched for among GO’s cellular components, and set without being flagged', async () => {
+      vi.useFakeTimers()
+      const searchPlaces = vi.fn(async () => [OUTER, { curie: 'GO:0000000', label: 'gone', isObsolete: true }])
+      await mountTab({ searchPlaces })
+      expect(rowOf('J').find('[data-test="place-search"]').exists()).toBe(false)
+      await edit('J', 'whose', '__other-place__')
+      // Nothing is set by asking: the cell becomes a search.
+      expect(entryOf('J')?.location ?? null).not.toBe('__other-place__')
+      const search = cell('J', 'place-search')
+      expect(search.exists()).toBe(true)
+      search.vm.$emit('complete', { query: 'outer seg' })
+      await vi.advanceTimersByTimeAsync(400)
+      expect(searchPlaces).toHaveBeenCalledWith('outer seg', expect.anything())
+      expect(search.props('suggestions')).toEqual([OUTER])
+
+      search.vm.$emit('option-select', { value: OUTER })
+      await wrapper.vm.$nextTick()
+      expect(entryOf('J').location).toBe('GO:0001750')
+      expect(rowOf('J').find('[data-test="place-search"]').exists()).toBe(false)
+      const own = cell('J', 'whose').props('options').find(({ value }) => value === 'GO:0001750')
+      expect(own.isUnusual).toBe(false)
+    })
+
+    it('can be where a flow comes from, too', async () => {
+      await mountTab({ searchPlaces: vi.fn(async () => [OUTER]) })
+      await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
+      await edit('J', 'what', 'OPB:00592')
+      await edit('J', 'whose', 'GO:0005737')
+      await edit('J', 'from', '__other-place__')
+      cell('J', 'place-search').vm.$emit('option-select', { value: OUTER })
+      await wrapper.vm.$nextTick()
+      expect(entryOf('J')).toMatchObject({ location: 'GO:0005737', from: 'GO:0001750' })
+      expect(cell('J', 'from').props('options').map(({ value }) => value)).toEqual(['GO:0005576', 'GO:0001750', '__other-place__'])
+    })
   })
 })

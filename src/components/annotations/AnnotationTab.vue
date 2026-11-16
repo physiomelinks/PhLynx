@@ -316,7 +316,34 @@
               </AutoComplete>
             </td>
             <td class="annotation-row__whose">
+              <AutoComplete
+                v-if="isSearchingPlace(row, 'location')"
+                :model-value="placeQuery"
+                :suggestions="placeSuggestions"
+                option-label="label"
+                fluid
+                size="small"
+                autofocus
+                :delay="250"
+                placeholder="Search GO places…"
+                :aria-label="`Search for the place of ${row.name}`"
+                data-test="place-search"
+                @update:model-value="(value) => (placeQuery = typeof value === 'string' ? value : '')"
+                @complete="(event) => findPlaces(event.query)"
+                @option-select="(event) => choosePlace(row, 'location', event.value)"
+                @keydown.esc.stop="placeSearch = null"
+                @blur="closePlaceSearch"
+              >
+                <template #option="{ option }">
+                  <div class="annotation-place-option">
+                    <span>{{ option.label }}</span>
+                    <small>{{ option.curie }}</small>
+                  </div>
+                </template>
+                <template #empty>{{ placeNotice }}</template>
+              </AutoComplete>
               <Select
+                v-else
                 :model-value="row.entry?.location ?? null"
                 :options="locationOptionsOf(row)"
                 :title="optionLabel(locationOptionsOf(row), row.entry?.location)"
@@ -340,8 +367,34 @@
               </Select>
             </td>
             <td class="annotation-row__from">
+              <AutoComplete
+                v-if="isSearchingPlace(row, 'from')"
+                :model-value="placeQuery"
+                :suggestions="placeSuggestions"
+                option-label="label"
+                fluid
+                size="small"
+                autofocus
+                :delay="250"
+                placeholder="Search GO places…"
+                :aria-label="`Search for the place before ${row.name}`"
+                data-test="place-search"
+                @update:model-value="(value) => (placeQuery = typeof value === 'string' ? value : '')"
+                @complete="(event) => findPlaces(event.query)"
+                @option-select="(event) => choosePlace(row, 'from', event.value)"
+                @keydown.esc.stop="placeSearch = null"
+                @blur="closePlaceSearch"
+              >
+                <template #option="{ option }">
+                  <div class="annotation-place-option">
+                    <span>{{ option.label }}</span>
+                    <small>{{ option.curie }}</small>
+                  </div>
+                </template>
+                <template #empty>{{ placeNotice }}</template>
+              </AutoComplete>
               <Select
-                v-if="row.isFlow"
+                v-else-if="row.isFlow"
                 :model-value="row.entry.from ?? null"
                 :options="fromOptionsOf(row)"
                 :title="optionLabel(fromOptionsOf(row), row.entry.from)"
@@ -422,7 +475,7 @@ import {
   setDraftKind,
   setDraftSpaceKind,
 } from '../../services/annotations/draft'
-import { GO, OPB, canonicalCurie, hasPrefix, isFlowProperty, takesSpecies } from '../../services/annotations/iris'
+import { GO, GO_LOCATIONS, OPB, canonicalCurie, hasPrefix, isFlowProperty, takesSpecies } from '../../services/annotations/iris'
 import { displayLabel } from '../../services/annotations/labels'
 import { aggregatorVariables } from '../../services/annotations/heldConstant'
 import { isCompleteAnnotation } from '../../services/annotations/match'
@@ -431,7 +484,7 @@ import { editSidecar, listOtherTriples } from '../../services/annotations/sideca
 import { propertyUnitsProblem } from '../../services/annotations/propertyUnits'
 import { parseSpeciesTerm, searchSpecies } from '../../services/annotations/species'
 import { variableIdsOf } from '../../services/math/variableIds'
-import { createDebouncedSearch, lookupTerm, searchChebi } from '../../services/ontology/ols'
+import { createDebouncedSearch, lookupTerm, searchCellularComponents, searchChebi } from '../../services/ontology/ols'
 import { ensureCachedLabelSource, isObsoleteTerm } from '../../services/ontology/termCache'
 import { searchUniprot } from '../../services/ontology/uniprot'
 import {
@@ -473,6 +526,8 @@ const props = defineProps({
   findSpeciesTerms: { type: Function, default: null },
   // Searches ChEBI online for typed text, as (query, { signal }) => Promise<{ curie, label, isObsolete }[]>.
   searchRemoteSpecies: { type: Function, default: searchChebi },
+  // Searches GO's cellular components for a place that is none of the usual ones, as ols.searchCellularComponents.
+  searchPlaces: { type: Function, default: searchCellularComponents },
   // Looks up a ChEBI or GO term's label online, as (curie) => Promise<{ label, isObsolete }|null>; null when unknown.
   lookupOntologyTerm: { type: Function, default: lookupTerm },
   // Searches reviewed UniProt entries for typed text, as (query, { signal }) => Promise<{ accession, label }[]>.
@@ -943,8 +998,62 @@ function setSpecies(row, items) {
   editRow(row, { species: [...new Set(curies.filter(Boolean))] })
 }
 
-const setLocation = (row, location) => editRow(row, { location: location ?? null })
-const setFrom = (row, from) => editRow(row, { from: from ?? null })
+// ── Places beyond the usual ones ────────────────────────────────────────────
+/** The choice, last in a place's list, that opens the search for any other GO cellular component. */
+const OTHER_PLACE = '__other-place__'
+const OTHER_PLACE_OPTION = { value: OTHER_PLACE, label: 'Another place…' }
+/** The cell searching for a place: { row, field }, field 'location' or 'from'. */
+const placeSearch = ref(null)
+const placeQuery = ref('')
+const placeSuggestions = ref([])
+const placeNotice = ref('Type to search GO cellular components.')
+const remotePlaceSearch = createDebouncedSearch((query, options) => props.searchPlaces(query, options))
+let latestPlaceQuery = null
+
+const isSearchingPlace = (row, field) => placeSearch.value?.row === row.name && placeSearch.value.field === field
+
+function openPlaceSearch(row, field) {
+  placeSearch.value = { row: row.name, field }
+  placeQuery.value = ''
+  placeSuggestions.value = []
+  placeNotice.value = 'Type to search GO cellular components.'
+}
+
+/** Lists the GO cellular components matching typed text, from the ontology service. */
+async function findPlaces(query) {
+  latestPlaceQuery = query
+  const text = String(query ?? '').trim()
+  if (text.length < MIN_REMOTE_QUERY_LENGTH) {
+    placeSuggestions.value = []
+    placeNotice.value = 'Type to search GO cellular components.'
+    return
+  }
+  placeNotice.value = LOOKUP_TEXT.searching
+  try {
+    const results = await remotePlaceSearch(text)
+    if (latestPlaceQuery !== query) return
+    placeSuggestions.value = (results ?? []).filter((item) => !item.isObsolete)
+    placeNotice.value = placeSuggestions.value.length ? '' : `No cellular component matches “${text}”.`
+  } catch (error) {
+    if (isAbortError(error) || latestPlaceQuery !== query) return
+    placeSuggestions.value = []
+    placeNotice.value = LOOKUP_TEXT.unavailable
+  }
+}
+
+/** Sets a row's place, or the place its flow comes from, to the cellular component picked. */
+function choosePlace(row, field, item) {
+  placeSearch.value = null
+  if (!item?.curie) return
+  if (field === 'from') setFrom(row, item.curie)
+  else setLocation(row, item.curie)
+}
+
+/** Closes the search as its field is left, once a pick made with the pointer has landed. */
+const closePlaceSearch = () => setTimeout(() => (placeSearch.value = null), 150)
+
+const setLocation = (row, location) => (location === OTHER_PLACE ? openPlaceSearch(row, 'location') : editRow(row, { location: location ?? null }))
+const setFrom = (row, from) => (from === OTHER_PLACE ? openPlaceSearch(row, 'from') : editRow(row, { from: from ?? null }))
 
 /** The label of the option with this value, for a cell's title; undefined when there is none. */
 const optionLabel = (options, value) => options.find((option) => option.value === value)?.label
@@ -959,10 +1068,12 @@ const speciesItemsOf = (row) => (row.entry?.species ?? []).map((curie) => ({ cur
  */
 function locationOptionsOf(row) {
   const location = row.entry?.location
-  if (!location || kindLocations.value.some(({ value }) => value === location)) return kindLocations.value
-  const note = kindValue.value === 'none' ? '' : ` (not usual for a ${kindValue.value})`
+  if (!location || kindLocations.value.some(({ value }) => value === location)) return [...kindLocations.value, OTHER_PLACE_OPTION]
+  // One of the usual places that this kind of module doesn't usually have is flagged; a place searched for is not.
+  const isUsualElsewhere = isSelfLocation(location) || GO_LOCATIONS.has(location)
+  const note = kindValue.value === 'none' || !isUsualElsewhere ? '' : ` (not usual for a ${kindValue.value})`
   const name = capitalise(placeName(location))
-  return [...kindLocations.value, { value: location, label: `${name}${note}`, name, isUnusual: Boolean(note) }]
+  return [...kindLocations.value, { value: location, label: `${name}${note}`, name, isUnusual: Boolean(note) }, OTHER_PLACE_OPTION]
 }
 
 /**
@@ -982,9 +1093,12 @@ const unusualLocationOf = (row, value) =>
  * @returns {Array<{ value: string, label: string }>}
  */
 function fromOptionsOf(row) {
-  const { location } = row.entry
+  const { location, from } = row.entry
   if (!location || isSelfLocation(location)) return []
-  return FROM_OPTIONS.filter(({ value }) => value !== location)
+  const usual = FROM_OPTIONS.filter(({ value }) => value !== location)
+  // The place it has, if it is one that was searched for.
+  const own = from && !usual.some(({ value }) => value === from) ? [{ value: from, label: capitalise(placeName(from)) }] : []
+  return [...usual, ...own, OTHER_PLACE_OPTION]
 }
 
 // ── Selection and bulk edits ────────────────────────────────────────────────
