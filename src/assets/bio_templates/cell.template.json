@@ -1,0 +1,22 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 1,
+  "id": "cell",
+  "name": "Cell",
+  "description": "A plain cell with a protein site on each side, to build on: add compartments beside it and process zones inside it.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "cell",
+      "label": "Cell",
+      "membrane": { "label": "Plasma membrane" },
+      "facets": [
+        { "id": "top", "label": "Membrane (top)", "edge": "top" },
+        { "id": "bottom", "label": "Membrane (bottom)", "edge": "bottom" },
+        { "id": "left", "label": "Membrane (left)", "edge": "left" },
+        { "id": "right", "label": "Membrane (right)", "edge": "right" }
+      ]
+    }
+  ]
+}

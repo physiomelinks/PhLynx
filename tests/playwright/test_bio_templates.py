@@ -111,6 +111,169 @@ class TestBioTemplates(unittest.TestCase):
         page.locator(".mlc__group-header").first.click()
         expect(page.locator(LIBRARY_CARD).nth(2)).to_be_visible()
 
+    def test_the_build_palette_builds_a_cell_with_a_compartment_beside_it(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=library-tab-build]").click()
+
+        # An empty cell dropped on the view, as a template's: there to drop a module on.
+        page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
+            pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.45}
+        )
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+        expect(cell).to_contain_text("Drop a module")
+
+        # A compartment dropped above it lies against its top side.
+        spot = cell.bounding_box()
+        page.locator("[data-testid=bio-palette-tile][data-kind=compartment]").drag_to(
+            pane, target_position={"x": spot["x"] - box["x"] + spot["width"] / 2, "y": max(4, spot["y"] - box["y"] - 60)}
+        )
+        # Straight away, unnamed.
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        compartment = page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Compartment")
+        expect(compartment).to_be_visible()
+        assert compartment.bounding_box()["y"] < cell.bounding_box()["y"]
+
+        # Named afterwards as an instance is in the diagram: a click on its name gives a field for it.
+        name = compartment.locator("[data-testid=bio-piece-name]")
+        before = name.bounding_box()
+        name.click()
+        field = page.locator("[data-testid=bio-piece-name-input]")
+        expect(field).to_be_focused()
+        # The name stays where it was as it becomes a field.
+        after = field.bounding_box()
+        assert abs(after["x"] - before["x"]) < 1 and abs(after["y"] - before["y"]) < 1, (before, after)
+        field.fill("Lumen")
+        field.press("Enter")
+        expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")).to_be_visible()
+
+    def test_the_build_palette_puts_an_organelle_inside_a_cell(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=library-tab-build]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
+            pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
+        )
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+        before = cell.bounding_box()
+
+        # An organelle dropped on the cell goes inside it, and the cell grows to hold it.
+        page.locator("[data-testid=bio-palette-tile][data-kind=organelle]").drag_to(
+            pane, target_position={"x": before["x"] - box["x"] + before["width"] / 2, "y": before["y"] - box["y"] + before["height"] / 2}
+        )
+        organelle = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/organelle-1"]')
+        expect(organelle).to_be_visible()
+        expect(organelle).to_contain_text("Organelle")
+        page.locator("[data-testid=library-tab-modules]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer, inner = cell.bounding_box(), organelle.bounding_box()
+        assert outer["x"] < inner["x"] and inner["x"] + inner["width"] < outer["x"] + outer["width"], (outer, inner)
+        assert outer["y"] < inner["y"] and inner["y"] + inner["height"] < outer["y"] + outer["height"], (outer, inner)
+
+        # A microdomain dropped between the organelle and the cell's bottom side fills the space between them.
+        page.locator("[data-testid=library-tab-build]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=microdomain]").drag_to(
+            pane,
+            target_position={
+                "x": inner["x"] - box["x"] + inner["width"] / 2,
+                "y": (inner["y"] + inner["height"] + outer["y"] + outer["height"]) / 2 - box["y"],
+            },
+        )
+        microdomain = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/microdomain-1"]')
+        expect(microdomain).to_be_visible()
+        page.locator("[data-testid=library-tab-modules]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer, inner, between = cell.bounding_box(), organelle.bounding_box(), microdomain.bounding_box()
+        assert between["y"] > inner["y"] + inner["height"] / 2, (inner, between)
+        assert abs(between["y"] + between["height"] - (outer["y"] + outer["height"])) < 0.1 * outer["height"], (outer, between)
+
+        # A fold dropped by the cell's top side dips in from it.
+        page.locator("[data-testid=library-tab-build]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=fold]").drag_to(
+            pane, target_position={"x": outer["x"] - box["x"] + outer["width"] / 2, "y": outer["y"] - box["y"] + 16}
+        )
+        fold = page.locator("[data-testid=bio-fold]")
+        expect(fold).to_have_count(1)
+        page.locator("[data-testid=library-tab-modules]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer, dip = cell.bounding_box(), fold.bounding_box()
+        assert abs(dip["y"] - outer["y"]) < 3 and dip["height"] > 0.2 * outer["height"], (outer, dip)
+        inner = organelle.bounding_box()
+
+        # A module dropped on the organelle is its inside, not the cell's.
+        self.drop_module(2, (inner["x"] + inner["width"] / 2, inner["y"] + inner["height"] / 2))
+        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)
+        expect(organelle).to_have_count(0)
+        expect(cell).to_be_visible()
+
+    def test_the_build_palette_joins_a_microdomain_to_its_cell_with_a_junction(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=library-tab-build]").click()
+        page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
+            pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
+        )
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+
+        def on_cell(across, down):
+            spot = cell.bounding_box()
+            return {"x": spot["x"] - box["x"] + spot["width"] * across, "y": spot["y"] - box["y"] + spot["height"] * down}
+
+        # A microdomain under the cell's top side, then a junction: between the microdomain and the cell's inside.
+        page.locator("[data-testid=bio-palette-tile][data-kind=microdomain]").drag_to(pane, target_position=on_cell(0.5, 0.12))
+        microdomain = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/microdomain-1"]')
+        expect(microdomain).to_be_visible()
+        page.locator("[data-testid=bio-palette-tile][data-kind=junction]").drag_to(pane, target_position=on_cell(0.5, 0.6))
+        junction = cell.locator("[data-testid=bio-process-zone]").filter(has_text="Junction")
+        expect(junction).to_have_count(1)
+        page.locator("[data-testid=library-tab-modules]").click()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        # It lies just inside the cell from the microdomain, and a module dropped on it is bound to it.
+        zone, above = junction.bounding_box(), microdomain.bounding_box()
+        assert zone["y"] >= above["y"] + above["height"], (above, zone)
+        self.drop_module(2, (zone["x"] + zone["width"] / 2, zone["y"] + zone["height"] / 2))
+        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)
+        expect(bound(page, "bioCard")).to_have_count(1)
+        # With a process in it, the area is no longer outlined.
+        expect(junction.locator("rect")).to_have_count(0)
+
+    def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+
+        # A template dragged from the palette, once opened, lands on the view.
+        page.locator("[data-testid=library-tab-build]").click()
+        template = page.locator("[data-testid=bio-palette-template]").filter(has_text="Epithelial cell")
+        template.drag_to(pane, target_position={"x": box["width"] * 0.35, "y": box["height"] * 0.3})
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
+
+        # A tile clicked, then a click on the cell, adds the piece there; the tile is let go.
+        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        expect(cell).to_be_visible()
+        zone = page.locator("[data-testid=bio-palette-tile][data-kind=zone]")
+        zone.click()
+        expect(zone).to_have_attribute("aria-pressed", "true")
+        spot = cell.bounding_box()
+        page.mouse.click(spot["x"] + spot["width"] / 2, spot["y"] + spot["height"] * 0.7)
+        expect(page.locator(BIO).get_by_text("Process zone 1")).to_be_visible()
+        expect(zone).to_have_attribute("aria-pressed", "false")
+
     def open_physiology_with_template(self, name):
         """Open the app, switch to the physiological view and place a template from the pane's menu."""
         page = self.page
@@ -698,11 +861,11 @@ class TestBioTemplates(unittest.TestCase):
 
     def test_add_a_protein_site_on_a_free_edge(self):
         page = self.page
-        self.open_physiology_with_template("Vessel wall")
-        cell = piece(page, "endothelial")
+        self.open_physiology_with_template("Cardiomyocyte")
+        cell = piece(page, "myocyte")
         labels = cell.locator("[data-testid=bio-facet-label]")
         count = labels.count()
-        self.piece_menu("endothelial", "Add Protein Site", "Left")
+        self.piece_menu("myocyte", "Add Protein Site", "Left")
         expect(labels).to_have_count(count + 1)
         expect(cell).to_contain_text("Protein site (left)")
         # A protein dropped on its edge goes on it.

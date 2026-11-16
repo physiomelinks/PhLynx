@@ -7,7 +7,7 @@ import { flowDirection, transportedSpecies } from '../services/bioView/transport
 import { facePoint, handleFace } from '../services/bioView/faces'
 import { getGlyph } from '../services/bioView/glyphs'
 import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/species'
-import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, routeSpecies } from '../services/bioView/speciesLayout'
+import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, flowScales, routeSpecies } from '../services/bioView/speciesLayout'
 import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
@@ -16,7 +16,8 @@ import { resolveBioRole } from '../services/bioView/roles'
 import { locationSource } from '../services/annotations/locationSources'
 
 /** Stacking: regions under cells under everything drawn on them. */
-const Z = { region: -20, cell: -10 }
+// A microdomain is drawn over its cell, and an organelle over both.
+const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8 }
 
 /**
  * What a template piece's node shows of its template: which instance and site it is, and how it is drawn.
@@ -30,8 +31,15 @@ function templateData(place) {
   if (!place.instance) return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
   const { instance, site = null, tone = null, edge = null } = place
   const data = { instance, site, tone, edge }
-  if (place.kind !== 'cell') return data
-  return { ...data, facetLabels: place.facetLabels ?? [], zones: zonesIn(place), ...(place.hintAt && { hintAt: { ...place.hintAt } }) }
+  // A microdomain is drawn over its cell.
+  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }) } : data
+  return {
+    ...data,
+    facetLabels: place.facetLabels ?? [],
+    zones: zonesIn(place),
+    ...(place.hintAt && { hintAt: { ...place.hintAt } }),
+    ...(place.folds && { folds: place.folds }),
+  }
 }
 
 /** A cell's process zones, relative to the cell. */
@@ -114,7 +122,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x, y },
           width,
           height,
-          zIndex: Z.cell,
+          zIndex: place.parent ? Z.organelle : Z.cell,
           data: {
             ...own.data,
             ...templateData(place),
@@ -138,7 +146,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x, y },
           width,
           height,
-          zIndex: Z.region,
+          zIndex: place.form === 'inner' ? Z.microdomain : Z.region,
           data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null },
         })
         break
@@ -228,7 +236,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           zIndex: Z.cell,
           // Dragging its outline moves its cell (see BioFlow).
           style: { pointerEvents: 'none' },
-          data: { ...own.data, width: cell.width, height: cell.height },
+          data: { ...own.data, width: cell.width, height: cell.height, ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }) },
         })
         break
       }
@@ -480,14 +488,16 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
  * @param {Ref<Array<Object>>} [edges] - The diagram's edges.
  * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null, hidden?: string[]}|null> }}
  *   [options] - Species mode, when on: whether it shows every annotated species, only those coupled, or only those
- *   with a path through a protein, a token it keeps whatever, and the species it hides (see speciesNetwork). A compartment's tokens follow its
+ *   with a path through a protein, a token it keeps whatever, and the species it hides (see speciesNetwork).
+ *   `voiCursor`, a Ref<{index: number, range: [number, number]}|null>: the point of the latest run whose flows
+ *   are shown, and the stretch of it they are sized against; null for the run's end, sized against each other. A compartment's tokens follow its
  *   bioView.speciesOrder.
  * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
  *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
  *   `species` is the species network and where it is drawn, while species mode is on; `speciesOrderPreview` places
  *   one compartment's tokens in an order of the caller's.
  */
-export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } = {}) {
+export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), voiCursor = ref(null), flowScale = ref(null) } = {}) {
   const libraryStore = useLibraryStore()
   const templateStore = useBioTemplateStore()
   const simulationResults = useSimulationResultsStore()
@@ -542,7 +552,9 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } 
     return new Map(
       [...carried.value].map(([id, list]) => [
         id,
-        arrowsFor(list, (inside) => flowDirection(readNodeSeries(results, mapping, id, inside)?.values)),
+        arrowsFor(list, (inside) =>
+          flowDirection(readNodeSeries(results, mapping, id, inside)?.values, undefined, unref(voiCursor)?.index)
+        ),
       ])
     )
   })
@@ -595,25 +607,53 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } 
     const orderOf = (id) => (id === nodeId ? order : byId.get(id)?.data?.bioView?.speciesOrder)
     return placeSpeciesTokens(speciesTokens.value.network, layout.value, { labelOf, orderOf, only: nodeId })
   }
-  // ...and its paths, which go the way the latest run took them.
+  // The flow each path and exchange follows in the latest run, and whether it going in is the path going 'out'.
+  const speciesFlows = computed(() => {
+    if (!speciesTokens.value) return null
+    const { network } = speciesTokens.value
+    const { results, mapping } = simulationResults
+    if (!results || !mapping || results.isSweep) return new Map()
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const valuesOf = (id, variable) => readNodeSeries(results, mapping, id, variable)?.values ?? null
+    const flows = new Map()
+    for (const path of network.paths) {
+      const crossing = crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
+      const values = crossing && valuesOf(path.protein, crossing.variable)
+      if (values) flows.set(path, { values, isFlipped: crossing.inward < 0, species: path.species })
+    }
+    // A process's exchange with a compartment names its own flow, and which sign gives the species away.
+    for (const exchange of network.exchanges ?? []) {
+      const values = valuesOf(exchange.process, exchange.variable)
+      if (values) flows.set(exchange, { values, isFlipped: exchange.produces > 0, species: exchange.species })
+    }
+    return flows
+  })
+  // The flow drawn widest for each species over the stretch of the run the cursor plays, so a path keeps its width's
+  // meaning from one point to the next. Worked out once for the stretch, not at each point.
+  const largestFlow = computed(() => {
+    const range = unref(voiCursor)?.range
+    if (!range || !speciesFlows.value) return null
+    const flows = [...speciesFlows.value].map(([key, flow]) => ({ key, ...flow }))
+    const scaleOf = flowScales(flows, range, unref(flowScale) ?? undefined)
+    return (source) => scaleOf({ key: source, species: source.species })
+  })
+  // ...and its paths, which go the way the latest run took them at the cursor: its end, until that is moved.
   const species = computed(() => {
     if (!speciesTokens.value) return null
     const { network, tokens } = speciesTokens.value
-    const byId = new Map(nodes.value.map((node) => [node.id, node]))
-    const { results, mapping } = simulationResults
-    const usable = results && mapping && !results.isSweep
+    const index = unref(voiCursor)?.index ?? null
     const flowOf = (path) => {
-      const crossing = usable && crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
-      if (!crossing) return null
-      const values = readNodeSeries(results, mapping, path.protein, crossing.variable)?.values
-      const way = flowDirection(values)
+      const flow = speciesFlows.value.get(path)
+      if (!flow) return null
+      const way = flowDirection(flow.values, undefined, index)
       const flip = { in: 'out', out: 'in' }
       return {
-        direction: way && crossing.inward < 0 ? flip[way] : way,
-        size: values?.length ? Math.abs(values[values.length - 1]) || 0 : 0,
+        direction: way && flow.isFlipped ? flip[way] : way,
+        size: Math.abs(flow.values[index ?? flow.values.length - 1]) || 0,
       }
     }
-    return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf }) }
+    const largest = largestFlow.value
+    return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf, largest }) }
   })
 
   const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))

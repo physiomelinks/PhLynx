@@ -138,6 +138,7 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
         !localTemplates.value.some((local) => local.id === definition.id)
     )
     const local = embedded ?? withId(template, freeLocalId(template.id, takenIds()))
+    if (!local) return { template: null, errors: ['The template could not be read back once given its id.'], warnings }
     localTemplates.value = [...localTemplates.value, local]
     const kept = writeLocalTemplates(localTemplates.value)
     return { template: local, errors, warnings: kept ? warnings : [...warnings, NOT_KEPT_WARNING] }

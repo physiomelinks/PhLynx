@@ -10,8 +10,8 @@
       "type": "string"
     },
     "schemaVersion": {
-      "description": "The template format version. Must be 1.",
-      "const": 1
+      "description": "The template format version: 1, or 2 for a template with an organelle (a cell \"in\" another) or a microdomain (a compartment \"in\" a cell).",
+      "enum": [1, 2]
     },
     "id": {
       "description": "The template's id: a lower-case letter, then lower-case letters, digits and hyphens (2-48 characters).",
@@ -76,6 +76,10 @@
       "properties": {
         "id": { "$ref": "#/$defs/pieceId", "description": "The cell's id, unique among cells and compartments." },
         "label": { "$ref": "#/$defs/label", "description": "The cell's name." },
+        "in": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Makes this an organelle: the id of the cell it is drawn inside, which is the outside of the proteins on its membrane. Needs schemaVersion 2; an organelle has no row, and is not inside another organelle."
+        },
         "row": {
           "description": "The row the cell sits in, counting down from 0. Defaults to 0.",
           "type": "integer",
@@ -121,15 +125,25 @@
       }
     },
     "facet": {
-      "description": "A part of a cell's membrane along one edge.",
+      "description": "A part of a cell's membrane: along one edge, or, with \"fold\" in place of \"edge\", an invagination in from one.",
       "type": "object",
-      "required": ["id", "label", "edge"],
+      "required": ["id", "label"],
       "properties": {
         "id": {
           "$ref": "#/$defs/pieceId",
           "description": "The facet's id, unique within its cell; 'membrane' is reserved."
         },
         "label": { "$ref": "#/$defs/label", "description": "The facet's name." },
+        "fold": {
+          "description": "Makes this a fold (an invagination, such as a T-tubule): the edge of the cell it dips in from, near that edge's right or bottom end. Its proteins sit down its two walls, and its lumen is the outside of the facet along that edge. One per edge; needs schemaVersion 2.",
+          "enum": ["top", "bottom", "left", "right"]
+        },
+        "depth": {
+          "description": "A fold's least depth in from its edge, in pixels. Defaults to 160; it is drawn deeper for more proteins.",
+          "type": "number",
+          "minimum": 80,
+          "maximum": 1000
+        },
         "edge": {
           "description": "The edge of the cell the facet lies along.",
           "enum": ["top", "bottom", "left", "right"]
@@ -166,6 +180,13 @@
           "description": "The process's id, unique within its cell; 'membrane' is reserved."
         },
         "label": { "$ref": "#/$defs/label", "description": "The process's name." },
+        "between": {
+          "description": "Makes this a junction: the two spaces inside the cell it carries a flux between, each the cell's own id (its inside) or a microdomain in it, the first upstream of the second. Needs schemaVersion 2.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/pieceId" }
+        },
         "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
       }
     },
@@ -176,6 +197,15 @@
       "properties": {
         "id": { "$ref": "#/$defs/pieceId", "description": "The compartment's id, unique among cells and compartments." },
         "label": { "$ref": "#/$defs/label", "description": "The compartment's name." },
+        "term": {
+          "description": "What annotations call the place, as an ontology term's CURIE (GO:0001750, say), which tells it from the cell's other spaces.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}:[A-Za-z0-9_]{1,32}$"
+        },
+        "in": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Makes this a microdomain: the id of the cell it is inside. It then lies against one facet of that cell, one facet of an organelle in it, or one of each on the same side, and the proteins on those facets meet it in place of the cell's inside. Needs schemaVersion 2."
+        },
         "against": {
           "description": "The facets the compartment lies against, as 'cell.facet': facets on the same top or bottom edge of cells in one row (a band), two facing facets of neighbouring cells (the gap between them), one left or right facet (a column), or none (a free band below everything).",
           "type": "array",

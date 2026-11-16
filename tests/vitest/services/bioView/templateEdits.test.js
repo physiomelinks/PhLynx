@@ -7,6 +7,7 @@ import {
   editedTemplate,
   freePieceId,
   instanceTemplate,
+  labelInEdits,
   normaliseEdits,
   removeFromEdits,
   sitesOf,
@@ -156,3 +157,50 @@ describe('removing from a placed template', () => {
   })
 })
 
+
+describe('a placed template’s own names', () => {
+  const labelOf = (edits, id) => editedTemplate(epithelial, edits).template.compartments.find((entry) => entry.id === id)?.label
+
+  it('names a piece of the template’s own, and one added, and goes back to its name when blanked', () => {
+    const { edits } = labelInEdits(epithelial, null, 'paracellular', '  Tight junction  ')
+    expect(edits).toEqual({ labels: { paracellular: 'Tight junction' } })
+    expect(labelOf(edits, 'paracellular')).toBe('Tight junction')
+    const added = addToEdits(epithelial, edits, 'compartments', { id: 'compartment-1', label: 'Compartment', against: ['cell.lateral-left'] }).edits
+    const named = labelInEdits(epithelial, added, 'compartment-1', 'Blood').edits
+    expect(labelOf(named, 'compartment-1')).toBe('Blood')
+    expect(labelOf(named, 'paracellular')).toBe('Tight junction')
+    expect(labelInEdits(epithelial, edits, 'paracellular', ' ').edits).toBeNull()
+  })
+
+  it('names a cell and its facets, and keeps the names when a piece is removed', () => {
+    const { edits } = labelInEdits(epithelial, labelInEdits(epithelial, null, 'cell', 'Enterocyte').edits, 'cell.apical', 'Brush border')
+    const { cells } = editedTemplate(epithelial, edits).template
+    expect([cells[0].label, cells[0].facets[0].label]).toEqual(['Enterocyte', 'Brush border'])
+    expect(removeFromEdits(epithelial, edits, 'paracellular').edits.labels).toEqual({ cell: 'Enterocyte', 'cell.apical': 'Brush border' })
+  })
+
+  it('reads only names it can use', () => {
+    expect(normaliseEdits({ labels: { paracellular: 'P', 'Bad Path': 'x', cell: '', other: 3 } })).toEqual({ labels: { paracellular: 'P' } })
+  })
+})
+
+describe('a placed template’s added organelles', () => {
+  const organelle = { id: 'organelle-1', label: 'Organelle', in: 'cell', facets: [{ id: 'top', label: 'Top', edge: 'top' }] }
+
+  it('adds an organelle to a cell, at the version that reads it, and takes it out again', () => {
+    const { edits, errors } = addToEdits(epithelial, null, 'cells', organelle)
+    expect(errors).toEqual([])
+    const edited = editedTemplate(epithelial, edits).template
+    expect(edited.schemaVersion).toBe(2)
+    expect(edited.cells.map((cell) => cell.id)).toEqual(['cell', 'organelle-1'])
+    expect(removeFromEdits(epithelial, edits, 'organelle-1').edits).toBeNull()
+    expect(editedTemplate(epithelial, addToEdits(epithelial, null, 'compartments', { id: 'c-1', label: 'C', against: ['cell.apical'] }).edits).template.schemaVersion).toBe(1)
+  })
+
+  it('refuses one in no cell, and drops one with the cell it is in', () => {
+    expect(addToEdits(epithelial, null, 'cells', { ...organelle, in: 'nowhere' }).edits).toBeNull()
+    const { edits } = addToEdits(synapse, null, 'cells', { ...organelle, in: synapse.cells[0].id })
+    const without = removeFromEdits(synapse, edits, synapse.cells[0].id).edits
+    expect(editedTemplate(synapse, without).template.cells.map((cell) => cell.id)).not.toContain('organelle-1')
+  })
+})

@@ -416,3 +416,28 @@ describe('helpers', () => {
     expect(componentKind([])).toBeNull()
   })
 })
+
+describe('places that are none of the three every cell has', () => {
+  const duct = () => parseSidecar(read('duct.ttl'), { mathRef: 'duct.cellml:duct', cellml: read('duct.cellml') })
+  const located = (sidecar) => Object.fromEntries(sidecar.variables.map((entry) => [entry.variable, [entry.location, entry.from ?? null]]))
+
+  it('reads any GO term a species is part of as where the species is, named or bare', async () => {
+    const sidecar = await duct()
+    expect(located(sidecar)).toEqual({
+      c_A_a: ['GO:0001750', null],
+      c_A_b: ['GO:0001917', null],
+      v_A_a: ['GO:0001750', 'GO:0001917'],
+      v_A_b: ['GO:0001917', 'GO:0001750'],
+    })
+    expect(sidecar.warnings.filter(({ message }) => /Unrecognised|no location/.test(message))).toEqual([])
+  })
+
+  it('reads one beside a species in the same entity, but not a GO term that is all an entity is', async () => {
+    const beside = await parsePool(`${POOL_HEAD}m:v4y7hdahd bqbiol:isVersionOf opb:OPB_00340 ;
+    bqbiol:isPropertyOf [ bqbiol:is chebi:29101 , go:0001750 ] .`.replace('m:v4y7hdahd', `m:${read('pool.cellml').match(/variable id="([^"]+)" name="c_A"/)[1]}`))
+    expect(beside.variables[0].location).toBe('GO:0001750')
+    const alone = await parsePool(`${POOL_HEAD}m:${read('pool.cellml').match(/variable id="([^"]+)" name="c_A"/)[1]} bqbiol:isVersionOf opb:OPB_00340 ;
+    bqbiol:isPropertyOf [ bqbiol:is go:0001750 ] .`)
+    expect(alone.variables[0]?.location ?? null).toBeNull()
+  })
+})

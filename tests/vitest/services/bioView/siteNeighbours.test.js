@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { BUILT_IN_TEMPLATES, getBuiltInTemplate } from '../../../../src/services/bioView/builtInTemplates.js'
 import { siteNeighbours, sitesOf, validateTemplate } from '../../../../src/services/bioView/templates.js'
+import { VESSEL_WALL } from '../../fixtures/vesselWall.js'
 
 /** Each site's neighbours as 'path relation' strings, sorted. */
 const table = (template) =>
@@ -63,7 +64,7 @@ describe('siteNeighbours', () => {
   })
 
   it('joins a vessel wall’s facets to the fluid each faces', () => {
-    const vessel = table(getBuiltInTemplate('vessel-wall'))
+    const vessel = table(VESSEL_WALL)
     expect(vessel.lumen).toEqual(['endothelial.luminal protein'])
     expect(vessel['junction-cleft']).toEqual(['endothelial.junction protein'])
   })

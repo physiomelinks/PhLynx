@@ -4,13 +4,19 @@
       'bio-region',
       `bio-region--tone-${tone}`,
       edge && `bio-region--edge-${edge}`,
-      { 'bio-region--selected': selected, 'bio-region--empty': data.empty, 'bio-region--template': data.instance },
+      {
+        'bio-region--selected': selected,
+        'bio-region--empty': data.empty,
+        'bio-region--template': data.instance,
+        'bio-region--inner': data.form === 'inner',
+      },
     ]"
+    :style="cutoutStyle"
     data-testid="bio-region"
   >
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-region__label">
-      {{ data.name }}
+      <BioPieceName :id="id" :name="data.name" />
       <small v-if="data.empty" class="bio-region__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
@@ -19,10 +25,13 @@
 <script setup>
 import { computed } from 'vue'
 import BioHandles from './BioHandles.vue'
+import BioPieceName from './BioPieceName.vue'
 import { partOf } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, facetById } from '../../services/bioView/shape'
 
 const props = defineProps({
+  /** Its node id, for renaming it. */
+  id: { type: String, default: null },
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
 })
@@ -40,6 +49,16 @@ const edge = computed(() => {
   if (!props.data.side) return null
   return facetById(EPITHELIAL_SHAPE, partOf(props.data.side, props.data.at ?? undefined))?.edge ?? null
 })
+/** A microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it. */
+const cutoutStyle = computed(() => {
+  const hole = props.data.cutout
+  if (!hole) return undefined
+  const { x, y, width, height, radius } = hole
+  const r = Math.min(radius, width / 2, height / 2)
+  const cut = `M ${x + r} ${y} H ${x + width - r} A ${r} ${r} 0 0 1 ${x + width} ${y + r} V ${y + height - r} A ${r} ${r} 0 0 1 ${x + width - r} ${y + height} H ${x + r} A ${r} ${r} 0 0 1 ${x} ${y + height - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`
+  return { clipPath: `path(evenodd, "M -4 -4 H 100000 V 100000 H -4 Z ${cut}")` }
+})
+
 const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)
 </script>
 
@@ -123,6 +142,16 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   padding: 0;
   transform: translate(-50%, -50%);
   white-space: nowrap;
+}
+
+/* A microdomain lies over its cell: on the view's own background, so its colour is its own and not the cell's too */
+.bio-region--inner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--p-content-background);
 }
 
 .bio-region--empty {

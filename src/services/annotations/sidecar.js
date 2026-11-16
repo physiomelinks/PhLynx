@@ -10,6 +10,7 @@ import {
   BQBIOL,
   GO,
   GO_LOCATIONS,
+  isGoPlace,
   SBO,
   SEMSIM,
   canonicalCurie,
@@ -470,7 +471,7 @@ function readPlace(graph, placeTerm, selfIri) {
   if (!isNode) return canonicalCurie(placeTerm.value)
   const go = graph.objects(placeTerm, BQBIOL.is).map((object) => canonicalCurie(object.value))
   const partOfSelf = graph.objects(placeTerm, BQBIOL.isPartOf).some((object) => object.value === selfIri)
-  if (go.length !== 1 || !GO_LOCATIONS.has(go[0])) return termKey(placeTerm)
+  if (go.length !== 1 || !isGoPlace(go[0])) return termKey(placeTerm)
   if (partOfSelf) return `self+${go[0]}`
   return graph.objects(placeTerm, BQBIOL.isPartOf).length ? termKey(placeTerm) : go[0]
 }
@@ -497,12 +498,14 @@ function readEntity(graph, entityTerm, selfIri, warn) {
   const isPartOf = partOf[0] ?? null
 
   const species = is.filter((curie) => hasPrefix(curie, 'CHEBI'))
-  const goTerms = is.filter((curie) => GO_LOCATIONS.has(curie))
+  // Beside a species, any GO term is where the species is; alone, only the three places every cell has, as another
+  // GO term may be what the entity is (a complex, say).
+  const goTerms = is.filter((curie) => GO_LOCATIONS.has(curie) || (species.length > 0 && isGoPlace(curie)))
   const unknown = is.filter((curie) => !species.includes(curie) && !goTerms.includes(curie))
   if (unknown.length) warn(`Unrecognised entity terms: ${unknown.join(', ')}.`)
   if (goTerms.length > 1) warn(`Several GO locations: ${goTerms.join(', ')}.`)
   const isOwnPlace = isPartOf?.startsWith('self+')
-  if (isPartOf && isPartOf !== 'self' && !isOwnPlace && !GO_LOCATIONS.has(isPartOf)) {
+  if (isPartOf && isPartOf !== 'self' && !isOwnPlace && !isGoPlace(isPartOf)) {
     warn(`Unrecognised bqbiol:isPartOf ${isPartOf}.`)
   }
 
@@ -514,8 +517,8 @@ function readEntity(graph, entityTerm, selfIri, warn) {
   } else if (isPartOf === 'self') {
     location = goTerms.length ? `self+${goTerms[0]}` : 'self'
   } else {
-    location = goTerms[0] ?? (GO_LOCATIONS.has(isPartOf) ? isPartOf : null)
-    if (goTerms.length && GO_LOCATIONS.has(isPartOf) && isPartOf !== goTerms[0]) {
+    location = goTerms[0] ?? (isGoPlace(isPartOf) ? isPartOf : null)
+    if (goTerms.length && isGoPlace(isPartOf) && isPartOf !== goTerms[0]) {
       warn(`The GO term ${goTerms[0]} and bqbiol:isPartOf ${isPartOf} disagree.`)
     }
   }

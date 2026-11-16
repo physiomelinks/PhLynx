@@ -218,6 +218,41 @@ export function flowMatrix(ctm, rootRect, viewport) {
 }
 
 /**
+ * Gives the transform a stylesheet places an SVG element with, which an exported copy has no stylesheet for: where
+ * it sits along an offset path (from the element's own origin, turned to the path's direction), then its CSS
+ * transform about that origin.
+ *
+ * @param {SVGElement} element
+ * @param {CSSStyleDeclaration} style - Its computed style.
+ * @returns {string|null} A transform attribute's value; null when the element's own attributes say it all.
+ */
+export function cssPlacement(element, style) {
+  const parts = []
+  const d = /^path\(\s*["'](.*)["']\s*\)$/.exec(style.offsetPath ?? '')?.[1]
+  if (d) {
+    const path = element.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('d', d)
+    const length = path.getTotalLength?.() ?? 0
+    const distance = parseFloat(style.offsetDistance) || 0
+    const at = Math.min(length, Math.max(0, /%$/.test(style.offsetDistance ?? '') ? (distance / 100) * length : distance))
+    if (length > 0) {
+      const point = path.getPointAtLength(at)
+      const before = path.getPointAtLength(Math.max(0, at - 0.5))
+      const after = path.getPointAtLength(Math.min(length, at + 0.5))
+      const turns = !/^\d/.test(style.offsetRotate ?? 'auto')
+      const angle = turns ? (Math.atan2(after.y - before.y, after.x - before.x) * 180) / Math.PI : parseFloat(style.offsetRotate) || 0
+      parts.push(`translate(${num(point.x)} ${num(point.y)})`, ...(angle ? [`rotate(${num(angle)})`] : []))
+    }
+  }
+  // A transform about another origin can't be written as it stands; an attribute's own shows here too, and is kept.
+  const isAboutOrigin = /^0(px)?\s+0(px)?/.test(style.transformOrigin ?? '0px 0px')
+  if (style.transform && style.transform !== 'none' && isAboutOrigin && (parts.length || !element.hasAttribute('transform'))) {
+    parts.push(style.transform)
+  }
+  return parts.length ? parts.join(' ') : null
+}
+
+/**
  * Copies an inline SVG's contents for export, with each drawn element's computed paint written as
  * attributes (so theme colours, currentColor and stylesheet rules survive) and ids prefixed, so
  * several copies can share one document.
@@ -249,6 +284,8 @@ export function serialiseInlineSvg(svg, { getStyle, colour, idPrefix, serialise 
     }
     element.removeAttribute('class')
     element.removeAttribute('style')
+    const placed = cssPlacement(original, style)
+    if (placed) element.setAttribute('transform', placed)
     if (element.id) element.id = `${idPrefix}${element.id}`
     for (const name of ['href', 'xlink:href', 'clip-path', 'mask', 'filter', 'fill', 'stroke']) {
       const value = element.getAttribute(name)
@@ -696,10 +733,11 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
   let inlineSvgCount = 0
 
   /** Copies an inline <svg> (a glyph or other artwork in a node) into the export, clipped to its box. */
-  function emitInlineSvg(svg, style, out) {
+  function emitInlineSvg(svg, style, out, isOverlay = false) {
     const rect = toFlow(svg.getBoundingClientRect())
     const ctm = svg.getScreenCTM?.()
-    if (!ctm || rect.width < 0.5 || rect.height < 0.5) return
+    // An overlay draws outside its own box, over nodes that give the picture its bounds.
+    if (!ctm || (!isOverlay && (rect.width < 0.5 || rect.height < 0.5))) return
     const idPrefix = `svg${++inlineSvgCount}-`
     const content = serialiseInlineSvg(svg, {
       getStyle: (element) => win.getComputedStyle(element),
@@ -708,7 +746,7 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
       serialise: (element) => new win.XMLSerializer().serializeToString(element),
     })
     if (!content) return
-    const clips = style.overflow !== 'visible'
+    const clips = !isOverlay && style.overflow !== 'visible'
     if (clips) {
       out.push(`<clipPath id="${idPrefix}clip">${el('rect', { x: rect.x, y: rect.y, width: rect.width, height: rect.height })}</clipPath>`)
     }
@@ -716,7 +754,7 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
     out.push(
       `<g${clips ? ` clip-path="url(#${idPrefix}clip)"` : ''}><g transform="${flowMatrix(ctm, rootRect, viewport)}">${content}</g></g>`
     )
-    bounds.add(rect.x, rect.y, rect.width, rect.height)
+    if (!isOverlay) bounds.add(rect.x, rect.y, rect.width, rect.height)
   }
 
   function walk(element, nodeRoot, out) {
@@ -749,6 +787,8 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
   }
 
   const nodeParts = []
+  // Where each node's markup starts, and the level it is stacked at, for what is laid between the nodes.
+  const nodeLevels = []
   // Nodes overlap in the physiology view (a compartment reaches under its cell), so they are drawn as stacked.
   const flowNodes = [...root.querySelectorAll('.vue-flow__nodes .vue-flow__node')]
   for (const node of inStackingOrder(flowNodes, (each) => win.getComputedStyle(each).zIndex)) {
@@ -757,6 +797,7 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
     if (!parts.length) continue
     const id = node.getAttribute('data-id')
     const name = node.querySelector('.name-text')?.textContent.trim()
+    nodeLevels.push({ from: nodeParts.length, zIndex: parseFloat(win.getComputedStyle(node).zIndex) || 0 })
     nodeParts.push(
       `<g${id ? ` id="node-${escapeXml(id)}"` : ''}>`,
       ...(name ? [el('title', {}, escapeXml(name))] : []),
@@ -768,6 +809,19 @@ export function buildFlowSvg(root, { viewport, padding = 24, background = 'auto'
   // Edge labels (Vue Flow's EdgeLabelRenderer), such as the coupling-conflict badge, are HTML too.
   const labelParts = []
   for (const label of root.querySelectorAll('.vue-flow__edge-labels > *')) walk(label, label, labelParts)
+
+  // Drawings a view lays over the whole flow, as the physiology view's species paths are, stacked among the nodes:
+  // each goes in before the first node above it. The topmost first, so the places found for the others still hold.
+  const overlays = [...root.querySelectorAll('.vue-flow__transformationpane > svg:not([class*="vue-flow__"])')]
+    .filter((svg) => !svg.matches(skip) && !isHidden(win.getComputedStyle(svg)))
+    .map((svg) => ({ svg, zIndex: parseFloat(win.getComputedStyle(svg).zIndex) || 0 }))
+    .sort((a, b) => b.zIndex - a.zIndex)
+  for (const { svg, zIndex } of overlays) {
+    const parts = []
+    emitInlineSvg(svg, win.getComputedStyle(svg), parts, true)
+    const above = nodeLevels.find((level) => level.zIndex > zIndex)
+    nodeParts.splice(above ? above.from : nodeParts.length, 0, ...parts)
+  }
 
   if (bounds.empty) return null
 

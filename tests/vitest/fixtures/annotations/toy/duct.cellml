@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A toy junction: a passive flux between two spaces inside one cell, _a and _b, as a connecting cilium carries. -->
+<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="ToyDuct">
+  <component name="duct">
+    <variable id="ca" name="c_A_a" units="mM" interface="public"/>
+    <variable id="cb" name="c_A_b" units="mM" interface="public"/>
+    <variable id="va" name="v_A_a" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable id="vb" name="v_A_b" units="fmol_per_mm2_per_s" interface="public"/>
+    <variable name="P" units="m_per_s" initial_value="0.1"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <ci>v_A_a</ci>
+        <apply><times/><ci>P</ci><apply><minus/><ci>c_A_b</ci><ci>c_A_a</ci></apply></apply>
+      </apply>
+      <apply><eq/><ci>v_A_b</ci><apply><minus/><ci>v_A_a</ci></apply></apply>
+    </math>
+  </component>
+</model>

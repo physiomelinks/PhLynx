@@ -222,7 +222,7 @@ describe('physiological view layout with cells the user added', () => {
     // Wide enough for the three in a row, and the area holds all of them.
     expect(cell.rect.width).toBeGreaterThanOrEqual(2 * 40 + 3 * CARD.width + 2 * 16)
     const [zone] = cell.zones
-    expect(zone.label).toBe('Processes')
+    expect(zone).toMatchObject({ label: null, filled: true })
     for (const id of ids) {
       expect(layout.get(id).x).toBeGreaterThan(zone.rect.x)
       expect(layout.get(id).y + CARD.height).toBeLessThan(zone.rect.y + zone.rect.height)
@@ -294,5 +294,57 @@ describe('physiological view layout with cells the user added', () => {
     expect(lumen.y + lumen.height).toBeGreaterThan(cell.y)
     expect(lumen.y).toBeLessThan(cell.y)
     expect(lumen.x).toBeGreaterThan(-800 + 320)
+  })
+})
+
+describe('where a microdomain goes', () => {
+  const rects = new Map([
+    ['cell', { x: 0, y: 0, width: 600, height: 500 }],
+    ['sr', { x: 160, y: 200, width: 280, height: 170 }],
+  ])
+  const own = (edge) => ({ cellKey: 'cell', facetId: edge, edge })
+  const organelle = (edge) => ({ cellKey: 'sr', facetId: edge, edge })
+
+  it('fills the space between its cell’s side and the organelle’s, reaching under the organelle’s corners', async () => {
+    const { microdomainRect } = await import('../../../../src/services/bioView/layout.js')
+    const below = microdomainRect({ parent: 'cell', against: [own('bottom'), organelle('bottom')] }, rects)
+    expect(below).toEqual({ x: 180, width: 240, y: 330, height: 160 })
+    const beside = microdomainRect({ parent: 'cell', against: [own('left'), organelle('left')] }, rects)
+    expect(beside).toEqual({ y: 220, height: 130, x: 10, width: 190 })
+  })
+
+  it('is a band under its cell’s side, or round an organelle’s, when against one alone', async () => {
+    const { microdomainRect } = await import('../../../../src/services/bioView/layout.js')
+    expect(microdomainRect({ parent: 'cell', against: [own('top')], depth: 60 }, rects)).toEqual({ x: 40, width: 520, y: 10, height: 60 })
+    expect(microdomainRect({ parent: 'cell', against: [organelle('top')], depth: 50 }, rects)).toEqual({ x: 180, width: 240, y: 150, height: 90 })
+    expect(microdomainRect({ parent: 'gone', against: [own('top')] }, rects)).toBeNull()
+  })
+
+  it('lies between a fold’s wall and the organelle’s side facing it, over the stretch they share, or round the fold', async () => {
+    const { microdomainRect } = await import('../../../../src/services/bioView/layout.js')
+    const pocket = { edge: 'top', at: 540, half: 38, depth: 400 }
+    const fold = { cellKey: 'cell', facetId: 'tubule', fold: 'top' }
+    const between = microdomainRect({ parent: 'cell', against: [fold, organelle('right')] }, rects, pocket)
+    expect(between).toEqual({ x: 400, y: 220, width: 540 - 38 - 10 - 400, height: 130 })
+    const round = microdomainRect({ parent: 'cell', against: [fold], depth: 40 }, rects, pocket)
+    expect(round).toEqual({ x: 452, y: 10, width: 176, height: 430 })
+    expect(microdomainRect({ parent: 'cell', against: [fold] }, rects)).toBeNull()
+  })
+})
+
+describe('where a junction goes', () => {
+  const cell = { x: 0, y: 0, width: 400, height: 600 }
+
+  it('is midway between two microdomains, or just inside the cell from one', async () => {
+    const { junctionZone } = await import('../../../../src/services/bioView/layout.js')
+    const outer = { rect: { x: 40, y: 10, width: 320, height: 150 }, edge: 'top' }
+    const inner = { rect: { x: 40, y: 440, width: 320, height: 150 }, edge: 'bottom' }
+    const between = junctionZone(cell, [outer, inner])
+    expect(between).toMatchObject({ x: 200 - between.width / 2, y: 300 - between.height / 2 })
+    const below = junctionZone(cell, [outer, {}])
+    expect(below.y).toBe(160 + 12)
+    expect(below.x + below.width / 2).toBe(200)
+    const above = junctionZone(cell, [{}, inner])
+    expect(above.y + above.height).toBe(440 - 12)
   })
 })

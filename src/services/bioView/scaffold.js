@@ -234,19 +234,24 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         label: cell.label,
         size: { ...cell.size },
         row: cell.row,
+        // An organelle's cell, by id until every cell has its key (below).
+        parent: cell.in ?? null,
         membrane: members(membranePath)[0] ?? null,
         membraneSite: siteOf(membranePath),
         membraneLabel: cell.membrane ? cell.membrane.label : null,
-        facets: cell.facets.map(({ id, label, edge }) => ({
+        facets: cell.facets.map(({ id, label, edge, fold }) => ({
           id,
           label,
           edge,
+          ...(fold && { fold }),
           site: siteOf(`${cell.id}.${id}`),
           members: members(`${cell.id}.${id}`),
         })),
-        processes: cell.processes.map(({ id, label }) => ({
+        processes: cell.processes.map(({ id, label, between }) => ({
           id,
           label,
+          // A junction's two spaces, each by its key: the cell's own, or a microdomain's.
+          ...(between && { between: between.map((space) => keyOf(space)) }),
           site: siteOf(`${cell.id}.${id}`),
           members: members(`${cell.id}.${id}`),
         })),
@@ -255,13 +260,16 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
       offer(membranePath, key)
       for (const piece of [...cell.facets, ...cell.processes]) offer(`${cell.id}.${piece.id}`, key)
     }
+    for (const cell of scaffold.cells) {
+      if (cell.instance === instance.id && cell.parent) cell.parent = cellKeys.get(cell.parent) ?? null
+    }
 
     for (const compartment of template.compartments) {
       const key = keyOf(compartment.id)
       const against = compartment.against.map((entry) => {
         const [cellId, facetId] = entry.split('.')
-        const edge = template.cells.find((cell) => cell.id === cellId).facets.find((facet) => facet.id === facetId).edge
-        return { cellKey: cellKeys.get(cellId), facetId, edge }
+        const { edge, fold } = template.cells.find((cell) => cell.id === cellId).facets.find((facet) => facet.id === facetId)
+        return { cellKey: cellKeys.get(cellId), facetId, edge, ...(fold && { fold }) }
       })
       scaffold.compartments.push({
         key,
@@ -270,6 +278,8 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         site: siteOf(compartment.id),
         node: members(compartment.id)[0] ?? null,
         form: compartmentForm(template, compartment),
+        // A microdomain's cell.
+        parent: compartment.in !== undefined ? (cellKeys.get(compartment.in) ?? null) : null,
         against,
         tone: compartment.tone,
         depth: compartment.depth ?? null,

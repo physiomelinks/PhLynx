@@ -10,6 +10,8 @@ import {
   cellSlots,
   facetOfPart,
   facetSlots,
+  foldPocket,
+  foldPoint,
   leafletDistance,
   partOf,
 } from './geometry.js'
@@ -319,7 +321,8 @@ export function dropSites(sites, dragged = null) {
               spare: false,
               widths: site.widths,
             })
-      const facet = site.process ? {} : { edge: facetById(site.shape, site.facet)?.edge, cellRect: site.cellRect }
+      const own = site.process ? null : facetById(site.shape, site.facet)
+      const facet = site.process ? {} : { edge: own?.edge, cellRect: site.cellRect, ...(own?.fold && { foldRect: foldReach(site.cellRect, own) }) }
       slots.forEach((slot, order) =>
         targets.push({
           ...base,
@@ -338,9 +341,25 @@ export function dropSites(sites, dragged = null) {
       targets.push({ ...base, type: 'area', area: 'membrane', rect: site.rect })
       continue
     }
-    targets.push({ ...base, type: 'area', area: role === 'cytosol' ? 'cell' : 'compartment', rect: site.rect })
+    const inner = site.inner ? { inner: true } : {}
+    targets.push({ ...base, type: 'area', area: role === 'cytosol' ? 'cell' : 'compartment', rect: site.rect, ...inner })
   }
   return targets
+}
+
+/**
+ * Gives the part of a cell a fold takes, walls and lumen, where a drop is one on the fold.
+ *
+ * @param {Object} rect - The cell.
+ * @param {Object} facet - The fold, from the cell's shape.
+ * @returns {{x: number, y: number, width: number, height: number}}
+ */
+function foldReach(rect, facet) {
+  const { edge, at, half, depth } = foldPocket(rect, facet)
+  const reach = half + MEMBRANE_BAND_HALF
+  const a = foldPoint(rect, edge, at - reach, 0)
+  const b = foldPoint(rect, edge, at + reach, depth + MEMBRANE_BAND_HALF)
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
 }
 
 const contains = (rect, { x, y }) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
@@ -420,12 +439,19 @@ export function nearestSite(targets, point, snap = 60, { areas = true, membrane 
   if (best && best.distance <= AREA_SNAP) return best
   const covering = targets.find((target) => target.type === 'slot' && onSlot(target, point))
   if (covering) return { ...covering, distance: Math.hypot(covering.x - point.x, covering.y - point.y) }
+  // On a fold, lumen or walls, the nearest place down its walls: a fold is membrane, though inside its cell's rect.
+  const folded = targets
+    .filter((target) => target.type === 'slot' && target.foldRect && contains(target.foldRect, point))
+    .map((target) => ({ ...target, distance: Math.hypot(target.x - point.x, target.y - point.y) }))
+    .sort((a, b) => a.distance - b.distance)[0]
+  if (folded) return folded
   const ring =
     membrane && targets.find((target) => target.type === 'area' && target.area === 'membrane' && holds(target, point))
   if (ring) return ring
   const banded = bandSlot(targets, point)
   if (banded) return banded
-  const rank = (target) => AREA_PRIORITY.indexOf(target.area)
+  // A microdomain is within its cell, so it ranks with the cell's inside, and being the smaller, is chosen.
+  const rank = (target) => AREA_PRIORITY.indexOf(target.inner ? 'cell' : target.area)
   const size = ({ rect }) => rect.width * rect.height
   const area = targets
     .filter((target) => target.type === 'area' && target.rect && (membrane || target.area !== 'membrane'))

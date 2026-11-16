@@ -8,6 +8,7 @@ import {
   buildTermUrl,
   createDebouncedSearch,
   fetchJson,
+  lookupGoNamespace,
   lookupTerm,
   readOlsTerm,
   searchCellularComponents,
@@ -208,5 +209,16 @@ describe('lookupTerm', () => {
     const fetch = respondWith({})
     expect(await lookupTerm('OPB:00340', { fetch })).toBeNull()
     expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('lookupGoNamespace', () => {
+  it('asks OLS which namespace a GO term is in, and keeps nothing', async () => {
+    const fetch = respondWith({ obo_id: 'GO:0001750', label: 'photoreceptor outer segment', annotation: { has_obo_namespace: ['cellular_component'] } })
+    expect(await lookupGoNamespace('GO:0001750', { fetch })).toBe('cellular_component')
+    expect(fetch.mock.calls[0][0]).toContain('/ontologies/go/terms/')
+    expect(await lookupGoNamespace('GO:0001750', { fetch: respondWith({ label: 'x' }) })).toBeNull()
+    expect(await lookupGoNamespace('GO:9999999', { fetch: respondWith({}, 404) })).toBeNull()
+    await expect(lookupGoNamespace('GO:0001750', { fetch: respondWith({}, 503) })).rejects.toBeInstanceOf(LookupUnavailableError)
   })
 })

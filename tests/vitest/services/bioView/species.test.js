@@ -106,6 +106,42 @@ describe('the species network', () => {
     expect(toyNetwork({ hidden: [CHEBI.sodium] }).network.compartments.size).toBe(0)
   })
 
+  it('joins a process inside the cell to the compartment species it takes or gives', () => {
+    // A process taking Na⁺ from the cell (its flow annotated on itself) and giving glucose (annotated in the
+    // cytoplasm).
+    const WORKS = {
+      variables: [flow('v_Na_used', CHEBI.sodium, 'self'), flow('v_Glc_made', CHEBI.glucose, GO.cytoplasm)],
+    }
+    const nodes = [node('cell', 'pool'), node('works', 'works')]
+    const roles = { cell: 'cytosol', works: 'cytosolic' }
+    const GLUCOSE_POOL = { variables: [...POOL.variables, flow('v_Glc', CHEBI.glucose, 'self')] }
+    const edges = [
+      edge('works', 'cell', [
+        ['v_Na_used', 'v_Na'],
+        ['v_Glc_made', 'v_Glc'],
+      ]),
+    ]
+    const sidecars = { pool: GLUCOSE_POOL, works: WORKS }
+    const build = (options) =>
+      speciesNetwork({ nodes, edges, roleOf: (id) => roles[id], sidecarOf: (n) => sidecars[n.data.mathRef], ...options })
+    const network = build()
+    expect(network.paths).toEqual([])
+    expect(network.exchanges).toEqual([
+      { process: 'works', compartment: 'cell', species: CHEBI.sodium, label: 'Na⁺', variable: 'v_Na_used', produces: -1 },
+      {
+        process: 'works',
+        compartment: 'cell',
+        species: CHEBI.glucose,
+        label: 'D-glucose',
+        variable: 'v_Glc_made',
+        produces: 1,
+      },
+    ])
+    // An exchange is a flux: its species stay with Species with Fluxes, and go when hidden.
+    expect(build({ fluxes: true }).compartments.get('cell')).toHaveLength(2)
+    expect(build({ hidden: [CHEBI.sodium] }).exchanges.map(({ species }) => species)).toEqual([CHEBI.glucose])
+  })
+
   it('counts a held reservoir with only a dependence as no flux, unless it is the focused one', () => {
     const held = toyNetwork({ held: true, fluxes: true }).network
     expect(held.compartments.size).toBe(0)

@@ -217,6 +217,47 @@ describe('where species mode draws its network', () => {
     expect(layoutSpecies(reads, layout, { arrowsOf }).dependences[0].end.x).toBe(314)
   })
 
+  it('runs a leg between a process card and each token it exchanges with, the way the species goes', () => {
+    const inCell = new Map([...layout, ['works', { kind: 'cytosolic', cell: 'cell', x: 60, y: 260 }]])
+    const exchanging = {
+      ...network,
+      paths: [],
+      exchanges: [
+        { process: 'works', compartment: 'cell', species: 'Na', variable: 'v', produces: -1 },
+        { process: 'works', compartment: 'cell', species: 'K', variable: 'w', produces: 1 },
+      ],
+    }
+    const flowOf = (exchange) => ({ direction: exchange.species === 'Na' ? 'in' : 'out', size: 1 })
+    const { paths, tokens } = layoutSpecies(exchanging, inCell, { flowOf })
+    expect(paths.map((path) => [path.protein, path.species, path.direction])).toEqual([
+      ['works', 'Na', 'in'],
+      ['works', 'K', 'out'],
+    ])
+    const start = (d) => d.match(/^M([-\d.]+),([-\d.]+)/).slice(1).map(Number)
+    const end = (d) => d.match(/([-\d.]+),([-\d.]+)$/).slice(1).map(Number)
+    const onCard = ([x, y]) => x >= 60 && x <= 240 && y >= 260 && y <= 332
+    const [taken, given] = paths.map((path) => path.legs.process)
+    // Taken in, the leg ends on the card; given out, it starts there. Each stops a head short of its end.
+    expect(onCard(start(given))).toBe(true)
+    expect(onCard(start(taken))).toBe(false)
+    expect(paths.every((path) => path.head > 0)).toBe(true)
+    // The two legs meet the card apart.
+    expect(paths[0].ends.process.face.point).not.toEqual(paths[1].ends.process.face.point)
+
+    // Moved with its cell, a leg is drawn again from its ends.
+    const moved = driftSpecies({ tokens, paths, dependences: [] }, inCell, { moved: new Map([['cell', { x: 10, y: 0 }]]) })
+    expect(start(moved.paths[1].legs.process)[0]).toBe(start(given)[0] + 10)
+    // Without a run it is drawn still.
+    expect(layoutSpecies(exchanging, inCell).paths.map((path) => path.direction)).toEqual([null, null])
+  })
+
+  it('draws a dependence to a process card that only reads a species', () => {
+    const inCell = new Map([...layout, ['works', { kind: 'cytosolic', cell: 'cell', x: 60, y: 260 }]])
+    const reads = { ...network, paths: [], dependences: [{ protein: 'works', compartment: 'cell', species: 'K' }] }
+    const [dependence] = layoutSpecies(reads, inCell).dependences
+    expect(dependence).toMatchObject({ protein: 'works', species: 'K', end: { r: DEPENDENCE_END } })
+  })
+
   it('draws no path for a protein not in a membrane', () => {
     const tray = new Map([...layout, ['porter', { kind: 'tray', x: 0, y: 0 }]])
     expect(layoutSpecies(network, tray).paths).toEqual([])
@@ -654,5 +695,78 @@ describe('species drawn while something is dragged', () => {
     expect(drawn.paths[0].legs.outside.startsWith(`M${lumen.x + 60},`)).toBe(true)
     // Its dependence's circle stays at the protein.
     expect(drawn.dependences[0].end).toEqual(species.dependences[0].end)
+  })
+})
+
+describe('the flow drawn widest for each species', () => {
+  it('is nearly the largest of the species’ own flows over the stretch, whatever a few points above it are', async () => {
+    const { flowScales } = await import('../../../../src/services/bioView/speciesLayout.js')
+    // A spike at the first point, as a solver's first step gives, over a flow that rises to 2.
+    const calcium = Float64Array.from({ length: 1000 }, (_, i) => (i === 0 ? 1e9 : (-2 * i) / 999))
+    const sodium = Float64Array.from({ length: 1000 }, () => 500)
+    const lcc = { key: 'lcc', species: 'Ca', values: calcium }
+    const ncx = { key: 'ncx', species: 'Ca', values: calcium.map((value, i) => (i === 0 ? 0 : value / 4)) }
+    const channel = { key: 'na', species: 'Na', values: sodium }
+    const flows = [lcc, ncx, channel]
+    const bySpecies = flowScales(flows, [0, 999])
+    expect(bySpecies(lcc)).toBeGreaterThan(1.9)
+    expect(bySpecies(lcc)).toBeLessThanOrEqual(2)
+    expect(bySpecies(ncx)).toBe(bySpecies(lcc))
+    expect(bySpecies(channel)).toBe(500)
+    // Over a stretch where it flows at one point alone, that point's size.
+    const one = { key: 'one', species: 'Ca', values: Float64Array.from([0, 0, 3, 0]) }
+    expect(flowScales([one], [0, 3])(one)).toBe(3)
+    expect(flowScales([{ ...one, values: Float64Array.from([0, 0]) }], [0, 1])(one)).toBe(0)
+  })
+
+  it('compares each path with itself or with every flow instead, and scales to spikes when asked', async () => {
+    const { flowScales } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const big = { key: 'big', species: 'Ca', values: Float64Array.from({ length: 200 }, (_, i) => (i === 0 ? 1000 : 8)) }
+    const small = { key: 'small', species: 'Ca', values: Float64Array.from({ length: 200 }, () => 2) }
+    const other = { key: 'other', species: 'Na', values: Float64Array.from({ length: 200 }, () => 50) }
+    const flows = [big, small, other]
+    const byPath = flowScales(flows, [0, 199], { group: 'path' })
+    expect([byPath(big), byPath(small), byPath(other)]).toEqual([8, 2, 50])
+    const overall = flowScales(flows, [0, 199], { group: 'all' })
+    expect([overall(big), overall(small), overall(other)]).toEqual([50, 50, 50])
+    const spiked = flowScales(flows, [0, 199], { group: 'species', spikes: true })
+    expect([spiked(big), spiked(small), spiked(other)]).toEqual([1000, 1000, 50])
+  })
+})
+
+describe('species in a cell with pieces inside it', () => {
+  const cell = { x: 0, y: 0, width: 800, height: 600 }
+  const layout = new Map([
+    ['cell', { kind: 'cell', rect: cell, folds: [{ facetId: 'tubule', edge: 'top', at: 700, half: 38, depth: 400 }] }],
+    ['sr', { kind: 'cell', rect: { x: 250, y: 250, width: 280, height: 170 }, parent: 'cell' }],
+    ['cleft', { kind: 'region', rect: { x: 520, y: 270, width: 130, height: 130 }, parent: 'cell', form: 'inner' }],
+    ['outside', { kind: 'region', rect: { x: -80, y: -140, width: 960, height: 180 } }],
+    ['lcc', { kind: 'protein', cell: 'cell', part: 'tubule', x: 662, y: 300, rotation: 90, outward: 'right' }],
+  ])
+
+  it('keeps the cell’s tokens clear of its organelles, microdomains and folds', async () => {
+    const { obstaclesOf } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const boxes = obstaclesOf('cell', layout)
+    const covers = (rect) => boxes.some((box) => box.x <= rect.x && box.y <= rect.y && box.x + box.width >= rect.x + rect.width && box.y + box.height >= rect.y + rect.height)
+    expect(covers(layout.get('sr').rect)).toBe(true)
+    expect(covers(layout.get('cleft').rect)).toBe(true)
+    expect(covers({ x: 662, y: 0, width: 76, height: 400 })).toBe(true)
+    // A microdomain's own tokens are not kept out of it by the cell it lies in.
+    const inner = obstaclesOf('cleft', layout)
+    expect(inner.some((box) => box.width >= cell.width)).toBe(false)
+  })
+
+  it('runs the path to the outside of a fold’s protein in at the fold’s mouth and down its lumen', async () => {
+    const { routeSpecies } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const network = { paths: [{ protein: 'lcc', species: 'Ca', outside: 'outside', inside: 'cleft' }], dependences: [], exchanges: [] }
+    const tokens = [
+      { key: 'outside::Ca', x: 400, y: -70, width: 40, height: 22 },
+      { key: 'cleft::Ca', x: 580, y: 330, width: 40, height: 22 },
+    ]
+    const [path] = routeSpecies(network, layout, tokens).paths
+    // From the token to the mouth, then straight down the middle of the lumen to level with the protein.
+    expect(path.legs.outside).toMatch(/ L700,300 L[\d.]+,[\d.]+$/)
+    expect(path.legs.outside).toContain('700,0')
+    expect(path.legs.inside).not.toContain(' L')
   })
 })

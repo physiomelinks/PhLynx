@@ -40,6 +40,7 @@ export const STEP_LABELS = {
   'bio-template-move': 'Move template',
   'bio-template-rename': 'Rename template',
   'bio-template-add-piece': 'Add to template',
+  'bio-template-rename-piece': 'Rename in template',
   'bio-template-remove-piece': 'Remove from template',
   'bio-template-restore': 'Restore template elements',
   'bio-template-relayout': 'Re-layout template',

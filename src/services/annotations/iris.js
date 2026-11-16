@@ -232,6 +232,16 @@ export const GO = {
 /** GO cellular components that locate a quantity relative to an instance. */
 export const GO_LOCATIONS = new Set([GO.cytoplasm, GO.extracellularRegion, GO.plasmaMembrane])
 
+/**
+ * Whether a CURIE can name a place: one of the three every cell has, or any other GO term. Which GO terms are
+ * cellular components is not kept here; an imported side-car's are checked against the ontology service (see
+ * findMisplacedTerms).
+ *
+ * @param {string|null|undefined} curie - Canonical.
+ * @returns {boolean}
+ */
+export const isGoPlace = (curie) => typeof curie === 'string' && (GO_LOCATIONS.has(curie) || /^GO:\d{7}$/.test(curie))
+
 export const SBO = {
   physicalCompartment: 'SBO:0000290',
 }

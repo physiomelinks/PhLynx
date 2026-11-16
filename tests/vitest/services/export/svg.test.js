@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   SVG_ICONS,
+  cssPlacement,
   el,
   escapeXml,
   fitText,
@@ -140,5 +141,33 @@ describe('arrowheads without <marker>', () => {
     expect(x).toBeCloseTo(10 - 12.5)
     const [xUser] = apply(markerTransform({ ...ARROW, markerUnits: 'userSpaceOnUse' }, at, 0, 2), [-10, 0])
     expect(xUser).toBeCloseTo(10 - 6.25)
+  })
+})
+
+describe('what a stylesheet places', () => {
+  // A path along x, which is all the stand-in measures.
+  const element = (attributes = {}) => ({
+    hasAttribute: (name) => name in attributes,
+    ownerDocument: {
+      createElementNS: () => ({
+        setAttribute() {},
+        getTotalLength: () => 40,
+        getPointAtLength: (at) => ({ x: at, y: 5 }),
+      }),
+    },
+  })
+
+  it('puts an element where it sits along its offset path, turned to the path', () => {
+    const style = { offsetPath: 'path("M 0 5 H 40")', offsetDistance: '25%', offsetRotate: 'auto', transform: 'none' }
+    expect(cssPlacement(element(), style)).toBe('translate(10 5)')
+    expect(cssPlacement(element(), { ...style, offsetDistance: '30px', offsetRotate: '90deg' })).toBe('translate(30 5) rotate(90)')
+  })
+
+  it('writes a CSS transform about the origin, and leaves an attribute’s own and one about another origin', () => {
+    const style = { offsetPath: 'none', transform: 'matrix(1, 0, 0, 1, 4, 6)', transformOrigin: '0px 0px' }
+    expect(cssPlacement(element(), style)).toBe('matrix(1, 0, 0, 1, 4, 6)')
+    expect(cssPlacement(element({ transform: 'translate(4 6)' }), style)).toBeNull()
+    expect(cssPlacement(element(), { ...style, transformOrigin: '8px 8px' })).toBeNull()
+    expect(cssPlacement(element(), { offsetPath: 'none', transform: 'none' })).toBeNull()
   })
 })

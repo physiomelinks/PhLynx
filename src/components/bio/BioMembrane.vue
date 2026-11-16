@@ -10,12 +10,13 @@
     data-testid="bio-membrane"
   >
     <title>{{ data.name }}</title>
-    <path class="bio-membrane__band" :d="leafletPath(data.width, data.height)" :stroke-width="BAND_WIDTH" />
+    <path class="bio-membrane__band" :d="leafletPath(data.width, data.height, 0, data.folds ?? [])" :stroke-width="BAND_WIDTH" />
     <BioBilayer
       v-if="selected || data.coupled"
       class="bio-membrane__heads"
       :width="data.width"
       :height="data.height"
+      :folds="data.folds ?? []"
       :tails="false"
     />
   </svg>

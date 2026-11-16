@@ -24,7 +24,17 @@ export const useViewModeStore = defineStore('viewMode', () => {
    */
   const focusedSpecies = ref(null)
 
+  /**
+   * The build tile clicked and waiting for a click on the physiological view to place it: { kind, template? }. The
+   * tiles are in the library's Build tab and the view places them, so what is carried between the two is kept here.
+   */
+  const armedTile = ref(null)
+  /** The build tile being dragged, as a drag's data can't be read until it is dropped. */
+  const draggedTile = ref(null)
+  /** Counts the requests to load a template from a file, which the physiological view answers. */
+  const templateFileRequests = ref(0)
+
   const isBio = computed(() => mode.value === 'bio')
 
-  return { mode, bioViewport, speciesScope, hiddenSpecies, focusedSpecies, isBio }
+  return { mode, bioViewport, speciesScope, hiddenSpecies, focusedSpecies, armedTile, draggedTile, templateFileRequests, isBio }
 })
