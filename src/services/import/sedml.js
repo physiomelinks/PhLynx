@@ -4,7 +4,7 @@ import { readSolverSettings } from '../simulation/sedParameters'
  * Reads the solver settings of a time course's algorithm.
  *
  * @param {Element} timeCourse - A uniformTimeCourse element.
- * @returns {Object} Some of `{ solver, timeStep, tolerance, maxSteps }`.
+ * @returns {Object} Some of `{ solver, timeStep, relativeTolerance, absoluteTolerance, maxSteps }`.
  */
 function readAlgorithm(timeCourse) {
   const algorithm = [...timeCourse.children].find((child) => child.localName === 'algorithm')

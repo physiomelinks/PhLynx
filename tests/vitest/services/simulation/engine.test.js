@@ -562,7 +562,7 @@ describe('startSimulation', () => {
   it('applies the CVODE settings it is given', async () => {
     const fake = createFakeLibOpenCOR()
 
-    await startSimulation({ module: fake.loc, cellml: '<model/>', settings: { ...SETTINGS, tolerance: 1e-9, maxSteps: 5000, timeStep: 0.01 } }).promise
+    await startSimulation({ module: fake.loc, cellml: '<model/>', settings: { ...SETTINGS, relativeTolerance: 1e-9, maxSteps: 5000, timeStep: 0.01 } }).promise
 
     expect(fake.solver).toMatchObject({ relativeTolerance: 1e-9, absoluteTolerance: 1e-9, maximumNumberOfSteps: 5000, maximumStep: 0.01 })
   })
@@ -657,11 +657,13 @@ describe('checkSettings', () => {
     ['an initial time after the start', { initialPoint: 1 }, /can’t be after the start/],
     ['an unknown solver', { solver: 'Leapfrog' }, /doesn’t know: Leapfrog/],
     ['a fixed-step solver without a step', { solver: 'RungeKutta4', timeStep: 0 }, /Fourth-order Runge–Kutta needs a time step above 0/],
-    ['a zero tolerance', { tolerance: 0 }, /tolerance above 0/],
+    ['a zero tolerance', { relativeTolerance: 0 }, /tolerance above 0/],
     ['a fractional number of steps', { maxSteps: 2.5 }, /from 1 to 2147483647/],
     ['more steps than libOpenCOR can hold', { maxSteps: 2 ** 31 }, /from 1 to 2147483647/],
     ['a negative maximum step', { timeStep: -1 }, /maximum step of 0 or more/],
-    ['a cleared tolerance', { tolerance: null }, /tolerance above 0/],
+    ['a cleared tolerance', { relativeTolerance: null }, /relative tolerance above 0/],
+    ['a zero absolute tolerance', { absoluteTolerance: 0 }, /absolute tolerance above 0/],
+    ['a cleared absolute tolerance', { absoluteTolerance: null }, /absolute tolerance above 0/],
     ['a cleared step', { solver: 'Euler', timeStep: null }, /Forward Euler needs a time step above 0/],
   ])('rejects %s', (_, change, message) => {
     expect(() => checkSettings({ ...SETTINGS, ...change })).toThrow(message)
@@ -670,7 +672,7 @@ describe('checkSettings', () => {
   it('takes the default solver settings for any the settings lack', () => {
     expect(() => checkSettings(SETTINGS)).not.toThrow()
     expect(() => checkSettings({ ...SETTINGS, maxSteps: 2 ** 31 - 1 })).not.toThrow()
-    expect(() => checkSettings({ ...SETTINGS, solver: 'Heun', timeStep: 0.1, tolerance: 0 })).not.toThrow()
+    expect(() => checkSettings({ ...SETTINGS, solver: 'Heun', timeStep: 0.1, relativeTolerance: 0 })).not.toThrow()
   })
 
   it('accepts a time course that starts before zero', () => {

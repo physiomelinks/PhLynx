@@ -17,9 +17,9 @@ export const SOLVERS = {
 
 /**
  * The solver settings exports always used before they could be changed, and still the defaults: CVODE, a
- * tolerance of 1e-7, at most 500 steps between output points, and no limit on a step (0).
+ * relative and absolute tolerance of 1e-7, at most 500 steps between output points, and no limit on a step (0).
  */
-export const DEFAULT_SOLVER_SETTINGS = Object.freeze({ solver: 'CVODE', timeStep: 0, tolerance: 1e-7, maxSteps: 500 })
+export const DEFAULT_SOLVER_SETTINGS = Object.freeze({ solver: 'CVODE', timeStep: 0, relativeTolerance: 1e-7, absoluteTolerance: 1e-7, maxSteps: 500 })
 
 // The most steps CVODE can be allowed: libOpenCOR holds the number as a 32-bit integer.
 export const MAX_SOLVER_STEPS = 2 ** 31 - 1
@@ -28,7 +28,7 @@ export const MAX_SOLVER_STEPS = 2 ** 31 - 1
 const FIXED_STEP_KISAO_ID = 'KISAO:0000483'
 
 // The KiSAO ids of the CVODE settings that can be changed, with the simulation setting each one sets.
-const CVODE_SETTING_KISAO_IDS = { 'KISAO:0000209': 'tolerance', 'KISAO:0000415': 'maxSteps', 'KISAO:0000467': 'timeStep' }
+const CVODE_SETTING_KISAO_IDS = { 'KISAO:0000209': 'relativeTolerance', 'KISAO:0000211': 'absoluteTolerance', 'KISAO:0000415': 'maxSteps', 'KISAO:0000467': 'timeStep' }
 
 // The CVODE settings that can't be changed, as written in SED-ML.
 const FIXED_CVODE_PARAMETERS = [
@@ -50,14 +50,22 @@ const FIXED_CVODE_PARAMETERS = [
 export const formatSedNumber = (value) => String(value).replace(/e([+-])(\d)$/, 'e$10$2')
 
 /**
- * Gets the solver settings to run with, taking the defaults for any a settings object lacks.
+ * Gets the solver settings to run with, taking the defaults for any a settings object lacks. The absolute
+ * tolerance a settings object lacks is its relative tolerance, as a SED-ML file giving only one means.
  *
  * @param {Object} settings - Simulation settings.
- * @returns {{solver: string, timeStep: number, tolerance: number, maxSteps: number}}
+ * @returns {{solver: string, timeStep: number, relativeTolerance: number, absoluteTolerance: number, maxSteps: number}}
  */
 export function resolveSolverSettings(settings) {
   const pick = (name) => settings?.[name] ?? DEFAULT_SOLVER_SETTINGS[name]
-  return { solver: pick('solver'), timeStep: pick('timeStep'), tolerance: pick('tolerance'), maxSteps: pick('maxSteps') }
+  const relativeTolerance = pick('relativeTolerance')
+  return {
+    solver: pick('solver'),
+    timeStep: pick('timeStep'),
+    relativeTolerance,
+    absoluteTolerance: settings?.absoluteTolerance ?? relativeTolerance,
+    maxSteps: pick('maxSteps'),
+  }
 }
 
 /**
@@ -74,9 +82,11 @@ export function findSolverSettingsProblem(settings) {
   const isNumber = (candidate) => typeof candidate === 'number' && Number.isFinite(candidate)
   const timeStep = value('timeStep')
   if (solver.isFixedStep) return isNumber(timeStep) && timeStep > 0 ? null : `${solver.label} needs a time step above 0.`
-  const tolerance = value('tolerance')
+  const relativeTolerance = value('relativeTolerance')
+  const absoluteTolerance = settings?.absoluteTolerance === undefined ? relativeTolerance : settings.absoluteTolerance
   const maxSteps = value('maxSteps')
-  if (!isNumber(tolerance) || tolerance <= 0) return 'CVODE needs a tolerance above 0.'
+  if (!isNumber(relativeTolerance) || relativeTolerance <= 0) return 'CVODE needs a relative tolerance above 0.'
+  if (!isNumber(absoluteTolerance) || absoluteTolerance <= 0) return 'CVODE needs an absolute tolerance above 0.'
   if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > MAX_SOLVER_STEPS) {
     return `CVODE needs a maximum number of steps from 1 to ${MAX_SOLVER_STEPS}.`
   }
@@ -90,7 +100,7 @@ export function findSolverSettingsProblem(settings) {
  *
  * @param {string} kisaoId - The algorithm's KiSAO id.
  * @param {Map<string, string>} parameters - Its parameters' values, by KiSAO id.
- * @returns {Object} Some of `{ solver, timeStep, tolerance, maxSteps }`.
+ * @returns {Object} Some of `{ solver, timeStep, relativeTolerance, absoluteTolerance, maxSteps }`.
  */
 export function readSolverSettings(kisaoId, parameters) {
   const entry = Object.entries(SOLVERS).find(([, solver]) => solver.kisaoId === kisaoId)
@@ -113,7 +123,7 @@ export function readSolverSettings(kisaoId, parameters) {
  * @returns {{solver: Object, parameters: Array<{kisaoId: string, name: string, value: string}>}}
  */
 export function buildAlgorithm(settings) {
-  const { solver: solverName, timeStep, tolerance, maxSteps } = resolveSolverSettings(settings)
+  const { solver: solverName, timeStep, relativeTolerance, absoluteTolerance, maxSteps } = resolveSolverSettings(settings)
   const solver = SOLVERS[solverName]
   if (!solver) throw new Error(`Unknown solver '${solverName}'.`)
   if (solver.isFixedStep) {
@@ -122,8 +132,8 @@ export function buildAlgorithm(settings) {
   return {
     solver,
     parameters: [
-      { kisaoId: 'KISAO:0000209', name: 'relativeTolerance', value: formatSedNumber(tolerance) },
-      { kisaoId: 'KISAO:0000211', name: 'absoluteTolerance', value: formatSedNumber(tolerance) },
+      { kisaoId: 'KISAO:0000209', name: 'relativeTolerance', value: formatSedNumber(relativeTolerance) },
+      { kisaoId: 'KISAO:0000211', name: 'absoluteTolerance', value: formatSedNumber(absoluteTolerance) },
       { kisaoId: 'KISAO:0000415', name: 'maximumNumberOfSteps', value: formatSedNumber(maxSteps) },
       { kisaoId: 'KISAO:0000467', name: 'maximumStep', value: formatSedNumber(timeStep) },
       ...FIXED_CVODE_PARAMETERS,

@@ -43,7 +43,7 @@ RUN_CASE = """async () => {
   const simulator = await whenLibOpenCORReady()
   const key = 'parity-' + Math.round(performance.now())
   const described = await simulator.describeModel({ cellml, key })
-  const settings = { solver: 'CVODE', tolerance: __TOLERANCE__, maxSteps: 50000, timeStep: spec.maximumStep, pointInterval: spec.pointInterval }
+  const settings = { solver: 'CVODE', relativeTolerance: __TOLERANCE__, maxSteps: 50000, timeStep: spec.maximumStep, pointInterval: spec.pointInterval }
   const prepared = prepareProtocolRun({ view, drivers, nodes: [], mapping: new Map(), variables: described.variables, settings })
   if (prepared.errors.length) return { errors: prepared.errors }
   const results = await simulator.startProtocol({ key, settings: prepared.settings, plan: prepared.plan, targets: prepared.targets }).promise
@@ -70,7 +70,7 @@ RUN_FEATURES = """async () => {
   const simulator = await whenLibOpenCORReady()
   const key = 'features-' + Math.round(performance.now())
   const described = await simulator.describeModel({ cellml: __CELLML__, key })
-  const settings = { solver: 'CVODE', tolerance: __TOLERANCE__, maxSteps: 50000, timeStep: spec.maximumStep, pointInterval: spec.pointInterval }
+  const settings = { solver: 'CVODE', relativeTolerance: __TOLERANCE__, maxSteps: 50000, timeStep: spec.maximumStep, pointInterval: spec.pointInterval }
   const prepared = prepareProtocolRun({ view, drivers: [], nodes: [], mapping: new Map(), variables: described.variables, settings })
   if (prepared.errors.length) return { errors: prepared.errors }
   const operands = resolveFeatureOperands({ operands: listFeatureOperands(spec.obs_data), nodes: [], mapping: new Map(), variables: described.variables })

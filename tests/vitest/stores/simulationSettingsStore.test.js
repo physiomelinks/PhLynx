@@ -8,6 +8,14 @@ const SWEEP = { key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', uni
 describe('simulationSettingsStore', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
+  it('gives settings without an absolute tolerance their relative one, as runs used before it could be set', () => {
+    expect(cloneSimulationSettings({ relativeTolerance: 1e-9 }).absoluteTolerance).toBe(1e-9)
+    expect(cloneSimulationSettings().absoluteTolerance).toBe(1e-7)
+    expect(cloneSimulationSettings({ relativeTolerance: 1e-9, absoluteTolerance: 1e-12 }).absoluteTolerance).toBe(1e-12)
+    // Cleared in the settings, it stays cleared so the simulator asks for a value.
+    expect(cloneSimulationSettings({ relativeTolerance: 1e-9, absoluteTolerance: null }).absoluteTolerance).toBeNull()
+  })
+
   it('saves and loads a sweep, with its reading', () => {
     const store = useSimulationSettingsStore()
     store.setSimulationSettings({ ...store.simulationSettings, sweep: SWEEP })

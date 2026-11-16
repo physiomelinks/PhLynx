@@ -417,7 +417,8 @@ describe('migrating the synthetic 1.1.0 workspace', () => {
       initialPoint: 0,
       solver: 'CVODE',
       timeStep: 0,
-      tolerance: 1e-7,
+      relativeTolerance: 1e-7,
+      absoluteTolerance: 1e-7,
       maxSteps: 500,
     })
   })
@@ -465,8 +466,10 @@ describe('migrating to and loading the synthetic 1.3.0 workspace', () => {
 
   it('takes a 1.2.0 file to 1.3.0 unchanged, its math all CellML', () => {
     const doc = syntheticWorkspace('1.2.0')
-    const { parameters, ...migrated } = migrateWorkspace(doc)
-    expect(migrated).toEqual({ ...doc, version: '1.4.0' })
+    const { parameters, simulation, ...migrated } = migrateWorkspace(doc)
+    const { simulation: originalSimulation, ...original } = doc
+    expect(migrated).toEqual({ ...original, version: '1.4.0' })
+    expect(simulation.plotConfig).toEqual(originalSimulation.plotConfig)
     expect(parameters).toEqual({ sets: [], unlinked: [] })
 
     const saved = loadAndSave(doc)
@@ -494,7 +497,13 @@ describe('migrating to and loading the synthetic 1.4.0 workspace', () => {
 
   it('takes a 1.3.0 file to 1.4.0 with no parameter sets', () => {
     const doc = syntheticWorkspace('1.3.0')
-    expect(migrateWorkspace(doc)).toEqual({ ...doc, version: '1.4.0', parameters: { sets: [], unlinked: [] } })
+    const { tolerance, ...settings } = doc.simulation.simulationSettings
+    expect(migrateWorkspace(doc)).toEqual({
+      ...doc,
+      version: '1.4.0',
+      parameters: { sets: [], unlinked: [] },
+      simulation: { ...doc.simulation, simulationSettings: { ...settings, relativeTolerance: tolerance, absoluteTolerance: tolerance } },
+    })
     expect(loadAndSave(doc).parameters).toEqual({ sets: [], unlinked: [] })
   })
 
@@ -508,6 +517,20 @@ describe('migrating to and loading the synthetic 1.4.0 workspace', () => {
     expect(set.values.get('k')).toMatchObject({ value: '0.25', extra: { sourced: 'yes' } })
     expect(set.values.get('x_init').value).toBeNull()
     expect(set.globals.get('F').value).toBe('96485.0')
+  })
+
+  it('absoluteTolerance: keeps an absolute tolerance set apart from the relative one', () => {
+    const doc = syntheticCase('1.4.0', 'absoluteTolerance')
+    expect(loadAndSave(doc).simulation.simulationSettings).toMatchObject({ relativeTolerance: 1e-6, absoluteTolerance: 1e-10 })
+  })
+
+  it('gives a 1.3.0 file its tolerance as the relative and absolute tolerances, as its runs used', () => {
+    const doc = syntheticWorkspace('1.3.0')
+    const { tolerance } = doc.simulation.simulationSettings
+    const settings = migrateWorkspace(doc).simulation.simulationSettings
+    expect(settings).not.toHaveProperty('tolerance')
+    expect(settings).toMatchObject({ relativeTolerance: tolerance, absoluteTolerance: tolerance })
+    expect(loadAndSave(doc).simulation.simulationSettings).toMatchObject({ relativeTolerance: tolerance, absoluteTolerance: tolerance })
   })
 
   it('unlinkedSet: keeps a set no config names yet', () => {

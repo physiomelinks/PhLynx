@@ -362,6 +362,9 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   frameworkVersion}]` pairs: the document a math's CellML is generated from, `format` a key of
  *   MODULE_FORMATS (services/moduleFormats.js). A math with none is CellML, so older files need no
  *   migration.
+ * - 1.4.0: `parameters` holds the default parameter sets; older files have none.
+ *   simulation.simulationSettings' `tolerance` becomes `relativeTolerance`, CVODE's relative tolerance,
+ *   beside a new `absoluteTolerance`. Older files used `tolerance` for both, so both take its value.
  */
 const LEGACY_VERSION = 'legacy'
 
@@ -522,13 +525,21 @@ export function migrateWorkspace(doc) {
 }
 
 /**
- * 1.3.0 -> 1.4.0: older files have no default parameter sets.
+ * 1.3.0 -> 1.4.0: older files have no default parameter sets, and their one tolerance was CVODE's relative
+ * and absolute tolerance both.
  *
  * @param {Object} doc - A 1.3.0 workspace.
  * @returns {Object}
  */
 function migrate1_3_0To1_4_0(doc) {
-  return { ...doc, parameters: doc.parameters ?? { sets: [], unlinked: [] } }
+  const migrated = { ...doc, parameters: doc.parameters ?? { sets: [], unlinked: [] } }
+  const settings = doc.simulation?.simulationSettings
+  if (!settings || !('tolerance' in settings)) return migrated
+  const { tolerance, ...others } = settings
+  return {
+    ...migrated,
+    simulation: { ...doc.simulation, simulationSettings: { ...others, relativeTolerance: tolerance, absoluteTolerance: tolerance } },
+  }
 }
 
 /**

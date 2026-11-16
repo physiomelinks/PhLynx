@@ -77,8 +77,10 @@ From the cog (opens on **Solver**) or the main toolbar's **Configure simulation 
 | **Ends at** | Where the run ends. |
 | **Point interval** | The spacing between the points kept. |
 | **Solver** | CVODE (default), Forward Euler, Heun, Second-order Runge–Kutta or Fourth-order Runge–Kutta. |
-| **Tolerance**, **Maximum Steps**, **Maximum Step** | CVODE only: the relative and absolute tolerance; the steps allowed between two output points; the largest step (0 for no limit). |
+| **Relative Tolerance**, **Absolute Tolerance**, **Maximum Steps**, **Maximum Step** | CVODE only: the error allowed relative to each variable's size, and the error allowed however small a variable gets (lower it for variables that stay near zero); the steps allowed between two output points; the largest step (0 for no limit). |
 | **Time Step** | Fixed-step solvers only: the step size. |
+
+Number fields take decimals or scientific notation, so a very small value such as an absolute tolerance of `1e-20` can be typed as it is written. A field that isn’t a number yet is marked in red and isn’t saved.
 
 Web OpenCOR doesn’t support a later **Plots start at**, so an export may not match.
 

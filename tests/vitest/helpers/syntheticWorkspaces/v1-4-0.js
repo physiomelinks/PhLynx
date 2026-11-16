@@ -24,6 +24,8 @@ export const base = () => {
   const doc = base1_3_0()
   doc.version = version
   doc.parameters = { sets: [], unlinked: [] }
+  const { tolerance, ...settings } = doc.simulation.simulationSettings
+  doc.simulation.simulationSettings = { ...settings, relativeTolerance: tolerance, absoluteTolerance: tolerance }
   return doc
 }
 
@@ -241,5 +243,10 @@ export const cases = {
         ],
       ],
     },
+  }),
+
+  /** CVODE runs with a relative tolerance of 1e-6 and an absolute tolerance of 1e-10, set apart. */
+  absoluteTolerance: () => ({
+    simulation: { simulationSettings: { solver: 'CVODE', relativeTolerance: 1e-6, absoluteTolerance: 1e-10 } },
   }),
 }

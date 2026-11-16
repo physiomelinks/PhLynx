@@ -238,7 +238,7 @@ class TestSimulator(unittest.TestCase):
             final_values = []
             for solver in (
                 {},
-                {"solver": "CVODE", "tolerance": 1e-9, "maxSteps": 5000, "timeStep": 0.001},
+                {"solver": "CVODE", "relativeTolerance": 1e-9, "maxSteps": 5000, "timeStep": 0.001},
                 # This neuron model is stiff: explicit solvers need a step this small to stay finite.
                 {"solver": "RungeKutta4", "timeStep": 1e-6, "endingPoint": 0.1},
             ):
