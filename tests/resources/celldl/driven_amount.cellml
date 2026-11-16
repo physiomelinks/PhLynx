@@ -1,0 +1,31 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="driven_amount" xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+    <!-- An amount that varies in time, X = X0 (1 + sin t), for a diagram's store to follow. -->
+    <component name="driven_amount">
+        <variable name="t" units="second" interface="public"/>
+        <variable initial_value="0.5" name="X0" units="mole" interface="public"/>
+        <variable name="X" units="mole" interface="public"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>X</ci>
+                <apply>
+                    <times/>
+                    <ci>X0</ci>
+                    <apply>
+                        <plus/>
+                        <cn cellml:units="dimensionless">1</cn>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <divide/>
+                                <ci>t</ci>
+                                <cn cellml:units="second">1</cn>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+    </component>
+</model>

@@ -1,0 +1,26 @@
+# Toy compartment sidecar: every property is of wherever the instance is.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix chebi: <https://identifiers.org/chebi/CHEBI:> .
+@prefix go: <https://identifiers.org/go/GO:> .
+@prefix sbo: <https://identifiers.org/sbo/SBO:> .
+@prefix m: <./pool.cellml#> .
+@prefix local: <./pool.ttl#> .
+
+m:pool bqbiol:is sbo:0000290 .
+local:entity_self bqbiol:is sbo:0000290 .
+
+m:v4rjndoly bqbiol:isVersionOf opb:00340 ;
+    bqbiol:isPropertyOf local:Na_self .
+local:Na_self bqbiol:is chebi:29101 ;
+    bqbiol:isPartOf local:entity_self .
+m:v82dsevh3 bqbiol:isVersionOf opb:00592 ;
+    bqbiol:isPropertyOf local:process_v82dsevh3 .
+local:process_v82dsevh3 semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:Na_self ] .
+m:v2f17r92n bqbiol:isVersionOf opb:00154 ;
+    bqbiol:isPropertyOf local:entity_self .
+m:v1l1fufqx bqbiol:isVersionOf opb:00295 ;
+    bqbiol:isPropertyOf local:membrane .
+local:membrane bqbiol:is go:0005886 ;
+    bqbiol:isPartOf local:entity_self .

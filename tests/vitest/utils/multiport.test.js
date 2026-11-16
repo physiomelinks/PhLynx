@@ -402,3 +402,72 @@ describe('multiportSummary', () => {
     })
   })
 })
+
+describe('annotated ports', () => {
+  const annotated = (subject, variables, multiportType) => ({
+    portType: 'general_ports',
+    label: '',
+    variables,
+    multiportType,
+    annotation: { subject, variable: variables[0], role: 'aggregator', source: { kind: 'sidecar' } },
+  })
+
+  it('are named by their variables in messages', () => {
+    expect(() => variableTypes(annotated('m#c.v', ['v'], ['sum', 'sum']))).toThrow('Port "v" has 2 multiport entries')
+    expect(couplingConflicts(annotated('m#a', ['a', 'b'], 'Sum'), annotated('m#c', ['c'], 'None'))[0]).toBe(
+      'Ports "a, b" and "c" need the same number of variables to sum or multiply.'
+    )
+  })
+
+  it('find their terms by identity, though their labels are all empty', () => {
+    const sum = annotated('m#c.v_Na', ['v_Na'], 'Sum')
+    const other = annotated('m#c.v_K', ['v_K'], 'Sum')
+    const reader = (subject, variable) => ({ ...annotated(subject, [variable], 'None') })
+    const edges = [
+      {
+        id: 'e1',
+        source: 's',
+        target: 'c',
+        data: { couplings: [{ sourcePort: reader('m#s.v_Na_i', 'v_Na_i'), targetPort: sum }] },
+      },
+      {
+        id: 'e2',
+        source: 'k',
+        target: 'c',
+        data: { couplings: [{ sourcePort: reader('m#k.v_K_i', 'v_K_i'), targetPort: other }] },
+      },
+    ]
+    const entries = multiportSummary('c', edges, {
+      ownPorts: [
+        { original: sum, current: sum },
+        { original: other, current: other },
+      ],
+    })
+    const summary = entries.map(({ variable, portLabel, terms }) => [variable, portLabel, terms.map((t) => t.variable)])
+    expect(summary).toEqual([
+      ['v_Na', 'v_Na', ['v_Na_i']],
+      ['v_K', 'v_K', ['v_K_i']],
+    ])
+  })
+})
+
+describe('port options round-trip through a config', () => {
+  const entry = {
+    module_type: 't',
+    module_subtype: 's',
+    component_file: 'f.cellml',
+    component_type: 'c',
+    exit_ports: [{ port_type: 'p', variables: ['a', 'b'], multi_port: ['multiply', 'sum'], multiply_factor: [2, null], only_one_port: true }],
+  }
+
+  it('keeps multiply_factor and only_one_port', () => {
+    const module = normaliseConfig(entry)
+    expect(restorePorts(module.ports).exit_ports[0]).toEqual(entry.exit_ports[0])
+  })
+
+  it('leaves multiply_factor out beside a port with no Multiply', () => {
+    const module = normaliseConfig(entry)
+    module.ports[0].multiportType = 'Sum'
+    expect(restorePorts(module.ports).exit_ports[0]).not.toHaveProperty('multiply_factor')
+  })
+})

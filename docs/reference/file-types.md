@@ -3,17 +3,25 @@
 | File | Extension | Used for |
 | :--- | :--- | :--- |
 | [CellML module / units](#cellml-files) | `.cellml` | Module math and units |
-| [Parameters](#parameter-file) | `.csv` | Parameter values |
+| [CellDL diagram](#celldl-files) (beta) | `.celldl` | A bond-graph module drawn as a diagram |
+| [Parameters](#parameter-file) | `.json`, `.csv` | Parameter values |
 | [Module configuration](#module-configuration) | `.json` | CA module ports and variables |
 | [Instance array](#instance-array) | `.csv` | CA network topology |
 | [params_for_id](#params_for_idcsv) | `.csv` | Parameter slider ranges |
 | [Workspace](#workspace-file) | `.json` | A saved PhLynx session |
 | [COMBINE archive](#combine-archive) | `.omex` | Model and simulation |
+| [Module sidecar](#annotation-files) | `.ttl` | What a module's variables mean |
+| [Physiology template](#template-files) | `.template.json` | A layout of cells and compartments |
+| [Glyph library](#glyph-files) | `.glyphs.json` | Protein cartoons |
 | [CA export](../guides/use-with-circulatory-autogen.md#output) | `.zip` | A Circulatory Autogen model |
 
 ## CellML files {#cellml-files}
 
 A module file holds module math ([CellML Module Format](./cellml-module-format.md)); a units file holds units ([CellML Units File](./cellml-units-file.md)). **Export ▸ CellML** writes the model as one flattened file; **CellML (selection)** writes only the selected instances.
+
+## CellDL files {#celldl-files}
+
+A `.celldl` file is a bond-graph diagram: an SVG drawing with the model's BG-RDF description embedded. **Import ▸ CellDL Diagram** adds it as a module, which PhLynx converts to CellML; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md). CellDL is in beta, so the format may still change. The workspace file and COMBINE archives keep each module's diagram; CellML and Circulatory Autogen exports carry only the generated CellML.
 
 ## Parameter file {#parameter-file}
 
@@ -32,17 +40,31 @@ g_Na_soma_SN,microS,2.3,user_defined
 Cm_soma_SN,picoF,30,Davis2021Transcriptomic
 ```
 
-Loading never changes a variable's type. Rows starting with `#` are ignored; values for computed variables are skipped.
+Loading never changes a variable's type. Rows starting with `#` are ignored; values for computed variables are skipped. For parameter sets in JSON, see [Parameter files](../guides/use-with-circulatory-autogen.md#parameter-files).
 
 ## Workspace file {#workspace-file}
 
-Written by **Save workspace** (floppy-disk icon, Ctrl/Cmd+S), opened by **Load workspace** (folder icon). Holds the whole session: graph, library, simulation settings, plots and protocol. Older files are upgraded on load.
+Written by **Save workspace** (floppy-disk icon, Ctrl/Cmd+S), opened by **Load workspace** (folder icon). Holds the whole session: graph, library (with module sidecars), parameter sets, simulation settings, plots, protocol, and the physiology templates and cartoons it uses. Older files are upgraded on load.
 
 ## COMBINE archive {#combine-archive}
 
 Opened with **Import ▸ COMBINE Archive** (`.omex` or `.zip`); written by **Export ▸ OpenCOR**, **CUFLynx** or **OpenCOR (selection)**. Holds the flattened CellML, `document.sedml`, `flow-snapshot.json` (the PhLynx graph), `simulation.json` (plots and sliders), [`params_for_id.csv`](#params_for_idcsv) and any extra files it was imported with.
 
 If the library already holds a component with the same file and name but different math, importing warns **Math Mismatch** and the instance uses the library's version, so the archive's edits to that component are not kept. Built-in components are always in the library, so to carry edits to one in an archive, give the edited component a new **Component** name in the Instance Editor before exporting.
+
+## Annotation files {#annotation-files}
+
+A module sidecar is a Turtle (`.ttl`) file saying what each variable of one module math means. Import one, or export the module's, from the Instance Editor's [Annotations tab](../guides/annotation-coupling.md#annotations-tab). Sidecars are saved with the workspace, and written into a COMBINE archive under `annotations/`, with a combined `annotations.ttl` for the whole model. See the [Annotation Vocabulary](./annotation-vocabulary.md).
+
+## Physiology view files
+
+### Template files {#template-files}
+
+A JSON file describing cells (their facets, membrane and processes) and the compartments between them, each a site modules are dropped on. Load one with **Add Template ▸ Load Template File…** in the [physiology view](../guides/physiology-view.md#my-templates), and save a placed template with **Save Template As File…**. The format is described by `src/assets/bio_templates/bio-template.schema.json` in the PhLynx repository. Files over 1 MB are refused.
+
+### Glyph library files {#glyph-files}
+
+A JSON file of protein cartoons, each a few SVG shapes drawn with the view's colours. Load one with **Glyph Libraries ▸ Load Glyph Library…** in the [physiology view](../guides/physiology-view.md#glyphs). The built-in library, `src/assets/bio_glyphs/builtin.glyphs.json`, is an example.
 
 ## Circulatory Autogen files
 
@@ -87,5 +109,5 @@ var_SN,nn,var_SN,axon_SN,
 
 ## Opening files {#opening-files}
 
-- Drop `.cellml` or `.omex` files on the canvas to import them.
+- Drop `.cellml` or `.omex` files on the canvas to import them. Import `.celldl` files with **Import ▸ CellDL Diagram**.
 - A link with `?open=workspace_json#<base64 JSON>` or `?open=omex#<base64 OMEX>` loads a workspace or archive on startup.

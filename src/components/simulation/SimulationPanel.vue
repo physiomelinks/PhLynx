@@ -38,7 +38,47 @@
     <!-- Plots and controls each scroll on their own, so a slider and the plot it moves stay in view. -->
     <Splitter layout="vertical" class="panel-split" @resizeend="saveSizes">
       <SplitterPanel ref="figuresPanel" :size="sizes[0]" :min-size="20" class="panel-region panel-figures">
-        <template v-if="charts.length || predictionPlotCharts.length">
+        <!-- The physiological view plots what is selected, from its annotations, apart from the workspace's plots. -->
+        <section
+          v-if="selectionPlot?.isShown.value"
+          class="panel-selection-plot"
+          aria-labelledby="panel-selection-plot-title"
+        >
+          <header class="panel-selection-head">
+            <h3 id="panel-selection-plot-title" class="panel-selection-title">Selection</h3>
+            <label class="panel-selection-toggle">
+              <ToggleSwitch
+                :model-value="selectionPlot.isOn.value"
+                input-id="panel-auto-plot"
+                data-testid="auto-plot-selection"
+                @update:model-value="selectionPlot.setOn"
+              />
+              Auto-plot selection
+            </label>
+          </header>
+          <template v-if="selectionPlot.isOn.value">
+            <p v-if="selectionMessage" class="panel-selection-hint">{{ selectionMessage }}</p>
+            <SimulationPlot
+              v-for="chart in selectionCharts"
+              :key="chart.key"
+              :zoom-key="`panel-selection:${chart.key}`"
+              :title="chart.title"
+              :title-parts="chart.titleParts"
+              :unit="chart.unit"
+              :x="chart.x ?? xAxis"
+              :series="chart.series"
+              :height="chartHeight"
+              :sync-key="chart.x ? null : 'simulation-panel'"
+              :marker="chart.x ? null : voiCursor.marker"
+              data-testid="selection-plot"
+              @seek="voiCursor.seekValue"
+            />
+            <p v-if="selectionPlot.note.value" class="panel-selection-hint">{{ selectionPlot.note.value }}</p>
+          </template>
+        </section>
+        <!-- While the selection is plotted, the workspace's own plots stand aside. -->
+        <template v-if="isSelectionMode" />
+        <template v-else-if="charts.length || predictionPlotCharts.length">
           <SimulationPlot
             v-for="chart in charts"
             :key="chart.key"
@@ -52,6 +92,8 @@
             :references="chart.references"
             :height="chartHeight"
             :sync-key="chart.x ? null : 'simulation-panel'"
+            :marker="chart.x ? null : voiCursor.marker"
+            @seek="voiCursor.seekValue"
           />
           <section v-if="predictionPlotCharts.length" class="panel-prediction-plots" aria-labelledby="panel-prediction-plots-title">
             <h3 id="panel-prediction-plots-title" class="panel-prediction-plots-title">Prediction plots</h3>
@@ -100,6 +142,7 @@ import { useRouter } from 'vue-router'
 import ProgressBar from 'primevue/progressbar'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
+import ToggleSwitch from 'primevue/toggleswitch'
 
 import FeaturePlot from './FeaturePlot.vue'
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
@@ -110,7 +153,10 @@ import SimulationToolbar from './SimulationToolbar.vue'
 import { useSimulationCharts } from '../../composables/useSimulationCharts'
 import { useSimulationRunner } from '../../composables/useSimulationRunner'
 import { useSelectionAutoRun } from '../../composables/useSelectionAutoRun'
+import { useSelectionPlot } from '../../composables/useSelectionPlot'
 import { useSliderReruns } from '../../composables/useSliderReruns'
+import { SELECTION_PLOT_ID } from '../../services/bioView/autoPlot'
+import { useVoiCursorStore } from '../../stores/voiCursorStore'
 
 const props = defineProps({
   // In the instance editor: play runs the whole model, or this instance on its own.
@@ -123,8 +169,10 @@ const props = defineProps({
 const emit = defineEmits(['update:plotConfig'])
 
 const router = useRouter()
+const voiCursor = useVoiCursorStore()
 const {
   nodes,
+  edges,
   store,
   scopeNodes,
   selectedNodeIds,
@@ -242,6 +290,24 @@ const { rerunForSliders } = useSliderReruns()
 
 const { xAxis, charts, predictionPlotCharts } = useSimulationCharts(scopeNodes, { plotConfig: toRef(props, 'plotConfig') })
 
+// The physiological view's selection, plotted on a chart of its own (the instance editor has none).
+const selectionPlot = props.instanceId ? null : useSelectionPlot(nodes, edges)
+/** The physiological view is plotting its selection, so the workspace's plots are hidden. */
+const isSelectionMode = computed(() => !!(selectionPlot?.isShown.value && selectionPlot.isOn.value))
+const { charts: selectionPlotCharts } = useSimulationCharts(scopeNodes, {
+  plotConfig: selectionPlot?.plotConfig ?? { groups: [], selections: [] },
+})
+// Only its own plot: the charts of inspection modules and protocols are the workspace's.
+const selectionCharts = computed(() =>
+  selectionPlot?.isOn.value ? selectionPlotCharts.value.filter((chart) => chart.plotId === SELECTION_PLOT_ID) : []
+)
+const selectionMessage = computed(() => {
+  if (selectionPlot?.hint.value) return selectionPlot.hint.value
+  if (!store.results) return 'Run the simulation to see the selection’s flows, concentrations, amounts or potential.'
+  if (!selectionCharts.value.length) return 'The last run didn’t simulate the selection.'
+  return null
+})
+
 /** Plays, unless current results of the scope play would run are shown or on their way. */
 function ensureResults() {
   if (canPlay.value && (!store.results || isOutdated.value)) play()
@@ -307,6 +373,43 @@ defineExpose({ ensureResults })
   border-top: 1px solid var(--p-content-border-color);
   font-size: 0.8125rem;
   font-weight: 600;
+  color: var(--p-text-muted-color);
+}
+
+.panel-selection-plot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--p-content-border-color);
+}
+
+.panel-selection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.panel-selection-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--p-text-muted-color);
+}
+
+.panel-selection-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+}
+
+.panel-selection-hint {
+  margin: 0;
+  font-size: 0.8125rem;
   color: var(--p-text-muted-color);
 }
 

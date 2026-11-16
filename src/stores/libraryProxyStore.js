@@ -3,9 +3,17 @@ import { computed, ref } from 'vue'
 import { useLibraryStore } from './libraryStore'
 import { parseMathRef, parseModuleRef } from '../utils/config'
 
+/**
+ * Labels a grouping for the library: its stem, spaced, and the format of a grouping not of CellML, e.g.
+ * `User Modules (CellDL)` for `User_Modules.celldl`.
+ *
+ * @param {string} fileName - A grouping.
+ * @returns {string}
+ */
 function formatDisplayLabel(fileName) {
   if (!fileName) return ''
-  return fileName.replace(/\.cellml$/i, '').replace(/_/g, ' ')
+  const label = fileName.replace(/\.(cellml|celldl)$/i, '').replace(/_/g, ' ')
+  return /\.celldl$/i.test(fileName) ? `${label} (CellDL)` : label
 }
 
 export const useLibraryProxyStore = defineStore('libraryProxy', () => {

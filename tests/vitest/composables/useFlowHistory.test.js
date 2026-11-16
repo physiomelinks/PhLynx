@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { useEdgeDragOffsets } from '../../../src/composables/useEdgeDragOffsets.js'
 import { getUndoRedoAction, useFlowHistory } from '../../../src/composables/useFlowHistory.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
@@ -118,6 +119,61 @@ describe('useFlowHistory', () => {
 
       expect(nodes.value[0].position).toEqual({ x: 9, y: 9 })
       expect(deps.updateHelperLines).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('moving instances with a routed edge between them', () => {
+    const route = [{ x: 50, y: 20 }]
+    const { edgeDragOffsets } = useEdgeDragOffsets()
+
+    /** Drags the given nodes together by (dx, dy), checking the live offsets on the way. */
+    const dragAll = (ids, dx, dy) => {
+      const frame = (x, y, dragging) => ids.map((id) => ({ type: 'position', id, position: { x, y }, dragging }))
+      onNodeChange(frame(1, 1, true))
+      onNodeChange(frame(dx, dy, true))
+      const during = new Map(edgeDragOffsets.value)
+      onNodeChange(ids.map((id) => ({ type: 'position', id, from: { x: dx, y: dy }, dragging: false })))
+      commit()
+      return during
+    }
+
+    beforeEach(() => {
+      nodes.value = [createNode('a'), createNode('b'), createNode('c')]
+      edges.value = [
+        { id: 'ab', source: 'a', target: 'b', data: { couplings: [], waypoints: route } },
+        { id: 'bc', source: 'b', target: 'c', data: { couplings: [], waypoints: route } },
+      ]
+    })
+
+    it('carries the route of an edge whose two nodes moved together, as one undo step with the move', async () => {
+      const during = dragAll(['a', 'b'], 30, 40)
+
+      expect([...during]).toEqual([['ab', { x: 30, y: 40 }]])
+      expect(edgeDragOffsets.value.size).toBe(0)
+      expect(edges.value[0].data.waypoints).toEqual([{ x: 80, y: 60 }])
+      expect(edges.value[1].data.waypoints).toEqual(route)
+      expect(history.pointerIndex).toBe(0)
+
+      await history.undo()
+      expect(edges.value[0].data.waypoints).toEqual(route)
+      expect(nodes.value[0].position).toEqual({ x: 0, y: 0 })
+      await history.redo()
+      expect(edges.value[0].data.waypoints).toEqual([{ x: 80, y: 60 }])
+    })
+
+    it('carries the route of an edge whose two nodes were nudged together with the arrow keys', () => {
+      onNodeChange(['a', 'b'].map((id) => ({ type: 'position', id, position: { x: 5, y: 0 }, dragging: false })))
+      expect(edges.value[0].data.waypoints).toEqual([{ x: 55, y: 20 }])
+      expect(edges.value[1].data.waypoints).toEqual(route)
+
+      // A later drag measures from where the nudge left the nodes.
+      dragAll(['a', 'b'], 30, 40)
+      expect(edges.value[0].data.waypoints).toEqual([{ x: 80, y: 60 }])
+    })
+
+    it('leaves routes alone when one node moves', () => {
+      dragAll(['a'], 30, 40)
+      expect(edges.value.map((e) => e.data.waypoints)).toEqual([route, route])
     })
   })
 

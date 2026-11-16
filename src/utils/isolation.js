@@ -7,7 +7,7 @@
  * Gets whether the page is cross-origin isolated, and if not, why.
  *
  * @param {Object} [scope=globalThis] - The window to check.
- * @returns {{isIsolated: boolean, reason: string|null}}
+ * @returns {{isIsolated: boolean, reason: string|null, needsReload?: boolean}} needsReload when a reload fixes it.
  */
 export function getIsolationStatus(scope = globalThis) {
   if (scope.crossOriginIsolated === true) return { isIsolated: true, reason: null }
@@ -20,7 +20,11 @@ export function getIsolationStatus(scope = globalThis) {
       reason: 'This browser window doesn’t allow service workers (a private window, for example), which the simulator needs.',
     }
   }
-  return { isIsolated: false, reason: 'The simulator isn’t ready yet. Reload the page to finish setting it up.' }
+  return {
+    isIsolated: false,
+    reason: 'The simulator needs a reload to finish setting up. Save your work first.',
+    needsReload: true,
+  }
 }
 
 /**

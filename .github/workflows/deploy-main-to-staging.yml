@@ -1,0 +1,57 @@
+name: Deploy Staging
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency: { group: staging, cancel-in-progress: true }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Enable corepack
+        run: corepack enable yarn
+
+      - name: Enable yarn cache
+        uses: actions/setup-node@v7
+        with:
+          cache: 'yarn'
+
+      - name: Install Dependencies
+        run: yarn
+
+      - name: Build
+        run: |
+          yarn build
+
+      - name: Prepare
+        run: |
+          cp dist/index.html dist/404.html
+          echo "staging.phlynx.com" > dist/CNAME
+          touch dist/.nojekyll
+          cat > dist/README.md <<EOF
+          # PhLynx staging website
+
+          This repository is generated automatically and serves https://staging.phlynx.com.
+
+          **Do not edit it directly.** Every push to the main branch of
+          [${GITHUB_REPOSITORY}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}) rebuilds the site and
+          replaces the entire contents of this repository, so any changes made here will be lost.
+
+          Built from commit [${GITHUB_SHA:0:7}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}).
+          EOF
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.STAGING_DEPLOY_KEY }}
+          external_repository: physiomelinks/staging-phlynx-website
+          publish_branch: main
+          publish_dir: ./dist
+          force_orphan: true

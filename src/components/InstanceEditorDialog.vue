@@ -2,7 +2,8 @@
   <Dialog
     :visible="modelValue"
     modal
-    :dismissableMask="!loading"
+    :dismissableMask="false"
+    :closeOnEscape="false"
     :draggable="false"
     :style="{ width: '95vw', maxWidth: '1680px', height: '90vh', maxHeight: '960px' }"
     class="module-editor-dialog"
@@ -30,18 +31,14 @@
         <div class="header-group header-group--secondary">
           <span class="header-label header-label--secondary">Component</span>
           <SanitisedInput
-            v-if="isManaged"
+            v-if="(isManaged && !isMathLocked) || isDiagramRenamable"
             v-model="editableComponentName"
             :sanitise="sanitiseName"
             :fallback="componentNameForEditor"
             placeholder="Component name..."
             width="200px"
           />
-          <span
-            v-else
-            class="header-static"
-            title="While Simple Mode is off, the text sets the component name (def comp ... as)."
-          >
+          <span v-else class="header-static" :title="componentNameTitle">
             {{ componentNameForEditor }}
             <i class="pi pi-code"></i>
           </span>
@@ -65,17 +62,26 @@
       :class="{ 'is-dragging': dragging, 'is-suppressed': isScreenTooSmall }"
       :inert="isScreenTooSmall"
     >
-      <!-- LEFT COLUMN: CellML Text or Math Editor -->
+      <!-- LEFT COLUMN: CellML Text, Math Editor or a format's own editor -->
       <div class="pane left-pane" :style="leftPaneStyle">
         <Tabs :key="editorTabsKey" :value="editorKind" class="editor-tabs" @update:value="switchEditor">
           <TabList>
-            <Tab v-for="option in EDITOR_OPTIONS" :key="option.value" :value="option.value">
-              <i :class="['pi', option.icon, 'tab-icon']"></i>
-              {{ option.label }}
-            </Tab>
+            <template v-for="option in editorOptions" :key="option.value">
+              <!-- A disabled tab takes no pointer events, so its wrapper shows why. -->
+              <span v-if="option.isLocked" v-tooltip.bottom="option.lockedNotice" class="editor-tab-locked">
+                <Tab :value="option.value" disabled>
+                  <i :class="['pi', option.icon, 'tab-icon']"></i>
+                  {{ option.label }}
+                </Tab>
+              </span>
+              <Tab v-else :value="option.value">
+                <i :class="['pi', option.icon, 'tab-icon']"></i>
+                {{ option.label }}
+              </Tab>
+            </template>
           </TabList>
         </Tabs>
-        <Message v-if="pendingRename" class="rename-notice" severity="info" size="small" :closable="false">
+        <Message v-if="pendingRename && !isMathLocked" class="rename-notice" severity="info" size="small" :closable="false">
           <div class="rename-notice-body">
             <span>
               <strong>{{ pendingRename.from }}</strong> was renamed to <strong>{{ pendingRename.to }}</strong
@@ -96,13 +102,14 @@
           <CellMLTextEditor
             v-else-if="editorKind === 'text'"
             ref="mathEditorRef"
-            :model-value="currentModel"
-            :layout="currentLayout"
-            :simple="isManaged"
+            :model-value="shownModel"
+            :layout="shownLayout"
+            :simple="isMathLocked ? isLockedSimple : isManaged"
             @update:simple="onSimpleToggle"
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
             :keep-variables="keptVariables"
+            :readonly="isMathLocked"
             @update:component-name="onEditorComponentName"
             @change="handleEditorChange"
             @variable-click="plotClickedVariable"
@@ -111,17 +118,25 @@
             @redo="handleEditorRedo"
           />
           <MathWorkbenchEditor
-            v-else
+            v-else-if="editorKind === 'math'"
             ref="mathEditorRef"
-            :model-value="currentModel"
+            :model-value="shownModel"
             :component-name="componentNameForEditor"
             :variable-definitions="editorDefinitions"
             :keep-variables="keptVariables"
+            :readonly="isMathLocked"
             @change="handleEditorChange"
             @variable-click="plotClickedVariable"
             @save="handleSave"
             @undo="handleEditorUndo"
             @redo="handleEditorRedo"
+          />
+          <CelldlPane
+            v-else-if="editorKind === 'celldl'"
+            :rows="parameterRows"
+            :component-name="componentName"
+            :math-ref="diagramPreviewRef"
+            @variable-click="plotClickedVariable"
           />
         </div>
       </div>
@@ -180,7 +195,7 @@
           <TabList>
             <Tab value="parameters">
               <i class="pi pi-sliders-h tab-icon"></i>
-              Parameters ({{ parameterRows.length }})
+              Parameters ({{ parametersCount }})
             </Tab>
             <Tab value="ports">
               <i class="pi pi-link tab-icon"></i>
@@ -190,12 +205,46 @@
               <i class="pi pi-chart-line tab-icon"></i>
               Plot ({{ plottedCount }})
             </Tab>
+            <Tab value="annotations">
+              <i class="pi pi-tag tab-icon"></i>
+              Annotations ({{ annotationCounts.annotated }}/{{ annotationCounts.annotatable }})
+            </Tab>
           </TabList>
 
           <TabPanels class="tab-panels-container">
             <!-- TAB 1: PARAMETER EDITOR -->
-            <TabPanel value="parameters" class="tab-panel-flex">
+            <TabPanel value="parameters" class="tab-panel-flex parameters-tab">
+              <!-- Re-applies one of the math's imported parameter sets to the instance's values -->
+              <div v-if="parameterSets.length" class="parameter-set-row">
+                <label class="parameter-set-label" for="instance-parameter-set">Parameter set</label>
+                <Select
+                  :key="parameterSetPickerKey"
+                  input-id="instance-parameter-set"
+                  :model-value="shownParameterRef"
+                  :options="parameterSetOptions(parameterSets, moduleDefaultRef)"
+                  option-label="label"
+                  option-value="value"
+                  placeholder="Choose a set to apply"
+                  size="small"
+                  class="parameter-set-select"
+                  aria-label="Parameter set"
+                  @update:model-value="applyParameterSet"
+                />
+              </div>
+              <!-- A diagram's elements, whose structure is the diagram's and values this instance's -->
+              <CelldlParametersTab
+                v-if="isCelldlModule"
+                :table="celldlTable"
+                :saved-defaults="savedDefaults"
+                :is-diagram-shown="isDiagramShown"
+                :is-opening="celldlHost.isSyncing.value"
+                :connection-status="connectionStatus"
+                :ignored-notices="ignoredNotices"
+                @set-value="setInstanceValue"
+                @show-in-diagram="showInDiagram"
+              />
               <ParameterTable
+                v-else
                 ref="parameterTableRef"
                 :rows="parameterRows"
                 :is-managed="isManaged"
@@ -209,15 +258,26 @@
                 :connection-status="connectionStatus"
                 :math-references="mathReferences"
                 :suggest-units="suggestUnitsFor"
+                :values-only="isMathLocked"
               />
             </TabPanel>
 
             <!-- TAB 2: PORT EDITOR -->
             <TabPanel value="ports" class="tab-panel-flex">
               <div class="ports-tab-body">
-                <Message v-if="incompletePortCount" class="ports-header" severity="error" size="small" variant="simple">
-                  {{ incompletePortCount }} {{ incompletePortCount === 1 ? 'port needs' : 'ports need' }} a label and at
-                  least one variable.
+                <Message v-if="incompletePortMessage" class="ports-header" severity="error" size="small" variant="simple">
+                  {{ incompletePortMessage }}
+                </Message>
+                <Message
+                  v-if="hasHiddenManualPorts"
+                  class="ports-header"
+                  severity="secondary"
+                  size="small"
+                  variant="simple"
+                  data-test="manual-ports-hidden"
+                >
+                  Annotation ports take over: manual ports are kept and editable here, but hidden on the canvas and
+                  not used for new connections. Connections already made through them still export.
                 </Message>
 
                 <div v-if="editablePorts.length" class="table-flex-wrapper">
@@ -233,18 +293,25 @@
                   >
                     <Column header="Type" style="width: 140px">
                       <template #body="slotProps">
-                        <Select
-                          v-model="slotProps.data.portType"
-                          :options="PORT_TYPE_OPTIONS"
-                          optionLabel="label"
-                          optionValue="value"
-                          size="small"
-                          class="w-full"
-                        />
+                        <!-- An annotated port's type, mode and meaning come from its annotation -->
+                        <span
+                          class="port-type-cell"
+                          :title="isAnnotatedPort(slotProps.data) ? fromAnnotationTitle(slotProps.data) : undefined"
+                        >
+                          <Select
+                            v-model="slotProps.data.portType"
+                            :options="PORT_TYPE_OPTIONS"
+                            optionLabel="label"
+                            optionValue="value"
+                            size="small"
+                            class="w-full"
+                            :disabled="isAnnotatedPort(slotProps.data)"
+                          />
+                        </span>
                       </template>
                     </Column>
 
-                    <Column header="Label" style="min-width: 140px">
+                    <Column header="Label" style="min-width: 220px">
                       <template #body="slotProps">
                         <div class="flex items-center gap-2">
                           <!-- Whether the port is connected, as the edge dialog shows it -->
@@ -255,13 +322,28 @@
                             ]"
                             v-tooltip.top="portStatus(slotProps.data)"
                           ></span>
+                          <AnnotationChips
+                            v-if="isAnnotatedPort(slotProps.data)"
+                            :annotation="slotProps.data.annotation"
+                            :quantity="portQuantity(slotProps.data)"
+                            :variable="slotProps.data.variables?.[0] ?? ''"
+                            :is-placed="isNodePlaced"
+                          />
                           <InputText
+                            v-else
                             v-model="slotProps.data.label"
                             :invalid="isPortFlagged(slotProps.data) && !slotProps.data.label?.trim()"
                             placeholder="Enter label"
                             size="small"
                             class="w-full"
                           />
+                          <i
+                            v-if="isHiddenPort(slotProps.data, editablePorts)"
+                            class="pi pi-eye-slash port-hidden-note"
+                            data-test="hidden-port"
+                            aria-label="Hidden on the canvas"
+                            v-tooltip.top="'Hidden on the canvas while this instance has annotation ports'"
+                          ></i>
                         </div>
                       </template>
                     </Column>
@@ -277,10 +359,13 @@
                           :aria-pressed="isMultiport(slotProps.data)"
                           aria-label="Multiport"
                           :title="
-                            isMultiport(slotProps.data)
-                              ? 'Multiport: takes several connections'
-                              : 'Basicport: takes one connection'
+                            isAnnotatedPort(slotProps.data)
+                              ? fromAnnotationTitle(slotProps.data)
+                              : isMultiport(slotProps.data)
+                                ? 'Multiport: takes several connections'
+                                : 'Basicport: takes one connection'
                           "
+                          :disabled="isAnnotatedPort(slotProps.data)"
                           @click="setMultiport(slotProps.data, !isMultiport(slotProps.data))"
                         >
                           <template #icon>
@@ -293,10 +378,18 @@
 
                     <Column header="Variables" style="min-width: 200px">
                       <template #body="slotProps">
+                        <!-- A side-car port's variable is the annotated one; a mirrored copy's is picked here -->
+                        <PortVariableChips
+                          v-if="isAnnotatedPort(slotProps.data) && !isMirroredPort(slotProps.data)"
+                          :port="slotProps.data"
+                          locked
+                        />
                         <PortVariableSelect
+                          v-else
                           :port="slotProps.data"
                           :options="parameterRows"
                           :flagged="isPortFlagged(slotProps.data)"
+                          :locked="isAnnotatedPort(slotProps.data)"
                           class="w-full"
                         />
                       </template>
@@ -367,7 +460,7 @@
                 <template #toolbar>
                   <label
                     class="plot-tab-auto-label"
-                    v-tooltip.bottom="'Click a variable in the math to plot it alone. Off, adding offers only the plot\'s units.'"
+                    v-hint.bottom="'Click a variable in the math to plot it alone. Off, adding offers only the plot\'s units.'"
                   >
                     <ToggleSwitch
                       v-model="isAutoUpdate"
@@ -379,6 +472,27 @@
                   <span v-if="plotNotice" class="plot-tab-auto-notice" role="status" :title="plotNotice">{{ plotNotice }}</span>
                 </template>
               </SimulationPanel>
+            </TabPanel>
+
+            <!-- TAB 4: ANNOTATIONS, shared by every instance of the math -->
+            <TabPanel value="annotations" class="tab-panel-flex">
+              <AnnotationTab
+                v-model:draft="annotationDraft"
+                :rows="parameterRows"
+                :variable-kinds="variableKinds"
+                :sidecar="renamedSidecar"
+                :sidecar-text="store.getModuleAnnotations(mathRef)"
+                :confirm-import="confirmAnnotationImport"
+                :math-ref="mathRef"
+                :cellml="store.availableMath.get(mathRef) ?? ''"
+                :shared-count="siblingCount + 1"
+                :workspace-terms="workspaceSpecies"
+                :unit-definitions="store.unitDefinitions"
+                :port-status="annotationPortStatus"
+                :is-placed="isNodePlaced"
+                :held-constant="heldConstant"
+                @update:held-constant="setHeldConstant"
+              />
             </TabPanel>
           </TabPanels>
         </Tabs>
@@ -421,10 +535,35 @@
       v-model="saveAs.visible"
       :message="saveAs.message"
       :initial-name="saveAs.initialName"
-      :file="componentFile"
-      :is-taken="isComponentNameTaken"
+      :file="saveAs.file"
+      :is-taken="saveAs.isTaken"
       @confirm="(name) => resolveSaveAs(name)"
       @cancel="resolveSaveAs(null)"
+    />
+
+    <ModuleConfigSaveDialog
+      v-if="configPrompt.visible"
+      v-model="configPrompt.visible"
+      :module-ref="configPrompt.moduleRef"
+      :match-ref="configPrompt.matchRef"
+      :other-count="configPrompt.otherCount"
+      :can-update="configPrompt.canUpdate"
+      :new-ref="configPrompt.newRef"
+      @confirm="(config) => resolveConfigPrompt(config)"
+      @cancel="resolveConfigPrompt(null)"
+    />
+
+    <ParameterSetSaveDialog
+      v-if="setPrompt.visible"
+      v-model="setPrompt.visible"
+      :param-ref="setPrompt.paramRef"
+      :is-own="setPrompt.isOwn"
+      :owner-name="setPrompt.ownerName"
+      :new-ref="setPrompt.newRef"
+      :other-count="setPrompt.otherCount"
+      :changes="setPrompt.changes"
+      @confirm="(choice) => resolveSetPrompt(choice)"
+      @cancel="resolveSetPrompt(null)"
     />
 
     <!-- DIALOG FOOTER -->
@@ -433,9 +572,9 @@
         <div
           v-if="siblingCount > 0"
           class="apply-all-checkbox"
-          :title="`Also switch the ${siblingCount} other instance${
+          :title="`Ticked, math changes also reach the ${siblingCount} other instance${
             siblingCount !== 1 ? 's' : ''
-          } using ${componentName} from ${componentFile} to the new math. Parameters and ports only change here.`"
+          } using ${componentName} from ${componentFile}. Unticked, this instance's math is saved as a new component. Parameter values only change here, and a change to ports or variable types asks first.`"
         >
           <Checkbox v-model="applyToAll" binary inputId="applyToAll" />
           <label for="applyToAll">
@@ -449,10 +588,11 @@
             label="Apply"
             severity="secondary"
             outlined
-            v-tooltip.top="'Save and keep editing'"
+            v-hint.top="'Save and keep editing'"
+            :loading="isConverting"
             @click="handleSave({ keepOpen: true })"
           />
-          <Button label="Save" severity="primary" @click="handleSave" />
+          <Button label="Save" severity="primary" :loading="isConverting" @click="handleSave" />
         </div>
       </div>
     </template>
@@ -487,11 +627,19 @@ import SanitisedInput from './SanitisedInput.vue'
 import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'
+import AnnotationTab from './annotations/AnnotationTab.vue'
+import AnnotationChips from './AnnotationChips.vue'
+import PortVariableChips from './PortVariableChips.vue'
 import ComponentSaveAsDialog from './dialogs/ComponentSaveAsDialog.vue'
+import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
+import ParameterSetSaveDialog from './dialogs/ParameterSetSaveDialog.vue'
+import CelldlPane from './celldl/CelldlPane.vue'
+import CelldlParametersTab from './celldl/CelldlParametersTab.vue'
 import MultiportIcon from './icons/MultiportIcon.vue'
 import BasicportIcon from './icons/BasicportIcon.vue'
 
 import { useLibraryStore } from '../stores/libraryStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useIssueFilter } from '../composables/useIssueFilter'
 import { createHistory } from '../stores/historyStore'
@@ -499,9 +647,36 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
+import { useInstanceSave } from '../composables/useInstanceSave'
+import { useCouplingContext } from '../composables/useCouplingContext'
+import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
+import { useEditorCloseGuard } from '../composables/useEditorCloseGuard'
+import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
-import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { prepareSavedMath, variableIdsOf } from '../services/math/variableIds'
+import { placesOf, quantityOfPort } from '../services/annotations/couple'
+import { isSidecarPort, reconcileAnnotatedPorts } from '../services/annotations/ports'
+import { fromAnnotationTitle } from '../services/annotations/display'
+import { aggregatorVariables, asBoundaryConditions, holdAtZero } from '../services/annotations/heldConstant'
+import {
+  applyAnnotationDraft,
+  classifyAnnotationRow,
+  createAnnotationDraft,
+  draftBaseSidecar,
+  getDraftEntry,
+  getDraftKind,
+  hasDraftEdits,
+  renameDraftVariables,
+  signDraft,
+} from '../services/annotations/draft'
+import { hasPrefix } from '../services/annotations/iris'
+import { editSidecar, renameSidecar } from '../services/annotations/sidecarEdit'
+import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
+import { confirmPortEditDrives } from '../services/export/drivenStores'
+import { spreadConfig } from '../services/configSpread'
+import { isSoleOwnConfig, newConfigRef } from '../services/configOwnership'
+import { isModuleConfig } from '../services/moduleConfig'
 import {
   createSinglePlotConfig,
   getNodePlotEntries,
@@ -510,15 +685,46 @@ import {
   resolvePlotConfig,
 } from '../services/simulation/plotSelections'
 
-import { isEmpty, syncInitialiserUnits } from '../utils/variables'
+import { isEmpty, isNumericLiteral, syncInitialiserUnits } from '../utils/variables'
 import { getUnknownUnitsNotice, isValueMissing } from '../utils/parameterRows'
-import { PORT_TYPE_OPTIONS, PROTECTED_MATH_REFS } from '../utils/constants'
+import {
+  NEW_MODULE_MATH_REF,
+  PORT_TYPE_OPTIONS,
+  PROTECTED_MATH_REFS,
+  USER_MODULES_FILE,
+} from '../utils/constants'
+import {
+  diagramSaveRef,
+  findInGrouping,
+  groupingUnitsAfterSave,
+  isSameName,
+  newComponentGrouping,
+} from '../services/userModules'
 import { cleanName, sanitiseName } from '../utils/identifiers'
 import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
-import { getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
-import { findPort } from '../utils/ports'
+import { escapeHtml } from '../utils/importBatch'
+import { areModelsEquivalent, getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
+import { areUnitsModelsEquivalent, mergeUnitDefinitions } from '../utils/units'
+import { separateParameters } from '../services/math/separateParameters'
+import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
+import { issueItems } from '../services/celldl/issues'
+import { buildElementTable, variableRenames } from '../services/celldl/elementTable'
+import { renamePortVariables, renameRows, renameValues } from '../services/math/reconcileRows'
+import { liveComponentMath } from '../services/celldl/liveMath'
+import { sectionLayout } from '../services/celldl/sectionLayout'
+import { analyzeMathXml } from '../services/math/analyzeMath'
+import {
+  declaredUnits,
+  findUnitRescales,
+  formatFactor,
+  isIdentityFactor,
+  rescaleRows,
+  rescaleValues,
+  withInitialiserRescales,
+} from '../services/math/unitRescale'
+import { findPort, isAnnotatedPort, isHiddenPort, isMirroredPort, isNamedPort, portDisplayName } from '../utils/ports'
 import { previewCouplings } from '../utils/edges'
 import {
   isMultiport,
@@ -528,6 +734,16 @@ import {
   variableFactor,
 } from '../utils/multiport'
 import { suggestUnits } from '../utils/unitExpression'
+import { planSetApply, planSharedSetUpdate, setApplyConfirmation } from '../utils/parameters/apply'
+import {
+  changedSetEntries,
+  hasSetEntries,
+  isInstanceSet,
+  isOwnInstanceSet,
+  isSharedSet,
+  otherSetUsers,
+} from '../utils/parameters/instanceSet'
+import { parameterSetOptions, pickedRef } from '../utils/parameters/sets'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -537,19 +753,21 @@ const props = defineProps({
   variables: { type: Array, default: () => [] },
   initialPorts: { type: Array, default: () => [] },
   existingNames: { type: Array, default: () => [] },
-  defaultTab: { type: String, default: 'parameters' }, // 'parameters', 'ports' or 'plot'
+  defaultTab: { type: String, default: 'parameters' }, // 'parameters', 'ports', 'plot' or 'annotations'
 })
 
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const store = useLibraryStore()
+const defaultParameters = useDefaultParametersStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const history = reactive(createHistory())
 
 const { trackEvent } = useGtm()
 const { nodes, edges } = useVueFlow()
-const { confirm } = useConfirmDialog()
+const { confirm, alert, choose } = useConfirmDialog()
 const { settings: appSettings } = useAppSettings()
+const { findDroppedCouplings, findVariableRenames } = useInstanceSave()
 
 /** Each units name's expansion beside its suggestion, in the units the user chose in Settings. */
 const unitExpansions = computed(() =>
@@ -577,14 +795,20 @@ function suggestUnitsFor(typed) {
 const loading = ref(false)
 const activeTab = ref('parameters')
 
-const applyToAll = ref(false)
+// Ticked by default, so math edits reach the other instances, except on the template: a new module made from it
+// is this instance's alone.
+const applyToAll = ref(props.mathRef !== NEW_MODULE_MATH_REF)
 // The editor mounts after the table paints, so its synchronous parse doesn't delay the table.
 const isEditorReady = ref(false)
 const editorWrapperRef = ref(null)
 // The dialog focuses its close button once its opening transition ends, so the editor takes focus
 // after that. Dialog has no event for it; its transition options are merged into its <Transition>.
 const isDialogShown = ref(false)
+/** A class on the dialog's mask, so the close guard knows it from other dialogs' masks. */
+const EDITOR_MASK_CLASS = 'module-editor-mask'
 const DIALOG_PT = {
+  // Clicks on it and Escape are guarded (useEditorCloseGuard).
+  mask: { class: EDITOR_MASK_CLASS },
   transition: {
     onAfterEnter: () => {
       isDialogShown.value = true
@@ -594,6 +818,8 @@ const DIALOG_PT = {
 
 // Port & Instance State
 const editableName = ref('')
+/** The parameter set the instance's values were last seeded or re-applied from; saved as its `parameterisation`. */
+const chosenParameterRef = ref(null)
 const editablePorts = ref([])
 // The plotted variables' names as the math session renames them, so a save can rename the plots.
 const trackedNames = ref([])
@@ -604,6 +830,10 @@ let rejectedName = ''
 // The ports a save rejected. Only these are flagged, so rows added afterwards start clean.
 const flaggedPorts = ref(new Set())
 const portsTableRef = ref(null)
+// The Annotations tab's unsaved edits to the math's sidecar.
+const annotationDraft = ref(createAnnotationDraft())
+// Whether this instance's summed flows are held at 0 (annotationOverlay.heldConstant), as the save leaves it.
+const heldConstant = ref(false)
 
 watch(editableName, (name) => {
   if (name !== rejectedName) nameError.value = ''
@@ -636,6 +866,7 @@ const session = useMathSession({
   plotVariables: trackedNames,
   beforeInit: () => signEditorState() === savedEditorState.value,
   onInit: rebaselineEditorState,
+  isLocked: () => isMathLocked.value,
 })
 const {
   isManaged,
@@ -654,17 +885,87 @@ const {
   dismissRename,
 } = session
 
+// ── Module Format ───────────────────────────────────────────────────────────
+// A module keeps the format its math is stored in. The template starts in none: the first editor the user changes
+// decides, until the edits are undone, and Save As fixes it.
+const isTemplate = computed(() => props.mathRef === NEW_MODULE_MATH_REF)
+const storedFormat = computed(() => getModuleFormat(store.getMathFormat(props.mathRef)))
+
+// The CellDL editor, which a module's diagram opens in when its tab shows. Escape there is the editor's,
+// e.g. to drop a path being drawn, so it doesn't close the dialog.
+const celldlHost = useCelldlEditorHost()
+
+/** Whether the math differs from what was loaded, valid or not. */
+const isMathEdited = computed(() => session.isDirty() || session.isLayoutDirty() || session.hasUnsavedInvalidEdit())
+
+// A diagram saved from the template stays chosen until the dialog reloads on its new module, though the math it
+// generated now differs from the template's.
+const isDiagramSaved = ref(false)
+
+/** The format the template's edits chose: CellDL once a diagram is drawn, CellML once its math is edited. */
+const chosenFormat = computed(() => {
+  if (!isTemplate.value || loading.value) return null
+  if (celldlHost.isDirty.value || isDiagramSaved.value) return getModuleFormat('celldl')
+  return isMathEdited.value ? storedFormat.value : null
+})
+
+/** The format the math is authored in (see services/moduleFormats). */
+const moduleFormat = computed(() => chosenFormat.value ?? storedFormat.value)
+/** Whether the math is generated from a source, so only its values can be edited here. */
+const isMathLocked = computed(() => moduleFormat.value.isMathLocked)
+/** Whether the format is settled, so editors for other formats' sources are locked. */
+const isSourceLocked = computed(() => !isTemplate.value || chosenFormat.value !== null)
+
+const isDiagramEditable = computed(() => isEditorOffered('celldl'))
+/**
+ * Whether the component name field names a diagram's module: renamed, a save makes a new module for this instance,
+ * as a renamed CellML component does. The template is always saved as a new component.
+ */
+const isDiagramRenamable = computed(
+  () => isDiagramEditable.value && isMathLocked.value && !isTemplate.value && moduleFormat.value.id === 'celldl'
+)
+/** Whether the diagram has edits, which a run doesn't see either. */
+const isDiagramDirty = computed(() => isDiagramEditable.value && celldlHost.isDirty.value)
+
+const componentNameTitle = computed(() =>
+  isMathLocked.value
+    ? `The ${moduleFormat.value.label} source sets the component name.`
+    : 'While Simple Mode is off, the text sets the component name (def comp ... as).'
+)
+
 // ── Editor Choice ───────────────────────────────────────────────────────────
 const EDITOR_STORAGE_KEY = 'instanceEditorDialog.editorKind'
-const EDITOR_OPTIONS = [
-  { value: 'text', label: 'CellML Text', icon: 'pi-code' },
-  { value: 'math', label: 'Math Editor', icon: 'pi-calculator' },
+const MATH_EDITOR_OPTIONS = [
+  { value: 'text', label: 'CellML Text', icon: 'pi-code', errorHeader: 'CellML Text Has Errors' },
+  { value: 'math', label: 'Math Editor', icon: 'pi-calculator', errorHeader: 'Math Has Errors' },
 ]
+const MATH_EDITOR_KINDS = new Set(MATH_EDITOR_OPTIONS.map((option) => option.value))
 
+/**
+ * The editor tabs: the math editors, then each available format's own editor, locked once the math is in another
+ * format.
+ */
+const editorOptions = computed(() => [
+  ...MATH_EDITOR_OPTIONS,
+  ...getEditorTabFormats().map((format) => ({
+    ...format.editorTab,
+    isLocked: isSourceLocked.value && format.id !== moduleFormat.value.id,
+    lockedNotice: isTemplate.value ? format.editorTab.editedNotice : format.editorTab.lockedNotice,
+  })),
+])
+
+/** Whether an editor can be chosen for this math. */
+const isEditorOffered = (kind) => editorOptions.value.some((option) => option.value === kind && !option.isLocked)
+
+/**
+ * Gets the editor last chosen, if this math offers it.
+ *
+ * @returns {string}
+ */
 function loadStoredEditorKind() {
   try {
     const stored = window.localStorage.getItem(EDITOR_STORAGE_KEY)
-    if (EDITOR_OPTIONS.some((option) => option.value === stored)) return stored
+    if (isEditorOffered(stored)) return stored
   } catch (e) {
     // localStorage unavailable (e.g. private browsing) - fall back to default
   }
@@ -675,16 +976,218 @@ const editorKind = ref(loadStoredEditorKind())
 // Tabs keeps its own selection, so a cancelled switch remounts it to show the current editor.
 const editorTabsKey = ref(0)
 
+// A tab locked while shown, e.g. the template's diagram once a Parameters edit makes it CellML, gives way.
+watch(
+  () => !loading.value && !isEditorOffered(editorKind.value),
+  (isLocked) => {
+    if (isLocked) editorKind.value = loadStoredEditorKind()
+  }
+)
+
+// The diagram's live conversion, which the math editors show while the diagram has unsaved edits. Locked math
+// ignores what they report, so the session keeps the saved math.
+const liveConvert = useLiveCelldlConvert()
+
+// ── CellDL Parameters ───────────────────────────────────────────────────────
 /**
- * Swaps the math editor, keeping the session. The Math Editor always works in Simple Mode.
+ * Whether the Parameters tab shows the diagram's elements: for a module drawn in CellDL, and for the template
+ * while its diagram is shown and no format is chosen yet, where this build can edit diagrams.
+ */
+const isCelldlModule = computed(
+  () =>
+    isDiagramEditable.value &&
+    (moduleFormat.value.id === 'celldl' || (isTemplate.value && chosenFormat.value === null && editorKind.value === 'celldl'))
+)
+
+/** Whether the diagram shows, so the editor can change it. */
+const isDiagramShown = computed(
+  () =>
+    editorKind.value === 'celldl' &&
+    celldlHost.isActive.value &&
+    !celldlHost.isSyncing.value &&
+    !celldlHost.error.value
+)
+
+/** The module's values as saved: the defaults its instances' rows follow. */
+const savedDefaults = computed(() => store.getMathDefaults(props.mathRef))
+
+/**
+ * Values typed for variables an unsaved diagram edit adds, which have no row until the diagram is saved, by name.
+ * The save gives them to the rows it makes.
+ */
+const pendingValues = ref(new Map())
+
+/** The instance's rows, with the pending values as rows of their own. */
+const celldlRows = computed(() => {
+  const rows = parameterRows.value
+  const names = new Set(rows.map((row) => row.name))
+  const pending = [...pendingValues.value]
+    .filter(([name]) => !names.has(name))
+    .map(([name, value]) => ({ name, value, units: '', type: 'constant', pending: true }))
+  return [...rows, ...pending]
+})
+
+/**
+ * The element manifest for the diagram as it is, from the live conversion once it has caught up; null until then.
+ * Names are read from the last one, or the saved diagram's, meanwhile.
+ */
+const liveManifest = computed(() => {
+  const elements = liveConvert.result.value?.elements
+  return !liveConvert.isPending.value && elements && Object.keys(elements).length ? elements : null
+})
+const namesManifest = computed(() => {
+  const elements = liveConvert.result.value?.elements
+  if (elements && Object.keys(elements).length) return elements
+  return store.getMathSource(props.mathRef)?.elements ?? null
+})
+
+/**
+ * The variables the diagram's unsaved edits renamed, e.g. `K_q_S_c` to `K_q_Sub_c` for a new species, whose values
+ * this instance's rows hold under their old names until the save renames them.
+ */
+const celldlRenames = computed(() => variableRenames(store.getMathSource(props.mathRef)?.elements ?? null, namesManifest.value))
+
+const celldlTable = computed(() =>
+  buildElementTable({
+    elements: celldlHost.elements.value,
+    manifest: liveManifest.value,
+    namesManifest: namesManifest.value,
+    rows: celldlRows.value,
+    savedDefaults: savedDefaults.value,
+    savedManifest: store.getMathSource(props.mathRef)?.elements ?? null,
+    renames: celldlRenames.value,
+    supplied: connectionSuppliedNames.value,
+  })
+)
+
+// The editor lists a diagram's elements as it opens and as it changes; one it holds without either, e.g. drawn
+// before the tab showed, is listed once the table needs it.
+watch(
+  () => isCelldlModule.value && isDiagramShown.value && activeTab.value === 'parameters' && !celldlHost.elements.value.length,
+  (isNeeded) => {
+    if (isNeeded) celldlHost.listElements().catch((e) => console.error("CellDL diagram's elements couldn't be listed:", e))
+  },
+  { immediate: true }
+)
+
+/**
+ * Sets this instance's value of a diagram element's variable: in its row, or, for a variable the diagram has yet to
+ * be saved with, kept until the save makes its row. A blank value follows the diagram's.
  *
- * @param {'text'|'math'} kind
+ * @param {{name: string|null, row: Object|null}} cell - A value cell (services/celldl/elementTable).
+ * @param {string} value
+ */
+function setInstanceValue(cell, value) {
+  if (!cell.name) return
+  const row = parameterRows.value.find((candidate) => candidate.name === cell.name)
+  if (row) {
+    row.value = value
+    return
+  }
+  const next = new Map(pendingValues.value)
+  // A blank value for a renamed variable is kept, so the value its old name held doesn't come back.
+  const isRenamed = [...celldlRenames.value.values()].includes(cell.name)
+  if (value === '' && !isRenamed) next.delete(cell.name)
+  else next.set(cell.name, value)
+  pendingValues.value = next
+}
+
+/**
+ * Shows the diagram in the CellDL tab, then selects an element in it.
+ *
+ * @param {string|null} id
+ */
+async function showInDiagram(id) {
+  if (!id) return switchEditor('celldl')
+  if (!(await openDiagram())) return
+  celldlHost.selectElement(id, 'if-hidden').catch(() => {})
+}
+
+/**
+ * Shows the diagram in the CellDL tab, then takes the user to the element an issue names, centring it at the same
+ * zoom, or says it has gone since.
+ *
+ * @param {{elementId: string, label: string}} issue
+ */
+async function showIssueInDiagram({ elementId, label }) {
+  if (!(await openDiagram())) return
+  try {
+    const { ok } = await celldlHost.revealElement(elementId)
+    if (!ok) notify.info({ message: `${label} is no longer in the diagram.`, duration: 3000 })
+  } catch (e) {
+    console.error("CellDL element couldn't be shown:", e)
+  }
+}
+
+/**
+ * Switches to the CellDL tab, waiting for it to show its diagram.
+ *
+ * @returns {Promise<boolean>} Whether it shows the diagram.
+ */
+async function openDiagram() {
+  await switchEditor('celldl')
+  await new Promise((resolve) => {
+    const stop = watch(
+      isDiagramShown,
+      (isShown) => {
+        if (!isShown) return
+        queueMicrotask(() => stop())
+        resolve()
+      },
+      { immediate: true }
+    )
+    setTimeout(() => {
+      stop()
+      resolve()
+    }, 10000)
+  })
+  return isDiagramShown.value
+}
+
+/** The live conversion's math, read only for a math editor shown over an edited diagram; null otherwise. */
+const liveMath = computed(() => {
+  if (!isMathLocked.value || !isDiagramDirty.value || !MATH_EDITOR_KINDS.has(editorKind.value)) return null
+  const conversion = liveConvert.cellml.value
+  return conversion && liveComponentMath(conversion.cellml, conversion.componentName)
+})
+
+/** The math the math editors show: the live conversion's, or else the session's. */
+const shownModel = computed(() => liveMath.value || currentModel.value)
+
+/** The text layout of the math shown: the live math's sections, or else the session's. */
+const shownLayout = computed(() => {
+  if (!liveMath.value) return currentLayout.value
+  const conversion = liveConvert.cellml.value
+  return sectionLayout(liveMath.value, conversion.componentName, conversion.sections)
+})
+
+// A mounted editor follows the live math, and goes back to the session's once the diagram is saved.
+watch(liveMath, () => {
+  if (!MATH_EDITOR_KINDS.has(editorKind.value)) return
+  mathEditorRef.value?.setModel?.(shownModel.value, shownLayout.value)
+})
+
+/**
+ * Gets the mounted editor's errors. Locked math ignores its editor, so none of them can be saved.
+ *
+ * @returns {Array}
+ */
+function getEditorErrors() {
+  if (isMathLocked.value) return []
+  return mathEditorRef.value?.getErrors?.() ?? []
+}
+
+/**
+ * Swaps the math editor, keeping the session. The Math Editor works in Simple Mode, unless the math is
+ * locked, where the table can't rewrite it.
+ *
+ * @param {string} kind - An editor option's value.
  */
 async function switchEditor(kind) {
-  if (kind === editorKind.value) return
+  if (kind === editorKind.value || !isEditorOffered(kind)) return
   await session.flushPendingChanges()
 
-  if ((mathEditorRef.value?.getErrors?.() ?? []).length > 0) {
+  if (getEditorErrors().length > 0) {
     const proceed = await confirm({
       header: 'Discard Invalid Edits?',
       message: 'The math has errors. If you switch editors, edits since the last valid version will be lost.',
@@ -698,8 +1201,10 @@ async function switchEditor(kind) {
     }
   }
 
-  if (kind === 'math') isManaged.value = true
+  if (kind === 'math' && !isMathLocked.value) isManaged.value = true
   editorKind.value = kind
+  // Only a math editor is remembered: a format's own editor opens with its math anyway.
+  if (!MATH_EDITOR_OPTIONS.some((option) => option.value === kind)) return
   try {
     window.localStorage.setItem(EDITOR_STORAGE_KEY, kind)
   } catch (e) {
@@ -710,6 +1215,9 @@ async function switchEditor(kind) {
 // ── Simple Mode preference ──────────────────────────────────────────────────
 // One app-wide choice, the last one the user made; it is never saved with the workspace.
 const MANAGED_STORAGE_KEY = 'instanceEditorDialog.simpleMode'
+
+/** Whether locked math, which is never managed, is shown in Simple Mode: only how it reads, as it can't be edited. */
+const isLockedSimple = ref(loadStoredManaged())
 
 function loadStoredManaged() {
   try {
@@ -725,7 +1233,8 @@ function loadStoredManaged() {
  * @param {boolean} simple
  */
 function onSimpleToggle(simple) {
-  isManaged.value = simple
+  if (isMathLocked.value) isLockedSimple.value = simple
+  else isManaged.value = simple
   try {
     window.localStorage.setItem(MANAGED_STORAGE_KEY, String(simple))
   } catch (e) {
@@ -901,7 +1410,9 @@ const connection = computed(() => {
   )
   let resolved
   try {
-    resolved = resolveBoundaryValues(canvasNodes, canvasEdges)
+    // The store analyses the saved math, while this instance's rows already follow the math as edited.
+    const savedAnalysis = (mathRef) => (mathRef === props.mathRef ? null : (store.getMathAnalysis?.(mathRef) ?? null))
+    resolved = resolveBoundaryValues(canvasNodes, canvasEdges, savedAnalysis, storeOptions(store))
   } catch {
     return { status: new Map(), ignored: new Set(), emptySums: new Set() } // a malformed multiport, which export reports
   }
@@ -915,13 +1426,28 @@ const connection = computed(() => {
 /** Each row name to where its value comes from (see resolveBoundaryValues' `status`). */
 const connectionStatus = computed(() => connection.value.status)
 
+/**
+ * The rows a connection supplies, the initial values of stores it drives, or Sums nothing is connected to (so 0), which
+ * need no value of their own.
+ */
+const connectionSuppliedNames = computed(() => {
+  const { status, emptySums } = connection.value
+  const supplied = [...status].filter(([, { state }]) => state === 'connected' || state === 'drivenInitial')
+  return new Set([...supplied.map(([name]) => name), ...emptySums])
+})
+
 /** Each row whose value export ignores, as something else supplies its variable, with why. */
 const ignoredNotices = computed(() => {
   const { ignored, emptySums, status } = connection.value
+  // A driven store's initial value is unused, blank or not.
+  const drivenInitials = [...status].filter(([, { state }]) => state === 'drivenInitial').map(([name]) => name)
   return new Map(
-    [...ignored].map((name) => {
+    [...new Set([...ignored, ...drivenInitials])].map((name) => {
       if (emptySums.has(name)) return [name, 'Sums its connections, and none are connected: it is 0, and this value is ignored on export']
       const from = status.get(name)?.from ?? []
+      if (status.get(name)?.state === 'drivenInitial') {
+        return [name, `Its store is set by ${from.join(', ') || 'a connection'}, so this initial value is ignored`]
+      }
       return [name, `Set by ${from.length ? from.join(', ') : 'a connection'}: this value is ignored on export`]
     })
   )
@@ -936,7 +1462,18 @@ const ISSUE_MATCHERS = {
   unconnected: (row) => connectionStatus.value.get(row.name)?.state === 'missing',
 }
 
+/** The CellDL tab's issues, as chips for the collapsed rail. */
+const celldlIssueChips = computed(() => {
+  const { unsetCount, clashCount } = celldlTable.value
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+  return [
+    unsetCount && { key: 'unset', kind: 'units', icon: 'pi-exclamation-circle', count: unsetCount, label: `${plural(unsetCount, 'row')} to set` },
+    clashCount && { key: 'clash', kind: 'units', icon: 'pi-clone', count: clashCount, label: `${plural(clashCount, 'name')} clashing` },
+  ].filter(Boolean)
+})
+
 const issueChips = computed(() => {
+  if (isCelldlModule.value) return celldlIssueChips.value
   const rows = parameterRows.value
   const count = (fn) => rows.filter(fn).length
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -1072,13 +1609,16 @@ function showPlotNotice(text) {
  * no results of its scope are shown. Runs use the saved instance, so only its variables can be plotted.
  *
  * @param {string} name
+ * @param {Object} [options]
+ * @param {boolean} [options.isUnsaved] - The variable is a diagram element's that the math doesn't have until saved.
  */
-function plotClickedVariable(name) {
+function plotClickedVariable(name, { isUnsaved = false } = {}) {
   if (activeTab.value !== 'plot' || rightCollapsed.value || !isAutoUpdate.value) return
   const node = nodes.value.find((candidate) => candidate.id === props.id)
   const row = node?.data?.variables?.find((candidate) => candidate.name === name)
   if (!row) {
-    if (parameterRows.value.some((candidate) => candidate.name === name)) showPlotNotice(`Save to plot ${name}`)
+    const isMathVariable = parameterRows.value.some((candidate) => candidate.name === name)
+    if (isUnsaved || isMathVariable) showPlotNotice(`Save to plot ${name}`)
     return
   }
   plotNotice.value = ''
@@ -1087,7 +1627,7 @@ function plotClickedVariable(name) {
 }
 
 /**
- * Signs what a run reads from the instance besides its math: its name, rows and ports.
+ * Signs what the editor saves besides its math: the instance's name, rows and ports, and the annotation draft.
  *
  * @returns {string}
  */
@@ -1096,6 +1636,8 @@ const signEditorState = () =>
     name: editableName.value,
     rows: parameterRows.value.map(({ name, value, type, units, initialiser }) => ({ name, value, type, units, initialiser })),
     ports: editablePorts.value,
+    parameterisation: chosenParameterRef.value,
+    annotations: signDraft(annotationDraft.value),
   })
 // The signature as loaded, so edits to values, the name or the ports count as unsaved.
 const savedEditorState = ref('')
@@ -1116,19 +1658,44 @@ function rebaselineEditorState(wasUnchanged = true) {
 const hasUnsavedEdits = computed(
   () =>
     !loading.value &&
-    (session.isDirty() || session.isLayoutDirty() || session.hasUnsavedInvalidEdit() || signEditorState() !== savedEditorState.value)
+    (session.isDirty() ||
+      session.isLayoutDirty() ||
+      session.hasUnsavedInvalidEdit() ||
+      isDiagramDirty.value ||
+      signEditorState() !== savedEditorState.value)
+)
+
+/** How many rows the Parameters tab has: a diagram's elements and constants, or the math's variables. */
+const parametersCount = computed(() =>
+  isCelldlModule.value
+    ? celldlTable.value.sections.reduce((count, section) => count + section.rows.length, 0)
+    : parameterRows.value.length
 )
 
 /** The active right-hand tab's name and count, shown on the collapsed rail. */
 const rightTabLabel = computed(() => {
   if (activeTab.value === 'ports') return `Ports (${editablePorts.value.length})`
   if (activeTab.value === 'plot') return `Plot (${plottedCount.value})`
-  return `Parameters (${parameterRows.value.length})`
+  if (activeTab.value === 'annotations') {
+    return `Annotations (${annotationCounts.value.annotated}/${annotationCounts.value.annotatable})`
+  }
+  return `Parameters (${parametersCount.value})`
 })
+
+/**
+ * Gets what the collapsed rail's badges say about the active tab, for screen readers.
+ *
+ * @returns {string}
+ */
+function getRailSummary() {
+  if (activeTab.value === 'parameters') return issueChips.value.map((chip) => chip.label).join(', ')
+  if (activeTab.value === 'annotations' && hasDraftEdits(annotationDraft.value)) return 'Unsaved annotation edits'
+  return ''
+}
 
 // Screen readers get the same information the badges show.
 const railAriaLabel = computed(() => {
-  const summary = activeTab.value === 'parameters' ? issueChips.value.map((chip) => chip.label).join(', ') : ''
+  const summary = getRailSummary()
   return summary ? `Expand panel. ${rightTabLabel.value}. ${summary}` : `Expand panel. ${rightTabLabel.value}`
 })
 
@@ -1142,6 +1709,110 @@ const siblings = computed(() => {
 })
 
 const siblingCount = computed(() => siblings.value.length)
+
+/**
+ * Gets the other nodes on a math reference.
+ *
+ * @param {string} mathRef
+ * @returns {string[]} Their ids.
+ */
+function otherNodesOn(mathRef) {
+  return nodes.value.filter((n) => n.id !== props.id && n.data?.mathRef === mathRef).map((n) => n.id)
+}
+
+// ── Parameter Sets ───────────────────────────────────────────────────────────
+/** The node being edited, as the workspace holds it. */
+const editedNode = () => nodes.value.find((node) => node.id === props.id)
+
+/** The parameter sets imported for the math. */
+const parameterSets = computed(() => defaultParameters.setsFor(props.mathRef))
+/** The default parameterisation of the node's config. */
+const moduleDefaultRef = computed(() => store.availableModules.get(editedNode()?.data?.moduleRef)?.defaultParameterisation ?? null)
+/** The set the picker shows: the instance's own, while the math still has it. */
+const shownParameterRef = computed(() => pickedRef(parameterSets.value, chosenParameterRef.value, null))
+/** Remakes the picker, which shows what was picked until its value changes, so a cancelled pick shows the set again. */
+const parameterSetPickerKey = ref(0)
+
+/**
+ * Re-applies a parameter set to the instance's values, as one undo step. Values it would change are listed to
+ * confirm first; a global constant already set keeps its shared value.
+ *
+ * @param {string} paramRef
+ */
+async function applyParameterSet(paramRef) {
+  const set = defaultParameters.getSet(props.mathRef, paramRef)
+  if (!set) {
+    parameterSetPickerKey.value++
+    return
+  }
+  // An edit still in flight reaches the rows first, so the set applies over it.
+  await session.flushPendingChanges()
+  const { rows, changes } = planSetApply(parameterRows.value, set)
+  if (changes.length) {
+    const proceed = await confirm(setApplyConfirmation(paramRef, changes))
+    if (!proceed) {
+      parameterSetPickerKey.value++
+      return
+    }
+  }
+  const before = { rows: parameterRows.value, ref: chosenParameterRef.value }
+  const after = { rows, ref: set.ref }
+  const restore = (state) => {
+    parameterRows.value = state.rows
+    chosenParameterRef.value = state.ref
+  }
+  await history.executeAndAddCommand({
+    type: 'apply-parameter-set',
+    undo: async () => restore(before),
+    redo: async () => restore(after),
+  })
+}
+
+/** The prompt a save of changed values on a shared parameter set shows (ParameterSetSaveDialog). */
+const setPrompt = ref({ visible: false, paramRef: '', isOwn: false, ownerName: '', newRef: '', otherCount: 0, changes: [] })
+let setPromptResolver = null
+
+function resolveSetPrompt(choice) {
+  setPromptResolver?.(choice)
+  setPromptResolver = null
+}
+
+/**
+ * Asks what a save does to the parameter set the instance shares with others (an imported set, one another instance
+ * made, or its own once another instance is tagged with it) when it changes values the set holds otherwise: update
+ * the set, which the other instances tagged with it follow, or make a set of the instance's own, as Parameters "None"
+ * does. An instance's own set that no other instance uses, or none, never asks; nor do edits to anything but values.
+ *
+ * @param {string} mathRef - The math the save writes to.
+ * @returns {Promise<{action: 'update'|'new'}|null|false>} The choice, null when nothing asks, or false if cancelled.
+ */
+async function resolveParameterSet(mathRef) {
+  const node = editedNode()
+  const paramRef = chosenParameterRef.value
+  const set = node && paramRef ? defaultParameters.getSet(mathRef, paramRef) : null
+  const target = { nodeId: props.id, mathRef, paramRef }
+  const users = set ? otherSetUsers(nodes.value, target) : []
+  if (!isSharedSet(set, props.id, users)) return null
+  const entries = changedSetEntries(set, node.data.variables, parameterRows.value)
+  if (!hasSetEntries(entries)) return null
+
+  const isOwn = isOwnInstanceSet(set, props.id)
+  const owner = isInstanceSet(set) ? nodes.value.find((other) => other.id === set.source.nodeId) : null
+  resolveSetPrompt(null)
+  setPrompt.value = {
+    visible: true,
+    paramRef,
+    isOwn,
+    ownerName: isInstanceSet(set) && !isOwn ? (owner?.data?.name ?? 'another instance') : '',
+    newRef: defaultParameters.instanceSetRef(mathRef, editableName.value),
+    otherCount: users.length,
+    changes: planSharedSetUpdate(nodes.value, target, entries).changes,
+  }
+  const choice = await new Promise((resolve) => {
+    setPromptResolver = resolve
+  })
+  return choice ?? false
+}
 
 // ── Watchers & Handlers ──────────────────────────────────────────────────────
 let openRequestId = 0
@@ -1176,7 +1847,7 @@ watch(
 // A save that keeps the editor open reloads it from the saved instance, once the workspace has it.
 let reloadAfterSave = false
 watch(
-  () => [props.mathRef, props.variables, props.initialName, props.initialPorts],
+  () => [props.mathRef, props.variables, props.initialName, props.initialPorts, store.getModuleAnnotations(props.mathRef)],
   () => {
     if (!reloadAfterSave || !props.modelValue) return
     reloadAfterSave = false
@@ -1193,15 +1864,29 @@ async function loadEditor({ keepTab = false } = {}) {
   const requestId = ++openRequestId
   history.clear()
   loading.value = true
+  isDiagramSaved.value = false
   isEditorReady.value = false
-  applyToAll.value = false
+  applyToAll.value = !isTemplate.value
   nameError.value = ''
   rejectedName = ''
   flaggedPorts.value = new Set()
   if (!keepTab) activeTab.value = props.defaultTab
+  // A format with its own editor opens on it, where this build offers it; another math's editor is locked.
+  const formatEditor = isEditorOffered(moduleFormat.value.editorTab?.value) ? moduleFormat.value.editorTab.value : null
+  if (formatEditor && !keepTab) editorKind.value = formatEditor
+  else if (!isEditorOffered(editorKind.value)) {
+    editorKind.value = formatEditor ?? loadStoredEditorKind()
+  }
   issueFilter.reset()
+  annotationDraft.value = createAnnotationDraft()
+  heldConstant.value = !!instanceNode.value?.data?.annotationOverlay?.heldConstant
+  pendingValues.value = new Map()
+  // The diagram opens as the tab first shows, so a dialog that never shows it never loads the editor.
+  if (isDiagramEditable.value) celldlHost.prepare(store.getMathSource(props.mathRef))
 
   editableName.value = props.initialName
+  chosenParameterRef.value = editedNode()?.data?.parameterisation ?? null
+  ensureAnnotations()
   editableComponentName.value = componentName.value
   componentNameForEditor.value = componentName.value
   editablePorts.value = detachReactivity(props.initialPorts || []).map((port) => ({
@@ -1232,13 +1917,18 @@ async function loadEditor({ keepTab = false } = {}) {
     await session.load({
       mathRef: props.mathRef,
       rows: savedRows,
-      managed: loadStoredManaged() || editorKind.value === 'math',
+      // Locked math is shown as stored, never rebuilt from the table.
+      managed: !isMathLocked.value && (loadStoredManaged() || editorKind.value === 'math'),
     })
+    isLockedSimple.value = loadStoredManaged()
   } catch (e) {
     console.error('Failed to load CellML source', e)
   }
+  await store.ensureModuleAnnotations(props.mathRef).catch(() => null)
   if (requestId !== openRequestId) return
+  findWorkspaceSpecies()
 
+  reconcileEditablePorts()
   savedEditorState.value = signEditorState()
   loading.value = false
   await nextTick()
@@ -1263,13 +1953,14 @@ async function handleEditorRedo() {
 }
 
 /**
- * Checks whether a port has nothing filled in, so it can be dropped on save without losing work.
+ * Checks whether a port has nothing filled in, so it can be dropped on save without losing work. An annotated
+ * port is named by its annotation, so never blank.
  *
  * @param {Object} port
  * @returns {boolean}
  */
 function isBlankPort(port) {
-  return !port.label?.trim() && !port.variables?.length
+  return !isNamedPort(port) && !port.variables?.length
 }
 
 /**
@@ -1279,7 +1970,7 @@ function isBlankPort(port) {
  * @returns {boolean}
  */
 function isIncompletePort(port) {
-  return !isBlankPort(port) && (!port.label?.trim() || !port.variables?.length)
+  return !isBlankPort(port) && (!isNamedPort(port) || !port.variables?.length)
 }
 
 /**
@@ -1331,9 +2022,73 @@ const portStatus = (port) => {
   return names.length ? `Connected to ${names.join(', ')}` : 'Not connected'
 }
 
-const incompletePortCount = computed(
-  () => editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)).length
+/**
+ * What incomplete ports still need: an unannotated port a label and a variable, an annotated one (a mirrored
+ * copy) only its variable.
+ *
+ * @param {Array<Object>} ports - Incomplete ports.
+ * @returns {string} Empty when there are none.
+ */
+function describeIncompletePorts(ports) {
+  const annotated = ports.filter(isAnnotatedPort).length
+  const unannotated = ports.length - annotated
+  const parts = []
+  if (unannotated) {
+    parts.push(`${unannotated} ${unannotated === 1 ? 'port needs' : 'ports need'} a label and at least one variable.`)
+  }
+  if (annotated) {
+    parts.push(`${annotated} annotated ${annotated === 1 ? 'port needs' : 'ports need'} a variable.`)
+  }
+  return parts.join(' ')
+}
+
+const incompletePortMessage = computed(() =>
+  describeIncompletePorts(editablePorts.value.filter((port) => isPortFlagged(port) && isIncompletePort(port)))
 )
+
+// Annotated ports: their places come from where the node is placed, their side-car from the library.
+const { getContext, ensureContext } = useCouplingContext()
+const couplingContext = computed(() => getContext(nodes.value))
+const instanceNode = computed(() => nodes.value?.find((node) => node.id === props.id) ?? null)
+const isNodePlaced = computed(() => placesOf(instanceNode.value, couplingContext.value).length > 0)
+
+/** An annotated port's quantity, for its chips' detail. */
+const portQuantity = (port) =>
+  quantityOfPort(port, instanceNode.value ?? { id: props.id, data: { mathRef: props.mathRef } }, couplingContext.value)
+
+/**
+ * Holds this instance's summed flows at 0, making their rows constant 0, or lets connected instances supply them
+ * again as boundary conditions that keep their values (see services/annotations/heldConstant.js).
+ *
+ * @param {boolean} isHeld
+ */
+function setHeldConstant(isHeld) {
+  const aggregators = aggregatorVariables(renamedSidecar.value)
+  heldConstant.value = isHeld
+  parameterRows.value = isHeld
+    ? holdAtZero(parameterRows.value, aggregators)
+    : asBoundaryConditions(parameterRows.value, aggregators)
+}
+
+/**
+ * The instance's annotationOverlay as the save leaves it.
+ *
+ * @returns {Object|null} Null when it has nothing left.
+ */
+function overlayToSave() {
+  const { heldConstant: _held, ...rest } = instanceNode.value?.data?.annotationOverlay ?? {}
+  const overlay = heldConstant.value ? { ...rest, heldConstant: true } : rest
+  return Object.keys(overlay).length ? overlay : null
+}
+
+/** Parses what annotated ports read; their chips fill in when it lands. */
+function ensureAnnotations() {
+  const parse = instanceNode.value ? ensureContext([instanceNode.value]) : store.ensureModuleAnnotations(props.mathRef)
+  parse.catch(() => {})
+}
+
+/** Whether annotation ports hide some manual ones on the canvas (see activePorts). */
+const hasHiddenManualPorts = computed(() => editablePorts.value.some((port) => isHiddenPort(port, editablePorts.value)))
 
 const portRowClass = (port) =>
   isPortFlagged(port) && (isIncompletePort(port) || isMissingFactor(port)) ? 'port-row--invalid' : ''
@@ -1352,9 +2107,221 @@ async function addPort() {
   if (scroller) scroller.scrollTop = scroller.scrollHeight
 }
 
+/** This instance's math's parsed sidecar, or undefined when it has none or it is not parsed yet. */
+const instanceSidecar = computed(() => store.getParsedModuleAnnotations(props.mathRef) ?? undefined)
+
+/** The stored math's variable ids by name, which the draft's new annotations are subjects of. */
+const storedVariableIds = computed(() => variableIdsOf(store.availableMath.get(props.mathRef) ?? ''))
+
+/**
+ * Moves each side-car entry onto the variable its port now reads, where an edit to the math renamed it, as save
+ * renames the side-car.
+ *
+ * @param {Object|null} sidecar - From parseSidecar.
+ * @param {Set<string>} variables - The math's variable names.
+ * @returns {Object|null}
+ */
+function buildRenamedSidecar(sidecar, variables) {
+  if (!sidecar?.variables) return sidecar
+  const renamedTo = new Map(
+    editablePorts.value
+      .filter((port) => isSidecarPort(port) && variables.has(port.variables?.[0]))
+      .map((port) => [port.annotation.subject, port.variables[0]])
+  )
+  if (!renamedTo.size) return sidecar
+  return {
+    ...sidecar,
+    variables: sidecar.variables.map((entry) =>
+      renamedTo.has(entry.subject) && !variables.has(entry.variable) ? { ...entry, variable: renamedTo.get(entry.subject) } : entry
+    ),
+  }
+}
+
+/**
+ * Gives each complete annotation of the math its side-car port, as save would. A change made while nothing was
+ * edited joins the baseline, so it never shows as unsaved on its own.
+ */
+function reconcileEditablePorts() {
+  const hasSidecarText = store.getModuleAnnotations(props.mathRef) !== null
+  if (instanceSidecar.value === undefined && (hasSidecarText || !hasDraftEdits(annotationDraft.value))) return
+  const variables = parameterRows.value.map((row) => row.name)
+  const sidecar = applyAnnotationDraft(
+    draftBaseSidecar(annotationDraft.value, buildRenamedSidecar(instanceSidecar.value, new Set(variables))),
+    annotationDraft.value,
+    props.mathRef,
+    { ids: storedVariableIds.value }
+  )
+  // A port's variables follow a rename only after the rows do, so they count until then.
+  const portVariables = editablePorts.value.filter(isSidecarPort).flatMap((port) => port.variables ?? [])
+  const { ports, added, removed, changed } = reconcileAnnotatedPorts(editablePorts.value, sidecar, {
+    mathRef: props.mathRef,
+    variables: [...variables, ...portVariables],
+  })
+  if (!added.length && !removed.length && !changed.length) return
+  // A changed port keeps the saved self it had; one added since opening has none.
+  for (const { before, after } of changed) {
+    if (!originalByPort.has(toRaw(before))) continue
+    originalByPort.set(toRaw(after), originalByPort.get(toRaw(before)))
+    connectionsByPort.set(toRaw(after), connectionsByPort.get(toRaw(before)))
+  }
+  const wasUnchanged = signEditorState() === savedEditorState.value
+  editablePorts.value = ports
+  rebaselineEditorState(wasUnchanged)
+}
+
+const sidecarPortVariables = () =>
+  editablePorts.value
+    .filter(isSidecarPort)
+    .map((port) => (port.variables ?? []).join(','))
+    .join('\n')
+
+watch([instanceSidecar, annotationDraft, () => parameterRows.value.map((row) => row.name).join('\n'), sidecarPortVariables], () => {
+  if (!loading.value) reconcileEditablePorts()
+})
+
+/** The math's side-car under the editor's variable names, as the Annotations tab edits it. */
+const renamedSidecar = computed(() =>
+  buildRenamedSidecar(instanceSidecar.value ?? null, new Set(parameterRows.value.map((row) => row.name)))
+)
+
+/** Each variable whose side-car port this editor opened with: 'connected' or 'exists'. */
+const annotationPortStatus = computed(
+  () =>
+    new Map(
+      editablePorts.value
+        .filter((port) => isSidecarPort(port) && originalByPort.has(toRaw(port)))
+        .map((port) => [port.variables?.[0], portConnections(port).length ? 'connected' : 'exists'])
+    )
+)
+
+/** How many variables the draft leaves annotated, of those the Annotations tab lists by default. */
+const annotationCounts = computed(() => {
+  let annotated = 0
+  let annotatable = 0
+  const base = draftBaseSidecar(annotationDraft.value, renamedSidecar.value)
+  for (const row of parameterRows.value) {
+    const role = classifyAnnotationRow(row, variableKinds.value)
+    const isAnnotated = !!getDraftEntry(annotationDraft.value, base, row.name)
+    if (isAnnotated) annotated++
+    if (role === 'variable' || (role === 'constant' && isAnnotated)) annotatable++
+  }
+  return { annotated, annotatable }
+})
+
+// ChEBI species other sidecars in the workspace use, offered first in the Annotations tab.
+const workspaceSpecies = ref([])
+
+/** Collects the species every parsed sidecar in the workspace uses. */
+async function findWorkspaceSpecies() {
+  const refs = [...store.moduleAnnotations.keys()]
+  const sidecars = await Promise.all(refs.map((ref) => store.ensureModuleAnnotations(ref).catch(() => null)))
+  const terms = sidecars.flatMap((sidecar) => (sidecar?.variables ?? []).flatMap((entry) => entry.species ?? []))
+  workspaceSpecies.value = [...new Set(terms)].filter((curie) => hasPrefix(curie, 'CHEBI')).sort()
+}
+
+/**
+ * Builds the sidecar a save writes: the math's sidecar moved to the saved math, with the Annotations tab's draft
+ * applied. Its variable subjects are ids, so they follow renamed variables as they are.
+ *
+ * @param {string} mathRef - The math the save writes.
+ * @param {string|null} math - The saved math, with an id on each annotated variable, or null when it is unchanged.
+ * @param {Object} draft - The Annotations tab's draft, under the saved math's names (see renameDraftVariables).
+ * @param {(message: string) => void} [onWarning] - Told of other triples the edit drops (see editSidecar).
+ * @returns {Promise<string>}
+ * @throws {Error} When the sidecar does not parse, a term is not a known CURIE or a transporter has no accession.
+ */
+async function buildAnnotationText(mathRef, math, draft, onWarning) {
+  let text = draft.imported?.text ?? store.getModuleAnnotations(props.mathRef) ?? ''
+  if (text && mathRef !== props.mathRef) text = await renameSidecar(text, props.mathRef, mathRef)
+  const { componentKind, transporter } = getDraftKind(draft, null)
+  const base = draftBaseSidecar(draft, instanceSidecar.value)
+  const hasSavedAccession = (base?.component?.is ?? []).some((curie) => hasPrefix(curie, 'uniprot'))
+  if (componentKind === 'transporter' && !transporter && !hasSavedAccession) {
+    throw new Error('a transporter needs a UniProt accession.')
+  }
+  return editSidecar(text, mathRef, {
+    ...(draft.componentKind !== undefined ? { componentKind, transporter: transporter ?? undefined } : {}),
+    spaceKind: draft.spaceKind,
+    variables: draft.variables,
+    cellml: math ?? store.availableMath.get(props.mathRef),
+    onWarning,
+  })
+}
+
+/**
+ * Asks before a save that would drop annotated couplings, as its side-car ports are reconciled.
+ *
+ * @param {Object} save - The `confirm` payload.
+ * @returns {Promise<boolean>} Whether to go on.
+ */
+async function confirmDroppedCouplings(save) {
+  const dropped = await findDroppedCouplings(save)
+  if (!dropped.couplings) return true
+  const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
+  return confirm({
+    header: 'Remove Couplings?',
+    message: `Removes ${plural(dropped.couplings, 'coupling')} on ${plural(dropped.connections, 'connection')}.`,
+    severity: 'warning',
+    acceptLabel: 'Save',
+    rejectLabel: 'Cancel',
+  })
+}
+
+/**
+ * Asks before an imported sidecar replaces the math's.
+ *
+ * @returns {Promise<boolean>}
+ */
+function confirmAnnotationImport() {
+  return confirm({
+    header: 'Import annotations',
+    message: `Replace this module's annotations with the file's? They apply to every instance of it once saved.`,
+    acceptLabel: 'Import',
+    rejectLabel: 'Cancel',
+  })
+}
+
 function deletePort(index) {
   editablePorts.value.splice(index, 1)
 }
+
+/**
+ * Whether the instance has edits Cancel asks before discarding. Plots and sliders apply as they change, so only the
+ * instance's own edits count.
+ *
+ * @returns {boolean}
+ */
+function hasDiscardableEdits() {
+  const isDirty = session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isDiagramDirty.value
+  return isDirty || hasDraftEdits(annotationDraft.value)
+}
+
+/** Commits any rename and editor change still in flight, so an edit typed just before closing counts. */
+async function flushEdits() {
+  parameterTableRef.value?.flushPendingRenames()
+  await session.flushPendingChanges()
+}
+
+/** Closes the editor on a click outside it, unless that would discard edits. */
+async function closeOnOutsideClick() {
+  if (loading.value) return
+  await flushEdits()
+  // Any edit at all keeps the editor open, the instance's name and ports included.
+  if (hasUnsavedEdits.value || hasDiscardableEdits()) {
+    notify.info({ message: 'Save or cancel your edits to close the editor.', duration: 2500 })
+    return
+  }
+  emit('update:modelValue', false)
+}
+
+useEditorCloseGuard({
+  isOpen: () => props.modelValue,
+  maskClass: EDITOR_MASK_CLASS,
+  // Escape in the CellDL editor is its own, e.g. to drop a path being drawn.
+  ownsEscape: () => celldlHost.isEngaged.value,
+  onOutsideClick: closeOnOutsideClick,
+  onEscape: handleCancel,
+})
 
 const onDialogVisibleChange = (visible) => {
   if (visible) {
@@ -1365,18 +2332,16 @@ const onDialogVisibleChange = (visible) => {
 }
 
 async function handleCancel() {
-  // Commit any rename and editor change still in flight, so an edit typed just before Escape counts.
-  parameterTableRef.value?.flushPendingRenames()
-  await session.flushPendingChanges()
-
-  // Plots and sliders apply as they change, so only the instance's own edits count.
-  if (session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty()) {
+  await flushEdits()
+  if (hasDiscardableEdits()) {
+    // Keeping the edits is the default, so a stray Enter or click doesn't lose them.
     const confirmed = await confirm({
       header: 'Unsaved Changes',
       message: 'Are you sure you want to discard changes?',
       severity: 'warning',
       acceptLabel: 'Discard & Close',
-      rejectLabel: 'Cancel',
+      rejectLabel: 'Keep Editing',
+      isRejectDefault: true,
     })
     if (!confirmed) return
   }
@@ -1384,32 +2349,70 @@ async function handleCancel() {
 }
 
 // ── Save As ──────────────────────────────────────────────────────────────────
-const saveAs = ref({ visible: false, message: '', initialName: '' })
+const saveAs = ref({ visible: false, message: '', initialName: '', file: USER_MODULES_FILE, isTaken: isComponentNameTaken })
 let saveAsResolver = null
 
 /**
- * Explains why a component name can't be saved in this file, or returns '' when it can.
+ * Checks whether a component name is a template's (PROTECTED_MATH_REFS), in any grouping.
+ *
+ * @param {string} name
+ * @returns {boolean}
+ */
+const isTemplateName = (name) => [...PROTECTED_MATH_REFS].some((ref) => isSameName(ref.split(':')[1], name))
+
+/**
+ * Gets the grouping a component saved under a new name goes in. Only a module new from the template is a user module:
+ * a diagram's goes in User_Modules.celldl, CellML's in User_Modules.cellml. An edit of existing math, renamed or saved
+ * as new, stays in that math's grouping.
+ *
+ * @param {boolean} [isDiagram] - Whether it's a diagram's, as the module's format says by default.
+ * @returns {string}
+ */
+const newComponentFile = (isDiagram = moduleFormat.value.id === 'celldl') =>
+  newComponentGrouping(props.mathRef, { isDiagram })
+
+/**
+ * Explains why a name can't be a new component's, or returns '' when it can: a template's, the edited component's, or
+ * one its grouping already has are all refused, ignoring case. Names only need to differ within a grouping.
+ *
+ * @param {string} name
+ * @param {{file?: string}} [options] - The grouping it goes in, as Save As last asked by default.
+ * @returns {string}
+ */
+function isComponentNameTaken(name, { file = saveAs.value.file } = {}) {
+  if (isTemplateName(name)) return `"${name}" is a template and can't be overwritten.`
+  if (isSameName(name, componentName.value ?? '') || findInGrouping(store.availableMath.keys(), file, name)) {
+    return `A component named "${name}" already exists.`
+  }
+  return ''
+}
+
+/**
+ * Like isComponentNameTaken, but also refuses the component the other instances use.
  *
  * @param {string} name
  * @returns {string}
  */
-function isComponentNameTaken(name) {
-  const mathRef = `${componentFile.value}:${name}`
-  if (PROTECTED_MATH_REFS.has(mathRef)) return `"${name}" is a template and can't be overwritten.`
-  if (mathRef !== props.mathRef && store.availableMath.has(mathRef))
-    return `A component named "${name}" already exists.`
-  return ''
+function isSharedComponentNameTaken(name, { file = saveAs.value.file } = {}) {
+  if (`${file}:${name}` === props.mathRef) return `"${name}" is used by the other instances.`
+  return isComponentNameTaken(name, { file })
 }
 
 /**
  * Asks for a new component name before saving math that can't keep its current one.
  *
  * @param {string} message - Why a new name is needed.
+ * @param {{file?: string, initialName?: string, isTaken?: (name: string) => string}} [options] - The grouping the
+ *   component goes in (newComponentFile by default), the name offered, the instance's by default, and why a name can't
+ *   be used, or '' when it can (isComponentNameTaken by default).
  * @returns {Promise<string|null>} The new name, or null if cancelled.
  */
-function promptComponentSaveAs(message) {
+function promptComponentSaveAs(
+  message,
+  { file = newComponentFile(), initialName = editableName.value, isTaken = isComponentNameTaken } = {}
+) {
   resolveSaveAs(null)
-  saveAs.value = { visible: true, message, initialName: sanitiseName(editableName.value ?? '') }
+  saveAs.value = { visible: true, message, initialName: sanitiseName(initialName ?? ''), file, isTaken }
   return new Promise((resolve) => {
     saveAsResolver = resolve
   })
@@ -1420,15 +2423,128 @@ function resolveSaveAs(name) {
   saveAsResolver = null
 }
 
-async function handleMathOverwrite() {
-  const message = siblingCount.value > 0 ? `This will affect ${siblingCount.value} other instances. ` : ''
-  return confirm({
+// ── Module Config ────────────────────────────────────────────────────────────
+const configPrompt = ref({ visible: false, moduleRef: '', matchRef: '', otherCount: 0, canUpdate: true, newRef: '' })
+let configResolver = null
+
+/**
+ * Asks whether a config change overwrites the instance's module or moves the instance to a new config of its own,
+ * named after it (see configOwnership).
+ *
+ * @param {Object} options - The prompt's `moduleRef`, `matchRef`, `otherCount` and `canUpdate`.
+ * @returns {Promise<Object|null>} The save's `config`, or null if cancelled.
+ */
+function promptModuleConfig({ moduleRef, matchRef = '', otherCount, canUpdate }) {
+  resolveConfigPrompt(null)
+  const newRef = newConfigRef(moduleRef, editableName.value, (ref) => ref === moduleRef || store.availableModules.has(ref))
+  configPrompt.value = { visible: true, moduleRef, matchRef, otherCount, canUpdate, newRef }
+  return new Promise((resolve) => {
+    configResolver = resolve
+  })
+}
+
+function resolveConfigPrompt(config) {
+  configResolver?.(config)
+  configResolver = null
+}
+
+/**
+ * Gets the instance's module and the other instances that would follow a change to it: every other instance on the
+ * module, or, for math no module uses yet, those of them moving to that math with this instance.
+ *
+ * @param {{mathRef: string, math: string|null, updateAll: boolean}} save - As resolveModuleConfig takes it.
+ * @returns {{moduleRef: string, module: Object, isNewModule: boolean, followers: Array}|null} Null without a module.
+ */
+function moduleFollowers({ mathRef, math, updateAll }) {
+  const moduleRef = nodes.value.find((n) => n.id === props.id)?.data?.moduleRef
+  const module = moduleRef && store.availableModules.get(moduleRef)
+  if (!module) return null
+  const isNewModule = math !== null && !PROTECTED_MATH_REFS.has(mathRef) && !store.availableCollections.has(mathRef)
+  const others = nodes.value.filter((n) => n.id !== props.id && n.data?.moduleRef === moduleRef)
+  const followers = isNewModule ? others.filter((n) => updateAll && n.data.mathRef === props.mathRef) : others
+  return { moduleRef, module, isNewModule, followers }
+}
+
+/**
+ * Works out what a save does to the instance's module, asking when the ports or variable units, access or types no
+ * longer match it. Values never count. A config the instance made, and alone uses, is updated without asking (see
+ * configOwnership); any other asks to be overwritten or left for a new config, even with no other instance on it. Math
+ * saved for every instance on the module's math takes the module along. Math no module uses gets a module of its own
+ * (see useInstanceSave), which the instances switching from this module share.
+ *
+ * @param {Object} save
+ * @param {string} save.mathRef - The math the instance saves to.
+ * @param {string|null} save.math - The math written, or null.
+ * @param {Array} save.ports
+ * @param {boolean} save.updateAll
+ * @returns {Promise<Object|null|false>} The save's `config`, null when the module needs no change, or false if cancelled.
+ */
+async function resolveModuleConfig({ mathRef, math, ports, updateAll }) {
+  const found = moduleFollowers({ mathRef, math, updateAll })
+  if (!found) return null
+  const { moduleRef, module, isNewModule, followers } = found
+  if (isNewModule && !followers.length) return null
+
+  const isFollowing = isNewModule || (updateAll && props.mathRef === module.mathRef)
+  const moduleMathRef = isFollowing ? mathRef : module.mathRef
+  const analysis = isFollowing && math !== null ? analyzeMathXml(math) : store.getMathAnalysis(moduleMathRef)
+  const config = { moduleRef, mathRef, ports, variables: parameterRows.value }
+  if (isModuleConfig(config, { ...module, mathRef: moduleMathRef }, analysis)) {
+    return !isNewModule && moduleMathRef !== module.mathRef ? { action: 'follow' } : null
+  }
+  if (isSoleOwnConfig(module, props.id, followers.length)) return { action: 'update' }
+
+  const choice = await promptModuleConfig({
+    moduleRef: isNewModule ? store.defaultModuleRef(mathRef) : moduleRef,
+    matchRef: isNewModule ? moduleRef : '',
+    otherCount: followers.length,
+    canUpdate: mathRef === moduleMathRef,
+  })
+  if (!choice) return false
+  // Leaving a module whose instances all switched math, take it along.
+  return choice.action === 'new' && !isNewModule && moduleMathRef !== module.mathRef ? { ...choice, follow: true } : choice
+}
+
+/**
+ * Asks whether to overwrite stored math, or save it as a new component under an unused name. With "Apply math changes
+ * to all" unticked, math other instances use is never overwritten: it asks for the new component's name straight away.
+ *
+ * @param {string} name - The stored component's name, offered to edit.
+ * @param {{file?: string, mathRef?: string}} [options] - The grouping a new component goes in (newComponentFile by
+ *   default), and the math overwritten, the instance's by default, whose other instances the warning counts, with the
+ *   siblings that switch to it when ticked.
+ * @returns {Promise<{name: string|null}|null>} The new component's name, a null name to overwrite, or null to cancel.
+ */
+async function handleMathOverwrite(name, { file = newComponentFile(), mathRef = props.mathRef } = {}) {
+  const sharedWith = otherNodesOn(mathRef)
+  if (!applyToAll.value && sharedWith.length > 0) {
+    const count = sharedWith.length
+    const renamed = await promptComponentSaveAs(
+      `${count} other instance${count !== 1 ? 's' : ''} use${count !== 1 ? '' : 's'} ${name}. ` +
+        'Name a new component for this instance’s math, or tick “Apply math changes to all” to change them all.',
+      { file, isTaken: isSharedComponentNameTaken }
+    )
+    return renamed ? { name: renamed } : null
+  }
+  // Siblings switching to other existing math change too.
+  const switching = mathRef !== props.mathRef && applyToAll.value ? siblings.value : []
+  const count = new Set([...sharedWith, ...switching]).size
+  const affects = count > 0 ? ` This will affect ${count} other instance${count === 1 ? '' : 's'}.` : ''
+  const choice = await choose({
     header: 'Overwrite Math?',
-    message: `You are about to overwrite an existing math definition. ${message}Are you sure you want to proceed?`,
+    message: `"${name}" already exists.${affects} Overwrite it, or save your changes as a new component?`,
     severity: 'warning',
-    acceptLabel: 'Proceed',
+    acceptLabel: 'Overwrite',
+    extraLabel: 'Save as new component',
     rejectLabel: 'Cancel',
   })
+  if (choice === 'accept') return { name: null }
+  if (choice !== 'extra') return null
+  const renamed = await promptComponentSaveAs('Save your changes as a new component under an unused name.', {
+    file,
+    initialName: name,
+  })
+  return renamed ? { name: renamed } : null
 }
 
 // ── Save Processing ──────────────────────────────────────────────────────────
@@ -1447,7 +2563,7 @@ function rejectInstanceName(message) {
 /**
  * Shows a tab of the right panel, expanding the panel if it was collapsed.
  *
- * @param {'parameters'|'ports'} tab
+ * @param {'parameters'|'ports'|'plot'|'annotations'} tab
  */
 function showTab(tab) {
   activeTab.value = tab
@@ -1464,12 +2580,401 @@ function renamedPlotEntries() {
   return getNodePlotEntries(simulationSettingsStore.plotConfig, props.id).map((entry) => ({ ...entry, name: renamed.get(entry.name) ?? entry.name }))
 }
 
+/** Whether a save is under way, which may wait on a conversion and on the user's answers. */
+const isSaving = ref(false)
+/** Whether a save is converting the diagram, which takes a moment. */
+const isConverting = ref(false)
+
+/**
+ * Gets the component name typed for a diagram's module, when it differs from the module's (isDiagramRenamable).
+ *
+ * @returns {string|null}
+ */
+function renamedDiagramComponent() {
+  if (!isDiagramRenamable.value) return null
+  const name = cleanName(editableComponentName.value)
+  return name && name !== componentName.value ? name : null
+}
+
+/**
+ * The math the diagram's save converts for, which its live conversion names units against: the template's in the
+ * CellDL user modules grouping, a renamed module's under its new name in its own grouping.
+ */
+const diagramPreviewRef = computed(() => diagramSaveRef(props.mathRef, renamedDiagramComponent()))
+
+/**
+ * Gets the diagram's module a renamed diagram may overwrite: one under that name in the diagram's grouping, where a
+ * renamed diagram is saved, never a template's or CellML's.
+ *
+ * @param {string} name
+ * @returns {string|null} Its math reference, or null when there's none to overwrite.
+ */
+function overwritableDiagram(name) {
+  const mathRef = `${componentFile.value}:${name}`
+  if (isTemplateName(name) || isSameName(name, componentName.value ?? '') || PROTECTED_MATH_REFS.has(mathRef)) return null
+  if (!store.availableMath.has(mathRef)) return null
+  return store.getMathSource(mathRef)?.format === 'celldl' ? mathRef : null
+}
+
+/**
+ * Checks whether a diagram's conversion gives its module's stored math and units, compared as the math's dirty check
+ * does, so the edit changed only the diagram, e.g. its layout. Values are left out: the module keeps its defaults.
+ *
+ * @param {string} math - The converted component's math.
+ * @param {{componentFile: string, model: string|null}} units - Its grouping's units after the save.
+ * @returns {boolean}
+ */
+function isDiagramOnlyChange(math, units) {
+  const storedMath = store.availableMath.get(props.mathRef)
+  if (!storedMath || !areModelsEquivalent(storedMath, separateParameters(math).math)) return false
+  const storedUnits = store.availableUnits.find((file) => file.componentFile === units.componentFile)?.model ?? null
+  return areUnitsModelsEquivalent(storedUnits, units.model)
+}
+
+/**
+ * Converts the diagram, when edited since it was opened or saved, into the math this save writes. Errors stop the
+ * save, keeping the stored math and diagram, with the elements they name highlighted; warnings ask first. The
+ * template's diagram, and a diagram whose component is renamed, is a new component, named first so its CellML is, under
+ * a new documentUri: the template's in the CellDL user modules grouping, a renamed one's in its module's grouping
+ * (newComponentFile), leaving its module, diagram and units as they are. The grouping's modules share its units
+ * (groupingUnitsAfterSave). A diagram
+ * saved under its module's name, or renamed to another diagram's module's (overwritableDiagram), overwrites that, or is
+ * converted again as a new component, asking once it converts. One saved under its module's name that gives the
+ * stored math and units (isDiagramOnlyChange) replaces only the module's diagram, without asking.
+ *
+ * @param {{newName?: string|null, isWarned?: boolean}} [options] - A new component's name, chosen instead of
+ *   overwriting, and whether its warnings were already accepted.
+ * @returns {Promise<{mathRef: string, math: string|null, layout?: Object|null, source: Object, units: Object|null, isEditorDocument: boolean}|null|false>}
+ *   Where the generated math goes, the math and its sections' text layout, its source and its grouping's units (a null
+ *   model when none), and whether the editor shows the source's document as it is; null math and units when only the
+ *   diagram changed; null when the diagram is unchanged; false when the save stops.
+ */
+async function stageDiagram({ newName = null, isWarned = false } = {}) {
+  let name = newName ?? renamedDiagramComponent() ?? componentName.value
+  const isRenamed = name !== componentName.value
+  if (!isDiagramDirty.value && !isRenamed) return null
+  const stored = store.getMathSource(props.mathRef)
+  const requestId = openRequestId
+  let document, result
+  // The grouping the diagram's live conversion named its units against too (diagramPreviewRef).
+  let file = newComponentFile(true)
+  let documentUri = stored?.documentUri
+  let isEditorDocument = true
+  // Another diagram's module this renamed one may overwrite, its source replaced by this diagram.
+  let overwriteRef = null
+  isConverting.value = true
+  try {
+    if (isDiagramDirty.value) {
+      const comparison = await celldlHost.compareWithBaseline()
+      if (!comparison.isChanged && !isRenamed) return null
+      document = comparison.document
+    } else {
+      // Only renamed: the stored diagram is copied, whether or not the editor has opened it.
+      document = stored.document
+      isEditorDocument = false
+    }
+    if (!stored || isRenamed) {
+      isConverting.value = false
+      overwriteRef = isRenamed && !newName ? overwritableDiagram(name) : null
+      const taken = isRenamed && !newName && !overwriteRef && isComponentNameTaken(name, { file })
+      if (!stored || taken) {
+        const renamed = await promptComponentSaveAs(
+          stored
+            ? `${taken} Save your diagram as a new component under another name.`
+            : `"${name}" is the template new instances start from. Save your diagram as a new component instead.`,
+          { file, ...(stored && { initialName: name }) }
+        )
+        if (!renamed) return false
+        name = renamed
+      }
+      isConverting.value = true
+      const { mintDocumentUri } = await import('../services/celldl/documentUri.js')
+      documentUri = (overwriteRef && store.getMathSource(overwriteRef)?.documentUri) || mintDocumentUri(`${file}:${name}`)
+      // A diagram naming its model under its own absolute IRI is read under that, so it's renamed to the new one.
+      if (stored?.documentUri && document?.includes(stored.documentUri)) {
+        document = document.split(stored.documentUri).join(documentUri)
+        isEditorDocument = false
+      }
+    }
+    const { convertCelldl, knownUnitsForModule } = await import('../services/celldl/convert.js')
+    result = await convertCelldl(document, {
+      documentUri,
+      componentName: name,
+      knownUnits: knownUnitsForModule(store, `${file}:${name}`),
+    })
+  } catch (error) {
+    console.error('CellDL conversion failed:', error)
+    notify.error({ message: `The diagram can't be converted: ${error.message}` })
+    return false
+  } finally {
+    isConverting.value = false
+  }
+  // The dialog closed, or opened another instance, while the diagram converted.
+  if (requestId !== openRequestId || !props.modelValue) return false
+  // Only the module's own component becomes its math, as on import.
+  const component = result.components?.find((candidate) => candidate.name === name)
+  const errors =
+    result.ok && !component ? [{ message: `The diagram's CellML has no component named ${name}` }] : result.errors
+  // Where issues' element labels come from: the conversion's manifest, else the diagram's annotations.
+  const labelSources = { elements: result.elements, annotations: celldlHost.annotations.value }
+  if (errors.length) {
+    celldlHost.highlight(errors.map((issue) => issue.elementId).filter(Boolean))
+    // An issue naming an element links to it: following the link closes this and shows the element.
+    let followed = null
+    await alert({
+      header: moduleFormat.value.editorTab.errorHeader,
+      message: "The diagram can't be converted, so nothing was saved:",
+      issues: issueItems({ errors }, labelSources),
+      onIssue: (issue) => (followed = issue),
+      severity: 'error',
+    })
+    if (followed) showIssueInDiagram(followed)
+    return false
+  }
+  if (result.warnings.length && !isWarned) {
+    let followed = null
+    const proceed = await confirm({
+      header: 'Diagram Warnings',
+      message: 'The diagram converted with warnings. Save it anyway?',
+      issues: issueItems({ warnings: result.warnings }, labelSources),
+      // Following a warning's link cancels the save.
+      onIssue: (issue) => (followed = issue),
+      severity: 'warning',
+      acceptLabel: 'Save',
+      rejectLabel: 'Cancel',
+    })
+    if (followed) showIssueInDiagram(followed)
+    if (!proceed) return false
+  }
+  const source = {
+    ...(overwriteRef ? store.getMathSource(overwriteRef) : stored),
+    format: moduleFormat.value.id,
+    document,
+    documentUri: result.documentUri,
+    elements: result.elements,
+    generator: result.generator,
+    frameworkVersion: result.frameworkVersion,
+  }
+  // A diagram with no units of its own drops any its module had, keeping those its grouping's other modules use.
+  const units = groupingUnitsAfterSave(store, `${file}:${name}`, result.unitsModel)
+  const isOwnModule = stored && !isRenamed && store.availableMath.has(props.mathRef)
+  // Only the diagram changed, so its module keeps its math, and the instances on it theirs.
+  if (isOwnModule && !overwriteRef && isDiagramOnlyChange(component.math, units)) {
+    return { mathRef: props.mathRef, math: null, source, units: null, isEditorDocument }
+  }
+  // Saved under its module's name, it overwrites it, or is converted again as a new component, as CellML is saved.
+  if (overwriteRef || isOwnModule) {
+    const choice = await handleMathOverwrite(name, { file, mathRef: overwriteRef ?? props.mathRef })
+    if (!choice) return false
+    if (choice.name) return stageDiagram({ newName: choice.name, isWarned: true })
+  }
+  return {
+    mathRef: `${file}:${name}`,
+    math: component.math,
+    // Its sections' headings, for the CellML Text tab.
+    layout: result.layout ?? null,
+    source,
+    units,
+    isEditorDocument,
+  }
+}
+
+/**
+ * Gives a diagram's rows the values typed in the Parameters tab for variables they lacked before the save, and blank
+ * rows the diagram's values, as a blank value follows them.
+ *
+ * @param {{isStaged: boolean}} options - Whether the save converts the diagram, whose values blank rows then took.
+ */
+function applyCelldlValues({ isStaged }) {
+  const pending = pendingValues.value
+  const defaults = savedDefaults.value
+  parameterRows.value.forEach((row) => {
+    // A blank pending value is a renamed row's, which the conversion already gave the diagram's value.
+    if (pending.has(row.name)) {
+      if (pending.get(row.name) !== '') row.value = pending.get(row.name)
+    } else if (!isStaged && isEmpty(row.value) && defaults.has(row.name)) row.value = defaults.get(row.name)
+  })
+}
+
+/**
+ * Renames this instance's rows, and the plotted variables it follows, for the variables a diagram edit renamed, so
+ * their values go with them. Values typed for the new names replace the old names' values, a blank one with the
+ * diagram's.
+ *
+ * @param {Map<string, string>} renames - Each old name to its new one (variableRenames).
+ */
+function renameCelldlRows(renames) {
+  if (!renames.size) return
+  const pending = pendingValues.value
+  parameterRows.value = renameRows(parameterRows.value, renames).map((row) =>
+    pending.has(row.name) ? { ...row, value: pending.get(row.name) } : row
+  )
+  trackedNames.value = trackedNames.value.map((entry) => ({ ...entry, name: renames.get(entry.name) ?? entry.name }))
+}
+
+/**
+ * Finds the variables a regenerated math gives compatible new units, e.g. a diagram switched to Cellular gives
+ * `mole` rows `fmol`, so their values are rescaled to keep the quantities they were; values are numbers in their
+ * row's units, so would otherwise change by the factor. A rescale that changes a value this instance or the module
+ * holds is confirmed first.
+ *
+ * @param {{mathRef: string, math: string, units: Object|null}} staged - stageDiagram's.
+ * @param {Map<string, string>} renames - The variables the diagram edit renamed.
+ * @param {Map<string, string>} defaults - The module's defaults before the save, under their old names.
+ * @returns {Promise<Array<Object>|null>} findUnitRescales', with initialisers, or null when the save stops.
+ */
+async function confirmUnitRescales(staged, renames, defaults) {
+  const fromUnits = declaredUnits(analyzeMathXml(store.availableMath.get(props.mathRef) ?? ''), renames)
+  const toUnits = declaredUnits(analyzeMathXml(staged.math))
+  // The new units are those the save writes: its grouping's file first, then the library's others.
+  const ownFile = staged.units?.componentFile
+  const toModels = [
+    ...(staged.units?.model ? [staged.units.model] : []),
+    ...store.availableUnits.filter((file) => file.componentFile !== ownFile).map((file) => file.model),
+  ]
+  const rows = renameRows(parameterRows.value, renames)
+  const rescales = withInitialiserRescales(
+    findUnitRescales(fromUnits, toUnits, { from: store.unitDefinitions, to: mergeUnitDefinitions(toModels) }),
+    rows
+  )
+  // Only values change, so only variables holding one are listed.
+  const valued = new Set([
+    ...rows.filter((row) => isNumericLiteral(row.value)).map((row) => row.name),
+    ...[...defaults].filter(([, value]) => isNumericLiteral(value)).map(([name]) => renames.get(name) ?? name),
+  ])
+  const changed = rescales.filter((rescale) => !isIdentityFactor(rescale.factor) && valued.has(rescale.name))
+  if (!changed.length) return rescales
+  const whose =
+    staged.mathRef === props.mathRef
+      ? "every instance of the module has its values"
+      : applyToAll.value && siblingCount.value
+        ? 'this instance and those it applies to have their values'
+        : "this instance's values are"
+  const proceed = await confirm({
+    header: 'Units Changed',
+    message: `The diagram changes these variables' units, so ${whose} rescaled to keep the same quantities:`,
+    issues: changed.map((rescale) => ({
+      key: rescale.name,
+      label: rescale.name,
+      message: `${rescale.from} → ${rescale.to}, ${formatFactor(rescale.factor)}`,
+    })),
+    severity: 'info',
+    acceptLabel: 'Rescale and Save',
+    rejectLabel: 'Cancel',
+  })
+  return proceed ? rescales : null
+}
+
+/**
+ * Rescales the values this instance holds for variables whose units a regenerated math changed (confirmUnitRescales):
+ * its rows, and values typed for renamed variables, which are in the units their old rows show.
+ *
+ * @param {Array<Object>} rescales
+ * @param {Map<string, string>} renames
+ */
+function rescaleInstanceValues(rescales, renames) {
+  if (!rescales.length) return
+  const renamedTo = new Set(renames.values())
+  const pending = pendingValues.value
+  const carried = new Map([...pending].filter(([name]) => renamedTo.has(name)))
+  pendingValues.value = new Map([...pending, ...rescaleValues(carried, rescales)])
+  parameterRows.value = rescaleRows(parameterRows.value, rescales)
+}
+
+/**
+ * Works out the math reference a save writes to, asking before overwriting stored math or renaming a save of the
+ * template. Math saved under its component's name overwrites it in place; a new component, renamed or saved as new,
+ * stays in its math's grouping, or, from the template, goes in the CellML user modules grouping (newComponentFile).
+ * A diagram's module there is never overwritten.
+ *
+ * @param {string} math - The math to save.
+ * @param {Object|null} layout - Its text layout.
+ * @returns {Promise<{mathRef: string, math: string, layout: Object|null}|null>} Null when the save stops.
+ */
+async function resolveMathTarget(math, layout) {
+  const componentNames = getModelComponentNames(math)
+  if (!componentNames || componentNames.length === 0) {
+    notify.error({ message: 'Could not find a valid component name in the model.' })
+    return null
+  }
+  const newComponentName = componentNames[0].trim()
+  const file = newComponentFile(false)
+  const renamedTo = (name) => ({
+    mathRef: `${file}:${name}`,
+    math: renameModelComponent(math, newComponentName, name),
+    layout: renameLayoutComponent(layout, newComponentName, name),
+  })
+
+  // The template, or math renamed to a template's name, is saved as a new component, as a diagram is.
+  const isRenamed = newComponentName !== componentName.value
+  const ownRef = `${componentFile.value}:${newComponentName}`
+  if (PROTECTED_MATH_REFS.has(ownRef) || (isRenamed && isTemplateName(newComponentName))) {
+    const why = PROTECTED_MATH_REFS.has(ownRef)
+      ? 'is the template new instances start from'
+      : "is a template and can't be overwritten"
+    const renamed = await promptComponentSaveAs(
+      `"${newComponentName}" ${why}. Save your changes as a new component instead.`,
+      { file }
+    )
+    return renamed ? renamedTo(renamed) : null
+  }
+  const mathRef = isRenamed ? `${file}:${newComponentName}` : ownRef
+  // A renamed component's grouping may have its name in another case, or a diagram's module under it, neither of which
+  // it can overwrite.
+  const sameName = isRenamed && findInGrouping(store.availableMath.keys(), file, newComponentName)
+  const isDiagramModule = !!sameName && (store.getMathSource(sameName)?.format ?? 'cellml') !== 'cellml'
+  if (sameName && (sameName !== mathRef || isDiagramModule)) {
+    const renamed = await promptComponentSaveAs(
+      `A component named "${newComponentName}" already exists. Save your changes as a new component under another name.`,
+      { file, initialName: newComponentName }
+    )
+    return renamed ? renamedTo(renamed) : null
+  }
+  if (store.availableMath.has(mathRef)) {
+    const choice = await handleMathOverwrite(newComponentName, { file, mathRef })
+    if (!choice) return null
+    if (choice.name) return renamedTo(choice.name)
+  }
+  return { mathRef, math, layout }
+}
+
+/**
+ * Asks once about each CellDL store the saved ports would newly couple to what another instance computes, whether the
+ * connection should drive it (see confirmPortEditDrives). When the save updates the module, the ports spread to its
+ * other instances, whose edges are asked about too.
+ *
+ * @param {Array} ports - The ports to save.
+ * @param {Array} spreadTo - The other instances the module update gives the ports to.
+ * @returns {Promise<Map<string, Array>|null>} Each previewed edge's couplings as they will be, marked where they drive
+ *   a store; null when declined.
+ */
+async function confirmPortDrives(ports, spreadTo) {
+  const config = { ports, variables: parameterRows.value }
+  const edits = new Map([[props.id, config], ...spreadTo.map((node) => [node.id, spreadConfig(node, config)])])
+  return confirmPortEditDrives({ nodes: nodes.value ?? [], edges: edges.value ?? [], edits, libraryStore: store, confirm })
+}
+
 /**
  * Validates and saves the instance, then closes the editor, or keeps it open on the saved instance.
  *
  * @param {{keepOpen?: boolean}|Event} [options] - A button's click event passes as no options.
  */
 async function handleSave(options) {
+  if (isSaving.value) return
+  isSaving.value = true
+  try {
+    await saveInstance(options)
+  } finally {
+    isSaving.value = false
+  }
+}
+
+/**
+ * Saves the instance (see handleSave).
+ *
+ * @param {{keepOpen?: boolean}|Event} [options]
+ */
+async function saveInstance(options) {
   const keepOpen = options?.keepOpen === true
   // Commit any rename and editor change still in flight before reading state.
   parameterTableRef.value?.flushPendingRenames()
@@ -1495,7 +3000,7 @@ async function handleSave(options) {
     return
   }
 
-  if (isManaged.value && !cleanName(editableComponentName.value)) {
+  if ((isManaged.value || isDiagramRenamable.value) && !cleanName(editableComponentName.value)) {
     notify.error({ message: 'Component name is invalid.' })
     return
   }
@@ -1504,7 +3009,7 @@ async function handleSave(options) {
   const incompletePorts = editablePorts.value.filter(isIncompletePort)
   if (incompletePorts.length) {
     flaggedPorts.value = new Set(incompletePorts)
-    notify.error({ message: 'Every port needs a label and at least one variable.' })
+    notify.error({ message: describeIncompletePorts(incompletePorts) })
     showTab('ports')
     return
   }
@@ -1512,7 +3017,7 @@ async function handleSave(options) {
   const invalidFactor = finalPorts.find(isMissingFactor)
   if (invalidFactor) {
     flaggedPorts.value = new Set([invalidFactor])
-    notify.error({ message: `Port "${invalidFactor.label}" has Multiply selected but missing scale factor.` })
+    notify.error({ message: `Port "${portDisplayName(invalidFactor)}" has Multiply selected but missing scale factor.` })
     showTab('ports')
     return
   }
@@ -1534,10 +3039,10 @@ async function handleSave(options) {
     return
   }
 
-  const textErrors = mathEditorRef.value?.getErrors?.() ?? []
+  const textErrors = getEditorErrors()
   if (textErrors.length > 0) {
     const proceed = await confirm({
-      header: editorKind.value === 'math' ? 'Math Has Errors' : 'CellML Text Has Errors',
+      header: editorOptions.value.find((option) => option.value === editorKind.value)?.errorHeader ?? 'Math Has Errors',
       message:
         'If you continue, the last valid version of the model will be saved and any edits since then will be lost.',
       severity: 'warning',
@@ -1547,6 +3052,38 @@ async function handleSave(options) {
     if (!proceed) return
   }
 
+  // An edited diagram gives the math, and values for variables new to the module.
+  const staged = await stageDiagram()
+  if (staged === false) return
+  // A diagram giving new math, not one whose diagram alone changed.
+  const isRegenerated = !!staged?.math
+  // Its math replaces the session's only once the save goes ahead, so a cancelled save keeps the stored math.
+  let target = null
+  // The module's defaults before this save, which its variables keep (keepDefaults).
+  let previousDefaults = isRegenerated && store.getMathSource(props.mathRef) ? new Map(store.getMathDefaults(props.mathRef)) : new Map()
+  let renames = new Map()
+  // Variables whose units the regenerated math changed, whose values every instance that moves to it rescales.
+  let unitRescales = []
+  if (isRegenerated) {
+    // Variables the edit renamed keep this instance's values under their new names.
+    renames = variableRenames(store.getMathSource(props.mathRef)?.elements ?? null, staged.source.elements ?? null)
+    const rescales = await confirmUnitRescales(staged, renames, previousDefaults)
+    if (!rescales) return
+    unitRescales = rescales
+    previousDefaults = rescaleValues(previousDefaults, rescales, renames)
+    // A diagram saved under its module's name overwrites it, as asked while staging. The template's, a renamed one's, or
+    // one saved as a new component, was named as it converted, so is a new module.
+    target = {
+      mathRef: staged.mathRef,
+      math: staged.math,
+      layout: staged.layout,
+    }
+    renameCelldlRows(renames)
+    rescaleInstanceValues(rescales, renames)
+    session.applyGeneratedModel(staged.math, { previousDefaults: renameValues(previousDefaults, renames) })
+  }
+  if (isCelldlModule.value) applyCelldlValues({ isStaged: isRegenerated })
+
   // Values typed into the text belong in the rows, so an edit to values alone leaves the math unchanged.
   session.separateTypedValues()
 
@@ -1554,35 +3091,73 @@ async function handleSave(options) {
   // blank initialisers are filled (see syncInitialiserUnits).
   syncInitialiserUnits(parameterRows.value, { overwrite: isManaged.value })
 
-  // 3. Check the math's new reference
-  let newMathRef = props.mathRef
-  const isMathChanged = session.isDirty()
-  let mathToSave = currentModel.value
-  let layoutToSave = currentLayout.value
-  if (isMathChanged) {
-    const componentNames = getModelComponentNames(currentModel.value)
-    if (!componentNames || componentNames.length === 0) {
-      notify.error({ message: 'Could not find a valid component name in the model.' })
-      return
-    }
-    const newComponentName = componentNames[0].trim()
+  // 3. Check the math's new reference. A diagram's math is saved with its values, the math's defaults, even when
+  // only they changed. Template math keeps no annotations, so they also need a new component.
+  const isAnnotationChanged = hasDraftEdits(annotationDraft.value)
+  const isMathChanged =
+    isRegenerated || session.isDirty() || (isAnnotationChanged && PROTECTED_MATH_REFS.has(props.mathRef))
+  // The editor drops ids, so the stored math's go back on, following renamed variables. A variable annotated
+  // anew gets one, which its sidecar subject names.
+  const editedMath = target?.math ?? currentModel.value
+  const idRenames = isRegenerated
+    ? renames
+    : isMathChanged
+      ? findVariableRenames({ previousMathRef: props.mathRef, math: editedMath })
+      : new Map()
+  const draft = renameDraftVariables(annotationDraft.value, idRenames, new Set(parameterRows.value.map((row) => row.name)))
+  const { math: savedMath, idsChanged } = prepareSavedMath({
+    storedMath: store.availableMath.get(props.mathRef) ?? '',
+    editedMath,
+    isMathChanged,
+    renames: idRenames,
+    idsFor: [...draft.variables].filter(([, entry]) => entry).map(([name]) => name),
+  })
+  if (target && savedMath !== null) target = { ...target, math: savedMath }
+  if (isMathChanged && !target) {
+    target = await resolveMathTarget(savedMath ?? currentModel.value, currentLayout.value)
+    if (!target) return
+  }
+  // Only ids changed: the math is written under its own reference, as the same math (see isNewModuleSave).
+  if (idsChanged) target = { mathRef: props.mathRef, math: savedMath, layout: currentLayout.value }
+  const newMathRef = target?.mathRef ?? props.mathRef
+  const mathToSave = target?.math
+  const layoutToSave = target ? target.layout : currentLayout.value
 
-    newMathRef = `${componentFile.value}:${newComponentName}`
-    if (PROTECTED_MATH_REFS.has(newMathRef)) {
-      const renamed = await promptComponentSaveAs(
-        `"${newComponentName}" is the template new instances start from. Save your changes as a new component instead.`
-      )
-      if (!renamed) return
-      mathToSave = renameModelComponent(mathToSave, newComponentName, renamed)
-      layoutToSave = renameLayoutComponent(layoutToSave, newComponentName, renamed)
-      newMathRef = `${componentFile.value}:${renamed}`
-    } else if (store.availableMath.has(newMathRef)) {
-      const overwrite = await handleMathOverwrite()
-      if (!overwrite) return
+  let annotations
+  const annotationWarnings = []
+  if (isAnnotationChanged) {
+    try {
+      const math = isMathChanged || idsChanged ? mathToSave : null
+      const onWarning = (warning) => annotationWarnings.push(warning)
+      annotations = { text: await buildAnnotationText(newMathRef, math, draft, onWarning) }
+    } catch (err) {
+      notify.error({ message: `Could not save the annotations: ${err.message}` })
+      showTab('annotations')
+      return
     }
   }
 
   const updateAll = applyToAll.value || siblingCount.value === 0
+
+  // 4. Check the ports and variable kinds against the module
+  const config = await resolveModuleConfig({
+    mathRef: newMathRef,
+    math: isMathChanged ? mathToSave : null,
+    ports: renamePortVariables(finalPorts, renames),
+    updateAll,
+  })
+  if (config === false) return
+
+  // 5. A port change that couples a CellDL store to what another instance computes asks, once for every instance an
+  // update gives the ports.
+  const followers = moduleFollowers({ mathRef: newMathRef, math: isMathChanged ? mathToSave : null, updateAll })?.followers
+  const spreadTo = config?.action === 'update' ? (followers ?? []) : []
+  const drivenCouplings = await confirmPortDrives(renamePortVariables(finalPorts, renames), spreadTo)
+  if (!drivenCouplings) return
+
+  // 6. Changed values on a parameter set others share ask whether to update it or make the instance its own.
+  const parameterSet = await resolveParameterSet(newMathRef)
+  if (parameterSet === false) return
 
   trackEvent('editor_action', {
     category: 'Editor',
@@ -1592,36 +3167,64 @@ async function handleSave(options) {
 
   const wasGlobal = new Set(props.variables.filter((row) => row.type === 'global_constant').map((row) => row.name))
 
-  emit(
-    'confirm',
-    detachReactivity({
-      id: props.id,
-      name: editableName.value,
-      mathRef: newMathRef,
-      previousMathRef: props.mathRef,
-      math: isMathChanged ? mathToSave : null,
-      layout: layoutToSave,
-      isLayoutChanged: !isMathChanged && session.isLayoutDirty(),
-      // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
-      globalConstants: parameterRows.value
-        .filter((row) => row.type === 'global_constant')
-        .map(({ name, value, units, data_reference }) => ({
-          name,
-          value,
-          units,
-          data_reference,
-          overwrite: wasGlobal.has(name),
-        })),
-      variables: parameterRows.value,
-      ports: finalPorts,
-      // The instance's plotted variables, under the names this save gives them.
-      plotVariables: renamedPlotEntries(),
-      updateAll,
-      siblings: updateAll ? siblings.value : [],
-      keepOpen,
-    })
-  )
+  const save = detachReactivity({
+    id: props.id,
+    name: editableName.value,
+    mathRef: newMathRef,
+    previousMathRef: props.mathRef,
+    math: isMathChanged || idsChanged ? mathToSave : null,
+    // Only ids changed: the math is written, but as the same math (see isNewModuleSave).
+    idsChanged,
+    layout: layoutToSave,
+    isLayoutChanged: !isMathChanged && !idsChanged && session.isLayoutDirty(),
+    source: staged?.source ?? null,
+    isSourceChanged: !!staged,
+    units: staged?.units ?? null,
+    // The module's defaults before the diagram regenerated its math, which its variables keep.
+    previousDefaults: isRegenerated ? [...previousDefaults] : null,
+    // Variables the diagram edit renamed, whose values every instance's rows on the saved math move to the new names.
+    renames: [...renames],
+    // Variables whose units the regenerated math changed, by their new names, whose values those rows rescale.
+    unitRescales,
+    // Only rows that were already global edit the shared value; a row just switched to global joins it as is.
+    globalConstants: parameterRows.value
+      .filter((row) => row.type === 'global_constant')
+      .map(({ name, value, units, data_reference }) => ({
+        name,
+        value,
+        units,
+        data_reference,
+        overwrite: wasGlobal.has(name),
+      })),
+    variables: parameterRows.value,
+    parameterisation: chosenParameterRef.value,
+    // What the save does to a parameter set the instance shares, as asked; null when nothing asked.
+    parameterSet,
+    ports: renamePortVariables(finalPorts, renames),
+    // Edges' couplings set to drive a CellDL store, which they keep once recomputed from the ports.
+    drivenCouplings: [...drivenCouplings],
+    // The instance's plotted variables, under the names this save gives them.
+    plotVariables: renamedPlotEntries(),
+    ...(annotations ? { annotations } : {}),
+    annotationOverlay: overlayToSave(),
+    updateAll,
+    siblings: updateAll ? siblings.value : [],
+    config,
+    keepOpen,
+  })
+  if (!(await confirmDroppedCouplings(save))) return
+  emit('confirm', save)
+  if (annotationWarnings.length) {
+    notify.warning({ title: 'Annotations', message: annotationWarnings.map(escapeHtml).join('<br>') })
+  }
 
+  // The editor keeps the diagram as saved, so the dialog reloading after Apply doesn't open it again, unless it shows
+  // another document, which the reload then opens.
+  if (staged) {
+    isDiagramSaved.value = true
+    if (staged.isEditorDocument) celldlHost.markSaved(staged.source)
+    else if (isDiagramDirty.value) celldlHost.markClean()
+  }
   if (keepOpen) reloadAfterSave = true
   else emit('update:modelValue', false)
 }
@@ -1932,6 +3535,21 @@ async function handleSave(options) {
   flex-direction: column;
 }
 
+/* Narrow, as at the default split on a laptop screen, the tabs drop their icons to keep all four labels in view */
+.right-pane-tabs {
+  container-type: inline-size;
+}
+
+@container (max-width: 36rem) {
+  .right-pane-tabs :deep(.p-tab) {
+    padding-inline: 0.625rem;
+  }
+
+  .right-pane-tabs .tab-icon {
+    display: none;
+  }
+}
+
 .right-pane-tabs :deep(.p-tablist) {
   flex-shrink: 0;
 }
@@ -1954,6 +3572,33 @@ async function handleSave(options) {
   flex: 1;
   min-height: 0;
   height: 100%;
+}
+
+.parameters-tab {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The table fills what the set picker leaves. */
+.parameters-tab > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+
+.parameter-set-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0 0.5rem;
+}
+
+.parameter-set-label {
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color);
+}
+
+.parameter-set-select {
+  min-width: 14rem;
 }
 
 .right-pane-tabs :deep(.p-tabpanel) {
@@ -1998,6 +3643,10 @@ async function handleSave(options) {
 .tab-icon {
   margin-right: 6px;
   font-size: var(--dlg-fs-small);
+}
+
+.editor-tab-locked {
+  display: flex;
 }
 
 /* Parameters tab: row-state stripes reach into ParameterTable via :deep */
@@ -2099,6 +3748,15 @@ async function handleSave(options) {
 .right-pane :deep(.p-datatable-frozen-column) {
   z-index: 2;
   box-shadow: inset 1px 0 0 var(--p-datatable-body-cell-border-color);
+}
+
+.port-hidden-note {
+  color: var(--p-text-muted-color);
+  font-size: 12px;
+}
+
+.port-type-cell {
+  display: block;
 }
 
 /* A port's connection state, coloured as in the edge dialog's legend */

@@ -23,6 +23,7 @@
         :port="port"
         :limit="chipLimit"
         :invalid="flagged"
+        :locked="locked"
         @change="$emit('change')"
       />
       <template v-else>{{ placeholder }}</template>
@@ -57,6 +58,8 @@ defineProps({
   flagged: { type: Boolean, default: false },
   // Smaller panel text, for the edge dialog's port rows.
   compact: { type: Boolean, default: false },
+  // Read-only multiport types on the chips, e.g. set by an annotation.
+  locked: { type: Boolean, default: false },
 })
 
 defineEmits(['change'])

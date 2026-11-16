@@ -13,7 +13,12 @@ import { attachNewNodeToFrame, findAnyNode, generateUniqueInstanceName } from '.
 import { buildInstance } from '../services/import/buildWorkflow'
 import { buildGhostHandles } from '../utils/handles'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import { seedInstance, seedRefFor } from '../utils/parameters/seed'
+import { NO_PARAMETER_SET } from '../utils/parameters/sets'
 import { extractGlobalConstants } from '../utils/variables'
+import { variableNamesOf } from '../services/annotations/nodeData'
+import { reconcileAnnotatedPorts } from '../services/annotations/ports'
 
 /**
  * In a real world scenario you'd want to avoid creating refs in a global scope like this as they might not be cleaned up properly.
@@ -33,6 +38,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
 
   const { addNodes, getNodes, onNodesInitialized, screenToFlowCoordinate, updateNode } = useVueFlow(flowId)
   const store = useLibraryStore()
+  const defaultParameters = useDefaultParametersStore()
 
   const isGhostSetupOpen = ref(false)
   const pendingGhostNodeId = ref(null)
@@ -49,6 +55,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
 
     draggedType.value = module
     isDragging.value = true
+    if (module?.mathRef) store.ensureModuleAnnotations(module.mathRef).catch(() => {})
 
     document.addEventListener('drop', onDragEnd)
   }
@@ -82,15 +89,34 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   }
 
   /**
+   * Gives a new node's ports one side-car port per complete annotation of its math.
+   *
+   * @param {Object} data - The node's data.
+   * @param {Object} sidecar - From parseSidecar.
+   * @returns {Array<Object>} The ports.
+   */
+  function buildSidecarPorts(data, sidecar) {
+    const variables = variableNamesOf(data)
+    return reconcileAnnotatedPorts(data.ports ?? [], sidecar, { mathRef: data.mathRef, variables }).ports
+  }
+
+  /**
    * Creates a new instance node at the given position and adds it to the flow.
    * Returns the new node's id and type so the caller can handle any
    * post-creation logic (e.g. opening the ghost setup dialog).
    *
-   * @param {object} moduleData - The module descriptor (ports, mathRef, variables)
+   * @param {object} moduleData - The module descriptor (ports, mathRef, variables); its `parameterisation`, else its
+   *   `defaultParameterisation`, names the parameter set the instance is seeded with. A workspace instance dropped
+   *   with NO_PARAMETER_SET makes a new set of its math's values, named as the instance (see addInstanceSet).
    * @param {{x: number, y: number}} position - Flow coordinates to place the node.
+   * @param {Array<Object>} [handles=[]]
+   * @param {Object} [extraData={}] - More node data, e.g. its bioView, so the add carries it.
+   * @param {Object} [options]
+   * @param {boolean} [options.centre=true] - Treat position as where the node's centre goes, as for a
+   *   drop at the mouse; otherwise it is the node's top-left.
    * @returns {{ nodeId: string, nodeType: string }}
    */
-  function createInstanceNode(moduleData, position, handles = []) {
+  function createInstanceNode(moduleData, position, handles = [], extraData = {}, { centre = true } = {}) {
     const nodeId = getNextNodeId(getNodes.value.map((n) => n.id))
     pendingHistoryNodes.add(nodeId)
 
@@ -106,6 +132,22 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     const mathAnalysis = store.getMathAnalysis(moduleData.mathRef)
     const mathDefaults = store.getMathDefaults(moduleData.mathRef)
     const newNode = buildInstance(nodeId, finalName, nodeType, moduleData, allHandles, position, mathAnalysis, mathDefaults)
+    Object.assign(newNode.data, extraData)
+    const seedRef = seedRefFor(moduleData, moduleData.parameterisation)
+    seedInstance(newNode, seedRef && defaultParameters.getSet(moduleData.mathRef, seedRef))
+    if (moduleData.parameterisation === NO_PARAMETER_SET && flowId === FLOW_IDS.MAIN && nodeType === MAIN_NODE_TYPE) {
+      const set = defaultParameters.addInstanceSet(moduleData.mathRef, nodeId, finalName, newNode.data.variables)
+      newNode.data.parameterisation = set.ref
+    }
+
+    const hasSidecar = store.getModuleAnnotations(moduleData.mathRef) !== null
+    const sidecar = hasSidecar ? store.getParsedModuleAnnotations(moduleData.mathRef) : null
+    if (sidecar) newNode.data.ports = buildSidecarPorts(newNode.data, sidecar)
+    else if (hasSidecar) {
+      store.ensureModuleAnnotations(moduleData.mathRef).then((parsed) => {
+        if (parsed) updateNode(nodeId, (node) => ({ data: { ...node.data, ports: buildSidecarPorts(node.data, parsed) } }))
+      })
+    }
 
     const globalConstants = extractGlobalConstants(newNode.data.variables)
     
@@ -118,6 +160,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
      * We can hook into events even in a callback, and we can remove the event listener after it's been called.
      */
     const { off } = onNodesInitialized(() => {
+      if (!centre) return off()
       updateNode(nodeId, (node) => {
         const centredPosition = {
           x: node.position.x - node.dimensions.width / 2,

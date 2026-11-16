@@ -2,11 +2,19 @@ import { ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { parseLayout } from 'cellml-text-editor'
 import { useLibraryStore } from '../stores/libraryStore'
+import { withoutOwner } from '../services/configOwnership'
+import { checkMathSource } from '../services/moduleFormats'
 import { separateNodeParameters } from '../services/workspaceMigrator'
 import { FLOW_IDS } from '../utils/constants'
+import { offsetEdgeData } from '../utils/edgeRoute'
 import { getId as getNextEdgeId } from '../utils/edges'
 import { getId as getNextNodeId, generateUniqueInstanceName } from '../utils/nodes'
 import { detachReactivity } from '../utils/reactivity'
+import { isAnnotatedPort } from '../utils/portIdentity'
+import { driveEdgesByAnnotations, withCouplings } from '../services/annotations/edgeCouplings'
+import { nodeDataForCopy } from '../services/annotations/nodeData'
+import { reconcileNodePorts } from '../services/annotations/reconcileNodes'
+import { useCouplingContext } from './useCouplingContext'
 
 /**
  * Whether a workspace keyboard shortcut should be left alone: the user is typing in an input, a dialog is
@@ -69,6 +77,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
   const { addEdges, addNodes, edges, getSelectedEdges, getSelectedNodes, nodes, screenToFlowCoordinate } =
     useVueFlow(flowId)
   const libraryStore = useLibraryStore()
+  const { getContext } = useCouplingContext()
 
   const clipboard = ref({ nodes: [], edges: [] })
 
@@ -103,6 +112,8 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
         mathRef,
         math,
         layout: libraryStore.getMathLayout(mathRef),
+        annotations: libraryStore.getModuleAnnotations(mathRef),
+        source: libraryStore.getMathSource(mathRef),
         moduleRef,
         module,
       }
@@ -120,6 +131,58 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       await navigator.clipboard.writeText(JSON.stringify(payload))
     } catch (err) {
       console.warn('Clipboard write failed', err)
+    }
+  }
+
+  /**
+   * Gives pasted nodes the side-car ports of their math's side-car here, and moves the pasted edges' couplings onto
+   * them. Nodes on math without a side-car keep their ports.
+   *
+   * @param {Array<Object>} newNodes - Changed in place.
+   * @param {Array<Object>} newEdges - Changed in place.
+   */
+  async function reconcilePastedPorts(newNodes, newEdges) {
+    const mathRefs = [...new Set(newNodes.map((node) => node.data?.mathRef))].filter(
+      (mathRef) => mathRef && libraryStore.getModuleAnnotations(mathRef) !== null
+    )
+    if (!mathRefs.length) return
+    const parsed = new Map(
+      await Promise.all(mathRefs.map(async (mathRef) => [mathRef, await libraryStore.ensureModuleAnnotations(mathRef)]))
+    )
+    const { ports, couplings } = reconcileNodePorts({
+      nodes: [...nodes.value, ...newNodes],
+      edges: [...edges.value, ...newEdges],
+      nodeIds: newNodes.map((node) => node.id),
+      sidecarFor: (mathRef) => parsed.get(mathRef) ?? undefined,
+    })
+    for (const node of newNodes) {
+      if (ports.has(node.id)) node.data = { ...node.data, ports: ports.get(node.id) }
+    }
+    for (const edge of newEdges) {
+      if ((ports.has(edge.source) || ports.has(edge.target)) && couplings.has(edge.id)) {
+        edge.data = { ...edge.data, couplings: couplings.get(edge.id) }
+      }
+    }
+  }
+
+  /**
+   * Makes pasted edges between placed nodes with annotated ports couple through them, or restores their manual
+   * couplings where an end lost them (see driveEdgesByAnnotations).
+   *
+   * @param {Array<Object>} newNodes - Changed in place.
+   * @param {Array<Object>} newEdges - Changed in place.
+   */
+  function drivePastedEdges(newNodes, newEdges) {
+    const isAnnotated = (node) => (node.data?.ports ?? []).some(isAnnotatedPort)
+    if (!newNodes.some(isAnnotated) && !newEdges.some((edge) => edge.data?.manualCouplings)) return
+    const all = [...nodes.value, ...newNodes]
+    const { ports, changed } = driveEdgesByAnnotations({ nodes: all, edges: newEdges, context: getContext(all) })
+    for (const node of newNodes) {
+      if (ports.has(node.id)) node.data = { ...node.data, ports: ports.get(node.id) }
+    }
+    const changes = new Map(changed.map((change) => [change.edgeId, change.after]))
+    for (const edge of newEdges) {
+      if (changes.has(edge.id)) edge.data = withCouplings(edge.data, changes.get(edge.id))
     }
   }
 
@@ -149,12 +212,15 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     if (sourceClipboard.storeSnapshot) {
       for (const entry of Object.values(sourceClipboard.storeSnapshot)) {
         if (!libraryStore.availableModules.has(entry.moduleRef)) {
-          libraryStore.addModule(entry.module)
+          // The instance that made the config is in another workspace, so the pasted instance doesn't inherit it.
+          libraryStore.addModule(withoutOwner(entry.module))
         }
         if (!libraryStore.availableMath.has(entry.mathRef)) {
-          // Clipboard text can come from anywhere, so the layout is checked like a saved one.
+          // Clipboard text can come from anywhere, so the layout and source are checked like saved ones.
           const layout = entry.layout ? parseLayout(JSON.stringify(entry.layout)) : null
+          libraryStore.setMathSource(entry.mathRef, checkMathSource(entry.source))
           libraryStore.addMath(entry.mathRef, entry.math, true, layout)
+          if (typeof entry.annotations === 'string') libraryStore.setModuleAnnotations(entry.mathRef, entry.annotations)
         }
       }
     }
@@ -190,12 +256,12 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       const finalName = generateUniqueInstanceName(node.data.name, namesSet)
       namesSet.add(finalName)
 
-      // Create the new node with offset position.
+      // Create the new node with offset position. A copy keeps its role and look, not its place (see nodeDataForCopy).
       newNodes.push({
         id: newId,
         type: node.type,
         data: {
-          ...node.data,
+          ...nodeDataForCopy(node.data),
           name: finalName,
         },
         position: {
@@ -221,10 +287,15 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
           id: newEdgeId,
           source: newSource,
           target: newTarget,
+          // Both ends moved by the paste offset, so the route moves with them.
+          data: offsetEdgeData(edge.data, dx, dy),
           selected: true,
         })
       }
     })
+
+    await reconcilePastedPorts(newNodes, newEdges)
+    drivePastedEdges(newNodes, newEdges)
 
     getSelectedNodes.value.forEach((n) => (n.selected = false))
     getSelectedEdges.value.forEach((e) => (e.selected = false))

@@ -7,10 +7,12 @@ import { computed, ref, unref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import { useSimulation } from './useSimulation'
+import { workspaceSave } from './useUnsavedChanges'
 import { libopencor } from '../services/simulation/libopencorLoader'
 import { READOUTS } from '../services/simulation/sweepReadouts'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
+import { useViewModeStore } from '../stores/viewModeStore'
 import { FLOW_IDS } from '../utils/constants'
 
 /**
@@ -23,7 +25,7 @@ import { FLOW_IDS } from '../utils/constants'
  *   simulates) and `statusLine`; `isOtherRun` says an instance editor shows another scope's results.
  */
 export function useSimulationRunner({ instanceId = null, isWholeModelOnly = false } = {}) {
-  const { nodes, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
+  const { nodes, edges, getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
   const store = useSimulationResultsStore()
   const simulationSettingsStore = useSimulationSettingsStore()
   const { run, stop, keepCurrent, isStale } = useSimulation()
@@ -34,7 +36,13 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
   const hasScope = computed(() => store.status !== 'idle')
   const isLoading = computed(() => libopencor.status === 'loading')
   const isSimulatorMissing = computed(() => ['unavailable', 'error'].includes(libopencor.status))
-  const selectedNodeIds = computed(() => getSelectedNodes.value.map((node) => node.id))
+  const viewMode = useViewModeStore()
+  // A species token clicked in the physiological view stands for its compartment and the proteins coupled to it.
+  const selectedNodeIds = computed(() =>
+    viewMode.isBio && viewMode.focusedSpecies && !getInstanceId()
+      ? viewMode.focusedSpecies.scope
+      : getSelectedNodes.value.map((node) => node.id)
+  )
 
   const scopeNodes = computed(() =>
     store.scopeNodeIds ? nodes.value.filter((node) => store.scopeNodeIds.includes(node.id)) : nodes.value
@@ -148,15 +156,46 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
     run(playScopeNodeIds.value)
   }
 
+  // In the instance editor, a whole-model run that fails may have failed on another module, which running the
+  // instance alone leaves out. Not once the switch is off, as for a whole-model failure still shown, nor when the
+  // instance is all the model has.
+  const failureHint = computed(() =>
+    getInstanceId() && !store.scopeNodeIds && scopeMode.value === 'model' && nodes.value.length > 1
+      ? 'Turn off Whole model to simulate this instance alone.'
+      : null
+  )
+
+  /** A reload sets the simulator up; saving first keeps the work, as a reload starts the workspace afresh. */
+  function reloadActions() {
+    const save = workspaceSave.value
+    return [
+      ...(save ? [{ label: 'Save workspace', icon: 'pi-save', run: save }] : []),
+      {
+        label: 'Reload',
+        icon: 'pi-refresh',
+        severity: save ? 'secondary' : undefined,
+        run: () => window.location.reload(),
+      },
+    ]
+  }
+
   // What the status line says: the most pressing thing first, with the full lists a click away. Notes, such as a
   // boundary condition using its own value, are expected, so they neither warn nor count as warnings.
   const statusLine = computed(() => {
     const warnings = store.report.warnings.length ? [{ title: 'Warnings', lines: store.report.warnings }] : []
     const notes = store.report.notes ?? []
-    if (isSimulatorMissing.value) return { severity: 'error', icon: 'pi-exclamation-circle', text: libopencor.reason ?? 'The simulator isn’t available.', details: [] }
+    if (isSimulatorMissing.value) {
+      return {
+        severity: 'error',
+        icon: 'pi-exclamation-circle',
+        text: libopencor.reason ?? 'The simulator isn’t available.',
+        details: [],
+        actions: libopencor.needsReload ? reloadActions() : [],
+      }
+    }
     if (store.status === 'blocked') {
       const count = store.report.errors.length
-      return { severity: 'error', icon: 'pi-exclamation-circle', text: `Can’t simulate yet: ${count} ${count === 1 ? 'problem' : 'problems'}`, details: [{ title: 'Problems', lines: store.report.errors }] }
+      return { severity: 'error', icon: 'pi-exclamation-circle', text: `Can’t simulate yet: ${count} ${count === 1 ? 'problem' : 'problems'}`, details: [{ title: 'Problems', lines: store.report.errors }], hint: failureHint.value }
     }
     if (store.status === 'error') {
       const issues = (store.error?.issues ?? []).map((issue) => issue.description)
@@ -166,6 +205,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
         text: store.results ? `${store.error?.message} ${resultsSummary.value}` : store.error?.message ?? 'The simulation failed.',
         details: [...(issues.length ? [{ title: 'Solver messages', lines: issues }] : []), ...warnings],
         notes,
+        hint: failureHint.value,
       }
     }
     // The progress bar shows how far; announcing each percent would flood a screen reader.
@@ -186,6 +226,7 @@ export function useSimulationRunner({ instanceId = null, isWholeModelOnly = fals
 
   return {
     nodes,
+    edges,
     store,
     scopeNodes,
     selectedNodeIds,

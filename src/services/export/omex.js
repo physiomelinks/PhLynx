@@ -1,5 +1,8 @@
 import JSZip from 'jszip'
 
+/** The OMEX folder of the flattened copy of a modular model, which the SED-ML runs until libOpenCOR resolves imports. */
+export const FLATTENED_FOLDER = 'flattened'
+
 /**
  * Builds the COMBINE archive manifest.xml listing every file included in the
  * archive, plus the mandatory self-referencing "." entry for the archive
@@ -10,7 +13,7 @@ export function buildManifestXml(entries) {
   const contentLines = entries
     .map(
       (entry) =>
-        `  <content location="${entry.location}" format="${entry.format}"${entry.master ? ' master="true"' : ''}/>`
+        `  <content location="${escapeAttribute(entry.location)}" format="${escapeAttribute(entry.format)}"${entry.master ? ' master="true"' : ''}/>`
     )
     .join('\n')
 
@@ -20,4 +23,11 @@ export function buildManifestXml(entries) {
 ${contentLines}
 </omexManifest>
 `
+}
+
+const ATTRIBUTE_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }
+
+/** Escapes text for a double-quoted XML attribute. */
+function escapeAttribute(value) {
+  return String(value).replace(/[&<>"]/g, (c) => ATTRIBUTE_ESCAPES[c])
 }

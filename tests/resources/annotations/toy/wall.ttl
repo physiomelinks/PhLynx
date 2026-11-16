@@ -1,0 +1,16 @@
+# Toy membrane sidecar.
+@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix go: <https://identifiers.org/go/GO:> .
+@prefix m: <./wall.cellml#> .
+@prefix local: <./wall.ttl#> .
+
+m:wall bqbiol:is go:0005886 .
+local:entity_self bqbiol:is go:0005886 .
+
+m:vxscicnbc bqbiol:isVersionOf opb:00506 ;
+    bqbiol:isPropertyOf local:entity_self .
+m:v6gkhnh8x bqbiol:isVersionOf opb:00318 ;
+    bqbiol:isPropertyOf local:process_v6gkhnh8x .
+local:process_v6gkhnh8x semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:entity_self ] .

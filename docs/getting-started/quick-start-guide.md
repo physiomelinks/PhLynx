@@ -9,7 +9,7 @@ Build, simulate and export a small three-module nerve model.
 | [Toolbar](../reference/ui-overview.md#toolbar) | Top | Load, save, import, export and edit tools |
 | [Available Modules](../reference/ui-overview.md#module-library) | Left | Search and drag <GlossaryLink term="modules"/> |
 | [Workspace](../reference/ui-overview.md#workspace) | Centre | Assemble the model |
-| [Context Sidebar](../reference/ui-overview.md#context-sidebar) | Right (icon rail) | Parameters, properties and simulation |
+| [Context Sidebar](../reference/ui-overview.md#context-sidebar) | Right (hamburger icon to open) | Parameters, properties and simulation |
 
 ![PhLynx Workspace view with toolbar, Available Modules, Workspace and Context Sidebar](../assets/images/phlynx_ui.png){.align-center width="800px"}
 
@@ -76,7 +76,7 @@ You can also edit an instance's ports on the **Ports** tab of the [Instance Edit
 
 ## Simulate {#simulate}
 
-1. Click **Simulation** (chart-line icon) on the right-hand rail. The scope switch should read **Whole model**.
+1. Open the Context Sidebar with **Show context panel** (hamburger icon, top right), then click its **Simulation** tab (chart-line icon). The scope switch should read **Whole model**.
 2. Click **Simulate the whole model** (play icon), or press F9 while the panel has focus.
 3. Check the line under the toolbar. It shows **Loading the simulator…** or **Running…**, then a summary such as *Simulated the whole model.* If it reads **Can’t simulate yet: N problems**, or mentions warnings, click it to list them (e.g. a parameter that needs a value; see [Set parameter values and types](../guides/build-custom-module.md#set-parameters)), fix them, and press Play again.
 4. Click **Add a variable here** (plus icon) beside **Plot 1**. This puts the cursor in the **Add a variable…** search box above. Type `soma V` and pick **soma_SN/V**. The line appears at once from the run you just did.
@@ -91,10 +91,10 @@ Sliders, tracked runs, protocols and sweeps are covered in [Simulating Your Mode
 
 - **Save:** click **Save workspace** (floppy-disk icon) or press Ctrl/Cmd+S. This saves a JSON file with the whole workspace, including simulation settings. Reopen it with **Load workspace** (folder icon).
 - **Export:** open the arrow menu of **Export** (to the right of Import) and choose **CellML** for a flattened CellML 2.0 model. Other formats are listed in the [Interface Overview](../reference/ui-overview.md#export).
-- **Open in OpenCOR:** click **Send to OpenCOR** (paper-plane icon) to open the model in Web OpenCOR.
+- **Open in OpenCOR:** click **Send to OpenCOR** (paper-plane icon) to open the model in Web OpenCOR. The Send button is hidden by default: turn it on in [Settings ▸ Toolbar](../reference/ui-overview.md#settings).
 
 > [!WARNING]
-> PhLynx doesn't save automatically, and reloading or closing the tab loses unsaved changes, so save often. **Load workspace** replaces everything on the canvas without asking, so save first if you want to keep it.
+> PhLynx doesn't save automatically, so save often. Reloading or closing the tab with unsaved changes asks first. **Load workspace** replaces everything on the canvas without asking, so save first if you want to keep it.
 
 Which file to keep:
 

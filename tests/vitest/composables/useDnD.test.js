@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import useDragAndDrop from '../../../src/composables/useDnD.js'
 import { buildGhostHandles } from '../../../src/utils/handles.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
+import { NO_PARAMETER_SET } from '../../../src/utils/parameters/sets.js'
 import {
   FLOW_IDS,
   GHOST_MODULE_FILENAME,
@@ -51,6 +53,24 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
   }
 })
 
+const DECAY_SIDECAR = `@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .
+@prefix semsim: <http://bime.uw.edu/semsim/> .
+@prefix opb: <https://identifiers.org/opb/OPB_> .
+@prefix sbo: <https://identifiers.org/sbo/SBO:> .
+@prefix m: <./file#> .
+@prefix local: <./decay.ttl#> .
+m:decay bqbiol:is sbo:0000290 .
+local:entity_self bqbiol:is sbo:0000290 .
+m:vdecayx01 bqbiol:isVersionOf opb:00154 ; bqbiol:isPropertyOf local:entity_self .
+`
+const X_SUBJECT = 'https://phlynx.invalid/modules/file#vdecayx01'
+const DECAY_MATH = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+  <component name="decay">
+    <variable name="x" units="dimensionless" id="vdecayx01"/>
+    <variable name="k" units="dimensionless"/>
+  </component>
+</model>`
+
 const moduleData = (overrides = {}) => ({
   moduleRef: 'membrane:basic',
   mathRef: 'membrane.cellml:basic',
@@ -92,6 +112,99 @@ describe('useDragAndDrop', () => {
         moduleRef: 'membrane:basic',
         mathRef: 'membrane.cellml:basic',
         ports,
+      })
+    })
+
+    describe('parameter sets', () => {
+      const param = (value, units = 'mM') => ({ value, units, data_reference: 'paper', extra: {} })
+      const rows = () => [
+        { name: 'K', type: 'constant', value: '1', units: 'mM' },
+        { name: 'Scale', type: 'constant', value: '1', units: 'dim' },
+        { name: 'F', type: 'global_constant', value: '9', units: 'C_per_mol' },
+        { name: 'v', type: 'variable', value: null, units: 'mM' },
+      ]
+      const addSet = (ref, k) =>
+        useDefaultParametersStore().addSet(
+          {
+            ref,
+            source: { file: `${ref}.json`, importedAt: '' },
+            globals: new Map([['F', param('96485')], ['Scale', param('2', 'dim')]]),
+            values: new Map([['K', param(k)], ['v', param('3')], ['missing', param(null)]]),
+          },
+          { mathRef: 'membrane.cellml:basic' }
+        )
+      const created = () => flow.addNodes.mock.calls.at(-1)[0]
+      const values = () => created().data.variables.map((row) => row.value)
+
+      beforeEach(() => {
+        addSet('basic', '5')
+        addSet('calibrated', '7')
+      })
+
+      it("seeds from the module's default set, each row by its own type, and records the set", () => {
+        dnd.createInstanceNode(moduleData({ variables: rows(), defaultParameterisation: 'basic' }), { x: 0, y: 0 })
+
+        expect(created().data.parameterisation).toBe('basic')
+        expect(values()).toEqual(['5', '2', '96485', null])
+        expect(useLibraryStore().getGlobalConstant('F').value).toBe('96485')
+      })
+
+      it('seeds from the set chosen over the default, leaving a global already set', () => {
+        useLibraryStore().assignGlobalConstant('F', '1', 'C_per_mol', '')
+        const module = moduleData({ variables: rows(), defaultParameterisation: 'basic', parameterisation: 'calibrated' })
+        dnd.createInstanceNode(module, { x: 0, y: 0 })
+
+        expect(created().data.parameterisation).toBe('calibrated')
+        expect(values()[0]).toBe('7')
+        expect(useLibraryStore().getGlobalConstant('F').value).toBe('1')
+      })
+
+      it('keeps the math values when the set is not loaded or none is named', () => {
+        dnd.createInstanceNode(moduleData({ variables: rows(), defaultParameterisation: 'gone' }), { x: 0, y: 0 })
+        expect(created().data).not.toHaveProperty('parameterisation')
+        expect(values()).toEqual(['1', '1', '9', null])
+
+        dnd.createInstanceNode(moduleData({ variables: rows() }), { x: 0, y: 0 })
+        expect(created().data).not.toHaveProperty('parameterisation')
+      })
+
+      it("makes a new set of the math's values, named as the instance, when None is chosen", () => {
+        const module = moduleData({ variables: rows(), defaultParameterisation: 'basic', parameterisation: NO_PARAMETER_SET })
+        const { nodeId } = dnd.createInstanceNode(module, { x: 0, y: 0 })
+
+        const { name, parameterisation } = created().data
+        expect(parameterisation).toBe(name)
+        expect(values()).toEqual(['1', '1', '9', null])
+        const set = useDefaultParametersStore().getSet('membrane.cellml:basic', name)
+        expect(set.source).toMatchObject({ kind: 'instance', nodeId })
+        expect(set.values.get('K').value).toBe('1')
+        expect(set.values.has('v')).toBe(false)
+        expect(set.globals.get('F').value).toBe('9')
+      })
+
+      it('gives each None instance its own set, by its own name', () => {
+        const module = () => moduleData({ variables: rows(), parameterisation: NO_PARAMETER_SET })
+        dnd.createInstanceNode(module(), { x: 0, y: 0 })
+        const first = created()
+        flow.nodes.value.push(first)
+        dnd.createInstanceNode(module(), { x: 0, y: 0 })
+        const second = created()
+
+        expect(first.data.name).not.toBe(second.data.name)
+        expect([first.data.parameterisation, second.data.parameterisation]).toEqual([first.data.name, second.data.name])
+        expect(useDefaultParametersStore().setsFor('membrane.cellml:basic').map((set) => set.ref)).toEqual([
+          'basic',
+          'calibrated',
+          first.data.name,
+          second.data.name,
+        ])
+      })
+
+      it('makes no set for a None drop outside the workspace', () => {
+        const macro = useDragAndDrop(new Set(), FLOW_IDS.MACRO)
+        macro.createInstanceNode(moduleData({ variables: rows(), parameterisation: NO_PARAMETER_SET }), { x: 0, y: 0 })
+        expect(created().data).not.toHaveProperty('parameterisation')
+        expect(useDefaultParametersStore().setsFor('membrane.cellml:basic')).toHaveLength(2)
       })
     })
 
@@ -226,6 +339,15 @@ describe('useDragAndDrop', () => {
       expect(flow.off).toHaveBeenCalledTimes(1)
     })
 
+    it('leaves a node made at its top-left where it is, and carries extra data on the add', () => {
+      dnd.createInstanceNode(moduleData(), { x: 100, y: 200 }, [], { bioView: { role: 'cytosol' } }, { centre: false })
+
+      expect(flow.addNodes.mock.calls[0][0].data.bioView).toEqual({ role: 'cytosol' })
+      flow.initCallbacks.forEach((cb) => cb())
+      expect(flow.updateNode).not.toHaveBeenCalled()
+      expect(flow.off).toHaveBeenCalledTimes(1)
+    })
+
     it('puts the centred node in the layout frame of a node already laid out', () => {
       const layoutFrame = { xScale: 2, yScale: 4, xCentre: 10, yCentre: 20 }
       flow.nodes.value = [{ id: 'dndnode_0', data: { name: 'laid_out', layoutFrame } }]
@@ -327,6 +449,39 @@ describe('useDragAndDrop', () => {
       expect(flow.flowIds.at(-1)).toBe(FLOW_IDS.MAIN)
       useDragAndDrop(new Set(), FLOW_IDS.MACRO)
       expect(flow.flowIds.at(-1)).toBe(FLOW_IDS.MACRO)
+    })
+  })
+
+  describe('side-car ports', () => {
+    const DECAY = { moduleRef: 'decay:default', mathRef: 'file:decay', ports: [], variables: [{ name: 'x' }, { name: 'k' }] }
+    const sidecarSubjects = (data) => data.ports.map((port) => port.annotation?.subject)
+
+    it('gives a node from a module whose math has a parsed side-car one port per annotation', async () => {
+      const store = useLibraryStore()
+      store.addMath(DECAY.mathRef, DECAY_MATH)
+      store.setModuleAnnotations(DECAY.mathRef, DECAY_SIDECAR)
+      await store.ensureModuleAnnotations(DECAY.mathRef)
+
+      dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(sidecarSubjects(flow.addNodes.mock.calls[0][0].data)).toEqual([X_SUBJECT])
+      expect(DECAY.ports).toEqual([])
+    })
+
+    it('adds the ports once a side-car not yet parsed is', async () => {
+      useLibraryStore().addMath(DECAY.mathRef, DECAY_MATH)
+      useLibraryStore().setModuleAnnotations(DECAY.mathRef, DECAY_SIDECAR)
+      const { nodeId } = dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(flow.addNodes.mock.calls[0][0].data.ports).toEqual([])
+
+      await vi.waitFor(() => expect(flow.updateNode).toHaveBeenCalled())
+      const [id, update] = flow.updateNode.mock.calls[0]
+      expect(id).toBe(nodeId)
+      expect(sidecarSubjects(update({ data: { ...DECAY, ports: [] } }).data)).toEqual([X_SUBJECT])
+    })
+
+    it('leaves the ports of a node whose math has no side-car', () => {
+      dnd.createInstanceNode(DECAY, { x: 0, y: 0 })
+      expect(flow.addNodes.mock.calls[0][0].data.ports).toBe(DECAY.ports)
     })
   })
 })

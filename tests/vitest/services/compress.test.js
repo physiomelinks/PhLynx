@@ -137,7 +137,7 @@ describe('generateOmexArchive', () => {
           timeStep: 1,
           pointInterval: 1,
           solver: 'CVODE',
-          tolerance: 1e-7,
+          relativeTolerance: 1e-7,
           maxSteps: 500,
         },
       },
@@ -185,7 +185,7 @@ describe('generateOmexArchive', () => {
           timeStep: 1,
           pointInterval: 1,
           solver: 'CVODE',
-          tolerance: 1e-7,
+          relativeTolerance: 1e-7,
           maxSteps: 500,
         },
         plotConfig: {

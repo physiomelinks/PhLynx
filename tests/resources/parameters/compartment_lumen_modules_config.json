@@ -1,0 +1,65 @@
+[
+  {
+    "module_type": "compartment",
+    "module_subtype": "lumen",
+    "module_format": "cellml",
+    "component_file": "compartment.cellml",
+    "component_type": "compartment",
+    "default_parameterisation": "lumen",
+    "licence": "Apache-2.0",
+    "creator": [],
+    "required_citations": [],
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [
+      {
+        "port_type": "c_Glc_lum",
+        "variables": [
+          "c_Glc"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "c_Na_lum",
+        "variables": [
+          "c_Na"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "W_lum",
+        "variables": [
+          "volume"
+        ],
+        "multi_port": "True"
+      }
+    ],
+    "variables_and_units": [
+      ["Gamma", "mm2_per_pL", "access", "variable"],
+      ["area", "mm2", "access", "constant"],
+      ["volume", "pL", "access", "constant"],
+      ["c_H", "mM", "access", "variable"],
+      ["pH", "dim", "access", "constant"],
+      ["q_Na", "fmol", "access", "variable"],
+      ["c_Na", "mM", "access", "variable"],
+      ["q_Glc", "fmol", "access", "variable"],
+      ["c_Glc", "mM", "access", "variable"],
+      ["q_K", "fmol", "access", "variable"],
+      ["c_K", "mM", "access", "variable"],
+      ["q_ATP", "fmol", "access", "variable"],
+      ["c_ATP", "mM", "access", "constant"],
+      ["q_ADP", "fmol", "access", "variable"],
+      ["c_ADP", "mM", "access", "constant"],
+      ["q_Pi", "fmol", "access", "variable"],
+      ["c_Pi", "mM", "access", "constant"],
+      ["q_H", "fmol", "access", "variable"],
+      ["t", "second", "access", "variable"],
+      ["v_Na", "fmol_per_mm2_per_s", "access", "constant"],
+      ["v_Glc", "fmol_per_mm2_per_s", "access", "constant"],
+      ["v_K", "fmol_per_mm2_per_s", "access", "constant"],
+      ["c_Na_init", "mM", "access", "constant"],
+      ["c_Glc_init", "mM", "access", "constant"],
+      ["c_K_init", "mM", "access", "constant"]
+    ]
+  }
+]

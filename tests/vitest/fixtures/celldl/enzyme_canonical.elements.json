@@ -1,0 +1,418 @@
+[
+ {
+  "id": "ID-00000001",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+  "kindName": "Static energy store",
+  "isBondElement": true,
+  "symbol": "q",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+    "name": "Static energy store"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+    "name": "Chemical concentration",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "K",
+    "value": "1",
+    "units": "mol-1",
+    "stored": true
+   }
+  ],
+  "variables": [],
+  "neighbours": [
+   "ID-00000002"
+  ],
+  "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+  "templateName": "Chemical concentration",
+  "species": "S",
+  "location": "c",
+  "value": {
+   "value": "1",
+   "units": "mol",
+   "stored": true
+  }
+ },
+ {
+  "id": "ID-00000002",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "kindName": "Zero node",
+  "isBondElement": false,
+  "symbol": "u",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+    "name": "Zero node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000001",
+   "ID-00000005"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "species": "S",
+  "location": "c"
+ },
+ {
+  "id": "ID-00000003",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+  "kindName": "Static energy store",
+  "isBondElement": true,
+  "symbol": "q",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+    "name": "Static energy store"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+    "name": "Chemical concentration",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "K",
+    "value": "1",
+    "units": "mol-1",
+    "stored": true
+   }
+  ],
+  "variables": [],
+  "neighbours": [
+   "ID-00000004"
+  ],
+  "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+  "templateName": "Chemical concentration",
+  "species": "E",
+  "location": "c",
+  "value": {
+   "value": "0.1",
+   "units": "mol",
+   "stored": true
+  }
+ },
+ {
+  "id": "ID-00000004",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "kindName": "Zero node",
+  "isBondElement": false,
+  "symbol": "u",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+    "name": "Zero node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000005",
+   "ID-00000003",
+   "ID-00000012"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "species": "E",
+  "location": "c"
+ },
+ {
+  "id": "ID-00000005",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "kindName": "One node",
+  "isBondElement": false,
+  "symbol": "v",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+    "name": "One node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000002",
+   "ID-00000004",
+   "ID-00000006"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "species": "r1",
+  "location": "f"
+ },
+ {
+  "id": "ID-00000006",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#Reaction",
+  "kindName": "Reaction element",
+  "isBondElement": true,
+  "symbol": "Rx",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#Reaction",
+    "name": "Reaction element"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#NKETransporter",
+    "name": "https://bg-rdf.org/ontologies/bondgraph-framework#NKETransporter",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalReaction",
+    "name": "Chemical reaction",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "kappa",
+    "value": "10",
+    "units": "mol/s",
+    "stored": true
+   }
+  ],
+  "variables": [],
+  "neighbours": [
+   "ID-00000005",
+   "ID-00000007"
+  ],
+  "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalReaction",
+  "templateName": "Chemical reaction",
+  "species": "r1",
+  "location": "c"
+ },
+ {
+  "id": "ID-00000007",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "kindName": "One node",
+  "isBondElement": false,
+  "symbol": "v",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+    "name": "One node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000006",
+   "ID-00000009"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "species": "r1",
+  "location": "r"
+ },
+ {
+  "id": "ID-00000008",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+  "kindName": "Static energy store",
+  "isBondElement": true,
+  "symbol": "q",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+    "name": "Static energy store"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+    "name": "Chemical concentration",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "K",
+    "value": "1",
+    "units": "mol-1",
+    "stored": true
+   }
+  ],
+  "variables": [],
+  "neighbours": [
+   "ID-00000009"
+  ],
+  "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+  "templateName": "Chemical concentration",
+  "species": "C",
+  "location": "c",
+  "value": {
+   "value": "0",
+   "units": "mol",
+   "stored": true
+  }
+ },
+ {
+  "id": "ID-00000009",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "kindName": "Zero node",
+  "isBondElement": false,
+  "symbol": "u",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+    "name": "Zero node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000007",
+   "ID-00000008",
+   "ID-00000010"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "species": "C",
+  "location": "c"
+ },
+ {
+  "id": "ID-00000010",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "kindName": "One node",
+  "isBondElement": false,
+  "symbol": "v",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+    "name": "One node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000009",
+   "ID-00000011"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "species": "r2",
+  "location": "f"
+ },
+ {
+  "id": "ID-00000011",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#Reaction",
+  "kindName": "Reaction element",
+  "isBondElement": true,
+  "symbol": "Rx",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#Reaction",
+    "name": "Reaction element"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#NKETransporter",
+    "name": "https://bg-rdf.org/ontologies/bondgraph-framework#NKETransporter",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalReaction",
+    "name": "Chemical reaction",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "kappa",
+    "value": "1",
+    "units": "mol/s",
+    "stored": true
+   }
+  ],
+  "variables": [],
+  "neighbours": [
+   "ID-00000010",
+   "ID-00000012"
+  ],
+  "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalReaction",
+  "templateName": "Chemical reaction",
+  "species": "r2",
+  "location": "c"
+ },
+ {
+  "id": "ID-00000012",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "kindName": "One node",
+  "isBondElement": false,
+  "symbol": "v",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+    "name": "One node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000011",
+   "ID-00000013",
+   "ID-00000004"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#OneNode",
+  "species": "r2",
+  "location": "r"
+ },
+ {
+  "id": "ID-00000013",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "kindName": "Zero node",
+  "isBondElement": false,
+  "symbol": "u",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+    "name": "Zero node"
+   }
+  ],
+  "parameters": [],
+  "variables": [],
+  "neighbours": [
+   "ID-00000012",
+   "ID-00000014"
+  ],
+  "junctionType": "https://bg-rdf.org/ontologies/bondgraph-framework#ZeroNode",
+  "species": "P",
+  "location": "c"
+ },
+ {
+  "id": "ID-00000014",
+  "kind": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+  "kindName": "Static energy store",
+  "isBondElement": true,
+  "symbol": "q",
+  "templates": [
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#QuantityStore",
+    "name": "Static energy store"
+   },
+   {
+    "type": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+    "name": "Chemical concentration",
+    "domain": "https://bg-rdf.org/ontologies/bondgraph-framework#Chemical"
+   }
+  ],
+  "parameters": [
+   {
+    "name": "K",
+    "value": "0.01",
+    "units": "mol-1",
+    "stored": true
+   }
+  ],
+  "variables": [],
+  "neighbours": [
+   "ID-00000013"
+  ],
+  "template": "https://bg-rdf.org/ontologies/bondgraph-framework#ChemicalConcentration",
+  "templateName": "Chemical concentration",
+  "species": "P",
+  "location": "c",
+  "value": {
+   "value": "0",
+   "units": "mol",
+   "stored": true
+  }
+ }
+]

@@ -1,6 +1,5 @@
 <template>
   <div class="docs-page relative-container" >
-    <ThemeToggle floating />
 
     <ResizableLibraryPanel
       title="User Guide"
@@ -70,7 +69,6 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import ThemeToggle from '../components/ThemeToggle.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useColorScheme } from '../composables/useColorScheme'
@@ -100,8 +98,11 @@ const menuGroups = [
       { label: 'Building Macros', path: '/docs/guides/macro-build-guide' },
       { label: 'Using Custom Modules', path: '/docs/guides/build-custom-module' },
       { label: 'Writing CellML', path: '/docs/guides/writing-cellml' },
+      { label: 'Drawing CellDL Modules (beta)', path: '/docs/guides/drawing-celldl-modules' },
       { label: 'Simulating Your Model', path: '/docs/guides/simulating-your-model' },
       { label: 'Running Protocols', path: '/docs/guides/running-protocols' },
+      { label: 'The Physiology View', path: '/docs/guides/physiology-view' },
+      { label: 'Coupling with Annotations', path: '/docs/guides/annotation-coupling' },
       { label: 'Using Circulatory Autogen', path: '/docs/guides/use-with-circulatory-autogen' },
       { label: 'Developer Guide', path: '/docs/guides/develop-phlynx' },
     ],
@@ -115,6 +116,7 @@ const menuGroups = [
       { label: 'Keyboard Shortcuts', path: '/docs/reference/keyboard-shortcuts' },
       { label: 'Ghost Nodes', path: '/docs/reference/ghost-nodes' },
       { label: 'Port Logic', path: '/docs/reference/valid-port-configurations' },
+      { label: 'Annotation Vocabulary', path: '/docs/reference/annotation-vocabulary' },
       { label: 'Supported File Formats', path: '/docs/reference/file-types' },
       { label: 'CellML Module Format', path: '/docs/reference/cellml-module-format' },
       { label: 'CellML Units File', path: '/docs/reference/cellml-units-file' },
@@ -367,9 +369,6 @@ watch(currentSlug, () => {
 
 
 
-.theme-toggle-switch {
-  margin-right: 8px;
-}
 
 
 
@@ -447,6 +446,65 @@ watch(currentSlug, () => {
 .markdown-body .markdown-body {
   height: auto;
   overflow: visible;
+}
+
+/* github-markdown-css brings GitHub's own colours: blue-tinted greys (a navy page in dark mode) and blue links.
+   These keep its layout and type, on the app's surfaces and accent instead. The .docs-page prefix outranks its
+   rules, which are injected later than these. */
+.docs-page .markdown-body,
+.docs-page .markdown-body table tr {
+  color: var(--p-text-color);
+  background-color: var(--p-content-background);
+}
+
+/* Solid underlines tell links from the text around them, which the accent alone is too close to; glossary terms
+   keep their dotted one. */
+.docs-page .markdown-body a {
+  color: var(--p-primary-color);
+}
+.docs-page .markdown-body a[href]:not(.glossary-link) {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.docs-page .markdown-body a:focus-visible {
+  outline-color: var(--p-primary-color);
+}
+
+.docs-page .markdown-body h1,
+.docs-page .markdown-body h2,
+.docs-page .markdown-body hr {
+  border-bottom-color: var(--p-content-border-color);
+}
+.docs-page .markdown-body hr {
+  background-color: var(--p-content-border-color);
+}
+.docs-page .markdown-body table th,
+.docs-page .markdown-body table td,
+.docs-page .markdown-body table tr,
+.docs-page .markdown-body blockquote,
+.docs-page .markdown-body kbd {
+  border-color: var(--p-content-border-color);
+}
+
+.docs-page .markdown-body h6,
+.docs-page .markdown-body blockquote {
+  color: var(--p-text-muted-color);
+}
+
+.docs-page .markdown-body table tr:nth-child(2n),
+.docs-page .markdown-body pre,
+.docs-page .markdown-body kbd {
+  color: var(--p-text-color);
+  background-color: var(--p-content-hover-background);
+}
+.docs-page .markdown-body kbd {
+  box-shadow: inset 0 -1px 0 var(--p-content-border-color);
+}
+.docs-page .markdown-body code {
+  background-color: color-mix(in srgb, var(--p-text-color) 10%, transparent);
+}
+.docs-page .markdown-body pre code {
+  background-color: transparent;
 }
 
 .heading-highlight {

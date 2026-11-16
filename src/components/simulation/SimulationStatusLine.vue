@@ -1,5 +1,5 @@
 <template>
-  <div class="simulation-status" :class="`simulation-status--${status.severity}`" role="status" aria-live="polite">
+  <div class="simulation-status" :class="[`simulation-status--${status.severity}`, { 'simulation-status--hinted': status.hint }]" role="status" aria-live="polite">
     <button v-if="status.details.length" type="button" class="status-text status-button" @click="(event) => popover.toggle(event)">
       <i v-if="status.icon" :class="['pi', status.icon]" aria-hidden="true"></i>
       <span>{{ status.text }}</span>
@@ -9,6 +9,18 @@
       <i v-if="status.icon" :class="['pi', status.icon]" aria-hidden="true"></i>
       <span>{{ status.text }}</span>
     </p>
+    <p v-if="status.hint" class="status-hint">{{ status.hint }}</p>
+    <div v-if="status.actions?.length" class="status-actions">
+      <Button
+        v-for="action in status.actions"
+        :key="action.label"
+        :label="action.label"
+        :icon="`pi ${action.icon}`"
+        size="small"
+        :severity="action.severity"
+        @click="action.run()"
+      />
+    </div>
     <InfoTip v-if="status.notes?.length" class="status-note" :text="status.notes.join('\n')" :label="`Notes: ${status.notes.join(' ')}`" />
     <Popover ref="popover">
       <div class="status-details">
@@ -25,17 +37,20 @@
 
 <script setup>
 /**
- * One line saying what the simulation is doing or what needs attention, with the full lists a click away, and any
- * notes on what is expected in a tooltip.
+ * One line saying what the simulation is doing or what needs attention, with the full lists a click away, any
+ * notes on what is expected in a tooltip, a hint on what to try after a failure on a line of its own, and any actions
+ * that fix it.
  */
 import { ref } from 'vue'
 
+import Button from 'primevue/button'
 import Popover from 'primevue/popover'
 
 import InfoTip from './InfoTip.vue'
 
 defineProps({
-  // { text, severity: 'info' | 'warn' | 'error', icon, details: [{ title, lines }], notes?: string[] }
+  // { text, severity: 'info' | 'warn' | 'error', icon, details: [{ title, lines }], notes?: string[], hint?: string,
+  //   actions?: [{ label, icon, severity?, run }] }
   status: { type: Object, required: true },
 })
 
@@ -67,6 +82,18 @@ const popover = ref(null)
   white-space: nowrap;
 }
 
+.simulation-status--hinted {
+  flex-wrap: wrap;
+}
+
+.status-hint {
+  /* Below the message, after any notes, as the message's line is cut to fit. */
+  flex-basis: 100%;
+  order: 1;
+  margin: 0;
+  color: var(--p-text-muted-color);
+}
+
 .status-button {
   padding: 0;
   border: none;
@@ -81,6 +108,16 @@ const popover = ref(null)
   text-decoration: underline;
 }
 
+.simulation-status {
+  flex-wrap: wrap;
+}
+
+.status-actions {
+  display: flex;
+  flex-basis: 100%;
+  gap: 6px;
+}
+
 .simulation-status--warn {
   color: var(--p-orange-600);
 }
@@ -89,11 +126,11 @@ const popover = ref(null)
   color: var(--p-red-600);
 }
 
-:global(.p-dark) .simulation-status--warn {
+.p-dark .simulation-status--warn {
   color: var(--p-orange-400);
 }
 
-:global(.p-dark) .simulation-status--error {
+.p-dark .simulation-status--error {
   color: var(--p-red-400);
 }
 

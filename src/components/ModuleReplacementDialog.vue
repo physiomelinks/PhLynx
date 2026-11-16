@@ -58,6 +58,10 @@ import Checkbox from 'primevue/checkbox'
 
 import { useGtm } from '../composables/useGtm'
 import LibraryArea from './LibraryArea.vue'
+import { replacementData } from '../services/moduleReplacement'
+import { useLibraryStore } from '../stores/libraryStore'
+import { useDefaultParametersStore } from '../stores/defaultParametersStore'
+import { seedRefFor, seedVariables } from '../utils/parameters/seed'
 
 const props = defineProps({
   modelValue: {
@@ -75,6 +79,8 @@ const emit = defineEmits(['update:modelValue', 'confirm'])
 const selectedModule = ref(null)
 const retainMatches = ref(false)
 const { trackEvent } = useGtm()
+const libraryStore = useLibraryStore()
+const defaultParameters = useDefaultParametersStore()
 
 const dialogVisible = computed({
   get: () => props.modelValue,
@@ -95,12 +101,17 @@ function onModuleSelected(module) {
 }
 
 function handleConfirm() {
-  const moduleVariables = new Set(selectedModule.value.variables.map((variable) => variable.name))
-  const oldPorts = props.currentInstance.data.ports
-
-  const finalPorts = retainMatches.value
-    ? oldPorts.filter((port) => port.variables.every((variable) => moduleVariables.has(variable)))
-    : []
+  const module = selectedModule.value
+  const data = replacementData(props.currentInstance.data?.ports ?? [], module, {
+    retain: retainMatches.value,
+    analysis: libraryStore.getMathAnalysis(module.mathRef) ?? null,
+    defaults: libraryStore.getMathDefaults(module.mathRef) ?? new Map(),
+  })
+  // As a fresh drop: seeded from the new module's set, and no longer naming the old math's.
+  const seedRef = seedRefFor(module, module.parameterisation)
+  const set = seedRef ? defaultParameters.getSet(module.mathRef, seedRef) : null
+  if (set) data.variables = seedVariables(data.variables, set)
+  data.parameterisation = set?.ref
 
   trackEvent('module_replacement_action', {
     category: 'ModuleReplacement',
@@ -109,12 +120,7 @@ function handleConfirm() {
     file_type: 'json',
   })
 
-  emit('confirm', {
-    moduleRef: selectedModule.value.moduleRef,
-    mathRef: selectedModule.value.mathRef,
-    variables: selectedModule.value.variables,
-    ports: finalPorts,
-  })
+  emit('confirm', data)
 
   closeDialog()
 }
@@ -144,8 +150,8 @@ function handleConfirm() {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
+  background: var(--p-content-hover-background);
+  border: 1px solid var(--p-content-border-color);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -155,7 +161,7 @@ function handleConfirm() {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #909399;
+  color: var(--p-text-muted-color);
 }
 
 .selected-module {
@@ -168,7 +174,7 @@ function handleConfirm() {
 .selected-name {
   font-weight: 600;
   font-size: 13px;
-  color: #303133;
+  color: var(--p-text-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -176,7 +182,7 @@ function handleConfirm() {
 
 .selected-file {
   font-size: 12px;
-  color: #606266;
+  color: var(--p-text-muted-color);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -184,7 +190,7 @@ function handleConfirm() {
 
 .no-selection {
   font-size: 13px;
-  color: #c0c4cc;
+  color: var(--p-text-muted-color);
   font-style: italic;
 }
 
@@ -194,7 +200,7 @@ function handleConfirm() {
   gap: 8px;
   margin-top: auto;
   font-size: 13px;
-  color: #606266;
+  color: var(--p-text-color);
 }
 
 .retain-checkbox label {
@@ -208,11 +214,9 @@ function handleConfirm() {
 }
 
 /*
- * The rules below reskin PrimeVue's Dialog/Button/Checkbox chrome to match
- * Element Plus's palette (see https://element-plus.org/en-US/component/color)
- * and give the footer buttons more breathing room. :deep() is used because
- * Dialog, Button and Checkbox render their own internal markup that isn't
- * part of this component's template.
+ * The rules below give PrimeVue's Dialog/Button/Checkbox chrome squarer corners and the footer
+ * buttons more breathing room; their colours are the theme's. :deep() is used because Dialog,
+ * Button and Checkbox render their own internal markup that isn't part of this component's template.
  */
 :deep(.p-dialog) {
   border-radius: 4px;
@@ -220,13 +224,12 @@ function handleConfirm() {
 
 :deep(.p-dialog-header) {
   padding: 20px 24px 12px;
-  border-bottom: 1px solid #e4e7ed;
+  border-bottom: 1px solid var(--p-content-border-color);
 }
 
 :deep(.p-dialog-title) {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
 }
 
 :deep(.p-dialog-content) {
@@ -235,7 +238,7 @@ function handleConfirm() {
 
 :deep(.p-dialog-footer) {
   padding: 16px 24px 20px;
-  border-top: 1px solid #e4e7ed;
+  border-top: 1px solid var(--p-content-border-color);
 }
 
 :deep(.p-button) {
@@ -244,61 +247,7 @@ function handleConfirm() {
   font-size: 14px;
 }
 
-:deep(.p-button:not(.p-button-outlined)) {
-  background: #409eff;
-  border-color: #409eff;
-}
-
-:deep(.p-button:not(.p-button-outlined):not(:disabled):hover) {
-  background: #66b1ff;
-  border-color: #66b1ff;
-}
-
-:deep(.p-button:not(.p-button-outlined):not(:disabled):active) {
-  background: #3a8ee6;
-  border-color: #3a8ee6;
-}
-
-:deep(.p-button:not(.p-button-outlined):disabled) {
-  background: #a0cfff;
-  border-color: #a0cfff;
-  color: #fff;
-  opacity: 1;
-  cursor: not-allowed;
-}
-
-:deep(.p-button-outlined:disabled) {
-  background: #fff;
-  border-color: #ebeef5;
-  color: #c0c4cc;
-  opacity: 1;
-  cursor: not-allowed;
-}
-
-:deep(.p-button-outlined) {
-  background: #fff;
-  border-color: #dcdfe6;
-  color: #606266;
-}
-
-:deep(.p-button-outlined:not(:disabled):hover) {
-  background: #ecf5ff;
-  border-color: #c6e2ff;
-  color: #409eff;
-}
-
 :deep(.p-checkbox .p-checkbox-box) {
-  border-color: #dcdfe6;
   border-radius: 4px;
-}
-
-:deep(.p-checkbox .p-checkbox-box.p-highlight),
-:deep(.p-checkbox.p-checkbox-checked .p-checkbox-box) {
-  background: #409eff;
-  border-color: #409eff;
-}
-
-:deep(.p-checkbox .p-checkbox-box .p-checkbox-icon) {
-  color: #fff;
 }
 </style>

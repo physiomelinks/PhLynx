@@ -32,7 +32,7 @@ if (import.meta.env.DEV && !canonicalTerm.value) {
 
 <style scoped>
 .glossary-link {
-  border-bottom: 1px dotted #409eff;
+  border-bottom: 1px dotted var(--p-primary-color);
 }
 
 .glossary-link.missing {

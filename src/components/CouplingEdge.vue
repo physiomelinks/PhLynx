@@ -25,9 +25,9 @@
     :path="path[0]"
     :marker-end="ownMarker ? `url(#${markerId})` : markerEnd"
     :style="style"
-    :class="{ 'coupling-edge--conflict': conflicts.length }"
+    :class="{ 'coupling-edge--conflict': conflicts.length, 'coupling-edge--uncoupled': !data?.couplings?.length }"
   />
-  <!-- Like an instance's missing-parameter warning: these couplings can't be exported -->
+  <!-- Like an instance's missing-parameter warning: these couplings can't be exported, as their ports or units don't pair -->
   <EdgeLabelRenderer v-if="conflicts.length">
     <div
       class="coupling-edge-warning nodrag nopan"
@@ -36,12 +36,29 @@
       <i class="pi pi-exclamation-triangle" v-tooltip.top="conflicts.join(' ')"></i>
     </div>
   </EdgeLabelRenderer>
+  <!-- draw.io-style handles: drag a segment's midpoint to move the segment across -->
+  <EdgeLabelRenderer v-if="handles.length">
+    <div
+      v-for="handle in handles"
+      :key="handle.index"
+      :class="['edge-route-handle', `edge-route-handle--${handle.axis}`, 'nodrag', 'nopan']"
+      :style="{ transform: `translate(${handle.x}px, ${handle.y}px) scale(${1 / viewport.zoom}) translate(-50%, -50%)` }"
+      :data-testid="`edge-route-handle-${handle.index}`"
+      @pointerdown="startDrag($event, handle)"
+      @contextmenu.prevent
+    ></div>
+  </EdgeLabelRenderer>
 </template>
 
 <script setup>
 import { computed } from 'vue'
-import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath } from '@vue-flow/core'
+import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useVueFlow } from '@vue-flow/core'
+import { useLibraryStore } from '../stores/libraryStore'
 import { couplingConflicts } from '../utils/multiport'
+import { couplingUnitConflicts } from '../utils/couplingUnits'
+import { fullPolyline, getEdgeWaypoints, midpointAlong, roundedPath, translateWaypoints } from '../utils/edgeRoute'
+import { useEdgeDragOffsets } from '../composables/useEdgeDragOffsets'
+import { useEdgeRouteEditing } from '../composables/useEdgeRouteEditing'
 
 defineOptions({ inheritAttrs: false })
 
@@ -61,13 +78,39 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 })
 
+const { findNode, viewport } = useVueFlow()
+const { route: draftRoute, handles, startDrag } = useEdgeRouteEditing(props)
+const { edgeDragOffsets } = useEdgeDragOffsets()
 
-// [path, labelX, labelY, ...], drawn as the default smoothstep edge is.
-const path = computed(() => getSmoothStepPath(props))
+// [path, labelX, labelY]: the route being dragged, else through the user's waypoints (carried along
+// while both nodes are dragged together), else drawn as the default smoothstep edge is.
+const path = computed(() => {
+  let points = draftRoute.value
+  if (!points) {
+    const waypoints = getEdgeWaypoints(props)
+    if (!waypoints) return getSmoothStepPath(props)
+    const offset = edgeDragOffsets.value.get(props.id)
+    points = fullPolyline(props, offset ? translateWaypoints(waypoints, offset.x, offset.y) : waypoints)
+  }
+  const label = midpointAlong(points)
+  return [roundedPath(points), label.x, label.y]
+})
+const libraryStore = useLibraryStore()
 
-const conflicts = computed(() =>
-  (props.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => couplingConflicts(sourcePort, targetPort))
-)
+// One resolveUnits cache per set of definitions.
+const unitsCache = computed(() => (libraryStore.unitDefinitions, new Map()))
+
+// A pair the ports already reject isn't checked for units too.
+const conflicts = computed(() => {
+  const sourceRows = findNode(props.source)?.data?.variables
+  const targetRows = findNode(props.target)?.data?.variables
+  return (props.data?.couplings ?? []).flatMap(({ sourcePort, targetPort }) => {
+    const portConflicts = couplingConflicts(sourcePort, targetPort)
+    return portConflicts.length
+      ? portConflicts
+      : couplingUnitConflicts(sourcePort, targetPort, sourceRows, targetRows, libraryStore.unitDefinitions, unitsCache.value)
+  })
+})
 
 const ownMarker = computed(() => props.selected || conflicts.value.length > 0)
 const markerId = `coupling-edge-arrow-${props.id}`
@@ -80,7 +123,13 @@ const markerId = `coupling-edge-arrow-${props.id}`
   stroke: var(--p-orange-500);
 }
 
-/* Matches the selected line (WorkspaceArea.vue) */
+/* An edge nothing couples yet: it generates no connections until ports are paired on it */
+:global(.vue-flow__edge-path.coupling-edge--uncoupled) {
+  stroke: var(--p-amber-500);
+  stroke-dasharray: 6 4;
+}
+
+/* Matches the selected line (WorkspaceView.vue) */
 .coupling-edge-arrow {
   stroke: var(--p-primary-color);
   fill: var(--p-primary-color);
@@ -116,6 +165,30 @@ const markerId = `coupling-edge-arrow-${props.id}`
   font-size: 12px;
   line-height: 1;
   transform: translateY(-1px);
+}
+
+/* A segment handle, like draw.io's: a small square on the selected line, kept the same size at any zoom */
+.edge-route-handle {
+  position: absolute;
+  pointer-events: all;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 2px solid var(--p-primary-color);
+  background: var(--p-content-background);
+  transform-origin: 0 0;
+}
+
+.edge-route-handle--x {
+  cursor: ew-resize;
+}
+
+.edge-route-handle--y {
+  cursor: ns-resize;
+}
+
+.edge-route-handle:hover {
+  background: var(--p-primary-color);
 }
 
 .coupling-edge-warning:hover {

@@ -4,7 +4,7 @@ export function extractUnitNames(modelXml) {
   if (typeof modelXml !== 'string' || !modelXml.trim()) return []
 
   const doc = new DOMParser().parseFromString(modelXml, 'application/xml')
-  if (doc.querySelector('parsererror')) return []
+  if (doc.getElementsByTagName('parsererror').length) return []
 
   return Array.from(doc.documentElement.children)
     .filter((el) => el.localName === 'units')
@@ -147,6 +147,19 @@ function readPrefix(el) {
 }
 
 /**
+ * Checks whether two units models define the same units, in any order and however they're written.
+ *
+ * @param {string|null} model
+ * @param {string|null} otherModel
+ * @returns {boolean} True when both define none.
+ */
+export function areUnitsModelsEquivalent(model, otherModel) {
+  if ((model ?? null) === (otherModel ?? null)) return true
+  const serialise = (xml) => JSON.stringify([...extractUnitDefinitions(xml)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+  return serialise(model) === serialise(otherModel)
+}
+
+/**
  * Reads each `<units>` definition in a model. An empty parts list means the units is a base unit of its own.
  *
  * @param {string} modelXml
@@ -157,7 +170,7 @@ export function extractUnitDefinitions(modelXml) {
   if (typeof modelXml !== 'string' || !modelXml.trim()) return definitions
 
   const doc = new DOMParser().parseFromString(modelXml, 'application/xml')
-  if (doc.querySelector('parsererror')) return definitions
+  if (doc.getElementsByTagName('parsererror').length) return definitions
 
   for (const el of doc.documentElement.children) {
     const name = el.localName === 'units' && el.getAttribute('name')
@@ -212,6 +225,15 @@ export function resolveUnits(name, definitions, cache, leaves = SI_UNITS) {
 
   cache.set(name, result)
   return result
+}
+
+/**
+ * Whether two expansions from resolveUnits have the same dimensions, whatever their scale. Cancelled
+ * dimensions (power 0) don't count.
+ */
+export function sameDimensions(a, b) {
+  const names = new Set([...Object.keys(a.dimensions), ...Object.keys(b.dimensions)])
+  return [...names].every((name) => Math.abs((a.dimensions[name] ?? 0) - (b.dimensions[name] ?? 0)) < 1e-9)
 }
 
 /** Multiplies a definition's parts: each is multiplier × (10^prefix × units)^exponent. */

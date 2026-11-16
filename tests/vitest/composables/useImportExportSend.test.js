@@ -5,22 +5,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const confirm = vi.fn(async () => true)
 vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
-vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn() } }))
+vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn(), warning: vi.fn() } }))
 vi.mock('../../../src/utils/save', () => ({ getFileHandle: vi.fn(async () => ({ success: true, handle: {}, cleanName: 'model' })) }))
 vi.mock('../../../src/services/compress', () => ({
   generateOmexArchive: vi.fn(async () => new Blob(['omex'])),
-  createCellMLDataFragment: vi.fn(),
   createOmexDataFragment: vi.fn(),
 }))
 vi.mock('../../../src/utils/cellml', () => ({
-  generateFlattenedModel: vi.fn(() => new Blob(['<model/>'])),
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
 }))
+vi.mock('../../../src/services/export/modularCellml', () => ({
+  buildModularModel: vi.fn(async () => ({ main: '<model/>', flat: '<model/>', files: [], sidecars: [], warnings: [] })),
+  zipModularModel: vi.fn(async () => new Blob(['zip'])),
+}))
+const { getModuleFormat } = vi.hoisted(() => ({ getModuleFormat: vi.fn() }))
+const caExportBlocker = vi.hoisted(() => vi.fn(() => null))
+vi.mock('../../../src/services/export/ca', async (importActual) => ({
+  ...(await importActual()),
+  findCaExportBlocker: caExportBlocker,
+}))
+vi.mock('../../../src/services/moduleFormats', async (importActual) => {
+  const actual = await importActual()
+  getModuleFormat.mockImplementation(actual.getModuleFormat)
+  return { ...actual, getModuleFormat }
+})
 
 const { useImportExportSend } = await import('../../../src/composables/useImportExportSend.js')
 const { generateOmexArchive } = await import('../../../src/services/compress')
-const { generateFlattenedModel } = await import('../../../src/utils/cellml')
+const { buildModularModel } = await import('../../../src/services/export/modularCellml')
 const { notify } = await import('../../../src/utils/notify')
+const { getFileHandle } = await import('../../../src/utils/save')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
 const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
 const { EXPORT_KEYS } = await import('../../../src/utils/constants.js')
@@ -74,7 +88,8 @@ describe('useImportExportSend selection exports', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     useLibraryStore().addMath('file:decay', ODE_XML)
-    nodes = ref([createNode('a'), createNode('b'), createNode('c')])
+    // Only a computes v; b and c take it from the connections.
+    nodes = ref([createNode('a'), createNode('b', { vType: 'boundary_condition' }), createNode('c', { vType: 'boundary_condition' })])
     edges = ref([connect(nodes.value[0], nodes.value[1]), connect(nodes.value[1], nodes.value[2])])
     selectedNodeIds = ref([])
     snapshotFlowState = vi.fn(() => '{}')
@@ -122,6 +137,29 @@ describe('useImportExportSend selection exports', () => {
     expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen').disabled).toBe(false)
   })
 
+  it('stops a Circulatory Autogen export CA can’t take, with one error, before asking where to save', async () => {
+    caExportBlocker.mockReturnValueOnce('Driving a CellDL store from a connection isn’t supported in the CA export yet: b.x')
+    const { exportMenuItems } = setup()
+
+    await menuItem(exportMenuItems, 'Circulatory Autogen').command()
+
+    expect(caExportBlocker).toHaveBeenCalledWith(nodes.value, edges.value, expect.anything())
+    expect(notify.error).toHaveBeenCalledTimes(1)
+    expect(notify.error).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('b.x') }))
+    expect(getFileHandle).not.toHaveBeenCalled()
+    expect(onExportConfirm).not.toHaveBeenCalled()
+  })
+
+  it('asks where to save a Circulatory Autogen export CA can take', async () => {
+    const { exportMenuItems } = setup()
+
+    await menuItem(exportMenuItems, 'Circulatory Autogen').command()
+
+    expect(notify.error).not.toHaveBeenCalled()
+    expect(getFileHandle).toHaveBeenCalled()
+    expect(onExportConfirm).toHaveBeenCalled()
+  })
+
   it('exports a selection that builds cleanly without asking', async () => {
     selectedNodeIds.value = ['a', 'b']
     const { exportMenuItems } = setup()
@@ -166,7 +204,7 @@ describe('useImportExportSend selection exports', () => {
     await menuItem(exportMenuItems, 'CellML (selection)').command()
     await currentExportMode.value.action('model')
 
-    const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
+    const [flattenedNodes] = buildModularModel.mock.calls.at(-1)
     expect(flattenedNodes[0].data.variables.find((row) => row.name === 'v').value).toBe('0')
     expect(nodes.value[1].data.variables.find((row) => row.name === 'v').value).toBe('')
   })
@@ -182,7 +220,7 @@ describe('useImportExportSend selection exports', () => {
     expect(open).not.toHaveBeenCalled()
 
     nodes.value[0].data.variables[2].value = '1'
-    generateFlattenedModel.mockImplementationOnce(() => {
+    buildModularModel.mockImplementationOnce(() => {
       throw new Error('Analyser error count: 1')
     })
     await menuItem(sendMenuItems, 'OpenCOR (selection)').command()
@@ -219,7 +257,7 @@ describe('useImportExportSend selection exports', () => {
     expect(currentExportMode.value.key).toBe(EXPORT_KEYS.OMEX_SELECTION)
     await currentExportMode.value.action('model')
 
-    const [flattenedNodes, flattenedEdges] = generateFlattenedModel.mock.calls.at(-1)
+    const [flattenedNodes, flattenedEdges] = buildModularModel.mock.calls.at(-1)
     expect(flattenedNodes.map((node) => node.id)).toEqual(['a', 'b'])
     expect(flattenedEdges.map((edge) => edge.id)).toEqual(['a_b'])
     expect(snapshotFlowState).toHaveBeenCalledWith(['a', 'b'])
@@ -237,8 +275,66 @@ describe('useImportExportSend selection exports', () => {
     expect(currentExportMode.value.key).toBe(EXPORT_KEYS.OMEX)
     await currentExportMode.value.action('model')
 
-    const [flattenedNodes] = generateFlattenedModel.mock.calls.at(-1)
+    const [flattenedNodes] = buildModularModel.mock.calls.at(-1)
     expect(flattenedNodes).toHaveLength(3)
     expect(snapshotFlowState).toHaveBeenLastCalledWith(null)
+  })
+
+  it('adds the module files and their sidecars beside the main model', async () => {
+    const files = [{ location: 'file.cellml', text: '<model/>' }]
+    const sidecars = [{ location: 'annotations/file.cellml/decay.ttl', format: 'text/turtle', text: '' }]
+    buildModularModel.mockResolvedValueOnce({ main: '<model/>', flat: '<model/>', files, sidecars, warnings: [] })
+    const { currentExportMode, exportMenuItems } = setup()
+    await menuItem(exportMenuItems, 'OpenCOR').command()
+    await currentExportMode.value.action('model')
+
+    const [cellmlData, , , addInfo] = generateOmexArchive.mock.calls.at(-1)
+    expect(cellmlData.flat).toBe('<model/>')
+    expect(addInfo.moduleFiles).toBe(files)
+    expect(addInfo.annotationFiles).toBe(sidecars)
+    expect(buildModularModel.mock.calls.at(-1)[4]).toEqual({ mainFileName: addInfo.cellmlFileName })
+  })
+
+  it('exports the CellML as a zip of the modular model', async () => {
+    const { currentExportMode, exportMenuItems } = setup()
+    await menuItem(exportMenuItems, 'CellML').command()
+    expect(currentExportMode.value.suffix).toBe('.zip')
+    const blob = await currentExportMode.value.action('model')
+    expect(await blob.text()).toBe('zip')
+    expect(buildModularModel.mock.calls.at(-1)[0]).toHaveLength(3)
+  })
+})
+
+describe('useImportExportSend import options', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  /** The import menu's labels, with libCellML ready. */
+  const importLabels = () =>
+    useImportExportSend({
+      libcellml: { status: 'ready' },
+      nodes: ref([]),
+      edges: ref([]),
+      importDialogVisible: ref(false),
+      exportDialogVisible: ref(false),
+      currentImportConfig: ref(null),
+      onExportConfirm: vi.fn(),
+      hasModelChanged: ref(false),
+      snapshotFlowState: vi.fn(),
+      selectedNodeIds: ref([]),
+    }).importMenuItems.value.map((item) => item.label)
+
+  it('offers CellDL diagrams in builds that can convert them', () => {
+    expect(importLabels()).toContain('CellDL Diagram')
+    expect(importLabels()).toContain('CellML File')
+  })
+
+  it('offers module annotations next to the archive import', () => {
+    const labels = importLabels()
+    expect(labels.indexOf('Module Annotations')).toBe(labels.indexOf('COMBINE Archive') - 1)
+  })
+
+  it('leaves CellDL diagrams out of builds that can not, such as Electron', () => {
+    getModuleFormat.mockReturnValueOnce({ id: 'celldl', isAvailable: false })
+    expect(importLabels()).not.toContain('CellDL Diagram')
   })
 })

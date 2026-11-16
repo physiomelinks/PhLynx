@@ -23,25 +23,35 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
    *
    * @param {Array<string>} ids
    * @param {Array<string>} keys
-   * @returns {Array<{ id: string, fields: Object }>} Missing nodes are left out.
+   * @returns {Array<{ id: string, fields: Object, absent: Array<string> }>} Missing nodes are left out;
+   *   `absent` lists the keys the node does not have.
    */
   function captureNodeFields(ids, keys) {
     return ids.flatMap((id) => {
       const data = findNode(id)?.data
       if (!data) return []
       const fields = Object.fromEntries(keys.filter((key) => key in data).map((key) => [key, data[key]]))
-      return [{ id, fields: detachReactivity(fields) }]
+      return [{ id, fields: detachReactivity(fields), absent: keys.filter((key) => !(key in data)) }]
     })
   }
 
   /**
-   * Writes copied fields back, skipping nodes that no longer exist.
+   * Writes copied fields back and removes the keys that were absent, skipping nodes that no longer exist.
    *
    * @param {ReturnType<typeof captureNodeFields>} snapshot
    */
   function restoreNodeFields(snapshot) {
-    snapshot.forEach(({ id, fields }) => {
-      if (findNode(id)) updateNodeData(id, detachReactivity(fields))
+    snapshot.forEach(({ id, fields, absent }) => {
+      if (!findNode(id)) return
+      updateNodeData(
+        id,
+        (node) => {
+          const next = { ...node.data, ...detachReactivity(fields) }
+          absent.forEach((key) => delete next[key])
+          return next
+        },
+        { replace: true }
+      )
     })
   }
 
@@ -57,15 +67,20 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
   }
 
   /**
-   * Copies the couplings of each edge.
+   * Copies the couplings of each edge, the manual ones annotated couplings set aside (see edgeCouplings.js), and
+   * whether placement made it (see isPlacementEdge), which an edit by hand clears.
    *
    * @param {Array<string>} edgeIds
-   * @returns {Array<{ id: string, couplings: Array|undefined }>} Missing edges are left out.
+   * @returns {Array<{ id: string, couplings: Array|undefined, manualCouplings?: Array, placement?: string|false }>}
+   *   Missing edges are left out.
    */
   function captureEdgeCouplings(edgeIds) {
     return edgeIds.flatMap((id) => {
       const edge = findEdge(id)
-      return edge ? [{ id, couplings: edge.data?.couplings && detachReactivity(edge.data.couplings) }] : []
+      if (!edge) return []
+      const { couplings, manualCouplings, placement } = edge.data ?? {}
+      const copy = { id, couplings: couplings && detachReactivity(couplings), placement }
+      return [manualCouplings ? { ...copy, manualCouplings: detachReactivity(manualCouplings) } : copy]
     })
   }
 
@@ -75,9 +90,16 @@ export function useNodeDataHistory(flowId = FLOW_IDS.MAIN) {
    * @param {ReturnType<typeof captureEdgeCouplings>} snapshot
    */
   function restoreEdgeCouplings(snapshot) {
-    snapshot.forEach(({ id, couplings }) => {
+    snapshot.forEach(({ id, couplings, manualCouplings, placement }) => {
       const edge = findEdge(id)
-      if (edge) edge.data = { ...edge.data, couplings: couplings && detachReactivity(couplings) }
+      if (!edge) return
+      const { manualCouplings: _current, placement: _placement, ...data } = edge.data ?? {}
+      edge.data = {
+        ...data,
+        couplings: couplings && detachReactivity(couplings),
+        ...(manualCouplings ? { manualCouplings: detachReactivity(manualCouplings) } : {}),
+        ...(placement !== undefined ? { placement } : {}),
+      }
     })
   }
 

@@ -1,0 +1,38 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 2,
+  "id": "cardiomyocyte",
+  "name": "Cardiomyocyte",
+  "description": "A ventricular myocyte: the sarcolemma with a T-tubule, the sarcoplasmic reticulum inside, and the dyadic cleft between the T-tubule and the junctional SR.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "myocyte",
+      "label": "Cardiomyocyte",
+      "membrane": { "label": "Sarcolemma" },
+      "facets": [
+        { "id": "sarcolemma", "label": "Surface sarcolemma", "edge": "top" },
+        { "id": "t-tubule", "label": "T-tubule", "fold": "top" }
+      ],
+      "processes": [
+        { "id": "myofilaments", "label": "Myofilaments" },
+        { "id": "mitochondria", "label": "Mitochondria" }
+      ]
+    },
+    {
+      "id": "sr",
+      "label": "Sarcoplasmic reticulum",
+      "in": "myocyte",
+      "membrane": { "label": "SR membrane" },
+      "facets": [
+        { "id": "junctional", "label": "Junctional SR", "edge": "right" },
+        { "id": "network", "label": "Network SR", "edge": "bottom" }
+      ]
+    }
+  ],
+  "compartments": [
+    { "id": "extracellular", "label": "Extracellular space", "against": ["myocyte.sarcolemma"], "tone": "sky" },
+    { "id": "cleft", "label": "Dyadic cleft", "in": "myocyte", "against": ["myocyte.t-tubule", "sr.junctional"], "tone": "violet" }
+  ]
+}

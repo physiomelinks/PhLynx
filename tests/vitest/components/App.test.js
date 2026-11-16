@@ -10,7 +10,19 @@ import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStor
 vi.stubGlobal('__APP_VERSION__', '1.2.3')
 vi.stubGlobal('__BUILD_STATE_MARKER__', '-dirty')
 
+const NOTICE_FEED = {
+  schema: 1,
+  notices: [
+    { id: 'a', title: 'First', targets: ['phlynx'] },
+    { id: 'b', title: 'Second', targets: ['all'] },
+    { id: 'c', title: 'Not ours', targets: ['cuflynx'] },
+  ],
+}
+const fetchMock = vi.fn(async () => ({ ok: true, text: async () => JSON.stringify(NOTICE_FEED) }))
+vi.stubGlobal('fetch', fetchMock)
+
 const App = (await import('../../../src/App.vue')).default
+const { useNotices } = await import('../../../src/composables/useNotices')
 
 const tooltip = { mounted: () => {}, updated: () => {} }
 
@@ -25,10 +37,15 @@ async function mountApp(path = '/') {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/', name: 'workspace', component: view('workspace view') },
+      {
+        path: '/',
+        name: 'workspace',
+        component: view('workspace view'),
+        meta: { title: 'Workflow Builder', showsProjectName: true },
+      },
       { path: '/simulation', name: 'simulation', component: view('simulation view') },
       { path: '/docs/:rest(.*)*', name: 'docs', component: view('docs view') },
-      { path: '/about', name: 'about', component: view('about view') },
+      { path: '/about', name: 'about', component: view('about view'), meta: { title: 'About' } },
     ],
   })
   await router.push(path)
@@ -38,7 +55,7 @@ async function mountApp(path = '/') {
     attachTo: document.body,
     global: {
       plugins: [PrimeVue, router],
-      directives: { tooltip },
+      directives: { tooltip, hint: tooltip },
       stubs: { ConfirmDialog: true },
     },
   })
@@ -64,13 +81,60 @@ describe('App', () => {
 
   it('links to the workspace, simulation, user guide and about pages', async () => {
     const { wrapper } = await mountApp()
-    const hrefs = wrapper.findAll('nav a').map((a) => [a.text(), a.attributes('href')])
+    const hrefs = wrapper
+      .findAll('nav a:not(.report-issue-link):not(.notices-link)')
+      .map((a) => [a.text(), a.attributes('href')])
     expect(hrefs).toEqual([
       ['Workspace', '/'],
       ['Simulation', '/simulation'],
       ['User Guide', '/docs/'],
       ['About', '/about'],
     ])
+    wrapper.unmount()
+  })
+
+  it('offers a notices bell after About, counting the unread notices for this app', async () => {
+    const { wrapper, router } = await mountApp()
+    await flushPromises()
+    const links = wrapper.findAll('nav a')
+    const bell = links.at(-2)
+    expect(links.at(-3).text()).toBe('About')
+    expect(bell.classes()).toContain('notices-link')
+    expect(bell.attributes('href')).toBe('/about?tab=notices')
+    expect(bell.attributes('aria-label')).toBe('Notices (2 unread)')
+    expect(bell.find('[data-testid="notices-badge"]').text()).toBe('2')
+
+    await bell.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/about?tab=notices')
+    // Still a way to the notices from the About page's other tabs: it never takes the inert active class.
+    expect(bell.classes()).not.toContain('router-link-active')
+
+    useNotices().markAllRead()
+    await flushPromises()
+    expect(bell.find('[data-testid="notices-badge"]').exists()).toBe(false)
+    expect(bell.attributes('aria-label')).toBe('Notices')
+    wrapper.unmount()
+  })
+
+  it('fetches the notices on start', async () => {
+    const { wrapper } = await mountApp()
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('LynxNotices'), { cache: 'no-cache' })
+    wrapper.unmount()
+  })
+
+  it('offers a bug button after the notices bell that opens a new GitHub issue', async () => {
+    const { wrapper } = await mountApp()
+    const links = wrapper.findAll('nav a')
+    const bug = links.at(-1)
+    expect(links.at(-2).classes()).toContain('notices-link')
+    expect(bug.classes()).toContain('report-issue-link')
+    expect(bug.attributes()).toMatchObject({
+      href: 'https://github.com/physiomelinks/phlynx/issues/new',
+      target: '_blank',
+      'aria-label': 'Report an issue',
+    })
+    expect(bug.find('svg').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -121,6 +185,19 @@ describe('App', () => {
     await router.push('/simulation')
     await flushPromises()
     expect(isNameShown(wrapper)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('updates the tab title when the session name changes on a route that shows it', async () => {
+    const { wrapper, router, store } = await mountApp('/')
+    store.setLastSaveName('My model')
+    await flushPromises()
+    expect(document.title).toBe('My model - Workflow Builder - PhLynx')
+
+    await router.push('/about')
+    store.setLastSaveName('Renamed')
+    await flushPromises()
+    expect(document.title).toBe('About - PhLynx')
     wrapper.unmount()
   })
 

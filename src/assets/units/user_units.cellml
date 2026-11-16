@@ -278,4 +278,45 @@
         <unit units="mole"/>
         <unit exponent="-1" units="litre"/>
     </units>
+    <units name="pL">
+        <unit prefix="pico" units="litre"/>
+    </units>
+    <units name="pL_per_s">
+        <unit prefix="pico" units="litre"/>
+        <unit exponent="-1" units="second"/>
+    </units>
+    <units name="pL_per_fmol">
+        <unit prefix="pico" units="litre"/>
+        <unit exponent="-1" prefix="femto" units="mole"/>
+    </units>
+    <units name="fJ">
+        <unit prefix="femto" units="joule"/>
+    </units>
+    <units name="fJ_per_pL">
+        <unit prefix="femto" units="joule"/>
+        <unit exponent="-1" prefix="pico" units="litre"/>
+    </units>
+    <units name="pL2_per_s_per_fJ">
+        <unit exponent="2" prefix="pico" units="litre"/>
+        <unit exponent="-1" units="second"/>
+        <unit exponent="-1" prefix="femto" units="joule"/>
+    </units>
+    <units name="fC_per_s">
+        <unit prefix="femto" units="coulomb"/>
+        <unit exponent="-1" units="second"/>
+    </units>
+    <units name="fC2_per_fJ">
+        <unit exponent="2" prefix="femto" units="coulomb"/>
+        <unit exponent="-1" prefix="femto" units="joule"/>
+    </units>
+    <units name="fJ_s_per_fC2">
+        <unit prefix="femto" units="joule"/>
+        <unit units="second"/>
+        <unit exponent="-2" prefix="femto" units="coulomb"/>
+    </units>
+    <units name="fJ_s2_per_fC2">
+        <unit prefix="femto" units="joule"/>
+        <unit exponent="2" units="second"/>
+        <unit exponent="-2" prefix="femto" units="coulomb"/>
+    </units>
 </model>

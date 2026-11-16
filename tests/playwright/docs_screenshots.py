@@ -28,16 +28,52 @@ from test_simulation_tab import (  # noqa: E402
     plot_variable,
     simulate_whole_model,
 )
+from test_celldl import (  # noqa: E402
+    CELLDL_GROUP,
+    DIAGRAM_TIMEOUT,
+    ENZYME,
+    ENZYME_MODULE,
+    PRODUCT,
+    REACTIONS_MODULE,
+    REACTIONS_PANEL,
+    import_diagram,
+    open_editor,
+    place,
+    set_element_field,
+    wait_for_diagram,
+)
 from test_workspace import centre, ghost_handle, node_by_name, wait_for_settled_transform  # noqa: E402
+from test_annotations import (  # noqa: E402
+    BIO,
+    BIO_NODE,
+    DRAG_OVER_AND_DROP_JS,
+    LIBRARY_CARD,
+    POOL_FILES,
+    READ_FLOW,
+    TOY_MATHS,
+    import_files,
+    mock_ontology_services,
+    open_app,
+    piece,
+    toy,
+    toy_names,
+)
+from test_annotations import place as place_module  # noqa: E402
 
 IMAGES = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "docs", "assets", "images"))
 VIEWPORT = {"width": 1440, "height": 900}
 LIGHT_THEME = "localStorage.setItem('phlynx-color-scheme', 'light')"
+# The guide shows and documents every toolbar button, including those hidden by default.
+ALL_TOOLBAR_BUTTONS = (
+    "localStorage.setItem('phlynx-settings', JSON.stringify(Object.assign("
+    "JSON.parse(localStorage.getItem('phlynx-settings') || '{}'),"
+    " { toolbarAddHandles: true, toolbarMacroBuilder: true, toolbarSendTo: true })))"
+)
 # A new workspace's settings (BASELINE_SIMULATION_SETTINGS), as a reader following the quick start has. The fixture
 # predates saved settings, so it loads with the coarser ones older files get, between which the solver gives up.
 APP_DEFAULT_SIMULATION = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationSettings')"
-    ".setSimulationSettings({ startingPoint: 0, endingPoint: 10, pointInterval: 0.001, tolerance: 1e-7, maxSteps: 500 })"
+    ".setSimulationSettings({ startingPoint: 0, endingPoint: 10, pointInterval: 0.001, relativeTolerance: 1e-7, maxSteps: 500 })"
 )
 SIMULATION_DONE = f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)"
 
@@ -78,7 +114,7 @@ def close_search(page):
 
 
 def open_simulation_tab(page):
-    page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+    page.locator(".context-panel .library-toggle").click()
     page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
 
@@ -206,7 +242,7 @@ def simulation_sidebar(page):
     close_search(page)
     page.mouse.move(5, VIEWPORT["height"] - 5)
     dismiss_toasts(page)
-    save(page, "simulation-sidebar", clip=page.locator(".resizable-context-panel").bounding_box())
+    save(page, "simulation-sidebar", clip=page.locator(".context-panel").bounding_box())
 
 
 def simulation_page(page):
@@ -251,6 +287,42 @@ def connections_dialog(page):
     expect(dialog).to_be_visible()
     page.wait_for_timeout(300)
     save(dialog, "connections-dialog")
+
+
+def edge_routing(page):
+    open_workspace(page)
+    soma = node_by_name(page, "soma_SN")
+    axon = node_by_name(page, "axon_SN")
+    var = node_by_name(page, "var_SN")
+    # Drag soma_SN up against axon_SN, so its arrow into axon_SN's lower handle runs down between them.
+    soma_box = soma.bounding_box()
+    axon_box = axon.bounding_box()
+    grab = (soma_box["x"] + soma_box["width"] / 2, soma_box["y"] + 10)
+    page.mouse.move(*grab)
+    page.mouse.down()
+    page.mouse.move(axon_box["x"] + axon_box["width"] * 1.5 + 40, axon_box["y"] - 30, steps=10)
+    page.mouse.up()
+    page.wait_for_timeout(500)
+    # Route every arrow around the instances from the canvas menu.
+    page.mouse.click(VIEWPORT["width"] - 400, 250)
+    page.mouse.click(VIEWPORT["width"] - 400, 250, button="right")
+    page.locator(".context-menu__item", has_text="Route Edges Around Modules").click()
+    page.wait_for_timeout(300)
+    dismiss_toasts(page)
+    # Select the rerouted arrow to show its segment handles.
+    point = page.evaluate(
+        """() => {
+            const path = document.querySelector('.vue-flow__edge[data-id="dndnode_0--dndnode_1"] .vue-flow__edge-path')
+            const point = path.getPointAtLength(path.getTotalLength() * 0.5)
+            const m = path.getScreenCTM()
+            return { x: point.x * m.a + m.e, y: point.y * m.d + m.f }
+        }"""
+    )
+    page.mouse.click(point["x"], point["y"])
+    expect(page.locator(".edge-route-handle").first).to_be_visible()
+    page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(300)
+    save(page, "edge-routing", clip=clip_around([soma, axon, var, page.locator(".vue-flow__edge").first], margin=40))
 
 
 def macro_builder(page):
@@ -358,7 +430,7 @@ def sweep_view(page):
     page.mouse.move(5, VIEWPORT["height"] - 5)
     page.wait_for_timeout(300)
     dismiss_toasts(page)
-    save(page, "sweep-view", clip=page.locator(".resizable-context-panel").bounding_box())
+    save(page, "sweep-view", clip=page.locator(".context-panel").bounding_box())
 
 
 # Two experiments stepping the soma's input current, each recording V's peak, plotted against the step.
@@ -402,6 +474,198 @@ def protocol_editor(page):
     save(dialog, "protocol-editor")
 
 
+def open_celldl_module(page, path, module):
+    """Imports a CellDL diagram into an empty workspace, places it and opens its editor on the diagram."""
+    page.goto(BASE_URL, wait_until="commit")
+    page.locator(".file-io-buttons .p-splitbutton").first.wait_for(timeout=APP_MOUNT_TIMEOUT)
+    import_diagram(page, path)
+    expect(page.get_by_text("CellDL Diagram Loaded")).to_be_visible(timeout=DIAGRAM_TIMEOUT)
+    dismiss_toasts(page)
+    place(page, CELLDL_GROUP, module)
+    dialog = open_editor(page, module)
+    wait_for_diagram(page)
+    return dialog
+
+
+def celldl_editor(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    dismiss_toasts(page)
+    save(dialog, "celldl-editor")
+
+
+def celldl_reactions(page):
+    dialog = open_celldl_module(page, REACTIONS_PANEL, REACTIONS_MODULE)
+    page.locator(".celldl-pane .celldl-host #reactions-panel").click()
+    expect(page.locator(".celldl-pane .celldl-host").get_by_label("Equation of r1")).to_be_visible()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    dismiss_toasts(page)
+    save(dialog.locator(".left-pane"), "celldl-reactions")
+
+
+def celldl_parameters(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    dialog.get_by_role("tab", name=re.compile(r"Parameters \(")).click()
+    expect(dialog.locator(".celldl-parameters .unit-system")).to_contain_text("SI (mol, L)")
+    dialog.locator(".celldl-parameters .unit-system .p-select").click()
+    expect(page.locator(".p-select-option").filter(has_text="Cellular (fmol, pL)")).to_be_visible()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    dismiss_toasts(page)
+    save(dialog.locator(".right-pane"), "celldl-parameters")
+
+
+def celldl_issues(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    # Naming the product's store S as well gives two pools named q_S_c, which live conversion warns of.
+    set_element_field(dialog, PRODUCT, "Species", "S")
+    issues = dialog.locator(".celldl-live-issues")
+    expect(issues).to_have_text(re.compile(r"^\s*Converts, with 1 warning"), timeout=DIAGRAM_TIMEOUT)
+    issues.click()
+    popover = page.locator(".p-popover")
+    expect(popover.locator(".celldl-issue-list li")).to_have_count(1)
+    page.wait_for_timeout(400)
+    dismiss_toasts(page)
+    save(page, "celldl-issues", clip=clip_around([dialog.locator(".celldl-live"), popover], margin=16))
+
+
+def celldl_annotations(page):
+    dialog = open_celldl_module(page, ENZYME, ENZYME_MODULE)
+    host = page.locator(".celldl-pane .celldl-host")
+    host.locator("#annotations-panel").click()
+    # The panel rereads the diagram as it opens, dropping an entry made first, so it's entered again until kept.
+    chebi = host.get_by_label(re.compile(r"^ChEBI ID of S\b"))
+    apply = host.get_by_role("button", name="Apply", exact=True)
+    for _ in range(5):
+        chebi.fill("17234")
+        chebi.press("Tab")
+        try:
+            expect(apply).to_be_enabled(timeout=1000)
+            break
+        except AssertionError:
+            pass
+    chebi.scroll_into_view_if_needed()
+    page.evaluate("document.activeElement?.blur()")
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    dismiss_toasts(page)
+    save(dialog.locator(".left-pane"), "celldl-annotations")
+
+
+def annotations_tab(page):
+    # On the context, not the page: the isolation service worker would hide its requests from page routes.
+    mock_ontology_services(page.context, [])
+    open_app(page)
+    import_files(page, "CellML File", [toy(name) for name in POOL_FILES])
+    place_module(page, "pool")
+    wait_for_settled_transform(page)
+    dismiss_toasts(page)
+    page.locator(".vue-flow__node").first.dblclick()
+    dialog = page.locator(".module-editor-dialog")
+    dialog.get_by_role("tab", name=re.compile(r"Annotations \(")).click()
+    dialog.locator("[data-test=module-kind]").get_by_text("Compartment", exact=True).click()
+    row = dialog.locator(".annotation-row[data-variable=c_A]")
+    row.locator("[data-test=what]").click()
+    page.get_by_role("option", name="Concentration", exact=True).click()
+    row.locator("[data-test=species] input").fill("sodium")
+    options = page.locator(".p-autocomplete-option")
+    expect(options.filter(has_text="CHEBI:26708")).to_be_visible(timeout=10000)
+    options.filter(has_text="CHEBI:29101").first.click()
+    row.locator("[data-test=whose]").click()
+    page.get_by_role("option", name="This compartment", exact=True).click()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    save(dialog, "annotations-tab")
+
+
+def drop_toy_module(page, name, point):
+    """Drag the named toy module from the library onto a screen point of the physiology view."""
+    card = page.locator(LIBRARY_CARD).filter(has_text=f"{name}:default").first
+    if not card.is_visible():
+        page.locator(".mlc__group-header").filter(has_text=re.compile(re.escape(name), re.IGNORECASE)).first.click()
+    expect(card).to_be_visible()
+    transfer = page.evaluate_handle("() => new DataTransfer()")
+    card.dispatch_event("dragstart", {"dataTransfer": transfer})
+    page.evaluate(DRAG_OVER_AND_DROP_JS, [point[0], point[1], transfer])
+    card.dispatch_event("dragend", {"dataTransfer": transfer})
+
+
+def open_toy_editor(page, toy_name):
+    """Open the Instance Editor of the placed instance standing for a toy instance (outside, porter_in, ...)."""
+    flow = page.evaluate(READ_FLOW)
+    names = toy_names(flow)
+    node_id = next(n["id"] for n in flow["nodes"] if names[n["name"]] == toy_name)
+    page.locator(f'{BIO_NODE}[data-id="{node_id}"]').dispatch_event("dblclick")
+    dialog = page.locator(".module-editor-dialog")
+    expect(dialog.get_by_role("tab", name=re.compile(r"Ports \(")).first).to_be_visible(timeout=30000)
+    return dialog
+
+
+def import_toy_sidecar(page, toy_name, sidecar):
+    """Import a module's sidecar on one of its instances' Annotations tab, and save it."""
+    dialog = open_toy_editor(page, toy_name)
+    dialog.get_by_role("tab", name=re.compile(r"Annotations \(")).click()
+    dialog.locator("[data-test=import-file]").set_input_files(toy(sidecar))
+    confirm = page.locator(".p-confirmdialog").filter(has_text="Import annotations")
+    confirm.get_by_role("button", name="Import", exact=True).click()
+    expect(dialog.get_by_role("tab", name=re.compile(r"Annotations \("))).not_to_have_text(re.compile(r"\(0/"))
+    dialog.get_by_role("button", name="Save", exact=True).click()
+    expect(dialog).to_be_hidden(timeout=30000)
+
+
+def place_toy_on_epithelial_cell(page):
+    """Load the synthetic toy maths and place them on the epithelial-cell template, then annotate them."""
+    open_app(page)
+    import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
+    page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
+    expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
+    page.mouse.click(450, 200, button="right")
+    menu = page.locator(".p-contextmenu")
+    menu.get_by_text("Add Template", exact=True).hover()
+    menu.get_by_text("Epithelial cell", exact=True).click()
+    expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+    page.keyboard.press("Escape")
+    page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
+    page.wait_for_timeout(400)
+    # Pools in the apical and basolateral fluids, porters on the apical and basolateral membranes.
+    cell = piece(page, "cell").bounding_box()
+    lumen = piece(page, "apical-fluid").bounding_box()
+    interstitium = piece(page, "basolateral-fluid").bounding_box()
+    drops = [
+        ("pool", (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3)),
+        ("pool", (interstitium["x"] + 20, interstitium["y"] + interstitium["height"] * 2 / 3)),
+        ("porter", (cell["x"] + cell["width"] / 2, cell["y"])),
+        ("porter", (cell["x"] + cell["width"] / 2, cell["y"] + cell["height"])),
+    ]
+    for count, (module, point) in enumerate(drops, start=1):
+        drop_toy_module(page, module, point)
+        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count)
+    import_toy_sidecar(page, "outside", "pool.ttl")
+    import_toy_sidecar(page, "porter_in", "porter.ttl")
+    wait_for_settled_transform(page)
+    dismiss_toasts(page)
+
+
+def physiology_view(page):
+    place_toy_on_epithelial_cell(page)
+    page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+    page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(600)
+    save(page.locator(BIO), "physiology-view")
+
+
+def annotations_port_chips(page):
+    place_toy_on_epithelial_cell(page)
+    dialog = open_toy_editor(page, "porter_in")
+    dialog.get_by_role("tab", name=re.compile(r"Ports \(")).click()
+    expect(dialog.locator(".annotation-chips").first).to_be_visible()
+    page.mouse.move(5, VIEWPORT["height"] - 5)
+    page.wait_for_timeout(400)
+    save(dialog, "annotations-port-chips")
+
+
 SHOTS = {
     "phlynx_ui": phlynx_ui,
     "toolbar": toolbar,
@@ -416,11 +680,20 @@ SHOTS = {
     "simulation-page": simulation_page,
     "protocol-results": protocol_results,
     "connections-dialog": connections_dialog,
+    "edge-routing": edge_routing,
     "macro-builder": macro_builder,
     "units-create": units_create,
     "math-editor": math_editor,
     "sweep-view": sweep_view,
     "protocol-editor": protocol_editor,
+    "celldl-editor": celldl_editor,
+    "celldl-reactions": celldl_reactions,
+    "celldl-parameters": celldl_parameters,
+    "celldl-issues": celldl_issues,
+    "celldl-annotations": celldl_annotations,
+    "annotations-tab": annotations_tab,
+    "physiology-view": physiology_view,
+    "annotations-port-chips": annotations_port_chips,
 }
 
 
@@ -437,6 +710,7 @@ def main(names):
             context = browser.new_context(viewport=VIEWPORT, device_scale_factor=2, color_scheme="light")
             context.add_init_script(OPT_IN_TO_ISOLATION)
             context.add_init_script(LIGHT_THEME)
+            context.add_init_script(ALL_TOOLBAR_BUTTONS)
             page = context.new_page()
             try:
                 SHOTS[name](page)

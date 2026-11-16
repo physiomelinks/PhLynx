@@ -1,8 +1,8 @@
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
+const notify = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }))
 const save = vi.hoisted(() => ({ legacyDownload: vi.fn(), saveFileHandle: vi.fn(), writeFileHandle: vi.fn() }))
 const trackEvent = vi.hoisted(() => vi.fn())
 const clearWorkspace = vi.hoisted(() => vi.fn())
@@ -15,15 +15,21 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal(
 
 import { useWorkspaceSaveLoad } from '../../../src/composables/useWorkspaceSaveLoad'
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
+import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore'
+import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore'
 import { useLibraryStore } from '../../../src/stores/libraryStore'
 import { useOmexStore } from '../../../src/stores/omexStore'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore'
 import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
+import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
+import { TOY_PLACEMENTS, loadToyNodes } from '../services/annotations/toyNodes.js'
+import { readToy } from '../services/annotations/toyModel.js'
 
 const FLOW = { nodes: [{ id: 'n1', position: { x: 1, y: 2 } }], edges: [], viewport: { x: 5, y: 6, zoom: 2 } }
 const COLLECTIONS = [['parts.cellml', ['modA', 'modB']]]
+const PARAM = { value: '1.0', units: 'mM', data_reference: '', extra: {} }
 
 const nodes = ref([])
 const edges = ref([])
@@ -51,6 +57,10 @@ function fillStores() {
   useSimulationSettingsStore().setSimulationSettings({ endingPoint: 42, maxSteps: 77 })
   useInspectionModuleStore().addModule({ id: 'insp-1', name: 'Flow probe', units: 'mL', variables: [] })
   useOmexStore().setArchive({ archiveName: 'model.omex', cellmlFileName: 'model.cellml' })
+  useDefaultParametersStore().addSet(
+    { ref: 'NKA', source: { file: 'NKA_parameters.json', importedAt: 'now' }, globals: new Map(), values: new Map([['K', PARAM]]) },
+    { mathRef: 'NKA.cellml:NKA' }
+  )
 }
 
 beforeEach(() => {
@@ -79,6 +89,7 @@ describe('onSaveConfirm', () => {
     expect(saved.simulation.simulationSettings).toMatchObject({ endingPoint: 42, maxSteps: 77 })
     expect(saved).toHaveProperty('inspectionModules')
     expect(saved).toHaveProperty('workspace')
+    expect(saved.parameters.sets.map(([key]) => key)).toEqual(['NKA.cellml:NKA:NKA'])
   })
 
   it('notifies and remembers the name', async () => {
@@ -234,6 +245,7 @@ describe('applyWorkspaceState', () => {
     expect(useInspectionModuleStore().getState()[0]).toMatchObject({ id: 'insp-1', name: 'Flow probe' })
     expect(saved.workspace.archiveName).toBe('model.omex')
     expect(useOmexStore().getState()).toEqual(saved.workspace)
+    expect(useDefaultParametersStore().getSet('NKA.cellml:NKA', 'NKA').values.get('K')).toEqual(PARAM)
     expect(notify.success).toHaveBeenCalledWith({ title: 'Workflow loaded successfully!' })
     expect(trackEvent).toHaveBeenCalledWith('workflow_load_action', {
       category: 'Workflow',
@@ -241,6 +253,71 @@ describe('applyWorkspaceState', () => {
       label: 'Nodes: 1, Edges: 0',
       file_type: 'file',
     })
+  })
+
+  it('round trips module sidecars', async () => {
+    const sidecar = '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n'
+    const data = { name: 'cell' }
+    const annotatedFlow = { ...FLOW, nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data }] }
+    flow.toObject.mockReturnValue(annotatedFlow)
+    useLibraryStore().setModuleAnnotations('pool.cellml:pool', sidecar)
+    await view.onSaveConfirm('annotated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
+    expect(saved.store.moduleAnnotations).toEqual([['pool.cellml:pool', sidecar]])
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved)
+
+    expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: annotatedFlow.nodes }))
+    expect(useLibraryStore().getModuleAnnotations('pool.cellml:pool')).toBe(sidecar)
+  })
+
+  it('saves a workspace without sidecars as before, and loading one empties the library sidecars', async () => {
+    fillStores()
+    await view.onSaveConfirm('plain')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved.store).not.toHaveProperty('moduleAnnotations')
+
+    useLibraryStore().setModuleAnnotations('stale.cellml:stale', '# stale')
+    await view.applyWorkspaceState(saved)
+    expect(useLibraryStore().moduleAnnotations.size).toBe(0)
+  })
+
+  it('round trips placed templates and their embedded definitions', async () => {
+    const bound = { ...FLOW, nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: { bioView: { site: '' } } }] }
+    const instance = useBioTemplateStore().addInstance('two-cell-epithelium', { x: 30, y: 40 }, 'Sheet')
+    bound.nodes[0].data.bioView.site = `${instance.id}/a.apical`
+    flow.toObject.mockReturnValue(bound)
+    await view.onSaveConfirm('templated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
+    expect(saved.bioTemplates.instances).toEqual([instance])
+    expect(Object.keys(saved.bioTemplates.templates)).toEqual(['two-cell-epithelium'])
+    // As if the built-in changed after this workspace was saved: the embedded copy must still win.
+    saved.bioTemplates.templates['two-cell-epithelium'].name = 'Old sheet'
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved)
+
+    expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: bound.nodes }))
+    expect(useBioTemplateStore().getState()).toEqual(saved.bioTemplates)
+    expect(useBioTemplateStore().getDefinition('two-cell-epithelium').name).toBe('Old sheet')
+  })
+
+  it('saves a workspace without templates without the key, and loading one empties the template store', async () => {
+    fillStores()
+    await view.onSaveConfirm('plain')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved).not.toHaveProperty('bioTemplates')
+
+    useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 })
+    await view.applyWorkspaceState(saved)
+    expect(useBioTemplateStore().getState()).toBeNull()
   })
 
   it('clears the workspace before it restores the flow', async () => {
@@ -260,6 +337,23 @@ describe('applyWorkspaceState', () => {
     expect(order).toEqual(['clear', 'fromObject'])
   })
 
+  it('drops annotated ports on variables the math lacks, with their couplings, and says so', async () => {
+    const stale = { portType: 'general_ports', variables: ['I_K'], multiportType: 'True', annotation: { subject: 's' } }
+    const kept = { portType: 'general_ports', variables: ['x'], multiportType: 'True', annotation: { subject: 't' } }
+    flow.fromObject.mockImplementation(() => {
+      nodes.value = [{ id: 'n1', data: { name: 'pump', variables: [{ name: 'x' }], ports: [stale, kept] } }]
+      const couplings = [{ sourcePort: stale, targetPort: kept }]
+      edges.value = [{ id: 'e1', source: 'n1', target: 'n1', data: { couplings } }]
+    })
+    const state = { id: PHLYNX_PROJECT_IDENTIFIER, version: PHLYNX_PROJECT_VERSION, flow: FLOW, store: {} }
+    await view.applyWorkspaceState(state)
+
+    expect(nodes.value[0].data.ports).toEqual([kept])
+    expect(edges.value[0].data.couplings).toEqual([])
+    const message = expect.stringContaining('pump.I_K')
+    expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ message }))
+  })
+
   it('migrates an older workspace before it applies it', async () => {
     await view.applyWorkspaceState({
       id: PHLYNX_PROJECT_IDENTIFIER,
@@ -273,5 +367,75 @@ describe('applyWorkspaceState', () => {
 
     // The 1.1.0 -> 1.2.0 step restores the solver settings older files were run with.
     expect(useSimulationSettingsStore().simulationSettings.maxSteps).toBe(500)
+  })
+})
+
+describe('loading a workspace with annotated ports', () => {
+  beforeAll(() => ensureLibCellmlReady())
+
+  const manual = (variable) => ({ portType: 'general_ports', label: variable, variables: [variable] })
+  const coupling = { sourcePort: manual('c_A_i'), targetPort: manual('c_A') }
+  const pairOf = ({ sourcePort, targetPort }) => `${sourcePort.variables[0]} -> ${targetPort.variables[0]}`
+
+  /**
+   * Saves a porter and a cell joined by a manual coupling, placed on a template unless `placed` is false, then sets up
+   * a fresh view to load it into.
+   */
+  async function saveToy({ placed = true } = {}) {
+    const toy = await loadToyNodes()
+    const template = useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 })
+    const at = (name) => (placed ? { bioView: { site: `${template.id}/${TOY_PLACEMENTS[name]}` } } : { bioView: undefined })
+    const portsOf = (name, own, variables) => [manual(own), ...variables.map((v) => toy.port(name, v))]
+    const porterIn = toy.node('porter_in', portsOf('porter_in', 'c_A_i', ['area', 'c_A_i', 'v_A_i']), at('porter_in'))
+    const cell = toy.node('cell', portsOf('cell', 'c_A', ['area', 'c_A', 'v_A']), at('cell'))
+    const savedFlow = {
+      nodes: [porterIn, cell],
+      edges: [{ id: 'e', source: porterIn.id, target: cell.id, data: { couplings: [coupling] } }],
+      viewport: FLOW.viewport,
+    }
+    const library = useLibraryStore()
+    for (const name of ['pool', 'porter']) {
+      library.addMathFile(`${name}.cellml`, [{ name, math: readToy(`${name}.cellml`) }])
+      library.setModuleAnnotations(`${name}.cellml:${name}`, readToy(`${name}.ttl`))
+    }
+    flow.toObject.mockReturnValue(savedFlow)
+    await view.onSaveConfirm('annotated')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    setActivePinia(createPinia())
+    setup()
+    flow.fromObject.mockImplementation((loaded) => {
+      nodes.value = loaded.nodes
+      edges.value = loaded.edges
+    })
+    return saved
+  }
+
+  it('couples connections between placed annotated nodes through their annotated ports, keeping the manual ones', async () => {
+    const saved = await saveToy()
+    await view.applyWorkspaceState(saved)
+
+    const [edge] = edges.value
+    expect(edge.data.manualCouplings).toEqual([coupling])
+    expect(edge.data.couplings.map(pairOf).sort()).toEqual(['area -> area', 'c_A_i -> c_A', 'v_A_i -> v_A'])
+    expect(notify.success).toHaveBeenCalledWith({
+      title: 'Workflow loaded successfully!',
+      message: '1 connection now uses annotation ports.',
+    })
+
+    // Saved again, the manual couplings stay with the edge.
+    flow.toObject.mockReturnValue({ nodes: nodes.value, edges: edges.value, viewport: FLOW.viewport })
+    await view.onSaveConfirm('again')
+    const again = await readBlob(save.legacyDownload.mock.calls.at(-1)[1])
+    expect(again.flow.edges[0].data.manualCouplings).toEqual([coupling])
+  })
+
+  it('leaves the stored couplings of unplaced nodes as they were', async () => {
+    const saved = await saveToy({ placed: false })
+    await view.applyWorkspaceState(saved)
+
+    const [edge] = edges.value
+    expect(edge.data).toEqual({ couplings: [coupling] })
+    expect(notify.success).toHaveBeenCalledWith({ title: 'Workflow loaded successfully!' })
   })
 })

@@ -21,9 +21,4 @@
     border-radius: 4px;
     font-size: 14px;
   }
-
-  :deep(.p-button:not(.p-button-outlined)) {
-    background: #409eff;
-    border-color: #409eff;
-  }
 </style>

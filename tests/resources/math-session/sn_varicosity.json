@@ -1,0 +1,881 @@
+{
+  "name": "var_SN",
+  "mathRef": "cell_modules.cellml:SN_varicosity",
+  "math": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model xmlns=\"http://www.cellml.org/cellml/2.0#\" name=\"PhLynxComponent\">\n  <component name=\"SN_varicosity\">\n    <variable name=\"t\" units=\"second\" interface=\"public\"/>\n    <variable name=\"R\" units=\"J_per_mol_K\" interface=\"public\"/>\n    <variable name=\"F\" units=\"C_per_mol\" interface=\"public\"/>\n    <variable name=\"T\" units=\"kelvin\" interface=\"public\"/>\n    <variable name=\"N_avo\" units=\"per_mol\" interface=\"public\"/>\n    <variable name=\"epsilon_tau\" units=\"second\"/>\n    <variable name=\"Vol\" units=\"m3\" interface=\"public\"/>\n    <variable name=\"c_ER_pre\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"c_ER\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"c_SL\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"c_bulk\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"V\" units=\"milliV\" interface=\"public\"/>\n    <variable name=\"E_Ca\" units=\"milliV\" interface=\"public\"/>\n    <variable name=\"cAMP\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"i_Ca_N\" units=\"nanoA\" interface=\"public\"/>\n    <variable name=\"g_CaN\" units=\"microS\" interface=\"public\"/>\n    <variable name=\"c_init\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"c\" units=\"dimensionless\" initial_value=\"c_init\" interface=\"public\"/>\n    <variable name=\"hc_init\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"hc\" units=\"dimensionless\" initial_value=\"hc_init\" interface=\"public\"/>\n    <variable name=\"c_inf\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"hc_inf\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"tau_c\" units=\"millis\" interface=\"public\"/>\n    <variable name=\"tau_hc\" units=\"millis\" interface=\"public\"/>\n    <variable name=\"tau_c_min\" units=\"millis\" interface=\"public\"/>\n    <variable name=\"tau_c_max\" units=\"millis\" interface=\"public\"/>\n    <variable name=\"V_mid_c\" units=\"milliV\" interface=\"public\"/>\n    <variable name=\"V_den_c\" units=\"milliV\" interface=\"public\"/>\n    <variable name=\"V_mid_hc\" units=\"milliV\" interface=\"public\"/>\n    <variable name=\"V_den_hc\" units=\"milliV\" interface=\"public\"/>\n    <variable name=\"Nai\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Nao\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"i_NaCa\" units=\"nanoA\" interface=\"public\"/>\n    <variable name=\"k_NaCa\" units=\"nanoA\" interface=\"public\"/>\n    <variable name=\"alpha_NaCa\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"gamma_NaCa\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"Ksat\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"KmCa\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"KmNai\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"j_IP3\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"k_IP3\" units=\"m3_per_s\" interface=\"public\"/>\n    <variable name=\"k_leak_Ca\" units=\"m3_per_s\" interface=\"public\"/>\n    <variable name=\"m_IP3_inf\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"h_IP3_init\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"h_IP3\" units=\"dimensionless\" initial_value=\"h_IP3_init\" interface=\"public\"/>\n    <variable name=\"h_IP3_inf\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"tau_hIP3\" units=\"millis\" interface=\"public\"/>\n    <variable name=\"IP3\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"a_2\" units=\"per_millimolar\" interface=\"public\"/>\n    <variable name=\"d_1\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"d_2\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"d_3\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"d_5\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Q_2\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"j_leak_Ca\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"K_mf\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"K_mr\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"k_SERCA\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"H_SERCA\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"j_SERCA\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"j_RyR\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"k_RyR\" units=\"m3_per_s\" interface=\"public\"/>\n    <variable name=\"c_RyR_inf\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"hc_RyR_inf\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"c_RyR\" units=\"dimensionless\" interface=\"public\" initial_value=\"c_RyR_init\"/><variable name=\"c_RyR_init\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"hc_RyR\" units=\"dimensionless\" interface=\"public\" initial_value=\"hc_RyR_init\"/><variable name=\"hc_RyR_init\" units=\"dimensionless\" interface=\"public\"/>\n    <variable name=\"Cai_RyR_mid\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Cai_RyR_den\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Ca_ER_RyR_mid\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Ca_ER_RyR_den\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Ca_ER_RyR_tau_mid\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Ca_ER_RyR_tau_den\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"tau_c_RyR\" units=\"millis\" interface=\"public\"/>\n    <variable name=\"tau_hc_RyR\" units=\"millis\" interface=\"public\"/>\n    <variable name=\"Cai_init\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Cai\" units=\"millimolar\" initial_value=\"Cai_init\" interface=\"public\"/>\n    <variable name=\"Ca_ER_init\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"Ca_ER\" units=\"millimolar\" initial_value=\"Ca_ER_init\" interface=\"public\"/>\n    <variable name=\"Cao\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"j_Ca_N\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"j_NaCa_Ca\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"Ca_bulk\" units=\"millimolar\" initial_value=\"Cai_init\" interface=\"public\"/>\n    <variable name=\"j_diffCa\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"D_Ca\" units=\"m3_per_s\" interface=\"public\"/>\n    <variable name=\"j_diffCa_ER\" units=\"mol_per_s\" interface=\"public\"/>\n    <variable name=\"D_Ca_ER\" units=\"m3_per_s\" interface=\"public\"/>\n    <variable name=\"Ca_ER_pre\" units=\"millimolar\" initial_value=\"Ca_ER_init\" interface=\"public\"/>\n    <variable name=\"B_Cai\" units=\"millimolar\" initial_value=\"B_Ca_init\" interface=\"public\"/>\n    <variable name=\"B_Ca_init\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"B_Ca_total\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"CaB_Cai\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"B_Ca_bulk\" units=\"millimolar\" initial_value=\"B_Ca_init\" interface=\"public\"/>\n    <variable name=\"CaB_Ca_bulk\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"B_Ca_ER_pre\" units=\"millimolar\" initial_value=\"B_Ca_init\" interface=\"public\"/>\n    <variable name=\"CaB_Ca_ER_pre\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"k_bind_Ca\" units=\"per_millimolar_s\" interface=\"public\"/>\n    <variable name=\"k_unbind_Ca\" units=\"per_s\" interface=\"public\"/>\n    <variable name=\"k_bind_Ca_ER\" units=\"per_millimolar_s\" interface=\"public\"/>\n    <variable name=\"k_unbind_Ca_ER\" units=\"per_s\" interface=\"public\"/>\n    <variable name=\"NE_init\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"NE\" units=\"millimolar\" initial_value=\"NE_init\" interface=\"public\"/>\n    <variable name=\"Cai_NE_base\" units=\"millimolar\" interface=\"public\"/>\n    <variable name=\"k_NE\" units=\"per_s\" interface=\"public\"/>\n    <variable name=\"k_NET\" units=\"per_s\" interface=\"public\"/>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <ci>c_bulk</ci>\n        <apply>\n          <minus/>\n          <apply>\n            <minus/>\n            <apply>\n              <minus/>\n              <cn cellml:units=\"dimensionless\">1</cn>\n              <ci>c_SL</ci>\n            </apply>\n            <ci>c_ER</ci>\n          </apply>\n          <ci>c_ER_pre</ci>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <ci>E_Ca</ci>\n        <apply>\n          <times/>\n          <apply>\n            <divide/>\n            <apply>\n              <times/>\n              <ci>R</ci>\n              <ci>T</ci>\n            </apply>\n            <ci>F</ci>\n          </apply>\n          <apply>\n            <ln/>\n            <apply>\n              <divide/>\n              <ci>Cao</ci>\n              <ci>Cai</ci>\n            </apply>\n          </apply>\n          <cn cellml:units=\"milliV_per_V\">1000</cn>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <ci>V_mid_hc</ci>\n        <apply>\n          <plus/>\n          <ci>V_mid_c</ci>\n          <cn cellml:units=\"milliV\">11</cn>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>V_den_hc</ci>\n        <ci>V_den_c</ci>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>c_inf</ci>\n        <apply>\n          <divide/>\n          <cn cellml:units=\"dimensionless\">1</cn>\n          <apply>\n            <plus/>\n            <cn cellml:units=\"dimensionless\">1</cn>\n            <apply>\n              <exp/>\n              <apply>\n                <divide/>\n                <apply>\n                  <minus/>\n                  <apply>\n                    <plus/>\n                    <ci>V</ci>\n                    <ci>V_mid_c</ci>\n                  </apply>\n                </apply>\n                <ci>V_den_c</ci>\n              </apply>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>hc_inf</ci>\n        <apply>\n          <divide/>\n          <cn cellml:units=\"dimensionless\">1</cn>\n          <apply>\n            <plus/>\n            <cn cellml:units=\"dimensionless\">1</cn>\n            <apply>\n              <exp/>\n              <apply>\n                <divide/>\n                <apply>\n                  <plus/>\n                  <ci>V</ci>\n                  <ci>V_mid_hc</ci>\n                </apply>\n                <ci>V_den_hc</ci>\n              </apply>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>tau_c</ci>\n        <apply>\n          <plus/>\n          <ci>tau_c_min</ci>\n          <apply>\n            <divide/>\n            <apply>\n              <minus/>\n              <ci>tau_c_max</ci>\n              <ci>tau_c_min</ci>\n            </apply>\n            <apply>\n              <plus/>\n              <cn cellml:units=\"dimensionless\">1</cn>\n              <apply>\n                <exp/>\n                <apply>\n                  <divide/>\n                  <apply>\n                    <plus/>\n                    <apply>\n                      <minus/>\n                      <ci>V_mid_c</ci>\n                      <cn cellml:units=\"milliV\">20</cn>\n                    </apply>\n                    <ci>V</ci>\n                  </apply>\n                  <ci>V_den_c</ci>\n                </apply>\n              </apply>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n      <!--+1{dimensionless}/(0.343{per_millis}*exp(0.0925{per_milliV}*V)+1.88{per_millis}*exp(-0.00732{per_milliV}*V));-->\n      <!--+1{dimensionless}/(0.242{per_millis}*exp(0.145{per_milliV}*V)+0.0434{per_millis}*exp(-0.0201{per_milliV}*V));-->\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>c</ci>\n        </apply>\n        <apply>\n          <divide/>\n          <apply>\n            <minus/>\n            <ci>c_inf</ci>\n            <ci>c</ci>\n          </apply>\n          <apply>\n            <plus/>\n            <apply>\n              <abs/>\n              <apply>\n                <divide/>\n                <ci>tau_c</ci>\n                <cn cellml:units=\"millis_per_s\">1000</cn>\n              </apply>\n            </apply>\n            <ci>epsilon_tau</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>hc</ci>\n        </apply>\n        <apply>\n          <divide/>\n          <apply>\n            <minus/>\n            <ci>hc_inf</ci>\n            <ci>hc</ci>\n          </apply>\n          <apply>\n            <plus/>\n            <apply>\n              <abs/>\n              <apply>\n                <divide/>\n                <ci>tau_hc</ci>\n                <cn cellml:units=\"millis_per_s\">1000</cn>\n              </apply>\n            </apply>\n            <ci>epsilon_tau</ci>\n          </apply>\n        </apply>\n      </apply>\n      <!-- TODO Include cAMP effects?-->\n      <apply>\n        <eq/>\n        <ci>i_Ca_N</ci>\n        <apply>\n          <times/>\n          <ci>g_CaN</ci>\n          <apply>\n            <minus/>\n            <ci>V</ci>\n            <ci>E_Ca</ci>\n          </apply>\n          <apply>\n            <power/>\n            <ci>c</ci>\n            <cn cellml:units=\"dimensionless\">2</cn>\n          </apply>\n          <ci>hc</ci>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <ci>i_NaCa</ci>\n        <apply>\n          <divide/>\n          <apply>\n            <times/>\n            <ci>k_NaCa</ci>\n            <apply>\n              <minus/>\n              <apply>\n                <times/>\n                <apply>\n                  <exp/>\n                  <apply>\n                    <divide/>\n                    <apply>\n                      <times/>\n                      <ci>gamma_NaCa</ci>\n                      <ci>V</ci>\n                      <cn type=\"e-notation\" cellml:units=\"V_per_milliV\">1<sep/>-3</cn>\n                      <ci>F</ci>\n                    </apply>\n                    <apply>\n                      <times/>\n                      <ci>R</ci>\n                      <ci>T</ci>\n                    </apply>\n                  </apply>\n                </apply>\n                <apply>\n                  <power/>\n                  <ci>Nai</ci>\n                  <cn cellml:units=\"dimensionless\">3</cn>\n                </apply>\n                <ci>Cao</ci>\n              </apply>\n              <apply>\n                <times/>\n                <apply>\n                  <exp/>\n                  <apply>\n                    <divide/>\n                    <apply>\n                      <times/>\n                      <apply>\n                        <minus/>\n                        <ci>gamma_NaCa</ci>\n                        <cn cellml:units=\"dimensionless\">1</cn>\n                      </apply>\n                      <ci>V</ci>\n                      <cn type=\"e-notation\" cellml:units=\"V_per_milliV\">1<sep/>-3</cn>\n                      <ci>F</ci>\n                    </apply>\n                    <apply>\n                      <times/>\n                      <ci>R</ci>\n                      <ci>T</ci>\n                    </apply>\n                  </apply>\n                </apply>\n                <apply>\n                  <power/>\n                  <ci>Nao</ci>\n                  <cn cellml:units=\"dimensionless\">3</cn>\n                </apply>\n                <ci>Cai</ci>\n                <ci>alpha_NaCa</ci>\n              </apply>\n            </apply>\n          </apply>\n          <apply>\n            <times/>\n            <apply>\n              <plus/>\n              <apply>\n                <power/>\n                <ci>KmNai</ci>\n                <cn cellml:units=\"dimensionless\">3</cn>\n              </apply>\n              <apply>\n                <power/>\n                <ci>Nao</ci>\n                <cn cellml:units=\"dimensionless\">3</cn>\n              </apply>\n            </apply>\n            <apply>\n              <plus/>\n              <ci>KmCa</ci>\n              <ci>Cao</ci>\n            </apply>\n            <apply>\n              <plus/>\n              <cn cellml:units=\"dimensionless\">1</cn>\n              <apply>\n                <times/>\n                <ci>Ksat</ci>\n                <apply>\n                  <exp/>\n                  <apply>\n                    <divide/>\n                    <apply>\n                      <times/>\n                      <apply>\n                        <minus/>\n                        <ci>gamma_NaCa</ci>\n                        <cn cellml:units=\"dimensionless\">1</cn>\n                      </apply>\n                      <ci>V</ci>\n                      <cn type=\"e-notation\" cellml:units=\"V_per_milliV\">1<sep/>-3</cn>\n                      <ci>F</ci>\n                    </apply>\n                    <apply>\n                      <times/>\n                      <ci>R</ci>\n                      <ci>T</ci>\n                    </apply>\n                  </apply>\n                </apply>\n              </apply>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <ci>m_IP3_inf</ci>\n        <apply>\n          <divide/>\n          <apply>\n            <times/>\n            <apply>\n              <divide/>\n              <ci>IP3</ci>\n              <apply>\n                <plus/>\n                <ci>IP3</ci>\n                <ci>d_1</ci>\n              </apply>\n            </apply>\n            <ci>Cai</ci>\n          </apply>\n          <apply>\n            <plus/>\n            <ci>Cai</ci>\n            <ci>d_5</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>Q_2</ci>\n        <apply>\n          <divide/>\n          <apply>\n            <times/>\n            <ci>d_2</ci>\n            <apply>\n              <plus/>\n              <ci>IP3</ci>\n              <ci>d_1</ci>\n            </apply>\n          </apply>\n          <apply>\n            <plus/>\n            <ci>IP3</ci>\n            <ci>d_3</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>tau_hIP3</ci>\n        <apply>\n          <divide/>\n          <cn cellml:units=\"millis\">1</cn>\n          <apply>\n            <times/>\n            <ci>a_2</ci>\n            <apply>\n              <plus/>\n              <ci>Q_2</ci>\n              <ci>Cai</ci>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>h_IP3_inf</ci>\n        <apply>\n          <divide/>\n          <ci>Q_2</ci>\n          <apply>\n            <plus/>\n            <ci>Q_2</ci>\n            <ci>Cai</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>h_IP3</ci>\n        </apply>\n        <apply>\n          <divide/>\n          <apply>\n            <minus/>\n            <ci>h_IP3_inf</ci>\n            <ci>h_IP3</ci>\n          </apply>\n          <apply>\n            <divide/>\n            <ci>tau_hIP3</ci>\n            <cn cellml:units=\"millis_per_s\">1000</cn>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>j_IP3</ci>\n        <apply>\n          <times/>\n          <apply>\n            <minus/>\n            <ci>k_IP3</ci>\n          </apply>\n          <apply>\n            <power/>\n            <ci>m_IP3_inf</ci>\n            <cn cellml:units=\"dimensionless\">3</cn>\n          </apply>\n          <apply>\n            <power/>\n            <ci>h_IP3</ci>\n            <cn cellml:units=\"dimensionless\">3</cn>\n          </apply>\n          <apply>\n            <minus/>\n            <ci>Cai</ci>\n            <ci>Ca_ER</ci>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\">\n      <apply>\n        <eq/>\n        <ci>j_leak_Ca</ci>\n        <apply>\n          <times/>\n          <apply>\n            <minus/>\n            <ci>k_leak_Ca</ci>\n          </apply>\n          <apply>\n            <minus/>\n            <ci>Ca_bulk</ci>\n            <ci>Ca_ER_pre</ci>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <ci>j_SERCA</ci>\n        <apply>\n          <divide/>\n          <apply>\n            <times/>\n            <apply>\n              <minus/>\n              <ci>k_SERCA</ci>\n            </apply>\n            <apply>\n              <minus/>\n              <apply>\n                <power/>\n                <apply>\n                  <divide/>\n                  <ci>Ca_bulk</ci>\n                  <ci>K_mf</ci>\n                </apply>\n                <ci>H_SERCA</ci>\n              </apply>\n              <apply>\n                <power/>\n                <apply>\n                  <divide/>\n                  <ci>Ca_ER_pre</ci>\n                  <ci>K_mr</ci>\n                </apply>\n                <ci>H_SERCA</ci>\n              </apply>\n            </apply>\n          </apply>\n          <apply>\n            <plus/>\n            <cn cellml:units=\"dimensionless\">1</cn>\n            <apply>\n              <power/>\n              <apply>\n                <divide/>\n                <ci>Ca_bulk</ci>\n                <ci>K_mf</ci>\n              </apply>\n              <ci>H_SERCA</ci>\n            </apply>\n            <apply>\n              <power/>\n              <apply>\n                <divide/>\n                <ci>Ca_ER_pre</ci>\n                <ci>K_mr</ci>\n              </apply>\n              <ci>H_SERCA</ci>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <ci>c_RyR_inf</ci>\n        <apply>\n          <divide/>\n          <cn cellml:units=\"dimensionless\">1</cn>\n          <apply>\n            <plus/>\n            <cn cellml:units=\"dimensionless\">1</cn>\n            <apply>\n              <exp/>\n              <apply>\n                <divide/>\n                <apply>\n                  <minus/>\n                  <apply>\n                    <minus/>\n                    <ci>Cai</ci>\n                    <ci>Cai_RyR_mid</ci>\n                  </apply>\n                </apply>\n                <ci>Cai_RyR_den</ci>\n              </apply>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n      <!-- deactivated by Ca_ER decreasing, so also activated by Ca_ER-->\n      <apply>\n        <eq/>\n        <ci>hc_RyR_inf</ci>\n        <apply>\n          <divide/>\n          <cn cellml:units=\"dimensionless\">1</cn>\n          <apply>\n            <plus/>\n            <cn cellml:units=\"dimensionless\">1</cn>\n            <apply>\n              <exp/>\n              <apply>\n                <divide/>\n                <apply>\n                  <minus/>\n                  <apply>\n                    <minus/>\n                    <ci>Ca_ER</ci>\n                    <ci>Ca_ER_RyR_mid</ci>\n                  </apply>\n                </apply>\n                <ci>Ca_ER_RyR_den</ci>\n              </apply>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>c_RyR</ci>\n        </apply>\n        <apply>\n          <divide/>\n          <apply>\n            <minus/>\n            <ci>c_RyR_inf</ci>\n            <ci>c_RyR</ci>\n          </apply>\n          <apply>\n            <divide/>\n            <ci>tau_c_RyR</ci>\n            <cn cellml:units=\"millis_per_s\">1000</cn>\n          </apply>\n        </apply>\n      </apply>\n      <!-- tau_hc_RyR = tau_hc_RyR_min; // + 200{millis}/(exp((Ca_ER-Ca_ER_RyR_tau_mid)/Ca_ER_RyR_tau_den)+exp(-(Ca_ER-Ca_ER_RyR_tau_mid)/Ca_ER_RyR_tau_den));-->\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>hc_RyR</ci>\n        </apply>\n        <apply>\n          <divide/>\n          <apply>\n            <minus/>\n            <ci>hc_RyR_inf</ci>\n            <ci>hc_RyR</ci>\n          </apply>\n          <apply>\n            <divide/>\n            <ci>tau_hc_RyR</ci>\n            <cn cellml:units=\"millis_per_s\">1000</cn>\n          </apply>\n        </apply>\n      </apply>\n      <!-- TODO include cAMP dependence\n TODO should it be c_RyR^3, to be more similar to -->\n      <apply>\n        <eq/>\n        <ci>j_RyR</ci>\n        <apply>\n          <times/>\n          <ci>k_RyR</ci>\n          <apply>\n            <minus/>\n            <ci>Ca_ER</ci>\n            <ci>Cai</ci>\n          </apply>\n          <apply>\n            <power/>\n            <ci>c_RyR</ci>\n            <cn cellml:units=\"dimensionless\">3</cn>\n          </apply>\n          <apply>\n            <power/>\n            <ci>hc_RyR</ci>\n            <cn cellml:units=\"dimensionless\">3</cn>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>B_Cai</ci>\n        </apply>\n        <apply>\n          <minus/>\n          <apply>\n            <times/>\n            <ci>k_unbind_Ca</ci>\n            <ci>CaB_Cai</ci>\n          </apply>\n          <apply>\n            <times/>\n            <ci>k_bind_Ca</ci>\n            <ci>Cai</ci>\n            <ci>B_Cai</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>CaB_Cai</ci>\n        <apply>\n          <minus/>\n          <ci>B_Ca_total</ci>\n          <ci>B_Cai</ci>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>B_Ca_bulk</ci>\n        </apply>\n        <apply>\n          <minus/>\n          <apply>\n            <times/>\n            <ci>k_unbind_Ca</ci>\n            <ci>CaB_Ca_bulk</ci>\n          </apply>\n          <apply>\n            <times/>\n            <ci>k_bind_Ca</ci>\n            <ci>Ca_bulk</ci>\n            <ci>B_Ca_bulk</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>CaB_Ca_bulk</ci>\n        <apply>\n          <minus/>\n          <ci>B_Ca_total</ci>\n          <ci>B_Ca_bulk</ci>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>B_Ca_ER_pre</ci>\n        </apply>\n        <apply>\n          <minus/>\n          <apply>\n            <times/>\n            <ci>k_unbind_Ca_ER</ci>\n            <ci>CaB_Ca_ER_pre</ci>\n          </apply>\n          <apply>\n            <times/>\n            <ci>k_bind_Ca_ER</ci>\n            <ci>Ca_ER_pre</ci>\n            <ci>B_Ca_ER_pre</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>CaB_Ca_ER_pre</ci>\n        <apply>\n          <minus/>\n          <ci>B_Ca_total</ci>\n          <ci>B_Ca_ER_pre</ci>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>j_Ca_N</ci>\n        <apply>\n          <times/>\n          <apply>\n            <divide/>\n            <apply>\n              <minus/>\n              <ci>i_Ca_N</ci>\n            </apply>\n            <apply>\n              <times/>\n              <cn cellml:units=\"dimensionless\">2</cn>\n              <ci>F</ci>\n            </apply>\n          </apply>\n          <cn type=\"e-notation\" cellml:units=\"A_per_nanoA\">1<sep/>-9</cn>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>j_NaCa_Ca</ci>\n        <apply>\n          <times/>\n          <apply>\n            <divide/>\n            <ci>i_NaCa</ci>\n            <ci>F</ci>\n          </apply>\n          <cn type=\"e-notation\" cellml:units=\"A_per_nanoA\">1<sep/>-9</cn>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>j_diffCa</ci>\n        <apply>\n          <times/>\n          <apply>\n            <minus/>\n            <ci>D_Ca</ci>\n          </apply>\n          <apply>\n            <minus/>\n            <ci>Cai</ci>\n            <ci>Ca_bulk</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <ci>j_diffCa_ER</ci>\n        <apply>\n          <times/>\n          <ci>D_Ca_ER</ci>\n          <apply>\n            <minus/>\n            <ci>Ca_ER_pre</ci>\n            <ci>Ca_ER</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>Cai</ci>\n        </apply>\n        <apply>\n          <minus/>\n          <apply>\n            <plus/>\n            <apply>\n              <times/>\n              <apply>\n                <divide/>\n                <cn cellml:units=\"dimensionless\">1</cn>\n                <apply>\n                  <times/>\n                  <ci>Vol</ci>\n                  <ci>c_SL</ci>\n                </apply>\n              </apply>\n              <apply>\n                <plus/>\n                <ci>j_Ca_N</ci>\n                <ci>j_NaCa_Ca</ci>\n                <ci>j_IP3</ci>\n                <ci>j_RyR</ci>\n                <ci>j_leak_Ca</ci>\n                <ci>j_diffCa</ci>\n              </apply>\n            </apply>\n            <apply>\n              <times/>\n              <ci>k_unbind_Ca</ci>\n              <ci>CaB_Cai</ci>\n            </apply>\n          </apply>\n          <apply>\n            <times/>\n            <ci>k_bind_Ca</ci>\n            <ci>Cai</ci>\n            <ci>B_Cai</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>Ca_bulk</ci>\n        </apply>\n        <apply>\n          <minus/>\n          <apply>\n            <plus/>\n            <apply>\n              <times/>\n              <apply>\n                <divide/>\n                <cn cellml:units=\"dimensionless\">1</cn>\n                <apply>\n                  <times/>\n                  <ci>Vol</ci>\n                  <ci>c_bulk</ci>\n                </apply>\n              </apply>\n              <apply>\n                <minus/>\n                <ci>j_SERCA</ci>\n                <ci>j_diffCa</ci>\n              </apply>\n            </apply>\n            <apply>\n              <times/>\n              <ci>k_unbind_Ca</ci>\n              <ci>CaB_Ca_bulk</ci>\n            </apply>\n          </apply>\n          <apply>\n            <times/>\n            <ci>k_bind_Ca</ci>\n            <ci>Ca_bulk</ci>\n            <ci>B_Ca_bulk</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>Ca_ER_pre</ci>\n        </apply>\n        <apply>\n          <minus/>\n          <apply>\n            <plus/>\n            <apply>\n              <times/>\n              <apply>\n                <divide/>\n                <cn cellml:units=\"dimensionless\">1</cn>\n                <apply>\n                  <times/>\n                  <ci>Vol</ci>\n                  <ci>c_ER_pre</ci>\n                </apply>\n              </apply>\n              <apply>\n                <minus/>\n                <apply>\n                  <minus/>\n                  <apply>\n                    <minus/>\n                    <ci>j_SERCA</ci>\n                  </apply>\n                  <ci>j_leak_Ca</ci>\n                </apply>\n                <ci>j_diffCa_ER</ci>\n              </apply>\n            </apply>\n            <apply>\n              <times/>\n              <ci>k_unbind_Ca_ER</ci>\n              <ci>CaB_Ca_ER_pre</ci>\n            </apply>\n          </apply>\n          <apply>\n            <times/>\n            <ci>k_bind_Ca_ER</ci>\n            <ci>Ca_ER_pre</ci>\n            <ci>B_Ca_ER_pre</ci>\n          </apply>\n        </apply>\n      </apply>\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>Ca_ER</ci>\n        </apply>\n        <apply>\n          <times/>\n          <apply>\n            <divide/>\n            <cn cellml:units=\"dimensionless\">1</cn>\n            <apply>\n              <times/>\n              <ci>Vol</ci>\n              <ci>c_ER</ci>\n            </apply>\n          </apply>\n          <apply>\n            <plus/>\n            <apply>\n              <minus/>\n              <apply>\n                <minus/>\n                <ci>j_IP3</ci>\n              </apply>\n              <ci>j_RyR</ci>\n            </apply>\n            <ci>j_diffCa_ER</ci>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\" xmlns:cellml=\"http://www.cellml.org/cellml/2.0#\">\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>NE</ci>\n        </apply>\n        <apply>\n          <minus/>\n          <apply>\n            <times/>\n            <ci>k_NE</ci>\n            <apply>\n              <max/>\n              <apply>\n                <minus/>\n                <ci>Cai</ci>\n                <ci>Cai_NE_base</ci>\n              </apply>\n              <cn cellml:units=\"millimolar\">0</cn>\n            </apply>\n          </apply>\n          <apply>\n            <times/>\n            <ci>k_NET</ci>\n            <apply>\n              <minus/>\n              <ci>NE</ci>\n              <ci>NE_init</ci>\n            </apply>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n  </component>\n</model>\n",
+  "variables": [
+    {
+      "name": "c_bulk",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "c_SL",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.02",
+      "type": "constant",
+      "data_reference": "user_defined_TO_BE_FOUND"
+    },
+    {
+      "name": "c_ER",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.01",
+      "type": "constant",
+      "data_reference": "Li1994Equations_was_0.185"
+    },
+    {
+      "name": "c_ER_pre",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.049",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "E_Ca",
+      "units": "milliV",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "R",
+      "units": "J_per_mol_K",
+      "access": "access",
+      "value": "",
+      "type": "global_constant",
+      "data_reference": null
+    },
+    {
+      "name": "T",
+      "units": "kelvin",
+      "access": "access",
+      "value": "",
+      "type": "global_constant",
+      "data_reference": null
+    },
+    {
+      "name": "F",
+      "units": "C_per_mol",
+      "access": "access",
+      "value": "",
+      "type": "global_constant",
+      "data_reference": null
+    },
+    {
+      "name": "Cao",
+      "units": "millimolar",
+      "access": "access",
+      "value": "2",
+      "type": "constant",
+      "data_reference": "Tau2011"
+    },
+    {
+      "name": "Cai",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "Cai_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "V_mid_hc",
+      "units": "milliV",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "V_mid_c",
+      "units": "milliV",
+      "access": "access",
+      "value": "8.1",
+      "type": "constant",
+      "data_reference": "Tau2011_was_8.1"
+    },
+    {
+      "name": "V_den_hc",
+      "units": "milliV",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "V_den_c",
+      "units": "milliV",
+      "access": "access",
+      "value": "5",
+      "type": "constant",
+      "data_reference": "Tau2011_was_9.85"
+    },
+    {
+      "name": "c_inf",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "V",
+      "units": "milliV",
+      "access": "access",
+      "value": "",
+      "type": "boundary_condition",
+      "data_reference": null
+    },
+    {
+      "name": "hc_inf",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "tau_c",
+      "units": "millis",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "tau_c_min",
+      "units": "millis",
+      "access": "access",
+      "value": "0.2",
+      "type": "constant",
+      "data_reference": "changed_from_belluzi1991_curves"
+    },
+    {
+      "name": "tau_c_max",
+      "units": "millis",
+      "access": "access",
+      "value": "3.0",
+      "type": "constant",
+      "data_reference": "changed_from_belluzi1991_curves"
+    },
+    {
+      "name": "t",
+      "units": "second",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "c",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "c_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "epsilon_tau",
+      "units": "second",
+      "access": "no_access",
+      "value": "1e-4",
+      "type": "constant",
+      "data_reference": null
+    },
+    {
+      "name": "hc",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "hc_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "tau_hc",
+      "units": "millis",
+      "access": "access",
+      "value": "20.0",
+      "type": "constant",
+      "data_reference": "changed_from_belluzi1991_curves"
+    },
+    {
+      "name": "i_Ca_N",
+      "units": "nanoA",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "g_CaN",
+      "units": "microS",
+      "access": "access",
+      "value": "1e-5",
+      "type": "constant",
+      "data_reference": "to_be_identified"
+    },
+    {
+      "name": "i_NaCa",
+      "units": "nanoA",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "k_NaCa",
+      "units": "nanoA",
+      "access": "access",
+      "value": "0.15",
+      "type": "constant",
+      "data_reference": "to_be_identified"
+    },
+    {
+      "name": "gamma_NaCa",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.35",
+      "type": "constant",
+      "data_reference": "Paci_2013_CHECK_FOR_SN"
+    },
+    {
+      "name": "Nai",
+      "units": "millimolar",
+      "access": "access",
+      "value": "13",
+      "type": "constant",
+      "data_reference": "BoronBoulpaep2017_was_15"
+    },
+    {
+      "name": "Nao",
+      "units": "millimolar",
+      "access": "access",
+      "value": "145",
+      "type": "constant",
+      "data_reference": "BoronBoulpaep2017"
+    },
+    {
+      "name": "alpha_NaCa",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "1.2",
+      "type": "constant",
+      "data_reference": "Paci_2013_CHECK_FOR_SN"
+    },
+    {
+      "name": "KmNai",
+      "units": "millimolar",
+      "access": "access",
+      "value": "87.5",
+      "type": "constant",
+      "data_reference": "Paci_2013_CHECK_FOR_SN"
+    },
+    {
+      "name": "KmCa",
+      "units": "millimolar",
+      "access": "access",
+      "value": "1.38",
+      "type": "constant",
+      "data_reference": "Paci_2013_CHECK_FOR_SN"
+    },
+    {
+      "name": "Ksat",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.1",
+      "type": "constant",
+      "data_reference": "Paci_2013_CHECK_FOR_SN"
+    },
+    {
+      "name": "m_IP3_inf",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "IP3",
+      "units": "millimolar",
+      "access": "access",
+      "value": "200e-6",
+      "type": "constant",
+      "data_reference": "Li1994Equations_from_plot"
+    },
+    {
+      "name": "d_1",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.13e-3",
+      "type": "constant",
+      "data_reference": "Li1994Equations"
+    },
+    {
+      "name": "d_5",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.08234e-3",
+      "type": "constant",
+      "data_reference": "Li1994Equations"
+    },
+    {
+      "name": "Q_2",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "d_2",
+      "units": "millimolar",
+      "access": "access",
+      "value": "1.049e-3",
+      "type": "constant",
+      "data_reference": "Li1994Equations"
+    },
+    {
+      "name": "d_3",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.943e-3",
+      "type": "constant",
+      "data_reference": "Li1994Equations"
+    },
+    {
+      "name": "tau_hIP3",
+      "units": "millis",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "a_2",
+      "units": "per_millimolar",
+      "access": "access",
+      "value": "200",
+      "type": "constant",
+      "data_reference": "Li1994Equations"
+    },
+    {
+      "name": "h_IP3_inf",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "h_IP3",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "h_IP3_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "j_IP3",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "k_IP3",
+      "units": "m3_per_s",
+      "access": "access",
+      "value": "0.0",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "Ca_ER",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "Ca_ER_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "j_leak_Ca",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "k_leak_Ca",
+      "units": "m3_per_s",
+      "access": "access",
+      "value": "2e-20",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "Ca_bulk",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "Cai_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "Ca_ER_pre",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "Ca_ER_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "j_SERCA",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "k_SERCA",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "1.5e-19",
+      "type": "constant",
+      "data_reference": "to_be_identified"
+    },
+    {
+      "name": "K_mf",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.1e-3",
+      "type": "constant",
+      "data_reference": "Shannon2004Mathematical_was_0.246e-3"
+    },
+    {
+      "name": "H_SERCA",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "1.787",
+      "type": "constant",
+      "data_reference": "Shannon2004Mathematical"
+    },
+    {
+      "name": "K_mr",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.5",
+      "type": "constant",
+      "data_reference": "Shannon2004Mathematical"
+    },
+    {
+      "name": "c_RyR_inf",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "Cai_RyR_mid",
+      "units": "millimolar",
+      "access": "access",
+      "value": "8e-4",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "Cai_RyR_den",
+      "units": "millimolar",
+      "access": "access",
+      "value": "1e-4",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "hc_RyR_inf",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "Ca_ER_RyR_mid",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.5",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "Ca_ER_RyR_den",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.03",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "c_RyR",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "c_RyR_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "tau_c_RyR",
+      "units": "millis",
+      "access": "access",
+      "value": "0.01",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "hc_RyR",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "hc_RyR_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "tau_hc_RyR",
+      "units": "millis",
+      "access": "access",
+      "value": "10",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "j_RyR",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "k_RyR",
+      "units": "m3_per_s",
+      "access": "access",
+      "value": "75e-18",
+      "type": "constant",
+      "data_reference": "to_be_identified"
+    },
+    {
+      "name": "B_Cai",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "B_Ca_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "k_unbind_Ca",
+      "units": "per_s",
+      "access": "access",
+      "value": "8e3",
+      "type": "constant",
+      "data_reference": "Matveev2002"
+    },
+    {
+      "name": "CaB_Cai",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "k_bind_Ca",
+      "units": "per_millimolar_s",
+      "access": "access",
+      "value": "0.1e6",
+      "type": "constant",
+      "data_reference": "Matveev2002_was_0.5e6"
+    },
+    {
+      "name": "B_Ca_total",
+      "units": "millimolar",
+      "access": "access",
+      "value": "8",
+      "type": "constant",
+      "data_reference": "Matveev2002"
+    },
+    {
+      "name": "B_Ca_bulk",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "B_Ca_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "CaB_Ca_bulk",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "B_Ca_ER_pre",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "B_Ca_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "k_unbind_Ca_ER",
+      "units": "per_s",
+      "access": "access",
+      "value": "8e3",
+      "type": "constant",
+      "data_reference": "Matveev2002_for_k_unbind_Ca"
+    },
+    {
+      "name": "CaB_Ca_ER_pre",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "k_bind_Ca_ER",
+      "units": "per_millimolar_s",
+      "access": "access",
+      "value": "0.5e3",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "j_Ca_N",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "j_NaCa_Ca",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "j_diffCa",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "D_Ca",
+      "units": "m3_per_s",
+      "access": "access",
+      "value": "3e-15",
+      "type": "constant",
+      "data_reference": "identified_by_hand"
+    },
+    {
+      "name": "j_diffCa_ER",
+      "units": "mol_per_s",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null
+    },
+    {
+      "name": "D_Ca_ER",
+      "units": "m3_per_s",
+      "access": "access",
+      "value": "2.4e-18",
+      "type": "constant",
+      "data_reference": "need_to_change_for_volume"
+    },
+    {
+      "name": "Vol",
+      "units": "m3",
+      "access": "access",
+      "value": "1.0e-18",
+      "type": "constant",
+      "data_reference": "bennet1998Sympathetic"
+    },
+    {
+      "name": "NE",
+      "units": "millimolar",
+      "access": "access",
+      "value": "",
+      "type": "variable",
+      "data_reference": null,
+      "initialiser": "NE_init",
+      "stateRole": "state"
+    },
+    {
+      "name": "k_NE",
+      "units": "per_s",
+      "access": "access",
+      "value": "200",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "Cai_NE_base",
+      "units": "millimolar",
+      "access": "access",
+      "value": "1e-4",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "k_NET",
+      "units": "per_s",
+      "access": "access",
+      "value": "100",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "NE_init",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.0",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "c_init",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.01",
+      "type": "constant",
+      "data_reference": "Tau2011"
+    },
+    {
+      "name": "hc_init",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.9",
+      "type": "constant",
+      "data_reference": "Tau2011"
+    },
+    {
+      "name": "h_IP3_init",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.99",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "c_RyR_init",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.0",
+      "type": "constant",
+      "data_reference": null
+    },
+    {
+      "name": "hc_RyR_init",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "1.0",
+      "type": "constant",
+      "data_reference": null
+    },
+    {
+      "name": "B_Ca_init",
+      "units": "millimolar",
+      "access": "access",
+      "value": "7.95",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "Cai_init",
+      "units": "millimolar",
+      "access": "access",
+      "value": "1e-4",
+      "type": "constant",
+      "data_reference": "Hagiwara1981"
+    },
+    {
+      "name": "Ca_ER_init",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.6",
+      "type": "constant",
+      "data_reference": "to_be_checked_in_neurons"
+    },
+    {
+      "name": "N_avo",
+      "units": "per_mol",
+      "access": "access",
+      "value": "",
+      "type": "global_constant",
+      "data_reference": null
+    },
+    {
+      "name": "cAMP",
+      "units": "dimensionless",
+      "access": "access",
+      "value": "0.01",
+      "type": "constant",
+      "data_reference": "user_defined"
+    },
+    {
+      "name": "Ca_ER_RyR_tau_mid",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.3",
+      "type": "constant",
+      "data_reference": "NOT_USED"
+    },
+    {
+      "name": "Ca_ER_RyR_tau_den",
+      "units": "millimolar",
+      "access": "access",
+      "value": "0.01",
+      "type": "constant",
+      "data_reference": "NOT_USED"
+    }
+  ]
+}

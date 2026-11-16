@@ -2,7 +2,7 @@ import { MarkerType } from '@vue-flow/core'
 
 export const DEFAULT_PROJECT_NAME = 'phlynx-project'
 export const PHLYNX_PROJECT_IDENTIFIER = 'phlynx-project'
-export const PHLYNX_PROJECT_VERSION = '1.2.0'
+export const PHLYNX_PROJECT_VERSION = '1.4.0'
 
 export const SOURCE_HANDLE_TYPE = 'source'
 export const TARGET_HANDLE_TYPE = 'target'
@@ -14,7 +14,12 @@ export const NUM_GHOST_HANDLES_LEFT_RIGHT = 5
 export const NUM_GHOST_HANDLES_TOP_BOT = 7
 export const HANDLE_SPACING = 25
 
+/** How wide a resizable panel's drag handle is, in pixels, beside the width the panel reports. */
+export const PANEL_RESIZE_HANDLE_WIDTH = 6
+
+// Groupings new modules go in, by format: a label in each math reference, not a file (see services/userModules).
 export const USER_MODULES_FILE = 'User_Modules.cellml'
+export const CELLDL_USER_MODULES_FILE = 'User_Modules.celldl'
 export const NEW_INSTANCE_MODULE_REF = 'new_module:phlynx'
 export const DEFAULT_CELLML_FILE_NAME = 'model.cellml'
 
@@ -36,7 +41,11 @@ export const FLOW_IDS = {
   MAIN: 'main-flow-editor',
   MACRO: 'macro-builder-editor',
   EDGE: 'edge-conn-flow',
+  BIO: 'bio-flow-editor',
 }
+
+/** The faded dot grid behind the diagram and physiological views. */
+export const BACKGROUND_DOTS = { size: 2, gap: 20, patternColor: '#BDBDBD' }
 
 export const PARAMETER_TYPE_OPTIONS = [
   { value: 'constant', label: 'constant' },
@@ -164,17 +173,12 @@ export const PORT_TYPE_OPTIONS = [
   { value: 'exit_ports',     label: 'O' },  
 ]
 
-export const MULTIPORT_OPTIONS = [
-  { value: 'True',  label: 'True'  },
-  { value: 'Sum',   label: 'Sum'   },
-  { value: 'None',  label: 'None'  },
-]
-
 /*--- Folder and File Handling ---*/
 export const IMPORT_KEYS = {
   INSTANCE_ARRAY: 'instanceArray',
   MODULE_CONFIG: 'moduleConfig',
   CELLML_FILE: 'cellMLFile',
+  CELLDL_FILE: 'cellDLFile',
   PARAMETER: 'parameter',
   TURTLE: 'turtle',
   OMEX: 'omex',
@@ -187,11 +191,12 @@ export const SEND_KEYS = {
 }
 
 export const IMPORT_LABELS = {
-  INSTANCE_ARRAY: 'Instance Array (.csv)',
+  INSTANCE_ARRAY: 'Instance Array (.json, .csv)',
   MODULE_CONFIG: 'Module Configurations (.json)',
   CELLML_FILE: 'CellML File (.cellml or .xml)',
-  PARAMETER: 'Parameters (.csv)',
-  TURTLE: 'Annotations (.ttl)',
+  CELLDL_FILE: 'CellDL Diagram (.celldl)',
+  PARAMETER: 'Parameters (.json, .csv)',
+  TURTLE: 'Module Annotations (.ttl)',
   OMEX: 'COMBINE Archive (OMEX)',
 }
 
@@ -239,7 +244,7 @@ export const OMEX_FILE_TYPES = [
   },
 ]
 
-export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml', '.xml'])
+export const RELEVANT_EXTENSIONS = new Set(['.csv', '.json', '.omex', '.cellml', '.xml', '.celldl'])
 export const DB_NAME = 'phlynx-import'
 export const STORE_NAME = 'handles'
 export const HANDLE_KEY = 'importFolderHandle'
@@ -257,6 +262,7 @@ export const BASELINE_SIMULATION_SETTINGS = {
   solver: 'CVODE',
   // The solver settings, as sedParameters.js's DEFAULT_SOLVER_SETTINGS.
   timeStep: 0.0,
-  tolerance: 1e-7,
+  relativeTolerance: 1e-7,
+  absoluteTolerance: 1e-7,
   maxSteps: 500,
 }

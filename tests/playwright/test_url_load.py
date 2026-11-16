@@ -37,7 +37,8 @@ class TestLoadViaUrl(unittest.TestCase):
 
             # ---------- START -----------
             page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").click()
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible()
+            # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
             expect(page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")).to_be_visible()
             expect(page.get_by_text("SN_somacell_modules.cellmlsoma_SN")).to_be_visible()
             expect(page.get_by_role("main")).to_contain_text("var_SN")
@@ -65,7 +66,8 @@ class TestLoadViaUrl(unittest.TestCase):
             page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
 
             # ---------- START -----------
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible()
+            # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
             expect(page.get_by_role("main")).to_contain_text("var_SN")
             expect(page.get_by_role("main")).to_contain_text("axon_SN")
             expect(page.get_by_role("main")).to_contain_text("soma_SN")
@@ -90,7 +92,8 @@ class TestLoadViaUrl(unittest.TestCase):
 
             # ---------- START -----------
             page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").click()
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible()
+            # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
             expect(page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")).to_be_visible()
             expect(page.get_by_text("SN_somacell_modules.cellmlsoma_SN")).to_be_visible()
             expect(page.locator("svg:nth-child(3) > .vue-flow__edge > .vue-flow__edge-interaction")).to_be_visible()
@@ -107,11 +110,11 @@ class TestLoadViaUrl(unittest.TestCase):
             expect(page.get_by_test_id("param-default-C")).to_have_value("10");
             expect(page.get_by_test_id("param-max-C")).to_have_value("11");
             dialog.get_by_role("tab", name="Solver").click()
-            expect(page.get_by_test_id("sim-initial-point")).to_have_value("0 s");
-            expect(page.get_by_test_id("sim-starting-point")).to_have_value("0 s");
-            expect(page.get_by_test_id("sim-ending-point")).to_have_value("20 s");
-            expect(page.get_by_test_id("sim-point-interval")).to_have_value("0.001 s");
-            page.get_by_role("button", name="Save").click()
+            expect(page.get_by_test_id("sim-initial-point")).to_have_value("0");
+            expect(page.get_by_test_id("sim-starting-point")).to_have_value("0");
+            expect(page.get_by_test_id("sim-ending-point")).to_have_value("20");
+            expect(page.get_by_test_id("sim-point-interval")).to_have_value("0.001");
+            dialog.get_by_role("button", name="Save", exact=True).click()
             page.locator(".vue-flow__pane").click()
             # ----------- END ------------
 

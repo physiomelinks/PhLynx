@@ -279,6 +279,75 @@ describe('base units in the generated file', () => {
     expect(create.detail).toBe('new · 1.15741×10⁻⁵ s⁻¹·number_of_sharks')
   })
 
+  it('reads names in the library style, so per_months is a new units of months⁻¹', () => {
+    const library2 = libraryOf([model('<units name="months"/><units name="number_of_sharks"/>')])
+    const withBase = { ...library2, baseUnits: new Set(['months', 'number_of_sharks']) }
+    expect(interpret('per_months', withBase)).toMatchObject({
+      name: 'per_months',
+      parts: [{ units: 'months', prefix: 0, exponent: -1, multiplier: 1 }],
+      expansion: 'months⁻¹',
+    })
+    expect(interpret('number_of_sharks_per_months', withBase)).toMatchObject({
+      name: 'number_of_sharks_per_months',
+      parts: [
+        { units: 'number_of_sharks', exponent: 1 },
+        { units: 'months', exponent: -1 },
+      ],
+    })
+    expect(interpret('per_number_of_sharks_per_months', withBase).parts.map((part) => part.exponent)).toEqual([-1, -1])
+    expect(interpret('per_m2', withBase).parts).toEqual([{ units: 'metre', prefix: 0, exponent: -2, multiplier: 1 }])
+    expect(interpret('per_shark', library)).toEqual({ name: 'per_shark', existing: true })
+  })
+
+  it('never offers a library-style name as a base units', () => {
+    const items = suggestUnits('per_months', library)
+    expect(items.some((item) => item.create?.parts.length === 0)).toBe(false)
+    expect(interpret('per_months', library).error).toMatch(/Unknown units "months"/)
+    expect(suggestUnits('per_number_of_sharks', library).find((item) => item.create)).toMatchObject({
+      value: 'per_number_of_sharks',
+      detail: 'new · number_of_sharks⁻¹',
+    })
+  })
+
+  it('reads prefixes on them, as CellML or UCUM writes them', () => {
+    const fish = { ...libraryOf([model('<units name="fish"/>')]), baseUnits: new Set(['fish']) }
+    expect(interpret('kilofish', fish)).toMatchObject({
+      name: 'kilofish',
+      parts: [{ units: 'fish', prefix: 3, exponent: 1, multiplier: 1 }],
+      expansion: '10³ fish',
+    })
+    expect(interpret('kfish', fish).parts).toEqual([{ units: 'fish', prefix: 3, exponent: 1, multiplier: 1 }])
+    expect(interpret('per_kilofish', fish).parts).toEqual([{ units: 'fish', prefix: 3, exponent: -1, multiplier: 1 }])
+    expect(interpret('millifish2', fish).parts).toEqual([{ units: 'fish', prefix: -3, exponent: 2, multiplier: 1 }])
+    expect(interpret('kilofish/fish', fish).expansion).toBe('10³')
+    expect(interpret('fish', fish)).toEqual({ name: 'fish', existing: true })
+    expect(unitsModelXml(new Map([['kilofish', interpret('kilofish', fish).parts]]))).toContain(
+      '<unit units="fish" prefix="kilo"/>'
+    )
+  })
+
+  it('folds a prefix into the multiplier when the units has several parts', () => {
+    expect(interpret('kiloper_shark', library).parts).toEqual([
+      { units: 'number_of_sharks', prefix: 0, exponent: -1, multiplier: 1000 },
+    ])
+  })
+
+  it('never offers units that read as other units as a base units', () => {
+    const fish = { ...libraryOf([model('<units name="fish"/>')]), baseUnits: new Set(['fish']) }
+    for (const text of ['kilofish', 'kfish', 'fish2', 'per_fish']) {
+      expect(suggestUnits(text, fish).some((item) => item.detail === 'new base units'), text).toBe(false)
+    }
+    expect(suggestUnits('kilofish', fish)[0]).toMatchObject({ value: 'kilofish', detail: 'new · 10³ fish' })
+    expect(suggestUnits('kilofish', { ...fish, baseUnits: new Set() }).some((item) => item.create)).toBe(false)
+  })
+
+  it('leaves UCUM symbols and library names as they were', () => {
+    expect(resolveSymbol('mm', SMALL.names)).toMatchObject({ atom: { units: 'metre' }, prefix: -3 })
+    expect(resolveSymbol('kilocelsius', SMALL.names)).toBeNull()
+    expect(resolveSymbol('kilometre', SMALL.names)).toMatchObject({ library: 'metre', prefix: 3 })
+    expect(resolveSymbol('kHz2', SMALL.names)).toMatchObject({ atom: { units: 'hertz' }, prefix: 3, exponent: 2 })
+  })
+
   it('refuses base units from other files, which the generated file cannot import', () => {
     expect(interpret('number_of_sharks/s', { ...library, baseUnits: new Set() }).error).toMatch(/built-in/)
   })

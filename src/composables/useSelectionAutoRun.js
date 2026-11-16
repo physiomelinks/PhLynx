@@ -14,6 +14,7 @@ import { useVueFlow } from '@vue-flow/core'
 import { useSimulation } from './useSimulation'
 import { libopencor } from '../services/simulation/libopencorLoader'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
+import { useViewModeStore } from '../stores/viewModeStore'
 import { FLOW_IDS } from '../utils/constants'
 
 // A short wait, so one click's selection events, and a pointer-up after its last change, run once.
@@ -40,8 +41,14 @@ const releaseShift = () => (isShiftHeld = false)
 export function useSelectionAutoRun({ isActive = () => true } = {}) {
   const store = useSimulationResultsStore()
   const { run } = useSimulation()
+  const viewMode = useViewModeStore()
   const { getSelectedNodes, userSelectionActive } = useVueFlow(FLOW_IDS.MAIN)
-  const selectedIds = computed(() => getSelectedNodes.value.map((node) => node.id).sort())
+  // A species token clicked in the physiological view runs its compartment and the proteins coupled to it.
+  const selectedIds = computed(() =>
+    viewMode.isBio && viewMode.focusedSpecies
+      ? [...viewMode.focusedSpecies.scope].sort()
+      : getSelectedNodes.value.map((node) => node.id).sort()
+  )
 
   /** Runs the selection, unless it is mid-change, empty or what was last simulated. */
   function runIfChosen() {

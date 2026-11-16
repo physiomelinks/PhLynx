@@ -20,6 +20,7 @@ On Mac, use Cmd wherever Ctrl appears. Workspace shortcuts are ignored while you
 | Rename an instance | Click its name; Enter saves, Esc cancels |
 | Open the Instance Editor | Double-click an instance |
 | Open the Connections dialog | Double-click an arrow |
+| [Move a segment](./ui-overview.md#routing) of the selected arrow | Drag its square handle; Alt (Option on Mac) skips snapping, Esc cancels |
 
 ## Search {#search}
 
@@ -41,6 +42,22 @@ For what each mode matches, see [Searching the workspace](./ui-overview.md#searc
 | Undo / redo (shared by CellML Text and the Math Editor) | Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y |
 | Close (asks first if there are unsaved changes) | Esc |
 | Units field: choose / take / close a suggestion | ↑ ↓ / Enter or Tab / Esc |
+
+### CellDL Diagram {#celldl}
+
+These work while you are working in the diagram (after clicking it).
+
+| Action | Shortcut |
+| :--- | :--- |
+| Undo / redo the diagram (including Style edits) | Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y |
+| Delete the selection | Delete or Backspace |
+| Bond from an element's body | Ctrl+drag (Cmd+drag on Mac) |
+| Stop placing an armed palette element | Esc |
+| Zoom in / out / to fit | + / - / Shift+1 |
+| Zoom / pan | Pinch, Ctrl/Cmd+scroll or a mouse wheel / two-finger trackpad scroll (Shift+scroll pans across); see [Settings](../guides/drawing-celldl-modules.md#settings) |
+| Apply an equation in the Reactions panel | Enter (Esc restores it) |
+
+See [Drawing CellDL Modules](../guides/drawing-celldl-modules.md#drawing).
 
 ### Math Editor {#math-editor}
 

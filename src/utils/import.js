@@ -1,7 +1,9 @@
 import Papa from 'papaparse'
 
-import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS } from './constants'
+import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS, TTL_FILE_TYPES } from './constants'
 import { isCellML, doesComponentExistInModel } from './cellml'
+import { csvToParameterFile, parseParametersJson } from './parameters/parse'
+import { readSidecarComponent } from '../services/annotations/sidecarFiles'
 
 /** Columns an instance array CSV must have. */
 const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_instances', 'out_instances']
@@ -9,17 +11,11 @@ const INSTANCE_ARRAY_COLUMNS = ['name', 'module_type', 'module_subtype', 'inp_in
 /** Columns a parameters CSV must have. */
 const PARAMETER_COLUMNS = ['variable_name', 'units', 'value', 'data_reference']
 
-/** Keys each module configuration object must have. */
-const MODULE_CONFIG_KEYS = [
-  'entrance_ports',
-  'exit_ports',
-  'general_ports',
-  'module_subtype',
-  'module_type',
-  'module_format',
-  'component_file',
-  'component_type',
-]
+/** Keys each module configuration object must have, as in circulatory_autogen's module config schema. */
+const MODULE_CONFIG_KEYS = ['module_subtype', 'module_type', 'component_file', 'component_type']
+
+/** Whether a config entry is a supermodule's, which CA recognises by its format or its submodule versions. */
+const isSupermoduleEntry = (entry) => entry?.module_format === 'supermodule' || Array.isArray(entry?.submodule_versions)
 
 /**
  * Builds a format error naming the required fields a file lacks, or null when none are missing.
@@ -281,26 +277,129 @@ const parseInstanceArray = (file, libraryStore = null) => {
           reject(new Error('Instance array file has no rows.'))
           return
         }
-        if (libraryStore) {
-          const requiredModules = results.data
-          const completionStatus = checkResourcesAreLoaded(requiredModules, libraryStore)
-          resolve({
-            data: results.data,
-            // warnings: completionStatus.warnings,
-            completionStatus: completionStatus,
-          })
-        } else {
-          resolve({
-            data: results.data,
-            // warnings: [],
-            completionStatus: null,
-          })
-        }
+        resolve(instanceArrayResult(results.data, libraryStore))
       },
       error: (err) => reject(err),
     })
   })
 }
+
+/** Keys of CA's older vessel arrays, which it refuses. */
+const LEGACY_ARRAY_KEYS = ['vessel_type', 'BC_type', 'inp_vessels', 'out_vessels', 'instance']
+
+/** Keys of hierarchical (super-module) records, which PhLynx can't build yet. */
+const HIERARCHICAL_ARRAY_KEYS = ['per_submodule_inputs', 'per_submodule_outputs']
+
+/** Keys that mark a JSON record as a module config or port definition rather than an instance. */
+const CONFIG_RECORD_KEYS = ['component_file', 'entrance_ports', 'exit_ports', 'general_ports']
+
+/**
+ * Checks whether parsed JSON looks like a module array: an array whose first record has a name and no config keys.
+ * @param {unknown} parsed
+ * @returns {boolean}
+ */
+function isModuleArrayShape(parsed) {
+  const first = Array.isArray(parsed) ? parsed[0] : null
+  return !!first && typeof first === 'object' && 'name' in first && !CONFIG_RECORD_KEYS.some((key) => key in first)
+}
+
+/**
+ * Joins a module array instance list (array, space-separated string or null) into the CSV's space-separated form.
+ * @param {string[]|string|null|undefined} list
+ * @returns {string}
+ */
+function joinInstanceList(list) {
+  if (list == null) return ''
+  const names = Array.isArray(list) ? list.map((name) => String(name).trim()) : String(list).trim().split(/\s+/)
+  return names.filter(Boolean).join(' ')
+}
+
+function hierarchicalError(found, name) {
+  return new Error(`PhLynx doesn't currently support hierarchical model structures (found ${found} on instance '${name}').`)
+}
+
+/**
+ * Normalises module array JSON records to the rows the CSV parser gives: trimmed strings, with the instance lists
+ * space-joined. `phlynx_*` keys are dropped.
+ * @param {Object[]} records
+ * @returns {Object[]}
+ */
+export function moduleArrayRows(records) {
+  return records.map((record) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error('Instance array records must be objects.')
+    const name = String(record?.name ?? '').trim()
+    const legacy = LEGACY_ARRAY_KEYS.find((key) => key in record)
+    if (legacy) throw new Error(`Instance array uses older vessel-array keys (found ${legacy} on instance '${name}'). Rename them to the module array keys.`)
+    const nested = HIERARCHICAL_ARRAY_KEYS.find((key) => key in record)
+    if (nested) throw hierarchicalError(nested, name)
+
+    const row = {}
+    for (const [key, value] of Object.entries(record)) {
+      if (key.startsWith('phlynx_')) continue
+      if (key === 'inp_instances' || key === 'out_instances') {
+        row[key] = joinInstanceList(value)
+        const path = row[key].split(' ').find((other) => other.includes('/'))
+        if (path) throw hierarchicalError(path, name)
+      } else if (value !== null && typeof value !== 'object') {
+        row[key] = String(value).trim()
+      }
+    }
+    if (name.includes('/')) throw hierarchicalError(name, name)
+    row.inp_instances ??= ''
+    row.out_instances ??= ''
+    const schemaError = missingFieldsError('instance array file', INSTANCE_ARRAY_COLUMNS, Object.keys(row), 'keys')
+    if (schemaError) throw schemaError
+    return row
+  })
+}
+
+/**
+ * Resolves parsed instance array rows, with readiness when a library store is given.
+ * @param {Object[]} data
+ * @param {Object|null} libraryStore
+ * @returns {{ data: Object[], completionStatus: Object|null }}
+ */
+function instanceArrayResult(data, libraryStore) {
+  return { data, completionStatus: libraryStore ? checkResourcesAreLoaded(data, libraryStore) : null }
+}
+
+/**
+ * Parses a CA module array JSON file (a list of instance records) into the CSV parser's row shape.
+ * @param {File} file
+ * @param {Object} [libraryStore]
+ * @returns {Promise<{ data: Object[], completionStatus: Object|null }>}
+ */
+export const parseInstanceArrayJson = (file, libraryStore = null) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result)
+        if (!Array.isArray(parsed)) {
+          throw Object.assign(new Error('Instance array file must be an array of instance records.'), { unrelated: true })
+        }
+        if (parsed.length === 0) throw new Error('Instance array file has no rows.')
+        if (!isModuleArrayShape(parsed)) {
+          throw Object.assign(new Error('Invalid instance array file format. Records need a name.'), { unrelated: true })
+        }
+        resolve(instanceArrayResult(moduleArrayRows(parsed), libraryStore))
+      } catch (err) {
+        reject(err)
+      }
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+}
+
+/**
+ * Parses an instance array file, JSON or CSV by its extension.
+ * @param {File} file
+ * @param {Object} [libraryStore]
+ * @returns {Promise<{ data: Object[], completionStatus: Object|null }>}
+ */
+export const parseInstanceArrayFile = (file, libraryStore = null) =>
+  extensionOf(file?.name ?? '') === '.json' ? parseInstanceArrayJson(file, libraryStore) : parseInstanceArray(file, libraryStore)
 
 const parseConfigJson = (file) => {
   return new Promise((resolve, reject) => {
@@ -314,9 +413,14 @@ const parseConfigJson = (file) => {
         if (parsed.length === 0) {
           throw new Error('Config file must be a non-empty array of configuration objects.')
         }
-        const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(parsed[0] ?? {}), 'keys')
+        if (isModuleArrayShape(parsed)) {
+          throw Object.assign(new Error('This is an instance array, not a module configuration file.'), { unrelated: true })
+        }
+        const components = parsed.filter((entry) => !isSupermoduleEntry(entry))
+        if (components.length === 0) throw new Error('Config file has no component entries; supermodule entries are not read here.')
+        const schemaError = missingFieldsError('module configuration file', MODULE_CONFIG_KEYS, Object.keys(components[0] ?? {}), 'keys')
         if (schemaError) throw schemaError
-        resolve(parsed)
+        resolve(components)
       } catch (err) {
         reject(err)
       }
@@ -354,6 +458,21 @@ export const parseParametersFile = (file) => {
   })
 }
 
+/**
+ * Reads a parameters file, JSON or CSV, into one shape.
+ *
+ * @param {File|string} input - The file, or its text.
+ * @param {string} [fileName] - The file's name, when `input` is text.
+ * @returns {Promise<import('./parameters/parse').ParameterFile>} A `<variable>_<instance>` CSV keeps its rows.
+ */
+export const parseParameters = async (input, fileName) => {
+  // An import field's parser is also given the library store, after the file.
+  const name = typeof fileName === 'string' ? fileName : (input?.name ?? '')
+  return extensionOf(name) === '.json'
+    ? parseParametersJson(input, name)
+    : csvToParameterFile(await parseParametersFile(input), name)
+}
+
 const parseCellML = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -372,6 +491,65 @@ const parseCellML = (file) => {
     }
     reader.readAsText(file)
   })
+}
+
+/** The metadata element a CellDL document keeps its BG-RDF Turtle in. */
+const CELLDL_METADATA = /<metadata\b[^>]*\bid\s*=\s*["']celldl-rdf-metadata["']/
+
+/**
+ * Checks whether text is a CellDL document: an SVG with CellDL's RDF metadata. Read as text, as
+ * some DOM parsers drop the CDATA the metadata is in.
+ *
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function isCelldl(content) {
+  return typeof content === 'string' && /<svg\b/.test(content) && CELLDL_METADATA.test(content)
+}
+
+const parseCelldl = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const content = e.target.result
+      if (!isCelldl(content)) {
+        // An SVG without CellDL's metadata is a drawing, not a broken diagram.
+        reject(Object.assign(new Error('Invalid CellDL file: it has no CellDL metadata.'), { unrelated: !/<svg\b/.test(content) }))
+        return
+      }
+      resolve(content)
+    }
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+}
+
+const readText = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => resolve(e.target.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+
+const acceptOf = (fileTypes) => fileTypes.flatMap((type) => Object.values(type.accept).flat()).join(', ')
+
+/**
+ * Reads a module sidecar: Turtle annotating one math component.
+ *
+ * @param {File} file
+ * @returns {Promise<{ text: string, mathRef: string }>} mathRef is the component the sidecar annotates.
+ */
+const parseSidecarFile = async (file) => {
+  const text = await readText(file)
+  let component
+  try {
+    component = await readSidecarComponent(text)
+  } catch (error) {
+    throw new Error(`Invalid Turtle: ${error.message}`)
+  }
+  if (!component) throw new Error('No single annotated component (uniprot, GO:0005886 or SBO:0000290) found.')
+  return { text, mathRef: component.mathRef }
 }
 
 const parseOMEX = (file) => {
@@ -432,18 +610,18 @@ const configs = {
       {
         key: IMPORT_KEYS.INSTANCE_ARRAY,
         label: IMPORT_LABELS.INSTANCE_ARRAY,
-        accept: '.csv',
+        accept: '.csv, .json',
         limit: 1,
         required: true,
-        parser: parseInstanceArray,
+        parser: parseInstanceArrayFile,
         isDynamic: true,
       },
       {
         key: IMPORT_KEYS.PARAMETER,
         label: IMPORT_LABELS.PARAMETER,
-        accept: '.csv',
+        accept: '.json, .csv',
         required: false,
-        parser: parseParametersFile,
+        parser: parseParameters,
       },
     ],
   },
@@ -470,14 +648,26 @@ const configs = {
       },
     ],
   },
+  [IMPORT_KEYS.CELLDL_FILE]: {
+    title: 'Import CellDL Diagram',
+    fields: [
+      {
+        key: IMPORT_KEYS.CELLDL_FILE,
+        label: IMPORT_LABELS.CELLDL_FILE,
+        required: true,
+        accept: '.celldl',
+        parser: parseCelldl,
+      },
+    ],
+  },
   [IMPORT_KEYS.PARAMETER]: {
     title: 'Import Parameter Configuration',
     fields: [
       {
         key: IMPORT_KEYS.PARAMETER,
         label: IMPORT_LABELS.PARAMETER,
-        accept: '.csv',
-        parser: parseParametersFile,
+        accept: '.json, .csv',
+        parser: parseParameters,
       },
     ],
   },
@@ -489,6 +679,18 @@ const configs = {
         label: IMPORT_LABELS.UNITS,
         accept: '.cellml, .xml',
         parser: parseCellML,
+      },
+    ],
+  },
+  [IMPORT_KEYS.TURTLE]: {
+    title: 'Import Module Annotations',
+    fields: [
+      {
+        key: IMPORT_KEYS.TURTLE,
+        label: IMPORT_LABELS.TURTLE,
+        accept: acceptOf(TTL_FILE_TYPES),
+        required: true,
+        parser: parseSidecarFile,
       },
     ],
   },

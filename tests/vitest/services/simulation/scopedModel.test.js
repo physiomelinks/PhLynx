@@ -182,6 +182,17 @@ describe('checkScope', () => {
     expect(report.canBuild).toBe(false)
   })
 
+  it('stops the build on a coupling whose variables have units of different dimensions', () => {
+    const a = createNode('a', { vType: 'variable', ports: [flowPort('exit_ports')] })
+    const b = createNode('b', { ports: [flowPort('entrance_ports')] })
+    a.data.variables[0].units = 'second'
+    b.data.variables[0].units = 'metre'
+
+    const report = checkScope(resolveScope(null, [a, b], [connect(a, b)]), { ...library(), unitDefinitions: new Map() })
+    expect(report.conflicts).toEqual(['Cannot connect "a_name" to "b_name": "v" (second) and "v" (metre) have incompatible units.'])
+    expect(report.canBuild).toBe(false)
+  })
+
   it('doesn’t warn about a boundary condition that used its own value in the whole model too', () => {
     const lone = createNode('b', { vValue: '2' })
     const report = checkScope(resolveScope(['b'], [lone], []), library())

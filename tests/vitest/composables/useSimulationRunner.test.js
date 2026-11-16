@@ -18,9 +18,15 @@ vi.mock('../../../src/composables/useSimulation', async () => {
   const { ref } = await import('vue')
   return { useSimulation: () => ({ run, stop: vi.fn(), keepCurrent: vi.fn(), isStale: ref(false) }) }
 })
-vi.mock('../../../src/services/simulation/libopencorLoader', () => ({ libopencor: { status: 'ready' } }))
+const libopencor = vi.hoisted(() => ({ status: 'ready' }))
+vi.mock('../../../src/services/simulation/libopencorLoader', async () => {
+  const { reactive } = await import('vue')
+  return { libopencor: reactive(libopencor) }
+})
 
 const { useSimulationRunner } = await import('../../../src/composables/useSimulationRunner.js')
+const { libopencor: simulator } = await import('../../../src/services/simulation/libopencorLoader')
+const { registerWorkspaceSaver } = await import('../../../src/composables/useUnsavedChanges.js')
 
 /**
  * Runs the composable in a component.
@@ -44,6 +50,7 @@ function setUpRunner(options) {
 describe('useSimulationRunner', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    Object.assign(simulator, { status: 'ready', reason: null, needsReload: false })
     run.mockClear()
     nodes.value = [{ id: 'b' }, { id: 'a' }]
     selected.value = []
@@ -57,6 +64,18 @@ describe('useSimulationRunner', () => {
     expect(runner.canPlay.value).toBe(true)
     runner.play()
     expect(run).toHaveBeenCalledWith(['a', 'b'])
+  })
+
+  it('runs a clicked species token’s compartment and its proteins in the physiological view, not in an editor', async () => {
+    const { useViewModeStore } = await import('../../../src/stores/viewModeStore.js')
+    const viewMode = useViewModeStore()
+    viewMode.focusedSpecies = { nodeId: 'a', species: 'CHEBI:29101', scope: ['a', 'b'] }
+    const runner = setUpRunner()
+    runner.store.scopeMode = 'selection'
+    expect(runner.selectedNodeIds.value).toEqual([])
+    viewMode.mode = 'bio'
+    expect(runner.selectedNodeIds.value).toEqual(['a', 'b'])
+    expect(setUpRunner({ instanceId: 'b' }).selectedNodeIds.value).toEqual([])
   })
 
   it('runs the whole model at once when switched to it', () => {
@@ -124,5 +143,57 @@ describe('useSimulationRunner', () => {
     sidebar.store.scopeMode = 'selection'
     selected.value = ['b', 'a']
     expect(sidebar.playScopeNodeIds.value).toEqual(['a', 'b'])
+  })
+
+  it('suggests running the instance alone when the instance editor’s whole-model run fails', () => {
+    const hint = 'Turn off Whole model to simulate this instance alone.'
+    const editor = setUpRunner({ instanceId: 'b' })
+    editor.store.scopeNodeIds = null
+    editor.store.status = 'error'
+    editor.store.error = { message: 'The solver needed more than 500 steps.' }
+    expect(editor.statusLine.value).toMatchObject({ severity: 'error', hint })
+    editor.store.status = 'blocked'
+    editor.store.report = { errors: ['"a.x" needs a value.'], warnings: [], notes: [] }
+    expect(editor.statusLine.value.hint).toBe(hint)
+
+    // Not once the instance runs alone, nor for a run that didn't fail, nor in the sidebar.
+    editor.store.scopeNodeIds = ['b']
+    expect(editor.statusLine.value.hint).toBeNull()
+    editor.store.scopeNodeIds = null
+    editor.store.status = 'done'
+    editor.store.results = { voi: { values: [0], unit: 's' } }
+    expect(editor.statusLine.value.hint ?? null).toBeNull()
+    const sidebar = setUpRunner()
+    sidebar.store.status = 'error'
+    sidebar.store.error = { message: 'The solver needed more than 500 steps.' }
+    expect(sidebar.statusLine.value.hint).toBeNull()
+  })
+
+  it('doesn’t suggest running the instance alone when it is the whole model, or the switch is already off', () => {
+    const editor = setUpRunner({ instanceId: 'b' })
+    editor.store.scopeNodeIds = null
+    editor.store.status = 'error'
+    editor.store.error = { message: 'The solver needed more than 500 steps.' }
+    nodes.value = [{ id: 'b' }]
+    expect(editor.statusLine.value.hint).toBeNull()
+
+    // A whole-model failure still shown after the switch is turned off.
+    nodes.value = [{ id: 'b' }, { id: 'a' }]
+    editor.scopeMode.value = 'selection'
+    editor.store.status = 'error'
+    editor.store.scopeNodeIds = null
+    expect(editor.statusLine.value.hint).toBeNull()
+  })
+
+  it('offers to save the workspace before the reload that sets the simulator up', () => {
+    Object.assign(simulator, { status: 'unavailable', reason: 'Not ready', needsReload: true })
+    const save = vi.fn()
+    const unregister = registerWorkspaceSaver({ save, hasContent: () => true })
+    const runner = setUpRunner()
+    expect(runner.statusLine.value.actions.map((action) => action.label)).toEqual(['Save workspace', 'Reload'])
+    runner.statusLine.value.actions[0].run()
+    expect(save).toHaveBeenCalled()
+    unregister()
+    expect(runner.statusLine.value.actions.map((action) => action.label)).toEqual(['Reload'])
   })
 })

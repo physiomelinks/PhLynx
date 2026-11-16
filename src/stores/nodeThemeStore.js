@@ -6,9 +6,11 @@ import {
   THEMES_CDN_URL,
   deriveTheme,
   isLocalThemeId,
+  isWorkspaceThemeId,
   parseThemeIndex,
   validateTheme,
   LOCAL_THEME_PREFIX,
+  WORKSPACE_THEME_PREFIX,
 } from '../utils/nodeThemes'
 
 const ACTIVE_KEY = 'phlynx-node-theme'
@@ -48,14 +50,33 @@ function readLocalThemes() {
 }
 
 /**
- * Node colour themes: the built-in default, shared themes from the CDN, and themes made on this
- * device. The shared list is fetched in the background after the app mounts; until it arrives the
- * last copy fetched (if any) is used, so nothing waits on the network.
+ * @param {Object} theme
+ * @returns {string} JSON that is the same for two themes exactly when they agree in all but id; a theme
+ *   made in this session has not been through validateTheme, so has its fields in another order.
+ */
+const themeContent = (theme) => JSON.stringify({ ...validateTheme(theme, { allowLocalId: true }).theme, id: undefined })
+
+/**
+ * Node colour themes: the built-in default, shared themes from the CDN, themes made on this device,
+ * and the theme a loaded workspace carries. The shared list is fetched in the background after the
+ * app mounts; until it arrives the last copy fetched (if any) is used, so nothing waits on the
+ * network.
+ *
+ * The active theme belongs to the workspace: a save records it (with a copy unless it is built in)
+ * and a load restores it. The theme last chosen in this browser is the default for new workspaces
+ * and for files saved without one.
  */
 export const useNodeThemeStore = defineStore('nodeThemes', () => {
   const remoteThemes = ref([])
   const localThemes = ref(readLocalThemes())
-  const activeThemeId = ref(readActiveId() || DEFAULT_THEME.id)
+  /** The theme last chosen in this browser. */
+  const preferredThemeId = ref(readActiveId() || DEFAULT_THEME.id)
+  const activeThemeId = ref(preferredThemeId.value)
+  /**
+   * The theme a loaded workspace carried, as saved, when no theme here matches it. It is never kept
+   * in this browser; its listed copy has a 'workspace:' id so it cannot clash with a theme here.
+   */
+  const workspaceSource = ref(null)
   /** 'idle' | 'loading' | 'ready' | 'error' */
   const remoteStatus = ref('idle')
   const remoteError = ref(null)
@@ -68,7 +89,22 @@ export const useNodeThemeStore = defineStore('nodeThemes', () => {
 
   const builtInThemes = [DEFAULT_THEME]
 
-  const allThemes = computed(() => [...builtInThemes, ...remoteThemes.value, ...localThemes.value])
+  const workspaceThemes = computed(() => {
+    const source = workspaceSource.value
+    if (!source) return []
+    const bareId = isLocalThemeId(source.id) ? source.id.slice(LOCAL_THEME_PREFIX.length) : source.id
+    const theme = { ...source, id: `${WORKSPACE_THEME_PREFIX}${bareId}` }
+    // A copy started from it should trace back to where the original came from.
+    if (!isLocalThemeId(source.id) && !theme.derivedFrom) theme.derivedFrom = source.id
+    return [theme]
+  })
+
+  const allThemes = computed(() => [
+    ...workspaceThemes.value,
+    ...builtInThemes,
+    ...remoteThemes.value,
+    ...localThemes.value,
+  ])
 
   /** The chosen theme (or its preview); falls back to the default while a remote theme has not arrived or has gone. */
   const activeTheme = computed(
@@ -141,9 +177,81 @@ export const useNodeThemeStore = defineStore('nodeThemes', () => {
     schedule(() => refreshRemote(), { timeout: 5000 })
   }
 
+  /**
+   * Shows a theme, and remembers it as this browser's choice unless it came with the workspace.
+   *
+   * @param {string} id
+   */
   function setActiveTheme(id) {
     activeThemeId.value = id
+    if (isWorkspaceThemeId(id)) return
+    preferredThemeId.value = id
     writeJson(ACTIVE_KEY, id)
+  }
+
+  /**
+   * @returns {{ id: string, theme?: Object }} The active theme for a workspace file: its id, and a
+   *   copy unless it is built in (or is a shared theme that has not loaded, so cannot be copied).
+   */
+  function getState() {
+    if (isWorkspaceThemeId(activeThemeId.value) && workspaceSource.value) {
+      return { id: workspaceSource.value.id, theme: JSON.parse(JSON.stringify(workspaceSource.value)) }
+    }
+    const id = isWorkspaceThemeId(activeThemeId.value) ? DEFAULT_THEME.id : activeThemeId.value
+    if (builtInThemes.some((theme) => theme.id === id)) return { id }
+    const theme = findTheme(id)
+    return theme ? { id, theme: JSON.parse(JSON.stringify(theme)) } : { id }
+  }
+
+  /**
+   * Shows the theme a workspace file names. A theme here with the same id and colours is used as is;
+   * otherwise the file's copy is listed for this workspace only. Files without a theme, or with an
+   * unusable one, show this browser's choice.
+   *
+   * @param {{ id: string, theme?: Object }|null|undefined} state - From getState.
+   */
+  function loadState(state) {
+    workspaceSource.value = null
+    const id = typeof state?.id === 'string' ? state.id : null
+    if (!id || isWorkspaceThemeId(id)) {
+      activeThemeId.value = preferredThemeId.value
+      return
+    }
+    if (!state.theme) {
+      // A built-in or shared theme saved without a copy; a shared one shows once the list arrives.
+      activeThemeId.value = id
+      return
+    }
+    const { theme, errors } = validateTheme({ ...state.theme, id }, { allowLocalId: true })
+    if (!theme) {
+      console.warn(`[nodeThemes] the workspace's theme ${id} is unusable:`, errors)
+      activeThemeId.value = findTheme(id) ? id : preferredThemeId.value
+      return
+    }
+    const here = findTheme(id)
+    if (here && themeContent(here) === themeContent(theme)) {
+      activeThemeId.value = id
+      return
+    }
+    workspaceSource.value = theme
+    activeThemeId.value = workspaceThemes.value[0].id
+  }
+
+  /** Forgets the workspace's theme, for a new workspace. */
+  function resetState() {
+    workspaceSource.value = null
+    activeThemeId.value = preferredThemeId.value
+  }
+
+  /** @returns {Object} For restoreSnapshot. */
+  function snapshot() {
+    return { workspaceSource: workspaceSource.value, activeThemeId: activeThemeId.value }
+  }
+
+  /** @param {Object} state - From snapshot. */
+  function restoreSnapshot(state) {
+    workspaceSource.value = state.workspaceSource
+    activeThemeId.value = state.activeThemeId
   }
 
   function persistLocal() {
@@ -257,7 +365,9 @@ export const useNodeThemeStore = defineStore('nodeThemes', () => {
   return {
     remoteThemes,
     localThemes,
+    workspaceThemes,
     activeThemeId,
+    preferredThemeId,
     activeTheme,
     isActiveThemeAvailable,
     allThemes,
@@ -277,5 +387,10 @@ export const useNodeThemeStore = defineStore('nodeThemes', () => {
     saveLocalTheme,
     deleteLocalTheme,
     importTheme,
+    getState,
+    loadState,
+    resetState,
+    snapshot,
+    restoreSnapshot,
   }
 })

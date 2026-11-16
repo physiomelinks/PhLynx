@@ -22,7 +22,7 @@ describe('SliderDefinitionsEditor', () => {
         getGlobalConstant: () => null,
         'onUpdate:scanConfig': (next) => wrapper.setProps({ scanConfig: next }),
       },
-      global: { plugins: [PrimeVue], directives: { tooltip: {} } },
+      global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} } },
     })
     expect(wrapper.findComponent(VariablePathPicker).exists()).toBe(false)
 

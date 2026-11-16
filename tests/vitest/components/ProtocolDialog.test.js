@@ -52,7 +52,7 @@ function mountEditor() {
     global: {
       plugins: [PrimeVue, ConfirmationService],
       stubs: { Dialog: { template: '<div><slot /><slot name="footer" /></div>' }, ObsDataEditor: true },
-      directives: { tooltip: {} },
+      directives: { tooltip: {}, hint: {} },
     },
   })
   return wrapper.findComponent({ name: 'ObsDataEditor' }).props()
@@ -118,7 +118,7 @@ describe('ProtocolDialog', () => {
       wrapper?.unmount()
       wrapper = mount(ProtocolDialog, {
         props: { modelValue: false, nodes: NODES },
-        global: { plugins: [PrimeVue, ConfirmationService], stubs: { Dialog: { template: '<div><slot /><slot name="footer" /></div>' } }, directives: { tooltip: {} } },
+        global: { plugins: [PrimeVue, ConfirmationService], stubs: { Dialog: { template: '<div><slot /><slot name="footer" /></div>' } }, directives: { tooltip: {}, hint: {} } },
       })
       await wrapper.setProps({ modelValue: true })
     }

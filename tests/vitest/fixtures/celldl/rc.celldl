@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120"><metadata id="celldl-rdf-metadata" data-content-type="text/turtle"><![CDATA[@prefix : <#> .
+@prefix bgf: <https://bg-rdf.org/ontologies/bondgraph-framework#> .
+@prefix cdt: <https://w3id.org/cdt/> .
+@prefix celldl: <http://celldl.org/ontologies/celldl#> .
+
+# An RC circuit, after celldl2cellml's test/models/RC_plain_number.ttl (Apache-2.0), with the
+# relative IRIs the CellDL editor saves, and a square standing in for each element's drawing.
+#
+#               R_0       q_1
+#                |         |
+#     V_in ---- I_R ----- V_C
+
+<> a celldl:Document, bgf:BondgraphModel ;
+  bgf:hasBondElement :V_in, :R_0, :q_1 ;
+  bgf:hasJunctionStructure :I_R, :V_C .
+
+:R_0 a celldl:Component, bgf:ElectricalResistor ;
+  bgf:parameterValue [ bgf:varName "R" ; bgf:hasValue 10.0 ] .
+
+:q_1 a celldl:Component, bgf:ElectricalCapacitor ;
+  bgf:hasValue "0 C"^^cdt:ucum ;
+  bgf:parameterValue [ bgf:varName "C" ; bgf:hasValue "0.001 F"^^cdt:ucum ] .
+
+:V_in a celldl:Component, bgf:VoltageSource ;
+  bgf:hasValue "10 V"^^cdt:ucum .
+
+:I_R a celldl:Component, bgf:OneNode .
+
+:V_C a celldl:Component, bgf:ZeroNode .
+
+:V_in.I_R a celldl:Connection ; bgf:hasSource :V_in ; bgf:hasTarget :I_R .
+:I_R.R a celldl:Connection ; bgf:hasSource :I_R ; bgf:hasTarget :R_0 .
+:I_R.V_C a celldl:Connection ; bgf:hasSource :I_R ; bgf:hasTarget :V_C .
+:V_C.q a celldl:Connection ; bgf:hasSource :V_C ; bgf:hasTarget :q_1 .
+]]></metadata><g id="V_in"><rect width="20" height="20"/></g><g id="I_R"><rect width="20" height="20"/></g><g id="R_0"><rect width="20" height="20"/></g><g id="V_C"><rect width="20" height="20"/></g><g id="q_1"><rect width="20" height="20"/></g></svg>

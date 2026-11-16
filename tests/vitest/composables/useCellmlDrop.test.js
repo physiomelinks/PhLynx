@@ -193,11 +193,22 @@ describe('useCellmlDrop', () => {
       expect(restoredEdge.id).toMatch(/^old-edge_restored_[0-9a-f-]{36}$/)
       expect(restoredEdge.source).toBe('a_1')
       expect(restoredEdge.target).toBe('old')
+      expect(restoredEdge).not.toHaveProperty('data')
       expect(edges.value.map((e) => e.id)).toContain('fresh-edge')
 
       // The combine path returns without rebuilding the node-edge index.
       expect(deps.rebuildNodeEdgeIndex).not.toHaveBeenCalled()
       expect(results).toEqual([{ ok: true, moduleCount: 1, unitsCount: 0 }])
+    })
+
+    it('moves restored edge routes with their nodes', async () => {
+      nodes.value = [createNode('a', 100), createNode('old', 200)]
+      edges.value = [{ id: 'old-edge', source: 'a', target: 'old', data: { couplings: [], waypoints: [{ x: 150, y: 40 }] } }]
+      deps.confirm.mockResolvedValue(false)
+
+      await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+
+      expect(addEdges.mock.calls[0][0][0].data).toEqual({ couplings: [], waypoints: [{ x: 1650, y: 40 }] })
     })
 
     it('gives distinct ids to repeated clashes', async () => {

@@ -3,12 +3,18 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useConnect } from '../../../src/composables/useConnect.js'
+import { useNodeDataHistory } from '../../../src/composables/useNodeDataHistory.js'
+import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { TOY_MODULES, readToy } from '../services/annotations/toyModel.js'
+import { TOY_PLACEMENTS, loadToyNodes } from '../services/annotations/toyNodes.js'
 
 const nodes = ref([])
 const edges = ref([])
 let connectHandler = null
+// Stands in for useFlowHistory recording added edges.
+let onEdgesAdded = null
 
 const toIds = (ids) => (Array.isArray(ids) ? ids : [ids])
 
@@ -18,7 +24,17 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     nodes,
     edges,
     findNode: (id) => nodes.value.find((node) => node.id === id),
-    addEdges: (added) => edges.value.push(...toIds(added)),
+    findEdge: (id) => edges.value.find((edge) => edge.id === id),
+    updateNodeData: (id, update, { replace } = {}) => {
+      const node = nodes.value.find((candidate) => candidate.id === id)
+      if (!node) return
+      const patch = typeof update === 'function' ? update(node) : update
+      node.data = replace ? patch : { ...node.data, ...patch }
+    },
+    addEdges: (added) => {
+      edges.value.push(...toIds(added))
+      onEdgesAdded?.(toIds(added))
+    },
     removeEdges: (ids) => (edges.value = edges.value.filter((edge) => !toIds(ids).includes(edge.id))),
     onConnect: (handler) => {
       connectHandler = handler
@@ -26,7 +42,7 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
   }),
 }))
 
-const port = (portType, label, variables = []) => ({
+const port = (portType, label, variables = ['v']) => ({
   portType,
   label,
   variables,
@@ -103,6 +119,8 @@ describe('useConnect', () => {
           targetPort: nodes.value[1].data.ports[0],
         },
       ])
+      // Drawn by hand, so no physiology view move takes it away.
+      expect(edge.data.placement).toBe(false)
     })
 
     it('activates the ghost handles at both ends without tracking history', async () => {
@@ -342,6 +360,218 @@ describe('useConnect', () => {
       expect(deps.reactivateEdgeHandles).toHaveBeenLastCalledWith(expect.objectContaining(second), {
         trackHistory: false,
       })
+    })
+  })
+
+  describe('between placed nodes with annotated math', () => {
+    let toy, templateId
+
+    /** A toy node placed at its site on the epithelial-cell template instance. */
+    const placedNode = (name, ports = []) =>
+      toy.node(name, ports, { bioView: { site: `${templateId}/${TOY_PLACEMENTS[name]}` } })
+
+    beforeEach(async () => {
+      toy ??= await loadToyNodes()
+      const library = useLibraryStore()
+      for (const module of new Set(Object.values(TOY_MODULES))) {
+        const mathRef = `${module}.cellml:${module}`
+        library.addMath(mathRef, readToy(`${module}.cellml`))
+        library.setModuleAnnotations(mathRef, readToy(`${module}.ttl`))
+      }
+      templateId = useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 }).id
+      nodes.value = [placedNode('porter_in', [port('general_ports', 'flow', ['q'])]), placedNode('cell')]
+    })
+
+    const connection = {
+      source: 'node_porter_in',
+      target: 'node_cell',
+      sourceHandle: 'handle_s1',
+      targetHandle: 'handle_t1',
+    }
+
+    it('adds the matcher’s couplings and the ports they need, recording the ports as one edit', async () => {
+      const recordEdit = vi.fn(async ({ apply }) => apply())
+      useConnect({ ...deps, recordEdit })
+      await connect(connection)
+
+      const [edge] = edges.value
+      const pairs = edge.data.couplings.map(({ sourcePort, targetPort }) => [
+        sourcePort.variables[0],
+        targetPort.variables[0],
+      ])
+      expect(pairs.sort()).toEqual([
+        ['area', 'area'],
+        ['c_A_i', 'c_A'],
+        ['v_A_i', 'v_A'],
+      ])
+      expect(recordEdit).toHaveBeenCalledTimes(1)
+      expect(recordEdit.mock.calls[0][0]).toMatchObject({
+        type: 'add-annotated-ports',
+        nodeIds: ['node_porter_in', 'node_cell'],
+        keys: ['ports'],
+      })
+      const [porter, cell] = nodes.value
+      expect(porter.data.ports.map((p) => p.variables[0]).sort()).toEqual(['area', 'c_A_i', 'q', 'v_A_i'])
+      expect(cell.data.ports.every((p) => p.annotation?.source.kind === 'sidecar')).toBe(true)
+      // The couplings use the nodes' own ports.
+      expect(edge.data.couplings.every(({ targetPort }) => cell.data.ports.includes(targetPort))).toBe(true)
+    })
+
+    it('puts the ports in one undo step with the edge', async () => {
+      const { recordEdit } = useNodeDataHistory()
+      useConnect({ ...deps, recordEdit })
+      const removeEdge = vi.fn()
+      onEdgesAdded = () => history.addCommand({ type: 'add-edge', undo: removeEdge, redo: vi.fn() })
+      try {
+        await connect(connection)
+      } finally {
+        onEdgesAdded = null
+      }
+      expect(history.canUndo).toBe(true)
+
+      await history.undo()
+      expect(history.canUndo).toBe(false)
+      expect(removeEdge).toHaveBeenCalledTimes(1)
+      expect(nodes.value.map((node) => node.data.ports.length)).toEqual([1, 0])
+    })
+
+    it('couples by label only, and still adds the edge, when the annotations fail to parse', async () => {
+      vi.spyOn(useLibraryStore(), 'ensureModuleAnnotations').mockRejectedValue(new Error('Bad Turtle'))
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const recordEdit = vi.fn(async ({ apply }) => apply())
+      try {
+        useConnect({ ...deps, recordEdit })
+        await connect(connection)
+        expect(warn).toHaveBeenCalled()
+      } finally {
+        warn.mockRestore()
+      }
+      expect(edges.value).toHaveLength(1)
+      expect(edges.value[0].data.couplings).toEqual([])
+      expect(recordEdit).not.toHaveBeenCalled()
+    })
+
+    it('couples no manual ports once the edge gives their nodes annotated ports, which hide them', async () => {
+      const slots = [port('general_ports', 'flow', ['q0']), port('general_ports', 'flow', ['q1'])]
+      nodes.value[0].data = { ...nodes.value[0].data, ports: [...slots] }
+      nodes.value[1].data = { ...nodes.value[1].data, ports: [port('general_ports', 'flow', ['r'])] }
+      useConnect({ ...deps, recordEdit: vi.fn(async ({ apply }) => apply()) })
+      await connect(connection)
+
+      const edge = edges.value.find((e) => e.id === 'node_porter_in--node_cell')
+      expect(edge.data.couplings.length).toBeGreaterThan(0)
+      expect(edge.data.couplings.some(({ sourcePort }) => sourcePort.label === 'flow')).toBe(false)
+      // The manual ports stay in the nodes' data.
+      expect(nodes.value[0].data.ports.filter((p) => p.label === 'flow')).toHaveLength(2)
+    })
+
+    it('couples by label only when a node is unplaced', async () => {
+      nodes.value[1].data = { ...nodes.value[1].data, bioView: undefined }
+      await connect(connection)
+      expect(edges.value[0].data.couplings).toEqual([])
+      expect(nodes.value[1].data.ports).toEqual([])
+    })
+
+    it('joins placed nodes dropped on a template by the matcher rather than the link', async () => {
+      const { connectNodes } = useConnect({ ...deps, recordEdit: vi.fn(async ({ apply }) => apply()) })
+      const edge = await connectNodes({ source: 'node_cell', target: 'node_porter_in' }, { link: 'across' })
+      // The given way round, as the matcher couples as many either way.
+      expect(edge).toMatchObject({ source: 'node_cell', target: 'node_porter_in' })
+      expect(edge.data.couplings.map(({ sourcePort }) => sourcePort.variables[0]).sort()).toEqual(['area', 'c_A', 'v_A'])
+    })
+  })
+
+  describe('connectNodes', () => {
+    const ghosts = (prefix) =>
+      ['top', 'bottom', 'left', 'right'].map((side) => ({
+        uid: `${prefix}-${side}`,
+        side,
+        slotIndex: 0,
+        variant: 'ghost',
+      }))
+    /** A measured node with one port and a ghost handle on each side. */
+    const placed = (id, ports, x, y) => ({
+      id,
+      position: { x, y },
+      dimensions: { width: 100, height: 60 },
+      data: { name: id, ports, handles: ghosts(id) },
+    })
+    let connectNodes
+
+    beforeEach(() => {
+      nodes.value = [
+        placed('a', [port('exit_ports', 'flow')], 0, 0),
+        placed('b', [port('entrance_ports', 'flow')], 0, 300),
+        placed('z', [port('entrance_ports', 'other')], 300, 0),
+      ]
+      ;({ connectNodes } = useConnect(deps))
+    })
+
+    it('joins two nodes the way round that couples their ports, on facing ghost handles', async () => {
+      const edge = await connectNodes({ source: 'b', target: 'a' })
+      expect(edge).toMatchObject({ id: 'a--b', source: 'a', target: 'b', type: 'conduit' })
+      expect(edge.sourceHandle).toBe('handle_a-bottom')
+      expect(edge.targetHandle).toBe('handle_b-top')
+      expect(deps.activateHandle).toHaveBeenCalledWith('a', 'a-bottom', { trackHistory: false })
+      expect(deps.activateHandle).toHaveBeenCalledWith('b', 'b-top', { trackHistory: false })
+      expect(edge.data.couplings).toEqual([
+        { sourcePort: nodes.value[0].data.ports[0], targetPort: nodes.value[1].data.ports[0] },
+      ])
+    })
+
+    it('keeps the given way round, and leaves the edge empty, when no label matches', async () => {
+      const edge = await connectNodes({ source: 'a', target: 'z' })
+      expect(edge).toMatchObject({ id: 'a--z', sourceHandle: 'handle_a-right', targetHandle: 'handle_z-left' })
+      expect(edge.data.couplings).toEqual([])
+      expect((await connectNodes({ source: 'z', target: 'b' }, { couplings: 'none' })).data.couplings).toEqual([])
+    })
+
+    it('runs a link the given way, coupling only its exit to the other end’s entrance', async () => {
+      // b → a couples nothing as a link, though a → b would by label.
+      const backwards = await connectNodes({ source: 'b', target: 'a' }, { link: 'across' })
+      expect(backwards).toMatchObject({ source: 'b', target: 'a' })
+      expect(backwards.data.couplings).toEqual([])
+      edges.value = []
+      const forwards = await connectNodes({ source: 'a', target: 'b' }, { link: 'across' })
+      expect(forwards.data.couplings).toEqual([
+        { sourcePort: nodes.value[0].data.ports[0], targetPort: nodes.value[1].data.ports[0] },
+      ])
+    })
+
+    it('marks a link’s edge as placement-made, and no other', async () => {
+      expect((await connectNodes({ source: 'a', target: 'b' }, { link: 'across' })).data.placement).toBe('across')
+      expect((await connectNodes({ source: 'a', target: 'z' })).data).not.toHaveProperty('placement')
+    })
+
+    it('never couples a single-connection outlet on a second link', async () => {
+      nodes.value.push(placed('c', [port('entrance_ports', 'flow')], 300, 300))
+      await connectNodes({ source: 'a', target: 'b' }, { link: 'across' })
+      const second = await connectNodes({ source: 'a', target: 'c' }, { link: 'across' })
+      expect(second.data.couplings).toEqual([])
+    })
+
+    it('leaves nodes already joined either way, and missing ones, alone', async () => {
+      edges.value = [{ id: 'b--a', source: 'b', target: 'a' }]
+      expect(await connectNodes({ source: 'a', target: 'b' })).toBeNull()
+      expect(await connectNodes({ source: 'a', target: 'gone' })).toBeNull()
+      expect(await connectNodes({ source: 'a', target: 'a' })).toBeNull()
+      expect(edges.value).toHaveLength(1)
+    })
+
+    it('makes several joins one undo step inside a batch', async () => {
+      const removeEdge = vi.fn()
+      onEdgesAdded = () => history.addCommand({ type: 'add-edge', undo: removeEdge, redo: vi.fn() })
+      try {
+        history.startBatch()
+        await connectNodes({ source: 'a', target: 'b' })
+        await connectNodes({ source: 'a', target: 'z' })
+        history.endBatch('bio-add')
+      } finally {
+        onEdgesAdded = null
+      }
+      await history.undo()
+      expect(history.canUndo).toBe(false)
+      expect(removeEdge).toHaveBeenCalledTimes(2)
     })
   })
 })

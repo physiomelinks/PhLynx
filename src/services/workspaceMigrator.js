@@ -358,6 +358,13 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  *   'max' or 'peak'; missing means 'end'). Its `family`, when it has one, is a second parameter
  *   `{key, nodeId, nodeName, parameterName, units, type}` and the `values` it takes, a curve each.
  *   Older files have none. Whether play sweeps is the session's choice, not saved.
+ * - 1.3.0: store.mathSources holds `[mathRef, {format, document, documentUri, elements, generator,
+ *   frameworkVersion}]` pairs: the document a math's CellML is generated from, `format` a key of
+ *   MODULE_FORMATS (services/moduleFormats.js). A math with none is CellML, so older files need no
+ *   migration.
+ * - 1.4.0: `parameters` holds the default parameter sets; older files have none.
+ *   simulation.simulationSettings' `tolerance` becomes `relativeTolerance`, CVODE's relative tolerance,
+ *   beside a new `absoluteTolerance`. Older files used `tolerance` for both, so both take its value.
  */
 const LEGACY_VERSION = 'legacy'
 
@@ -368,6 +375,8 @@ const MIGRATIONS = [
   { from: LEGACY_VERSION, to: '1.0.0', migrate: migrateLegacyTo1_0_0 },
   { from: '1.0.0', to: '1.1.0', migrate: migrate1_0_0To1_1_0 },
   { from: '1.1.0', to: '1.2.0', migrate: migrate1_1_0To1_2_0 },
+  { from: '1.2.0', to: '1.3.0', migrate: migrate1_2_0To1_3_0 },
+  { from: '1.3.0', to: '1.4.0', migrate: migrate1_3_0To1_4_0 },
 ]
 
 /**
@@ -513,6 +522,34 @@ export function migrateWorkspace(doc) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
   return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated), version: step.to }), current)
+}
+
+/**
+ * 1.3.0 -> 1.4.0: older files have no default parameter sets, and their one tolerance was CVODE's relative
+ * and absolute tolerance both.
+ *
+ * @param {Object} doc - A 1.3.0 workspace.
+ * @returns {Object}
+ */
+function migrate1_3_0To1_4_0(doc) {
+  const migrated = { ...doc, parameters: doc.parameters ?? { sets: [], unlinked: [] } }
+  const settings = doc.simulation?.simulationSettings
+  if (!settings || !('tolerance' in settings)) return migrated
+  const { tolerance, ...others } = settings
+  return {
+    ...migrated,
+    simulation: { ...doc.simulation, simulationSettings: { ...others, relativeTolerance: tolerance, absoluteTolerance: tolerance } },
+  }
+}
+
+/**
+ * 1.2.0 -> 1.3.0: nothing to change, since older files have only CellML math.
+ *
+ * @param {Object} doc - A 1.2.0 workspace.
+ * @returns {Object}
+ */
+function migrate1_2_0To1_3_0(doc) {
+  return doc
 }
 
 /**

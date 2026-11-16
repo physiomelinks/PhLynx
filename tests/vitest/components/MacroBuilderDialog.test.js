@@ -24,9 +24,11 @@ vi.mock('@vue-flow/core', async (importOriginal) => {
       getNodes: nodes,
       getSelectedNodes: computed(() => nodes.value.filter((node) => node.selected)),
       findNode,
-      updateNodeData: (id, patch) => {
+      updateNodeData: (id, update, options = { replace: false }) => {
         const node = findNode(id)
-        if (node) node.data = { ...node.data, ...patch }
+        if (!node) return
+        const patch = typeof update === 'function' ? update(node) : update
+        node.data = options.replace ? patch : { ...node.data, ...patch }
       },
       updateNodeInternals: vi.fn(),
       addEdges: flow.addEdges,
@@ -62,7 +64,7 @@ function mountDialog() {
     props: { modelValue: true },
     global: {
       plugins: [PrimeVue],
-      directives: { tooltip: {} },
+      directives: { tooltip: {}, hint: {} },
       stubs: {
         Dialog: Passthrough,
         ResizableLibraryPanel: Passthrough,

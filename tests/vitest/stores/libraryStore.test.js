@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import fs from 'node:fs'
+import path from 'node:path'
+
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { CellMLTextParser } from 'cellml-text-editor'
@@ -42,6 +45,20 @@ describe('libraryStore math', () => {
     store.addMath(MATH_REF, XML)
     store.addMath(MATH_REF, store.availableMath.get(MATH_REF))
     expect(store.getMathDefaults(MATH_REF).get('k')).toBe('0.5')
+  })
+
+  it('saves and restores which instance owns a config with the workspace', () => {
+    store.addMath(MATH_REF, XML)
+    const source = { kind: 'instance', nodeId: 'dndnode_3' }
+    store.createModuleForMath(MATH_REF, { ports: [], variables: [], source })
+    store.addModule({ moduleRef: 'decay:a', mathRef: MATH_REF, ports: [], variables: [], source })
+    const state = JSON.parse(JSON.stringify(store.getState()))
+
+    setActivePinia(createPinia())
+    const restored = useLibraryStore()
+    restored.loadState(state)
+    expect(restored.availableModules.get(store.defaultModuleRef(MATH_REF)).source).toEqual(source)
+    expect(restored.availableModules.get('decay:a').source).toEqual(source)
   })
 
   it('saves and restores the defaults with the workspace', () => {
@@ -98,6 +115,91 @@ describe('libraryStore math layouts', () => {
     restored.loadState(state)
     expect(restored.getMathLayout(MATH_REF)).toEqual(layout)
     expect(restored.getMathLayout('file:other')).toBeNull()
+  })
+})
+
+describe('libraryStore math sources', () => {
+  let store
+  const source = {
+    format: 'celldl',
+    document: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    documentUri: 'https://example.org/decay.celldl',
+    elements: { 'ID-1': { iri: 'https://example.org/decay.celldl#ID-1', kind: 'element', variables: [] } },
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+  })
+
+  it('treats math without a source as CellML', () => {
+    store.addMath(MATH_REF, XML)
+    expect(store.getMathSource(MATH_REF)).toBeNull()
+    expect(store.getMathFormat(MATH_REF)).toBe('cellml')
+  })
+
+  it('gives math the format of its source, until the source is removed', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    expect(store.getMathFormat(MATH_REF)).toBe('celldl')
+
+    store.setMathSource(MATH_REF, null)
+    expect(store.getMathFormat(MATH_REF)).toBe('cellml')
+  })
+
+  it('saves and restores sources with the workspace, skipping malformed ones', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    const state = JSON.parse(JSON.stringify(store.getState()))
+    state.mathSources.push(['file:other', { format: 'celldl', document: 3, documentUri: 'x' }])
+
+    setActivePinia(createPinia())
+    const restored = useLibraryStore()
+    restored.loadState(state)
+    expect(restored.getMathSource(MATH_REF)).toEqual(source)
+    expect(restored.getMathSource('file:other')).toBeNull()
+  })
+
+  it('loads a workspace saved without sources as CellML', () => {
+    store.loadState({ availableMath: [[MATH_REF, XML]] })
+    expect(store.getMathFormat(MATH_REF)).toBe('cellml')
+  })
+
+  it('clears sources when the math is removed or the store reset', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    store.removeMath(MATH_REF)
+    expect(store.getMathSource(MATH_REF)).toBeNull()
+
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, source)
+    store.loadState({})
+    expect(store.getMathSource(MATH_REF)).toBeNull()
+  })
+
+  it('carries the source in a math entry, kept apart from later changes', () => {
+    store.addMath(MATH_REF, XML)
+    store.setMathSource(MATH_REF, structuredClone(source))
+    const entry = store.getMathEntry(MATH_REF)
+
+    store.getMathSource(MATH_REF).document = 'changed'
+    expect(entry.source).toEqual(source)
+
+    store.setMathSource(MATH_REF, null)
+    store.restoreMathEntry(MATH_REF, entry)
+    expect(store.getMathSource(MATH_REF)).toEqual(source)
+    store.getMathSource(MATH_REF).document = 'changed again'
+    expect(entry.source).toEqual(source)
+  })
+
+  it('removes a source that the restored entry did not have', () => {
+    store.addMath(MATH_REF, XML)
+    const entry = store.getMathEntry(MATH_REF)
+    expect(entry.source).toBeNull()
+
+    store.setMathSource(MATH_REF, source)
+    store.restoreMathEntry(MATH_REF, entry)
+    expect(store.getMathSource(MATH_REF)).toBeNull()
   })
 })
 
@@ -307,6 +409,18 @@ describe('instances of a module built from a CellML file', () => {
     const instance = buildInstance('n1', 'decay_1', 'instanceNode', module, [], null, store.getMathAnalysis(MATH_REF), store.getMathDefaults(MATH_REF))
     const rows = Object.fromEntries(instance.data.variables.map((row) => [row.name, row.value]))
     expect(rows).toMatchObject({ k: '0.5', x_init: '1.5' })
+  })
+
+  it("type a DAE's implicit unknown as computed, and its parameters as constants with their values", () => {
+    const store = useLibraryStore()
+    const xml = fs.readFileSync(path.resolve(__dirname, '../fixtures/bg2cellml/rlc_dae.cellml'), 'utf8')
+    store.addMathFile('rlc.cellml', [{ name: 'main', math: xml }])
+    const module = store.availableModules.get('main:default')
+
+    const instance = buildInstance('n1', 'rlc_1', 'instanceNode', module, [], null, store.getMathAnalysis('rlc.cellml:main'), store.getMathDefaults('rlc.cellml:main'))
+    const rows = Object.fromEntries(instance.data.variables.map((row) => [row.name, row]))
+    expect(rows.a_L_m_L.type).toBe('variable')
+    expect(rows.L_L_m_L).toMatchObject({ type: 'constant', value: '1' })
   })
 })
 

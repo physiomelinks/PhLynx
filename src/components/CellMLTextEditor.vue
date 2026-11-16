@@ -99,7 +99,7 @@
           :indent-with-tab="true"
           :tab-size="2"
           :extensions="extensions"
-          :disabled="isLocked"
+          :disabled="isLocked || readonly"
           @ready="handleReady"
           @update="handleStateUpdate"
         >
@@ -160,6 +160,11 @@ const props = defineProps({
   layout: {
     type: Object,
     default: null
+  },
+  // Shows the math without letting it be edited, e.g. math generated from a diagram. Variable clicks still emit.
+  readonly: {
+    type: Boolean,
+    default: false
   },
 })
 
@@ -671,10 +676,12 @@ function renameVariable(from, to) {
  * Shows a model written by another editor, as this editor's text.
  *
  * @param {string} xml
+ * @param {Object|null} [layout] - The model's text layout, replacing the current one; omitted, the current one stays.
  * @returns {Promise<void>}
  */
-function setModel(xml) {
+function setModel(xml, layout) {
   lastXml = xml
+  if (layout !== undefined) lastLayout = layout
   return setText(generateText(xml))
 }
 

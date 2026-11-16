@@ -12,8 +12,10 @@
  *   more than one port: every connected Sum port on the instance contributes terms to the same total.
  * - Multiply: reaches the neighbour's paired variable times its factor.
  *
- * Imports nothing, so config.js, cellml.js and boundaryValues.js can all use it.
+ * Imports only portIdentity.js, so config.js, cellml.js and boundaryValues.js can all use it.
  */
+import { portDisplayName, portIdentity, samePort } from './portIdentity'
+
 const TYPES = { none: 'None', true: 'True', sum: 'Sum', multiply: 'Multiply' }
 
 const isPlain = (type) => type === 'None' || type === 'True'
@@ -46,12 +48,12 @@ export function variableTypes(port) {
   const value = port.multiportType
   if (!Array.isArray(value)) return variables.map(() => typeOf(value) ?? 'None')
   if (value.length !== variables.length) {
-    throw new Error(`Port "${port.label}" has ${value.length} multiport entries for ${variables.length} variables.`)
+    throw new Error(`Port "${portDisplayName(port)}" has ${value.length} multiport entries for ${variables.length} variables.`)
   }
   return unmixed(
     value.map((entry, i) => {
       const type = typeOf(entry)
-      if (!type) throw new Error(`Port "${port.label}" has an unknown multiport ${JSON.stringify(entry)} for "${variables[i]}".`)
+      if (!type) throw new Error(`Port "${portDisplayName(port)}" has an unknown multiport ${JSON.stringify(entry)} for "${variables[i]}".`)
       return type
     })
   )
@@ -66,7 +68,7 @@ export function multiplyFactor(port, i) {
   const value = Array.isArray(port.multiplyFactor) ? port.multiplyFactor[i] : port.multiplyFactor
   const factor = value == null || value === '' ? 1 : Number(value)
   if (!Number.isFinite(factor)) {
-    throw new Error(`Port "${port.label}" variable "${port.variables[i]}" needs a numeric multiply factor.`)
+    throw new Error(`Port "${portDisplayName(port)}" variable "${port.variables[i]}" needs a numeric multiply factor.`)
   }
   return factor
 }
@@ -84,7 +86,7 @@ export function couplingConflicts(sourcePort, targetPort) {
     return [error.message]
   }
   if (sourceTypes.length !== targetTypes.length && ![...sourceTypes, ...targetTypes].every(isPlain)) {
-    return [`Ports "${sourcePort.label}" and "${targetPort.label}" need the same number of variables to sum or multiply.`]
+    return [`Ports "${portDisplayName(sourcePort)}" and "${portDisplayName(targetPort)}" need the same number of variables to sum or multiply.`]
   }
   return sourceTypes.flatMap((type, i) =>
     type === targetTypes[i] && !isPlain(type)
@@ -94,9 +96,6 @@ export function couplingConflicts(sourcePort, targetPort) {
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────
-
-const samePort = (a, b) =>
-  !!a && !!b && a.label === b.label && a.portType === b.portType && JSON.stringify(a.variables) === JSON.stringify(b.variables)
 
 /** Runs a strict helper, recording its error in issues and returning fallback instead of throwing. */
 function attempt(read, issues, fallback) {
@@ -139,7 +138,7 @@ export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id 
     const types = attempt(() => variableTypes(current), portIssues, spread(current))
     const pending =
       !original ||
-      original.label !== current.label ||
+      portIdentity(original) !== portIdentity(current) ||
       original.portType !== current.portType ||
       original.variables?.length !== current.variables?.length
     const portEntries = new Map() // variable index → entry
@@ -149,7 +148,7 @@ export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id 
       const issues = [...portIssues]
       const factor = type === 'Multiply' ? attempt(() => multiplyFactor(current, i), issues, null) : null
       const linkedElsewhere = coupledPorts.some((port) => !samePort(original, port) && port.variables?.includes(variable))
-      const entry = { variable, portLabel: current.label, type, factor, terms: [], issues, pending, connected: false, linkedElsewhere }
+      const entry = { variable, portLabel: portDisplayName(current), type, factor, terms: [], issues, pending, connected: false, linkedElsewhere }
       portEntries.set(i, entry)
       entries.push(entry)
     })
@@ -165,7 +164,7 @@ export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id 
           const neighbourIssues = []
           const neighbourTypes = attempt(() => variableTypes(neighbourPort), neighbourIssues, [])
           if (neighbourTypes.length && neighbourTypes.length !== types.length) {
-            neighbourIssues.push(`Ports "${current.label}" and "${neighbourPort.label}" need the same number of variables to sum or multiply.`)
+            neighbourIssues.push(`Ports "${portDisplayName(current)}" and "${portDisplayName(neighbourPort)}" need the same number of variables to sum or multiply.`)
           }
           for (const [i, entry] of portEntries) {
             entry.issues.push(...neighbourIssues.filter((message) => !entry.issues.includes(message)))
@@ -178,7 +177,7 @@ export function multiportSummary(nodeId, edges, { ownPorts, nameOf = (id) => id 
               if (!entry.issues.includes(message)) entry.issues.push(message)
               continue
             }
-            const term = { nodeId: neighbourId, nodeName: nameOf(neighbourId), edgeId: edge.id, portLabel: neighbourPort.label, variable }
+            const term = { nodeId: neighbourId, nodeName: nameOf(neighbourId), edgeId: edge.id, portLabel: portDisplayName(neighbourPort), variable }
             if (entry.type === 'Sum') {
               const factor = neighbourType === 'Multiply' ? attempt(() => multiplyFactor(neighbourPort, i), entry.issues, null) : 1
               entry.terms.push({ ...term, factor, role: 'term' })

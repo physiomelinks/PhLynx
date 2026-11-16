@@ -20,7 +20,7 @@ describe('generateSedmlData', () => {
 
   it('writes the default solver settings as it always has', () => {
     const settings = { pointInterval: 0.01, startingPoint: 0, endingPoint: 10, initialPoint: 0 }
-    const defaults = { solver: 'CVODE', timeStep: 0, tolerance: 1e-7, maxSteps: 500 }
+    const defaults = { solver: 'CVODE', timeStep: 0, relativeTolerance: 1e-7, maxSteps: 500 }
     expect(generateSedmlData({ ...settings, ...defaults })).toBe(golden('baseline.sedml'))
   })
 
@@ -34,15 +34,21 @@ describe('generateSedmlData', () => {
   })
 
   it('writes the CVODE settings it is given', () => {
-    const sedml = generateSedmlData({ pointInterval: 0.01, startingPoint: 0, endingPoint: 1, initialPoint: 0, tolerance: 1e-9, maxSteps: 5000, timeStep: 0.5 })
+    const sedml = generateSedmlData({ pointInterval: 0.01, startingPoint: 0, endingPoint: 1, initialPoint: 0, relativeTolerance: 1e-9, maxSteps: 5000, timeStep: 0.5 })
     expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000209" value="1e-09"/>')
     expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000211" value="1e-09"/>')
     expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000415" value="5000"/>')
     expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000467" value="0.5"/>')
   })
 
+  it('writes an absolute tolerance set apart from the relative one', () => {
+    const sedml = generateSedmlData({ pointInterval: 0.01, startingPoint: 0, endingPoint: 1, initialPoint: 0, relativeTolerance: 1e-8, absoluteTolerance: 1e-10 })
+    expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000209" value="1e-08"/>')
+    expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000211" value="1e-10"/>')
+  })
+
   it('writes a fixed-step solver with only its step', () => {
-    const sedml = generateSedmlData({ pointInterval: 0.01, startingPoint: 0, endingPoint: 1, initialPoint: 0, solver: 'RungeKutta4', timeStep: 1e-4, tolerance: 1e-9 })
+    const sedml = generateSedmlData({ pointInterval: 0.01, startingPoint: 0, endingPoint: 1, initialPoint: 0, solver: 'RungeKutta4', timeStep: 1e-4, relativeTolerance: 1e-9 })
     expect(sedml).toContain('<algorithm kisaoID="KISAO:0000032">')
     expect(sedml.match(/<algorithmParameter /g)).toHaveLength(1)
     expect(sedml).toContain('<algorithmParameter kisaoID="KISAO:0000483" value="0.0001"/>')

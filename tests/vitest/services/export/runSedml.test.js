@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { RUN_SEDML_MODEL, buildRunSedml } from '../../../../src/services/export/runSedml.js'
 import { SERIES_COLOURS } from '../../../../src/services/simulation/seriesSlots.js'
 
-const SETTINGS = { solver: 'CVODE', tolerance: 1e-7, maxSteps: 500, timeStep: 0.01, initialPoint: 0, startingPoint: 0, endingPoint: 2, pointInterval: 0.5 }
+const SETTINGS = { solver: 'CVODE', relativeTolerance: 1e-7, maxSteps: 500, timeStep: 0.01, initialPoint: 0, startingPoint: 0, endingPoint: 2, pointInterval: 0.5 }
 const VOI = { name: 'm/t', unit: 'second' }
 const GROUPS = [
   { id: 'g1', name: 'Voltage', xAxis: null },

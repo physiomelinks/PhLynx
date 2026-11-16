@@ -31,14 +31,20 @@ export default defineConfig({
     __COMMIT_HASH__: JSON.stringify(execSync('git rev-parse --short HEAD').toString().trim()),
     __BRANCH__: JSON.stringify(execSync('git rev-parse --abbrev-ref HEAD').toString().trim()),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    // True in the Electron build (vite.electron.config.js).
+    __IS_ELECTRON__: JSON.stringify(false),
   },
   worker: {
     // The simulator's worker imports libOpenCOR's glue, an ES module, at run time.
     format: 'es',
   },
   optimizeDeps: {
-    // Exclude the wasm-based library from pre-bundling
-    exclude: ['vue3-libcellml.js'],
+    // Exclude the wasm-based libraries from pre-bundling, which breaks their wasm URLs. Saving converts
+    // with the CellDL editor's own bundled oxigraph; the live conversion's worker loads oxigraph's.
+    exclude: ['vue3-libcellml.js', 'oxigraph'],
+    // The live conversion's worker imports these. Listed up front, so the dev server doesn't find them
+    // when the CellDL tab first opens and reload the page.
+    include: ['libcellml.js/libcellml.js', '@xmldom/xmldom'],
     esbuildOptions: {
       target: 'es2020',
     },

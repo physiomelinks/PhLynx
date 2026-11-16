@@ -1,0 +1,719 @@
+import { computed, ref, unref, watch } from 'vue'
+import { useBioTemplateStore } from '../stores/bioTemplateStore'
+import { useLibraryStore } from '../stores/libraryStore'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
+import { readNodeSeries } from '../services/simulation/variableMapping'
+import { flowDirection, transportedSpecies } from '../services/bioView/transport'
+import { facePoint, handleFace } from '../services/bioView/faces'
+import { getGlyph } from '../services/bioView/glyphs'
+import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/species'
+import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, flowScales, routeSpecies } from '../services/bioView/speciesLayout'
+import { getHandleId } from '../utils/handles'
+import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
+import { whole } from '../services/bioView/drop'
+import { CARD, PROCESS_INSET, layoutPhysiology } from '../services/bioView/layout'
+import { resolveBioRole } from '../services/bioView/roles'
+import { locationSource } from '../services/annotations/locationSources'
+
+/** Stacking: regions under cells under everything drawn on them. */
+// A microdomain is drawn over its cell, and an organelle over both.
+const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8 }
+
+/**
+ * What a template piece's node shows of its template: which instance and site it is, and how it is drawn.
+ * A cell's process zones are made relative to the cell.
+ *
+ * @param {Object} place - A cell's or region's place from layoutPhysiology.
+ * @returns {Object} Nothing for a piece that is not a template's.
+ */
+function templateData(place) {
+  // A cell that is a node of its own still shows the area its processes take up.
+  if (!place.instance) return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
+  const { instance, site = null, tone = null, edge = null } = place
+  const data = { instance, site, tone, edge }
+  // A microdomain is drawn over its cell.
+  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }) } : data
+  return {
+    ...data,
+    facetLabels: place.facetLabels ?? [],
+    zones: zonesIn(place),
+    ...(place.hintAt && { hintAt: { ...place.hintAt } }),
+    ...(place.folds && { folds: place.folds }),
+  }
+}
+
+/** A cell's process zones, relative to the cell. */
+function zonesIn(place) {
+  const { x, y } = place.rect
+  return (place.zones ?? []).map(({ rect, ...zone }) => ({ ...zone, rect: { ...rect, x: rect.x - x, y: rect.y - y } }))
+}
+
+/**
+ * Names as the view draws them: a node's, and for a membrane protein what its arrows carry, so what is placed
+ * around them (a cell's name, species tokens) keeps clear of them.
+ *
+ * @param {Map<string, Object>} byId - The diagram's nodes by id.
+ * @param {Map<string, Object>} layout - From layoutPhysiology.
+ * @param {Map<string, Array<Object>>} transport - Node id -> its cartoon's arrows.
+ * @returns {(id: string) => {name: string, detail: string}}
+ */
+const viewLabels = (byId, layout, transport) => (id) => ({
+  name: byId.get(id)?.data?.name ?? layout.get(id)?.label ?? id,
+  detail: (transport.get(id) ?? []).map((arrow) => arrow.label).join(' · '),
+})
+
+/** Whether a place is an empty piece of a template, drawn with no node behind it. */
+const isEmptyPiece = (place) => !!place.instance && place.empty && (place.kind === 'cell' || place.kind === 'region')
+
+/**
+ * Turns the physiological layout into nodes for the physiological view's flow. Each has the id of the
+ * instance it draws, so selection and edits map straight back. Proteins in a membrane and processes in
+ * a cell are children of the cell, so they move with it. An empty template piece is a node of its own, keyed
+ * 'tpl:<instance>/<path>', that can be dragged (moving its instance) but not selected.
+ *
+ * @param {Array<Object>} nodes - The diagram's nodes.
+ * @param {Map<string, Object>} roles - Node id -> resolveBioRole's result.
+ * @param {Map<string, Object>} layout - From layoutPhysiology.
+ * @param {Map<string, Array<Object>>} [transport] - Node id -> what its cartoon's arrows show (see useBioNodes).
+ * @param {Object} [options]
+ * @param {boolean} [options.selection=true] - Whether each node says if it is selected; useBioNodes adds that
+ *   itself, so a selection doesn't lay the nodes out again.
+ * @returns {Array<Object>} vue-flow nodes; parents come before their children.
+ */
+/**
+ * What only some kinds of node set, cleared on every node: vue-flow merges a node onto the one it had under the
+ * same id, so a field left out keeps its old value when an instance is shown as something else. A card that
+ * became a protein stayed held inside its cell, and a membrane that became one could not be clicked.
+ */
+const UNSET = Object.freeze({ extent: undefined, zIndex: undefined, style: undefined, selectable: undefined, draggable: undefined })
+
+export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { selection = true } = {}) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const labelOf = viewLabels(byId, layout, transport)
+  const base = (id) => {
+    const node = byId.get(id)
+    if (!node) {
+      const place = layout.get(id)
+      const data = { name: place.label ?? id, domainType: null, empty: true }
+      return { ...UNSET, id, selectable: false, draggable: true, data }
+    }
+    return {
+      ...UNSET,
+      id,
+      ...(selection && { selected: !!node.selected }),
+      data: { name: node.data?.name ?? id, domainType: node.data?.domainType ?? null },
+    }
+  }
+  const parents = []
+  const children = []
+
+  for (const [id, place] of layout) {
+    if (!byId.has(id) && !isEmptyPiece(place)) continue
+    switch (place.kind) {
+      case 'cell': {
+        const { x, y, width, height } = place.rect
+        const own = base(id)
+        const named = !own.data.empty && cellNameBox(id, layout, labelOf)
+        // An empty template cell's name and hint keep clear of its proteins' names.
+        const hint = own.data.empty && cellHintAt(id, layout, labelOf)
+        parents.push({
+          ...own,
+          type: 'bioCell',
+          position: { x, y },
+          width,
+          height,
+          zIndex: place.parent ? Z.organelle : Z.cell,
+          data: {
+            ...own.data,
+            ...templateData(place),
+            membrane: place.membrane,
+            width,
+            height,
+            ...(named && { nameAt: { x: named.x - x, y: named.y - y } }),
+            ...(hint && { hintAt: hint }),
+            // A template's facet names go where its proteins and names are not.
+            ...(place.facetLabels?.length && { facetLabels: facetLabelBoxes(id, layout, labelOf) }),
+          },
+        })
+        break
+      }
+      case 'region': {
+        const { x, y, width, height } = place.rect
+        const own = base(id)
+        parents.push({
+          ...own,
+          type: 'bioRegion',
+          position: { x, y },
+          width,
+          height,
+          zIndex: place.form === 'inner' ? Z.microdomain : Z.region,
+          data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null },
+        })
+        break
+      }
+      case 'protein': {
+        const cell = layout.get(place.cell).rect
+        children.push({
+          ...base(id),
+          type: 'bioProtein',
+          parentNode: place.cell,
+          position: { x: place.x - GLYPH_WIDTH / 2 - cell.x, y: place.y - GLYPH_HEIGHT / 2 - cell.y },
+          width: GLYPH_WIDTH,
+          height: GLYPH_HEIGHT,
+          data: {
+            ...base(id).data,
+            glyph: roles.get(id)?.glyph ?? 'generic',
+            arrows: transport.get(id) ?? [],
+            facet: place.facet,
+            annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
+            rotation: place.rotation,
+            outward: place.outward,
+            droppable: true,
+          },
+        })
+        break
+      }
+      case 'tray':
+        parents.push({
+          ...base(id),
+          type: 'bioProtein',
+          position: { x: place.x, y: place.y },
+          width: GLYPH_WIDTH,
+          height: GLYPH_HEIGHT,
+          data: {
+            ...base(id).data,
+            glyph: roles.get(id)?.glyph ?? 'generic',
+            arrows: transport.get(id) ?? [],
+            annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
+            rotation: 0,
+            unplaced: true,
+            droppable: true,
+          },
+        })
+        break
+      case 'cytosolic': {
+        const cell = layout.get(place.cell).rect
+        // One bound to a template's process area can be dragged out of it, to another site or none.
+        const bound = !!place.instance
+        const glyph = roles.get(id)?.glyph ?? null
+        children.push({
+          ...base(id),
+          type: 'bioCard',
+          parentNode: place.cell,
+          // Held inside its cell, clear of the membrane.
+          ...(!bound && { extent: { range: 'parent', padding: [PROCESS_INSET + 12, PROCESS_INSET, PROCESS_INSET, PROCESS_INSET] } }),
+          position: { x: place.x - cell.x, y: place.y - cell.y },
+          width: CARD.width,
+          height: CARD.height,
+          // Drawn as part of its cell, not as a card left on it.
+          data: { ...base(id).data, inside: true, ...(glyph && { glyph }), ...(bound && { droppable: true }) },
+        })
+        break
+      }
+      case 'card':
+        // Something with no physiological role can be dropped into a membrane to make it a protein.
+        parents.push({
+          ...base(id),
+          type: 'bioCard',
+          position: { x: place.x, y: place.y },
+          width: CARD.width,
+          height: CARD.height,
+          data: { ...base(id).data, droppable: true },
+        })
+        break
+      case 'membrane': {
+        // Over its cell's outline, as big as the cell, but hit only on its bilayer (see BioMembrane).
+        const cell = layout.get(place.cell)?.rect
+        if (!cell) break
+        const own = base(id)
+        children.push({
+          ...own,
+          type: 'bioMembrane',
+          parentNode: place.cell,
+          position: { x: 0, y: 0 },
+          width: cell.width,
+          height: cell.height,
+          zIndex: Z.cell,
+          // Dragging its outline moves its cell (see BioFlow).
+          style: { pointerEvents: 'none' },
+          data: { ...own.data, width: cell.width, height: cell.height, ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }) },
+        })
+        break
+      }
+    }
+  }
+  return [...parents, ...children]
+}
+
+/** How far above a template's pieces its name goes. */
+const TITLE_HEIGHT = 24
+
+/**
+ * Names each placed template above its pieces, by its own label or else its template's name. The names can't
+ * be selected; they say which template is which, give its menu, and drag the whole template.
+ *
+ * @param {Array<{id: string, template: string, label?: string}>} instances
+ * @param {Map<string, Object>} definitions - Template id -> template.
+ * @param {Map<string, Object>} layout - From layoutPhysiology.
+ * @returns {Array<Object>} vue-flow nodes, keyed 'tpl:<instance>'.
+ */
+export function templateTitleNodes(instances, definitions, layout) {
+  const rects = new Map()
+  for (const place of layout.values()) {
+    if (!place.instance || (place.kind !== 'cell' && place.kind !== 'region')) continue
+    rects.set(place.instance, [...(rects.get(place.instance) ?? []), place.rect])
+  }
+  return instances
+    .filter((instance) => rects.has(instance.id))
+    .map((instance) => {
+      const pieces = rects.get(instance.id)
+      const x = Math.min(...pieces.map((rect) => rect.x))
+      const y = Math.min(...pieces.map((rect) => rect.y))
+      const width = Math.max(...pieces.map((rect) => rect.x + rect.width)) - x
+      const name = instance.label ?? definitions.get(instance.template)?.name ?? instance.template
+      return {
+        id: `tpl:${instance.id}`,
+        type: 'bioTemplateTitle',
+        position: { x, y: y - TITLE_HEIGHT },
+        width,
+        height: TITLE_HEIGHT,
+        selectable: false,
+        zIndex: Z.region,
+        data: { name, instance: instance.id, renamed: !!instance.label },
+      }
+    })
+}
+
+/** How far into a cell or region a coupling from a protein reaches. */
+const REACH = 56
+
+/**
+ * Gives a drawn node's box in flow coordinates.
+ *
+ * @param {Object} place - From layoutBioView.
+ * @returns {{x: number, y: number, width: number, height: number}|null}
+ */
+function boxOf(place) {
+  switch (place.kind) {
+    case 'cell':
+    case 'region':
+    case 'membrane':
+      return place.rect
+    case 'protein':
+      return { x: place.x - GLYPH_WIDTH / 2, y: place.y - GLYPH_HEIGHT / 2, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    case 'tray':
+      return { x: place.x, y: place.y, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    case 'cytosolic':
+    case 'card':
+      return { x: place.x, y: place.y, ...CARD }
+    default:
+      return null
+  }
+}
+
+const centreOf = (box) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 })
+const clampInto = (point, box) => ({
+  x: Math.min(Math.max(point.x, box.x), box.x + box.width),
+  y: Math.min(Math.max(point.y, box.y), box.y + box.height),
+})
+
+/**
+ * Names each coupling an edge carries, for reading on hover.
+ *
+ * @param {Object} edge
+ * @param {Map<string, Object>} byId - The diagram's nodes.
+ * @returns {string[]} e.g. 'SGLT1.c_Na_i ↔ cell.c_Na'.
+ */
+function couplingNames(edge, byId) {
+  const name = (id) => byId.get(id)?.data?.name ?? id
+  if (!edge.data?.couplings?.length) return [`${name(edge.source)} → ${name(edge.target)} (no couplings)`]
+  return edge.data.couplings.map(
+    ({ sourcePort, targetPort }) =>
+      `${name(edge.source)}.${sourcePort?.variables?.[0] ?? '?'} ↔ ${name(edge.target)}.${targetPort?.variables?.[0] ?? '?'}`
+  )
+}
+
+/**
+ * The couplings of the selected nodes, drawn over the physiological view as short straight lines: from
+ * the face of a protein the coupled quantities are on, a little way into the cell or region it couples
+ * to, or face to face between proteins. Couplings with a membrane aren't drawn, as the protein sits in
+ * it. Each line gets its own handle at each end, placed in the node, so a diagram handle shared by
+ * couplings on both sides of the membrane is drawn from both faces.
+ *
+ * @param {Array<Object>} nodes - The diagram's nodes.
+ * @param {Array<Object>} edges - The diagram's edges.
+ * @param {Map<string, Object>} layout - From layoutBioView.
+ * @param {Set<string>} selected - The selected nodes' ids.
+ * @param {Function} sidecarOf - Node -> its module's parsed sidecar, or null.
+ * @param {Function} [facesOf] - Node id -> its glyph's face anchors, if it has any.
+ * @returns {{edges: Array<Object>, handles: Map<string, Array<{id: string, x: number, y: number}>>}} vue-flow
+ *   edges, and each node's handles in its own coordinates.
+ */
+export function focusCouplings(nodes, edges, layout, selected, sidecarOf, facesOf = () => undefined) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const drawnEdges = []
+  const handles = new Map()
+  const partners = new Set()
+  // A membrane has no box of its own: it is drawn over its cell's, so its couplings end on that.
+  const placeOf = (nodeId) => {
+    const place = layout.get(nodeId)
+    return place?.kind === 'membrane' ? { ...place, rect: layout.get(place.cell)?.rect } : place
+  }
+  const addHandle = (nodeId, id, point) => {
+    const box = boxOf(placeOf(nodeId))
+    handles.set(nodeId, [...(handles.get(nodeId) ?? []), { id, x: point.x - box.x, y: point.y - box.y }])
+  }
+
+  for (const edge of edges) {
+    if (!selected.has(edge.source) && !selected.has(edge.target)) continue
+    const ends = [
+      { nodeId: edge.source, handleId: edge.sourceHandle, key: 's' },
+      { nodeId: edge.target, handleId: edge.targetHandle, key: 't' },
+    ].map((end) => ({ ...end, place: placeOf(end.nodeId) }))
+    if (ends.some((end) => !end.place || !boxOf(end.place)) || edge.source === edge.target) continue
+
+    // Proteins and cards first: where their end is fixes where a cell's or region's goes.
+    for (const end of ends) {
+      if (end.place.kind === 'protein') {
+        const node = byId.get(end.nodeId)
+        const handle = node?.data?.handles?.find((h) => getHandleId(h) === end.handleId)
+        const face = handle ? handleFace(end.nodeId, handle, [edge], sidecarOf(node)) : null
+        const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+        Object.assign(end, facePoint(end.place, face, size, facesOf(end.nodeId)))
+      } else if (!['cell', 'region', 'membrane'].includes(end.place.kind)) {
+        end.point = centreOf(boxOf(end.place))
+      }
+    }
+    for (const [end, other] of [ends, [...ends].reverse()]) {
+      if (end.point) continue
+      const box = boxOf(end.place)
+      end.point =
+        other.point && other.direction
+          ? clampInto(
+              { x: other.point.x + other.direction.x * REACH, y: other.point.y + other.direction.y * REACH },
+              box
+            )
+          : centreOf(box)
+    }
+
+    for (const end of ends) {
+      addHandle(end.nodeId, `${edge.id}:${end.key}`, end.point)
+      if (!selected.has(end.nodeId)) partners.add(end.nodeId)
+    }
+    drawnEdges.push({
+      id: edge.id,
+      type: 'bioCoupling',
+      source: edge.source,
+      sourceHandle: `${edge.id}:s`,
+      target: edge.target,
+      targetHandle: `${edge.id}:t`,
+      selectable: false,
+      focusable: false,
+      updatable: false,
+      // Over the cells and regions (-10, -20), under the proteins and cards drawn on them.
+      zIndex: -5,
+      // An edge nothing couples is drawn dashed, so a placed but uncoupled neighbour stands out.
+      data: { names: couplingNames(edge, byId), uncoupled: !edge.data?.couplings?.length },
+    })
+  }
+  return { edges: drawnEdges, handles, partners }
+}
+
+/**
+ * Works out the bioView fields that keep a node of the physiological view where it was dragged to.
+ *
+ * @param {Object} bioNode - The bio flow node: type, width, height and data.
+ * @param {{x: number, y: number}} at - Its new top-left, in flow coordinates (not relative to a parent).
+ * @returns {Object} The bioView fields to set, in whole flow units.
+ */
+export function bioViewForMove(bioNode, at) {
+  const { x, y } = whole(at)
+  if (bioNode.type === 'bioCell' || bioNode.type === 'bioRegion') {
+    return { rect: { x, y, width: bioNode.width, height: bioNode.height } }
+  }
+  return { position: { x, y } }
+}
+
+/**
+ * Gives `next` with every part equal to `previous` replaced by that part of it, so what didn't change keeps its
+ * identity: vue-flow copies a node's fields onto its own, and a field that is the same object triggers nothing.
+ *
+ * @param {*} previous
+ * @param {*} next
+ * @returns {*} `previous` when they are equal, else `next` sharing previous's equal parts.
+ */
+export function shareEqual(previous, next) {
+  if (previous === next || typeof previous !== 'object' || typeof next !== 'object' || !previous || !next) return next
+  if (Array.isArray(next)) {
+    if (!Array.isArray(previous)) return next
+    const shared = next.map((item, index) => shareEqual(previous[index], item))
+    const same = shared.length === previous.length && shared.every((item, index) => item === previous[index])
+    return same ? previous : shared
+  }
+  const isPlain = (value) => Object.getPrototypeOf(value) === Object.prototype
+  if (!isPlain(next) || !isPlain(previous)) return next
+  const keys = Object.keys(next)
+  let same = keys.length === Object.keys(previous).length
+  const shared = {}
+  for (const key of keys) {
+    shared[key] = shareEqual(previous[key], next[key])
+    if (shared[key] !== previous[key] || !Object.hasOwn(previous, key)) same = false
+  }
+  return same ? previous : shared
+}
+
+/**
+ * shareEqual over vue-flow nodes, matched by id. Each position is handed over afresh, as before, so vue-flow still
+ * puts a dragged node back where the layout has it whenever the nodes are worked out again.
+ *
+ * @param {Array<Object>|undefined} previous
+ * @param {Array<Object>} next
+ * @returns {Array<Object>}
+ */
+function shareNodes(previous, next) {
+  const before = new Map((previous ?? []).map((node) => [node.id, node]))
+  return next.map((node) => ({
+    ...shareEqual(before.get(node.id), node),
+    ...(node.position && { position: { ...node.position } }),
+  }))
+}
+
+/** The roles whose own species species mode shows. */
+const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
+
+/**
+ * The physiological view's nodes, derived from the diagram's. Nothing is written by deriving them.
+ *
+ * @param {Ref<Array<Object>>} nodes - The diagram's nodes.
+ * @param {Ref<Array<Object>>} [edges] - The diagram's edges.
+ * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null, hidden?: string[]}|null> }}
+ *   [options] - Species mode, when on: whether it shows every annotated species, only those coupled, or only those
+ *   with a path through a protein, a token it keeps whatever, and the species it hides (see speciesNetwork).
+ *   `voiCursor`, a Ref<{index: number, range: [number, number]}|null>: the point of the latest run whose flows
+ *   are shown, and the stretch of it they are sized against; null for the run's end, sized against each other. A compartment's tokens follow its
+ *   bioView.speciesOrder.
+ * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
+ *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
+ *   `species` is the species network and where it is drawn, while species mode is on; `speciesOrderPreview` places
+ *   one compartment's tokens in an order of the caller's.
+ */
+export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), voiCursor = ref(null), flowScale = ref(null) } = {}) {
+  const libraryStore = useLibraryStore()
+  const templateStore = useBioTemplateStore()
+  const simulationResults = useSimulationResultsStore()
+
+  const roles = computed(() => {
+    const source = locationSource()
+    return new Map(
+      nodes.value.map((node) => {
+        const sidecar = node.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null
+        return [node.id, resolveBioRole(node.data, { sidecar, worked: source.workedRole(node, { sidecar }) })]
+      })
+    )
+  })
+  const physiology = computed(() => {
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    // What a protein carries shows under its name, so it spaces neighbours too.
+    const detailOf = (id) => {
+      const mathRef = byId.get(id)?.data?.mathRef
+      if (!mathRef) return ''
+      return transportedSpecies(libraryStore.getParsedModuleAnnotations(mathRef))
+        .map(({ label }) => label)
+        .join(' · ')
+    }
+    return layoutPhysiology(nodes.value, roles.value, {
+      instances: templateStore.instances,
+      definitions: templateStore.definitions,
+      detailOf,
+    })
+  })
+  const layout = computed(() => physiology.value.places)
+
+  // What each membrane protein carries, from its sidecar: the same whatever a run gives.
+  const carried = computed(() => {
+    const species = new Map()
+    for (const node of nodes.value) {
+      if (roles.value.get(node.id)?.role !== 'membraneProtein' || !node.data?.mathRef) continue
+      species.set(node.id, transportedSpecies(libraryStore.getParsedModuleAnnotations(node.data.mathRef)))
+    }
+    return species
+  })
+  /** A protein's arrows, each going the way the latest run took it, if that is known. */
+  const arrowsFor = (list, directionOf = () => null) =>
+    list.map(({ species, label, inside }) => ({ species, label, direction: directionOf(inside) }))
+  // Arrows with no direction: what lays the view out, which a run doesn't change.
+  const carriedArrows = computed(() => new Map([...carried.value].map(([id, list]) => [id, arrowsFor(list)])))
+  // What each membrane protein carries, and which way, from the latest run.
+  const transport = computed(() => {
+    const { results, mapping } = simulationResults
+    // A sweep's values are one per swept point, not a course over time, so its last says nothing of where a run ended.
+    const usable = results && mapping && !results.isSweep
+    if (!usable) return carriedArrows.value
+    return new Map(
+      [...carried.value].map(([id, list]) => [
+        id,
+        arrowsFor(list, (inside) =>
+          flowDirection(readNodeSeries(results, mapping, id, inside)?.values, undefined, unref(voiCursor)?.index)
+        ),
+      ])
+    )
+  })
+  const sidecarOf = (node) => (node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null)
+  const facesOf = (id) => getGlyph(roles.value.get(id)?.glyph)?.faces
+  // What a protein's cartoon's arrows carry, in order, and where it spreads them.
+  const arrowsOf = (id) => ({
+    species: (carriedArrows.value.get(id) ?? []).map((arrow) => arrow.species),
+    room: (getGlyph(roles.value.get(id)?.glyph) ?? getGlyph('generic'))?.arrowRoom,
+  })
+
+  // Whether any compartment annotates species of its own, so species mode has something to show.
+  const hasSpecies = computed(() =>
+    nodes.value.some(
+      (node) => COMPARTMENT_ROLES.has(roles.value.get(node.id)?.role) && ownSpecies(sidecarOf(node)).size
+    )
+  )
+  // The species network and where its tokens go, worked out only while species mode is on: a run changes neither.
+  const speciesTokens = computed(() => {
+    const mode = unref(speciesMode)
+    if (!mode) return null
+    const network = speciesNetwork({
+      nodes: nodes.value,
+      edges: edges.value,
+      roleOf: (id) => roles.value.get(id)?.role,
+      sidecarOf,
+      all: !!mode.all,
+      fluxes: !!mode.fluxes,
+      keep: mode.keep ?? null,
+      hidden: mode.hidden ?? [],
+    })
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const labelOf = viewLabels(byId, layout.value, carriedArrows.value)
+    // A compartment's tokens in the order the user dragged them into.
+    const orderOf = (id) => byId.get(id)?.data?.bioView?.speciesOrder
+    return { network, tokens: placeSpeciesTokens(network, layout.value, { labelOf, orderOf }) }
+  })
+
+  /**
+   * Where one compartment's tokens would go in an order of their species: a chip drag's preview of its drop.
+   *
+   * @param {string} nodeId - The compartment.
+   * @param {string[]} order - Its species, in the order to try.
+   * @returns {Array<Object>} Its tokens, placed as that order would place them; none while species mode is off.
+   */
+  function speciesOrderPreview(nodeId, order) {
+    if (!speciesTokens.value) return []
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const labelOf = viewLabels(byId, layout.value, carriedArrows.value)
+    const orderOf = (id) => (id === nodeId ? order : byId.get(id)?.data?.bioView?.speciesOrder)
+    return placeSpeciesTokens(speciesTokens.value.network, layout.value, { labelOf, orderOf, only: nodeId })
+  }
+  // The flow each path and exchange follows in the latest run, and whether it going in is the path going 'out'.
+  const speciesFlows = computed(() => {
+    if (!speciesTokens.value) return null
+    const { network } = speciesTokens.value
+    const { results, mapping } = simulationResults
+    if (!results || !mapping || results.isSweep) return new Map()
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const valuesOf = (id, variable) => readNodeSeries(results, mapping, id, variable)?.values ?? null
+    const flows = new Map()
+    for (const path of network.paths) {
+      const crossing = crossingFlow(sidecarOf(byId.get(path.protein)), path.species)
+      const values = crossing && valuesOf(path.protein, crossing.variable)
+      if (values) flows.set(path, { values, isFlipped: crossing.inward < 0, species: path.species })
+    }
+    // A process's exchange with a compartment names its own flow, and which sign gives the species away.
+    for (const exchange of network.exchanges ?? []) {
+      const values = valuesOf(exchange.process, exchange.variable)
+      if (values) flows.set(exchange, { values, isFlipped: exchange.produces > 0, species: exchange.species })
+    }
+    return flows
+  })
+  // The flow drawn widest for each species over the stretch of the run the cursor plays, so a path keeps its width's
+  // meaning from one point to the next. Worked out once for the stretch, not at each point.
+  const largestFlow = computed(() => {
+    const range = unref(voiCursor)?.range
+    if (!range || !speciesFlows.value) return null
+    const flows = [...speciesFlows.value].map(([key, flow]) => ({ key, ...flow }))
+    const scaleOf = flowScales(flows, range, unref(flowScale) ?? undefined)
+    return (source) => scaleOf({ key: source, species: source.species })
+  })
+  // ...and its paths, which go the way the latest run took them at the cursor: its end, until that is moved.
+  const species = computed(() => {
+    if (!speciesTokens.value) return null
+    const { network, tokens } = speciesTokens.value
+    const index = unref(voiCursor)?.index ?? null
+    const flowOf = (path) => {
+      const flow = speciesFlows.value.get(path)
+      if (!flow) return null
+      const way = flowDirection(flow.values, undefined, index)
+      const flip = { in: 'out', out: 'in' }
+      return {
+        direction: way && flow.isFlipped ? flip[way] : way,
+        size: Math.abs(flow.values[index ?? flow.values.length - 1]) || 0,
+      }
+    }
+    const largest = largestFlow.value
+    return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf, largest }) }
+  })
+
+  const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))
+  const focus = computed(() =>
+    focusCouplings(nodes.value, edges.value, layout.value, selected.value, sidecarOf, facesOf)
+  )
+  // Laid out once per layout: a selection or a run changes none of it, only what bioNodes adds.
+  const laidOutNodes = computed(() => [
+    ...templateTitleNodes(templateStore.instances, templateStore.definitions, layout.value),
+    ...bioFlowNodes(nodes.value, roles.value, layout.value, carriedArrows.value, { selection: false }),
+  ])
+  // Each node's data keeps its identity while it doesn't change, so vue-flow re-renders only the nodes a selection
+  // or a run touches.
+  const bioNodes = computed((previous) => {
+    const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    const next = laidOutNodes.value.map((node) => {
+      const main = byId.get(node.id)
+      if (node.type === 'bioTemplateTitle') return node
+      return {
+        ...node,
+        ...(main && { selected: !!main.selected }),
+        data: {
+          ...node.data,
+          ...(node.type === 'bioProtein' && { arrows: transport.value.get(node.id) ?? [] }),
+          handles: focus.value.handles.get(node.id) ?? [],
+          coupled: focus.value.partners.has(node.id),
+        },
+      }
+    })
+    return shareNodes(previous, next)
+  })
+  const couplingEdges = computed(() => focus.value.edges)
+
+  /** Parses every module's sidecar, so roles from sidecars are known. */
+  function loadSidecars() {
+    const mathRefs = new Set(nodes.value.map((node) => node.data?.mathRef).filter(Boolean))
+    return Promise.all([...mathRefs].map((mathRef) => libraryStore.ensureModuleAnnotations(mathRef)))
+  }
+
+  // A sidecar saved, imported or undone after mount drops its parse; parse it again so roles, transport and
+  // species mode follow without remounting the view.
+  watch(
+    () =>
+      [...new Set(nodes.value.map((node) => node.data?.mathRef).filter(Boolean))]
+        .filter((mathRef) => libraryStore.getModuleAnnotations(mathRef) && !libraryStore.getParsedModuleAnnotations(mathRef))
+        .join('\n'),
+    (stale) => {
+      if (stale) loadSidecars().catch(() => {})
+    }
+  )
+
+  return {
+    roles,
+    layout,
+    sites: computed(() => physiology.value.sites),
+    bioNodes,
+    couplingEdges,
+    hasSpecies,
+    species,
+    speciesOrderPreview,
+    loadSidecars,
+  }
+}

@@ -45,7 +45,7 @@ afterEach(() => wrapper?.unmount())
  * @returns {import('@vue/test-utils').VueWrapper}
  */
 function mountSummary(props) {
-  wrapper = mount(MultiportSummary, { props, global: { directives: { tooltip } } })
+  wrapper = mount(MultiportSummary, { props, global: { directives: { tooltip, hint: tooltip } } })
   return wrapper
 }
 

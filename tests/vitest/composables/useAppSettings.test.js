@@ -34,6 +34,21 @@ describe('useAppSettings', () => {
     expect((await load()).settings).toEqual(DEFAULTS)
   })
 
+  it('hides the send, macro builder and add handle buttons until the user shows them', async () => {
+    expect((await load()).settings).toMatchObject({
+      toolbarSendTo: false,
+      toolbarMacroBuilder: false,
+      toolbarAddHandles: false,
+      toolbarImport: true,
+    })
+    store(JSON.stringify({ toolbarSendTo: true, toolbarMacroBuilder: 'yes', toolbarImport: false }))
+    expect((await load()).settings).toMatchObject({
+      toolbarSendTo: true,
+      toolbarMacroBuilder: false,
+      toolbarImport: false,
+    })
+  })
+
   it.each(['null', '"base"', '[]', '{not json'])('falls back to the defaults for %s', async (value) => {
     store(value)
     expect((await load()).settings).toEqual(DEFAULTS)

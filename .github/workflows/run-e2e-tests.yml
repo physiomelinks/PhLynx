@@ -1,8 +1,16 @@
 name: Playwright Tests
 
 on:
+  # Other branches are tested through their pull request, which avoids running the tests twice.
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch (or PR) cancels the run still in progress; only the latest commit is tested.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e-testing:
@@ -23,7 +31,9 @@ jobs:
 
       - run: pip install -r tests/requirements.txt
 
-      - run: playwright install --with-deps chromium
+      # WebKit too, for the CellDL tests that also run in Safari's engine (test_celldl.py fails, not skips, a
+      # missing WebKit under CI); the rest of the suite runs in Chromium.
+      - run: playwright install --with-deps chromium webkit
 
       - run: yarn dev &
       

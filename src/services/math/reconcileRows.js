@@ -3,8 +3,8 @@
  * Pure (no Vue, no DOM), so it is safe in a worker.
  *
  * A row's type says where its value comes from:
- * - `variable`: this component's math computes it (state, assigned, VoI). Only computed
- *   rows are variables, and computed rows always are.
+ * - `variable`: this component's math computes it (state, assigned, VoI, or solved implicitly in a
+ *   DAE). Only computed rows are variables, and computed rows always are.
  * - `boundary_condition`: another module supplies it through a port.
  * - `constant` / `global_constant`: the parameter pane supplies it. The default for a new row.
  * A port doesn't settle which of these a row is, since the connected module may compute it or take
@@ -12,7 +12,16 @@
  * `variable` the math doesn't compute: in a port it becomes a boundary condition, else a constant.
  */
 import { ACCESS, NO_ACCESS } from '../../utils/constants'
-import { accessFromInterface, findVoiNames, inferType, isNumericLiteral, syncInitialiserUnits } from '../../utils/variables'
+import {
+  accessFromInterface,
+  findImplicitVariables,
+  findVoiNames,
+  inferType,
+  isBlank,
+  isEmpty,
+  isNumericLiteral,
+  syncInitialiserUnits,
+} from '../../utils/variables'
 
 export const SIMPLE_MODE = 'simple'
 export const ADVANCED_MODE = 'advanced'
@@ -26,23 +35,35 @@ export const ADVANCED_MODE = 'advanced'
 export const modeFor = (isSimple) => (isSimple ? SIMPLE_MODE : ADVANCED_MODE)
 
 /**
- * Gets the roles the math gives its variables, as used by inferType.
+ * Gets the roles the math gives its variables, as used by inferType. A DAE's implicit unknowns can
+ * only be variables nothing supplies: a row with a value, a port or a global supplies one, as do the
+ * math's defaults and initial values for a variable without a row yet.
  *
  * @param {import('./analyzeMath').MathAnalysis} analysis
- * @param {Array} rows - Rows giving units the math doesn't declare.
- * @returns {{states: Set<string>, assigned: Set<string>, voi: Set<string>}}
+ * @param {Array} rows - Rows giving units the math doesn't declare, and the values and types already set.
+ * @param {Map<string, string>} [defaults] - Values for variables without a row.
+ * @returns {{states: Set<string>, assigned: Set<string>, voi: Set<string>, implicit: Set<string>}}
  */
-function getRoles(analysis, rows) {
-  const rowUnits = new Map(rows.map((row) => [row.name, row.units]))
-  const voi = findVoiNames(analysis, (name) => rowUnits.get(name))
-  return { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), voi }
+function getRoles(analysis, rows, defaults = new Map()) {
+  const rowsByName = new Map(rows.map((row) => [row.name, row]))
+  const voi = findVoiNames(analysis, (name) => rowsByName.get(name)?.units)
+  const roles = { states: new Set(analysis.stateVariables), assigned: new Set(analysis.assigned), voi }
+  const initialValues = new Map(analysis.declared.map((variable) => [variable.name, variable.initialValue]))
+  const isSupplied = (name) => {
+    const row = rowsByName.get(name)
+    if (!row) return isNumericLiteral(defaults.get(name)) || isNumericLiteral(initialValues.get(name))
+    if (row.type === 'variable') return false
+    return row.type !== 'constant' || !isBlank(row.value ?? defaults.get(name))
+  }
+  const computed = new Set(rows.filter((row) => row.type === 'variable').map((row) => row.name))
+  return { ...roles, implicit: findImplicitVariables(analysis, roles, isSupplied, computed) }
 }
 
 /**
  * Resolves a row's type from what the math computes, what the ports carry and the stored type.
  *
  * @param {string} name
- * @param {{states: Set, assigned: Set, voi: Set}} roles
+ * @param {{states: Set, assigned: Set, voi: Set, implicit: Set}} roles
  * @param {Object|undefined} previousRow
  * @param {Set<string>|null} portVariables - Names the instance's ports carry; null keeps a stored `variable`.
  * @returns {string} The row type.
@@ -129,7 +150,7 @@ function findInitialiserPairings(analysis, previousRows, stateNames) {
 
 /**
  * @typedef {Object} RowContext
- * @property {{states: Set, assigned: Set, voi: Set}} roles
+ * @property {{states: Set, assigned: Set, voi: Set, implicit: Set}} roles
  * @property {Set<string>|null} portVariables - Names the instance's ports carry; null if unknown.
  * @property {Map<string, string>} defaults - Values taken out of the math, for rows with none yet.
  */
@@ -249,7 +270,7 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   const declaredByName = new Map(analysis.declared.map((variable) => [variable.name, variable]))
   const stateNames = new Set(analysis.stateVariables)
   const initialiserOf = findInitialiserPairings(analysis, previousRows, stateNames)
-  const context = { roles: getRoles(analysis, previousRows), portVariables: portVariables ? new Set(portVariables) : null, defaults }
+  const context = { roles: getRoles(analysis, previousRows, defaults), portVariables: portVariables ? new Set(portVariables) : null, defaults }
 
   const rows = []
   const listedNames = new Set()
@@ -262,8 +283,11 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   }
 
   if (mode === SIMPLE_MODE) {
-    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost.
-    const keptDeclared = analysis.declared.map((variable) => variable.name).filter((name) => previousByName.has(name))
+    // A row the math still declares stays even if no equation uses it, so its value and source aren't lost. So does
+    // one the defaults give a value, e.g. a generated constant, since its declaration has no value of its own.
+    const keptDeclared = analysis.declared
+      .map((variable) => variable.name)
+      .filter((name) => previousByName.has(name) || isNumericLiteral(defaults.get(name)))
     for (const name of new Set([...analysis.referenced, ...initialiserOf.values(), ...keptDeclared])) {
       addRow(buildSimpleModeRow(name, declaredByName.get(name), previousByName.get(name), context))
     }
@@ -282,4 +306,81 @@ export function reconcileRows(analysis, previousRows = [], { mode = SIMPLE_MODE,
   resolveStateInitialisers(rows, analysis.stateVariables)
   syncInitialiserUnits(rows, { overwrite: mode === SIMPLE_MODE })
   return rows
+}
+
+/**
+ * Fills blank row values from defaults, e.g. the values a locked math's source generates. Rows with
+ * a value keep it.
+ *
+ * @param {Array} rows - Never mutated.
+ * @param {Map<string, string>} defaults
+ * @returns {Array} The rows, with copies for those filled.
+ */
+export function fillBlankValues(rows, defaults) {
+  if (!defaults.size) return rows
+  return rows.map((row) => (isEmpty(row.value) && defaults.has(row.name) ? { ...row, value: defaults.get(row.name) } : row))
+}
+
+/**
+ * Gets the defaults a module keeps when its source regenerates its math, e.g. a diagram saved again: a variable the
+ * module already had keeps its default, and only one new to it takes the source's value.
+ *
+ * @param {Map<string, string>} values - The values the source generates (separateParameters).
+ * @param {Map<string, string>} previousDefaults - The module's defaults before the save (libraryStore.getMathDefaults).
+ * @returns {Map<string, string>}
+ */
+export function keepDefaults(values, previousDefaults) {
+  return new Map([...values].map(([name, value]) => [name, previousDefaults.has(name) ? previousDefaults.get(name) : value]))
+}
+
+/**
+ * Renames rows, e.g. after a diagram edit renamed the variables its elements generate, so their values go with them.
+ * A row a rename leaves under a name another row now takes is dropped.
+ *
+ * @param {Array} rows - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Array} The rows, with copies for those renamed.
+ */
+export function renameRows(rows, renames) {
+  if (!renames?.size) return rows
+  const renamed = rows.map((row) => {
+    const name = renames.get(row.name)
+    const initialiser = row.initialiser && renames.get(row.initialiser)
+    if (!name && !initialiser) return row
+    return { ...row, ...(name && { name }), ...(initialiser && { initialiser }) }
+  })
+  const targets = new Set(renames.values())
+  return renamed.filter((row, index) => !targets.has(row.name) || renames.has(rows[index].name))
+}
+
+/**
+ * Renames a source's values to match renamed rows (renameRows).
+ *
+ * @param {Map<string, string>} values - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Map<string, string>}
+ */
+export function renameValues(values, renames) {
+  if (!renames?.size) return values
+  const renamed = new Map([...values].filter(([name]) => !renames.has(name)))
+  renames.forEach((name, old) => {
+    if (values.has(old)) renamed.set(name, values.get(old))
+  })
+  return renamed
+}
+
+/**
+ * Renames the variables ports carry (renameRows).
+ *
+ * @param {Array} ports - Never mutated.
+ * @param {Map<string, string>} renames - Each old name to its new one.
+ * @returns {Array}
+ */
+export function renamePortVariables(ports, renames) {
+  if (!renames?.size || !ports) return ports
+  return ports.map((port) =>
+    (port.variables ?? []).some((name) => renames.has(name))
+      ? { ...port, variables: port.variables.map((name) => renames.get(name) ?? name) }
+      : port
+  )
 }

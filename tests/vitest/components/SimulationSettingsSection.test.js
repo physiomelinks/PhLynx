@@ -56,6 +56,24 @@ describe('SimulationSettingsSection', () => {
     expect(store.simulationSettings.endingPoint).toBe(42)
   })
 
+  it('saves an absolute tolerance typed in scientific notation', async () => {
+    const store = useSimulationSettingsStore()
+    mountSection()
+    await wrapper.find('[data-testid="sim-settings-toggle"]').trigger('click')
+
+    await wrapper.find('[data-testid="side-absolute-tolerance"]').setValue('1e-20')
+    expect(store.simulationSettings.absoluteTolerance).toBe(1e-20)
+  })
+
+  it('doesn’t save a field while it isn’t a number', async () => {
+    const store = useSimulationSettingsStore()
+    mountSection()
+    await wrapper.find('[data-testid="sim-settings-toggle"]').trigger('click')
+
+    await wrapper.find('[data-testid="side-relative-tolerance"]').setValue('1e-')
+    expect(store.simulationSettings.relativeTolerance).toBe(1e-7)
+  })
+
   it('shows what it follows from the store when the settings change elsewhere', async () => {
     const store = useSimulationSettingsStore()
     mountSection()

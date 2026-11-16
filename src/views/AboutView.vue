@@ -1,9 +1,8 @@
 <template>
   <div class="h-screen overflow-y-auto">
-    <ThemeToggle floating />
     <div class="about-wrapper">
       <transition name="fade-slide" appear>
-        <div class="image-container" :class="{ 'is-compact': activeTab === 'changelog' }">
+        <div class="image-container" :class="{ 'is-compact': activeTab !== 'overview' }">
           <img src="/phlynxlogo.svg" alt="PhLynx Logo" class="centred-image" />
         </div>
       </transition>
@@ -14,6 +13,10 @@
             <TabList>
               <Tab value="overview">Overview</Tab>
               <Tab value="changelog">Release Notes</Tab>
+              <Tab value="notices" data-testid="notices-tab">
+                Notices
+                <span v-if="unreadCount" class="tab-count" data-testid="notices-tab-count">{{ unreadCount }}</span>
+              </Tab>
             </TabList>
 
             <TabPanels>
@@ -74,6 +77,12 @@
                   <ChangelogViewer />
                 </div>
               </TabPanel>
+
+              <TabPanel value="notices">
+                <div class="tab-content">
+                  <NoticesPanel :active="activeTab === 'notices'" />
+                </div>
+              </TabPanel>
             </TabPanels>
           </Tabs>
 
@@ -102,8 +111,11 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import ChangelogViewer from '../components/ChangeLogViewer.vue'
+import NoticesPanel from '../components/NoticesPanel.vue'
+import { useNotices } from '../composables/useNotices'
 
 import Tabs from 'primevue/tabs'
 import TabList from 'primevue/tablist'
@@ -112,9 +124,27 @@ import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import Divider from 'primevue/divider'
 
-import ThemeToggle from '../components/ThemeToggle.vue'
+const TABS = ['overview', 'changelog', 'notices']
 
-const activeTab = ref('overview')
+const route = useRoute()
+const router = useRouter()
+const { unreadCount } = useNotices()
+
+// The tab is kept in the address (/about?tab=notices), so the header's notices bell can open it.
+const tabFromRoute = () => (TABS.includes(route.query.tab) ? route.query.tab : TABS[0])
+const activeTab = ref(tabFromRoute())
+
+watch(
+  () => route.query.tab,
+  () => {
+    if (route.name === 'about') activeTab.value = tabFromRoute()
+  }
+)
+
+watch(activeTab, (tab) => {
+  if (route.name !== 'about' || tab === tabFromRoute()) return
+  router.replace({ query: tab === TABS[0] ? {} : { tab } })
+})
 
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ + __BUILD_STATE_MARKER__ : 'Dev'
 const commitHash = typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : 'N/A'
@@ -276,6 +306,19 @@ li {
 
 .tab-content {
   padding: 10px 0;
+}
+
+.tab-count {
+  margin-left: 6px;
+  min-width: 1.1rem;
+  padding: 0 4px;
+  border-radius: 999px;
+  background-color: var(--p-red-500, #ef4444);
+  color: #ffffff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.1rem;
+  text-align: center;
 }
 
 .relative-container {

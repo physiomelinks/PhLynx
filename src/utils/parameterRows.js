@@ -13,8 +13,9 @@ export function isUnitKnown(row, unitNames) {
 }
 
 export function getUnknownUnitsNotice(row, unitNames) {
-  if (isUnitKnown(row, unitNames)) return ''
-  return `"${cleanName(row.units)}" isn't defined in the units library`
+  const cleaned = cleanName(row.units)
+  if (!cleaned || unitNames.has(cleaned)) return ''
+  return `"${cleaned}" isn't defined in the units library`
 }
 
 /** Kinds of variable the math itself computes, whose type is always `variable`. */

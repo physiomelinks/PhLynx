@@ -10,11 +10,21 @@ describe('getIsolationStatus', () => {
   it.each([
     ['an insecure page', { crossOriginIsolated: false, isSecureContext: false, navigator: {} }, /secure/],
     ['a window without service workers', { crossOriginIsolated: false, isSecureContext: true, navigator: {} }, /service workers/],
-    ['a page the service worker hasn’t reloaded yet', { crossOriginIsolated: false, isSecureContext: true, navigator: { serviceWorker: {} } }, /Reload/],
+    [
+      'a page the service worker hasn’t reloaded yet',
+      { crossOriginIsolated: false, isSecureContext: true, navigator: { serviceWorker: {} } },
+      /Save your work first/,
+    ],
   ])('says why %s isn’t isolated', (_, scope, reason) => {
     const status = getIsolationStatus(scope)
     expect(status.isIsolated).toBe(false)
     expect(status.reason).toMatch(reason)
+  })
+
+  it('says only a page awaiting its worker needs a reload', () => {
+    const scope = (navigator) => ({ crossOriginIsolated: false, isSecureContext: true, navigator })
+    expect(getIsolationStatus(scope({ serviceWorker: {} })).needsReload).toBe(true)
+    expect(getIsolationStatus(scope({})).needsReload).toBeUndefined()
   })
 })
 

@@ -146,7 +146,12 @@ const props = defineProps({
   zoomKey: { type: String, default: null },
   // A line under the title, such as why the plot isn't against the variable it is set to plot against.
   note: { type: String, default: null },
+  // Where a cursor on the variable of integration is, and the window it moves in, to mark on a chart against it:
+  // { value, from, to } in its units, `value` null with the cursor unmoved and `from` and `to` null over the whole run.
+  marker: { type: Object, default: null },
 })
+// seek: a value of the variable of integration the viewer moved the cursor to, dragging across the chart with alt held.
+const emit = defineEmits(['seek'])
 
 /**
  * Pads the chart's right side by half its last x label, which is centred on the right edge, so it isn't cut off.
@@ -519,6 +524,80 @@ function drawSegments(chart) {
 }
 
 /**
+ * Dims what lies outside the cursor's window, behind the lines.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function drawWindow(chart) {
+  const { from, to } = props.marker ?? {}
+  if (from == null || to == null) return
+  const { ctx, bbox } = chart
+  const right = bbox.left + bbox.width
+  const start = Math.min(right, Math.max(bbox.left, chart.valToPos(from, 'x', true)))
+  const end = Math.min(right, Math.max(bbox.left, chart.valToPos(to, 'x', true)))
+  ctx.save()
+  ctx.fillStyle = CHROME[isDarkMode.value ? 'dark' : 'light'].band
+  // Twice over, to tell it from a protocol's bands.
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.fillRect(bbox.left, bbox.top, start - bbox.left, bbox.height)
+    ctx.fillRect(end, bbox.top, right - end, bbox.height)
+  }
+  ctx.restore()
+}
+
+/**
+ * Draws a line up the chart where the cursor is, over the lines.
+ *
+ * @param {Object} chart - The uPlot chart.
+ */
+function drawMarker(chart) {
+  const value = props.marker?.value
+  if (value == null) return
+  const { ctx, bbox } = chart
+  const x = chart.valToPos(value, 'x', true)
+  if (x < bbox.left || x > bbox.left + bbox.width) return
+  ctx.save()
+  ctx.strokeStyle = CHROME[isDarkMode.value ? 'dark' : 'light'].text
+  ctx.lineWidth = 1.5 * uPlot.pxRatio
+  ctx.setLineDash([])
+  ctx.beginPath()
+  ctx.moveTo(x, bbox.top)
+  ctx.lineTo(x, bbox.top + bbox.height)
+  ctx.stroke()
+  ctx.restore()
+}
+
+/**
+ * Moves the cursor to where the pointer is over the chart.
+ *
+ * @param {MouseEvent} event
+ */
+function seekTo(event) {
+  if (!plot) return
+  emit('seek', plot.posToVal(event.clientX - plot.over.getBoundingClientRect().left, 'x'))
+}
+
+/** Stops following the pointer, as the button is let go. */
+function endSeek() {
+  window.removeEventListener('mousemove', seekTo)
+  window.removeEventListener('mouseup', endSeek)
+}
+
+/**
+ * Starts moving the cursor with the pointer, on a press with alt held, in place of the zoom a drag makes.
+ *
+ * @param {MouseEvent} event
+ */
+function startSeek(event) {
+  if (!event.altKey || !props.marker || props.x.isPhase) return
+  event.stopPropagation()
+  event.preventDefault()
+  seekTo(event)
+  window.addEventListener('mousemove', seekTo)
+  window.addEventListener('mouseup', endSeek)
+}
+
+/**
  * Gets a phase plot series' x values: a tracked run's own, or the live run's.
  *
  * @param {{xValues?: ArrayLike<number>}} item
@@ -711,7 +790,7 @@ function buildOptions(width) {
       points: { size: 8 },
       ...(props.syncKey && { sync: { key: props.syncKey, setSeries: false, filters: { pub: (type) => !(isZoomingAlone && ZOOM_EVENTS.has(type)) } } }),
     },
-    hooks: { setScale: [recordZoom], setCursor: [updateReadout], drawClear: [drawSegments], draw: [drawReferences] },
+    hooks: { setScale: [recordZoom], setCursor: [updateReadout], drawClear: [drawSegments, drawWindow], draw: [drawReferences, drawMarker] },
     legend: { show: false },
     padding: [8, (chart) => alignGutter('right', padRight(chart)), 0, 0],
     axes: [{ ...axis(xTicks), size: 28 }, { ...axis(), size: (chart, values) => alignGutter('left', sizeValueAxis(chart, values)) }],
@@ -782,6 +861,7 @@ function draw() {
   plot = new uPlot(buildOptions(chartEl.value.clientWidth || 300), buildData(), chartEl.value)
   // Caught on the way down, so it's known before the chart passes the event on.
   for (const type of ['mousedown', 'dblclick']) plot.root.addEventListener(type, noteZoomAlone, true)
+  plot.root.addEventListener('mousedown', startSeek, true)
   restoreZoom()
   isUpdatingData = false
   labelCanvas()
@@ -807,9 +887,15 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (alignmentKey.value) forgetChartGutters(alignmentKey.value, alignmentId)
   resizeObserver?.disconnect()
+  endSeek()
   plot?.destroy()
   plot = null
 })
+// The cursor's mark moves without the values changing.
+watch(
+  () => [props.marker?.value, props.marker?.from, props.marker?.to],
+  () => plot?.redraw(false, false)
+)
 
 watch(
   () => [

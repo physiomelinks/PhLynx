@@ -1,10 +1,11 @@
 <script setup>
 import { Background } from '@vue-flow/background'
+import { BACKGROUND_DOTS } from '../utils/constants'
 </script>
 
 <template>
   <div class="dropzone-background">
-    <Background :size="2" :gap="20" pattern-color="#BDBDBD" />
+    <Background v-bind="BACKGROUND_DOTS" />
 
     <div class="overlay">
       <slot />

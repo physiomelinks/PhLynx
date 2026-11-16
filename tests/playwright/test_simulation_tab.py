@@ -112,7 +112,7 @@ FEATURES_CASE = _spec["cases"][0]
 FEATURES_SETTINGS = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationSettings')"
     f".setSimulationSettings({{ pointInterval: {FEATURES_CASE['pointInterval']}, timeStep: {FEATURES_CASE['maximumStep']},"
-    f" tolerance: {_spec['solver']['tolerance']}, maxSteps: 50000 }})"
+    f" relativeTolerance: {_spec['solver']['tolerance']}, maxSteps: 50000 }})"
 )
 with open(os.path.join(PARITY, "ca-features.json")) as _references:
     CA_FEATURES = json.load(_references)["cases"][FEATURES_CASE["name"]]
@@ -145,8 +145,19 @@ def simulate_whole_model(page):
 def pick_path(page, box_name, path, within=None):
     """Searches for an instance/variable path in a Simulation tab search box and picks it."""
     scope = within or page
-    scope.get_by_role("combobox", name=box_name).fill(path.replace("/", " "))
-    option = page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(rf"^{re.escape(path)}$")))
+    query = path.replace("/", " ")
+    scope.get_by_role("combobox", name=box_name).fill(query)
+    # The box lists every path as soon as it has focus and only filters 120 ms after typing, so wait for the
+    # filtered list: a row picked from the unfiltered one can be replaced under the click.
+    page.wait_for_function(
+        """(words) => {
+            const options = [...document.querySelectorAll('.p-autocomplete-option')]
+            return options.length > 0
+                && options.every((o) => words.every((w) => (o.getAttribute('aria-label') ?? '').toLowerCase().includes(w)))
+        }""",
+        arg=query.lower().split(),
+    )
+    option =page.locator(".path-option").filter(has=page.locator(".path-text", has_text=re.compile(rf"^{re.escape(path)}$")))
     option.first.click()
 
 
@@ -223,7 +234,7 @@ class TestSimulationTab(unittest.TestCase):
             page.keyboard.press("Escape")
             soma.click()
 
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
 
@@ -262,7 +273,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             soma.click()
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
@@ -317,7 +328,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             soma.click()
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
@@ -373,7 +384,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             soma.click()
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
@@ -423,7 +434,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(FULL_SIMULATION)
             soma.click()
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
@@ -501,7 +512,7 @@ class TestSimulationTab(unittest.TestCase):
             page.evaluate(SHORTEN_SIMULATION)
             soma.click()
             axon.click(modifiers=["ControlOrMeta"])
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
@@ -549,7 +560,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             soma.click()
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
@@ -620,7 +631,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             protocol_button = page.get_by_role("button", name="Run the protocol's experiments")
             expect(protocol_button).to_have_count(0)
@@ -717,7 +728,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             page.evaluate(ADD_RAMP_PROTOCOL)
@@ -751,7 +762,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             # A protocol of two sub-experiments, the second doubling the M current's conductance, then a copy of it.
@@ -801,7 +812,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             page.get_by_role("button", name="Edit obs_data", exact=True).click()
@@ -872,7 +883,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             page.evaluate(ADD_PROTOCOL)
@@ -962,7 +973,7 @@ class TestSimulationTab(unittest.TestCase):
 
             # ---------- START -----------
             page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             page.evaluate(ADD_DATA_ITEMS_PROTOCOL)
             saved = page.evaluate(SAVED_OBS_DATA)
@@ -991,10 +1002,12 @@ class TestSimulationTab(unittest.TestCase):
 
             # Turned off in Settings, the section goes; the obs_data is as it was.
             page.get_by_role("button", name="Settings", exact=True).click()
+            settings = page.get_by_role("dialog", name="Settings")
+            settings.get_by_role("tab", name="Simulation", exact=True).click()
             show_data_items = page.get_by_role("switch", name="Show data items")
             expect(show_data_items).to_be_checked()
             show_data_items.uncheck()
-            page.get_by_role("button", name="Save Changes").click()
+            settings.get_by_role("button", name="Done").click()
             page.get_by_role("button", name="Edit obs_data", exact=True).click()
             expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
             expect(dialog.get_by_role("region", name="data_items")).to_have_count(0)
@@ -1021,7 +1034,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(FEATURES_SETTINGS)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             page.evaluate(ADD_FEATURES_PROTOCOL)
             page.get_by_role("button", name="Run the protocol's experiments").click()
@@ -1098,7 +1111,7 @@ class TestSimulationTab(unittest.TestCase):
             soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             # The cog opens Simulation Settings on its solver and time settings.
@@ -1230,7 +1243,7 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_whole_model(page)
             expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
@@ -1242,7 +1255,7 @@ class TestSimulationTab(unittest.TestCase):
             page.get_by_role("button", name="Float the results over the canvas").click()
             viewer = page.locator(".simulation-floating-viewer")
             expect(viewer.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
-            expect(page.locator(".context-aside--collapsed")).to_have_count(1)
+            expect(page.locator(".context-panel.resizable-library-panel--collapsed")).to_have_count(1)
             expect(viewer).to_be_visible()
             # Showing the sliders makes the window taller rather than squeezing the plot.
             height_before = viewer.bounding_box()["height"]
@@ -1288,7 +1301,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(f"{SIMULATOR_READY}", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             # Flipping to the whole model runs it straight away.
@@ -1344,7 +1357,7 @@ class TestSimulationTab(unittest.TestCase):
                 ".addModule({ name: 'Soma voltage', units: 'milliV',"
                 " variables: [{ key: 'dndnode_0::V', nodeId: 'dndnode_0', nodeName: 'soma_SN', variableName: 'V', units: 'milliV' }] })"
             )
-            page.locator(".resizable-context-panel .aside-collapse-toggle").click()
+            page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_whole_model(page)
 
@@ -1360,8 +1373,10 @@ class TestSimulationTab(unittest.TestCase):
 
             # Turned on in Settings, they plot as a plot of their own.
             page.get_by_role("button", name="Settings", exact=True).click()
+            settings = page.get_by_role("dialog", name="Settings")
+            settings.get_by_role("tab", name="Simulation", exact=True).click()
             page.get_by_role("switch", name="Plot inspection modules").check()
-            page.get_by_role("button", name="Save Changes").click()
+            settings.get_by_role("button", name="Done").click()
             expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")
             # ----------- END ------------
 

@@ -37,6 +37,13 @@
  * value for multiport means the port is unrestricted.
  */
 
+import { activePorts, findPort, isAnnotatedPort, isHiddenPort, portDisplayName, portIdentity } from './portIdentity'
+import { canKeepCoupling } from './ports'
+
+/** The annotation fields that decide whether a port couples; a renamed subject alone keeps its couplings. */
+const ANNOTATION_MEANING = ['property', 'species', 'location', 'role']
+const isSame = (value, otherValue) => JSON.stringify(value) === JSON.stringify(otherValue)
+
 /** portTypes that may appear on the source (outgoing) side of a coupling. */
 const SOURCE_COMPATIBLE_TYPES = new Set(['exit_ports', 'general_ports'])
 
@@ -96,39 +103,71 @@ export function isSingleConnection(port) {
  * For labels that appear only once (the common case), the index is irrelevant
  * and that single entry is always selected.
  *
+ * Only single-connection slots are picked by index. Every multiport slot in a
+ * group takes part on every edge, so a Sum couples to each same-label multiport
+ * slot on the other node, whichever way the edge points. A single-connection
+ * slot couples at most once. Ports couple only with the same number of
+ * variables, which the export pairs one by one; a port without variables yet
+ * or without a label couples to nothing.
+ *
+ * A single-connection slot the edge's stored couplings name is kept, so a slot
+ * the user chose in the edge dialog survives later saves. Otherwise the slot at
+ * the ordinal index is taken while no other edge holds it, then the first one
+ * free; with every slot held, that side couples nothing.
+ *
+ * This is the one rule for every coupling: edge creation, import, the instance
+ * editor's save, and the edge dialog, so the dialog shows what export applies.
+ *
+ * Annotated ports are skipped: they couple by annotation, never by label. A node
+ * with annotated ports matches none of its manual ones, which they hide (see
+ * activePorts).
+ *
  * @param {Array}  sourcePorts node.data.ports of the source node
  * @param {Array}  targetPorts  node.data.ports of the target node
  * @param {number} sourceIndex  position of target in source's out_instances (0-based)
  * @param {number} targetIndex  position of source in target's inp_instances (0-based)
+ * @param {Object} [options]
+ * @param {Array} [options.stored] - The edge's current couplings, whose single-connection slots it keeps.
+ * @param {Set<Object>} [options.held] - Single-connection ports of either node other edges couple (see heldPorts).
  * @returns {Array<{ sourcePortLabel: Object, targetPortLabel: Object }>}
  */
 export function resolvePortCouplings(
   sourcePorts,
   targetPorts,
   sourceIndex = 0,
-  targetIndex = 0
+  targetIndex = 0,
+  { stored = [], held = new Set() } = {}
 ) {
   const couplings = []
 
   // Group source ports by (portType, label) — preserving config order
-  const sourceGroups = groupByTypeAndLabel(sourcePorts, SOURCE_COMPATIBLE_TYPES)
+  const sourceGroups = groupByTypeAndLabel(activePorts(sourcePorts), SOURCE_COMPATIBLE_TYPES)
 
   for (const [groupKey, srcSlots] of sourceGroups) {
     const [srcPortType, label] = groupKey.split('\x00')
+    if (!label.trim()) continue
     const validTargetTypes = TARGET_COMPATIBLE_TYPES[srcPortType]
 
     // Group matching target ports by (portType, label)
-    const targetGroups = groupByTypeAndLabel(targetPorts, validTargetTypes)
+    const targetGroups = groupByTypeAndLabel(activePorts(targetPorts), validTargetTypes)
 
     for (const [tgtGroupKey, tgtSlots] of targetGroups) {
       const [, tgtLabel] = tgtGroupKey.split('\x00')
       if (tgtLabel !== label) continue
 
-      // Pick the correct slot by ordinal index, clamped to available slots
-      const srcSlot = srcSlots[Math.min(sourceIndex, srcSlots.length - 1)]
-      const tgtSlot = tgtSlots[Math.min(targetIndex, tgtSlots.length - 1)]
-
-      couplings.push({ sourcePort: srcSlot, targetPort: tgtSlot })
+      const used = new Set()
+      const srcPicked = slotsOnEdge(srcSlots, sourceIndex, chosenSlot(srcSlots, stored.map((c) => c.sourcePort)), held)
+      const tgtPicked = slotsOnEdge(tgtSlots, targetIndex, chosenSlot(tgtSlots, stored.map((c) => c.targetPort)), held)
+      for (const srcSlot of srcPicked) {
+        for (const tgtSlot of tgtPicked) {
+          if (used.has(srcSlot) || used.has(tgtSlot)) continue
+          const count = variableCount(srcSlot)
+          if (!count || count !== variableCount(tgtSlot)) continue
+          couplings.push({ sourcePort: srcSlot, targetPort: tgtSlot })
+          if (isSingleConnection(srcSlot)) used.add(srcSlot)
+          if (isSingleConnection(tgtSlot)) used.add(tgtSlot)
+        }
+      }
     }
   }
 
@@ -136,33 +175,215 @@ export function resolvePortCouplings(
 }
 
 /**
+ * The slots of one (portType, label) group that take part on an edge: every multiport slot, and one
+ * single-connection slot: the chosen one, else the one at the edge's ordinal index (clamped to the last)
+ * while it is free, else the first free one.
+ *
+ * @param {Array} slots - The group's ports, in config order.
+ * @param {number} index - The edge's ordinal index on this side.
+ * @param {Object|null} chosen - The slot the edge's stored couplings name (see chosenSlot).
+ * @param {Set<Object>} held - Single-connection ports other edges couple.
+ * @returns {Array}
+ */
+function slotsOnEdge(slots, index, chosen, held) {
+  const single = slots.filter(isSingleConnection)
+  const ordinal = single[Math.min(index, single.length - 1)]
+  const picked = chosen ?? (ordinal && !held.has(ordinal) ? ordinal : single.find((slot) => !held.has(slot)))
+  return slots.filter((slot) => !isSingleConnection(slot) || slot === picked)
+}
+
+/**
+ * The single-connection slot of a group that an edge's stored couplings name, or null.
+ *
+ * @param {Array} slots - The group's ports.
+ * @param {Array} storedPorts - One end of each of the edge's stored couplings.
+ * @returns {Object|null}
+ */
+function chosenSlot(slots, storedPorts) {
+  for (const stored of storedPorts) {
+    const port = matchPort(slots, stored)
+    if (port && isSingleConnection(port)) return port
+  }
+  return null
+}
+
+/**
+ * Finds the port a stored coupling end refers to, by its `_uid` and otherwise by label, type and variables.
+ *
+ * @param {Array} ports
+ * @param {Object} stored - A coupling's sourcePort or targetPort.
+ * @returns {Object|null}
+ */
+function matchPort(ports, stored) {
+  if (!stored) return null
+  return (stored._uid && ports.find((port) => port._uid === stored._uid)) || findPort(ports, stored)
+}
+
+/**
+ * The single-connection ports of a node that edges other than one couple, as either end.
+ *
+ * @param {string} nodeId
+ * @param {Array} ports - The node's ports.
+ * @param {Array} edges - Workspace edges.
+ * @param {string} edgeId - The edge to leave out.
+ * @returns {Set<Object>} Ports from `ports`.
+ */
+export function heldPorts(nodeId, ports, edges, edgeId) {
+  const held = new Set()
+  for (const edge of edges) {
+    if (edge.id === edgeId) continue
+    for (const { sourcePort, targetPort } of edge.data?.couplings ?? []) {
+      const end = edge.source === nodeId ? sourcePort : edge.target === nodeId ? targetPort : null
+      const port = matchPort(ports, end)
+      if (port && isSingleConnection(port)) held.add(port)
+    }
+  }
+  return held
+}
+
+/** The number of variables a port pairs. */
+const variableCount = (port) => (port.variables ?? []).length
+
+/**
+ * An edge's ordinal indices: its position among the edges sharing its source, and among those sharing its target.
+ *
+ * @param {Object} edge
+ * @param {Array} edges - Workspace edges, in canvas order.
+ * @returns {{ sourceIndex: number, targetIndex: number }}
+ */
+export function edgeOrdinals(edge, edges) {
+  return {
+    sourceIndex: edges.filter((e) => e.source === edge.source).findIndex((e) => e.id === edge.id),
+    targetIndex: edges.filter((e) => e.target === edge.target).findIndex((e) => e.id === edge.id),
+  }
+}
+
+// Whether a node holds its summed flows at 0.
+const isHeld = (node) => !!node?.data?.annotationOverlay?.heldConstant
+
+/**
  * Recomputes the couplings of every edge touching a node, as they would be with the given ports for that node.
- * Each edge picks its slots by its position among the edges sharing its source and its target (see
- * resolvePortCouplings). Pure: neither the edges nor the nodes are changed.
+ * Each edge keeps the single-connection slots its couplings name, and otherwise picks its slots by its position
+ * among the edges sharing its source and its target, past those other edges hold (see resolvePortCouplings).
+ * A coupling with an annotated port is kept while both its ports are still there, since labels can't recreate
+ * it; with a context, a coupling whose port's annotation changed, or at a node holding its sums at 0, is kept
+ * only while it still couples (see canKeepCoupling). A coupling through a manual port that annotated ports now hide is kept as stored while both
+ * its ports are there, so it still generates. Pure: neither the edges nor the nodes are changed.
  *
  * @param {string} nodeId
  * @param {Array} ports - The node's ports.
  * @param {Array} nodes - Workspace nodes, for the other end's ports.
  * @param {Array} edges - Workspace edges.
+ * @param {Object} [options]
+ * @param {Object} [options.context] - From buildCouplingContext, to re-check kept annotated couplings.
+ * @param {Map<string, Array<{ before: Object, after: Object }>>} [options.portChanges] - Ports replaced on each
+ *   node, so a coupling held by a port's old self follows it.
  * @returns {Map<string, Array>} Each touching edge's id to its couplings; an edge whose other node is missing is left out.
  */
-export function previewCouplings(nodeId, ports, nodes, edges) {
-  const portsOf = (id) => {
-    if (id === nodeId) return ports
+export function previewCouplings(nodeId, ports, nodes, edges, { context, portChanges } = {}) {
+  const nodeOf = (id) => {
     const node = nodes.find((candidate) => candidate.id === id)
-    return node && (node.data?.ports ?? [])
+    if (id === nodeId) return { ...(node ?? { id }), data: { ...node?.data, ports } }
+    return node
+  }
+  const findChange = (id, port) => portChanges?.get(id)?.find(({ before }) => findPort([before], port)) ?? null
+  const findCurrentPort = (id, nodePorts, port) => {
+    const replaced = findChange(id, port)?.after
+    return findPort(nodePorts, port) ?? (replaced ? findPort(nodePorts, replaced) : null)
+  }
+  const isReannotated = (id, port) => {
+    const change = findChange(id, port)
+    return !!change && ANNOTATION_MEANING.some((key) => !isSame(change.before.annotation?.[key], change.after.annotation?.[key]))
   }
   const couplings = new Map()
   for (const edge of edges) {
     if (edge.source !== nodeId && edge.target !== nodeId) continue
-    const sourcePorts = portsOf(edge.source)
-    const targetPorts = portsOf(edge.target)
-    if (!sourcePorts || !targetPorts) continue
-    const sourceIndex = edges.filter((e) => e.source === edge.source).indexOf(edge)
-    const targetIndex = edges.filter((e) => e.target === edge.target).indexOf(edge)
-    couplings.set(edge.id, resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex))
+    const sourceNode = nodeOf(edge.source)
+    const targetNode = nodeOf(edge.target)
+    if (!sourceNode || !targetNode) continue
+    const sourcePorts = sourceNode.data?.ports ?? []
+    const targetPorts = targetNode.data?.ports ?? []
+    const { sourceIndex, targetIndex } = edgeOrdinals(edge, edges)
+    const held = new Set([...heldPorts(edge.source, sourcePorts, edges, edge.id), ...heldPorts(edge.target, targetPorts, edges, edge.id)])
+    const stored = edge.data?.couplings ?? []
+    const resolved = resolvePortCouplings(sourcePorts, targetPorts, sourceIndex, targetIndex, { stored, held })
+    const kept = stored.flatMap(({ sourcePort, targetPort, ...rest }) => {
+      if (!isAnnotatedPort(sourcePort) && !isAnnotatedPort(targetPort)) {
+        const source = findPort(sourcePorts, sourcePort)
+        const target = findPort(targetPorts, targetPort)
+        const isHidden = isHiddenPort(source, sourcePorts) || isHiddenPort(target, targetPorts)
+        return isHidden && source && target ? [{ ...rest, sourcePort: source, targetPort: target }] : []
+      }
+      const source = findCurrentPort(edge.source, sourcePorts, sourcePort)
+      const target = findCurrentPort(edge.target, targetPorts, targetPort)
+      if (!source || !target) return []
+      // A node holding its sums at 0 re-checks them too, so they couple nothing (see annotatedCompatible).
+      const isChanged =
+        isReannotated(edge.source, sourcePort) || isReannotated(edge.target, targetPort) || isHeld(sourceNode) || isHeld(targetNode)
+      if (context && isChanged && !canKeepCoupling(source, sourceNode, target, targetNode, context)) return []
+      return [{ ...rest, sourcePort: source, targetPort: target }]
+    })
+    couplings.set(edge.id, carryDrivesState(stored, [...resolved, ...kept]))
   }
   return couplings
+}
+
+/**
+ * Whether two couplings join the same ports, by type and identity (see portIdentity), and, unless `byLabel`, the
+ * same variables.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @param {boolean} [byLabel] - Ignore the variables, as a save may have renamed them.
+ * @returns {boolean}
+ */
+export function isSameCoupling(a, b, byLabel = false) {
+  const same = (x, y) =>
+    x?.portType === y?.portType &&
+    portIdentity(x) === portIdentity(y) &&
+    (byLabel || JSON.stringify(x?.variables ?? []) === JSON.stringify(y?.variables ?? []))
+  return same(a.sourcePort, b.sourcePort) && same(a.targetPort, b.targetPort)
+}
+
+/**
+ * Couplings in a form for comparing: each port's type, label, variables and annotation subject, and the coupling's
+ * `drivesState` mark, sorted. Dialog uids and other fields are left out, so a copy that only gained those is equal.
+ *
+ * @param {Array} couplings
+ * @returns {Array<string>}
+ */
+export function comparableCouplings(couplings) {
+  const portOf = (port) => ({
+    portType: port?.portType ?? null,
+    label: port?.label ?? '',
+    variables: port?.variables ?? [],
+    subject: port?.annotation?.subject ?? null,
+  })
+  return (couplings ?? [])
+    .map(({ sourcePort, targetPort, drivesState }) =>
+      JSON.stringify({ sourcePort: portOf(sourcePort), targetPort: portOf(targetPort), drivesState: !!drivesState })
+    )
+    .sort()
+}
+
+/**
+ * Keeps the `drivesState` mark of couplings that recomputing them from the ports left in place (see
+ * resolveBoundaryValues). A coupling whose variables changed loses it, so driving what it now joins is asked again.
+ *
+ * @param {Array} previous - The couplings before.
+ * @param {Array} next - The recomputed couplings.
+ * @param {Object} [options]
+ * @param {boolean} [options.byLabel] - Match by port alone, for `previous` already confirmed under the old names.
+ * @returns {Array} `next`, its couplings marked as before; the same array when none was.
+ */
+export function carryDrivesState(previous, next, { byLabel = false } = {}) {
+  const marked = previous.filter((coupling) => coupling.drivesState)
+  if (!marked.length) return next
+  return next.map((coupling) =>
+    !coupling.drivesState && marked.some((old) => isSameCoupling(old, coupling, byLabel))
+      ? { ...coupling, drivesState: true }
+      : coupling
+  )
 }
 
 /**
@@ -192,7 +413,7 @@ export function checkAndClaimCouplings(sourceNodeId, targetNodeId, couplings, us
       const key = portKey(sourceNodeId, sourcePort)
       if (usedPortKeys.has(key)) {
         conflicts.push(
-          `"${sourcePort.label}" (${sourcePort.portType}) on "${sourceNodeId}" ` +
+          `"${portDisplayName(sourcePort)}" (${sourcePort.portType}) on "${sourceNodeId}" ` +
             `is non-multiport and already has a connection.`
         )
       } else {
@@ -204,7 +425,7 @@ export function checkAndClaimCouplings(sourceNodeId, targetNodeId, couplings, us
       const key = portKey(targetNodeId, targetPort)
       if (usedPortKeys.has(key)) {
         conflicts.push(
-          `"${targetPort.label}" (${targetPort.portType}) on "${targetNodeId}" ` +
+          `"${portDisplayName(targetPort)}" (${targetPort.portType}) on "${targetNodeId}" ` +
             `is non-multiport and already has a connection.`
         )
       } else {
@@ -242,7 +463,7 @@ export function buildUsedPortKeys(edges) {
 // --- Internal helpers --------------------------------------------------------
 
 /**
- * Groups portLabel entries by a composite key of `portType\x00label`, but only
+ * Groups unannotated portLabel entries by a composite key of `portType\x00label`, but only
  * for portTypes that are in the allowedTypes set. Preserves config-file order
  * within each group (which defines slot assignment).
  *
@@ -253,7 +474,7 @@ export function buildUsedPortKeys(edges) {
 function groupByTypeAndLabel(portLabels, allowedTypes) {
   const groups = new Map()
   for (const pl of portLabels) {
-    if (!allowedTypes.has(pl.portType)) continue
+    if (!allowedTypes.has(pl.portType) || isAnnotatedPort(pl)) continue
     const key = `${pl.portType}\x00${pl.label}`
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(pl)
@@ -262,15 +483,12 @@ function groupByTypeAndLabel(portLabels, allowedTypes) {
 }
 
 /**
- * Canonical key identifying one specific portLabel slot on one specific node.
- * Uses object identity (via the portLabel object reference) to distinguish
- * multiple occurrences of the same label on the same node.
+ * Canonical key identifying one specific port slot on one specific node: its type and identity (see
+ * portIdentity), and for an unannotated port its variables, which tell same-label slots apart.
  *
- * Format: "{nodeId}:{portType}:{label}:{slotIndex}"
- * The slotIndex is the position of this portLabel within its (portType, label) group.
+ * Format: "{nodeId}:{portType}:{identity}" plus ":{variables}" for an unannotated port.
  */
 function portKey(nodeId, port) {
-  // The portLabel object itself is unique per slot — we use its variables array
-  // serialised as a tiebreaker to distinguish same-label slots on the same node.
-  return `${nodeId}:${port.portType}:${port.label}:${JSON.stringify(port.variables ?? [])}`
+  const key = `${nodeId}:${port.portType}:${portIdentity(port)}`
+  return isAnnotatedPort(port) ? key : `${key}:${JSON.stringify(port.variables ?? [])}`
 }

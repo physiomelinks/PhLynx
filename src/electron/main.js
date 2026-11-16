@@ -66,7 +66,7 @@ app.whenReady().then(() => {
           ...details.responseHeaders,
           // This is a strong, browser-like CSP
           'Content-Security-Policy': [
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;",
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net;",
           ],
         },
       })

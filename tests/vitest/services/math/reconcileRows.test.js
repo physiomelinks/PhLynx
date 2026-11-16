@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { applyPortTypes, findUnusedDeclared, getPortVariables, reconcileRows } from '../../../../src/services/math/reconcileRows'
+import {
+  applyPortTypes,
+  fillBlankValues,
+  findUnusedDeclared,
+  keepDefaults,
+  getPortVariables,
+  reconcileRows,
+} from '../../../../src/services/math/reconcileRows'
 
 const analysis = (overrides = {}) => ({
   componentName: 'c',
@@ -15,6 +22,25 @@ const analysis = (overrides = {}) => ({
 const byName = (rows) => Object.fromEntries(rows.map((row) => [row.name, row]))
 
 describe('reconcileRows (simple mode)', () => {
+  it('keeps a constant no equation uses when the defaults give it a value, e.g. a diagram\'s F', () => {
+    const declared = [
+      { name: 'F', units: 'C_per_mol', initialValue: '', interface: '' },
+      { name: 'RT', units: 'J_per_mol', initialValue: '', interface: '' },
+      { name: 'spare', units: 'metre', initialValue: '', interface: '' },
+    ]
+    const rows = byName(
+      reconcileRows(analysis({ declared, referenced: ['RT'] }), [], {
+        defaults: new Map([
+          ['F', '96485'],
+          ['RT', '2578.73058'],
+        ]),
+      })
+    )
+    expect(rows.F).toMatchObject({ value: '96485', type: 'constant' })
+    expect(rows.RT.value).toBe('2578.73058')
+    expect(rows.spare).toBeUndefined()
+  })
+
   it('creates a default initialiser for a state and marks computed variables', () => {
     const rows = byName(
       reconcileRows(analysis({ referenced: ['t', 'V', 'k', 'I'], stateVariables: ['V'], assigned: ['I'], voi: ['t'] }))
@@ -258,6 +284,45 @@ describe('reconcileRows (row types)', () => {
   })
 })
 
+describe('reconcileRows (DAE)', () => {
+  // s = x + y and s = k: x is solved implicitly, while k is a parameter.
+  const math = analysis({
+    referenced: ['s', 'x', 'y', 'k'],
+    assigned: ['s'],
+    declared: ['s', 'x', 'y', 'k'].map((name) => ({ name, units: 'volt', interface: '', initialValue: '' })),
+    algebraic: [
+      { target: 's', uses: ['x', 'y'] },
+      { target: 's', uses: ['k'] },
+    ],
+  })
+
+  it('makes what the DAE solves implicitly a variable, and what has a value a constant', () => {
+    const rows = byName(reconcileRows(math, [], { defaults: new Map([['k', '3'], ['y', '1']]) }))
+    expect(rows).toMatchObject({ s: { type: 'variable' }, x: { type: 'variable' }, y: { type: 'constant' }, k: { type: 'constant' } })
+  })
+
+  it('keeps the unknown it chose before, and gives it up to a value someone enters', () => {
+    const previous = [
+      { name: 'x', type: 'constant', value: '2' },
+      { name: 'y', type: 'variable' },
+      { name: 'k', type: 'constant', value: '3' },
+    ]
+    expect(byName(reconcileRows(math, previous))).toMatchObject({ x: { type: 'constant' }, y: { type: 'variable' } })
+    expect(byName(reconcileRows(math, previous.slice(1)))).toMatchObject({ y: { type: 'variable' } })
+  })
+
+  it('keeps what the DAE solves implicitly a variable when a port carries it', () => {
+    const rows = [
+      { name: 's', type: 'variable' },
+      { name: 'x', type: 'variable' },
+      { name: 'y', type: 'constant', value: '1' },
+      { name: 'k', type: 'constant', value: '3' },
+    ]
+    applyPortTypes(rows, math, new Set(['x', 'k']))
+    expect(byName(rows)).toMatchObject({ x: { type: 'variable' }, y: { type: 'constant' }, k: { type: 'constant' } })
+  })
+})
+
 describe('reconcileRows (defaults)', () => {
   const math = analysis({
     referenced: ['x', 'x_init', 'k', 'g'],
@@ -314,5 +379,41 @@ describe('findUnusedDeclared', () => {
     const previous = [{ name: 'cAMP', units: 'dimensionless', value: '0.01', type: 'constant', data_reference: 'user_defined' }]
     expect(byName(reconcileRows(math, previous)).cAMP).toMatchObject({ value: '0.01', data_reference: 'user_defined' })
     expect(reconcileRows(analysis(), previous)).toEqual([])
+  })
+})
+
+describe('fillBlankValues', () => {
+  it('fills only blank values, leaving the rows given untouched', () => {
+    const rows = [
+      { name: 'a', value: '' },
+      { name: 'b', value: '2' },
+      { name: 'c' },
+      { name: 'd', value: '' },
+    ]
+    const filled = fillBlankValues(rows, new Map([['a', '1'], ['b', '9'], ['c', '3']]))
+
+    expect(filled.map((row) => row.value)).toEqual(['1', '2', '3', ''])
+    expect(rows[0].value).toBe('')
+    expect(filled[1]).toBe(rows[1])
+  })
+})
+
+describe('keepDefaults', () => {
+  it("keeps a module's defaults for the variables it had, and takes the source's values only for new ones", () => {
+    const previous = new Map([
+      ['kappa', '10'],
+      ['gone', '2'],
+    ])
+    const values = new Map([
+      ['kappa', '1'],
+      ['c', '3'],
+    ])
+    expect(keepDefaults(values, previous)).toEqual(
+      new Map([
+        ['kappa', '10'],
+        ['c', '3'],
+      ])
+    )
+    expect(keepDefaults(values, new Map())).toEqual(values)
   })
 })

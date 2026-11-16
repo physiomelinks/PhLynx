@@ -1,0 +1,15 @@
+{
+ "schema_version": 1,
+ "area": {"value": 0.001, "units": "mm2", "data_reference": "phlynx", "sourced": "no"},
+ "volume": {"value": 1, "units": "pL", "data_reference": "phlynx", "sourced": "no"},
+ "pH": {"value": 7.4, "units": "dim", "data_reference": "phlynx", "sourced": "no"},
+ "c_ATP": {"value": 0, "units": "mM", "data_reference": "phlynx", "sourced": "no"},
+ "c_ADP": {"value": 0, "units": "mM", "data_reference": "phlynx", "sourced": "no"},
+ "c_Pi": {"value": 0, "units": "mM", "data_reference": "phlynx", "sourced": "no"},
+ "v_Na": {"value": 0, "units": "fmol_per_mm2_per_s", "data_reference": "phlynx", "sourced": "no"},
+ "v_Glc": {"value": 0, "units": "fmol_per_mm2_per_s", "data_reference": "phlynx", "sourced": "no"},
+ "v_K": {"value": 0, "units": "fmol_per_mm2_per_s", "data_reference": "phlynx", "sourced": "no"},
+ "c_Na_init": {"value": 140, "units": "mM", "data_reference": "phlynx", "sourced": "no"},
+ "c_Glc_init": {"value": 5, "units": "mM", "data_reference": "phlynx", "sourced": "no"},
+ "c_K_init": {"value": 10, "units": "mM", "data_reference": "phlynx", "sourced": "no"}
+}

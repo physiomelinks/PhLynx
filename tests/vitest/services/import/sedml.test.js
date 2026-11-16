@@ -8,8 +8,8 @@ const TIME_COURSE = { initialPoint: 0, startingPoint: 0, endingPoint: 2, pointIn
 
 describe('extractSimData', () => {
   it.each([
-    ['the default CVODE settings', { solver: 'CVODE', timeStep: 0, tolerance: 1e-7, maxSteps: 500 }],
-    ['changed CVODE settings', { solver: 'CVODE', timeStep: 0.01, tolerance: 1e-9, maxSteps: 5000 }],
+    ['the default CVODE settings', { solver: 'CVODE', timeStep: 0, relativeTolerance: 1e-7, absoluteTolerance: 1e-7, maxSteps: 500 }],
+    ['changed CVODE settings', { solver: 'CVODE', timeStep: 0.01, relativeTolerance: 1e-9, absoluteTolerance: 1e-12, maxSteps: 5000 }],
     ['a fixed-step solver', { solver: 'RungeKutta4', timeStep: 0.0001 }],
   ])('reads back %s as the export writes them', (_, solver) => {
     const settings = { ...TIME_COURSE, ...solver }
@@ -24,6 +24,6 @@ describe('readSolverSettings', () => {
 
   it('leaves out parameters the algorithm doesn’t give, or gives as something other than a number', () => {
     const parameters = new Map([['KISAO:0000209', '1e-05'], ['KISAO:0000415', 'many']])
-    expect(readSolverSettings('KISAO:0000019', parameters)).toEqual({ solver: 'CVODE', tolerance: 1e-5 })
+    expect(readSolverSettings('KISAO:0000019', parameters)).toEqual({ solver: 'CVODE', relativeTolerance: 1e-5 })
   })
 })

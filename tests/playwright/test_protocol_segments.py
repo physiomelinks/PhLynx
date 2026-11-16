@@ -12,10 +12,10 @@ from playwright.sync_api import sync_playwright
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from .test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, SIMULATOR_STATUS, evaluate_within_a_minute
+    from .test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, SIMULATOR_STATUS, TRACK_APP_MODULES, evaluate_within_a_minute
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, SIMULATOR_STATUS, evaluate_within_a_minute
+    from test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, SIMULATOR_STATUS, TRACK_APP_MODULES, evaluate_within_a_minute
 
 
 # dx/dt = -k x, with x starting from an initialiser variable, as a PhLynx state does: in the same component
@@ -76,11 +76,11 @@ DECAY_MODELS = {
 
 # Runs the decay model in __CELLML__ as segments, reporting what each check needs.
 RUN_DECAY_SEGMENTS = """async () => {
-  const loader = await import('/src/services/simulation/libopencorLoader.js')
+  const loader = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const simulator = await loader.whenLibOpenCORReady()
   const cellml = __CELLML__
   const key = 'protocol-probe-' + Math.round(performance.now())
-  const accurate = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const accurate = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
   const window = (from, to) => ({ ...accurate, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: 0.1 })
   const run = (options) => simulator.startSimulation(options).promise
   const series = (results, name) => results.variables.get(name).values
@@ -125,7 +125,7 @@ RUN_DECAY_SEGMENTS = """async () => {
 
 # Chains __COUNT__ segments of 0.01 s each on the 'local' decay model, carrying x, and times them.
 CHAIN_SEGMENTS = """async () => {
-  const loader = await import('/src/services/simulation/libopencorLoader.js')
+  const loader = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const simulator = await loader.whenLibOpenCORReady()
   const key = 'protocol-chain-' + Math.round(performance.now())
   const count = __COUNT__
@@ -133,7 +133,7 @@ CHAIN_SEGMENTS = """async () => {
   // short of 0.01, which the simulator refuses as an interval longer than the window.
   const settings = (from) => {
     const to = from + 0.01
-    return { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: to - from }
+    return { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: to - from }
   }
   const started = performance.now()
   let results = await simulator.startSimulation({ cellml: __CELLML__, key, settings: settings(0) }).promise
@@ -173,9 +173,9 @@ PIECEWISE_INPUT = """async () => {
     </math>
   </component>
 </model>`
-  const loader = await import('/src/services/simulation/libopencorLoader.js')
+  const loader = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const simulator = await loader.whenLibOpenCORReady()
-  const settings = { solver: 'CVODE', tolerance: 1e-9, maxSteps: 50000, timeStep: 0, initialPoint: 0, startingPoint: 0, endingPoint: 10, pointInterval: 0.5 }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-9, maxSteps: 50000, timeStep: 0, initialPoint: 0, startingPoint: 0, endingPoint: 10, pointInterval: 0.5 }
   try {
     const results = await simulator.startSimulation({ cellml, settings }).promise
     return { ok: true, bytes: cellml.length, xEnd: results.variables.get('input/x').values.at(-1) }
@@ -190,14 +190,14 @@ CARRY_WORKSPACE_STATES = """async () => {
   const vueFlowUrl = performance.getEntriesByType('resource').map((entry) => entry.name).find((name) => name.includes('@vue-flow_core.js'))
   const { useVueFlow } = await import(vueFlowUrl)
   const { nodes, edges } = useVueFlow('main-flow-editor')
-  const { resolveScope, buildScopedModel } = await import('/src/services/simulation/scopedModel.js')
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
-  const { useLibraryStore } = await import('/src/stores/libraryStore.js')
+  const { resolveScope, buildScopedModel } = await importAppModule('/src/services/simulation/scopedModel.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
+  const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const scope = resolveScope(null, nodes.value, edges.value, [])
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-carry-' + Math.round(performance.now())
-  const window = (from, to) => ({ solver: 'CVODE', tolerance: 1e-10, maxSteps: 50000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: 0.01 })
+  const window = (from, to) => ({ solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 50000, timeStep: 0, initialPoint: from, startingPoint: from, endingPoint: to, pointInterval: 0.01 })
   const whole = await simulator.startSimulation({ cellml, key, settings: window(0, 1) }).promise
   const first = await simulator.startSimulation({ key, settings: window(0, 0.5) }).promise
   const states = [...first.variables].filter(([, v]) => v.kind === 'state')
@@ -220,15 +220,15 @@ CARRY_WORKSPACE_STATES = """async () => {
 # Runs a protocol on the 'connected' decay model through the app's worker: a warm-up of 1 s, then k = 0.5 for 2 s and
 # k = 1 for 2 s, as CA would run the same protocol_info.
 RUN_PROTOCOL = """async () => {
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
-  const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
+  const { compileProtocolPlan } = await importAppModule('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-run-' + Math.round(performance.now())
   const described = await simulator.describeModel({ cellml: __CELLML__, key })
   const { protocolInfo } = validateProtocolInfo({ pre_times: [1], sim_times: [[2, 2]], params_to_change: { 'decay/k': [[0.5, 1]] } })
   const plan = compileProtocolPlan({ view: readProtocolInfo(protocolInfo), pointInterval: 0.5 })
-  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
   const results = await simulator.startProtocol({ key, settings, plan, targets: new Map([['decay/k', 'instance_parameters/k']]) }).promise
   const [experiment] = results.experiments
   return {
@@ -242,9 +242,9 @@ RUN_PROTOCOL = """async () => {
 
 # A pulse of k = 100 lasting 0.01 s in 10 s of decay at k = 0: x must fall by exactly e^-1, however brief the pulse.
 RUN_SHORT_PULSE = """async () => {
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
-  const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
+  const { compileProtocolPlan } = await importAppModule('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-pulse-' + Math.round(performance.now())
   await simulator.describeModel({ cellml: __CELLML__, key })
@@ -253,7 +253,7 @@ RUN_SHORT_PULSE = """async () => {
     protocol_shapes: { kick: { baseline: 0, events: [{ level: 100, start: 6.37, length: 0.01 }] } },
   })
   const plan = compileProtocolPlan({ view: readProtocolInfo(protocolInfo), pointInterval: 0.01 })
-  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: 0 }
   const results = await simulator.startProtocol({ key, settings, plan, targets: new Map([['decay/k', 'instance_parameters/k']]) }).promise
   const x = results.experiments[0].variables.get('decay/x').values
   return { segments: plan.experiments[0].segments.length, before: x[637], after: x[638], end: x.at(-1) }
@@ -261,12 +261,12 @@ RUN_SHORT_PULSE = """async () => {
 
 # A ramp of k from 0 to 1 over 2 s, written into the model as a driver: x = exp(-t^2 / 4).
 RUN_RAMP = """async () => {
-  const { whenLibOpenCORReady } = await import('/src/services/simulation/libopencorLoader.js')
-  const { whenLibCellMLReady } = await import('/src/utils/cellml.js')
+  const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
+  const { whenLibCellMLReady } = await importAppModule('/src/utils/cellml.js')
   const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
-  const { compileProtocolPlan } = await import('/src/services/protocol/libopencorEngine/protocolPlan.js')
-  const { planDrivers, findShortestFeature } = await import('/src/services/protocol/libopencorEngine/protocolDrivers.js')
-  const { addProtocolDrivers } = await import('/src/services/simulation/protocolDriverModel.js')
+  const { compileProtocolPlan } = await importAppModule('/src/services/protocol/libopencorEngine/protocolPlan.js')
+  const { planDrivers, findShortestFeature } = await importAppModule('/src/services/protocol/libopencorEngine/protocolDrivers.js')
+  const { addProtocolDrivers } = await importAppModule('/src/services/simulation/protocolDriverModel.js')
   const { protocolInfo } = validateProtocolInfo({
     pre_times: [0], sim_times: [[2]], params_to_change: { 'decay/k': [['up']] },
     protocol_shapes: { up: { type: 'ramp', from: 0, to: 1 } },
@@ -280,7 +280,7 @@ RUN_RAMP = """async () => {
   const driven = new Map([['decay/k', { selectorParameter: 'protocol_drivers/driver_1_selector', valueParameter: 'protocol_drivers/driver_1_value', selectors: drivers[0].selectors }]])
   const plan = compileProtocolPlan({ view, pointInterval: 0.1, drivers: driven })
   const targets = new Map([['protocol_drivers/driver_1_selector', 'protocol_drivers/driver_1_selector'], ['protocol_drivers/driver_1_value', 'protocol_drivers/driver_1_value']])
-  const settings = { solver: 'CVODE', tolerance: 1e-10, maxSteps: 5000, timeStep: findShortestFeature(drivers) }
+  const settings = { solver: 'CVODE', relativeTolerance: 1e-10, maxSteps: 5000, timeStep: findShortestFeature(drivers) }
   const results = await simulator.startProtocol({ key, settings, plan, targets }).promise
   const [experiment] = results.experiments
   return {
@@ -297,6 +297,7 @@ class TestProtocolSegments(unittest.TestCase):
     def open_page(self, browser, url=BASE_URL):
         context = browser.new_context()
         context.add_init_script(OPT_IN_TO_ISOLATION)
+        context.add_init_script(TRACK_APP_MODULES)
         page = context.new_page()
         page.goto(url, wait_until="commit")
         page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)

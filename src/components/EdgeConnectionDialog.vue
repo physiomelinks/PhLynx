@@ -20,15 +20,9 @@
         </div>
 
         <div class="node-names" v-if="sourceNode && targetNode">
-          <Chip
-            :label="sourceNode.data.name"
-            style="background: color-mix(in srgb, var(--p-primary-color, #409eff) 15%, transparent); color: var(--p-primary-color, #409eff); border: 1px solid color-mix(in srgb, var(--p-primary-color, #409eff) 30%, transparent);"
-          />
+          <NodeSideChip :label="sourceNode.data.name" side="source" />
           <span class="arrow-sep">→</span>
-          <Chip
-            :label="targetNode.data.name"
-            style="background: color-mix(in srgb, var(--p-secondary-color, #409eff) 15%, transparent); color: var(--p-secondary-color, #409eff); border: 1px solid color-mix(in srgb, var(--p-secondary-color, #409eff) 30%, transparent);"
-          />
+          <NodeSideChip :label="targetNode.data.name" side="target" />
         </div>
       </div>
     </template>
@@ -111,6 +105,9 @@
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
+                    :quantity="quantityFor(data.port, sourceNode)"
+                    :is-placed="isPlaced(sourceNode)"
+                    :is-hidden="isHidden(data.port)"
                     :style="rowStyle(data.port._uid, 'source')"
                     @change="onPortConfigChange"
                     @start-drag="startDrag($event, data.port._uid, 'source')"
@@ -127,6 +124,9 @@
                     :is-connected="data.isConnected"
                     :is-taken-elsewhere="data.isTakenElsewhere"
                     :is-valid-target="validConnectUids.has(data.port._uid)"
+                    :quantity="quantityFor(data.port, targetNode)"
+                    :is-placed="isPlaced(targetNode)"
+                    :is-hidden="isHidden(data.port)"
                     :style="rowStyle(data.port._uid, 'target')"
                     @change="onPortConfigChange"
                     @start-drag="startDrag($event, data.port._uid, 'target')"
@@ -181,9 +181,16 @@
           <span class="legend-item"><span class="legend-dot dot-connected"></span>Connected</span>
           <span class="legend-item"><span class="legend-dot dot-taken"></span>Taken</span>
           <span class="legend-item"><span class="legend-dot dot-free"></span>Available</span>
+          <span class="legend-item"><span class="legend-line line-units"></span>Incompatible units</span>
           <MultiportKey />
         </div>
       </div>
+      <!-- The orange lines' pairs, and variables the couplings set more than once, which export and simulation reject -->
+      <ul v-if="couplingIssues.length" class="units-conflicts">
+        <li v-for="message in couplingIssues" :key="message">
+          <i class="pi pi-exclamation-triangle"></i>{{ message }}
+        </li>
+      </ul>
     </div>
 
     <!-- Swap confirmation dialog -->
@@ -205,6 +212,17 @@
       </template>
     </Dialog>
 
+    <ModuleConfigSaveDialog
+      v-if="configPrompt.visible"
+      v-model="configPrompt.visible"
+      :module-ref="configPrompt.moduleRef"
+      :other-count="configPrompt.otherCount"
+      :can-update="configPrompt.canUpdate"
+      :new-ref="configPrompt.newRef"
+      @confirm="(config) => resolveConfigPrompt(config)"
+      @cancel="resolveConfigPrompt(null)"
+    />
+
     <template #footer>
       <div class="dialog-footer">
         <Button label="Cancel" severity="secondary" text @click="handleCancel" />
@@ -219,16 +237,26 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { VueFlow, Position, Handle, useVueFlow } from '@vue-flow/core'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
-import Chip from 'primevue/chip'
 import { FLOW_IDS, ROW_H, NODE_W, PAD } from '../utils/constants'
-import { isSingleConnection } from '../utils/edges'
-import { isCompatible } from '../utils/ports'
-import { detachReactivity } from '../utils/reactivity'
+import { carryDrivesState, isSingleConnection } from '../utils/edges'
+import { isAnnotatedPort } from '../utils/ports'
+import { placesOf, quantityOfPort } from '../services/annotations/couple'
+import { couplingConflicts } from '../utils/multiport'
+import { couplingUnitConflicts } from '../utils/couplingUnits'
+import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues'
+import { confirmPortEditDrives } from '../services/export/drivenStores'
+import { spreadPortEdits } from '../services/configSpread'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
+import { useLibraryStore } from '../stores/libraryStore'
 import { waitUntilStable } from '../utils/layout'
 
 import MultiportKey from './MultiportKey.vue'
+import NodeSideChip from './NodeSideChip.vue'
 import PortRow from './PortRow.vue'
+import ModuleConfigSaveDialog from './dialogs/ModuleConfigSaveDialog.vue'
 import { useEdgeCouplings } from '../composables/useEdgeCouplings'
+import { useModuleConfigPrompt } from '../composables/useModuleConfigPrompt'
+import { useCouplingContext } from '../composables/useCouplingContext'
 import { usePortDrag } from '../composables/usePortDrag'
 import { useConnectionAutoscroll } from '../composables/useConnectionAutoscroll'
 
@@ -238,6 +266,8 @@ const props = defineProps({
   targetNode: { type: Object, required: true },
   activeEdge: { type: Object, required: true },
   subgraph: { type: Map, required: true },
+  /** The active edge's ordinal indices (see edgeOrdinals), which pick its single-connection slots. */
+  ordinals: { type: Object, default: () => ({ sourceIndex: 0, targetIndex: 0 }) },
 })
 
 const CANVAS_PAD_X = 14
@@ -258,6 +288,15 @@ const visible = computed({
 const isFlowReady = ref(false)
 
 const { getViewport, setViewport, updateNodeInternals } = useVueFlow(FLOW_IDS.EDGE)
+const { nodes: canvasNodes, edges: canvasEdges } = useVueFlow(FLOW_IDS.MAIN)
+const { getContext, ensureContext } = useCouplingContext()
+// Annotated ports couple by their annotations, at the places their nodes resolve to.
+const couplingContext = computed(() => getContext(canvasNodes.value))
+
+/** An annotated port's quantity, for its chips' detail. */
+const quantityFor = (port, node) =>
+  isAnnotatedPort(port) ? quantityOfPort(port, node, couplingContext.value) : null
+const isPlaced = (node) => placesOf(node, couplingContext.value).length > 0
 
 const swapDialog = ref({ visible: false, resolve: null })
 
@@ -288,6 +327,8 @@ async function refreshNodeInternals() {
 
 async function onDialogShow() {
   isFlowReady.value = false
+  // Parses the side-cars annotated couplings need; the context updates when they land.
+  ensureContext([props.sourceNode, props.targetNode]).catch(() => {})
   initLocalState()
   await waitUntilStable(canvasEl.value, 400)
   isFlowReady.value = true
@@ -298,6 +339,9 @@ async function onDialogShow() {
 const {
   localSrcPorts,
   localTgtPorts,
+  visibleSrcPorts,
+  visibleTgtPorts,
+  isHidden,
   localCouplings,
   localSubgraph,
   takenElsewhereUids,
@@ -307,15 +351,23 @@ const {
   connectedSrcUids,
   connectedTgtUids,
   initLocalState,
+  deriveCouplings,
   evictHandle,
   swapConnections,
   connectPorts,
+  canConnect,
   deletePort,
   activateGhost,
   onPortConfigChange,
-} = useEdgeCouplings(props, askSwapIntent)
+  buildPayload,
+  isUnchanged,
+  storedDiffers,
+} = useEdgeCouplings(props, askSwapIntent, { getContext: () => couplingContext.value })
 
-const { dragState, dragOffsetY, startDrag, rowStyle } = usePortDrag(localSrcPorts, localTgtPorts, canvasEl)
+const isShownPort = (port) => visibleSrcPorts.value.includes(port) || visibleTgtPorts.value.includes(port)
+const { dragState, dragOffsetY, startDrag, rowStyle } = usePortDrag(localSrcPorts, localTgtPorts, canvasEl, {
+  isShown: isShownPort,
+})
 
 const { draggingFrom, onConnectStart, onConnectEnd, onEdgeUpdateEnd, onEdgeUpdateStart } = useConnectionAutoscroll(
   canvasEl,
@@ -324,18 +376,19 @@ const { draggingFrom, onConnectStart, onConnectEnd, onEdgeUpdateEnd, onEdgeUpdat
 )
 
 const canvasHeight = computed(
-  () => (Math.max(localSrcPorts.value.length, localTgtPorts.value.length, 4) + 1) * ROW_H + PAD * 2
+  () => (Math.max(visibleSrcPorts.value.length, visibleTgtPorts.value.length, 4) + 1) * ROW_H + PAD * 2
 )
 
 const flowNodes = computed(() => {
-  const srcNodes = buildPortNodes(localSrcPorts.value, connectedSrcUids.value, 'source')
-  const tgtNodes = buildPortNodes(localTgtPorts.value, connectedTgtUids.value, 'target')
+  // A side whose annotated ports take over lists only them, and the hidden manual ports a coupling still uses.
+  const srcNodes = buildPortNodes(visibleSrcPorts.value, connectedSrcUids.value, 'source')
+  const tgtNodes = buildPortNodes(visibleTgtPorts.value, connectedTgtUids.value, 'target')
 
   const nodes = [...srcNodes, ...tgtNodes]
 
   ;['source', 'target'].forEach((side) => {
     const config = SIDE_CONFIG[side]
-    const ports = side === 'source' ? localSrcPorts.value : localTgtPorts.value
+    const ports = side === 'source' ? visibleSrcPorts.value : visibleTgtPorts.value
     nodes.push({
       id: `ghost-${config.prefix}`,
       type: 'ghostPort',
@@ -346,31 +399,92 @@ const flowNodes = computed(() => {
   return nodes
 })
 
-const flowEdges = computed(() => {
-  const edges = []
+const libraryStore = useLibraryStore()
 
-  for (const { srcUid, tgtUid } of localCouplings.value) {
+/** The coupled port pairs a line is drawn for, each with the units conflicts of its variables. */
+const drawnCouplings = computed(() => {
+  const cache = new Map()
+  return localCouplings.value.flatMap(({ srcUid, tgtUid }) => {
     const sp = srcByUid(srcUid)
     const tp = tgtByUid(tgtUid)
-    if (!sp || !tp) continue
-
-    if (sp.label === tp.label && isCompatible(sp.portType, tp.portType)) {
-      edges.push({
-        id: `ce-${srcUid}-${tgtUid}`,
-        source: `src-${srcUid}`,
-        target: `tgt-${tgtUid}`,
-        sourceHandle: 'out',
-        targetHandle: 'in',
-        updatable: true,
-        style: {
-          stroke: 'var(--p-primary-color, #409eff)',
-          strokeWidth: 2.5,
-        },
-      })
-    }
-  }
-  return edges
+    // Every held coupling is drawn, kept ones included, so none is sent unseen.
+    if (!sp || !tp) return []
+    const unitConflicts = couplingConflicts(sp, tp).length
+      ? []
+      : couplingUnitConflicts(
+          sp,
+          tp,
+          props.sourceNode.data?.variables,
+          props.targetNode.data?.variables,
+          libraryStore.unitDefinitions,
+          cache
+        )
+    return [{ srcUid, tgtUid, unitConflicts }]
+  })
 })
+
+const unitConflicts = computed(() => [...new Set(drawnCouplings.value.flatMap((coupling) => coupling.unitConflicts))])
+
+/**
+ * The canvas as this dialog would leave it, with the given couplings on its edge.
+ *
+ * @param {Array} couplings
+ * @returns {{nodes: Array, edges: Array}}
+ */
+function editedCanvas(couplings) {
+  const ports = new Map([
+    [props.sourceNode.id, localSrcPorts.value],
+    [props.targetNode.id, localTgtPorts.value],
+  ])
+  const nodes = (canvasNodes.value ?? []).map((node) => (ports.has(node.id) ? { ...node, data: { ...node.data, ports: ports.get(node.id) } } : node))
+  const edges = (canvasEdges.value ?? []).map((edge) => {
+    if (edge.id === props.activeEdge?.id) return { ...edge, data: { ...edge.data, couplings } }
+    return localSubgraph.value.get(edge.id) ?? edge
+  })
+  return { nodes, edges }
+}
+
+/**
+ * Variables this edge's couplings set more than once, as edited here against the rest of the canvas (see
+ * resolveBoundaryValues' `overdetermined`).
+ */
+const overdetermined = computed(() => {
+  const drawn = drawnCouplings.value.map(({ srcUid, tgtUid }) => ({ sourcePort: srcByUid(srcUid), targetPort: tgtByUid(tgtUid) }))
+  if (!drawn.length) return []
+  // A coupling already set to drive a store keeps doing so.
+  const couplings = carryDrivesState(props.activeEdge?.data?.couplings ?? [], drawn)
+  const { nodes, edges } = editedCanvas(couplings)
+  const ownKeys = new Set(
+    couplings.flatMap(({ sourcePort, targetPort }) => [
+      ...(sourcePort.variables ?? []).map((name) => `${props.sourceNode.id}::${name}`),
+      ...(targetPort.variables ?? []).map((name) => `${props.targetNode.id}::${name}`),
+    ])
+  )
+  try {
+    return resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
+      .overdetermined.filter(({ keys }) => keys.some((key) => ownKeys.has(key)))
+      .map(({ message }) => message)
+  } catch {
+    return [] // a malformed multiport, which export reports
+  }
+})
+
+const couplingIssues = computed(() => [...unitConflicts.value, ...overdetermined.value])
+
+const flowEdges = computed(() =>
+  drawnCouplings.value.map(({ srcUid, tgtUid, unitConflicts }) => ({
+    id: `ce-${srcUid}-${tgtUid}`,
+    source: `src-${srcUid}`,
+    target: `tgt-${tgtUid}`,
+    sourceHandle: 'out',
+    targetHandle: 'in',
+    updatable: true,
+    style: {
+      stroke: unitConflicts.length ? 'var(--p-orange-500)' : 'var(--p-primary-color, #409eff)',
+      strokeWidth: 2.5,
+    },
+  }))
+)
 
 function buildPortNodes(ports, connectedUids, side) {
   const config = SIDE_CONFIG[side]
@@ -391,10 +505,7 @@ function isValidConnection(connection) {
   if (connection.source === 'ghost-src' || connection.target === 'ghost-tgt') return true
   const sUid = (connection.source || '').replace('src-', '')
   const tUid = (connection.target || '').replace('tgt-', '')
-  const sp = srcByUid(sUid)
-  const tp = tgtByUid(tUid)
-  if (!sp || !tp || !sp.label || !tp.label) return false
-  return sp.label === tp.label && isCompatible(sp.portType, tp.portType)
+  return canConnect(srcByUid(sUid), tgtByUid(tUid))
 }
 
 async function onConnect(connection) {
@@ -411,8 +522,9 @@ async function onConnect(connection) {
         if (next === null) return
         localCouplings.value = next
       }
-      activateGhost('source', tp)
-      connection = { ...connection, source: `src-${localSrcPorts.value.at(-1)._uid}` }
+      const added = activateGhost('source', tp)
+      if (!added) return
+      connection = { ...connection, source: `src-${added._uid}` }
     }
     if (isGhostTgt) {
       const sUid = connection.source.replace('src-', '')
@@ -423,8 +535,9 @@ async function onConnect(connection) {
         if (next === null) return
         localCouplings.value = next
       }
-      activateGhost('target', sp)
-      connection = { ...connection, target: `tgt-${localTgtPorts.value.at(-1)._uid}` }
+      const added = activateGhost('target', sp)
+      if (!added) return
+      connection = { ...connection, target: `tgt-${added._uid}` }
     }
   }
 
@@ -446,6 +559,7 @@ async function onConnect(connection) {
   if (nextCouplings === null) return
 
   localCouplings.value = connectPorts(srcUid, tgtUid, nextCouplings)
+  deriveCouplings()
 }
 
 async function onEdgeUpdate({ edge, connection }) {
@@ -464,8 +578,9 @@ async function onEdgeUpdate({ edge, connection }) {
         if (next === null) return
         localCouplings.value = next
       }
-      activateGhost('source', tp)
-      connection = { ...connection, source: `src-${localSrcPorts.value.at(-1)._uid}` }
+      const added = activateGhost('source', tp)
+      if (!added) return
+      connection = { ...connection, source: `src-${added._uid}` }
     }
     if (connection.target === 'ghost-tgt') {
       const sUid = connection.source.replace('src-', '')
@@ -478,8 +593,9 @@ async function onEdgeUpdate({ edge, connection }) {
         if (next === null) return
         localCouplings.value = next
       }
-      activateGhost('target', sp)
-      connection = { ...connection, target: `tgt-${localTgtPorts.value.at(-1)._uid}` }
+      const added = activateGhost('target', sp)
+      if (!added) return
+      connection = { ...connection, target: `tgt-${added._uid}` }
     }
   }
 
@@ -509,24 +625,20 @@ async function onEdgeUpdate({ edge, connection }) {
 
   nextCouplings = connectPorts(newSrcUid, newTgtUid, nextCouplings)
   localCouplings.value = nextCouplings
+  deriveCouplings()
 }
 
 const validConnectUids = computed(() => {
   if (!draggingFrom.value) return new Set()
   const { uid, side } = draggingFrom.value
   const isGhost = uid === 'ghost-src' || uid === 'ghost-tgt'
-  const candidates = side === 'source' ? localTgtPorts.value : localSrcPorts.value
-  if (isGhost) return new Set(candidates.map((p) => p._uid))
+  const candidates = side === 'source' ? visibleTgtPorts.value : visibleSrcPorts.value
+  if (isGhost) return new Set(candidates.filter((p) => !isHidden(p)).map((p) => p._uid))
   const port = portLookup.value.get(uid)?.port
   if (!port) return new Set()
   return new Set(
     candidates
-      .filter((p) => {
-        if (!p.label || !port.label) return false
-        if (p.label !== port.label) return false
-        const [srcType, tgtType] = side === 'source' ? [port.portType, p.portType] : [p.portType, port.portType]
-        return isCompatible(srcType, tgtType)
-      })
+      .filter((p) => (side === 'source' ? canConnect(port, p) : canConnect(p, port)))
       .map((p) => p._uid)
   )
 })
@@ -536,50 +648,57 @@ function onCanvasWheel(event) {
   canvasEl.value.scrollTop += event.deltaY
 }
 
-function buildPayload() {
-  const foreignCouplings = {}
-  const activeEdgeId = props.activeEdge?.id
+const { confirm, choose } = useConfirmDialog()
+const { configPrompt, resolveConfigPrompt, resolvePortEdits } = useModuleConfigPrompt()
 
-  for (const [edgeId, localEdge] of localSubgraph.value) {
-    if (edgeId === activeEdgeId) continue
-    const originalCouplings = props.subgraph?.get(edgeId)?.data?.couplings || []
-    const localCouplingsArr = localEdge?.data?.couplings || []
-    if (JSON.stringify(originalCouplings) !== JSON.stringify(localCouplingsArr)) {
-      foreignCouplings[edgeId] = localCouplingsArr
+/**
+ * Saves the connection. Done with no edits changes nothing, unless the edge's stored couplings differ from those
+ * shown, which it asks before replacing. Otherwise it first asks, for each instance whose ports no longer match its
+ * module, whether to update the module or save a new config, then asks once about every CellDL store the edit would
+ * set from elsewhere: on this edge, and on the edges of other instances an updated module gives the ports. Declining
+ * or cancelling either keeps the dialog open. `configs` holds each instance's choice by id, and `drivenCouplings` the
+ * edges' confirmed marks.
+ */
+async function handleConfirm() {
+  const payload = buildPayload()
+  if (isUnchanged(payload)) {
+    if (storedDiffers()) {
+      const stored = props.activeEdge?.data?.couplings?.length ?? 0
+      const shown = payload.couplings.length
+      const choice = await choose({
+        header: 'Stored couplings differ',
+        message: `Replace the ${stored} stored coupling${stored === 1 ? '' : 's'} with the ${shown} shown (what export uses)?`,
+        severity: 'warning',
+        acceptLabel: 'Replace',
+        rejectLabel: 'Keep stored',
+      })
+      if (choice === 'accept') emit('confirm', payload)
     }
+    emit('update:modelValue', false)
+    return
   }
-
-  return {
-    sourceNodeId: props.sourceNode.id,
-    targetNodeId: props.targetNode.id,
-    sourcePorts: detachReactivity(localSrcPorts.value),
-    targetPorts: detachReactivity(localTgtPorts.value),
-    couplings: localCouplings.value.map((c) => {
-      const sp = srcByUid(c.srcUid)
-      const tp = tgtByUid(c.tgtUid)
-      return {
-        sourcePort: {
-          portType: sp.portType,
-          label: sp.label,
-          variables: sp.variables,
-          multiportType: sp.multiportType,
-          multiplyFactor: sp.multiplyFactor,
-        },
-        targetPort: {
-          portType: tp.portType,
-          label: tp.label,
-          variables: tp.variables,
-          multiportType: tp.multiportType,
-          multiplyFactor: tp.multiplyFactor,
-        },
-      }
-    }),
-    foreignCouplings,
-  }
-}
-
-function handleConfirm() {
-  emit('confirm', buildPayload())
+  // A loop's target side is written last, so it is the one checked.
+  const portEdits = [
+    { node: props.sourceNode, ports: payload.sourcePorts },
+    { node: props.targetNode, ports: payload.targetPorts },
+  ].filter(({ node }, index) => index === 1 || node.id !== props.targetNode.id)
+  const configs = await resolvePortEdits(portEdits, canvasNodes.value ?? [])
+  if (!configs) return
+  const { nodes, edges } = editedCanvas(payload.couplings)
+  const activeId = props.activeEdge?.id
+  const marked = await confirmPortEditDrives({
+    nodes,
+    edges,
+    edits: spreadPortEdits(portEdits, configs, canvasNodes.value ?? []),
+    edgeIds: new Set([activeId]),
+    libraryStore,
+    confirm,
+  })
+  if (!marked) return
+  if (marked.has(activeId)) payload.couplings = marked.get(activeId)
+  payload.configs = configs
+  payload.drivenCouplings = marked
+  emit('confirm', payload)
   emit('update:modelValue', false)
 }
 
@@ -887,6 +1006,26 @@ watch(
 }
 .dot-free {
   background: var(--p-text-muted-color, #71717a);
+}
+.legend-line {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.line-units {
+  background: var(--p-orange-500);
+}
+.units-conflicts {
+  margin: 6px 0 0;
+  padding: 0 4px;
+  list-style: none;
+  font-size: 12px;
+  color: var(--p-orange-500);
+}
+.units-conflicts .pi {
+  margin-right: 6px;
+  font-size: 11px;
 }
 
 /* ── Footer ── */

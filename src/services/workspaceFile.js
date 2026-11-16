@@ -16,9 +16,30 @@ import { notify } from '../utils/notify'
  * @param {Object} sources.simulation - simulationSettingsStore.
  * @param {Object} sources.inspectionModules - inspectionModuleStore.
  * @param {Object} sources.omex - omexStore.
+ * @param {Object} sources.parameters - defaultParametersStore.
+ * @param {Object} [sources.bioTemplates] - bioTemplateStore.
+ * @param {Object} [sources.bioGlyphs] - glyphLibraryStore.
+ * @param {Object} [sources.nodeTheme] - nodeThemeStore.
  * @returns {Object} The workspace, at PHLYNX_PROJECT_VERSION.
  */
-export function buildWorkspaceFile({ flow, library, simulation, inspectionModules, omex }) {
+export function buildWorkspaceFile({
+  flow,
+  library,
+  simulation,
+  inspectionModules,
+  omex,
+  parameters,
+  bioTemplates,
+  bioGlyphs,
+  nodeTheme,
+}) {
+  // Older builds ignore the key, and nodes bound to a template's sites fall back to their role.
+  const templateState = bioTemplates?.getState() ?? null
+  // Likewise the user's own cartoons the nodes are drawn as: a copy of each, so the workspace looks the same
+  // elsewhere.
+  const glyphState = bioGlyphs?.getState((flow?.nodes ?? []).map((node) => node.data?.bioView?.glyph)) ?? null
+  // And the node colour theme: its id, with a copy unless it is built in, so categories keep their colours.
+  const themeState = nodeTheme?.getState() ?? null
   return {
     id: PHLYNX_PROJECT_IDENTIFIER,
     version: PHLYNX_PROJECT_VERSION,
@@ -27,6 +48,10 @@ export function buildWorkspaceFile({ flow, library, simulation, inspectionModule
     simulation: simulation.getState(),
     inspectionModules: inspectionModules.getState(),
     workspace: omex.getState(),
+    parameters: parameters.getState(),
+    ...(templateState ? { bioTemplates: templateState } : {}),
+    ...(glyphState ? { bioGlyphs: glyphState } : {}),
+    ...(themeState ? { nodeTheme: themeState } : {}),
   }
 }
 

@@ -667,10 +667,11 @@ const PROCESS_UPLOAD_BY_KEY = {
   [IMPORT_KEYS.MODULE_CONFIG]: 'config',
 }
 
+// A JSON file is tried as a module array, a config, then parameters: each parser marks the others' files unrelated.
 const INSTANCE_ARRAY_ROLE_KEYS = [
   IMPORT_KEYS.INSTANCE_ARRAY,
-  IMPORT_KEYS.PARAMETER,
   IMPORT_KEYS.MODULE_CONFIG,
+  IMPORT_KEYS.PARAMETER,
   IMPORT_KEYS.CELLML_FILE,
 ]
 

@@ -1,7 +1,10 @@
-import { findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
-import { resolveBoundaryValues } from '../services/export/boundaryValues.js'
+import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues.js'
+import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
+import { couplingUnitConflicts } from './couplingUnits.js'
+import { portDisplayName } from './portIdentity.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -50,18 +53,14 @@ export function whenLibCellMLReady() {
 }
 
 /**
- * Builds a Map from CellML element id -> variable name by parsing the raw CellML XML.
- * Used to resolve annotation variable ids to human-readable names.
+ * The libCellML instance initLibCellML bound.
+ *
+ * @returns {Object}
+ * @throws {Error} When libCellML is not ready yet.
  */
-export function buildVariableIdMap(cellmlString) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
-  const map = new Map()
-  Array.from(doc.getElementsByTagNameNS(CELLML_NS, 'variable')).forEach((v) => {
-    const id = v.getAttribute('id')
-    const name = v.getAttribute('name')
-    if (id && name) map.set(id, name)
-  })
-  return map
+export function getLibCellML() {
+  if (!_libcellml) throw new Error("LibCellML is not ready or hasn't been initialized.")
+  return _libcellml
 }
 
 export function extractParametersFromCellML(cellmlString, filename) {
@@ -485,6 +484,7 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
  *                                                inside 'generated_multiplications'.
  */
 function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
+  const sourceVar = requireVariable(sourceComp, sourceVarName)
   // Get or create the shared multiplications component
   let mulComp = model.componentByName('generated_multiplications', true)
   if (mulComp === null) {
@@ -494,7 +494,6 @@ function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
   }
 
   // Determine units from the source variable
-  const sourceVar = sourceComp.variableByName(sourceVarName)
   const sourceUnits = sourceVar.units()
   const unitsName = sourceUnits.name() || 'dimensionless'
   sourceUnits.delete()
@@ -539,6 +538,20 @@ function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
 }
 
 function createSummationComponent(model, sourceComp, sourceVarName, targetComponentVarNameMap) {
+  // Looked up before anything is created, so a missing variable leaves the model as it was.
+  const lookup = { referenceVar: null, termVars: [] }
+  try {
+    lookup.referenceVar = requireVariable(sourceComp, sourceVarName)
+    for (const { component, varName } of targetComponentVarNameMap) {
+      lookup.termVars.push(requireVariable(component, varName))
+    }
+  } catch (error) {
+    lookup.referenceVar?.delete()
+    lookup.termVars.forEach((variable) => variable.delete())
+    throw error
+  }
+  const { referenceVar, termVars } = lookup
+
   // Create the Component
   let sumComp = model.componentByName('generated_summations', true)
   if (sumComp === null) {
@@ -548,7 +561,6 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   }
 
   // Setup Variables
-  const referenceVar = sourceComp.variableByName(sourceVarName)
   const referenceUnits = referenceVar.units()
   const unitsName = referenceUnits.name() || 'dimensionless'
   referenceUnits.delete()
@@ -568,7 +580,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   // downstream flows).
   const addVarNames = []
 
-  targetComponentVarNameMap.forEach(({ component, varName: targetVarName }) => {
+  targetComponentVarNameMap.forEach(({ varName: targetVarName }, index) => {
     const localVarName = nextAvailableVarName(sumComp, `op_${targetVarName}`)
     addVarNames.push(localVarName)
 
@@ -578,7 +590,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
     opVar.setInterfaceTypeByString('public')
     sumComp.addVariable(opVar)
 
-    const tmpVar = component.variableByName(targetVarName)
+    const tmpVar = termVars[index]
     _libcellml.Variable.addEquivalence(opVar, tmpVar)
     opVar.delete()
     tmpVar.delete()
@@ -830,6 +842,80 @@ function addEnvironmentComponent(model, voiVariables) {
   }
 }
 
+// libcellml.js's WASM stack overflows on a <math> of several hundred equations, or an operator of a few hundred
+// operands (an "index out of bounds" trap), so splitWideMath keeps both under these.
+const MAX_MATH_EQUATIONS = 100
+const MAX_MATH_OPERANDS = 100
+// Operators whose operands can be grouped without changing the result.
+const GROUPABLE_OPERATORS = new Set(['plus', 'times'])
+
+/**
+ * Splits math too wide for libcellml.js: a sum or product of more than MAX_MATH_OPERANDS operands becomes a sum of
+ * sums (or product of products) in the same order, and a <math> of more than MAX_MATH_EQUATIONS equations becomes
+ * several.
+ *
+ * @param {string} math - A component's math: one or more <math> elements.
+ * @returns {string} The math split, or unchanged when within the limits or unreadable.
+ */
+export function splitWideMath(math) {
+  // Too few elements to exceed either limit.
+  if (!math || (math.match(/<[A-Za-z]/g)?.length ?? 0) <= Math.min(MAX_MATH_EQUATIONS, MAX_MATH_OPERANDS)) return math
+
+  const doc = new DOMParser().parseFromString(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`, 'application/xml')
+  if (doc.querySelector('parsererror')) return math
+  let isChanged = false
+
+  for (const apply of Array.from(doc.getElementsByTagNameNS(MATHML_NS, 'apply'))) {
+    const [operator, ...operands] = Array.from(apply.children)
+    if (operands.length <= MAX_MATH_OPERANDS || !GROUPABLE_OPERATORS.has(operator.localName)) continue
+    let groups = operands
+    while (groups.length > MAX_MATH_OPERANDS) {
+      const grouped = []
+      for (let i = 0; i < groups.length; i += MAX_MATH_OPERANDS) {
+        const group = doc.createElementNS(MATHML_NS, 'apply')
+        group.append(doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS))
+        grouped.push(group)
+      }
+      groups = grouped
+    }
+    apply.replaceChildren(operator, ...groups)
+    isChanged = true
+  }
+
+  for (const mathElement of Array.from(doc.documentElement.children)) {
+    const equations = Array.from(mathElement.children)
+    let last = mathElement
+    for (let i = MAX_MATH_EQUATIONS; i < equations.length; i += MAX_MATH_EQUATIONS) {
+      const next = mathElement.cloneNode(false)
+      next.append(...equations.slice(i, i + MAX_MATH_EQUATIONS))
+      last.after(next)
+      last = next
+      isChanged = true
+    }
+  }
+
+  if (!isChanged) return math
+  const serializer = new XMLSerializer()
+  return Array.from(doc.documentElement.children, (element) => serializer.serializeToString(element)).join('\n')
+}
+
+/**
+ * Splits the math of each of a libcellml model's components, nested ones included, that is too wide for libcellml.js
+ * (see splitWideMath).
+ *
+ * @param {Object} parent - A libcellml Model or Component.
+ */
+function splitWideComponentMath(parent) {
+  for (let i = 0; i < parent.componentCount(); i++) {
+    const component = parent.componentByIndex(i)
+    const math = component.math()
+    const split = splitWideMath(math)
+    if (split !== math) component.setMath(split)
+    splitWideComponentMath(component)
+    component.delete()
+  }
+}
+
 function prioritizeEnvironmentComponent(xmlString) {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlString, 'application/xml')
@@ -928,6 +1014,69 @@ function addVariableToParameterComponent(model, variable, parameterComponent, pa
 }
 
 /**
+ * Rewrites a CellML string's `id` attributes for one instance, so two instances of one math don't repeat
+ * them. Ids made from the component's name, as bg2cellml writes them (`main`, `main-x`), take the
+ * instance's name in its place (`decay_1`, `decay_1-x`); any other id is prefixed (`decay_1-<id>`). The
+ * component's id becomes the instance's name, and each named variable without an id gets `<instance>-<variable>`,
+ * so annotations can point at them.
+ *
+ * @param {string} xmlString
+ * @param {string} instanceName - A CellML identifier, so it holds no hyphen and no two instances share a prefix.
+ * @param {Iterable<string>} [idVariables] - Variables of the component to give an id when they have none.
+ * @returns {{ xml: string, idMap: Map<string, string>, variableIds: Map<string, string> }} The rewritten string
+ *   (unchanged if it has no ids to write or doesn't parse), each old id's new one, and the component variables' ids.
+ */
+export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
+  const wanted = new Set(idVariables)
+  const unchanged = { xml: xmlString, idMap: new Map(), variableIds: new Map() }
+  if (!wanted.size && !/\sid\s*=/.test(xmlString)) return unchanged
+
+  const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
+  if (doc.querySelector('parsererror')) return unchanged
+
+  const component = [...doc.documentElement.children].find((el) => el.localName === 'component') ?? null
+  const elements = [...doc.querySelectorAll('[id]')]
+  const componentName = component?.getAttribute('name')
+  // The instance's name is the component's id, so no other element may take it.
+  const renamed = (id) => {
+    if (componentName && id === componentName) return instanceName
+    if (componentName && id.startsWith(`${componentName}-`)) return instanceName + id.slice(componentName.length)
+    return `${instanceName}-${id}`
+  }
+  const prefixed = (id) => `${instanceName}-${id}`
+  const others = elements.filter((el) => el !== component).map((el) => el.getAttribute('id'))
+  // Renaming could merge two ids, e.g. "main-x" and "x"; prefixing every id keeps them apart.
+  const renames = others.map(renamed)
+  const rename =
+    new Set(renames).size === renames.length && !renames.includes(instanceName) ? renamed : prefixed
+
+  const idMap = new Map()
+  const used = new Set([instanceName])
+  for (const el of elements) {
+    const id = el.getAttribute('id')
+    const next = el === component ? instanceName : rename(id)
+    idMap.set(id, next)
+    used.add(next)
+    el.setAttribute('id', next)
+  }
+  if (component && !component.hasAttribute('id')) component.setAttribute('id', instanceName)
+
+  const variableIds = new Map()
+  for (const variable of component ? [...component.children].filter((el) => el.localName === 'variable') : []) {
+    const name = variable.getAttribute('name')
+    if (!name) continue
+    if (!variable.hasAttribute('id') && wanted.has(name)) {
+      let id = `${instanceName}-${name}`
+      for (let n = 2; used.has(id); n++) id = `${instanceName}-${name}_${n}`
+      used.add(id)
+      variable.setAttribute('id', id)
+    }
+    if (variable.hasAttribute('id')) variableIds.set(name, variable.getAttribute('id'))
+  }
+  return { xml: new XMLSerializer().serializeToString(doc), idMap, variableIds }
+}
+
+/**
  * Post-processes a printed CellML XML string, replacing all celsius unit references
  * with 'dimensionless' and removing the celsius unit definition.
  *
@@ -942,7 +1091,7 @@ function addVariableToParameterComponent(model, variable, parameterComponent, pa
  * web OpenCOR to crash.
  *
  */
-function stripCelsiusToArbitraryUnit(xmlString) {
+export function stripCelsiusToArbitraryUnit(xmlString) {
   const CELSIUS_UNIT_NAME = 'celsius'
 
   const domParser = new DOMParser()
@@ -988,20 +1137,41 @@ function stripCelsiusToArbitraryUnit(xmlString) {
 }
 
 /**
+ * A component's variable, or an error naming the component, the variable and the port coupling it.
+ *
+ * @param {libcellml.Component} component
+ * @param {string} varName
+ * @param {Object} [port] - The port the variable couples through, named in the error.
+ * @returns {libcellml.Variable} The caller deletes it.
+ */
+function requireVariable(component, varName, port) {
+  const variable = component.variableByName(varName)
+  if (variable) return variable
+  const portName = port ? portDisplayName(port) || varName : ''
+  throw new Error(
+    `Cannot connect "${component.name()}": it has no variable "${varName}"${portName ? ` (port "${portName}")` : ''}.`
+  )
+}
+
+/**
  * Equivalences two variables, through a generated conversion component when
  * their units are affine (e.g. celsius and kelvin).
  */
 function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariable) {
-  const v1 = sourceComp.variableByName(srcVariable)
-  const v2 = targetComp.variableByName(tgtVariable)
-  if (v1 && v2) {
-    const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
-    if (!handled) {
-      _libcellml.Variable.addEquivalence(v1, v2)
-    }
+  const v1 = requireVariable(sourceComp, srcVariable)
+  let v2
+  try {
+    v2 = requireVariable(targetComp, tgtVariable)
+  } catch (error) {
+    v1.delete()
+    throw error
   }
-  v1?.delete()
-  v2?.delete()
+  const handled = createAffineConversionComponent(model, v1, v2, sourceComp.name(), targetComp.name())
+  if (!handled) {
+    _libcellml.Variable.addEquivalence(v1, v2)
+  }
+  v1.delete()
+  v2.delete()
 }
 
 /**
@@ -1024,13 +1194,17 @@ function connectVariables(model, sourceComp, srcVariable, targetComp, tgtVariabl
  *   time on large models; a simulator that checks the model itself can skip it.
  * @param {boolean} [options.allowBcOnly=false] - Builds boundary conditions coupled only to each other from their own
  *   values, for a scope that cut them off from what computes them, rather than throwing.
+ * @param {Map} [options.exportedIds] - Filled with each node id's `{ componentId, variableIds }`: the ids its
+ *   component and variables have in the model. A variable its math's sidecar annotates always has one.
+ * @param {Map} [options.instanceSources] - Filled with each node id's `{ mathRef, name, xml }`: its math as this
+ *   instance uses it, before its ids are prefixed (see buildModularModel).
  */
 export function generateFlattenedModel(
   nodes,
   edges,
   libraryStore,
   inspectionModules = [],
-  { check = true, allowBcOnly = false } = {}
+  { check = true, allowBcOnly = false, exportedIds = null, instanceSources = null } = {}
 ) {
   const appVersion = __APP_VERSION__ || '0.0.0'
 
@@ -1053,6 +1227,7 @@ export function generateFlattenedModel(
   const unitsImportSourceMap = new Map() // Key: componentFile,  Value: libcellml.ImportSource
 
   const unresolvedUnits = new Map() // Key: unitsName,      Value: Set of what uses them
+  let mulComp = null // generated_multiplications, kept until Pass 2 sums the outputs it holds
 
   /**
    * Imports a units definition from the library's units files, unless the model has it or it is standard.
@@ -1138,7 +1313,7 @@ export function generateFlattenedModel(
     model.addComponent(parameterComponent)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges)
+    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
     // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
     // falls back to their own values (see checkScope).
     if (boundaryValues.bcOnly.length && !allowBcOnly) {
@@ -1147,6 +1322,10 @@ export function generateFlattenedModel(
     }
     if (boundaryValues.conflicts.length) {
       throw new Error(`Conflicting boundary values: ${boundaryValues.conflicts.join('; ')}.`)
+    }
+    // libCellML would reject a variable set more than once, or accept it as a DAE and drop an equation.
+    if (boundaryValues.overdetermined.length) {
+      throw new Error(boundaryValues.overdetermined.map(({ message }) => message).join(' '))
     }
     // A value something else supplies is dropped (see resolveBoundaryValues).
     const isIgnored = (nodeId, v) => !!boundaryValues.ignored.get(nodeId)?.has(v.name)
@@ -1181,10 +1360,21 @@ export function generateFlattenedModel(
       const modelString = libraryStore.availableMath.get(mathRef)
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
-      const modelFromInstance = parser.parseModel(modelString)
+      // A state a connection drives loses its own equation and initial value, in this instance only.
+      const drivenStates = boundaryValues.driven.get(node.id)
+      const instanceString = drivenStates ? dropDrivenStates(modelString, drivenStates.keys()) : modelString
+      instanceSources?.set(node.id, { mathRef, name: node.data.name, xml: instanceString })
+      // Ids, such as bg2cellml writes, would repeat in each instance of the same math. Annotated variables get
+      // one, so the exported annotations can point at them.
+      const annotated = libraryStore.getParsedModuleAnnotations?.(mathRef)?.variables?.map(({ variable }) => variable)
+      const ids = prefixIdAttributes(instanceString, node.data.name, annotated)
+      const modelFromInstance = parser.parseModel(ids.xml)
 
       const originalComponent = modelFromInstance.componentByIndex(0)
       originalComponent.setName(node.data.name)
+      // An annotation's '<./model.cellml#name>' names the instance's component.
+      originalComponent.setId(node.data.name)
+      exportedIds?.set(node.id, { componentId: node.data.name, variableIds: ids.variableIds })
 
       model.addComponent(originalComponent)
 
@@ -1219,7 +1409,9 @@ export function generateFlattenedModel(
             nodeVariable.type === 'global_constant' ? libraryStore.getGlobalConstant(variable.name())?.value : nodeVariable.value
           // A connected boundary condition's value is a fallback, and an empty Sum warns below.
           const isEmptySum = !!boundaryValues.emptySums.get(node.id)?.has(nodeVariable.name)
-          if (nodeVariable.type !== 'boundary_condition' && !isEmptySum) {
+          // A driven state's unused initial value says so in the Parameters tab.
+          const isDrivenInitial = [...(drivenStates?.values() ?? [])].some(({ initialiser }) => initialiser === nodeVariable.name)
+          if (nodeVariable.type !== 'boundary_condition' && !isEmptySum && !isDrivenInitial) {
             console.warn(`"${node.data.name}" variable "${variable.name()}" is set by a connection; ignoring its parameter value ${value}.`)
           }
         } else if (nodeVariable) {
@@ -1284,10 +1476,10 @@ export function generateFlattenedModel(
       if (!multiPortSums.has(key)) multiPortSums.set(key, { component, varName, terms: [] })
       if (term) multiPortSums.get(key).terms.push(term)
     }
-    let mulComp = null // generated_multiplications, kept until Pass 2 sums the outputs it holds
+    const unitsCache = new Map() // for resolveUnits, across the edges' couplings
     for (const edge of edges) {
       // Edges only carry source/target node ids plus resolved coupling data
-      // (see WorkspaceArea.vue's onConnect) — there is no edge.sourceNode /
+      // (see WorkspaceView.vue's onConnect) — there is no edge.sourceNode /
       // edge.targetNode. Resolve components directly from the map built above.
       const sourceComp = nodeComponentMap.get(edge.source)
       const targetComp = nodeComponentMap.get(edge.target)
@@ -1299,9 +1491,13 @@ export function generateFlattenedModel(
       // (and recomputed on any edit), so ordinal slot assignment is already
       // correct — no need to re-derive from ports here.
       const couplings = edge.data?.couplings ?? []
+      const sourceRows = nodes.find((node) => node.id === edge.source)?.data.variables
+      const targetRows = nodes.find((node) => node.id === edge.target)?.data.variables
 
       for (const { sourcePort, targetPort } of couplings) {
-        const [conflict] = couplingConflicts(sourcePort, targetPort)
+        const [conflict] = couplingConflicts(sourcePort, targetPort).concat(
+          couplingUnitConflicts(sourcePort, targetPort, sourceRows, targetRows, libraryStore.unitDefinitions, unitsCache)
+        )
         if (conflict) throw new Error(`Cannot connect "${sourceComp.name()}" to "${targetComp.name()}": ${conflict}`)
         const sourceTypes = variableTypes(sourcePort)
         const targetTypes = variableTypes(targetPort)
@@ -1313,6 +1509,8 @@ export function generateFlattenedModel(
             { component: targetComp, port: targetPort, varName: targetPort.variables[i], type: targetTypes[i] },
           ]
           if (!ends[0].varName || !ends[1].varName) continue
+          // A port naming a variable its math lacks (a stale or mismatched side-car port, say) cannot connect.
+          for (const end of ends) requireVariable(end.component, end.varName, end.port).delete()
           const summed = ends.find((end) => end.type === 'Sum')
           const scaled = ends.find((end) => end.type === 'Multiply')
           if (!summed && !scaled) {
@@ -1332,13 +1530,14 @@ export function generateFlattenedModel(
             addSumTerm(summed.component, summed.varName, term)
           } else {
             const neighbour = ends.find((end) => end !== scaled)
-            const outputVar = mulComp.variableByName(term.varName)
-            const neighbourVar = neighbour.component.variableByName(neighbour.varName)
-            if (outputVar && neighbourVar) {
+            const outputVar = requireVariable(mulComp, term.varName)
+            try {
+              const neighbourVar = requireVariable(neighbour.component, neighbour.varName, neighbour.port)
               _libcellml.Variable.addEquivalence(outputVar, neighbourVar)
+              neighbourVar.delete()
+            } finally {
+              outputVar.delete()
             }
-            outputVar?.delete()
-            neighbourVar?.delete()
           }
         }
       }
@@ -1360,7 +1559,6 @@ export function generateFlattenedModel(
     for (const { component, varName, terms } of multiPortSums.values()) {
       createSummationComponent(model, component, varName, terms)
     }
-    mulComp?.delete()
 
     for (const comp of componentTrashCan) {
       comp && comp.delete()
@@ -1402,6 +1600,9 @@ export function generateFlattenedModel(
       handleLoggerErrors(importer, `Importer error count: ${importer.errorCount()}`)
     }
 
+    // Before anything in libcellml.js reads the math, which wide math crashes.
+    splitWideComponentMath(flattenedModel)
+
     if (check) {
       validator.validateModel(flattenedModel)
       if (validator.errorCount()) {
@@ -1433,6 +1634,7 @@ export function generateFlattenedModel(
     // -------
 
     // Delete Component/Module Caches.
+    mulComp?.delete()
     for (const cachedModel of modelCache.values()) cachedModel.delete()
     for (const component of nodeComponentMap.values()) component.delete()
 
@@ -1459,10 +1661,14 @@ function isPossibleParameter(variable, voiNames, includeInitialised = false) {
 }
 
 /**
- * Extracts unique variable names from a CellML model/component. A variable the math computes is a
- * `variable`; anything else is a `constant` until someone says otherwise.
+ * Extracts unique variable names from a CellML model/component. A variable the math computes, or a
+ * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
+ *
+ * @param {string} math
+ * @param {boolean} [includeInitialisedVariables]
+ * @param {Map<string, string>} [defaults] - The math's values, for stored math, which holds none (libraryStore.getMathDefaults).
  */
-export function extractVariablesFromMath(math, includeInitialisedVariables = true) {
+export function extractVariablesFromMath(math, includeInitialisedVariables = true, defaults = new Map()) {
   const garbageCollector = new Set() // To track created objects for cleanup.
   try {
     const variables = []
@@ -1473,6 +1679,9 @@ export function extractVariablesFromMath(math, includeInitialisedVariables = tru
         assigned: new Set(analysis?.assigned),
         voi: findVoiNames(analysis),
       }
+      const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
+      const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
+      roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
       const parser = new _libcellml.Parser(false)
       garbageCollector.add(parser)
       const model = parser.parseModel(math)
@@ -1602,27 +1811,67 @@ export function doesComponentExistInModel(cellmlString, componentName) {
 }
 
 /**
- * Puts the components of several one-component models (as the library stores math) into one model.
+ * Renames the ids that the components of several one-component models share, so one model can hold them all. The
+ * first component keeps an id; a later one's becomes `<component>-<id>` (`_2`, `_3` on a clash). Ids outside the
+ * component (the model's, units') are left, since only the component is combined.
+ *
+ * @param {string[]} componentModels - CellML models, each holding one component.
+ * @returns {{ models: string[], idMaps: Map<string, string>[] }} Each model (unchanged when it needs no rename or
+ *   doesn't parse), and each one's renamed ids, old to new.
+ */
+export function uniqueComponentIds(componentModels) {
+  const used = new Set()
+  const models = []
+  const idMaps = []
+  for (const xml of componentModels) {
+    const idMap = new Map()
+    const doc = /\sid\s*=/.test(xml) ? new DOMParser().parseFromString(xml, 'application/xml') : null
+    const component = doc?.querySelector('parsererror')
+      ? null
+      : ([...(doc?.documentElement.children ?? [])].find((el) => el.localName === 'component') ?? null)
+    const tree = component ? [component, ...component.querySelectorAll('[id]')] : []
+    const elements = tree.filter((el) => el.hasAttribute('id'))
+    const own = new Set(elements.map((el) => el.getAttribute('id')))
+    for (const el of elements) {
+      const id = el.getAttribute('id')
+      if (!used.has(id)) continue
+      let next = `${component.getAttribute('name')}-${id}`
+      for (let n = 2; used.has(next) || own.has(next); n++) next = `${component.getAttribute('name')}-${id}_${n}`
+      idMap.set(id, next)
+      el.setAttribute('id', next)
+    }
+    elements.forEach((el) => used.add(el.getAttribute('id')))
+    models.push(idMap.size ? new XMLSerializer().serializeToString(doc) : xml)
+    idMaps.push(idMap)
+  }
+  return { models, idMaps }
+}
+
+/**
+ * Puts the components of several one-component models (as the library stores math) into one model. Their ids must
+ * not repeat across the models (see uniqueComponentIds).
  *
  * @param {string} modelName - The combined model's name.
  * @param {string[]} componentModels - CellML models, each holding one component.
+ * @param {Array<string|undefined>} [names] - A new name for each model's component, where given.
  * @returns {string} The combined model's CellML, one element per line.
  */
-export function combineComponentModels(modelName, componentModels) {
+export function combineComponentModels(modelName, componentModels, names = []) {
   const parser = new _libcellml.Parser(false)
   const printer = new _libcellml.Printer()
   const model = new _libcellml.Model()
   model.setName(modelName)
   try {
-    for (const componentModel of componentModels) {
+    componentModels.forEach((componentModel, index) => {
       const source = parser.parseModel(componentModel)
       const component = source.componentByIndex(0)
       const clone = component.clone()
+      if (names[index]) clone.setName(names[index])
       model.addComponent(clone)
       clone.delete()
       component.delete()
       source.delete()
-    }
+    })
     return printer.printModel(model, false)
   } finally {
     model.delete()
@@ -1686,6 +1935,13 @@ export function mergeModelComponents(targetModelString, sourceModelString, newCo
   return mergedModelString
 }
 
+/**
+ * Checks whether two CellML models are the same, whatever their order or whitespace between tags.
+ *
+ * @param {string} modelAString
+ * @param {string} modelBString
+ * @returns {boolean} False when either is blank.
+ */
 export function areModelsEquivalent(modelAString, modelBString) {
   if (!modelAString || !modelBString) {
     return false
@@ -1694,6 +1950,11 @@ export function areModelsEquivalent(modelAString, modelBString) {
   if (modelAString.trim() === '' || modelBString.trim() === '') {
     return false
   }
+  // libcellml compares math as text, which the browser's build parses with or without its indentation from one parse
+  // to the next, so indentation is dropped first.
+  const collapse = (xml) => xml.replace(/>\s+</g, '><')
+  modelAString = collapse(modelAString)
+  modelBString = collapse(modelBString)
 
   const garbageCollector = new Set() // To track created objects for cleanup
   try {

@@ -208,15 +208,14 @@ export function useSimulationCharts(scopeNodes, { hasInputs = false, plotConfig 
       const plotted = readPlotted(selection, run, nodesById, outputsById)
       if (!plotted) return []
       const key = isInspectionNodeId(selection.nodeId) ? selection.key : `${plotted.node.id}::${selection.variableName}`
-      return [{ key, plot: selection.groupId ?? '', ...plotted }]
+      return [{ key, plot: selection.groupId ?? '', ...plotted, label: selection.label ?? null }]
     })
-    // Named as the variable search names them: instance/variable.
-    const labelled = variables.map(({ node, name, ...series }) => ({
-      ...series,
-      component: node.data.name,
-      name,
-      label: `${node.data.name}/${name}`,
-    }))
+    // Named as the variable search names them, instance/variable, unless the plot names them itself.
+    const labelled = variables.map(({ node, name, label, ...series }) =>
+      label
+        ? { ...series, component: null, name: label, label }
+        : { ...series, component: node.data.name, name, label: `${node.data.name}/${name}` }
+    )
     // Inspection modules plot only when the settings ask for them.
     const outputs = (settings.plotInspectionModules ? run.inspectionOutputs : []).flatMap((output) => {
       const series = results.variables.get(output.reportedName)

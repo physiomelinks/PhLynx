@@ -4,9 +4,11 @@ import { ref } from 'vue'
 import { BASELINE_SIMULATION_SETTINGS } from '../utils/constants'
 
 export function cloneSimulationSettings(settings = {}) {
+  const merged = { ...BASELINE_SIMULATION_SETTINGS, ...settings }
   return {
-    ...BASELINE_SIMULATION_SETTINGS,
-    ...settings,
+    ...merged,
+    // CVODE's absolute tolerance is its relative one unless set apart, as when a SED-ML file gives only one.
+    absoluteTolerance: settings?.absoluteTolerance !== undefined ? settings.absoluteTolerance : merged.relativeTolerance,
     // A sweep of one parameter, and perhaps its curves' (see services/simulation/sweep.js), copied so a draft of it is
     // its own.
     ...(settings?.sweep && {

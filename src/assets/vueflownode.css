@@ -14,11 +14,10 @@
 }
 
 .instance-node.selected {
-  /* Use the Element Plus primary color for the border */
-  border-color: #409eff;
+  border-color: var(--p-primary-color);
 
   /* Add a "focus ring" glow using the primary color */
-  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.4);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--p-primary-color) 40%, transparent);
 }
 
 .instance-card {

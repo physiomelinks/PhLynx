@@ -12,26 +12,29 @@ For shortcuts, see [Keyboard Shortcuts](./keyboard-shortcuts.md).
 
 ![The main toolbar](../assets/images/toolbar.png){.align-center width="800px"}
 
+The add-handle, macro builder and Send buttons are hidden by default; [Settings ▸ Toolbar](#settings) shows or hides each button.
+
 | Button (tooltip) | Icon | What it does |
 | :--- | :--- | :--- |
 | **Load workspace** | Folder | Opens a saved `.json` [workspace file](./file-types.md#workspace-file), replacing the canvas without asking. |
 | **Save workspace** | Floppy disk | Saves to `.json`, including simulation settings (Ctrl/Cmd+S). PhLynx doesn't autosave. |
-| **Clean up workspace** | Dustpan | Auto-arranges the instances. |
+| **Clean up workspace** | Dustpan | Auto-arranges the instances and clears [arrow routes](#routing). |
 | **Clear workspace** | Eraser | Removes everything from the canvas (undoable). |
-| **Undo** / **Redo** | Arrows | Edit history. |
+| **Undo** / **Redo** | Arrows | Edit history. A notice names the step undone or redone, e.g. **Undid: Connect**. |
 | **Add left / top / right / bottom handle** | Box with a dot on that side | Adds a handle (where arrows attach) on that side of the selected instances. |
 | **Open macro builder** | Hammer | Opens the [Macro Builder](../guides/macro-build-guide.md). |
 | **Configure simulation settings** | Chart with cog | Opens [Simulation Settings](./simulation-ui-overview.md#simulation-settings). |
 | **Settings** | Cog | Opens app [Settings](#settings). |
 | **Import** / **Export** / **Send** | Split buttons | Click runs the last-used item (Ctrl/Cmd+I, Ctrl/Cmd+E); the arrow opens the menu. |
 
-On the right are **Report Issue** and a light/dark switch. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
+On the right are the **Diagram** / **Physiology** switch (see [The Physiology View](../guides/physiology-view.md)) and a light/dark switch. At the top of every page, beside **About**, the bell opens the **Notices** tab of the About page - announcements from the developers, such as an upcoming end of support for an older file format - and shows a count while there are notices you have not yet seen; next to it, the bug icon reports a bug. Where supported (e.g. Chrome), saving and exporting ask where to put the file.
 
 ### Import {#import}
 
 | Menu item | File | Result |
 | :--- | :--- | :--- |
 | **Instance Array** | `.csv` | Builds a connected model from an [instance array](./file-types.md#instance-array), asking for any missing module files. |
+| **CellDL Diagram** | `.celldl` | Adds a bond-graph diagram as a module under **User Modules (CellDL)**; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md#getting-a-module) (beta). |
 | **CellML File** | `.cellml` | Adds its components to Available Modules and its [units](./cellml-units-file.md) to the units library. If one file's components are connected to each other, it is also built on the canvas; a non-empty canvas asks **Overwrite** or **Add to Workspace**. See [CellML Module Format](./cellml-module-format.md). |
 | **Module Config** | `.json` | Loads [module configurations](./file-types.md#module-configuration). |
 | **Parameters** | `.csv` | Fills parameter values from a [parameter file](./file-types.md#parameter-file). |
@@ -58,11 +61,13 @@ You can also drop `.cellml` or `.omex` files onto the canvas ([Opening files](./
 Modules are grouped by source file. **Search Library…** filters them; drag a card onto the canvas to place an instance.
 
 * Each card has a module picker, a config picker when there are several, **Preview configuration** (eye icon) and **Remove module** (cross icon).
-* **Hide module library** (chevron) collapses the panel; drag its edge to resize.
+* **Hide module library** (tornado icon, top left) closes the panel, and the same button, now **Show module library** (hamburger icon), opens it again. Drag the panel's edge to resize it.
 
 ---
 
 ## Workspace canvas {#workspace}
+
+The canvas shows the model as a diagram, or as physiology when the header is switched to **Physiology**; see [The Physiology View](../guides/physiology-view.md).
 
 | Action | How |
 | :--- | :--- |
@@ -70,12 +75,13 @@ Modules are grouped by source file. **Search Library…** filters them; drag a c
 | Select | Click; Ctrl+click (Cmd+click on Mac) adds; Shift+drag draws a box |
 | Rename an instance | Click its name |
 | Open the Instance Editor | Double-click an instance, or click **Edit instance** (pencil icon) |
-| Right-click the canvas | **Create Module**, **Select All**, **Fit View**, **Clear Workspace** |
+| Right-click the canvas | **Create Module**, **Select All**, **Fit View**, **Route Edges Around Modules**, **Clear Workspace** |
 | Right-click an instance | **Replace Module**, **Simulate Instance** (or **Simulate Selection (N)**) |
+| Right-click an arrow | **Edit Couplings**, **Route Around Modules**, **Reset Route** ([Routing connections](#routing)) |
 
 **Replace Module** swaps an instance's math and variables for another module's, keeping its name, position and arrows. Pick the module in the list and click **Confirm**. Parameter values become the new module's. Ports are dropped unless you tick **Retain matching ports?**, which keeps each port whose variables all exist in the new module; double-click the arrows afterwards to check their couplings. Undo (Ctrl/Cmd+Z) reverses it.
 
-**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right.
+**Controls** (bottom-left): zoom, fit view, lock, and **Export image** (picture icon), which saves the view as PNG or SVG ([Settings](#settings)). A minimap sits bottom-right: **Hide minimap** on its corner shrinks it to a map button, which brings it back.
 
 ### Searching the workspace {#search}
 
@@ -112,14 +118,38 @@ To fill many at once, use Import ▸ **Parameters** ([parameter file](./file-typ
 
 Handles are the dots where arrows attach. They don't decide which variables an arrow shares; ports do, set on the [Ports tab](#port-definitions) or in the Connections dialog.
 
-* **Add a handle:** hover a node's edge and drag from the green placeholder handle, or use the toolbar's **Add … handle** buttons.
+* **Add a handle:** hover a node's edge and drag from the green placeholder handle, or use the toolbar's **Add … handle** buttons (shown from [Settings ▸ Toolbar](#settings)).
 * **Connect:** drag from one handle to another. The arrow's direction is used in instance array exports.
 * **Edit couplings:** double-click an arrow to open the [Connections dialog](./valid-port-configurations.md#connections-dialog).
 * **Delete:** select an arrow and press Delete or Backspace. Hover a handle and click its trash icon to remove it and its arrows.
 
 One arrow runs in each direction between two instances, and it holds all their couplings. Drawing a second arrow from A to B asks whether to replace the first (**Connection already exists**). To share more variables, double-click the existing arrow and couple more ports there.
 
-An orange arrow with a warning badge has couplings that can't be exported: for example, Sum or Multiply ports with different numbers of variables, or a pair that is Sum (or Multiply) on both ends. Hover the badge for the reason, then double-click the arrow to fix it. Until then the model won't export or simulate. See [Ports that take several connections](./valid-port-configurations.md#multiports).
+An orange arrow with a warning badge has couplings that can't be exported: for example, Sum or Multiply ports with different numbers of variables, a pair that is Sum (or Multiply) on both ends, or a pair of variables whose units have different dimensions (e.g. second and metre; millisecond and second is fine, as it only differs in scale). Hover the badge for the reason, then double-click the arrow to fix it: the Connections dialog draws a pair with incompatible units as an orange line and lists why below it. Until then the model won't export or simulate. See [Ports that take several connections](./valid-port-configurations.md#multiports).
+
+### Routing connections {#routing}
+
+Arrows run in straight lines with right-angle bends. You can reshape one by hand, or let PhLynx route arrows around the instances in their way.
+
+![A selected arrow routed around axon_SN, with a square handle on each segment](../assets/images/edge-routing.png){.align-center width="500px"}
+
+**Reshape an arrow:**
+
+1. Click an arrow so it is the only one selected. A square handle appears in the middle of each segment between its ends.
+2. Drag a handle to move that segment sideways; the segments either side stretch to follow. It snaps into line with the arrow's ends and other bends. Hold Alt (Option on Mac) to place it freely, or press Esc to cancel.
+
+Each change is one undo step (Ctrl/Cmd+Z). Moving both instances of a routed arrow together carries its route with them.
+
+| Right-click | Item | What it does |
+| :--- | :--- | :--- |
+| An arrow | **Edit Couplings** | Opens the Connections dialog, as double-clicking does. |
+| An arrow | **Route Around Modules** | Routes this arrow around the instances in its way. |
+| An arrow | **Reset Route** | Clears the arrow's route, so it is drawn the default way again. Shown only on a routed arrow. |
+| The canvas | **Route Edges Around Modules** | Routes the selected arrows, or every arrow when none is selected. |
+
+A route keeps a gap from the instances and turns as few times as it can. An arrow whose default line is already clear goes back to it. An arrow with no way through keeps its current route, and a notification (**Some Edges Kept Their Route**) says how many. Routing is one undo step, however many arrows it changes.
+
+**Clean up workspace** (dustpan) clears every arrow's route as it rearranges the instances.
 
 ---
 
@@ -129,13 +159,13 @@ The header holds the **Instance** name (unique), the **Component** name and the 
 
 ![Instance Editor on the Ports tab](../assets/images/edit-module-detail.png){.align-center width="800px"}
 
-* **Left pane:** **CellML Text** or **Math Editor**, two views of the same equations; see [Writing CellML](../guides/writing-cellml.md).
-* **Right pane:** **Parameters**, **Ports** and **Plot** tabs (collapsible, resizable).
+* **Left pane:** **CellML Text** or **Math Editor**, two views of the same equations; see [Writing CellML](../guides/writing-cellml.md). The **CellDL (beta)** tab draws the module as a bond-graph diagram instead, whose generated CellML the other two tabs show read-only; see [Drawing CellDL Modules](../guides/drawing-celldl-modules.md). Its status line shows live conversion (click it to list issues), **Reorganise** with its mode dropdown, and the **Shading** switch; see [Live Conversion](../guides/drawing-celldl-modules.md#live-conversion). It is locked for CellML modules.
+* **Right pane:** **Parameters**, **Ports**, **Plot** and **Annotations** tabs (collapsible, resizable).
 * **Footer:** **Cancel**, **Apply** (save and keep editing) and **Save** (Ctrl/Cmd+Enter). **Apply math changes to all N instances** also updates instances sharing the component.
 
 ### Parameters tab {#parameters-tab}
 
-Lists every variable of the instance with its **Name**, **Value**, **Units** and **Type**. The **Instance parameters** tab in the Context Sidebar edits the same values without opening the editor.
+Lists every variable of the instance with its **Name**, **Value**, **Units** and **Type**. A CellDL module's tab lists its diagram's elements instead; see [The Parameters Tab](../guides/drawing-celldl-modules.md#parameters). The **Instance parameters** tab in the Context Sidebar edits the same values without opening the editor.
 
 | Type | Meaning | Value cell |
 | :--- | :--- | :--- |
@@ -174,13 +204,17 @@ Each row on the **Ports** tab exposes variables through a port; hover the dot by
 | **Mode** | Toggles **Basicport** (one connection) and **Multiport** (several). |
 | **Variables** | The variables the port exposes. On a multiport, click a variable's chip to cycle **True**, **Sum** and **Multiply** (with a factor); see [Ports that take several connections](./valid-port-configurations.md#multiports). |
 
-**Add port** adds a row; the trash icon removes one.
+**Add port** adds a row; the trash icon removes one. [Annotated ports](../guides/annotation-coupling.md#annotated-ports) show chips in place of a label and can't be edited; while an instance has them, its manual ports are hidden.
+
+### Annotations tab {#annotations-tab}
+
+Says what each variable means (its property, species and place), shared by every instance of the math. Annotated variables get ports that couple by meaning and place. Species and proteins are looked up online as you type. See [Annotate in the Instance Editor](../guides/annotation-coupling.md#annotations-tab).
 
 ---
 
 ## Context Sidebar {#context-sidebar}
 
-**Hide context panel** (chevron) collapses it to its icons; click an icon to reopen that tab.
+**Show context panel** (hamburger icon, top right of the canvas) opens the sidebar over the canvas, and the same button, now **Hide context panel** (tornado icon), closes it. The icons down the sidebar's left edge switch between its tabs, and the header names the open tab. Drag the sidebar's left edge to resize it.
 
 | Tab | Icon | Shows |
 | :--- | :--- | :--- |
@@ -205,16 +239,30 @@ After a run, add it to a plot by searching for its name, or turn on **Settings �
 
 1. Select instances, open **Properties** (wrench icon) and click a category under **Node colour** (**None** removes it). The colours come from the theme chosen under **Colour theme**.
 2. To make your own categories, click **New from this theme**, edit the labels and colours (**Add** adds a category), then **Save**. Your themes are listed under **My themes**.
+   Double-click a category under **Node colour** to go straight to its colour: the editor opens with the picker for the light or dark mode colour, whichever mode is on. On a theme that isn't yours, this starts a new theme from it, kept only when you **Save**.
+   The chosen theme is saved with the workspace, with a copy of its colours unless it is built in. Someone who opens the workspace without that theme sees it listed under **From this workspace**; it is not added to their browser unless they choose **New from this theme**.
 3. **Import a theme file** (upload icon) loads a theme; on your own theme, **Export as JSON** (download icon) saves it and **Propose for everyone** opens a GitHub issue to share it.
 
 ---
 
 ## Settings {#settings}
 
-Opened with **Settings** (cog icon).
+Opened with **Settings** (cog icon). Pick a section from the list on the left; its settings show on the right.
 
 | Section | Settings |
 | :--- | :--- |
 | Units | **Units suggestion format**: CellML built-in or SI base units |
 | Simulation | **Plot inspection modules**; **Show data items** (in Edit obs_data) |
+| Physiological view | **Auto-plot selection** (in the [physiology view](../guides/physiology-view.md#roles)); **Keep species flows moving** (in [species mode](../guides/physiology-view.md#species-mode)) |
+| CellDL diagrams | **Bond arrowheads** (Classic or Bond graph); **Scrolling in CellDL diagrams** (Automatic, Pan or Zoom); **New CellDL modules: unit system** (Cellular or SI); see [Settings](../guides/drawing-celldl-modules.md#settings) |
 | Image export | **Image format** (PNG or SVG); **Include warning symbols** |
+| Appearance | **Accent colour** (Copper, Logo brown or Emerald) |
+| Toolbar | Tick or untick each toolbar button to show or hide it. **Add handles**, **Macro builder** and **Send to** are hidden until ticked; **Settings** is always shown |
+
+A change applies as soon as you make it, and is remembered in this browser.
+
+* **Revert changes** puts every setting back as it was when you opened Settings. A dot marks each setting you have changed since then, and each section that holds one.
+* **Restore defaults** puts the settings of the section shown back to their defaults. **Revert changes** undoes that too.
+* **Done**, Esc or a click outside closes Settings, keeping the changes.
+
+Species mode, CellDL location shading and the minimap are not in Settings: each is a switch in its own view, and stays as you last left it.

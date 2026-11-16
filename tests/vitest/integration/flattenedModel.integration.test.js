@@ -1,6 +1,4 @@
 // @vitest-environment happy-dom
-import fs from 'node:fs'
-import path from 'node:path'
 
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -18,6 +16,7 @@ import { applyParameterOverrides, buildScopedModel, checkScope, resolveScope } f
 import { buildVariableMapping, mapInspectionModules, mappingKey, readNodeSeries } from '../../../src/services/simulation/variableMapping.js'
 import { setNodePlotVariables } from '../../../src/services/simulation/plotSelections.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
+import { syntheticCase } from '../helpers/syntheticWorkspaces/index.js'
 
 const MATH_REF = 'file:decay'
 // dx/dt = g - k * x. The initialiser is private, as math saved before variables were always public may have.
@@ -77,6 +76,97 @@ describe('generateFlattenedModel with values only in the rows', () => {
 
   it('names the parameters left without a value', () => {
     expect(() => generateFlattenedModel([buildNode({ k: '' })], [], store)).toThrow(/Missing parameter values: decay_1\.k/)
+  })
+
+  describe('a coupling naming a variable the math lacks', () => {
+    const port = (variable, multiportType = 'None', label = '') => ({
+      portType: 'general_ports',
+      label,
+      variables: [variable],
+      multiportType,
+    })
+    const edgeOf = (sourcePort, targetPort) => ({
+      id: 'e1',
+      source: 'n1',
+      target: 'n2',
+      data: { couplings: [{ sourcePort, targetPort }] },
+    })
+    const twoNodes = () => {
+      const second = buildNode()
+      return [buildNode(), { ...second, id: 'n2', data: { ...second.data, name: 'decay_2' } }]
+    }
+
+    it('generates from the couplings only, never the manual ones annotated couplings set aside', () => {
+      const edge = edgeOf(port('I_K', 'None', 'potassium'), port('x', 'Sum'))
+      edge.data = { couplings: [], manualCouplings: edge.data.couplings }
+      expect(() => generateFlattenedModel(twoNodes(), [edge], store)).not.toThrow()
+    })
+
+    it('names the instance, variable and port for a Sum term', () => {
+      const edge = edgeOf(port('I_K', 'None', 'potassium'), port('k', 'Sum'))
+      expect(() => generateFlattenedModel(twoNodes(), [edge], store)).toThrow(
+        'Cannot connect "decay_1": it has no variable "I_K" (port "potassium").'
+      )
+    })
+
+    it('names the instance, variable and port for a Sum variable', () => {
+      const edge = edgeOf(port('x'), port('v_tot', 'Sum', 'total'))
+      expect(() => generateFlattenedModel(twoNodes(), [edge], store)).toThrow(
+        'Cannot connect "decay_2": it has no variable "v_tot" (port "total").'
+      )
+    })
+
+    it('names the instance, variable and port for a plain link and a Multiply', () => {
+      expect(() => generateFlattenedModel(twoNodes(), [edgeOf(port('x'), port('y', 'None', 'why'))], store)).toThrow(
+        'Cannot connect "decay_2": it has no variable "y" (port "why").'
+      )
+      const scaled = { ...port('x', 'Multiply'), multiplyFactor: 2 }
+      expect(() => generateFlattenedModel(twoNodes(), [edgeOf(scaled, port('z', 'None', 'zed'))], store)).toThrow(
+        'Cannot connect "decay_2": it has no variable "z" (port "zed").'
+      )
+    })
+
+    it('still connects the variables the math has', async () => {
+      const edges = [edgeOf(port('k'), port('k'))]
+      const text = await (await generateFlattenedModel(twoNodes(), edges, store, [], { check: false })).text()
+      expect(text).toMatch(/<connection component_1="decay_1" component_2="decay_2">/)
+    })
+  })
+})
+
+describe('generateFlattenedModel with math too wide for libcellml.js', () => {
+  const WIDE_REF = 'file:wide'
+  const N = 500
+  // N equations in one <math>, one of them a sum of 400 terms: either alone overflowed libcellml.js's stack.
+  const terms = Array.from({ length: 400 }, (_, i) => `<apply><times/><cn cellml:units="dimensionless">${i}</cn><ci>x${i}</ci></apply>`)
+  const WIDE_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="wide">
+  <component name="wide">
+    ${Array.from({ length: N }, (_, i) => `<variable name="x${i}" units="dimensionless" initial_value="1" interface="public"/><variable name="z${i}" units="dimensionless" interface="public"/>`).join('')}
+    <variable name="y" units="dimensionless" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>y</ci><apply><plus/>${terms.join('')}</apply></apply>
+      ${Array.from({ length: N }, (_, i) => `<apply><eq/><ci>z${i}</ci><ci>x${i}</ci></apply>`).join('')}
+    </math>
+  </component>
+</model>`
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  it('checks and analyses the model, its math split into narrower parts', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addMath(WIDE_REF, WIDE_XML)
+    const rows = reconcileRows(analyzeMathXml(store.availableMath.get(WIDE_REF)), [], { defaults: store.getMathDefaults(WIDE_REF) })
+    const node = { id: 'n1', type: 'instanceNode', data: { name: 'wide_1', mathRef: WIDE_REF, variables: rows, ports: [] } }
+
+    const text = await (await generateFlattenedModel([node], [], store)).text()
+    const doc = new DOMParser().parseFromString(text, 'application/xml')
+    const mathMl = 'http://www.w3.org/1998/Math/MathML'
+    expect(doc.getElementsByTagNameNS(mathMl, 'math').length).toBeGreaterThan(5)
+    const widest = Math.max(...Array.from(doc.getElementsByTagNameNS(mathMl, 'apply'), (apply) => apply.children.length - 1))
+    expect(widest).toBeLessThanOrEqual(100)
   })
 })
 
@@ -232,12 +322,10 @@ describe('boundary values in a migrated workspace', () => {
     await ensureLibCellmlReady()
   }, 120000)
 
-  // The full export of this workspace also fails on main ("The model is not fully defined"), so this
-  // checks the boundary conditions it hands to generateFlattenedModel instead.
+  // Checks the boundary conditions the workspace hands to generateFlattenedModel.
   it('sets each boundary condition group once, from the module that supplies it', () => {
     setActivePinia(createPinia())
-    const file = path.resolve(process.cwd(), 'tests/resources/migration-versioning/legacy/tran_hund_coupled.json')
-    const migrated = migrateWorkspace(JSON.parse(fs.readFileSync(file, 'utf8')))
+    const migrated = migrateWorkspace(syntheticCase('legacy', 'edgesWithoutCouplings'))
 
     // Legacy edges have no couplings yet; the workspace resolves them on load, in this order.
     const { nodes, edges } = migrated.flow
@@ -453,10 +541,54 @@ describe('generateFlattenedModel multiport couplings', () => {
     expect(math.match(/<ci>op_scaled_v[^<]*<\/ci>/g)).toHaveLength(entry.terms.filter((term) => term.factor === 2).length)
   })
 
+  it('rejects a state coupled to an algebraic variable, which libCellML would solve as a DAE dropping one', () => {
+    const statePort = (portType, variable) => ({ portType, label: 'state', variables: [variable], multiportType: 'None' })
+    const owner = buildNode('owner', 'file:hub', [statePort('exit_ports', 'q')], { v_sum: '0' })
+    const reader = buildNode('reader', 'file:hub', [statePort('entrance_ports', 'u')], { v_sum: '0' })
+    expect(() => generateFlattenedModel([owner, reader], [connect(owner, reader)], store)).toThrow(
+      'owner.q and reader.u are both computed; only one module can set a connected variable.'
+    )
+    expect(checkScope(resolveScope(null, [owner, reader], [connect(owner, reader)]), store).conflicts).toEqual([
+      'owner.q and reader.u are both computed; only one module can set a connected variable.',
+    ])
+  })
+
+  it('builds an input a saved row still types as a variable, which its math only reads', async () => {
+    const pressure = (portType) => ({ portType, label: 'pressure', variables: ['u'], multiportType: 'None' })
+    const hub = buildNode('hub', 'file:hub', [pressure('exit_ports')], { v_sum: '0' })
+    const leaf = buildNode('leaf', 'file:leaf', [pressure('entrance_ports')])
+    leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'u' ? { ...row, type: 'variable' } : row))
+    const edges = [connect(hub, leaf)]
+    await expect(flatten([hub, leaf], edges)).resolves.toContain('<component name="leaf" id="leaf">')
+    expect(checkScope(resolveScope(null, [hub, leaf], edges), store).conflicts).toEqual([])
+  })
+
+  /** A leaf whose rate k is a constant coupled through a port. */
+  function rateLeaf(id, portType, k) {
+    const leaf = buildNode(id, 'file:leaf', [{ portType, label: 'rate', variables: ['k'], multiportType: 'None' }], { u: '1', k })
+    leaf.data.variables = leaf.data.variables.map((row) => (row.name === 'k' ? { ...row, type: 'constant' } : row))
+    return leaf
+  }
+
+  it('rejects constants coupled with different values, which would both initialise the variable', () => {
+    const a = rateLeaf('a', 'exit_ports', '0.5')
+    const b = rateLeaf('b', 'entrance_ports', '0.25')
+    expect(() => generateFlattenedModel([a, b], [connect(a, b)], store)).toThrow('a.k=0.5 and b.k=0.25 are connected but set to different values')
+  })
+
+  it('builds constants coupled with the same value, initialising them once', async () => {
+    const a = rateLeaf('a', 'exit_ports', '0.5')
+    const b = rateLeaf('b', 'entrance_ports', '0.5')
+    const text = await (await generateFlattenedModel([a, b], [connect(a, b)], store)).text()
+    expect(text.match(/initial_value="0\.5"/g)).toHaveLength(1)
+  })
+
   it('rejects a sum between ports with different numbers of variables', () => {
     const hub = buildNode('hub', 'file:hub', [vesselPort('exit_ports', ['v_sum', 'u'], ['sum', 'True'])])
     const leaf = buildNode('leaf', 'file:leaf', [vesselPort('entrance_ports', ['v'], 'None')], { u: '1' })
-    expect(() => generateFlattenedModel([hub, leaf], [connect(hub, leaf)], store)).toThrow(/same number of variables/)
+    // Couplings no longer pair them, so only a coupling stored before that reaches the export.
+    const stored = { id: 'hub_leaf', source: hub.id, target: leaf.id, data: { couplings: [{ sourcePort: hub.data.ports[0], targetPort: leaf.data.ports[0] }] } }
+    expect(() => generateFlattenedModel([hub, leaf], [stored], store)).toThrow(/same number of variables/)
   })
 
   it('sums a variable through two separate ports of the same instance', async () => {
@@ -599,7 +731,7 @@ describe('scoped models', () => {
     expect(checkScope(scope, store).canBuild).toBe(true)
 
     const text = await buildScopedModel(scope, store).text()
-    expect(text).toMatch(/<component name="hub">/)
+    expect(text).toMatch(/<component name="hub" id="hub">/)
     expect(text).not.toMatch(/<component name="leaf_/)
   })
 
@@ -807,5 +939,60 @@ describe('trying out parameter values', () => {
     const applied = applyParameterOverrides(scope, store)
     expect(applied.scope.nodes[0]).toBe(scope.nodes[0])
     expect(applied.libraryStore).toBe(store)
+  })
+})
+
+describe('generateFlattenedModel couplings of incompatible units', () => {
+  // a = 1, in units the test sets; c = b, both in metre.
+  const sourceXml = (units) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="src">
+  <component name="src">
+    <variable name="a" units="${units}" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>a</ci><cn xmlns:cellml="http://www.cellml.org/cellml/2.0#" cellml:units="${units}">1</cn></apply>
+    </math>
+  </component>
+</model>`
+  const TARGET_XML = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="dst">
+  <component name="dst">
+    <variable name="b" units="metre" interface="public"/>
+    <variable name="c" units="metre" interface="public"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>c</ci><ci>b</ci></apply>
+    </math>
+  </component>
+</model>`
+  const MM_UNITS = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="mm"><unit prefix="milli" units="metre"/></units>
+</model>`
+
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  /** Couples a source's a, in `units`, to a target's b, in metre. */
+  function build(units) {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'units.cellml', model: MM_UNITS })
+    store.addMath('file:src', sourceXml(units))
+    store.addMath('file:dst', TARGET_XML)
+    const node = (id, mathRef, port) => {
+      const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], { defaults: store.getMathDefaults(mathRef) })
+      const typed = rows.map((row) => (row.name === port.variables[0] && row.type === 'constant' ? { ...row, type: 'boundary_condition' } : row))
+      return { id, type: 'instanceNode', data: { name: id, mathRef, variables: typed, ports: [port] } }
+    }
+    const source = node('A', 'file:src', { portType: 'exit_ports', label: 'p', variables: ['a'], multiportType: 'None' })
+    const target = node('B', 'file:dst', { portType: 'entrance_ports', label: 'p', variables: ['b'], multiportType: 'None' })
+    const edge = { id: 'e', source: 'A', target: 'B', data: { couplings: resolvePortCouplings(source.data.ports, target.data.ports) } }
+    return () => generateFlattenedModel([source, target], [edge], store)
+  }
+
+  it('names the instances, variables and units, before libcellml validates', () => {
+    expect(build('second')).toThrow('Cannot connect "A" to "B": "a" (second) and "b" (metre) have incompatible units.')
+  })
+
+  it('exports units that differ only in scale', async () => {
+    const text = await (await build('mm')()).text()
+    expect(text).toMatch(/<variable name="a" units="mm"/)
   })
 })

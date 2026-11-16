@@ -19,7 +19,7 @@ describe('PlotListEditor', () => {
   it('lays a variable out as its instance, which can shrink, then its name', () => {
     wrapper = mount(PlotListEditor, {
       props: { nodes, isSinglePlot: true, plotConfig: addPlotSelection(createSinglePlotConfig(), nodes[0], variable, null) },
-      global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {} } },
+      global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {}, hint: {} } },
     })
     const text = wrapper.find('.plot-variable-text')
     expect(text.find('.plot-variable-component').text()).toBe('a_very_long_instance_name/')

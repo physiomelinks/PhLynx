@@ -27,7 +27,7 @@ afterEach(() => wrapper?.unmount())
 function mountControls(props) {
   wrapper = mount(SimulationControls, {
     props: { nodes, plotNodeId: 'a', ...props },
-    global: { plugins: [PrimeVue], directives: { tooltip: {} }, stubs: { PlotListEditor: true } },
+    global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} }, stubs: { PlotListEditor: true } },
   })
   return wrapper
 }
@@ -97,7 +97,7 @@ describe('SimulationControls sweep', () => {
   it('gives the sweep editor the scope play runs next', async () => {
     wrapper = mount(SimulationControls, {
       props: { nodes, view: 'sweep', playScopeNodeIds: ['a'] },
-      global: { plugins: [PrimeVue], directives: { tooltip: {} }, stubs: { SweepEditor: true } },
+      global: { plugins: [PrimeVue], directives: { tooltip: {}, hint: {} }, stubs: { SweepEditor: true } },
     })
     const editor = () => wrapper.findComponent({ name: 'SweepEditor' })
     expect(editor().props('playScopeNodeIds')).toEqual(['a'])
