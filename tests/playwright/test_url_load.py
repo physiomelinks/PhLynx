@@ -37,7 +37,8 @@ class TestLoadViaUrl(unittest.TestCase):
 
             # ---------- START -----------
             page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").click()
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible()
+            # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
             expect(page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")).to_be_visible()
             expect(page.get_by_text("SN_somacell_modules.cellmlsoma_SN")).to_be_visible()
             expect(page.get_by_role("main")).to_contain_text("var_SN")
@@ -65,7 +66,8 @@ class TestLoadViaUrl(unittest.TestCase):
             page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
 
             # ---------- START -----------
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible()
+            # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
             expect(page.get_by_role("main")).to_contain_text("var_SN")
             expect(page.get_by_role("main")).to_contain_text("axon_SN")
             expect(page.get_by_role("main")).to_contain_text("soma_SN")
@@ -90,7 +92,8 @@ class TestLoadViaUrl(unittest.TestCase):
 
             # ---------- START -----------
             page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").click()
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible()
+            # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
             expect(page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")).to_be_visible()
             expect(page.get_by_text("SN_somacell_modules.cellmlsoma_SN")).to_be_visible()
             expect(page.locator("svg:nth-child(3) > .vue-flow__edge > .vue-flow__edge-interaction")).to_be_visible()

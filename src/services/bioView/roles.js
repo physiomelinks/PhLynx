@@ -16,7 +16,7 @@
 
 import { GO } from '../annotations/iris.js'
 import { FACETS, LATERAL_SIDES as SIDES } from './facets.js'
-import { glyphFor } from './glyphs.js'
+import { glyphFor, processGlyphFor } from './glyphs.js'
 
 /**
  * What an instance can be:
@@ -28,6 +28,19 @@ import { glyphFor } from './glyphs.js'
  * - none: nothing physiological is known, drawn as a card.
  */
 export const ROLES = ['membraneProtein', 'membrane', 'cytosol', 'cytosolic', 'region', 'none']
+
+/** How the roles read where the user picks one: the Show As menu and the properties panel. */
+export const ROLE_LABELS = Object.freeze({
+  membraneProtein: 'Membrane protein',
+  membrane: 'Membrane',
+  cytosol: 'Cell',
+  cytosolic: 'Process in a cell',
+  region: 'Region outside cells',
+  none: 'Card',
+})
+
+/** The roles drawn with a cartoon: a protein in its membrane, and a process on its card. */
+export const GLYPH_ROLES = new Set(['membraneProtein', 'cytosolic'])
 
 /** Roles that belong to a cell. */
 const CELL_ROLES = new Set(['membraneProtein', 'membrane', 'cytosolic'])
@@ -120,7 +133,12 @@ export function resolveBioRole(data, { sidecar = null, worked: located = null } 
     cell,
     side: role === 'region' ? (worked?.side ?? null) : null,
     adjacent: role === 'region' ? validAdjacency(override.adjacent) : null,
-    glyph: role === 'membraneProtein' ? glyphFor(sidecar?.component?.isVersionOf, override.glyph) : null,
+    glyph:
+      role === 'membraneProtein'
+        ? glyphFor(sidecar?.component?.isVersionOf, override.glyph)
+        : role === 'cytosolic'
+          ? processGlyphFor(sidecar?.component?.isVersionOf, override.glyph)
+          : null,
     source: ROLES.includes(override.role) ? 'override' : source,
     ...(site && { site }),
   }

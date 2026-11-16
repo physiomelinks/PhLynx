@@ -523,6 +523,7 @@
         :initial-width="480"
         :min-width="260"
         :max-width="1200"
+        :bio-properties="viewMode.isBio ? (bioFlowRef?.properties ?? null) : null"
         @resize="onContextSidebarResize"
         @open-inspection-module-dialog="onOpenInspectionModuleDialog"
       />
