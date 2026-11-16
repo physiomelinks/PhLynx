@@ -29,6 +29,25 @@ function workspace() {
 }
 
 describe('physiological view nodes', () => {
+  it('clears what an instance only had as another kind of node, since vue-flow merges onto the node it had', () => {
+    const { nodes, roles } = workspace()
+    const shown = (id) => bioFlowNodes(nodes, roles, layoutBioView(nodes, roles)).find((n) => n.id === id)
+    // A process held inside its cell, and the membrane over its outline that takes no clicks.
+    expect(shown('gly')).toMatchObject({ type: 'bioCard', extent: { range: 'parent', padding: [28, 16, 16, 16] } })
+    expect(shown('wall')).toMatchObject({ zIndex: expect.any(Number), style: { pointerEvents: 'none' } })
+    // Shown as proteins, both name those fields with nothing in them, so the merge clears them.
+    roles.set('gly', role('membraneProtein', { cell: 'cell', facet: 'apical' }))
+    roles.set('wall', role('membraneProtein', { cell: 'cell', facet: 'apical' }))
+    for (const id of ['gly', 'wall']) {
+      const node = shown(id)
+      expect(node.type).toBe('bioProtein')
+      for (const field of ['extent', 'zIndex', 'style']) {
+        expect(Object.hasOwn(node, field)).toBe(true)
+        expect(node[field]).toBeUndefined()
+      }
+    }
+  })
+
   it('draws a process’s cartoon on its card when it has one', () => {
     const { nodes, roles } = workspace()
     roles.set('gly', role('cytosolic', { glyph: 'mitochondrion' }))
@@ -80,7 +99,7 @@ describe('physiological view nodes', () => {
     const p = bio[index('p')]
     expect(p).toMatchObject({ parentNode: 'cell', data: { glyph: 'pump', facet: 'apical', rotation: 0, droppable: true } })
     expect(p.draggable).toBeUndefined()
-    expect(bio[index('gly')]).toMatchObject({ parentNode: 'cell', extent: 'parent' })
+    expect(bio[index('gly')]).toMatchObject({ parentNode: 'cell', extent: { range: 'parent', padding: [28, 16, 16, 16] } })
     expect(bio[index('gly')].data.glyph).toBeUndefined()
     expect(index('cell')).toBeLessThan(index('p'))
     // Relative to the cell, centred on its slot on the outline.

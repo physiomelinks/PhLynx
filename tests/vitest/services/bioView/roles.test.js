@@ -99,13 +99,16 @@ describe('physiological roles', () => {
     expect(glyphFor([GO.glucoseTransporter], 'antiporter')).toBe('antiporter')
   })
 
-  it('draws a process as a plain card unless chosen or annotated with a cartoon', () => {
-    expect(resolveBioRole({ bioView: { role: 'cytosolic' } }).glyph).toBeNull()
+  it('draws a process as the generic process unless chosen or annotated with a cartoon, or none', () => {
+    // SBGN's process node, where nothing says more.
+    expect(resolveBioRole({ bioView: { role: 'cytosolic' } }).glyph).toBe('process')
     expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'mitochondrion' } }).glyph).toBe('mitochondrion')
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'blob' } }).glyph).toBeNull()
+    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'blob' } }).glyph).toBe('process')
     expect(processGlyphFor(['GO:0030016'])).toBe('myofilament')
     expect(processGlyphFor(['GO:0005739'])).toBe('mitochondrion')
+    expect(processGlyphFor(['GO:0000000'])).toBe('process')
+    // A plain card only by choice.
     expect(processGlyphFor(['GO:0005739'], NO_GLYPH)).toBeNull()
-    expect(processGlyphFor(['GO:0000000'])).toBeNull()
+    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: NO_GLYPH } }).glyph).toBeNull()
   })
 })

@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useFlowHistory } from '../../../../src/composables/useFlowHistory.js'
 import {
+  cellContents,
   deleteConnection,
   deleteInstances,
   deletionLabel,
   deletionScope,
   isDeleteKey,
+  releaseFromCell,
 } from '../../../../src/services/bioView/deletion.js'
 import { useFlowHistoryStore } from '../../../../src/stores/historyStore.js'
 
@@ -124,5 +126,35 @@ describe('deleteConnection', () => {
     expect(disconnectInstances).toHaveBeenCalledWith(['a--c'])
     expect(history.undoLabel).toBe('Disconnect')
     expect(history.pointerIndex).toBe(0)
+  })
+})
+
+describe('a deleted cell’s contents', () => {
+  const layout = new Map([
+    ['cell', { kind: 'cell', rect: { x: 100, y: 50, width: 320, height: 240 } }],
+    ['wall', { kind: 'membrane', cell: 'cell' }],
+    ['pump', { kind: 'protein', cell: 'cell', x: 260, y: 50 }],
+    ['gly', { kind: 'cytosolic', cell: 'cell', x: 150, y: 120 }],
+    ['other', { kind: 'cell', rect: { x: 600, y: 50, width: 320, height: 240 } }],
+    ['theirs', { kind: 'protein', cell: 'other', x: 700, y: 50 }],
+    ['lumen', { kind: 'region', rect: { x: 0, y: 0, width: 10, height: 10 } }],
+    ['bound', { kind: 'cell', instance: 'bt-1', rect: { x: 0, y: 400, width: 320, height: 240 } }],
+    ['placed', { kind: 'protein', cell: 'bound', instance: 'bt-1', x: 50, y: 400 }],
+  ])
+
+  it('is its membrane, proteins and processes that are not going with it', () => {
+    expect(cellContents(['cell'], layout)).toEqual(['wall', 'pump', 'gly'])
+    expect(cellContents(['cell', 'pump', 'lumen'], layout)).toEqual(['wall', 'gly'])
+    expect(cellContents(['pump', 'lumen'], layout)).toEqual([])
+    // A template's cell keeps its places, so what is on them is not left without one.
+    expect(cellContents(['bound'], layout)).toEqual([])
+  })
+
+  it('stays where it is drawn, out of any cell', () => {
+    const patches = releaseFromCell(['wall', 'pump', 'gly'], layout, { width: 64, height: 48 })
+    // A protein's place is its centre; a node's position is its corner.
+    expect(patches.get('pump')).toEqual({ cell: undefined, facet: undefined, at: undefined, order: undefined, position: { x: 228, y: 26 } })
+    expect(patches.get('gly').position).toEqual({ x: 150, y: 120 })
+    expect(patches.get('wall').position).toEqual({ x: 100, y: 50 })
   })
 })

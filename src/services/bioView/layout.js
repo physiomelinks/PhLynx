@@ -164,6 +164,41 @@ export function processSlot(rect, area, order) {
   return { x: rect.x + CELL_RADIUS + order * (CARD.width + 16), y: rect.y + GLYPH_HEIGHT + 24 + area * (CARD.height + 16) }
 }
 
+/** How far inside a cell's edge its processes are kept, clear of the bilayer. */
+export const PROCESS_INSET = 16
+
+/**
+ * Keeps a process's card inside its cell, clear of the membrane.
+ *
+ * @param {{x: number, y: number}} at - The card's top-left.
+ * @param {Object} rect - The cell.
+ * @returns {{x: number, y: number}}
+ */
+export function insideCell(at, rect) {
+  const within = (value, low, high) => Math.max(low, Math.min(Math.max(low, high), value))
+  return {
+    x: within(at.x, rect.x + PROCESS_INSET, rect.x + rect.width - PROCESS_INSET - CARD.width),
+    y: within(at.y, rect.y + PROCESS_INSET + 12, rect.y + rect.height - PROCESS_INSET - CARD.height),
+  }
+}
+
+/**
+ * Gives the area a cell's processes take up, as drawn round them: their cards' box with a little room, so they
+ * read as part of the cell rather than cards left on it.
+ *
+ * @param {Array<{x: number, y: number}>} cards - Each card's top-left.
+ * @returns {{x: number, y: number, width: number, height: number}|null} null with no cards.
+ */
+export function processesZone(cards) {
+  if (!cards.length) return null
+  const left = Math.min(...cards.map((card) => card.x)) - 8
+  // Room above for the area's name.
+  const top = Math.min(...cards.map((card) => card.y)) - 20
+  const right = Math.max(...cards.map((card) => card.x + CARD.width)) + 8
+  const bottom = Math.max(...cards.map((card) => card.y + CARD.height)) + 8
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
 /**
  * Gives the area of one of a cell's process areas: the row its cards sit in, with room around them.
  *
@@ -481,8 +516,13 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
     const counts = Object.fromEntries(shape.facets.map((facet) => [facet.id, parts[facet.id].length]))
     const widths = Object.fromEntries(shape.facets.map((facet) => [facet.id, parts[facet.id].map(widthOf)]))
     const x = nextX + besideCell(key, 'left')
-    // A cell the user moved stays where it was put, and still grows to fit proteins added since.
-    const rect = fitCellRect(isRect(cell.storedRect) ? cell.storedRect : { x, y: 0, ...MIN_CELL }, counts, shape, widths)
+    // A cell the user moved stays where it was put, and still grows to fit proteins added since, and a row of
+    // its processes.
+    const inside = ids.filter((id) => roleOf(id).role === 'cytosolic' && onCell(id) === key)
+    const fitted = fitCellRect(isRect(cell.storedRect) ? cell.storedRect : { x, y: 0, ...MIN_CELL }, counts, shape, widths)
+    const rect = inside.length
+      ? { ...fitted, width: Math.max(fitted.width, 2 * CELL_RADIUS + inside.length * (CARD.width + 16) - 16) }
+      : fitted
     nextX = Math.max(nextX, rect.x + rect.width + GAP + besideCell(key, 'right'))
     rects.set(key, rect)
     layout.set(key, { kind: 'cell', rect, membrane: cell.membrane, widths })
@@ -496,12 +536,16 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
     // Cytosolic processes in a row inside the cell, below its top facet's proteins: today all in its
     // implicit area.
     const area = cell.processes.findIndex((process) => process.implicit)
-    ids
-      .filter((id) => roleOf(id).role === 'cytosolic' && onCell(id) === key)
-      .forEach((id, i) => {
-        const stored = byId.get(id).data?.bioView?.position
-        layout.set(id, { kind: 'cytosolic', cell: key, ...(isPoint(stored) ? stored : processSlot(rect, area, i)) })
-      })
+    const cards = inside.map((id, i) => {
+      const stored = byId.get(id).data?.bioView?.position
+      // Inside the membrane wherever it was put, and however the cell has changed since.
+      const at = insideCell(isPoint(stored) ? stored : processSlot(rect, area, i), rect)
+      layout.set(id, { kind: 'cytosolic', cell: key, ...at })
+      return at
+    })
+    // The area they take up is drawn as a template's process area is.
+    const zone = processesZone(cards)
+    if (zone) layout.get(key).zones = [{ processId: null, label: 'Processes', rect: zone }]
   }
   for (const id of ids) if (roleOf(id).role === 'membrane' && onCell(id)) layout.set(id, { kind: 'membrane', cell: onCell(id) })
 
@@ -531,12 +575,16 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
     const key = form === 'column' ? `${first.cellKey}/${first.facetId}` : form === 'free' ? piece.side : first.facetId
     const index = stacked.get(key) ?? 0
     stacked.set(key, index + 1)
-    let rect = isRect(piece.storedRect) ? piece.storedRect : compartmentRect(form, against, index, placed, piece.depth)
+    // One lying against cells is placed by them, so it follows as they move and grow; a place of its own is kept
+    // only by one with no cell to lie against.
+    const anchored = form !== 'free' && (facetId ? cellRects.length > 0 : against.every((entry) => rects.has(entry.cellKey)))
+    const stored = !anchored && isRect(piece.storedRect) ? piece.storedRect : null
+    let rect = stored ?? compartmentRect(form, against, index, placed, piece.depth)
     if (!rect) {
       rect = { x: left - GAP, y: otherY, width: right - left + 2 * GAP, height: REGION_HEIGHT }
       otherY += REGION_HEIGHT + GAP / 2
     }
-    layout.set(piece.key, { kind: 'region', side: piece.side ?? null, adjacent: piece.adjacent, rect })
+    layout.set(piece.key, { kind: 'region', side: piece.side ?? null, adjacent: piece.adjacent, rect, ...(anchored && { anchored }) })
   }
 
   // Template instances, each from its own corner; the tray and cards go beside every cell.

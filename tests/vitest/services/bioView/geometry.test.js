@@ -9,6 +9,7 @@ import {
   facetOfPart,
   facetSlots,
   fitCellRect,
+  cornerLipids,
   leafletCorners,
   leafletDistance,
   leafletPath,
@@ -133,15 +134,18 @@ describe('physiological view geometry', () => {
 
   it('splits a leaflet into straight sides of whole lipids and the corner arcs between them', () => {
     const sides = leafletSides(203, 100)
-    // 123 of straight top and bottom hold 24 lipids, centred; 20 of left and right hold 4.
+    // 123 of straight top and bottom hold 25 lipids, squeezed to fill it; 20 of left and right hold 4.
     expect(sides.map(({ edge, length }) => [edge, length])).toEqual([
-      ['top', 120],
+      ['top', 125],
       ['right', 20],
-      ['bottom', 120],
+      ['bottom', 125],
       ['left', 20],
     ])
-    expect(sides[0].transform).toBe('translate(40 0) rotate(0) translate(1.5 0)')
-    expect(sides[1].transform).toBe('translate(203 40) rotate(90) translate(0 0)')
+    expect(sides[0].transform).toBe(`translate(40 0) rotate(0) scale(${123 / 125} 1)`)
+    expect(sides[1].transform).toBe('translate(203 40) rotate(90) scale(1 1)')
+    // A corner's quarter turn of radius 40 is 62.8 long: 13 lipids, the same on every leaflet.
+    expect(cornerLipids(203, 100)).toBe(13)
+    expect(cornerLipids(10, 10)).toBe(2)
     // The arcs are the outline's own corners, grown with it.
     const arcs = (path) => path.match(/A [^A-Z]*/g).map((arc) => arc.trim()).sort()
     expect(arcs(leafletCorners(203, 100, 7))).toEqual(arcs(leafletPath(203, 100, 7)))
