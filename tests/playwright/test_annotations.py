@@ -76,6 +76,10 @@ OLS_TERMS = [
      "synonym": ["Na"], "is_obsolete": False},
     {"iri": "http://purl.obolibrary.org/obo/CHEBI_29101", "obo_id": "CHEBI:29101", "label": "sodium(1+)",
      "synonym": ["Na+"], "is_obsolete": False},
+    {"iri": "http://purl.obolibrary.org/obo/GO_0001750", "obo_id": "GO:0001750", "label": "photoreceptor outer segment",
+     "synonym": [], "is_obsolete": False, "annotation": {"has_obo_namespace": ["cellular_component"]}},
+    {"iri": "http://purl.obolibrary.org/obo/GO_0001917", "obo_id": "GO:0001917", "label": "photoreceptor inner segment",
+     "synonym": [], "is_obsolete": False, "annotation": {"has_obo_namespace": ["cellular_component"]}},
 ]
 
 
@@ -568,6 +572,57 @@ class TestAnnotationCoupling(unittest.TestCase):
             "sr.network:c_A_i - sr:c_A",
         }
         self.assertTrue(expected <= couplings(), expected - couplings())
+
+    def test_a_junction_couples_the_two_spaces_of_a_cell_it_lies_between(self):
+        page = self.page
+        open_app(page)
+        import_files(page, "CellML File", [toy(name) for name in [*TOY_MATHS, "duct.cellml"]])
+        page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
+        expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
+        # A rod: an outer and an inner segment inside one cell, each with its own GO term, and a cilium between them.
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=bio-palette-templates]").click()
+        with page.expect_file_chooser() as chooser:
+            page.locator(".bio-palette__tile--template").last.click()
+        chooser.value.set_files(toy("rod.template.json"))
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.locator("[data-testid=bio-palette-toggle]").click()
+        fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
+        placed = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')
+
+        def drop(name, box):
+            count = placed.count()
+            self.drop_module(name, (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2))
+            expect(placed).to_have_count(count + 1)
+            fit.click()
+            page.wait_for_timeout(400)
+
+        fit.click()
+        page.wait_for_timeout(400)
+        drop("pool", piece(page, "outer-segment").bounding_box())
+        drop("pool", piece(page, "inner-segment").bounding_box())
+        drop("duct", page.locator("[data-testid=bio-process-zone]").bounding_box())
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("duct.ttl")])
+
+        flow = self.flow()
+        site = {n["name"]: (n["site"] or "/").split("/", 1)[1] for n in flow["nodes"]}
+        found = set()
+        for edge in flow["edges"]:
+            for c in edge["couplings"]:
+                found.add(" - ".join(sorted([f"{site[edge['source']]}:{c['source']}", f"{site[edge['target']]}:{c['target']}"])))
+        # Each end of the duct finds its own segment by the segment's term, though both are cytoplasm.
+        expected = {
+            "outer-segment:c_A - rod.cilium:c_A_a",
+            "inner-segment:c_A - rod.cilium:c_A_b",
+            "outer-segment:v_A - rod.cilium:v_A_a",
+            "inner-segment:v_A - rod.cilium:v_A_b",
+        }
+        self.assertTrue(expected <= found, (expected - found, found))
+
+        # Species mode draws the flux from one segment to the other through the cilium.
+        page.locator("[data-testid=bio-species-toggle]").click()
+        expect(page.locator("[data-testid=bio-species-token]")).to_have_count(2)
+        expect(page.locator(f'[data-testid=bio-species-path][data-protein]')).to_have_count(2)
 
     def test_the_species_menu_hides_a_species_with_its_paths_and_still_lists_it(self):
         page = self.page

@@ -3,7 +3,7 @@
  * knows its ChEBI and GO terms. Only a check: nothing is changed.
  */
 
-import { splitCurie } from './iris.js'
+import { GO_LOCATIONS, splitCurie } from './iris.js'
 import { displayLabel } from './labels.js'
 
 // UniProt's accession format.
@@ -117,6 +117,42 @@ export function termIdProblems(terms) {
  */
 export function isOlsTerm(curie) {
   return OLS_PREFIXES.has(splitCurie(curie)[0]) && !termIdProblem(curie)
+}
+
+/**
+ * The places a parsed side-car's variables are located at that are none of the three every cell has: GO terms the
+ * reader took as places on trust, each with what cites it.
+ *
+ * @param {Object|null} sidecar - From parseSidecar.
+ * @returns {Array<{ where: string, curie: string }>}
+ */
+export function sidecarPlaceTerms(sidecar) {
+  const terms = []
+  for (const variable of sidecar?.variables ?? []) {
+    const participants = ['sources', 'sinks', 'mediators'].flatMap((role) => variable.process?.[role] ?? [])
+    const places = [variable.location, variable.from, ...participants.map((participant) => participant.location)].map(placeTerm)
+    for (const curie of new Set(places.filter((place) => place && !GO_LOCATIONS.has(place) && isOlsTerm(place)))) {
+      terms.push({ where: variable.variable, curie })
+    }
+  }
+  return terms
+}
+
+/**
+ * Looks up which GO namespace each place term is in, and lists those that are not cellular components, where
+ * nothing can be. A lookup that fails or gives no answer, such as offline, counts as a place.
+ *
+ * @param {Array<{ where: string, curie: string }>} terms - From sidecarPlaceTerms.
+ * @param {(curie: string) => Promise<string|null>} lookupNamespace - As ols.lookupGoNamespace.
+ * @returns {Promise<Array<{ where: string, curie: string, problem: string }>>}
+ */
+export async function findMisplacedTerms(terms, lookupNamespace) {
+  const curies = [...new Set(terms.map(({ curie }) => curie))]
+  const found = await Promise.all(curies.map((curie) => Promise.resolve(curie).then(lookupNamespace).catch(() => null)))
+  const wrong = new Map(curies.map((curie, i) => [curie, found[i]]).filter(([, namespace]) => namespace && namespace !== 'cellular_component'))
+  return terms
+    .filter(({ curie }) => wrong.has(curie))
+    .map((term) => ({ ...term, problem: `${term.curie} is a GO ${wrong.get(term.curie).replaceAll('_', ' ')}, not a cellular component, so nothing can be located there` }))
 }
 
 /**
