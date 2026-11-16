@@ -580,13 +580,12 @@ class TestAnnotationCoupling(unittest.TestCase):
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
         # A rod: an outer and an inner segment inside one cell, each with its own GO term, and a cilium between them.
-        page.locator("[data-testid=bio-palette-toggle]").click()
-        page.locator("[data-testid=bio-palette-templates]").click()
+        page.locator("[data-testid=library-tab-build]").click()
         with page.expect_file_chooser() as chooser:
-            page.locator(".bio-palette__tile--template").last.click()
+            page.locator("[data-testid=bio-palette-load-template]").click()
         chooser.value.set_files(toy("rod.template.json"))
         expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-modules]").click()
         fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
         placed = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')
 

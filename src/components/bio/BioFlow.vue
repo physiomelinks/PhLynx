@@ -248,14 +248,6 @@
     </VueFlow>
     <!-- Species mode after a run: play its flows through the run, or scrub to a point of it -->
     <SpeciesPlaybackBar v-if="isSpeciesOn && species" />
-    <!-- What the view is built from, to drag onto it or click into place -->
-    <BioBuildPalette
-      :templates="templateStore.library"
-      :armed="armedTile"
-      @arm="armedTile = $event"
-      @drag="draggedTile = $event"
-      @load-template="loadTemplateFile(viewCentre())"
-    />
     <div
       v-if="pointerLabel"
       class="bio-drop-label"
@@ -386,6 +378,7 @@
 </template>
 
 <script setup>
+import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -474,7 +467,6 @@ import {
 import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
-import BioBuildPalette from './BioBuildPalette.vue'
 import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
@@ -1860,10 +1852,14 @@ function addZone(instanceId, cellId) {
 }
 
 // ── The build palette ──────────────────────────────────────────────────
-/** The palette tile clicked and waiting for a click on the view to place it: { kind, template? }. */
-const armedTile = ref(null)
-/** The palette tile being dragged, as a drag's data can't be read until it is dropped. */
-const draggedTile = ref(null)
+// The tiles are in the library's Build tab (see BioBuildPalette): what is clicked or dragged there is kept in the
+// view-mode store, and placed here.
+const { armedTile, draggedTile } = storeToRefs(viewMode)
+// A template file asked for there is loaded here, into the middle of the view.
+watch(
+  () => viewMode.templateFileRequests,
+  () => loadTemplateFile(viewCentre())
+)
 /** How far outside a cell a piece dropped for it still lands on it; a compartment, dropped beside it, from further. */
 const TILE_REACH = 40
 const COMPARTMENT_REACH = 320

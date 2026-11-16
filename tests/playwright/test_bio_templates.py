@@ -116,7 +116,7 @@ class TestBioTemplates(unittest.TestCase):
         self.open_physiology()
         pane = page.locator(f"{BIO} .vue-flow__pane")
         box = pane.bounding_box()
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-build]").click()
 
         # An empty cell dropped on the view, as a template's: there to drop a module on.
         page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
@@ -155,7 +155,7 @@ class TestBioTemplates(unittest.TestCase):
         self.open_physiology()
         pane = page.locator(f"{BIO} .vue-flow__pane")
         box = pane.bounding_box()
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-build]").click()
         page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
             pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
         )
@@ -170,7 +170,7 @@ class TestBioTemplates(unittest.TestCase):
         organelle = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/organelle-1"]')
         expect(organelle).to_be_visible()
         expect(organelle).to_contain_text("Organelle")
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-modules]").click()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
         page.wait_for_timeout(400)
         outer, inner = cell.bounding_box(), organelle.bounding_box()
@@ -178,7 +178,7 @@ class TestBioTemplates(unittest.TestCase):
         assert outer["y"] < inner["y"] and inner["y"] + inner["height"] < outer["y"] + outer["height"], (outer, inner)
 
         # A microdomain dropped between the organelle and the cell's bottom side fills the space between them.
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-build]").click()
         page.locator("[data-testid=bio-palette-tile][data-kind=microdomain]").drag_to(
             pane,
             target_position={
@@ -188,7 +188,7 @@ class TestBioTemplates(unittest.TestCase):
         )
         microdomain = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/microdomain-1"]')
         expect(microdomain).to_be_visible()
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-modules]").click()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
         page.wait_for_timeout(400)
         outer, inner, between = cell.bounding_box(), organelle.bounding_box(), microdomain.bounding_box()
@@ -196,13 +196,13 @@ class TestBioTemplates(unittest.TestCase):
         assert abs(between["y"] + between["height"] - (outer["y"] + outer["height"])) < 0.1 * outer["height"], (outer, between)
 
         # A fold dropped by the cell's top side dips in from it.
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-build]").click()
         page.locator("[data-testid=bio-palette-tile][data-kind=fold]").drag_to(
             pane, target_position={"x": outer["x"] - box["x"] + outer["width"] / 2, "y": outer["y"] - box["y"] + 16}
         )
         fold = page.locator("[data-testid=bio-fold]")
         expect(fold).to_have_count(1)
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-modules]").click()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
         page.wait_for_timeout(400)
         outer, dip = cell.bounding_box(), fold.bounding_box()
@@ -220,7 +220,7 @@ class TestBioTemplates(unittest.TestCase):
         self.open_physiology()
         pane = page.locator(f"{BIO} .vue-flow__pane")
         box = pane.bounding_box()
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-build]").click()
         page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
             pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
         )
@@ -238,7 +238,7 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-tile][data-kind=junction]").drag_to(pane, target_position=on_cell(0.5, 0.6))
         junction = cell.locator("[data-testid=bio-process-zone]").filter(has_text="Junction")
         expect(junction).to_have_count(1)
-        page.locator("[data-testid=bio-palette-toggle]").click()
+        page.locator("[data-testid=library-tab-modules]").click()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
         page.wait_for_timeout(400)
         # It lies just inside the cell from the microdomain, and a module dropped on it is bound to it.
@@ -257,8 +257,7 @@ class TestBioTemplates(unittest.TestCase):
         box = pane.bounding_box()
 
         # A template dragged from the palette, once opened, lands on the view.
-        page.locator("[data-testid=bio-palette-toggle]").click()
-        page.locator("[data-testid=bio-palette-templates]").click()
+        page.locator("[data-testid=library-tab-build]").click()
         template = page.locator("[data-testid=bio-palette-template]").filter(has_text="Epithelial cell")
         template.drag_to(pane, target_position={"x": box["width"] * 0.35, "y": box["height"] * 0.3})
         expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)

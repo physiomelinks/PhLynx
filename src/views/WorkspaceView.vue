@@ -295,13 +295,47 @@
 
     <div class="app-body-container">
       <ResizableLibraryPanel
-        title="Available Modules"
+        :title="libraryTab === 'build' ? 'Build' : 'Available Modules'"
         :initial-width="300"
         :min-width="150"
         :max-width="400"
         @resize="onLibraryPanelResize"
       >
-        <LibraryArea />
+        <!-- The library's two tabs: the modules to place, and the pieces the physiology view is built from -->
+        <div class="library-tabbed">
+          <div class="library-tabs" role="tablist" aria-label="Library">
+            <button
+              type="button"
+              role="tab"
+              :class="['library-tab', { 'library-tab--active': libraryTab === 'modules' }]"
+              :aria-selected="libraryTab === 'modules'"
+              data-testid="library-tab-modules"
+              @click="chosenLibraryTab = 'modules'"
+            >
+              <i class="pi pi-box" aria-hidden="true"></i>
+              Modules
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :class="['library-tab', { 'library-tab--active': libraryTab === 'build' }]"
+              :aria-selected="libraryTab === 'build'"
+              :disabled="!viewMode.isBio"
+              :title="viewMode.isBio ? 'Cells, compartments and templates to build the physiology view from' : 'Switch to the Physiology view to build it'"
+              data-testid="library-tab-build"
+              @click="chosenLibraryTab = 'build'"
+            >
+              <i class="pi pi-hammer" aria-hidden="true"></i>
+              Build
+            </button>
+          </div>
+          <div v-show="libraryTab === 'modules'" class="library-tab-panel" role="tabpanel">
+            <LibraryArea />
+          </div>
+          <div v-if="libraryTab === 'build'" class="library-tab-panel library-tab-panel--scroll" role="tabpanel">
+            <BioBuildPalette />
+          </div>
+        </div>
       </ResizableLibraryPanel>
       <main
         class="workbench-main"
@@ -668,6 +702,7 @@ import { installUnloadGuard, registerWorkspaceSaver, useUnsavedChanges } from '.
 import { useImportExportSend } from '../composables/useImportExportSend'
 
 import LibraryArea from '../components/LibraryArea.vue'
+import BioBuildPalette from '../components/bio/BioBuildPalette.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
@@ -893,6 +928,9 @@ const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
 const bioTemplateStore = useBioTemplateStore()
 const viewMode = useViewModeStore()
+/** The library tab picked; the Build tab is only there in the physiology view, so the diagram shows the modules. */
+const chosenLibraryTab = ref('modules')
+const libraryTab = computed(() => (viewMode.isBio ? chosenLibraryTab.value : 'modules'))
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -2740,6 +2778,67 @@ watch(
 )
 
 </script>
+
+<style scoped>
+.library-tabbed {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.library-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.25rem;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--p-content-border-color);
+}
+
+.library-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  margin-bottom: -1px;
+  color: var(--p-text-muted-color);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.library-tab:hover:not(:disabled) {
+  color: var(--p-text-color);
+}
+
+.library-tab--active {
+  color: var(--p-primary-color);
+  border-bottom-color: var(--p-primary-color);
+}
+
+.library-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.library-tab:focus-visible {
+  outline: 2px solid var(--p-primary-color);
+  outline-offset: -2px;
+}
+
+.library-tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.library-tab-panel--scroll {
+  overflow-y: auto;
+}
+</style>
 
 <style>
 /* ==========================================================================
