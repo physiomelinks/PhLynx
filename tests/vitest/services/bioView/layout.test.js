@@ -204,6 +204,24 @@ describe('physiological view layout of regions sharing a place', () => {
 })
 
 describe('physiological view layout with cells the user added', () => {
+  it('grows a cell the user moved to fit its proteins, where it was put', () => {
+    const stored = { x: 500, y: -300, width: 320, height: 240 }
+    const ids = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6']
+    const nodes = [node('cell', { rect: stored }), ...ids.map((id) => node(id))]
+    const roles = new Map([
+      ['cell', role('cytosol')],
+      ...ids.map((id) => [id, role('membraneProtein', { cell: 'cell', facet: 'apical' })]),
+    ])
+    const layout = layoutBioView(nodes, roles)
+    const { rect } = layout.get('cell')
+    expect(rect).toMatchObject({ x: 500, y: -300 })
+    // Every protein sits on the straight part of the membrane, clear of the corners.
+    for (const id of ids) {
+      expect(layout.get(id).x).toBeGreaterThan(rect.x + 40)
+      expect(layout.get(id).x).toBeLessThan(rect.x + rect.width - 40)
+    }
+  })
+
   it('keeps a region against the cell it lies against, not ones the user added', () => {
     const nodes = [node('cell', { role: 'cytosol' }), node('added', { rect: { x: -800, y: -600, width: 320, height: 240 }, added: true }), node('lumen')]
     const roles = new Map([
