@@ -86,3 +86,56 @@ describe('ConfirmDialog issues', () => {
     expect(followed).toEqual(['ID-1'])
   })
 })
+
+describe('ConfirmDialog prompt', () => {
+  const field = () => document.body.querySelector('.confirm-input input')
+  const button = (label) =>
+    [...document.body.querySelectorAll('.confirm-actions button')].find((each) => each.textContent.trim() === label)
+
+  it('gives the text typed, its hint following it, and suggests values as it is typed', async () => {
+    mountDialog()
+    const answer = dialogs.prompt({
+      header: 'Import Into Namespace',
+      message: 'm',
+      value: 'CellML',
+      suggestions: ['cardiac_ap'],
+      hint: (value) => (value === 'cardiac_ap' ? 'in use' : ''),
+      acceptLabel: 'Import',
+    })
+    await flushPromises()
+    expect(field().value).toBe('CellML')
+    expect([...document.body.querySelectorAll('datalist option')].map((option) => option.value)).toEqual(['cardiac_ap'])
+    expect(document.body.querySelector('.confirm-input-hint')).toBeNull()
+
+    field().value = 'cardiac_ap'
+    field().dispatchEvent(new Event('input'))
+    await flushPromises()
+    expect(document.body.querySelector('.confirm-input-hint').textContent.trim()).toBe('in use')
+
+    button('Import').click()
+    expect(await answer).toBe('cardiac_ap')
+  })
+
+  it('accepts on Enter, and gives null when cancelled', async () => {
+    mountDialog()
+    const entered = dialogs.prompt({ header: 'h', message: 'm', value: 'a' })
+    await flushPromises()
+    field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    expect(await entered).toBe('a')
+
+    const cancelled = dialogs.prompt({ header: 'h', message: 'm', value: 'a' })
+    await flushPromises()
+    button('Cancel').click()
+    expect(await cancelled).toBeNull()
+  })
+
+  it('offers a list to pick from instead of text, when given choices', async () => {
+    mountDialog()
+    const answer = dialogs.prompt({ header: 'h', message: 'm', value: 'b', choices: [{ label: 'a', value: 'a' }, { label: 'b', value: 'b' }] })
+    await flushPromises()
+    expect(field()).toBeNull()
+    expect(document.body.querySelector('.confirm-input .p-select')).not.toBeNull()
+    button('OK').click()
+    expect(await answer).toBe('b')
+  })
+})

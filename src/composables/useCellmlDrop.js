@@ -1,8 +1,11 @@
 import { useVueFlow } from '@vue-flow/core'
 import { computed, ref } from 'vue'
 
+import { useFileDrop } from './useFileDrop'
+import { AS_IS } from '../services/import/namespaceImport'
+import { fileKeyFromPath } from '../utils/namespaces'
 import { importOmexFile } from '../services/import/omex'
-import { prepareCellmlImport, prepareCellmlImports } from '../services/import/prepareCellml'
+import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { loadParametersFromCellML } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
@@ -26,6 +29,8 @@ const RESTORE_OFFSET_X = 1500
  * @param {Function} options.processImportedOmexArchive - Applies an imported OMEX archive.
  * @param {Function} options.onDragOverModule - Internal module-drag dragover handler (from useDnD).
  * @param {Function} options.onDropModule - Internal module-drag drop handler (from useDnD).
+ * @param {(files: Array<{ key: string, cellml: string }>) => Promise<Object>} [options.planImport] - Asks
+ *   which namespace files from a folder or zip go in, and what to do about clashes there (see planNamespaceImport).
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
  * @returns {{ loadCellMLFiles: Function, onDragOver: Function, onFileDragLeave: Function, onDrop: Function,
  *   isFileDragOver: Ref<boolean>, dropLoadingMessage: ComputedRef<string> }}
@@ -39,9 +44,32 @@ export function useCellmlDrop({
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
+  planImport = async () => AS_IS,
   flowId = FLOW_IDS.MAIN,
 }) {
   const { addEdges, addNodes, nodes, toObject } = useVueFlow(flowId)
+  const { filesFromDataTransfer } = useFileDrop()
+
+  /**
+   * An entry's CellML text.
+   *
+   * @param {File|{ file?: File, content?: string }} entry
+   * @returns {Promise<string>}
+   */
+  const readEntry = (entry) => {
+    if (entry instanceof File) return readFileAsText(entry)
+    if (entry.file) return readFileAsText(entry.file)
+    return entry.content
+  }
+
+  /**
+   * The library key a file is imported as: in the namespace of the folder or zip it came from, by
+   * its name; a loose file by its name alone.
+   *
+   * @param {{ name: string, path?: string }} entry
+   * @returns {string}
+   */
+  const keyOf = (entry) => (entry.path?.includes('/') ? fileKeyFromPath(entry.path) : entry.name)
 
   /** True while files from the OS are dragged over the workspace. */
   const isFileDragOver = ref(false)
@@ -75,8 +103,9 @@ export function useCellmlDrop({
   }
 
   /**
-   * Load an array of CellML entries, each being either a browser File object or a
-   * plain `{ name, content }` object (used when content is already in memory).
+   * Load an array of CellML entries, each being a browser File, a `{ name, path, file }` from a
+   * dropped folder or zip, or a `{ name, path?, content }` already in memory. Paths are relative to
+   * what was dropped and let CellML imports resolve against the other files.
    *
    * If a single file contains inter-component connections it is treated as a
    * connection graph and loaded into the workspace via loadFromCellML.
@@ -89,8 +118,13 @@ export function useCellmlDrop({
     // Single-file fast path: check for connections and load as a graph if present
     if (entries.length === 1) {
       const entry = entries[0]
-      const content = prepareCellmlImport(entry instanceof File ? await readFileAsText(entry) : entry.content, entry.name)
-      const parsedCellmlPayload = parseCellMLConnections(content, entry.name)
+      const text = await readEntry(entry)
+      const [resolved] = await resolveCellmlImports([{ name: entry.name, path: entry.path, content: text }])
+      const content = prepareCellmlImport(resolved, entry.name)
+      const plan = await planImport([{ key: keyOf(entry), cellml: content }])
+      if (plan.isSkipped(keyOf(entry))) return []
+      const key = plan.mapKey(keyOf(entry))
+      const parsedCellmlPayload = parseCellMLConnections(content, key)
 
       if (parsedCellmlPayload.edges.length > 0) {
         if (nodes.value.length > 0) {
@@ -107,10 +141,10 @@ export function useCellmlDrop({
             const snapshot = toObject()
 
             // Load new graph into clean workspace using the normal path
-            const result = await loadCellMLData(content, entry.name, { notify: false })
+            const result = await loadCellMLData(content, key, { notify: false })
             const parameters = loadParametersFromCellML(content)
             // Nothing placed means nothing was cleared, so there is nothing to restore.
-            if (!(await loadFromCellML(parsedCellmlPayload, entry.name, parameters))) return [result]
+            if (!(await loadFromCellML(parsedCellmlPayload, key, parameters))) return [result]
 
             // Remap snapshotted node IDs to avoid clashes with newly loaded nodes
             const existingIds = new Set(nodes.value.map((n) => n.id))
@@ -150,9 +184,9 @@ export function useCellmlDrop({
         }
 
         // Register modules/units in the store first, then build the graph.
-        const result = await loadCellMLData(content, entry.name, { notify: false })
+        const result = await loadCellMLData(content, key, { notify: false })
         const parameters = loadParametersFromCellML(content)
-        await loadFromCellML(parsedCellmlPayload, entry.name, parameters)
+        await loadFromCellML(parsedCellmlPayload, key, parameters)
 
         rebuildNodeEdgeIndex()
 
@@ -160,7 +194,7 @@ export function useCellmlDrop({
       }
       // No connections — fall through to the standard module-registration path - TODO - might be nice to still drop single modules into workspace
       try {
-        const result = await loadCellMLData(content, entry.name)
+        const result = await loadCellMLData(content, key)
         return [result]
       } catch {
         return [{ ok: false, moduleCount: 0, unitsCount: 0 }]
@@ -174,27 +208,54 @@ export function useCellmlDrop({
     const texts = await Promise.all(
       entries.map(async (entry, index) => {
         try {
-          return entry instanceof File ? await readFileAsText(entry) : entry.content
+          return await readEntry(entry)
         } catch {
           unreadable.add(index)
           return null
         }
       })
     )
-    // Prepared together, so the batch gets one notice of each kind.
-    const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: texts[index] })))
+    // Prepared together, so imports resolve against the other files and the batch gets one notice of each kind.
+    const resolved = await resolveCellmlImports(
+      entries.map((entry, index) => ({ name: entry.name, path: entry.path, content: texts[index] }))
+    )
+    const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
+    // A namespace holds one file of a name: a later one, from another folder of the same import, is left out.
+    const firstOfKey = new Map()
+    const duplicates = []
+    entries.forEach((entry, index) => {
+      if (unreadable.has(index)) return
+      if (firstOfKey.has(keyOf(entry))) duplicates.push(entry.path ?? entry.name)
+      else firstOfKey.set(keyOf(entry), index)
+    })
+    if (duplicates.length) {
+      notify.warning({
+        title: 'Same-Named Files Left Out',
+        message: `A namespace holds one file of each name, so these were left out: ${duplicates.join(', ')}.`,
+      })
+    }
+    const isLoaded = (entry, index) => unreadable.has(index) || firstOfKey.get(keyOf(entry)) === index
+    const plan = await planImport(
+      entries
+        .map((entry, index) => ({ key: keyOf(entry), cellml: contents[index] }))
+        .filter((file, index) => !unreadable.has(index) && isLoaded(entries[index], index))
+    )
+    // Files the user chose to leave out are not counted as failures.
+    const loading = entries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry, index }) => isLoaded(entry, index) && !plan.isSkipped(keyOf(entry)))
     const results = await Promise.all(
-      entries.map(async (entry, index) => {
+      loading.map(async ({ entry, index }) => {
         if (unreadable.has(index)) return failed
         try {
-          return await loadCellMLData(contents[index], entry.name, { notify: !multiFile })
+          return await loadCellMLData(contents[index], plan.mapKey(keyOf(entry)), { notify: !multiFile })
         } catch {
           return failed
         }
       })
     )
 
-    if (multiFile) {
+    if (multiFile && results.length) {
       const succeeded = results.filter((r) => r.ok)
       const failed = results.length - succeeded.length
       const totalModules = succeeded.reduce((sum, r) => sum + r.moduleCount, 0)
@@ -272,6 +333,8 @@ export function useCellmlDrop({
     const files = event.dataTransfer?.files
     if (files && files.length > 0) {
       event.preventDefault()
+      // Read before anything else is awaited: the drop's items are only readable during the event.
+      const droppedPromise = filesFromDataTransfer(event.dataTransfer)
 
       if (loadingMessage.value) {
         notify.info({
@@ -281,14 +344,18 @@ export function useCellmlDrop({
         return
       }
 
-      const cellmlFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.cellml'))
-
-      const omexFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.omex'))
+      // Folders are walked and zips opened; loose files keep their names as paths.
+      const dropped = await droppedPromise
+      const hasExtension = (extension) => (entry) => entry.file.name.toLowerCase().endsWith(extension)
+      const cellmlFiles = dropped
+        .filter(hasExtension('.cellml'))
+        .map(({ file, path }) => ({ name: file.name, path, file }))
+      const omexFiles = dropped.filter(hasExtension('.omex')).map(({ file }) => file)
 
       if (cellmlFiles.length === 0 && omexFiles.length === 0) {
         notify.warning({
           title: 'Unsupported File Type',
-          message: 'Only .cellml and .omex files can be dropped onto the workspace.',
+          message: 'Only .cellml and .omex files, or folders and zips holding them, can be dropped onto the workspace.',
         })
         return
       }

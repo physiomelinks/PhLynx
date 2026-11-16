@@ -3,6 +3,14 @@ import { parseLayout } from 'cellml-text-editor'
 import { ref, computed, markRaw, shallowReactive } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
 import {
+  baseNameOf,
+  moduleRefOf,
+  resolveComponentFile,
+  namespaceOfFileKey,
+  namespaceOfModuleRef,
+} from '../utils/namespaces'
+import { areModelsEquivalent } from '../utils/cellml'
+import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
   PROTECTED_MATH_REFS,
@@ -186,7 +194,18 @@ export const useLibraryStore = defineStore('library', () => {
 
   // --- SETTERS ---
 
-  function addConfigFile(filename, configs) {
+  /**
+   * Adds the modules of a config file, in a namespace: qualified by it, on the math of that namespace.
+   *
+   * @param {string} filename - The config file's key.
+   * @param {Object[]} configs
+   * @param {Object} [options]
+   * @param {string|null} [options.namespace] - The namespace to load into; by default the file key's.
+   * @param {boolean} [options.replace] - Replace modules already under the same refs, as when the user
+   *   chose to overwrite a namespace's clashes; otherwise the loaded ones stay.
+   * @returns {number} How many modules were added or replaced.
+   */
+  function addConfigFile(filename, configs, { namespace = namespaceOfFileKey(filename), replace = false } = {}) {
     let totalAdded = 0
 
     if (!configs || !Array.isArray(configs)) {
@@ -198,9 +217,135 @@ export const useLibraryStore = defineStore('library', () => {
         return totalAdded
       }
 
-      if (addModule(normaliseConfig(config))) totalAdded++
+      const module = configModule(config, namespace)
+      if (replace && availableModules.value.has(module.moduleRef)) {
+        replaceModule(module)
+        totalAdded++
+      } else if (addModule(module)) {
+        totalAdded++
+      }
     })
     return totalAdded
+  }
+
+  /** Keys of every CellML file with math or units in the library. */
+  function loadedFileKeys() {
+    const keys = new Set(availableUnits.value.map((file) => file.componentFile))
+    for (const mathRef of availableMath.value.keys()) keys.add(parseMathRef(mathRef).componentFile)
+    return keys
+  }
+
+  /**
+   * The module a config gives in a namespace, on the file its `component_file` names there.
+   *
+   * @param {Object} config
+   * @param {string|null} namespace
+   * @returns {Object}
+   */
+  function configModule(config, namespace) {
+    const componentFile = resolveComponentFile(namespace || null, config.component_file)
+    return normaliseConfig({ ...config, component_file: componentFile }, { namespace: namespace || null })
+  }
+
+  /**
+   * Every namespace with files or modules in the library; none is not one.
+   *
+   * @returns {Set<string>}
+   */
+  function loadedNamespaces() {
+    const namespaces = new Set()
+    for (const key of loadedFileKeys()) {
+      const namespace = namespaceOfFileKey(key)
+      if (namespace) namespaces.add(namespace)
+    }
+    for (const moduleRef of availableModules.value.keys()) {
+      const namespace = namespaceOfModuleRef(moduleRef)
+      if (namespace) namespaces.add(namespace)
+    }
+    return namespaces
+  }
+
+  /**
+   * The namespaces ('' for none) holding any of the named files: where a config naming them, or a
+   * file of parameters for their modules, fits.
+   *
+   * @param {Iterable<string>} fileNames - Bare file names, such as a config's `component_file`s.
+   * @returns {Set<string>}
+   */
+  function namespacesWithFiles(fileNames) {
+    const names = new Set([...fileNames].filter(Boolean).map(baseNameOf))
+    const namespaces = new Set()
+    for (const key of loadedFileKeys()) {
+      if (names.has(baseNameOf(key))) namespaces.add(namespaceOfFileKey(key) ?? '')
+    }
+    return namespaces
+  }
+
+  /**
+   * Finds what incoming files would change in the library: math, units or configs under keys the
+   * library already has, with different content. Nothing is changed. Each clash carries both
+   * versions, for whatever shows the user the difference.
+   *
+   * @param {Object} incoming
+   * @param {Array<{ key: string, components: Array<{ name: string, math: string }> }>} [incoming.mathFiles]
+   * @param {Array<{ key: string, model: string }>} [incoming.unitsFiles]
+   * @param {Array<{ key: string, configs: Object[], namespace?: string|null }>} [incoming.configFiles] - namespace
+   *   is where the configs load, by default their key's.
+   * @returns {Array<{ kind: 'math'|'units'|'module', key: string, existing: any, incoming: any }>}
+   */
+  function findClashes({ mathFiles = [], unitsFiles = [], configFiles = [] } = {}) {
+    const clashes = []
+
+    for (const { key, components } of mathFiles) {
+      for (const component of components ?? []) {
+        const mathRef = `${key}:${component.name}`
+        const stored = availableMath.value.get(mathRef)
+        if (stored === undefined) continue
+        const { math, values } = separateParameters(component.math)
+        const sameDefaults = sameValues(getMathDefaults(mathRef), values)
+        if (!sameDefaults || !areModelsEquivalent(stored, math)) {
+          clashes.push({
+            kind: 'math',
+            key: mathRef,
+            existing: { math: stored, defaults: getMathDefaults(mathRef) },
+            incoming: { math, defaults: values },
+          })
+        }
+      }
+    }
+
+    for (const { key, model } of unitsFiles) {
+      const stored = availableUnits.value.find((file) => file.componentFile === key)
+      if (stored && model && !areModelsEquivalent(stored.model, model)) {
+        clashes.push({ kind: 'units', key, existing: stored.model, incoming: model })
+      }
+    }
+
+    for (const { key, configs, namespace = namespaceOfFileKey(key) } of configFiles) {
+      for (const config of configs ?? []) {
+        if (!config?.component_file) continue
+        const module = configModule(config, namespace)
+        const moduleRef = module.moduleRef
+        const stored = availableModules.value.get(moduleRef)
+        if (!stored) continue
+        if (!sameModuleConfig(stored, module)) clashes.push({ kind: 'module', key: moduleRef, existing: stored, incoming: module })
+      }
+    }
+
+    return clashes
+  }
+
+  function sameValues(a, b) {
+    if (a.size !== b.size) return false
+    for (const [name, value] of a) if (b.get(name) !== value) return false
+    return true
+  }
+
+  /** Whether two modules made from configs say the same: the same math, ports, variables and parameterisation. */
+  function sameModuleConfig(a, b) {
+    const comparable = ({ mathRef, ports, variables, defaultParameterisation }) =>
+      JSON.stringify(detachReactivity({ mathRef, ports, variables, defaultParameterisation: defaultParameterisation ?? null }))
+    return comparable(a) === comparable(b)
   }
 
   /**
@@ -594,8 +739,9 @@ export const useLibraryStore = defineStore('library', () => {
    * @returns {string}
    */
   function defaultModuleRef(mathRef) {
-    const { componentName } = parseMathRef(mathRef)
-    return uniqueModuleRef(`${componentName}:default`, mathRef, (ref) => availableModules.value.get(ref))
+    const { componentFile, componentName } = parseMathRef(mathRef)
+    const wanted = moduleRefOf(componentName, 'default', namespaceOfFileKey(componentFile))
+    return uniqueModuleRef(wanted, mathRef, (ref) => availableModules.value.get(ref))
   }
 
   /**
@@ -871,6 +1017,9 @@ export const useLibraryStore = defineStore('library', () => {
 
     // Actions
     addConfigFile,
+    findClashes,
+    loadedNamespaces,
+    namespacesWithFiles,
     addModule,
     addMathFile,
     createModuleForMath,

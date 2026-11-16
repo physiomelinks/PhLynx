@@ -851,6 +851,58 @@ describe('generateExportZip', () => {
     expect(library.availableMath.has('other_modules.cellml:vp_simple_type')).toBe(true)
   })
 
+  describe('modules in namespaces', () => {
+    /** Adds membrane.cellml's membrane, as a namespace's membrane:membrane module, and gives a node on it. */
+    function inNamespace(namespace, name) {
+      const mathRef = `${namespace}/membrane.cellml:membrane`
+      library.addMath(mathRef, VP_MATH.replace('vp_simple_type', 'membrane'))
+      library.addModule({ moduleRef: `membrane:membrane:${namespace}`, mathRef, ports: [], variables: [] })
+      return { id: name, data: { name, moduleRef: `membrane:membrane:${namespace}`, mathRef, ports: [], variables: [] } }
+    }
+
+    const configOf = (files) => JSON.parse(files['modules/heart_module_config.json'])
+    const arrayOf = (files) => JSON.parse(files['heart_module_array.json'])
+
+    it("writes one namespace's modules as CA knows them: flat file names, the subtype unqualified", async () => {
+      const files = await readZip(await generateExportZip('heart', [inNamespace('enterocyte-modules', 'm')], [], library))
+      expect(configOf(files)[0]).toMatchObject({
+        module_type: 'membrane',
+        module_subtype: 'membrane',
+        component_file: 'membrane_modules.cellml',
+        component_type: 'membrane',
+      })
+      expect(arrayOf(files)[0]).toMatchObject({ module_type: 'membrane', module_subtype: 'membrane' })
+      expect(Object.keys(files).filter((name) => name.endsWith('.cellml')).sort()).toEqual([
+        'modules/heart_units.cellml',
+        'modules/membrane_modules.cellml',
+      ])
+      expect(notified.warning).not.toHaveBeenCalled()
+    })
+
+    it("tells two namespaces' same-named modules and files apart by namespace, only where they clash, and warns", async () => {
+      const nodes = [inNamespace('enterocyte-modules', 'a'), inNamespace('CellML', 'b'), nodeWith('vp', [])]
+      const files = await readZip(await generateExportZip('heart', nodes, [], library))
+      const entries = configOf(files).map((entry) => [entry.module_subtype, entry.component_file, entry.component_type])
+      expect(entries).toEqual([
+        ['membrane_enterocyte_modules', 'enterocyte-modules_membrane_modules.cellml', 'membrane_enterocyte_modules'],
+        ['membrane_CellML', 'CellML_membrane_modules.cellml', 'membrane'],
+        ['vp', 'BG_modules.cellml', 'vp_simple_type'],
+      ])
+      expect(arrayOf(files).map((row) => row.module_subtype)).toEqual(['membrane_enterocyte_modules', 'membrane_CellML', 'vp'])
+      expect(files['modules/enterocyte-modules_membrane_modules.cellml']).toContain('<component name="membrane_enterocyte_modules">')
+      expect(files['modules/CellML_membrane_modules.cellml']).toContain('<component name="membrane">')
+      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Module Subtypes Renamed' }))
+      expect(notified.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Components Renamed' }))
+
+      const parser = new libcellml.Parser(false)
+      const model = parser.parseModel(assembleAsCa(files))
+      expect(Array.from({ length: parser.errorCount() }, (_, i) => parser.error(i).description())).toEqual([])
+      expect(model.componentCount()).toBe(3)
+      model.delete()
+      parser.delete()
+    })
+  })
+
   it('writes the CellDL user modules grouping as a .cellml file, beside the CellML one', async () => {
     library.addGeneratedUnits({ name: 'per_min', parts: [{ units: 'second', prefix: 0, exponent: -1, multiplier: 60 }] })
     const groupings = { cellml: 'User_Modules.cellml:rate_type', celldl: 'User_Modules.celldl:diagram_type' }

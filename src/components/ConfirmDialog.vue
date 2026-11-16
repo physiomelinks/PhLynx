@@ -14,6 +14,34 @@
               {{ message.message }}
             </div>
 
+            <!-- A prompt's field: a list to pick from, or text with suggestions, where Enter accepts. -->
+            <div v-if="message.input" class="confirm-input">
+              <Select
+                v-if="message.input.choices"
+                v-model="message.input.value"
+                :options="message.input.choices"
+                optionLabel="label"
+                optionValue="value"
+                class="confirm-input-field"
+                autofocus
+              />
+              <template v-else>
+                <InputText
+                  v-model="message.input.value"
+                  class="confirm-input-field"
+                  :list="message.input.suggestions?.length ? 'confirm-input-suggestions' : undefined"
+                  autofocus
+                  @keydown.enter.prevent="acceptCallback"
+                />
+                <datalist v-if="message.input.suggestions?.length" id="confirm-input-suggestions">
+                  <option v-for="suggestion in message.input.suggestions" :key="suggestion" :value="suggestion" />
+                </datalist>
+              </template>
+              <small v-if="message.input.hint?.(message.input.value)" class="confirm-input-hint">
+                {{ message.input.hint(message.input.value) }}
+              </small>
+            </div>
+
             <!-- Issues that name an element link to it: following one closes the dialog first. -->
             <ul v-if="message.issues?.length" class="confirm-issues">
               <li v-for="issue in message.issues" :key="issue.key">
@@ -79,6 +107,8 @@
 <script setup lang="ts">
 import ConfirmDialog from 'primevue/confirmdialog'
 import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
+import Select from 'primevue/select'
 
 function getIcon(severity?: string) {
   switch (severity) {
@@ -135,6 +165,21 @@ function getButtonSeverity(severity?: string) {
 </script>
 
 <style scoped>
+.confirm-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.confirm-input-field {
+  width: 100%;
+}
+
+.confirm-input-hint {
+  color: var(--p-text-muted-color);
+}
+
 .confirm-container {
   width: min(92vw, 420px);
   border-radius: 8px;

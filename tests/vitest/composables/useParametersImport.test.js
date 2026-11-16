@@ -375,3 +375,59 @@ describe('useParametersImport', () => {
     })
   })
 })
+
+describe('useParametersImport namespaces', () => {
+  let deps
+  let defaults
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    deps = {
+      nodes: ref([]),
+      recordEdit: vi.fn(async ({ apply }) => apply()),
+      confirm: vi.fn(async () => true),
+      choose: vi.fn(async () => 'accept'),
+      prompt: vi.fn(async () => 'cardiac_ap'),
+    }
+    defaults = useDefaultParametersStore()
+    const configs = JSON.parse(readResource('NKA_NKA_modules_config.json'))
+    for (const namespace of ['enterocyte', 'cardiac_ap']) useLibraryStore().addConfigFile(`${namespace}/config.json`, configs)
+  })
+
+  it('asks which namespace a loose set goes to when several name it, and stores it only there', async () => {
+    const { importParameterFile } = useParametersImport(deps)
+    const result = await importParameterFile(await readFile('NKA_parameters.json'), 'NKA_parameters.json')
+
+    expect(deps.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        header: 'Choose a Namespace',
+        choices: [
+          { label: 'cardiac_ap', value: 'cardiac_ap' },
+          { label: 'enterocyte', value: 'enterocyte' },
+        ],
+      })
+    )
+    expect(result.stored.map(({ mathRef }) => mathRef)).toEqual(['cardiac_ap/NKA.cellml:NKA'])
+    expect(defaults.getSet('enterocyte/NKA.cellml:NKA', 'NKA')).toBeNull()
+  })
+
+  it("stores a set from a folder in the folder's namespace, and one an import targets there, without asking", async () => {
+    const { importParameterFile } = useParametersImport(deps)
+    const own = await importParameterFile(await readFile('NKA_parameters.json'), 'enterocyte/NKA_parameters.json')
+    const targeted = await importParameterFile(await readFile('NKA_parameters.json'), 'NKA_parameters.json', {
+      namespace: 'cardiac_ap',
+    })
+
+    expect(own.stored.map(({ mathRef }) => mathRef)).toEqual(['enterocyte/NKA.cellml:NKA'])
+    expect(targeted.stored.map(({ mathRef }) => mathRef)).toEqual(['cardiac_ap/NKA.cellml:NKA'])
+    expect(deps.prompt).not.toHaveBeenCalled()
+  })
+
+  it('skips a set when choosing its namespace is cancelled', async () => {
+    deps.prompt.mockResolvedValueOnce(null)
+    const { importParameterFile } = useParametersImport(deps)
+    const result = await importParameterFile(await readFile('NKA_parameters.json'), 'NKA_parameters.json')
+
+    expect(result).toMatchObject({ ok: false, warnings: ['skipped, as no namespace was chosen'] })
+  })
+})

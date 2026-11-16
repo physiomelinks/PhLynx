@@ -227,10 +227,17 @@ export function processCellMLData(cellmlString) {
   // --- Extract units into a stripped model ---
   const unitsModel = new _libcellml.Model()
   unitsModel.setName('OnlyUnitsFrom_' + model.name())
-  const unitsCount = model.unitsCount()
+  let unitsCount = 0
 
-  for (let i = 0; i < unitsCount; i++) {
+  for (let i = 0; i < model.unitsCount(); i++) {
     const units = model.unitsByIndex(i)
+    // An imported units is a placeholder for a file the library cannot open; the generator finds
+    // those units by name instead. inlineUnitsImports replaces them first where it can.
+    if (units.isImport()) {
+      units.delete()
+      continue
+    }
+    unitsCount++
     const cloned = units.clone()
     unitsModel.addUnits(cloned)
     units.delete()

@@ -20,7 +20,7 @@
           </div>
           <div class="detail-item">
             <i class="pi pi-file detail-icon"></i>
-            <span class="detail-value">{{ mathFile }}</span>
+            <FileLabel class="detail-value" :file-key="mathFile" />
           </div>
         </div>
         <div style="flex-grow: 1; min-width: 1.5em;"></div> <!-- Spacer to push buttons to the right -->
@@ -114,6 +114,7 @@ import { NodeResizer } from '@vue-flow/node-resizer'
 import Button from 'primevue/button'
 
 import SanitisedInput from './SanitisedInput.vue'
+import FileLabel from './FileLabel.vue'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
