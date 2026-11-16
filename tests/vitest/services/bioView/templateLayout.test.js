@@ -209,6 +209,9 @@ describe('template layout, with nodes bound', () => {
     expect(apical).toMatchObject({ kind: 'slots', role: 'membraneProtein', occupant: null, occupants: ['enac', 'nhe'] })
     expect(apical.slots).toHaveLength(3)
     expect(sites.find((site) => site.ref === 'bt-1/cell.metabolism').slots).toHaveLength(3)
+    // The area with processes in it is marked, to be drawn without its outline.
+    expect(places.get(key('cell')).zones[0].filled).toBe(true)
+    expect(layOut('epithelial-cell').places.get(key('cell')).zones[0].filled).toBeUndefined()
   })
 
   it('keys a bound cell, membrane and compartment by their nodes in place of the empty pieces', () => {

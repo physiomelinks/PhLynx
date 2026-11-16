@@ -38,7 +38,8 @@
         class="bio-cell__zone"
         data-testid="bio-process-zone"
       >
-        <rect :x="zone.rect.x" :y="zone.rect.y" :width="zone.rect.width" :height="zone.rect.height" rx="8" />
+        <!-- Outlined only while empty, to say where a process goes: one in it is drawn as itself, as a protein is -->
+        <rect v-if="!zone.filled" :x="zone.rect.x" :y="zone.rect.y" :width="zone.rect.width" :height="zone.rect.height" rx="8" />
         <text v-if="zone.label" :x="zone.rect.x + 8" :y="zone.rect.y + 12">{{ zone.label }}</text>
       </g>
     </svg>

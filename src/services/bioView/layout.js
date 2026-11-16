@@ -625,14 +625,16 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       }
       // A junction's area lies between the two spaces it joins; the others go in rows from the cell's top.
       const rows = cell.processes.filter((process) => !process.between)
+      // An area with a process in it is drawn as the process alone, as a protein's site is once a protein is on it.
+      const filled = (process) => (process.members.length ? { filled: true } : {})
       const cellZones = cell.processes.map((process) => {
         if (!process.between) {
           const area = rows.indexOf(process)
-          return { processId: process.id, label: process.label, rect: clear(processZone(rect, area)) }
+          return { processId: process.id, label: process.label, rect: clear(processZone(rect, area)), ...filled(process) }
         }
         const spaces = process.between.map((key) => ({ rect: innerRects.get(key), edge: pieces.find((piece) => piece.key === key)?.against.find((entry) => entry.edge)?.edge }))
         const zone = junctionZone(rect, spaces)
-        return { processId: process.id, label: process.label, rect: zone, junction: true }
+        return { processId: process.id, label: process.label, rect: zone, junction: true, ...filled(process) }
       })
       zones.set(cell.key, cellZones)
       // An empty cell's name goes below its organelles, as below its process areas.
@@ -842,9 +844,10 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
       layout.set(id, { kind: 'cytosolic', cell: key, ...at })
       return at
     })
-    // The area they take up is drawn as a template's process area is.
+    // The area they take up is kept, for what is placed round them to keep clear of; with processes in it, it is
+    // not outlined or named, as a template's area isn't once filled.
     const zone = processesZone(cards)
-    if (zone) layout.get(key).zones = [{ processId: null, label: 'Processes', rect: zone }]
+    if (zone) layout.get(key).zones = [{ processId: null, label: null, rect: zone, filled: true }]
   }
   for (const id of ids) if (roleOf(id).role === 'membrane' && onCell(id)) layout.set(id, { kind: 'membrane', cell: onCell(id) })
 

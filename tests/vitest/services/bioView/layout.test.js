@@ -222,7 +222,7 @@ describe('physiological view layout with cells the user added', () => {
     // Wide enough for the three in a row, and the area holds all of them.
     expect(cell.rect.width).toBeGreaterThanOrEqual(2 * 40 + 3 * CARD.width + 2 * 16)
     const [zone] = cell.zones
-    expect(zone.label).toBe('Processes')
+    expect(zone).toMatchObject({ label: null, filled: true })
     for (const id of ids) {
       expect(layout.get(id).x).toBeGreaterThan(zone.rect.x)
       expect(layout.get(id).y + CARD.height).toBeLessThan(zone.rect.y + zone.rect.height)

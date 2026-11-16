@@ -247,6 +247,8 @@ class TestBioTemplates(unittest.TestCase):
         self.drop_module(2, (zone["x"] + zone["width"] / 2, zone["y"] + zone["height"] / 2))
         expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)
         expect(bound(page, "bioCard")).to_have_count(1)
+        # With a process in it, the area is no longer outlined.
+        expect(junction.locator("rect")).to_have_count(0)
 
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
         page = self.page
