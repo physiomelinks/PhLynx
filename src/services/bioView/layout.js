@@ -671,6 +671,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         site: cell.site,
         empty: !cell.node,
         tone: null,
+        ...(cell.skin && { skin: cell.skin }),
         label: cell.label,
         facetLabels: cell.facets.filter((facet) => !facet.fold).map(({ id, label, edge }) => ({ facetId: id, label, edge })),
         ...(folds.length && { folds }),
@@ -731,6 +732,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         ...(piece.form === 'inner' && { parent: piece.parent }),
         ...(cutouts.has(piece.key) && { cutout: cutouts.get(piece.key) }),
         ...(edge && { edge }),
+        ...(piece.skin && { skin: piece.skin }),
         label: piece.label,
       })
     }

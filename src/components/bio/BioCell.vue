@@ -10,6 +10,22 @@
       <!-- A template's cell with no module in it yet: just where it goes -->
       <path v-if="data.empty" class="bio-cell__outline" :d="leaflet(0)" data-testid="bio-cell-outline" />
       <path v-else class="bio-cell__cytosol" :d="leaflet(-HEAD_OFFSET)" />
+      <!-- Its skin: artwork of the user's, within its outline, under everything else in it -->
+      <template v-if="skin">
+        <clipPath :id="skinClipId"><path :d="leaflet(-HEAD_OFFSET)" /></clipPath>
+        <image
+          class="bio-cell__skin"
+          :href="skin.href"
+          x="0"
+          y="0"
+          :width="width"
+          :height="height"
+          :preserveAspectRatio="skin.aspect"
+          :opacity="skin.opacity"
+          :clip-path="`url(#${skinClipId})`"
+          data-testid="bio-skin"
+        />
+      </template>
       <!-- A fold's lumen is the space outside: in the colour of the compartment against that side -->
       <path
         v-for="fold in folds"
@@ -73,7 +89,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, inject, useId } from 'vue'
 import BioBilayer from './BioBilayer.vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
@@ -132,6 +148,11 @@ const labelStyle = computed(() => {
   if (!at) return undefined
   return { left: `${at.x}px`, top: `${at.y}px`, bottom: 'auto', transform: 'none', whiteSpace: 'nowrap' }
 })
+
+/** The view's `(skin) => { href, aspect, opacity } | null`: the artwork a piece's skin names, if the workspace has it. */
+const skinOf = inject('bioSkinOf', () => null)
+const skin = computed(() => skinOf(props.data.skin))
+const skinClipId = `bio-skin-${useId()}`
 
 /** The cell's folds, each where it is in the cell (see foldPocket). */
 const folds = computed(() => props.data.folds ?? [])

@@ -30,7 +30,7 @@ function templateData(place) {
   // A cell that is a node of its own still shows the area its processes take up.
   if (!place.instance) return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
   const { instance, site = null, tone = null, edge = null } = place
-  const data = { instance, site, tone, edge }
+  const data = { instance, site, tone, edge, ...(place.skin && { skin: place.skin }) }
   // A microdomain is drawn over its cell.
   if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }) } : data
   return {
@@ -147,7 +147,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           width,
           height,
           zIndex: place.form === 'inner' ? Z.microdomain : Z.region,
-          data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null },
+          // Its size too, where it has a skin: an image is drawn to a size, in the view and in an exported picture.
+          data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null, ...(place.skin && { width, height }) },
         })
         break
       }

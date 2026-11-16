@@ -6,6 +6,7 @@
 
 import { FACETS, LATERAL_SIDES } from './facets.js'
 import { MIN_CELL } from './metrics.js'
+import { SKIN_ID, SKIN_MODES } from './skins.js'
 
 /** The template format this build understands. */
 export const TEMPLATE_SCHEMA_VERSION = 1
@@ -101,13 +102,14 @@ export const LIMITS = {
 /** The keys the validator knows for each kind of object, in the order a clean copy lists them. */
 export const TEMPLATE_KEYS = {
   template: ['$schema', 'schemaVersion', 'id', 'name', 'description', 'author', 'license', 'cells', 'compartments'],
-  cell: ['id', 'label', 'in', 'row', 'size', 'membrane', 'facets', 'processes', 'site'],
+  cell: ['id', 'label', 'in', 'row', 'size', 'membrane', 'facets', 'processes', 'skin', 'site'],
+  skin: ['ref', 'mode', 'opacity'],
   size: ['width', 'height'],
   membrane: ['label'],
   facet: ['id', 'label', 'edge', 'fold', 'depth', 'group', 'annotation', 'site'],
   annotation: ['facet', 'at'],
   process: ['id', 'label', 'between', 'site'],
-  compartment: ['id', 'label', 'in', 'against', 'term', 'tone', 'depth', 'site'],
+  compartment: ['id', 'label', 'in', 'against', 'term', 'tone', 'depth', 'skin', 'site'],
 }
 
 const DEFAULT_MEMBRANE_LABEL = 'Plasma membrane'
@@ -251,6 +253,34 @@ function readSize(raw, where, errors, warnings, fallback = MIN_CELL) {
   }
 }
 
+/**
+ * Reads the artwork a piece is drawn with: a skin of the workspace's, by its id, and how it fills the piece.
+ *
+ * @returns {{ref: string, mode: string, opacity: number}|null} Null for none, or one that can't be read.
+ */
+function readSkin(raw, where, errors, warnings) {
+  if (raw === undefined) return null
+  if (!isObject(raw)) {
+    errors.push(`${where}: "skin" must be an object with a "ref".`)
+    return null
+  }
+  warnUnknown(raw, TEMPLATE_KEYS.skin, `${where}, skin`, warnings)
+  if (typeof raw.ref !== 'string' || !SKIN_ID.test(raw.ref)) {
+    errors.push(`${where}: a skin's "ref" must be a skin's id: lower-case letters, digits and hyphens, starting with a letter.`)
+    return null
+  }
+  const skin = { ref: raw.ref, mode: SKIN_MODES[0], opacity: 1 }
+  if (raw.mode !== undefined) {
+    if (SKIN_MODES.includes(raw.mode)) skin.mode = raw.mode
+    else errors.push(`${where}: a skin's "mode" must be one of ${SKIN_MODES.join(', ')}.`)
+  }
+  if (raw.opacity !== undefined) {
+    if (typeof raw.opacity === 'number' && raw.opacity > 0 && raw.opacity <= 1) skin.opacity = raw.opacity
+    else errors.push(`${where}: a skin's "opacity" must be a number above 0, up to 1.`)
+  }
+  return skin
+}
+
 function readMembrane(raw, where, errors, warnings, fallback = DEFAULT_MEMBRANE_LABEL) {
   if (raw === undefined) return { label: fallback }
   if (raw === false) return false
@@ -346,6 +376,8 @@ function readCell(raw, index, errors, warnings) {
     }
   }
 
+  const skin = readSkin(raw.skin, where, errors, warnings)
+  if (skin) cell.skin = skin
   if (!siteFlag(raw, where, errors)) cell.site = false
   return cell
 }
@@ -483,6 +515,8 @@ function readCompartment(raw, index, cells, errors, warnings) {
     if (typeof raw.term === 'string' && TERM.test(raw.term)) compartment.term = raw.term
     else errors.push(`${where}: "term" must be an ontology term as a CURIE, such as GO:0001750.`)
   }
+  const skin = readSkin(raw.skin, where, errors, warnings)
+  if (skin) compartment.skin = skin
   if (!siteFlag(raw, where, errors)) compartment.site = false
   return compartment
 }
@@ -816,6 +850,11 @@ export function normaliseEdits(raw) {
     .filter(([path, label]) => SITE_PATH.test(path) && typeof label === 'string' && label.trim())
     .map(([path, label]) => [path, label.trim().slice(0, LIMITS.label)])
   if (labels.length) edits.labels = Object.fromEntries(labels)
+  // The skin a cell or compartment is drawn with here; null for none, over the template's own.
+  const skins = Object.entries(isObject(raw.skins) ? raw.skins : {}).filter(
+    ([path, skin]) => SITE_PATH.test(path) && !path.includes('.') && (skin === null || isObject(skin))
+  )
+  if (skins.length) edits.skins = JSON.parse(JSON.stringify(Object.fromEntries(skins)))
   return Object.keys(edits).length ? edits : null
 }
 
@@ -890,6 +929,12 @@ export function editedTemplate(template, edits) {
       : cell ?? (raw.compartments ?? []).find((entry) => entry.id === first)
     // A name for a piece no longer there waits for it to come back.
     if (piece) piece.label = label
+  }
+  for (const [path, skin] of Object.entries(edits.skins ?? {})) {
+    const piece = raw.cells.find((entry) => entry.id === path) ?? (raw.compartments ?? []).find((entry) => entry.id === path)
+    if (!piece) continue
+    if (skin) piece.skin = skin
+    else delete piece.skin
   }
   removePieces(raw, edits.removed ?? [])
   const { template: edited, errors } = validateTemplate(raw, { allowLocalId: true })
@@ -992,6 +1037,25 @@ export function labelInEdits(template, edits, path, label) {
   if (label.trim()) labels[path] = label
   else delete labels[path]
   const next = normaliseEdits({ ...edits, labels })
+  const { template: edited, errors } = editedTemplate(template, next)
+  return edited ? { edits: next, errors: [] } : { edits: edits ?? null, errors }
+}
+
+/**
+ * Sets, or with null takes away, the skin a cell or compartment of a placed template is drawn with.
+ *
+ * @param {Object} template - The instance's validated template, without its changes.
+ * @param {Object|null} edits - Its changes so far.
+ * @param {string} path - The cell's or compartment's.
+ * @param {{ref: string, mode?: string, opacity?: number}|null} skin
+ * @returns {{ edits: Object|null, errors: Array<string> }} The new changes, null for none.
+ */
+export function skinInEdits(template, edits, path, skin) {
+  const skins = { ...edits?.skins, [path]: skin }
+  // No skin on a piece the template gives none is no change.
+  const own = [...template.cells, ...template.compartments].find((piece) => piece.id === path)?.skin
+  if (!skin && !own) delete skins[path]
+  const next = normaliseEdits({ ...edits, skins })
   const { template: edited, errors } = editedTemplate(template, next)
   return edited ? { edits: next, errors: [] } : { edits: edits ?? null, errors }
 }

@@ -54,6 +54,19 @@
     }
   },
   "$defs": {
+    "skin": {
+      "description": "Artwork the piece is drawn with: an SVG skin of the workspace's, by its id. Ignored where the workspace has no such skin.",
+      "type": "object",
+      "required": ["ref"],
+      "properties": {
+        "ref": { "description": "The skin's id.", "type": "string", "pattern": "^[a-z][a-z0-9-]{0,47}$" },
+        "mode": {
+          "description": "How the skin fills the piece: all of it as big as fits (contain), filling the piece and cut where it overflows (cover), or filling it exactly, out of proportion (stretch). Defaults to contain.",
+          "enum": ["contain", "cover", "stretch"]
+        },
+        "opacity": { "description": "How solid the skin is drawn, above 0 and up to 1. Defaults to 1.", "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      }
+    },
     "pieceId": {
       "description": "A piece's id: a lower-case letter, then lower-case letters, digits and hyphens (1-32 characters).",
       "type": "string",
@@ -121,6 +134,7 @@
           "maxItems": 8,
           "items": { "$ref": "#/$defs/process" }
         },
+        "skin": { "$ref": "#/$defs/skin", "description": "Artwork the piece is drawn with, in place of its plain fill." },
         "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
       }
     },
@@ -222,6 +236,7 @@
           "minimum": 20,
           "maximum": 1000
         },
+        "skin": { "$ref": "#/$defs/skin", "description": "Artwork the piece is drawn with, in place of its plain fill." },
         "site": { "$ref": "#/$defs/site", "description": "Set to false to offer no site on this piece." }
       }
     }

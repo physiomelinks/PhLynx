@@ -821,6 +821,38 @@ class TestBioTemplates(unittest.TestCase):
         menu.get_by_text(labels[-1], exact=True).click()
         expect(menu).to_be_hidden()
 
+    def test_draw_a_cell_with_a_skin_and_take_it_away(self):
+        page = self.page
+        self.open_physiology_with_template("Epithelial cell")
+        cell = piece(page, "cell")
+        art = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60">'
+            b'<script>window.skinRan = true</script>'
+            b'<ellipse cx="50" cy="30" rx="40" ry="20" fill="#7c3aed" onclick="window.skinRan = true"/></svg>'
+        )
+        # The cell's Skin menu loads an SVG file and draws the cell with it, as an image: nothing in it runs.
+        box = cell.bounding_box()
+        page.mouse.click(box["x"] + 30, box["y"] + box["height"] * 0.6, button="right")
+        menu = page.locator(".p-contextmenu")
+        menu.get_by_text("Skin", exact=True).hover()
+        with page.expect_file_chooser() as chooser:
+            menu.get_by_text("Load SVG…", exact=True).click()
+        chooser.value.set_files({"name": "Nucleus art.svg", "mimeType": "image/svg+xml", "buffer": art})
+        skin = cell.locator("[data-testid=bio-skin]")
+        expect(skin).to_have_count(1)
+        href = skin.get_attribute("href")
+        assert href.startswith("data:image/svg+xml"), href[:40]
+        assert "script" not in href and "onclick" not in href, href
+        assert page.evaluate("window.skinRan") is None
+
+        # It is one of the workspace's skins now, to fill the cell differently or take away.
+        self.piece_menu("cell", "Skin", "Fill", "Cover")
+        expect(skin).to_have_attribute("preserveAspectRatio", "xMidYMid slice")
+        self.piece_menu("cell", "Skin", "None")
+        expect(skin).to_have_count(0)
+        self.piece_menu("cell", "Skin", "Nucleus art")
+        expect(skin).to_have_count(1)
+
     def test_add_empty_pieces_to_one_placed_template(self):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")

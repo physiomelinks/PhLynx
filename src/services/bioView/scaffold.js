@@ -232,6 +232,7 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         node: members(cell.id)[0] ?? null,
         shape: shapeFromTemplateCell(cell),
         label: cell.label,
+        ...(cell.skin && { skin: cell.skin }),
         size: { ...cell.size },
         row: cell.row,
         // An organelle's cell, by id until every cell has its key (below).
@@ -284,6 +285,7 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         tone: compartment.tone,
         depth: compartment.depth ?? null,
         label: compartment.label,
+        ...(compartment.skin && { skin: compartment.skin }),
         side: null,
         adjacent: null,
         storedRect: null,

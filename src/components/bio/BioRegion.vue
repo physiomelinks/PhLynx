@@ -14,6 +14,18 @@
     :style="cutoutStyle"
     data-testid="bio-region"
   >
+    <!-- Its skin: artwork of the user's, filling it under its name -->
+    <svg v-if="skin" class="bio-region__skin" :width="data.width" :height="data.height" data-testid="bio-skin">
+      <image
+        :href="skin.href"
+        x="0"
+        y="0"
+        :width="data.width"
+        :height="data.height"
+        :preserveAspectRatio="skin.aspect"
+        :opacity="skin.opacity"
+      />
+    </svg>
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-region__label">
       <BioPieceName :id="id" :name="data.name" />
@@ -23,7 +35,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
 import { partOf } from '../../services/bioView/geometry'
@@ -49,6 +61,10 @@ const edge = computed(() => {
   if (!props.data.side) return null
   return facetById(EPITHELIAL_SHAPE, partOf(props.data.side, props.data.at ?? undefined))?.edge ?? null
 })
+/** The view's `(skin) => { href, aspect, opacity } | null`: the artwork a piece's skin names, if the workspace has it. */
+const skinOf = inject('bioSkinOf', () => null)
+const skin = computed(() => skinOf(props.data.skin))
+
 /** A microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it. */
 const cutoutStyle = computed(() => {
   const hole = props.data.cutout
@@ -169,7 +185,17 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   font-size: 0.75rem;
 }
 
+.bio-region__skin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .bio-region__label {
+  position: relative;
   display: block;
   padding: 8px 12px;
   font-weight: 600;

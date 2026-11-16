@@ -280,6 +280,7 @@
       data-testid="bio-template-file-input"
       @change="onTemplateFile"
     />
+    <input ref="skinFileInput" type="file" accept=".svg,image/svg+xml" hidden data-testid="bio-skin-file-input" @change="onSkinFile" />
     <input
       ref="glyphFileInput"
       type="file"
@@ -433,6 +434,7 @@ import {
 } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
+import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
 import { BLANK_CELL_TEMPLATE, TILE_DRAG_TYPE, nearestEdge, templateCellAt } from '../../services/bioView/palette'
 import { ROLE_LABELS } from '../../services/bioView/roles'
 import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
@@ -454,6 +456,7 @@ import {
   TONES,
   addToEdits,
   labelInEdits,
+  skinInEdits,
   editedTemplate,
   freePieceId,
   instanceTemplate,
@@ -1654,6 +1657,96 @@ async function renamePiece(id, name) {
 }
 provide('bioRenamePiece', renamePiece)
 
+// ── Skins ──────────────────────────────────────────────────────────────
+/** The artwork a piece's skin names, as its node draws it: nothing where the workspace has no such skin. */
+const skinArt = computed(() => new Map([...templateStore.skins].map(([id, skin]) => [id, skinHref(skin.svg)])))
+provide('bioSkinOf', (skin) => {
+  const href = skin && skinArt.value.get(skin.ref)
+  return href ? { href, aspect: SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain, opacity: skin.opacity ?? 1 } : null
+})
+
+/**
+ * Sets, or with null takes away, the skin a cell or compartment of a placed template is drawn with, as one step.
+ *
+ * @param {string} instanceId
+ * @param {string} path
+ * @param {{ref: string, mode?: string, opacity?: number}|null} skin
+ */
+function setSkin(instanceId, path, skin) {
+  const instance = templateStore.getInstance(instanceId)
+  const template = instance && templateStore.definitions.get(instance.template)
+  if (!template) return
+  const { edits, errors } = skinInEdits(template, instance.edits ?? null, path, skin)
+  if (errors.length) return notify.error({ title: 'Could not change its skin', message: summariseProblems(errors) })
+  return editTemplate(instanceId, edits, 'bio-template-skin')
+}
+
+const skinFileInput = ref(null)
+/** The piece a loaded skin is for: { instance, path }. */
+let skinFileFor = null
+
+/** Adds the chosen SVG file to the workspace's skins and draws the piece it was loaded for with it. */
+async function onSkinFile(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  const target = skinFileFor
+  skinFileFor = null
+  if (!file) return
+  if (file.size > SKIN_LIMITS.bytes) {
+    return notify.error({ title: `Could not load ${file.name}`, message: `A skin must be at most ${SKIN_LIMITS.bytes / 1024} KB.` })
+  }
+  const { skin, errors } = templateStore.addSkin(file.name, await file.text())
+  if (!skin) return notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
+  if (target) setSkin(target.instance, target.path, { ref: skin.id })
+}
+
+/** The Skin submenu of a placed template's cell or compartment: none, each of the workspace's, how it fills, a file. */
+function skinMenu(instanceId, path) {
+  const piece = [...(placedTemplate(instanceId)?.cells ?? []), ...(placedTemplate(instanceId)?.compartments ?? [])].find((entry) => entry.id === path)
+  if (!piece) return []
+  const current = piece.skin ?? null
+  const mark = (isOn) => (isOn ? 'pi pi-check' : 'pi')
+  return [
+    { label: 'None', icon: mark(!current), command: () => setSkin(instanceId, path, null) },
+    ...[...templateStore.skins.values()].map((skin) => ({
+      label: skin.name,
+      icon: mark(current?.ref === skin.id),
+      command: () => setSkin(instanceId, path, { ...current, ref: skin.id }),
+    })),
+    { separator: true },
+    ...(current
+      ? [
+          {
+            label: 'Fill',
+            icon: 'pi pi-arrows-alt',
+            items: SKIN_MODES.map((mode) => ({
+              label: { contain: 'Fit Inside', cover: 'Cover', stretch: 'Stretch' }[mode],
+              icon: mark((current.mode ?? SKIN_MODES[0]) === mode),
+              command: () => setSkin(instanceId, path, { ...current, mode }),
+            })),
+          },
+          {
+            label: 'Strength',
+            icon: 'pi pi-circle',
+            items: [1, 0.75, 0.5, 0.25].map((opacity) => ({
+              label: `${opacity * 100}%`,
+              icon: mark((current.opacity ?? 1) === opacity),
+              command: () => setSkin(instanceId, path, { ...current, opacity }),
+            })),
+          },
+        ]
+      : []),
+    {
+      label: 'Load SVG…',
+      icon: 'pi pi-upload',
+      command: () => {
+        skinFileFor = { instance: instanceId, path }
+        skinFileInput.value?.click()
+      },
+    },
+  ]
+}
+
 /** Renaming a diagram instance: { id, name }. */
 const renamingNode = ref(null)
 const renameNodeError = computed(() => renamingNode.value && nameError(renamingNode.value.id, renamingNode.value.name))
@@ -2177,6 +2270,9 @@ function templateMenu(instanceId, place = null) {
   const isPiece = place?.instance === instanceId && !!place.path
   return [
     { separator: true },
+    ...(isPiece && (place.kind === 'cell' || place.kind === 'region')
+      ? [{ label: 'Skin', icon: 'pi pi-image', items: skinMenu(instanceId, place.path) }]
+      : []),
     ...(place?.kind === 'cell' && isPiece ? addToCellMenu(instanceId, place.path) : []),
     ...(isPiece ? removeFromTemplateMenu(instanceId, place) : []),
     ...(instance.edits?.removed?.length

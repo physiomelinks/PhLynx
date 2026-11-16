@@ -426,6 +426,7 @@ describe('schema parity', () => {
     annotation: defs.facet.properties.annotation.properties,
     process: defs.process.properties,
     compartment: defs.compartment.properties,
+    skin: defs.skin.properties,
   }
 
   it('lists the same enums and id patterns as the validator', () => {
@@ -655,5 +656,24 @@ describe('junctions', () => {
     failsWith(rod({ between: ['outer', 'outer'] }), '"between" must name two different spaces')
     failsWith(rod({ between: ['outer', 'elsewhere'] }), '"elsewhere" is not the cell or a microdomain in it')
     failsWith(rod({}, { compartments: [{ id: 'outer', label: 'O', in: 'a', against: [`a.${top.id}`], term: 'not a term' }, { id: 'inner', label: 'I', in: 'a', against: [`a.${bottom.id}`] }] }), '"term" must be an ontology term')
+  })
+})
+
+describe('skins', () => {
+  const skinned = (skin) => base({ cells: [cell('a', { skin })] })
+
+  it('reads the skin a cell or compartment is drawn with, by its id, with how it fills', () => {
+    expect(validateTemplate(skinned({ ref: 'myocyte-art' })).template.cells[0].skin).toEqual({ ref: 'myocyte-art', mode: 'contain', opacity: 1 })
+    const fluid = { id: 'fluid', label: 'Fluid', skin: { ref: 'plasma', mode: 'cover', opacity: 0.5 } }
+    expect(validateTemplate(base({ compartments: [fluid] })).template.compartments[0].skin).toEqual({ ref: 'plasma', mode: 'cover', opacity: 0.5 })
+    // At version 1: an older PhLynx ignores a key it doesn't know.
+    expect(validateTemplate(skinned({ ref: 'art' })).template.schemaVersion).toBe(1)
+  })
+
+  it('rejects one with no id, an unknown way of filling, or no strength', () => {
+    failsWith(skinned({ mode: 'cover' }), 'a skin’s "ref" must be a skin’s id'.replaceAll('’', "'"))
+    failsWith(skinned({ ref: 'art', mode: 'tile' }), '"mode" must be one of contain, cover, stretch')
+    failsWith(skinned({ ref: 'art', opacity: 0 }), '"opacity" must be a number above 0')
+    failsWith(skinned('art'), '"skin" must be an object')
   })
 })

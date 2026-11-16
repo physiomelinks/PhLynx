@@ -10,6 +10,7 @@ import {
   labelInEdits,
   normaliseEdits,
   removeFromEdits,
+  skinInEdits,
   sitesOf,
 } from '../../../../src/services/bioView/templates.js'
 
@@ -202,5 +203,25 @@ describe('a placed template’s added organelles', () => {
     const { edits } = addToEdits(synapse, null, 'cells', { ...organelle, in: synapse.cells[0].id })
     const without = removeFromEdits(synapse, edits, synapse.cells[0].id).edits
     expect(editedTemplate(synapse, without).template.cells.map((cell) => cell.id)).not.toContain('organelle-1')
+  })
+})
+
+describe('a placed template’s skins', () => {
+  const skinOf = (edits, id) => [...editedTemplate(epithelial, edits).template.cells, ...editedTemplate(epithelial, edits).template.compartments].find((piece) => piece.id === id).skin
+
+  it('draws a cell or compartment with a skin, changes how it fills, and takes it away again', () => {
+    const { edits } = skinInEdits(epithelial, null, 'cell', { ref: 'art' })
+    expect(skinOf(edits, 'cell')).toEqual({ ref: 'art', mode: 'contain', opacity: 1 })
+    const covered = skinInEdits(epithelial, edits, 'cell', { ref: 'art', mode: 'cover' }).edits
+    expect(skinOf(covered, 'cell').mode).toBe('cover')
+    expect(skinInEdits(epithelial, covered, 'cell', null).edits).toBeNull()
+    expect(skinOf(skinInEdits(epithelial, null, 'paracellular', { ref: 'gap' }).edits, 'paracellular').ref).toBe('gap')
+  })
+
+  it('refuses a skin it can’t read, and keeps the others through other changes', () => {
+    expect(skinInEdits(epithelial, null, 'cell', { ref: 'Not An Id' }).errors).toHaveLength(1)
+    const { edits } = skinInEdits(epithelial, null, 'cell', { ref: 'art' })
+    expect(removeFromEdits(epithelial, edits, 'paracellular').edits.skins).toEqual({ cell: { ref: 'art' } })
+    expect(normaliseEdits({ skins: { cell: { ref: 'a' }, 'cell.apical': { ref: 'b' }, 'Bad Path': null, other: 3 } })).toEqual({ skins: { cell: { ref: 'a' } } })
   })
 })
