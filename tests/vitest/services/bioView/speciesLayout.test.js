@@ -733,3 +733,40 @@ describe('the flow drawn widest for each species', () => {
     expect([spiked(big), spiked(small), spiked(other)]).toEqual([1000, 1000, 50])
   })
 })
+
+describe('species in a cell with pieces inside it', () => {
+  const cell = { x: 0, y: 0, width: 800, height: 600 }
+  const layout = new Map([
+    ['cell', { kind: 'cell', rect: cell, folds: [{ facetId: 'tubule', edge: 'top', at: 700, half: 38, depth: 400 }] }],
+    ['sr', { kind: 'cell', rect: { x: 250, y: 250, width: 280, height: 170 }, parent: 'cell' }],
+    ['cleft', { kind: 'region', rect: { x: 520, y: 270, width: 130, height: 130 }, parent: 'cell', form: 'inner' }],
+    ['outside', { kind: 'region', rect: { x: -80, y: -140, width: 960, height: 180 } }],
+    ['lcc', { kind: 'protein', cell: 'cell', part: 'tubule', x: 662, y: 300, rotation: 90, outward: 'right' }],
+  ])
+
+  it('keeps the cell’s tokens clear of its organelles, microdomains and folds', async () => {
+    const { obstaclesOf } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const boxes = obstaclesOf('cell', layout)
+    const covers = (rect) => boxes.some((box) => box.x <= rect.x && box.y <= rect.y && box.x + box.width >= rect.x + rect.width && box.y + box.height >= rect.y + rect.height)
+    expect(covers(layout.get('sr').rect)).toBe(true)
+    expect(covers(layout.get('cleft').rect)).toBe(true)
+    expect(covers({ x: 662, y: 0, width: 76, height: 400 })).toBe(true)
+    // A microdomain's own tokens are not kept out of it by the cell it lies in.
+    const inner = obstaclesOf('cleft', layout)
+    expect(inner.some((box) => box.width >= cell.width)).toBe(false)
+  })
+
+  it('runs the path to the outside of a fold’s protein in at the fold’s mouth and down its lumen', async () => {
+    const { routeSpecies } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const network = { paths: [{ protein: 'lcc', species: 'Ca', outside: 'outside', inside: 'cleft' }], dependences: [], exchanges: [] }
+    const tokens = [
+      { key: 'outside::Ca', x: 400, y: -70, width: 40, height: 22 },
+      { key: 'cleft::Ca', x: 580, y: 330, width: 40, height: 22 },
+    ]
+    const [path] = routeSpecies(network, layout, tokens).paths
+    // From the token to the mouth, then straight down the middle of the lumen to level with the protein.
+    expect(path.legs.outside).toMatch(/ L700,300 L[\d.]+,[\d.]+$/)
+    expect(path.legs.outside).toContain('700,0')
+    expect(path.legs.inside).not.toContain(' L')
+  })
+})

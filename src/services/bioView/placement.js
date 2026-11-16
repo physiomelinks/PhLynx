@@ -66,16 +66,27 @@ function sitePlaces(ref, { instances, definitions }) {
 
   const facet = cell.facets.find((candidate) => candidate.id === pieceId)
   if (facet) {
-    const outside = template.compartments
-      .filter((candidate) => candidate.against.includes(parsed.path))
-      .map((candidate) =>
-        place(key(candidate.id), candidate.label, 'region', [GO.extracellularRegion], {
-          sides: compartmentSides(template, candidate),
-        })
-      )
+    const region = (candidate, as) =>
+      place(key(candidate.id), candidate.label, 'region', as, { sides: compartmentSides(template, candidate) })
+    // The microdomain against it stands where the cell's inside would: within a cell's facet, and outside an
+    // organelle's, whose own inside is its lumen.
+    const microdomain = template.compartments.find((candidate) => candidate.in !== undefined && candidate.against.includes(parsed.path))
+    const parent = cell.in && template.cells.find((candidate) => candidate.id === cell.in)
+    // A fold's outside is that of the side it dips in from.
+    const side = facet.fold ? cell.facets.find((candidate) => candidate.edge === facet.fold) : facet
+    const against = side && `${cell.id}.${side.id}`
+    const beyond = template.compartments
+      .filter((candidate) => candidate.in === undefined && candidate.against.includes(against))
+      .map((candidate) => region(candidate, [GO.extracellularRegion]))
+    const inside = !parent && microdomain ? region(microdomain, [GO.cytoplasm]) : cytosol([GO.cytoplasm])
+    const outside = !parent
+      ? beyond
+      : microdomain
+        ? [region(microdomain, [GO.extracellularRegion])]
+        : [place(key(parent.id), parent.label, 'cytosol', [GO.extracellularRegion])]
     return [
       place(key(parsed.path), facet.label, 'membraneProtein', [], { facets: [facet.id], sides: unique([facet.annotation?.facet]) }),
-      cytosol([GO.cytoplasm]),
+      inside,
       membrane([GO.plasmaMembrane], [facet.id]),
       ...outside,
     ]

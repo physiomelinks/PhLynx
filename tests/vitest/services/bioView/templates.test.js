@@ -532,6 +532,9 @@ describe('microdomains', () => {
     const { template } = validateTemplate(nested())
     expect(siteNeighbours(template, `a.${first.id}`)).toContainEqual({ path: 'cleft', relation: 'inside' })
     expect(siteNeighbours(template, `a.${first.id}`)).not.toContainEqual({ path: 'a', relation: 'inside' })
+    // Still in the cell's membrane, for what the cell gives of it.
+    expect(siteNeighbours(template, `a.${first.id}`)).toContainEqual({ path: 'a', relation: 'membrane' })
+    expect(siteNeighbours(template, 'a')).toContainEqual({ path: `a.${first.id}`, relation: 'embedded' })
     expect(siteNeighbours(template, `sr.${first.id}`)).toEqual(
       expect.arrayContaining([
         { path: 'cleft', relation: 'outside' },

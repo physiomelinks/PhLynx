@@ -495,6 +495,80 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.drop_module("pool", (hint["x"] + hint["width"] / 2, hint["y"] + hint["height"] / 2))
         expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count + 1)
 
+    def test_a_cardiomyocyte_couples_each_protein_to_the_spaces_either_side_of_it(self):
+        page = self.page
+        open_app(page)
+        import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
+        page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
+        expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
+        page.mouse.click(450, 200, button="right")
+        menu = page.locator(".p-contextmenu")
+        menu.get_by_text("Add Template", exact=True).hover()
+        menu.get_by_text("Cardiomyocyte", exact=True).click()
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        page.keyboard.press("Escape")
+        expect(menu).to_be_hidden()
+        fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
+        placed = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')
+
+        def drop(name, point):
+            count = placed.count()
+            self.drop_module(name, point)
+            expect(placed).to_have_count(count + 1)
+            fit.click()
+            page.wait_for_timeout(400)
+
+        def centre(box):
+            return (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+        def cells():
+            """The cell nodes' boxes, smallest first: the SR, then the myocyte."""
+            boxes = page.locator(f"{BIO} .vue-flow__node-bioCell").evaluate_all(
+                "els => els.map(e => { const r = e.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height} })"
+            )
+            return sorted(boxes, key=lambda box: box["width"])
+
+        fit.click()
+        page.wait_for_timeout(400)
+        # A pool in each space: the cleft, the SR, the cytosol and outside the cell.
+        drop("pool", centre(piece(page, "cleft").bounding_box()))
+        drop("pool", centre(piece(page, "sr").bounding_box()))
+        hint = piece(page, "myocyte").get_by_text("Drop a module").last.bounding_box()
+        drop("pool", (hint["x"] + hint["width"] / 2, hint["y"] + 6))
+        outside = piece(page, "extracellular").bounding_box()
+        drop("pool", (outside["x"] + 40, outside["y"] + 40))
+        # A porter on the T-tubule, and one on each side of the SR.
+        fold = page.locator("[data-testid=bio-fold]").bounding_box()
+        drop("porter", (fold["x"] + 2, fold["y"] + fold["height"] * 0.6))
+        sr = cells()[0]
+        drop("porter", (sr["x"] + sr["width"], sr["y"] + sr["height"] / 2))
+        sr = cells()[0]
+        drop("porter", (sr["x"] + sr["width"] / 2, sr["y"] + sr["height"]))
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+
+        def couplings():
+            flow = self.flow()
+            site = {n["name"]: (n["site"] or "/").split("/", 1)[1] for n in flow["nodes"]}
+            found = set()
+            for edge in flow["edges"]:
+                for c in edge["couplings"]:
+                    found.add(" - ".join(sorted([f"{site[edge['source']]}:{c['source']}", f"{site[edge['target']]}:{c['target']}"])))
+            return found
+
+        expected = {
+            # The T-tubule's porter: the space outside the cell beyond it, the cleft within, and its cell's membrane.
+            "extracellular:c_A - myocyte.t-tubule:c_A_o",
+            "cleft:c_A - myocyte.t-tubule:c_A_i",
+            "myocyte.t-tubule:area - myocyte:area",
+            # The junctional SR's: the cleft outside it, the SR's lumen within.
+            "cleft:c_A - sr.junctional:c_A_o",
+            "sr.junctional:c_A_i - sr:c_A",
+            # The network SR's: the cytosol outside it.
+            "myocyte:c_A - sr.network:c_A_o",
+            "sr.network:c_A_i - sr:c_A",
+        }
+        self.assertTrue(expected <= couplings(), expected - couplings())
+
     def test_the_species_menu_hides_a_species_with_its_paths_and_still_lists_it(self):
         page = self.page
         self.open_physiology_with_template()

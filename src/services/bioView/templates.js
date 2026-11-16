@@ -713,7 +713,11 @@ function neighbourPairs(template) {
       if (cell.in) {
         pair(path, cell.id, 'inside', 'protein')
         pair(path, microdomain?.id ?? cell.in, 'outside', 'protein')
-      } else pair(path, microdomain?.id ?? cell.id, 'inside', 'protein')
+      } else {
+        pair(path, microdomain?.id ?? cell.id, 'inside', 'protein')
+        // It is still in its cell's membrane, whose area and potential are the cell's to give.
+        if (microdomain) pair(path, cell.id, 'membrane', 'embedded')
+      }
       if (cell.membrane) pair(path, membrane, 'membrane', 'protein')
       // A fold's outside is that of the side it dips in from: its lumen is the same space.
       const side = facet.fold ? cell.facets.find((entry) => entry.edge === facet.fold) : facet
@@ -735,8 +739,9 @@ function neighbourPairs(template) {
  *
  * @param {Object} template - A validated template.
  * @param {string} path - One of its site paths.
- * @returns {Array<{path: string, relation: 'inside'|'outside'|'membrane'|'protein'|'process'}>} relation:
- *   how the neighbour lies to the site; empty for a path the template doesn't offer.
+ * @returns {Array<{path: string, relation: 'inside'|'outside'|'membrane'|'protein'|'process'|'embedded'}>}
+ *   relation: how the neighbour lies to the site ('embedded': a protein in the cell's membrane that meets a
+ *   microdomain, not the cell's inside); empty for a path the template doesn't offer.
  */
 export function siteNeighbours(template, path) {
   const neighbours = []

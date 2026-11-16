@@ -11,7 +11,7 @@
  */
 
 import { facePoint } from './faces.js'
-import { GLYPH_HEIGHT, GLYPH_WIDTH, HEAD_OFFSET, partOf, proteinLabelWidth } from './geometry.js'
+import { GLYPH_HEIGHT, GLYPH_WIDTH, HEAD_OFFSET, foldPoint, partOf, proteinLabelWidth } from './geometry.js'
 import { DEFAULT_ARROW_ROOM } from './glyphLibrary.js'
 import { CARD } from './layout.js'
 import { CELL_RADIUS, FACET_BAND } from './metrics.js'
@@ -417,7 +417,15 @@ export function obstaclesOf(nodeId, layout, labelOf = () => undefined) {
     const named = cellNameBox(nodeId, layout, labelOf)
     if (named) boxes.push(named)
     for (const zone of place.zones ?? []) boxes.push(zone.rect)
+    // What lies within it and is not its inside: its organelles, its microdomains and its folds.
+    for (const fold of place.folds ?? []) {
+      const reach = fold.half + HEAD_OFFSET + 4
+      const a = foldPoint(place.rect, fold.edge, fold.at - reach, 0)
+      const b = foldPoint(place.rect, fold.edge, fold.at + reach, fold.depth + HEAD_OFFSET + 4)
+      boxes.push(box(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(a.x - b.x), Math.abs(a.y - b.y)))
+    }
     for (const [id, other] of layout) {
+      if (other.parent === nodeId && other.rect) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
       if (other.cell !== nodeId) continue
       if (other.kind === 'protein') boxes.push(...proteinBoxes(other, labelOf(id)))
       if (other.kind === 'cytosolic') boxes.push(box(other.x, other.y, CARD.width, CARD.height))
@@ -426,7 +434,8 @@ export function obstaclesOf(nodeId, layout, labelOf = () => undefined) {
   }
   if (name) boxes.push(regionNameBox(place, name))
   for (const [id, other] of layout) {
-    if (other.kind === 'cell') boxes.push(grow(other.rect, HEAD_OFFSET + 4))
+    // A microdomain lies within its cell, which is no obstacle to it; the cell's organelles are.
+    if (other.kind === 'cell' && id !== place.parent) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
     for (const facet of other.kind === 'cell' ? facetLabelBoxes(id, layout, labelOf) : []) {
       boxes.push(box(other.rect.x + facet.x, other.rect.y + facet.y, facet.width, facet.height))
     }
@@ -701,6 +710,25 @@ const proteinPlaceIn = (layout) => (id) => {
   return place?.kind === 'protein' ? place : null
 }
 
+/**
+ * Gives the way into a fold for a path to the outside of a protein on it: the fold's mouth, met from outside the
+ * cell, and the point in its lumen level with the protein. A path from the space outside then runs down the fold, in
+ * place of across the cell.
+ *
+ * @param {Object} place - The protein's place.
+ * @param {Map<string, Object>} layout
+ * @returns {{through?: {mouth: {point: Object, direction: Object}, lumen: Object}}} Nothing for a protein on a side.
+ */
+function foldWay(place, layout) {
+  const cell = layout.get(place.cell)
+  const fold = cell?.folds?.find((each) => each.facetId === place.part)
+  if (!fold) return {}
+  const { rect } = cell
+  const inward = { top: place.y - rect.y, bottom: rect.y + rect.height - place.y, left: place.x - rect.x, right: rect.x + rect.width - place.x }[fold.edge]
+  const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[fold.edge]
+  return { through: { mouth: { point: foldPoint(rect, fold.edge, fold.at, 0), direction }, lumen: foldPoint(rect, fold.edge, fold.at, inward) } }
+}
+
 /** A process card's place in the layout: in a cell or free. Its x and y are its top-left corner. */
 const cardPlaceIn = (layout) => (id) => {
   const place = layout.get(id)
@@ -932,7 +960,7 @@ export function routeSpecies(
     const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
     const anchors = facesOf(path.protein)
     const offset = arrowOffset(arrowsOf(path.protein), path.species)
-    const out = facePoint(place, 'outside', size, anchors, offset)
+    const out = { ...facePoint(place, 'outside', size, anchors, offset), ...foldWay(place, layout) }
     const into = facePoint(place, 'inside', size, anchors, offset)
     const flow = flows[index]
     const width = widthOf(flow, path)
@@ -1069,8 +1097,14 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
     if (!offset && !shift) return d
     const token = tokenOf.get(ends.token)
     const at = offset ? { ...token, x: token.x + offset.x, y: token.y + offset.y } : token
+    const move = (point) => ({ x: point.x + shift.x, y: point.y + shift.y })
+    const through = shift && ends.face.through
     const face = shift
-      ? { ...ends.face, point: { x: ends.face.point.x + shift.x, y: ends.face.point.y + shift.y } }
+      ? {
+          ...ends.face,
+          point: move(ends.face.point),
+          ...(through && { through: { mouth: { ...through.mouth, point: move(through.mouth.point) }, lumen: move(through.lumen) } }),
+        }
       : ends.face
     return leg(at, face, ends.toToken, ends.head)
   }
@@ -1102,6 +1136,15 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
  * @returns {string} An SVG path.
  */
 function leg(token, face, toToken, head = 0) {
+  // To a protein down a fold: to the fold's mouth as to a face, then down its lumen to the protein.
+  if (face.through) {
+    const { mouth, lumen } = face.through
+    const round = (point) => `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`
+    const curve = leg(token, mouth, toToken)
+    return toToken
+      ? `M${round(face.point)} L${round(lumen)} L${round(mouth.point)} ${curve.slice(curve.indexOf('C'))}`
+      : `${curve} L${round(lumen)} L${round(face.point)}`
+  }
   const dx = face.point.x - token.x
   const dy = face.point.y - token.y
   const isVertical = Math.abs(dy) * token.width >= Math.abs(dx) * token.height
