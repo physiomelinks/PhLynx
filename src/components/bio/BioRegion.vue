@@ -15,6 +15,7 @@
     ]"
     :style="cutoutStyle"
     data-testid="bio-region"
+    :data-site="data.site ?? undefined"
   >
     <!-- Its skin: artwork of the user's, filling it under its name -->
     <svg v-if="skin" class="bio-region__skin" :width="data.width" :height="data.height" data-testid="bio-skin">

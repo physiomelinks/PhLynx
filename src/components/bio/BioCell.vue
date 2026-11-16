@@ -5,6 +5,7 @@
       { 'bio-cell--selected': selected, 'bio-cell--empty': isEmpty, 'bio-cell--own-membrane': !data.membrane },
     ]"
     data-testid="bio-cell"
+    :data-site="data.site ?? undefined"
   >
     <svg class="bio-cell__art" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" overflow="visible">
       <!-- A template's cell with no module in it yet: just where it goes -->

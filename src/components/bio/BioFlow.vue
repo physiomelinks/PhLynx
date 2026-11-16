@@ -477,6 +477,7 @@ import {
   siteRef,
 } from '../../services/bioView/templates'
 import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
+import { isPlaceholder, placeholderName, takesPlaceholder } from '../../services/bioView/placeholders'
 import { CARD, GAP, REGION_HEIGHT, TUBE } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
 import BioPlaceDialog from './BioPlaceDialog.vue'
@@ -838,7 +839,8 @@ const isConfirming = ref(false)
  */
 async function confirmReplace(site, id, name) {
   const occupant = replacedOccupant(site, id)
-  if (!occupant) return true
+  // A placeholder is there to be replaced, so it goes without asking (see addModuleAt and settleNodeDrag).
+  if (!occupant || isPlaceholder(main.findNode(occupant), main.edges.value)) return true
   isConfirming.value = true
   try {
     const answer = await choose({
@@ -953,6 +955,7 @@ const dropText = computed(() => {
   if (!draggingId.value || !site) return null
   const id = draggingId.value === 'library' ? null : draggingId.value
   const labels = new Map(siteTargets.value.map((target) => [target.ref, target.label]))
+  // A library module, or the new one the Module tile adds.
   const dragged = id ? main.findNode(id)?.data : libraryDrag.draggedType.value
   // A library module's annotated ports are only made when it is added.
   const isPorted = (data) => hasPorts(data) || (!id && !!libraryStore.getModuleAnnotations(data?.mathRef))
@@ -1183,6 +1186,9 @@ async function settleNodeDrag({ nodes: dragged }) {
     !!target?.site &&
     nodes.some((moved) => moved.id === dropped && !moves.has(layout.value.get(moved.id)?.instance))
   if (binds && !(await confirmReplace(target.site, dropped, nameOf(dropped)))) return putBack(nodes)
+  // A placeholder on the site goes, for the node dropped there to take its place.
+  const replaced = binds ? replacedOccupant(target.site, dropped) : null
+  const placeholder = replaced && isPlaceholder(main.findNode(replaced), main.edges.value) ? replaced : null
 
   for (const moved of nodes) {
     const node = findNode(moved.id) ?? moved
@@ -1233,6 +1239,7 @@ async function settleNodeDrag({ nodes: dragged }) {
   // the same step.
   history.startBatch()
   try {
+    if (placeholder) main.removeNodes([placeholder], true)
     if (await applyPlan(plan, type, templateMoves(moves))) {
       await dropStaleLinks(before)
       if (binds) await connectToNeighbours(dropped, target.site)
@@ -2207,19 +2214,46 @@ function applyTile(tile, point) {
     if (cell.processes.length >= LIMITS.processes) return notify.info({ title: 'This cell has all the process zones it can hold' })
     return addZone(found.instance, found.path)
   }
-  if (tile.kind === 'site') {
-    // On an organelle the point is on, or the cell's.
-    const edge = nearestEdge(found.rect, point, EDGES.filter((each) => !cell.facets.some((facet) => facet.edge === each)))
-    if (!edge) return notify.info({ title: 'Every side of this cell has a protein site' })
-    return addSite(found.instance, found.path, edge)
-  }
   // A compartment lies against the cell's side nearest the drop, which needs a protein site to lie against.
   const edge = nearestEdge(found.rect, point, EDGES)
   // Every protein site along that side meets it.
   const facets = cell.facets.filter((each) => each.edge === edge)
-  if (!facets.length) return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell.' })
+  if (!facets.length) {
+    return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell: add one from the cell’s menu.' })
+  }
   // Unnamed: a click on its name names it.
   return addCompartment(found.instance, facets.map((facet) => `${found.path}.${facet.id}`))
+}
+
+/**
+ * Places what a palette tile stands for, as applyTile does, with a new, empty module on each site it adds that takes
+ * one module, all as one step, so a model built from the palette is whole, each module there to replace later.
+ *
+ * @param {{kind: string, template?: string}} tile
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ */
+async function placeTile(tile, point) {
+  const before = new Set(siteTargets.value.map((target) => target.ref))
+  history.startBatch()
+  try {
+    await applyTile(tile, point)
+    const module = newModule()
+    if (!module || !props.createInstance) return
+    await nextTick()
+    const fresh = siteTargets.value.filter((target) => !before.has(target.ref) && takesPlaceholder(target)).map((target) => target.ref)
+    for (const ref of fresh) {
+      // Found again each time, as the sites before it took their modules.
+      await nextTick()
+      const site = siteTargets.value.find((target) => target.ref === ref && target.type === 'area')
+      if (!site || !takesPlaceholder(site)) continue
+      const id = await addModuleIn(module, { site })
+      // Named for the piece, which is drawn by its module's name while it holds one.
+      const name = placeholderName(site.label, main.nodes.value.filter((node) => node.id !== id).map((node) => node.data?.name))
+      if (id && name) await renameInstance(id, name)
+    }
+  } finally {
+    history.endBatch('bio-build')
+  }
 }
 
 /** Places the armed tile where the view is clicked; a click on the view's own controls is theirs. */
@@ -2230,7 +2264,7 @@ function onArmedClick(event) {
   event.preventDefault()
   const tile = armedTile.value
   armedTile.value = null
-  applyTile(tile, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+  placeTile(tile, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
 }
 
 /** Escape lets go of the armed tile. */
@@ -2761,7 +2795,8 @@ async function onModuleDrop(event) {
     event.stopPropagation()
     const tile = draggedTile.value ?? JSON.parse(event.dataTransfer.getData(TILE_DRAG_TYPE) || 'null')
     draggedTile.value = null
-    if (tile) applyTile(tile, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+    draggingId.value = activeTarget.value = pointer.value = null
+    if (tile) placeTile(tile, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
     return
   }
   const module = libraryDrag.draggedType.value
@@ -2772,10 +2807,22 @@ async function onModuleDrop(event) {
   libraryDrag.draggedType.value = null
   libraryDrag.isDragging.value = false
   libraryDrag.isDragOver.value = false
-  const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
-  const target = targetAt(point)
   draggingId.value = activeTarget.value = pointer.value = null
+  return dropModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+}
 
+/** The library's new, empty module, which the Module tile and "New Module Here" add. */
+const newModule = () => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null
+
+/**
+ * Adds an instance of a library module where it was dropped: into the membrane slot or onto the template site
+ * there, as one step, or else at the point, asking what it is.
+ *
+ * @param {Object} module - A library module.
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ */
+async function dropModuleAt(module, point) {
+  const target = targetAt(point)
   if (target) {
     const { site } = target
     if (site && !(await confirmReplace(site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
@@ -2811,26 +2858,41 @@ async function onModuleDrop(event) {
  * @param {{site: Object}|{slot: Object}|{area: Object}} target - From targetAt.
  * @returns {Promise<void>}
  */
-async function addModuleAt(module, { site, slot, area }) {
+async function addModuleAt(module, target) {
   history.startBatch()
   try {
-    if (area) {
-      // A node-owned cell's membrane, or a process in it.
-      const id = props.createInstance(module, { role: area.role, cell: area.cellId })
-      await connectToCellNeighbours(id)
-    } else if (site) {
-      // An instance of the module, bound to the site; planned against the sites as they were drawn.
-      const id = props.createInstance(module, { role: site.role, facet: null })
-      await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
-      await connectToNeighbours(id, site)
-    } else {
-      // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
-      const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
-      await applyPlan(slotPlan(id, slot), 'bio-add')
-      await connectToCellNeighbours(id)
-    }
+    // A placeholder there goes, for the module to take its place.
+    const replaced = target.site && replacedOccupant(target.site, null)
+    if (replaced && isPlaceholder(main.findNode(replaced), main.edges.value)) main.removeNodes([replaced], true)
+    await addModuleIn(module, target)
   } finally {
     history.endBatch('bio-add')
+  }
+}
+
+/**
+ * Adds an instance of a library module as addModuleAt does, in the step already open.
+ *
+ * @returns {Promise<string>} The new instance's id.
+ */
+async function addModuleIn(module, { site, slot, area }) {
+  if (area) {
+    // A node-owned cell's membrane, or a process in it.
+    const id = props.createInstance(module, { role: area.role, cell: area.cellId })
+    await connectToCellNeighbours(id)
+    return id
+  } else if (site) {
+    // An instance of the module, bound to the site; planned against the sites as they were drawn.
+    const id = props.createInstance(module, { role: site.role, facet: null })
+    await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
+    await connectToNeighbours(id, site)
+    return id
+  } else {
+    // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
+    const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
+    await applyPlan(slotPlan(id, slot), 'bio-add')
+    await connectToCellNeighbours(id)
+    return id
   }
 }
 
@@ -2842,7 +2904,7 @@ async function addModuleAt(module, { site, slot, area }) {
  * @returns {Array<Object>} The item, or none.
  */
 function newModuleItem(event) {
-  const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
+  const module = newModule()
   if (!module || !props.createInstance) return []
   const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
   if (!target || (target.site && replacedOccupant(target.site, null))) return []

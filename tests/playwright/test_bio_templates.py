@@ -66,7 +66,13 @@ def centre(box):
 
 
 def piece(page, path):
-    """An empty piece of the placed template, by its path in the template ('cell', 'apical-fluid', ...)."""
+    """A piece of the placed template, by its path in the template ('cell', 'apical-fluid', ...): empty, or holding
+    a module, as one the build palette places holds a new one."""
+    return empty_piece(page, path).or_(page.locator(f'{BIO_NODE}:has([data-site$="/{path}"])'))
+
+
+def empty_piece(page, path):
+    """A piece of the placed template with no module on it, by its path in the template."""
     return page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/{path}"]')
 
 
@@ -122,9 +128,10 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
             pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.45}
         )
-        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        cell = piece(page, "cell")
         expect(cell).to_be_visible()
-        expect(cell).to_contain_text("Drop a module")
+        # With a new module in it, named for it, to replace later.
+        expect(cell).to_contain_text("Cell")
 
         # A compartment dropped above it lies against its top side.
         spot = cell.bounding_box()
@@ -133,7 +140,7 @@ class TestBioTemplates(unittest.TestCase):
         )
         # Straight away, unnamed.
         expect(page.locator(".p-dialog")).to_have_count(0)
-        compartment = page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Compartment")
+        compartment = page.locator(f"{BIO} .vue-flow__node-bioRegion").filter(has_text="Compartment")
         expect(compartment).to_be_visible()
         assert compartment.bounding_box()["y"] < cell.bounding_box()["y"]
 
@@ -148,7 +155,7 @@ class TestBioTemplates(unittest.TestCase):
         assert abs(after["x"] - before["x"]) < 1 and abs(after["y"] - before["y"]) < 1, (before, after)
         field.fill("Lumen")
         field.press("Enter")
-        expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"]').filter(has_text="Lumen")).to_be_visible()
+        expect(page.locator(f"{BIO} .vue-flow__node-bioRegion").filter(has_text="Lumen")).to_be_visible()
 
     def test_the_build_palette_joins_two_tubes_into_one_vessel(self):
         page = self.page
@@ -170,31 +177,30 @@ class TestBioTemplates(unittest.TestCase):
         tile("tube").drag_to(pane, target_position={"x": one["x"] - box["x"] + one["width"] * 1.7, "y": one["y"] - box["y"] + one["height"] / 2})
         second = piece(page, "segment-1")
         expect(second.locator(".bio-region--tube")).to_be_visible()
-        expect(second).to_contain_text("Segment 2")
+        expect(second).to_contain_text("Segment_2")
         expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
         page.wait_for_timeout(300)
         one, two = first.bounding_box(), second.bounding_box()
         assert two["x"] > one["x"] + one["width"], (one, two)
 
         # A link dropped between them is a flow from the first into the second, which goes on from its end: one
-        # vessel, with the link the joint between them, a place for a module.
+        # vessel, with the link the joint between them, holding a new module named for it.
         gap = (one["x"] + one["width"] + two["x"]) / 2 - box["x"]
         tile("link").drag_to(pane, target_position={"x": gap, "y": one["y"] - box["y"] + one["height"] / 2})
-        link = page.locator("[data-testid=bio-link]")
-        expect(link).to_contain_text("Flow")
-        expect(link).to_contain_text("Drop a module")
+        held = page.locator("[data-testid=bio-joint]")
+        expect(held).to_contain_text("Flow")
         page.wait_for_timeout(300)
         one, two = first.bounding_box(), second.bounding_box()
-        joint = link.locator("[data-testid=bio-joint-glyph]").bounding_box()
+        joint = held.locator("[data-testid=bio-joint-glyph]").bounding_box()
         self.assertAlmostEqual(joint["x"], one["x"] + one["width"], delta=2)
         self.assertAlmostEqual(two["x"], joint["x"] + joint["width"], delta=2)
         self.assertAlmostEqual(two["y"], one["y"], delta=2)
 
-        # A module dropped on the joint is drawn as it, named.
+        # A library module dropped on the joint takes the new one's place, and is drawn as the joint, named.
         page.locator("[data-testid=library-tab-modules]").click()
         self.drop_module(0, centre(joint))
-        expect(page.locator("[data-testid=bio-joint]")).to_have_count(1)
-        expect(link).not_to_contain_text("Drop a module")
+        expect(held).to_have_count(1)
+        expect(held).not_to_contain_text("Flow")
 
         # The vessel drags as one, from either tube, and one step back puts it where it was.
         self.drag((two["x"] + two["width"] - 40, two["y"] + two["height"] / 2), (0, 160))
@@ -221,7 +227,7 @@ class TestBioTemplates(unittest.TestCase):
         one = first.bounding_box()
         tile("cell").drag_to(pane, target_position={"x": one["x"] - box["x"] + one["width"] * 1.9, "y": one["y"] - box["y"] + one["height"] / 2})
         second = piece(page, "cell-1")
-        expect(second).to_contain_text("Cell 2")
+        expect(second).to_contain_text("Cell_2")
         expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
         page.wait_for_timeout(300)
         one, two = first.bounding_box(), second.bounding_box()
@@ -233,16 +239,17 @@ class TestBioTemplates(unittest.TestCase):
         gap = (one["x"] + one["width"] + two["x"]) / 2 - box["x"]
         tile("link").drag_to(pane, target_position={"x": gap, "y": one["y"] - box["y"] + one["height"] / 2})
         link = page.locator("[data-testid=bio-link]")
-        expect(link).to_contain_text("Junction")
-        expect(link.locator("[data-testid=bio-joint-glyph] rect")).to_have_count(2)
+        held = page.locator("[data-testid=bio-joint]")
+        expect(held).to_contain_text("Junction")
+        expect(held.locator("[data-testid=bio-joint-glyph] rect")).to_have_count(2)
         page.wait_for_timeout(300)
         one, two = first.bounding_box(), second.bounding_box()
         assert 0 < two["x"] - (one["x"] + one["width"]) < 30, (one, two)
 
         # A module dropped on the channel goes in the junction, not on either membrane.
         page.locator("[data-testid=library-tab-modules]").click()
-        self.drop_module(0, centre(link.locator("[data-testid=bio-joint-glyph]").bounding_box()))
-        expect(page.locator("[data-testid=bio-joint]")).to_have_count(1)
+        self.drop_module(0, centre(held.locator("[data-testid=bio-joint-glyph]").bounding_box()))
+        expect(held).not_to_contain_text("Junction")
         expect(bound(page, "bioProtein")).to_have_count(0)
 
         # Its menu on a cell takes it away again; the module in it stays in the diagram.
@@ -250,6 +257,40 @@ class TestBioTemplates(unittest.TestCase):
         expect(page.locator(".p-dialog")).to_be_visible()
         page.locator(".p-dialog").get_by_role("button", name="Remove").click()
         expect(link).to_have_count(0)
+
+    def test_the_build_palette_places_pieces_with_new_modules_to_replace(self):
+        page = self.page
+        self.open_physiology()
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        box = pane.bounding_box()
+        page.locator("[data-testid=library-tab-build]").click()
+        tile = lambda kind: page.locator(f"[data-testid=bio-palette-tile][data-kind={kind}]")
+        # A cell's protein sites come with it.
+        expect(tile("site")).to_have_count(0)
+
+        # A cell from the palette comes with a new module inside it and one for its membrane, in one step.
+        tile("cell").drag_to(pane, target_position={"x": box["width"] * 0.4, "y": box["height"] * 0.4})
+        expect(bound(page, "bioCell")).to_have_count(1)
+        # Named for the cell and its membrane, so the cell keeps its name.
+        expect(bound(page, "bioCell")).to_contain_text("Cell")
+        expect(bound(page, "bioMembrane")).to_have_count(1)
+        instances = page.locator(f"{BIO_NODE}:not([data-id^='tpl:'])")
+        count = instances.count()
+
+        # A library module dropped on the cell takes the new module's place, without asking.
+        page.locator("[data-testid=library-tab-modules]").click()
+        cell = bound(page, "bioCell").bounding_box()
+        self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"] + cell["height"] / 2))
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        expect(bound(page, "bioCell")).not_to_contain_text("Cell")
+        expect(instances).to_have_count(count)
+
+        # Undone, the new module is back; undone again, the cell and its new modules go together.
+        undo(page)
+        expect(bound(page, "bioCell")).to_contain_text("Cell")
+        undo(page)
+        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(0)
+        expect(instances).to_have_count(0)
 
     def test_the_build_palette_puts_an_organelle_inside_a_cell(self):
         page = self.page
@@ -260,7 +301,7 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
             pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
         )
-        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        cell = piece(page, "cell")
         expect(cell).to_be_visible()
         before = cell.bounding_box()
 
@@ -268,7 +309,7 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-tile][data-kind=organelle]").drag_to(
             pane, target_position={"x": before["x"] - box["x"] + before["width"] / 2, "y": before["y"] - box["y"] + before["height"] / 2}
         )
-        organelle = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/organelle-1"]')
+        organelle = piece(page, "organelle-1")
         expect(organelle).to_be_visible()
         expect(organelle).to_contain_text("Organelle")
         page.locator("[data-testid=library-tab-modules]").click()
@@ -287,7 +328,7 @@ class TestBioTemplates(unittest.TestCase):
                 "y": (inner["y"] + inner["height"] + outer["y"] + outer["height"]) / 2 - box["y"],
             },
         )
-        microdomain = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/microdomain-1"]')
+        microdomain = piece(page, "microdomain-1")
         expect(microdomain).to_be_visible()
         page.locator("[data-testid=library-tab-modules]").click()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
@@ -310,11 +351,11 @@ class TestBioTemplates(unittest.TestCase):
         assert abs(dip["y"] - outer["y"]) < 3 and dip["height"] > 0.2 * outer["height"], (outer, dip)
         inner = organelle.bounding_box()
 
-        # A module dropped on the organelle is its inside, not the cell's.
+        # A module dropped on the organelle takes the place of the new module in it, not the cell's.
+        expect(organelle).to_contain_text("Organelle")
         self.drop_module(2, (inner["x"] + inner["width"] / 2, inner["y"] + inner["height"] / 2))
-        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)
-        expect(organelle).to_have_count(0)
-        expect(cell).to_be_visible()
+        expect(organelle).not_to_contain_text("Organelle")
+        expect(cell).to_contain_text("Cell")
 
     def test_the_build_palette_joins_a_microdomain_to_its_cell_with_a_junction(self):
         page = self.page
@@ -325,7 +366,7 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-tile][data-kind=cell]").drag_to(
             pane, target_position={"x": box["width"] * 0.5, "y": box["height"] * 0.4}
         )
-        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        cell = piece(page, "cell")
         expect(cell).to_be_visible()
 
         def on_cell(across, down):
@@ -334,7 +375,7 @@ class TestBioTemplates(unittest.TestCase):
 
         # A microdomain under the cell's top side, then a junction: between the microdomain and the cell's inside.
         page.locator("[data-testid=bio-palette-tile][data-kind=microdomain]").drag_to(pane, target_position=on_cell(0.5, 0.12))
-        microdomain = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/microdomain-1"]')
+        microdomain = piece(page, "microdomain-1")
         expect(microdomain).to_be_visible()
         page.locator("[data-testid=bio-palette-tile][data-kind=junction]").drag_to(pane, target_position=on_cell(0.5, 0.6))
         junction = cell.locator("[data-testid=bio-process-zone]").filter(has_text="Junction")
@@ -346,7 +387,6 @@ class TestBioTemplates(unittest.TestCase):
         zone, above = junction.bounding_box(), microdomain.bounding_box()
         assert zone["y"] >= above["y"] + above["height"], (above, zone)
         self.drop_module(2, (zone["x"] + zone["width"] / 2, zone["y"] + zone["height"] / 2))
-        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(1)
         expect(bound(page, "bioCard")).to_have_count(1)
         # With a process in it, the area is no longer outlined.
         expect(junction.locator("rect")).to_have_count(0)
@@ -365,7 +405,7 @@ class TestBioTemplates(unittest.TestCase):
         page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
 
         # A tile clicked, then a click on the cell, adds the piece there; the tile is let go.
-        cell = page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/cell"]')
+        cell = piece(page, "cell")
         expect(cell).to_be_visible()
         zone = page.locator("[data-testid=bio-palette-tile][data-kind=zone]")
         zone.click()
@@ -558,7 +598,7 @@ class TestBioTemplates(unittest.TestCase):
         lumen = piece(page, "apical-fluid").bounding_box()
         point = (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3)
         self.drop_module(1, point)
-        expect(piece(page, "apical-fluid")).to_have_count(0)
+        expect(empty_piece(page, "apical-fluid")).to_have_count(0)
         expect(bound(page, "bioRegion")).to_have_count(1)
         first = bound(page, "bioRegion").get_attribute("data-id")
 
@@ -1066,7 +1106,7 @@ class TestBioTemplates(unittest.TestCase):
         # Exact, as each library card's remove button is named "Remove <module>".
         page.get_by_role("button", name="Remove", exact=True).click()
         expect(page.locator(f'{BIO_NODE}[data-id="{module}"]')).to_have_count(1)
-        expect(page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/paracellular"]')).to_have_count(0)
+        expect(piece(page, "paracellular")).to_have_count(0)
         expect(page.locator(f"{BIO} [data-testid=bio-region]")).to_have_count(3)
 
         # A facet of the cell, with nothing on it: gone at once, with the lumen against it.
@@ -1139,11 +1179,11 @@ class TestBioTemplates(unittest.TestCase):
         # On the empty lumen: a new module bound to it, as one step.
         lumen = piece(page, "apical-fluid").bounding_box()
         self.menu_at((lumen["x"] + 30, lumen["y"] + 20), "New Module Here")
-        expect(piece(page, "apical-fluid")).to_have_count(0)
+        expect(empty_piece(page, "apical-fluid")).to_have_count(0)
         expect(bound(page, "bioRegion")).to_have_count(1)
         undo(page)
         expect(bound(page, "bioRegion")).to_have_count(0)
-        expect(piece(page, "apical-fluid")).to_have_count(1)
+        expect(empty_piece(page, "apical-fluid")).to_have_count(1)
 
         # On the apical slot of the empty cell: a new protein there, joined to its neighbours.
         cell = piece(page, "cell").bounding_box()

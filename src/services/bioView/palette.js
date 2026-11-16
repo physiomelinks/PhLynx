@@ -13,8 +13,10 @@ export const BLANK_CELL_TEMPLATE = 'cell'
 export const BLANK_TUBE_TEMPLATE = 'tube'
 
 /**
- * The tiles, in the order shown: empty pieces to drop modules on later, as a template's are. All but the cell go
- * on or beside a cell already placed.
+ * The tiles, in the order shown: pieces to build on, each placed with a new, empty module on every site that takes
+ * one module (see placeholders.js), for a library module to replace later. The pieces other than a cell or a tube
+ * go on or beside a cell already placed. A cell's protein sites come with it, and
+ * more are added from its menu.
  */
 export const PALETTE_TILES = Object.freeze([
   { kind: 'cell', label: 'Cell', icon: 'pi pi-circle', hint: 'An empty cell, to drop a module on and build round: dropped beside a placed template, it joins it, to link to its other cells' },
@@ -25,7 +27,6 @@ export const PALETTE_TILES = Object.freeze([
   { kind: 'microdomain', label: 'Microdomain', icon: 'pi pi-clone', hint: 'A space inside a cell under the side it is dropped by, or between an organelle and that side when dropped between them' },
   { kind: 'junction', label: 'Junction', icon: 'pi pi-arrows-v', hint: 'What carries a flux between two spaces inside a cell: the two microdomains it is dropped between, or the nearest and the cell’s own inside' },
   { kind: 'fold', label: 'Fold', icon: 'pi pi-arrow-down', hint: 'An invagination of the membrane, such as a T-tubule, in from the side of the cell it is dropped by' },
-  { kind: 'site', label: 'Protein site', icon: 'pi pi-plus', hint: 'A stretch of membrane for proteins, on the nearest free side of a cell or organelle' },
   { kind: 'zone', label: 'Process zone', icon: 'pi pi-box', hint: 'A place for processes inside a cell' },
 ])
 
