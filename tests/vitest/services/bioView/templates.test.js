@@ -351,7 +351,7 @@ describe('sitesOf', () => {
       cell: 6,
       'chemical-synapse': 11,
       'two-cell-epithelium': 15,
-      'vessel-wall': 8,
+      cardiomyocyte: 12,
     })
   })
 })
@@ -381,10 +381,10 @@ describe('built-in templates', () => {
   it('ships five, epithelial cell first and then by name', () => {
     expect(BUILT_IN_TEMPLATES.map((template) => template.id)).toEqual([
       'epithelial-cell',
+      'cardiomyocyte',
       'cell',
       'chemical-synapse',
       'two-cell-epithelium',
-      'vessel-wall',
     ])
     expect(Object.isFrozen(BUILT_IN_TEMPLATES)).toBe(true)
     expect(getBuiltInTemplate('nowhere')).toBeNull()
@@ -402,7 +402,7 @@ describe('built-in templates', () => {
     const forms = (id) => Object.fromEntries(getBuiltInTemplate(id).compartments.map((entry) => [entry.id, compartmentForm(getBuiltInTemplate(id), entry)]))
     expect(forms('epithelial-cell')).toEqual({ 'apical-fluid': 'band', 'basolateral-fluid': 'band', paracellular: 'column' })
     expect(forms('two-cell-epithelium')).toEqual({ 'apical-fluid': 'band', 'basolateral-fluid': 'band', paracellular: 'gap' })
-    expect(forms('vessel-wall')).toEqual({ lumen: 'band', interstitium: 'band', 'junction-cleft': 'column' })
+    expect(forms('cardiomyocyte')).toEqual({ extracellular: 'band', cleft: 'inner' })
     expect(forms('chemical-synapse')).toEqual({ cleft: 'gap', ecs: 'band' })
   })
 

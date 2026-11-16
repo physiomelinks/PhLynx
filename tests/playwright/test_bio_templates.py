@@ -827,11 +827,11 @@ class TestBioTemplates(unittest.TestCase):
 
     def test_add_a_protein_site_on_a_free_edge(self):
         page = self.page
-        self.open_physiology_with_template("Vessel wall")
-        cell = piece(page, "endothelial")
+        self.open_physiology_with_template("Cardiomyocyte")
+        cell = piece(page, "myocyte")
         labels = cell.locator("[data-testid=bio-facet-label]")
         count = labels.count()
-        self.piece_menu("endothelial", "Add Protein Site", "Left")
+        self.piece_menu("myocyte", "Add Protein Site", "Left")
         expect(labels).to_have_count(count + 1)
         expect(cell).to_contain_text("Protein site (left)")
         # A protein dropped on its edge goes on it.

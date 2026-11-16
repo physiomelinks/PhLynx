@@ -91,12 +91,12 @@ describe('bioTemplateStore', () => {
 
   it('returns null state without instances, and the used templates and instances with them', () => {
     expect(store.getState()).toBeNull()
-    const instance = store.addInstance('vessel-wall', { x: 1, y: 2 }, 'Capillary')
+    const instance = store.addInstance('chemical-synapse', { x: 1, y: 2 }, 'Capillary')
 
     const state = store.getState()
     expect(state.instances).toEqual([instance])
-    expect(Object.keys(state.templates)).toEqual(['vessel-wall'])
-    expect(state.templates['vessel-wall']).toEqual(plain(getBuiltInTemplate('vessel-wall')))
+    expect(Object.keys(state.templates)).toEqual(['chemical-synapse'])
+    expect(state.templates['chemical-synapse']).toEqual(plain(getBuiltInTemplate('chemical-synapse')))
   })
 
   it('round trips its state through loadState', () => {
@@ -144,7 +144,7 @@ describe('bioTemplateStore', () => {
       templates: {
         'epithelial-cell': plain(getBuiltInTemplate('epithelial-cell')),
         broken: { schemaVersion: 1, id: 'broken', name: 'Broken', cells: 'nope' },
-        renamed: plain(getBuiltInTemplate('vessel-wall')),
+        renamed: plain(getBuiltInTemplate('chemical-synapse')),
       },
       instances: [
         { id: 'bt-1', template: 'epithelial-cell', at: { x: 0, y: 0 } },
