@@ -1,0 +1,28 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 2,
+  "id": "rod-photoreceptor",
+  "name": "Rod photoreceptor",
+  "description": "A rod: its outer and inner segments, two spaces inside one cell joined by the connecting cilium, which carries the circulating current between them.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [
+    {
+      "id": "rod",
+      "label": "Rod",
+      "site": false,
+      "membrane": { "label": "Plasma membrane" },
+      "skin": { "ref": "rod-photoreceptor" },
+      "facets": [
+        { "id": "os-membrane", "label": "Outer segment membrane", "edge": "top" },
+        { "id": "is-membrane", "label": "Inner segment membrane", "edge": "bottom" }
+      ],
+      "processes": [{ "id": "cilium", "label": "Connecting cilium", "between": ["outer-segment", "inner-segment"] }]
+    }
+  ],
+  "compartments": [
+    { "id": "subretinal", "label": "Subretinal space", "against": ["rod.os-membrane"], "tone": "sky" },
+    { "id": "outer-segment", "label": "Outer segment", "in": "rod", "against": ["rod.os-membrane"], "term": "GO:0001750", "tone": "violet" },
+    { "id": "inner-segment", "label": "Inner segment", "in": "rod", "against": ["rod.is-membrane"], "term": "GO:0001917", "tone": "teal" }
+  ]
+}

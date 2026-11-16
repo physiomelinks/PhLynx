@@ -821,6 +821,33 @@ class TestBioTemplates(unittest.TestCase):
         menu.get_by_text(labels[-1], exact=True).click()
         expect(menu).to_be_hidden()
 
+    def test_a_rod_is_drawn_to_its_own_outline_with_proteins_along_it(self):
+        page = self.page
+        self.open_physiology_with_template("Rod photoreceptor")
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        rod = piece(page, "rod")
+        # Its skin draws it: artwork inside an outline that is no rounded box, taller than it is wide.
+        expect(rod.locator("[data-testid=bio-skin]")).to_have_count(1)
+        expect(rod.locator("[data-testid=bio-bilayer]")).to_have_count(1)
+        expect(rod.locator("[data-testid=bio-empty-hint]")).to_have_count(0)
+        box = rod.bounding_box()
+        assert box["height"] > 1.5 * box["width"], box
+        # Its segments are spaces of their own, the outer above the inner, with the cilium's area between.
+        outer, inner = piece(page, "outer-segment").bounding_box(), piece(page, "inner-segment").bounding_box()
+        zone = rod.locator("[data-testid=bio-process-zone]").bounding_box()
+        assert outer["y"] + outer["height"] <= zone["y"] + zone["height"] / 2 <= inner["y"], (outer, zone, inner)
+        # A protein dropped on the outer segment's side is put on its membrane there.
+        self.drop_module(0, (outer["x"] + outer["width"], outer["y"] + outer["height"] / 2))
+        protein = bound(page, "bioProtein")
+        expect(protein).to_have_count(1)
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer = piece(page, "outer-segment").bounding_box()
+        at = centre(protein.bounding_box())
+        self.assertAlmostEqual(at[0], outer["x"] + outer["width"], delta=6)
+        assert outer["y"] < at[1] < outer["y"] + outer["height"], (outer, at)
+
     def test_draw_a_cell_with_a_skin_and_take_it_away(self):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")

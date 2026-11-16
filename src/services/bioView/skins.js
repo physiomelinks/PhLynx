@@ -4,6 +4,8 @@
  * elements, so nothing in it can run or reach outside the drawing.
  */
 
+import { isShapeId, readShape } from './shapeGeometry.js'
+
 /** The most a skin file may hold, and the most skins a workspace keeps. */
 export const SKIN_LIMITS = Object.freeze({ bytes: 256 * 1024, count: 24, name: 64 })
 
@@ -97,6 +99,26 @@ export function sanitiseSkin(text, dom = {}) {
     return { svg: null, errors: ['Nothing is left to draw once the SVG is cleaned: it may hold only images or scripts.'] }
   }
   return { svg: serialise(root), errors: [] }
+}
+
+/**
+ * Splits a cleaned skin into the geometry it names (see readShape) and its artwork: the same drawing without the
+ * named elements, which say where things are, not how the cell looks.
+ *
+ * @param {string} svg - Cleaned SVG text, from sanitiseSkin.
+ * @param {{ parse?: (text: string) => Document, serialise?: (node: Node) => string }} [dom] - As for sanitiseSkin.
+ * @returns {{ shape: Object|null, art: string|null, warnings: string[] }} art: null when nothing but geometry is
+ *   drawn.
+ */
+export function skinParts(svg, dom = {}) {
+  const parse = dom.parse ?? ((source) => new DOMParser().parseFromString(source, 'image/svg+xml'))
+  const serialise = dom.serialise ?? ((node) => new XMLSerializer().serializeToString(node))
+  const root = parse(svg).documentElement
+  const { shape, warnings } = readShape(root)
+  if (!shape) return { shape: null, art: svg, warnings }
+  for (const element of [...root.querySelectorAll('[id]')]) if (isShapeId(element.getAttribute('id'))) element.remove()
+  const isDrawn = !!root.querySelector('path, rect, circle, ellipse, line, polyline, polygon, text, use')
+  return { shape, art: isDrawn ? serialise(root) : null, warnings }
 }
 
 /**

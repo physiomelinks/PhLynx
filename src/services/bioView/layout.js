@@ -24,7 +24,8 @@ import {
 } from './geometry.js'
 import { FACET_BAND } from './metrics.js'
 import { byName, cellFinder, inSlotOrder, scaffoldFromNodes, scaffoldFromTemplates } from './scaffold.js'
-import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetOfAnnotation, facetsInGroup, withFolds } from './shape.js'
+import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetOfAnnotation, facetsInGroup, withFolds, withOutline } from './shape.js'
+import { pathOf } from './shapeGeometry.js'
 
 /** Size of a card for an instance with no physiological shape. */
 export const CARD = { width: 180, height: 72 }
@@ -224,6 +225,9 @@ const HINT_ROOM = 36 + 8 + GLYPH_HEIGHT / 2 + 32
 /** The bottom of a cell's last process area, or its top facet's band, from the cell's top. */
 const processZoneBottom = (count) =>
   count ? processZone({ x: 0, y: 0, width: 0 }, count - 1).y + CARD.height + 16 : FACET_BAND
+
+/** The middle of the box a skin anchors a cell's name at, if it does. */
+const nameAnchor = (box) => (box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null)
 
 /** A junction's area: room for a card, and how far it keeps from the spaces it lies between. */
 const JUNCTION = { width: CARD.width + CELL_RADIUS, height: CARD.height + 16, gap: 12 }
@@ -454,7 +458,7 @@ const facetWidths = (cell, widthOf) => Object.fromEntries(cell.facets.map((facet
  * @returns {{rects: Map<string, Object>, sites: Array<Object>}} rects: cell key -> rect; sites: where each
  *   template site is drawn.
  */
-function layoutTemplates(scaffold, instances, layout, widthOf) {
+function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map()) {
   const rects = new Map()
   const zones = new Map()
   for (const { id: instanceId, at } of instances) {
@@ -545,6 +549,17 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       const height = Math.max(...inRow.map((cell) => sizes.get(cell.key).height))
       for (const cell of inRow) sizes.set(cell.key, { ...sizes.get(cell.key), height })
     }
+    // A cell whose skin gives it a shape is as big as the skin draws it, whatever is in it, and its protein sites
+    // run along the stretches of membrane the skin names.
+    const shapeOf = (cell) => (!cell.parent && cell.skin ? (shapes.get(cell.skin.ref) ?? null) : null)
+    for (const cell of cells) {
+      const drawn = shapeOf(cell)
+      if (!drawn) continue
+      sizes.set(cell.key, { width: drawn.width, height: drawn.height })
+      cell.shape = withOutline(cell.shape, drawn)
+    }
+    /** A box of a cell's skin, where the cell is placed. */
+    const boxIn = (cell, box) => ({ ...box, x: rects.get(cell.key).x + box.x, y: rects.get(cell.key).y + box.y })
     let y = origin.y + Math.max(0, ...cells.filter((cell) => cell.row === rows[0]).map((cell) => outOf(cell, 'top')))
     rows.forEach((row, r) => {
       const inRow = cells.filter((cell) => cell.row === row)
@@ -573,8 +588,16 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       const across = inner.reduce((total, each) => total + sizes.get(each.key).width, 0) + (inner.length - 1) * ORGANELLE_GAP
       let x = rect.x + (rect.width - across) / 2
       for (const organelle of inner) {
-        rects.set(organelle.key, { x, y: rect.y + organelleTop(cell), ...sizes.get(organelle.key) })
-        x += sizes.get(organelle.key).width + ORGANELLE_GAP
+        // Where its cell's skin anchors it, if it does: about the middle of the anchor.
+        const anchor = shapeOf(cell)?.anchors[organelle.owner.cell]
+        const size = sizes.get(organelle.key)
+        if (anchor) {
+          const box = boxIn(cell, anchor)
+          rects.set(organelle.key, { x: box.x + box.width / 2 - size.width / 2, y: box.y + box.height / 2 - size.height / 2, ...size })
+          continue
+        }
+        rects.set(organelle.key, { x, y: rect.y + organelleTop(cell), ...size })
+        x += size.width + ORGANELLE_GAP
       }
     }
 
@@ -603,13 +626,18 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
     // Where each microdomain goes inside its cell: worked out first, as a cell's junctions go between them.
     const innerRects = new Map()
     const cutouts = new Map()
+    const clips = new Map()
     for (const piece of pieces.filter((piece) => piece.form === 'inner')) {
       const own = piece.against.find((entry) => entry.cellKey === piece.parent)
       const cell = own?.fold && cells.find((each) => each.key === piece.parent)
       const pocket = cell && pocketsOf(cell).find((each) => each.facetId === own.facetId)
-      const rect = microdomainRect(piece, rects, pocket)
+      // The area its cell's skin gives it, if it does, drawn to that area's own outline.
+      const parent = cells.find((each) => each.key === piece.parent)
+      const area = parent && shapeOf(parent)?.regions[piece.owner.compartment]
+      const rect = area ? boxIn(parent, area.bounds) : microdomainRect(piece, rects, pocket)
       if (!rect) continue
       innerRects.set(piece.key, rect)
+      if (area) clips.set(piece.key, area.points.map((point) => ({ x: point.x - area.bounds.x, y: point.y - area.bounds.y })))
       // Round a fold alone, it leaves the fold itself clear: the cell's membrane is drawn under it.
       if (pocket && piece.against.length === 1) cutouts.set(piece.key, foldCutout(rects.get(piece.parent), pocket, rect))
     }
@@ -627,7 +655,14 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
       const rows = cell.processes.filter((process) => !process.between)
       // An area with a process in it is drawn as the process alone, as a protein's site is once a protein is on it.
       const filled = (process) => (process.members.length ? { filled: true } : {})
+      const anchors = shapeOf(cell)?.anchors ?? {}
       const cellZones = cell.processes.map((process) => {
+        // Where the cell's skin anchors it, if it does.
+        if (anchors[process.id]) {
+          const box = boxIn(cell, anchors[process.id])
+          const zone = { x: box.x + box.width / 2 - JUNCTION.width / 2, y: box.y + box.height / 2 - JUNCTION.height / 2, width: JUNCTION.width, height: JUNCTION.height }
+          return { processId: process.id, label: process.label, rect: zone, ...(process.between && { junction: true }), ...filled(process) }
+        }
         if (!process.between) {
           const area = rows.indexOf(process)
           return { processId: process.id, label: process.label, rect: clear(processZone(rect, area)), ...filled(process) }
@@ -661,7 +696,8 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         return { ...pocket, tone: outside?.tone ?? null }
       })
       layout.set(cell.key, {
-        hintAt: cell.parent ? { x: rect.width / 2, y: rect.height / 2 + 10 } : (beside ?? cellHint(rect, taken, bandsAt('bottom'))),
+        hintAt: cell.parent ? { x: rect.width / 2, y: rect.height / 2 + 10 } : (nameAnchor(anchors.name) ?? beside ?? cellHint(rect, taken, bandsAt('bottom'))),
+        ...(shapeOf(cell) && { outline: pathOf(shapeOf(cell).outline) }),
         kind: 'cell',
         ...(cell.parent && { parent: cell.parent }),
         rect,
@@ -731,6 +767,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
         form: piece.form,
         ...(piece.form === 'inner' && { parent: piece.parent }),
         ...(cutouts.has(piece.key) && { cutout: cutouts.get(piece.key) }),
+        ...(clips.has(piece.key) && { clip: clips.get(piece.key) }),
         ...(edge && { edge }),
         ...(piece.skin && { skin: piece.skin }),
         label: piece.label,
@@ -787,7 +824,7 @@ function layoutTemplates(scaffold, instances, layout, widthOf) {
  *     positions, the last marked spare, plus a process area's rect, or a facet's cellRect, shape and its
  *     occupants' name widths.
  */
-export function layoutPhysiology(nodes, roles, { instances = [], definitions = new Map(), detailOf = () => '' } = {}) {
+export function layoutPhysiology(nodes, roles, { instances = [], definitions = new Map(), detailOf = () => '', shapes = new Map() } = {}) {
   // Nodes bound to a template site are placed by it; the rest make the node-owned scaffold.
   const templates = scaffoldFromTemplates(instances, definitions, nodes)
   const free = templates.bound.size ? nodes.filter((node) => !templates.bound.has(node.id)) : nodes
@@ -892,7 +929,7 @@ export function layoutPhysiology(nodes, roles, { instances = [], definitions = n
   }
 
   // Template instances, each from its own corner; the tray and cards go beside every cell.
-  const { rects: templateRects, sites } = layoutTemplates(templates, instances, layout, widthOf)
+  const { rects: templateRects, sites } = layoutTemplates(templates, instances, layout, widthOf, shapes)
   const allRects = [...cellRects, ...templateRects.values()]
   const anchor = allRects.length === cellRects.length ? { left, right, top } : spanOf(allRects)
 

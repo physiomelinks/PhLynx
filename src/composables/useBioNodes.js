@@ -32,13 +32,14 @@ function templateData(place) {
   const { instance, site = null, tone = null, edge = null } = place
   const data = { instance, site, tone, edge, ...(place.skin && { skin: place.skin }) }
   // A microdomain is drawn over its cell.
-  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }) } : data
+  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }), ...(place.clip && { clip: place.clip }) } : data
   return {
     ...data,
     facetLabels: place.facetLabels ?? [],
     zones: zonesIn(place),
     ...(place.hintAt && { hintAt: { ...place.hintAt } }),
     ...(place.folds && { folds: place.folds }),
+    ...(place.outline && { outline: place.outline }),
   }
 }
 
@@ -237,7 +238,13 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           zIndex: Z.cell,
           // Dragging its outline moves its cell (see BioFlow).
           style: { pointerEvents: 'none' },
-          data: { ...own.data, width: cell.width, height: cell.height, ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }) },
+          data: {
+            ...own.data,
+            width: cell.width,
+            height: cell.height,
+            ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }),
+            ...(layout.get(place.cell).outline && { outline: layout.get(place.cell).outline }),
+          },
         })
         break
       }
@@ -526,6 +533,7 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
       instances: templateStore.instances,
       definitions: templateStore.definitions,
       detailOf,
+      shapes: templateStore.shapes,
     })
   })
   const layout = computed(() => physiology.value.places)

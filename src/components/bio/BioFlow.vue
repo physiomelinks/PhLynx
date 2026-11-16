@@ -1659,10 +1659,15 @@ provide('bioRenamePiece', renamePiece)
 
 // ── Skins ──────────────────────────────────────────────────────────────
 /** The artwork a piece's skin names, as its node draws it: nothing where the workspace has no such skin. */
-const skinArt = computed(() => new Map([...templateStore.skins].map(([id, skin]) => [id, skinHref(skin.svg)])))
+const skinArt = computed(
+  () => new Map([...templateStore.allSkins].filter(([, skin]) => skin.art).map(([id, skin]) => [id, { href: skinHref(skin.art), isShape: !!skin.shape }]))
+)
 provide('bioSkinOf', (skin) => {
-  const href = skin && skinArt.value.get(skin.ref)
-  return href ? { href, aspect: SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain, opacity: skin.opacity ?? 1 } : null
+  const art = skin && skinArt.value.get(skin.ref)
+  if (!art) return null
+  // A skin that gives the cell its shape is drawn exactly where its geometry is: stretched to the cell's own box.
+  const aspect = art.isShape ? SKIN_ASPECT.stretch : (SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain)
+  return { href: art.href, aspect, opacity: skin.opacity ?? 1 }
 })
 
 /**
@@ -1708,7 +1713,7 @@ function skinMenu(instanceId, path) {
   const mark = (isOn) => (isOn ? 'pi pi-check' : 'pi')
   return [
     { label: 'None', icon: mark(!current), command: () => setSkin(instanceId, path, null) },
-    ...[...templateStore.skins.values()].map((skin) => ({
+    ...[...templateStore.allSkins.values()].map((skin) => ({
       label: skin.name,
       icon: mark(current?.ref === skin.id),
       command: () => setSkin(instanceId, path, { ...current, ref: skin.id }),

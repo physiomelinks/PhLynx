@@ -82,7 +82,7 @@ describe('template layout, nothing bound', () => {
 
       // Every site is offered, all empty.
       expect(sites).toHaveLength(
-        template.cells.reduce((n, cell) => n + 2 + cell.facets.length + cell.processes.length, 0) + template.compartments.length
+        template.cells.reduce((n, cell) => n + (cell.site === false ? 1 : 2) + cell.facets.length + cell.processes.length, 0) + template.compartments.length
       )
       expect(sites.every((site) => site.occupant === null)).toBe(true)
     })
@@ -304,5 +304,54 @@ describe('template layout, several instances', () => {
     expect(places.get('loose')).toMatchObject({ kind: 'tray', y: tpl.y })
     expect(places.get('plain').x).toBeGreaterThan(right(tpl))
     expect(places.get('plain').y).toBe(tpl.y)
+  })
+})
+
+describe('template layout, with a skin that gives a cell its shape', () => {
+  const rod = getBuiltInTemplate('rod-photoreceptor')
+  const box = (x, y, width, height) => [{ x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height }]
+  const shape = {
+    width: 300,
+    height: 600,
+    outline: box(50, 20, 200, 560),
+    facets: { 'os-membrane': [{ x: 250, y: 40 }, { x: 250, y: 240 }] },
+    regions: {
+      'outer-segment': { points: box(50, 20, 200, 240), bounds: { x: 50, y: 20, width: 200, height: 240 } },
+      'inner-segment': { points: box(50, 320, 200, 260), bounds: { x: 50, y: 320, width: 200, height: 260 } },
+    },
+    anchors: { cilium: { x: 145, y: 285, width: 10, height: 10 }, name: { x: 148, y: 588, width: 4, height: 4 } },
+  }
+  const shapes = new Map([['rod-photoreceptor', shape]])
+  const lay = (nodes = [], roles = new Map(), options = {}) =>
+    layoutPhysiology(nodes, roles, { instances: [instance('rod-photoreceptor')], definitions, ...options })
+
+  it('is as big as the skin draws it, with its spaces, junction and name where the skin puts them', () => {
+    const { places } = lay([], new Map(), { shapes })
+    const cell = places.get(key('rod'))
+    expect(cell.rect).toMatchObject({ width: 300, height: 600 })
+    expect(cell.outline).toBe('M50 20 L250 20 L250 580 L50 580 Z')
+    expect(cell.hintAt).toEqual({ x: 150, y: 590 })
+    const outer = places.get(key('outer-segment'))
+    expect(outer.rect).toEqual({ x: cell.rect.x + 50, y: cell.rect.y + 20, width: 200, height: 240 })
+    expect(outer.clip).toEqual(box(0, 0, 200, 240))
+    const [zone] = cell.zones
+    expect(zone).toMatchObject({ processId: 'cilium', junction: true })
+    expect(zone.rect.x + zone.rect.width / 2).toBe(cell.rect.x + 150)
+    expect(zone.rect.y + zone.rect.height / 2).toBe(cell.rect.y + 290)
+  })
+
+  it('puts a protein on the stretch of membrane the skin names, and leaves a facet it doesn’t name on the cell’s box', () => {
+    const nodes = [node('cng', { site: 'bt-1/rod.os-membrane' }), node('pump', { site: 'bt-1/rod.is-membrane' })]
+    const roles = new Map(nodes.map(({ id }) => [id, role('membraneProtein')]))
+    const { places } = lay(nodes, roles, { shapes })
+    const cell = places.get(key('rod')).rect
+    expect(places.get('cng')).toMatchObject({ x: cell.x + 250, y: cell.y + 140, rotation: 90 })
+    expect(places.get('pump').y).toBe(bottom(cell))
+  })
+
+  it('is drawn plain, as its template lays it out, where the workspace has no such skin', () => {
+    const { places } = lay()
+    expect(places.get(key('rod')).outline).toBeUndefined()
+    expect(places.get(key('outer-segment')).clip).toBeUndefined()
   })
 })

@@ -10,6 +10,7 @@ import { Position } from '@vue-flow/core'
 
 import { CELL_RADIUS, FACET_INSET, GLYPH_WIDTH, LABEL_GAP, MIN_CELL, SLOT_PITCH, proteinLabelWidth } from './metrics.js'
 import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetOfAnnotation } from './shape.js'
+import { isInside, lengthOf, pointAlong } from './shapeGeometry.js'
 
 export { CELL_RADIUS, FACET_INSET, GLYPH_HEIGHT, GLYPH_WIDTH, MIN_CELL, SLOT_PITCH, proteinLabelWidth } from './metrics.js'
 
@@ -194,6 +195,32 @@ function foldSlotPositions(rect, facet, count) {
 }
 
 /**
+ * Gives the centres of the slots along a stretch of membrane a skin draws: spaced along it about its middle, each
+ * facing out of the cell the nearest way a protein is drawn, up, down, left or right.
+ *
+ * @param {Object} rect - The cell.
+ * @param {{path: Array<{x: number, y: number}>}} facet - With the stretch, in the cell's own coordinates.
+ * @param {number} count
+ * @param {{outline?: Array<Object>}} shape - With the cell's outline, which says which way is out.
+ * @returns {Array<{x: number, y: number, faces: string}>}
+ */
+function pathSlotPositions(rect, facet, count, shape) {
+  const total = lengthOf(facet.path)
+  // Closer together where the stretch is short, down to a glyph's width.
+  const pitch = count > 1 ? Math.max(GLYPH_WIDTH, Math.min(SLOT_PITCH, total / count)) : 0
+  const first = total / 2 - ((count - 1) * pitch) / 2
+  return Array.from({ length: count }, (_, order) => {
+    const at = pointAlong(facet.path, Math.min(total, Math.max(0, first + order * pitch)))
+    const heading = (at.angle * Math.PI) / 180
+    // One of the two ways across the membrane leads out of the outline.
+    let normal = { x: Math.sin(heading), y: -Math.cos(heading) }
+    if (shape.outline && isInside(shape.outline, { x: at.x + normal.x * 14, y: at.y + normal.y * 14 })) normal = { x: -normal.x, y: -normal.y }
+    const faces = Math.abs(normal.x) > Math.abs(normal.y) ? (normal.x > 0 ? 'right' : 'left') : normal.y > 0 ? 'bottom' : 'top'
+    return { x: rect.x + at.x, y: rect.y + at.y, faces }
+  })
+}
+
+/**
  * How much of a side's length, from its far end, a fold in from it takes from the side's own proteins.
  *
  * @param {Object} shape
@@ -217,6 +244,7 @@ function foldReserve(shape, edge) {
 export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, widths = []) {
   const { x, y, width, height } = rect
   const fold = facetById(shape, part)
+  if (fold?.path) return pathSlotPositions(rect, fold, count, shape).map((slot) => ({ x: slot.x, y: slot.y }))
   if (fold?.fold) return foldSlotPositions(rect, fold, count).map((slot) => ({ x: slot.x, y: slot.y }))
   const edge = edgeOf(shape, part)
   // A fold in from this side takes its far end.
@@ -244,8 +272,8 @@ export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, width
 export function facetSlots(rect, part, count, shape = EPITHELIAL_SHAPE, { spare = true, widths = [] } = {}) {
   const slots = slotPositions(rect, part, count, shape, widths).map((slot, order) => ({ ...slot, order, spare: false }))
   if (!spare) return slots
-  // A fold's spare is the next place down its walls.
-  if (facetById(shape, part)?.fold) {
+  // A fold's spare is the next place down its walls, and a drawn stretch's the next along it.
+  if (facetById(shape, part)?.fold || facetById(shape, part)?.path) {
     return [...slots, { ...slotPositions(rect, part, count + 1, shape)[count], order: count, spare: true }]
   }
   const last = slots.at(-1)
@@ -269,6 +297,11 @@ export function facetSlots(rect, part, count, shape = EPITHELIAL_SHAPE, { spare 
  */
 export function proteinPlacement(rect, part, order, count, shape = EPITHELIAL_SHAPE, widths = []) {
   const fold = facetById(shape, part)
+  if (fold?.path) {
+    const slot = pathSlotPositions(rect, fold, Math.max(count, order + 1), shape)[order]
+    const { outward, rotation } = EDGES[slot.faces]
+    return { x: slot.x, y: slot.y, rotation, outward }
+  }
   if (fold?.fold) {
     const slot = foldSlotPositions(rect, fold, order + 1)[order]
     const { outward, rotation } = EDGES[slot.faces]

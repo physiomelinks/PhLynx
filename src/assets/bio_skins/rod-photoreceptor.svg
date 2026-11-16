@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 790">
+  <title>Rod photoreceptor</title>
+  <!-- Geometry: read for where things are, not drawn. The outline runs round the outer segment, down the connecting
+       cilium and round the inner segment. -->
+  <path id="outline" d="M150 20 H270 Q290 20 290 40 V280 Q290 300 270 300 H230 V360 H290 Q320 360 320 390 V710 Q320 740 290 740 H130 Q100 740 100 710 V390 Q100 360 130 360 H190 V300 H150 Q130 300 130 280 V40 Q130 20 150 20 Z"/>
+  <path id="facet-os-membrane" d="M290 50 V270"/>
+  <path id="facet-is-membrane" d="M320 400 V700"/>
+  <path id="region-outer-segment" d="M150 20 H270 Q290 20 290 40 V280 Q290 300 270 300 H150 Q130 300 130 280 V40 Q130 20 150 20 Z"/>
+  <path id="region-inner-segment" d="M130 360 H290 Q320 360 320 390 V710 Q320 740 290 740 H130 Q100 740 100 710 V390 Q100 360 130 360 Z"/>
+  <circle id="anchor-cilium" cx="210" cy="330" r="6"/>
+  <circle id="anchor-name" cx="210" cy="772" r="2"/>
+
+  <!-- Artwork: the outer segment's discs, the inner segment's mitochondria and the nucleus. -->
+  <g fill="none" stroke="#a78bfa" stroke-width="5" stroke-linecap="round" opacity="0.55">
+    <path d="M150 60 H270"/><path d="M150 85 H270"/><path d="M150 110 H270"/><path d="M150 135 H270"/>
+    <path d="M150 160 H270"/><path d="M150 185 H270"/><path d="M150 210 H270"/><path d="M150 235 H270"/><path d="M150 260 H270"/>
+  </g>
+  <g fill="#34d399" opacity="0.45">
+    <ellipse cx="150" cy="420" rx="26" ry="12"/><ellipse cx="270" cy="430" rx="26" ry="12"/><ellipse cx="205" cy="470" rx="26" ry="12"/>
+  </g>
+  <ellipse cx="210" cy="640" rx="62" ry="56" fill="#93c5fd" opacity="0.55"/>
+  <circle cx="196" cy="628" r="14" fill="#3b82f6" opacity="0.5"/>
+</svg>

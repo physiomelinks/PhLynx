@@ -352,6 +352,7 @@ describe('sitesOf', () => {
       'chemical-synapse': 11,
       'two-cell-epithelium': 15,
       cardiomyocyte: 12,
+      'rod-photoreceptor': 7,
     })
   })
 })
@@ -378,12 +379,13 @@ describe('site references', () => {
 })
 
 describe('built-in templates', () => {
-  it('ships five, epithelial cell first and then by name', () => {
+  it('ships six, epithelial cell first and then by name', () => {
     expect(BUILT_IN_TEMPLATES.map((template) => template.id)).toEqual([
       'epithelial-cell',
       'cardiomyocyte',
       'cell',
       'chemical-synapse',
+      'rod-photoreceptor',
       'two-cell-epithelium',
     ])
     expect(Object.isFrozen(BUILT_IN_TEMPLATES)).toBe(true)
