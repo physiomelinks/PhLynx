@@ -167,6 +167,21 @@ export const SETTING_SECTIONS = [
     ],
   },
   {
+    title: 'Workspace',
+    settings: [
+      {
+        key: 'workspaceRecovery',
+        type: 'toggle',
+        label: 'Keep unsaved work for recovery',
+        description:
+          'A few seconds after each change, keep a compressed copy of unsaved work in this browser, so a tab closed ' +
+          'or crashed without saving can be restored. Turn it off if keeping the copy slows a very large model. ' +
+          'Copies already kept are still offered.',
+        default: true,
+      },
+    ],
+  },
+  {
     title: 'Toolbar',
     layout: 'checklist',
     intro: 'The buttons the workspace toolbar shows. Settings is always shown, so hidden buttons can come back.',

@@ -239,6 +239,49 @@ describe('useWorkspaceRecovery', () => {
     expect(applyState).not.toHaveBeenCalled()
   })
 
+  describe('turned off', () => {
+    it('writes no draft, not even building the workspace', async () => {
+      const buildState = vi.fn(() => ({}))
+      const { store, edit, target } = setup({ enabled: () => false, buildState })
+      await edit()
+      await advance(RECOVERY_MAX_WAIT_MS)
+      target.visibilityState = 'hidden'
+      target.dispatchEvent(new Event('visibilitychange'))
+      await settle()
+      expect(buildState).not.toHaveBeenCalled()
+      expect(store.put).not.toHaveBeenCalled()
+    })
+
+    it('deletes this tab’s draft when turned off, and keeps one again when turned back on', async () => {
+      const on = ref(true)
+      const { store, edit } = setup({ enabled: () => on.value })
+      await edit()
+      await advance(RECOVERY_IDLE_MS)
+      expect(store.drafts.has('me')).toBe(true)
+
+      on.value = false
+      await nextTick()
+      await settle()
+      expect(store.drafts.has('me')).toBe(false)
+
+      on.value = true
+      await nextTick()
+      await advance(RECOVERY_IDLE_MS)
+      expect(store.drafts.has('me')).toBe(true)
+    })
+
+    it('still offers and restores the drafts other tabs left, letting each go once restored', async () => {
+      const store = memoryStore()
+      store.drafts.set('gone', { id: 'gone', savedAt: clock, data: await packDraft({ flow: {} }) })
+      const { recovery, applyState } = setup({ store, enabled: () => false })
+      await settle()
+      expect(recovery.drafts.value.map((draft) => draft.id)).toEqual(['gone'])
+      expect(await recovery.restore('gone')).toBe(true)
+      expect(applyState).toHaveBeenCalled()
+      expect(store.drafts.size).toBe(0)
+    })
+  })
+
   it('discards a draft', async () => {
     const store = memoryStore()
     store.drafts.set('gone', { id: 'gone', savedAt: clock, data: null })

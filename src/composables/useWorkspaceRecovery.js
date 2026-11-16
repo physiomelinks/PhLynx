@@ -17,10 +17,12 @@ export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  * without saving.
  *
  * The draft is written once the workspace has gone RECOVERY_IDLE_MS without a change, and deleted once the workspace
- * has no unsaved changes again: saved, loaded, cleared, or undone back to its save.
+ * has no unsaved changes again: saved, loaded, cleared, or undone back to its save. While turned off, no draft is
+ * written and this tab's is deleted, but the drafts other tabs left are still offered.
  *
  * @param {Object} options
  * @param {import('vue').Ref<boolean>} options.hasUnsavedChanges - Whether there is unsaved work to keep.
+ * @param {() => boolean} [options.enabled] - Whether drafts are kept, the user's setting.
  * @param {() => *} options.changeSignal - Changes with every edit, so each one restarts the wait.
  * @param {() => boolean} options.isEmpty - Whether the workspace is empty, when the drafts on offer are looked up.
  * @param {() => Object} options.buildState - The workspace, as a save writes it.
@@ -42,6 +44,7 @@ export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  */
 export function useWorkspaceRecovery({
   hasUnsavedChanges,
+  enabled = () => true,
   changeSignal,
   isEmpty,
   buildState,
@@ -64,6 +67,9 @@ export function useWorkspaceRecovery({
   let queue = Promise.resolve()
   let warned = false
 
+  /** Whether there is unsaved work, and drafts of it are wanted. */
+  const keeping = () => hasUnsavedChanges.value && enabled()
+
   const enqueue = (task) => {
     queue = queue.then(task).catch((error) => console.warn('Recovery draft unavailable:', error))
     return queue
@@ -76,11 +82,11 @@ export function useWorkspaceRecovery({
    * @returns {Promise<boolean>} Whether a draft was written.
    */
   async function writeDraft(state) {
-    if (!hasUnsavedChanges.value) return false
+    if (!keeping()) return false
     const started = epoch
     try {
       const data = await packDraft(state ?? buildState())
-      if (started !== epoch || !hasUnsavedChanges.value) return false
+      if (started !== epoch || !keeping()) return false
       await store.put({ id: tabId, savedAt: now(), name: null, nodeCount: 0, ...describe(), data })
       return true
     } catch (error) {
@@ -89,7 +95,9 @@ export function useWorkspaceRecovery({
       warned = true
       notify.warning({
         title: 'Unsaved work is not being kept',
-        message: 'This browser would not store a recovery copy, so save your work to keep it.',
+        message:
+          'This browser would not store a recovery copy, so save your work to keep it. Recovery can be turned off in ' +
+          'Settings.',
       })
       return false
     }
@@ -143,7 +151,8 @@ export function useWorkspaceRecovery({
 
   /**
    * Puts a draft's workspace in place, keeps it as this tab's draft, then lets the old one go, unless this tab's could
-   * not be written. A failure leaves the draft where it was and is thrown.
+   * not be written. With drafts turned off, the old one goes at once. A failure leaves the draft where it was and is
+   * thrown.
    *
    * @returns {Promise<boolean>} False when the draft had already gone, as when another tab restored it.
    */
@@ -158,7 +167,7 @@ export function useWorkspaceRecovery({
       }
       await applyState(await unpackDraft(draft.data), draft)
       stopWaiting()
-      if (await enqueue(() => writeDraft())) await store.delete(id)
+      if (!enabled() || (await enqueue(() => writeDraft()))) await store.delete(id)
       await refresh()
       return true
     } finally {
@@ -175,8 +184,8 @@ export function useWorkspaceRecovery({
   }
 
   const stopWatchingChanges = watch(
-    [() => hasUnsavedChanges.value, changeSignal],
-    ([unsaved]) => (unsaved ? schedule() : letGo()),
+    [keeping, changeSignal],
+    ([keep]) => (keep ? schedule() : letGo()),
     { immediate: true }
   )
   const stopWatchingEmpty = watch(isEmpty, (empty) => empty && refresh(), { immediate: true })

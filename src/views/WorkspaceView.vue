@@ -2767,6 +2767,7 @@ const unregisterSaver = registerWorkspaceSaver({
 // Keeps a recovery draft of unsaved work, and offers back on the empty canvas the drafts of tabs closed without saving.
 const recovery = useWorkspaceRecovery({
   hasUnsavedChanges,
+  enabled: () => appSettings.workspaceRecovery,
   changeSignal: () => historyStore.pointerIndex,
   isEmpty: () => !hasWorkspaceContent.value,
   buildState: buildSaveState,
