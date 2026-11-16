@@ -249,12 +249,19 @@ export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, width
   const edge = edgeOf(shape, part)
   // A fold in from this side takes its far end.
   const reserve = foldReserve(shape, edge.name)
+  // Facets that share a side take a stretch of it each, in the order the shape lists them.
+  const sharing = shape.facets.filter((facet) => facet.edge === edge.name && !facet.path)
+  const share = (from, to) => {
+    const each = (to - from) / Math.max(1, sharing.length)
+    const index = Math.max(0, sharing.findIndex((facet) => facet.id === part))
+    return [from + index * each, from + (index + 1) * each]
+  }
   if (edge.axis === 'x') {
     const lineY = edge.name === 'top' ? y : y + height
-    return spread(x + FACET_INSET, x + width - FACET_INSET - reserve, count, widths).map((cx) => ({ x: cx, y: lineY }))
+    return spread(...share(x + FACET_INSET, x + width - FACET_INSET - reserve), count, widths).map((cx) => ({ x: cx, y: lineY }))
   }
   const lineX = edge.name === 'left' ? x : x + width
-  return spread(y + FACET_INSET, y + height - FACET_INSET - reserve, count).map((cy) => ({ x: lineX, y: cy }))
+  return spread(...share(y + FACET_INSET, y + height - FACET_INSET - reserve), count).map((cy) => ({ x: lineX, y: cy }))
 }
 
 /**

@@ -1803,7 +1803,7 @@ function onNamingConfirm() {
  * Adds a compartment against a facet of a placed template's cell, in a tone no other of its compartments has.
  *
  * @param {string} instance
- * @param {string} against - '<cell>.<facet>'.
+ * @param {string|string[]} against - '<cell>.<facet>', or several along one side.
  * @param {string} [label] - Its name; unnamed, it is 'Compartment' and numbered after the first.
  */
 function addCompartment(instance, against, label = '') {
@@ -1815,7 +1815,7 @@ function addCompartment(instance, against, label = '') {
   return addPiece(instance, 'compartments', {
     id,
     label: label.trim() || (number && number !== '1' ? `Compartment ${number}` : 'Compartment'),
-    against: [against],
+    against: [against].flat(),
     tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
   })
 }
@@ -2011,10 +2011,11 @@ function applyTile(tile, point) {
   }
   // A compartment lies against the cell's side nearest the drop, which needs a protein site to lie against.
   const edge = nearestEdge(found.rect, point, EDGES)
-  const facet = cell.facets.find((each) => each.edge === edge)
-  if (!facet) return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell.' })
+  // Every protein site along that side meets it.
+  const facets = cell.facets.filter((each) => each.edge === edge)
+  if (!facets.length) return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell.' })
   // Unnamed: a click on its name names it.
-  return addCompartment(found.instance, `${found.path}.${facet.id}`)
+  return addCompartment(found.instance, facets.map((facet) => `${found.path}.${facet.id}`))
 }
 
 /** Places the armed tile where the view is clicked; a click on the view's own controls is theirs. */

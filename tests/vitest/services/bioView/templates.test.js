@@ -191,9 +191,6 @@ describe('validateTemplate', () => {
       const facets = [facet('one', 'top', { annotation: { facet: 'apical' } }), facet('two', 'bottom', { annotation: { facet: 'apical' } })]
       failsWith(withCell({ facets }), 'Cell "a", facet 2: annotation apical is already given to facet "one"')
     })
-    it('two facets on one edge', () => {
-      failsWith(withCell({ facets: [facet('one', 'top'), facet('two', 'top')] }), 'Cell "a", facet 2: the top edge already has facet "one"')
-    })
     it('a facet id used twice', () => {
       failsWith(withCell({ facets: [facet('one', 'top'), facet('one', 'bottom')] }), 'Cell "a", facet 2: id "one" is used more than once')
     })
@@ -252,7 +249,6 @@ describe('validateTemplate', () => {
     it('a side-by-side gap across rows', () => {
       failsWith(withCompartment({ against: ['a.right', 'b.left'] }, [cell('a'), cell('b', { row: 1 })]), 'must be neighbours in one row')
     })
-    it('a gap within one cell', () => failsWith(withCompartment({ against: ['a.right', 'a.left'] }), 'must be neighbours'))
     it('a vertical gap between rows that are not adjacent', () => {
       failsWith(withCompartment({ against: ['a.basolateral', 'b.apical'] }, [cell('a'), cell('b', { row: 2 })]), '"b" must be in the row just below "a"')
     })
@@ -266,10 +262,7 @@ describe('validateTemplate', () => {
       })
       failsWith(raw, 'facet "b.left" is already filled by the gap "cleft"')
     })
-    it('two left facets', () => failsWith(withCompartment({ against: ['a.left', 'b.left'] }, [cell('a'), cell('b')]), 'one left or right facet'))
-    it('three facets that are not one edge', () => {
-      failsWith(withCompartment({ against: ['a.apical', 'a.left', 'a.right'] }), 'A compartment lies against facets')
-    })
+    it('two left facets', () => failsWith(withCompartment({ against: ['a.left', 'b.left'] }, [cell('a'), cell('b')]), 'facets down one side of one cell'))
   })
 
   it('reports several problems at once, naming each element', () => {
@@ -352,7 +345,7 @@ describe('sitesOf', () => {
       'chemical-synapse': 11,
       'two-cell-epithelium': 15,
       cardiomyocyte: 12,
-      'rod-photoreceptor': 7,
+      'rod-photoreceptor': 11,
     })
   })
 })
@@ -555,11 +548,13 @@ describe('microdomains', () => {
     failsWith({ ...nested(), schemaVersion: 1, cells: [cell('a')], compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`] }] }, 'needs "schemaVersion" 2')
     failsWith(nested({ in: 'nowhere' }), '"in" must be the id of the cell it is inside')
     failsWith(nested({ in: 'sr' }), 'is an organelle')
-    failsWith(nested({ against: [] }), '"against" must name one or two facets')
+    failsWith(nested({ against: [] }), '"against" must name the facets it lies against')
     failsWith(nested({ against: ['b.x'] }), 'is not a facet of "a"')
     const other = fourFacets()[1]
     failsWith(nested({ against: [`a.${first.id}`, `sr.${other.id}`] }), 'A microdomain lies against')
-    failsWith(nested({ against: [`a.${first.id}`, `a.${other.id}`] }), 'A microdomain lies against')
+    // Two facets of the cell and one of the organelle's: it is between the two membranes, or under the cell's.
+    const third = fourFacets()[2]
+    failsWith(nested({ against: [`a.${first.id}`, `a.${third.id}`, `sr.${first.id}`] }), 'A microdomain lies against')
   })
 
   it('lets a facet be against one microdomain only', () => {
@@ -677,5 +672,34 @@ describe('skins', () => {
     failsWith(skinned({ ref: 'art', mode: 'tile' }), '"mode" must be one of contain, cover, stretch')
     failsWith(skinned({ ref: 'art', opacity: 0 }), '"opacity" must be a number above 0')
     failsWith(skinned('art'), '"skin" must be an object')
+  })
+})
+
+describe('facets and compartments on every side of a cell', () => {
+  it('lets several facets share an edge', () => {
+    const { template, errors } = validateTemplate(withCell({ facets: [facet('one', 'top'), facet('two', 'top'), facet('three', 'bottom')] }))
+    expect(errors).toEqual([])
+    expect(template.cells[0].facets.map(({ id, edge }) => [id, edge])).toEqual([['one', 'top'], ['two', 'top'], ['three', 'bottom']])
+  })
+
+  it('puts a compartment round a cell when it is against more than one of its sides, and down one side for several facets there', () => {
+    const form = (against, cells = [cell('a')]) => {
+      const { template, errors } = validateTemplate(withCompartment({ against }, cells))
+      expect(errors).toEqual([])
+      return compartmentForm(template, 'fluid')
+    }
+    expect(form(['a.apical', 'a.left', 'a.right'])).toBe('surround')
+    expect(form(['a.right', 'a.left'])).toBe('surround')
+    const sides = [facet('upper', 'left'), facet('lower', 'left'), facet('top', 'top')]
+    expect(form(['a.upper', 'a.lower'], [cell('a', { facets: sides })])).toBe('column')
+  })
+
+  it('lets a space inside a cell lie against several of the cell’s facets', () => {
+    const [one, two] = fourFacets()
+    const inner = { id: 'segment', label: 'Segment', in: 'a', against: [`a.${one.id}`, `a.${two.id}`] }
+    const { template, errors } = validateTemplate(base({ schemaVersion: 2, compartments: [inner] }))
+    expect(errors).toEqual([])
+    for (const each of [one, two]) expect(siteNeighbours(template, `a.${each.id}`)).toContainEqual({ path: 'segment', relation: 'inside' })
+    failsWith(base({ schemaVersion: 2, compartments: [{ ...inner, against: [`a.${one.id}`, `a.${one.id}`] }] }), 'names a facet more than once')
   })
 })

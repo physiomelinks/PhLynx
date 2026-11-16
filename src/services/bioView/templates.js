@@ -344,12 +344,8 @@ function readCell(raw, index, errors, warnings) {
           errors.push(`${where}, ${label}: the ${facet.fold} side already has the fold "${folds.get(facet.fold)}"; a side has one at most.`)
         } else folds.set(facet.fold, facet.id)
       }
-      if (EDGES.includes(facet.edge)) {
-        const taken = edges.get(facet.edge)
-        if (taken) {
-          errors.push(`${where}, ${label}: the ${facet.edge} edge already has facet "${taken}"; a cell has at most one facet per edge.`)
-        } else edges.set(facet.edge, facet.id)
-      }
+      // Several facets may share an edge: they take a stretch of it each, in the order given.
+      if (EDGES.includes(facet.edge) && !edges.has(facet.edge)) edges.set(facet.edge, facet.id)
       if (facet.annotation) {
         const alias = `${facet.annotation.facet}${facet.annotation.at ? ` (${facet.annotation.at})` : ''}`
         if (aliases.has(alias)) {
@@ -413,11 +409,16 @@ function formOf(cells, against) {
 
   const allowed =
     'A compartment lies against facets on the same top or bottom edge of cells in one row (a band), ' +
-    'two facing facets of neighbouring cells (the gap between them), one left or right facet (a column), or nothing.'
+    'two facing facets of neighbouring cells (the gap between them), facets down one side of one cell (a column), ' +
+    'facets on more than one side of one cell (all round it), or nothing.'
   const edges = resolved.map((entry) => entry.facet.edge)
   const horizontal = (edge) => edge === 'top' || edge === 'bottom'
+  const isOneCell = resolved.every((entry) => entry.cell === resolved[0].cell)
+  const isOneEdge = edges.every((edge) => edge === edges[0])
 
-  if (resolved.length === 1 && !horizontal(edges[0])) return { form: 'column' }
+  if (isOneCell && isOneEdge && !horizontal(edges[0])) return { form: 'column' }
+  // The space round a cell, which the proteins on every side named meet.
+  if (isOneCell && !isOneEdge) return { form: 'surround' }
   if (edges.every((edge) => edge === edges[0]) && horizontal(edges[0])) {
     if (resolved.every((entry) => entry.cell.row === resolved[0].cell.row)) return { form: 'band' }
     return { form: null, error: `the cells of a band must share a row. ${allowed}` }
@@ -451,9 +452,10 @@ function microdomainError(cells, inside, against) {
   if (!cell) return `"in" must be the id of the cell it is inside.`
   if (cell.in) return `"${cell.id}" is an organelle; a microdomain is in a cell.`
   const rule =
-    'A microdomain lies against one facet of its cell, one facet of an organelle in that cell, or one of each on the same side; ' +
+    'A microdomain lies against facets of its cell, one facet of an organelle in that cell, or one of each on the same side; ' +
     'against a fold and an organelle, the organelle’s facet is its right one for a fold in from the top or bottom, and its bottom one for a fold in from the left or right.'
-  if (!Array.isArray(against) || against.length < 1 || against.length > 2) return `"against" must name one or two facets. ${rule}`
+  if (!Array.isArray(against) || against.length < 1 || against.length > LIMITS.sites) return `"against" must name the facets it lies against. ${rule}`
+  if (new Set(against).size !== against.length) return `"against" names a facet more than once. ${rule}`
   const found = []
   for (const ref of against) {
     const [cellId, facetId, extra] = typeof ref === 'string' ? ref.split('.') : []
@@ -462,10 +464,12 @@ function microdomainError(cells, inside, against) {
     if (!facet || (owner !== cell && owner.in !== cell.id)) return `"against" entry ${JSON.stringify(ref)} is not a facet of "${cell.id}" or of an organelle in it. ${rule}`
     found.push({ isOwn: owner === cell, edge: facet.edge, fold: facet.fold })
   }
-  if (found.length === 2) {
-    if (found[0].isOwn === found[1].isOwn) return rule
+  // Between the cell's membrane and an organelle's it has one facet of each; else any of the cell's own.
+  const others = found.filter((entry) => !entry.isOwn)
+  if (others.length > 1 || (others.length === 1 && found.length !== 2 && found.length !== 1)) return rule
+  if (found.length === 2 && others.length === 1) {
     const own = found.find((entry) => entry.isOwn)
-    const other = found.find((entry) => !entry.isOwn)
+    const other = others[0]
     // A fold comes in at the far end of its side, so it is the organelle's far side that faces it.
     const facing = own.fold ? FOLD_FACES[own.fold] : own.edge
     if (other.edge !== facing) return rule
@@ -710,8 +714,8 @@ export function sitesOf(template) {
  *
  * @param {Object} template - A validated template.
  * @param {Object|string} compartment - The compartment, or its id.
- * @returns {'band'|'gap'|'column'|'free'|'inner'|null} 'inner' for a microdomain; null when the template has no
- *   such compartment.
+ * @returns {'band'|'gap'|'column'|'surround'|'free'|'inner'|null} 'inner' for a microdomain; null when the
+ *   template has no such compartment.
  */
 export function compartmentForm(template, compartment) {
   const entry =

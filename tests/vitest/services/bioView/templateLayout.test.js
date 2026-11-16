@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { BUILT_IN_TEMPLATES, getBuiltInTemplate } from '../../../../src/services/bioView/builtInTemplates.js'
 import { CELL_RADIUS } from '../../../../src/services/bioView/geometry.js'
 import { GAP, layoutPhysiology } from '../../../../src/services/bioView/layout.js'
-import { compartmentForm } from '../../../../src/services/bioView/templates.js'
+import { compartmentForm, validateTemplate } from '../../../../src/services/bioView/templates.js'
 import { VESSEL_WALL } from '../../fixtures/vesselWall.js'
 
 const node = (id, bioView) => ({ id, data: { name: id, ...(bioView && { bioView }) } })
@@ -53,6 +53,11 @@ describe('template layout, nothing bound', () => {
           expect(inside(place.rect, places.get(key(piece.in)).rect)).toBe(true)
           continue
         }
+        // What lies round a cell holds the cell.
+        if (compartmentForm(template, piece) === 'surround') {
+          expect(inside(places.get(key(piece.against[0].split('.')[0])).rect, place.rect)).toBe(true)
+          continue
+        }
         // Each lies right against its facets: a band meets the cells' edge, a column its cell's side.
         for (const ref of piece.against) {
           const [cellId, facetId] = ref.split('.')
@@ -74,7 +79,7 @@ describe('template layout, nothing bound', () => {
       // No two cells overlap, nor two compartments once off the cells' corners, nor a compartment a cell.
       const cellRects = cells.filter((_, i) => !template.cells[i].in).map((cell) => cell.rect)
       const isGap = (piece) => compartmentForm(template, piece) === 'gap'
-      const regionRects = compartments.filter(([piece]) => !piece.in).map(([piece, place]) => clear(place.rect, place.edge, isGap(piece)))
+      const regionRects = compartments.filter(([piece]) => !piece.in && compartmentForm(template, piece) !== 'surround').map(([piece, place]) => clear(place.rect, place.edge, isGap(piece)))
       const pairs = (list) => list.flatMap((a, i) => list.slice(i + 1).map((b) => [a, b]))
       for (const [a, b] of pairs(cellRects)) expect(overlaps(a, b)).toBe(false)
       for (const [a, b] of pairs(regionRects)) expect(overlaps(a, b)).toBe(false)
@@ -314,7 +319,7 @@ describe('template layout, with a skin that gives a cell its shape', () => {
     width: 300,
     height: 600,
     outline: box(50, 20, 200, 560),
-    facets: { 'os-membrane': [{ x: 250, y: 40 }, { x: 250, y: 240 }] },
+    facets: { 'os-tip': [{ x: 250, y: 40 }, { x: 250, y: 240 }] },
     regions: {
       'outer-segment': { points: box(50, 20, 200, 240), bounds: { x: 50, y: 20, width: 200, height: 240 } },
       'inner-segment': { points: box(50, 320, 200, 260), bounds: { x: 50, y: 320, width: 200, height: 260 } },
@@ -341,7 +346,7 @@ describe('template layout, with a skin that gives a cell its shape', () => {
   })
 
   it('puts a protein on the stretch of membrane the skin names, and leaves a facet it doesn’t name on the cell’s box', () => {
-    const nodes = [node('cng', { site: 'bt-1/rod.os-membrane' }), node('pump', { site: 'bt-1/rod.is-membrane' })]
+    const nodes = [node('cng', { site: 'bt-1/rod.os-tip' }), node('pump', { site: 'bt-1/rod.is-lower' })]
     const roles = new Map(nodes.map(({ id }) => [id, role('membraneProtein')]))
     const { places } = lay(nodes, roles, { shapes })
     const cell = places.get(key('rod')).rect
@@ -353,5 +358,49 @@ describe('template layout, with a skin that gives a cell its shape', () => {
     const { places } = lay()
     expect(places.get(key('rod')).outline).toBeUndefined()
     expect(places.get(key('outer-segment')).clip).toBeUndefined()
+  })
+})
+
+describe('template layout, on every side of a cell', () => {
+  const template = {
+    schemaVersion: 1,
+    id: 'all-round',
+    name: 'All round',
+    cells: [
+      {
+        id: 'a',
+        label: 'A',
+        facets: [
+          { id: 'one', label: 'One', edge: 'top' },
+          { id: 'two', label: 'Two', edge: 'top' },
+          { id: 'low', label: 'Low', edge: 'bottom' },
+          { id: 'end', label: 'End', edge: 'right' },
+        ],
+      },
+    ],
+    compartments: [{ id: 'around', label: 'Around', against: ['a.one', 'a.two', 'a.low', 'a.end'], depth: 100 }],
+  }
+  const all = new Map([['all-round', validateTemplate(template).template]])
+  const lay = (nodes = [], roles = new Map()) => layoutPhysiology(nodes, roles, { instances: [instance('all-round')], definitions: all })
+
+  it('puts the compartment round the cell, out from each side it is against and no other', () => {
+    const { places } = lay()
+    const cell = places.get(key('a')).rect
+    const around = places.get(key('around'))
+    expect(around.rect).toEqual({ x: cell.x, y: cell.y - 100, width: cell.width + 100, height: cell.height + 200 })
+    expect(around.form).toBe('surround')
+    expect(around.edge).toBeUndefined()
+    // The cell starts below it, at the instance's corner plus its depth.
+    expect(cell.y).toBe(100)
+  })
+
+  it('gives facets that share a side a stretch of it each, in order', () => {
+    const nodes = [node('p', { site: 'bt-1/a.one' }), node('q', { site: 'bt-1/a.two' })]
+    const { places } = lay(nodes, new Map(nodes.map(({ id }) => [id, role('membraneProtein')])))
+    const cell = places.get(key('a')).rect
+    const middle = cell.x + cell.width / 2
+    expect(places.get('p').x).toBeLessThan(middle)
+    expect(places.get('q').x).toBeGreaterThan(middle)
+    expect(places.get('p').y).toBe(cell.y)
   })
 })

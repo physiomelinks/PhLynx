@@ -46,9 +46,11 @@ describe('a placed template’s own additions', () => {
   })
 
   it('refuses a piece that doesn’t fit, saying why', () => {
-    const taken = addToEdits(epithelial, null, 'facets', { cell: 'cell', id: 'site-1', label: 'Again', edge: 'top' })
+    const taken = addToEdits(epithelial, null, 'facets', { cell: 'cell', id: 'site-1', label: 'Again', edge: 'up' })
     expect(taken.edits).toBeNull()
-    expect(taken.errors.join(' ')).toMatch(/top edge already has facet "apical"/)
+    expect(taken.errors.join(' ')).toMatch(/"edge" must be one of/)
+    // A second site along a side that has one fits: they share the side.
+    expect(addToEdits(epithelial, null, 'facets', { cell: 'cell', id: 'site-1', label: 'Again', edge: 'top' }).errors).toEqual([])
     const nowhere = addToEdits(epithelial, null, 'processes', { cell: 'nope', id: 'zone-1', label: 'Z' })
     expect(nowhere).toEqual({ edits: null, errors: ['There is no cell "nope" to add "zone-1" to.'] })
   })
@@ -79,7 +81,7 @@ describe('a placed template’s own additions', () => {
     )
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const broken = { id: 'bt-3', template: 'epithelial-cell', at: { x: 0, y: 0 }, edits: { added: { facets: [{ cell: 'cell', id: 'x', label: 'X', edge: 'top' }] } } }
+    const broken = { id: 'bt-3', template: 'epithelial-cell', at: { x: 0, y: 0 }, edits: { added: { facets: [{ cell: 'cell', id: 'x', label: 'X', edge: 'up' }] } } }
     expect(instanceTemplate(broken, definitions)).toBe(epithelial)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()

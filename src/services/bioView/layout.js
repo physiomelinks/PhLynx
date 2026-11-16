@@ -33,6 +33,9 @@ export const CARD = { width: 180, height: 72 }
 /** Height of a region's band. */
 export const REGION_HEIGHT = 140
 
+/** How far out from a cell, on each side it is against, the compartment round it reaches. */
+export const SURROUND_DEPTH = 110
+
 /** Width of a region down a cell's side. */
 export const SIDE_REGION_WIDTH = 120
 
@@ -109,7 +112,7 @@ export function formOfAgainst(against) {
  * Gives where a compartment goes. The first one against a place reaches a corner's depth under the cells,
  * which are drawn over it, to fill beside their rounded corners; later ones stack outward.
  *
- * @param {'band'|'column'|'gap'|'free'} form
+ * @param {'band'|'column'|'gap'|'surround'|'free'} form
  * @param {Array<{cellKey: string, edge: string}>} against - For a band, every cell it spans; for a column,
  *   the cell it runs down first; for a gap, the two facing facets.
  * @param {number} index - How many compartments are already against the same place.
@@ -136,6 +139,20 @@ export function compartmentRect(form, against, index, rects, depth = null, offse
     const cell = rects.get(against[0].cellKey)
     const x = against[0].edge === 'right' ? cell.x + cell.width + out - reach : cell.x - out - width
     return { x, y: cell.y, width: width + reach, height: cell.height }
+  }
+  if (form === 'surround') {
+    // Round one cell: out from each side it is against, and under the cell itself.
+    const cell = rects.get(against[0].cellKey)
+    const out = depth ?? SURROUND_DEPTH
+    const sides = new Set(against.map((entry) => entry.edge))
+    const left = sides.has('left') ? out : 0
+    const top = sides.has('top') ? out : 0
+    return {
+      x: cell.x - left,
+      y: cell.y - top,
+      width: cell.width + left + (sides.has('right') ? out : 0),
+      height: cell.height + top + (sides.has('bottom') ? out : 0),
+    }
   }
   if (form === 'gap') {
     // Filling the space between two facing facets, reaching under both cells' corners.
@@ -473,6 +490,10 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
     // How far out each band and column starts, stacked per cell and facet in declaration order.
     const outward = new Map()
     const starts = new Map()
+    // What lies round a cell takes room out from every side it is against.
+    for (const piece of pieces.filter((piece) => piece.form === 'surround')) {
+      for (const entry of piece.against) outward.set(`${entry.cellKey}/${entry.facetId}`, { depth: piece.depth ?? SURROUND_DEPTH, count: 1 })
+    }
     for (const piece of pieces.filter((piece) => piece.form === 'band' || piece.form === 'column')) {
       const facets = (piece.form === 'band' ? piece.against : piece.against.slice(0, 1)).map((e) => `${e.cellKey}/${e.facetId}`)
       const start = Math.max(...facets.map((facet) => outward.get(facet)?.depth ?? 0))
@@ -481,8 +502,9 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
       for (const facet of facets) outward.set(facet, { depth: start + depth, count: index + 1 })
       starts.set(piece.key, { offset: start, index })
     }
-    const facetOn = (cell, edge) => cell.facets.find((facet) => facet.edge === edge)?.id
-    const outOf = (cell, edge) => outward.get(`${cell.key}/${facetOn(cell, edge)}`)?.depth ?? 0
+    // The deepest of what lies out from any facet along that side.
+    const outOf = (cell, edge) =>
+      Math.max(0, ...cell.facets.filter((facet) => facet.edge === edge).map((facet) => outward.get(`${cell.key}/${facet.id}`)?.depth ?? 0))
     const gapBetween = (a, b, edge) =>
       pieces.find(
         (piece) =>
@@ -709,7 +731,12 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
         tone: null,
         ...(cell.skin && { skin: cell.skin }),
         label: cell.label,
-        facetLabels: cell.facets.filter((facet) => !facet.fold).map(({ id, label, edge }) => ({ facetId: id, label, edge })),
+        facetLabels: cell.facets.filter((facet) => !facet.fold).map(({ id, label, edge }) => {
+          // A facet a skin draws is named by its own stretch of membrane, on the side it faces.
+          if (!facetById(cell.shape, id)?.path) return { facetId: id, label, edge }
+          const middle = proteinPlacement(rect, id, 0, 1, cell.shape)
+          return { facetId: id, label, edge: middle.outward, at: { x: middle.x - rect.x, y: middle.y - rect.y } }
+        }),
         ...(folds.length && { folds }),
         zones: cellZones,
       })
@@ -753,7 +780,8 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
     for (const piece of pieces) if (innerRects.has(piece.key)) placed.push([piece, innerRects.get(piece.key)])
     for (const [piece, rect] of placed) {
       // A microdomain against a fold is named as one down the side of what faces the fold.
-      const edge = piece.form === 'free' ? null : (piece.against.find((entry) => entry.edge)?.edge ?? 'top')
+      // What lies round a cell is named in its own corner, as a free compartment is.
+      const edge = piece.form === 'free' || piece.form === 'surround' ? null : (piece.against.find((entry) => entry.edge)?.edge ?? 'top')
       layout.set(piece.key, {
         kind: 'region',
         side: null,

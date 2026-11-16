@@ -824,29 +824,37 @@ class TestBioTemplates(unittest.TestCase):
     def test_a_rod_is_drawn_to_its_own_outline_with_proteins_along_it(self):
         page = self.page
         self.open_physiology_with_template("Rod photoreceptor")
-        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
+        fit.click()
         page.wait_for_timeout(400)
         rod = piece(page, "rod")
-        # Its skin draws it: artwork inside an outline that is no rounded box, taller than it is wide.
+        # Its skin draws it: artwork inside an outline that is no rounded box, lying on its side.
         expect(rod.locator("[data-testid=bio-skin]")).to_have_count(1)
         expect(rod.locator("[data-testid=bio-bilayer]")).to_have_count(1)
         expect(rod.locator("[data-testid=bio-empty-hint]")).to_have_count(0)
         box = rod.bounding_box()
-        assert box["height"] > 1.5 * box["width"], box
-        # Its segments are spaces of their own, the outer above the inner, with the cilium's area between.
+        assert box["width"] > 2 * box["height"], box
+        # Its segments are spaces of their own, the outer left of the inner, with the cilium's area between, and
+        # the space outside lies round it on every side.
         outer, inner = piece(page, "outer-segment").bounding_box(), piece(page, "inner-segment").bounding_box()
         zone = rod.locator("[data-testid=bio-process-zone]").bounding_box()
-        assert outer["y"] + outer["height"] <= zone["y"] + zone["height"] / 2 <= inner["y"], (outer, zone, inner)
-        # A protein dropped on the outer segment's side is put on its membrane there.
-        self.drop_module(0, (outer["x"] + outer["width"], outer["y"] + outer["height"] / 2))
-        protein = bound(page, "bioProtein")
-        expect(protein).to_have_count(1)
-        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
-        outer = piece(page, "outer-segment").bounding_box()
-        at = centre(protein.bounding_box())
-        self.assertAlmostEqual(at[0], outer["x"] + outer["width"], delta=6)
-        assert outer["y"] < at[1] < outer["y"] + outer["height"], (outer, at)
+        assert outer["x"] + outer["width"] <= zone["x"] + zone["width"] / 2 <= inner["x"], (outer, zone, inner)
+        around = piece(page, "extracellular").bounding_box()
+        assert around["x"] < box["x"] and around["y"] < box["y"], (around, box)
+        assert around["x"] + around["width"] > box["x"] + box["width"] and around["y"] + around["height"] > box["y"] + box["height"], (around, box)
+        # Proteins dropped above and below the outer segment are put on its membrane there, on either side of it.
+        for edge in (outer["y"], outer["y"] + outer["height"]):
+            count = bound(page, "bioProtein").count()
+            self.drop_module(0, (outer["x"] + outer["width"] / 2, edge))
+            expect(bound(page, "bioProtein")).to_have_count(count + 1)
+            fit.click()
+            page.wait_for_timeout(400)
+            outer = piece(page, "outer-segment").bounding_box()
+        ys = sorted(centre(box)[1] for box in bound(page, "bioProtein").evaluate_all(
+            "els => els.map(e => { const r = e.getBoundingClientRect(); return {x: r.x, y: r.y, width: r.width, height: r.height} })"
+        ))
+        self.assertAlmostEqual(ys[0], outer["y"], delta=8)
+        self.assertAlmostEqual(ys[1], outer["y"] + outer["height"], delta=8)
 
     def test_draw_a_cell_with_a_skin_and_take_it_away(self):
         page = self.page
