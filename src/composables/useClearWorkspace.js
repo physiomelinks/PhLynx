@@ -12,6 +12,7 @@ import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useProtocolStore } from '../stores/protocolStore'
+import { useViewModeStore } from '../stores/viewModeStore'
 import { cancelSimulation, forgetSimulationSession } from './useSimulation'
 import { resetSliderReruns } from './useSliderReruns'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
@@ -83,6 +84,8 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         glyphLibraryStore.resetState()
         nodeThemeStore.resetState()
         sessionMetadataStore.resetState()
+        // Another workspace's species are not this one's to hide.
+        useViewModeStore().hiddenSpecies = []
         libraryStore.resetGlobalConstants()
         if (!keepParameters) defaultParametersStore.resetState()
       }

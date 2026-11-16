@@ -48,7 +48,26 @@
         >
           <i class="pi pi-share-alt"></i>
         </ControlButton>
+        <!-- Beside the species button, which is the last of the column -->
+        <ControlButton
+          v-if="hasSpecies && isSpeciesOn"
+          class="bio-species-menu-button"
+          title="Choose which species are shown"
+          aria-haspopup="dialog"
+          data-testid="bio-species-menu-button"
+          @click="speciesMenuRef?.toggle($event)"
+        >
+          <i class="pi pi-angle-right"></i>
+        </ControlButton>
       </Controls>
+      <SpeciesMenu
+        ref="speciesMenuRef"
+        :species="menuSpecies"
+        :hidden="viewMode.hiddenSpecies"
+        :scope="viewMode.speciesScope"
+        @update:hidden="setHiddenSpecies"
+        @update:scope="setSpeciesScope"
+      />
       <template #zoom-pane>
         <!-- Species mode: each compartment's species, and the paths they take through proteins; only tokens are hit -->
         <svg
@@ -373,6 +392,7 @@ import BioMembrane from './BioMembrane.vue'
 import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import BioTemplateTitle from './BioTemplateTitle.vue'
+import SpeciesMenu from './SpeciesMenu.vue'
 import SanitisedInput from '../SanitisedInput.vue'
 import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
@@ -508,6 +528,7 @@ const speciesMode = computed(() => {
   return {
     all: viewMode.speciesScope === 'all',
     fluxes: viewMode.speciesScope === 'fluxes',
+    hidden: viewMode.hiddenSpecies,
     keep: keptSpecies.value ? { nodeId, species: curie } : null,
   }
 })
@@ -1281,9 +1302,14 @@ const SPECIES_COLOURS = [
   'var(--p-lime-700)',
   'var(--p-indigo-600)',
 ]
-const shownSpecies = computed(() => [...new Set((species.value?.tokens ?? []).map((token) => token.species))].sort())
-const colourIndex = (curie) => Math.max(0, shownSpecies.value.indexOf(curie)) % SPECIES_COLOURS.length
+/** Every species in scope, hidden ones too, so hiding one leaves the others their colours. */
+const scopedSpecies = computed(() => species.value?.network.species ?? [])
+const colourIndex = (curie) =>
+  Math.max(0, scopedSpecies.value.findIndex((entry) => entry.species === curie)) % SPECIES_COLOURS.length
 const colourOf = (curie) => SPECIES_COLOURS[colourIndex(curie)]
+/** The species menu's rows. */
+const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
+const speciesMenuRef = ref(null)
 const isFocused = (token) =>
   viewMode.focusedSpecies?.nodeId === token.nodeId && viewMode.focusedSpecies?.species === token.species
 /** Whether a species is set back while another is focused. */
@@ -1308,6 +1334,12 @@ function setSpeciesScope(scope) {
   viewMode.speciesScope = scope
   saveAppSettings({ speciesOverlay: true })
   if (scope !== 'fluxes') clearSpeciesFocus()
+}
+
+/** Hides these species in every compartment, with their paths; a focused one hidden is no longer focused. */
+function setHiddenSpecies(hidden) {
+  viewMode.hiddenSpecies = hidden
+  if (hidden.includes(viewMode.focusedSpecies?.species)) clearSpeciesFocus()
 }
 
 /** How far, in screen pixels, a species chip must be dragged before it moves: less is a click. */
@@ -2535,6 +2567,16 @@ function assignRole(id, at, { role, cell, placement }) {
 .bio-species-toggle--on {
   color: var(--p-primary-color);
   background: color-mix(in srgb, var(--p-primary-color) 14%, transparent);
+}
+
+/* Out of the column, against the species button's right side */
+.bio-species-menu-button {
+  position: absolute;
+  left: 100%;
+  bottom: 0;
+  margin-left: 2px;
+  border-radius: 4px;
+  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
 }
 
 /* The selection's coupling lines are hidden while dragging, and so are their ends. */

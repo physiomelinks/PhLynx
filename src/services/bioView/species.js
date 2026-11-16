@@ -96,6 +96,7 @@ export function proteinFlow(sidecar, species, side) {
  *   their compartment: one a protein only reads the amount of, as a pump does its ATP, is left out.
  * @param {{nodeId: string, species: string}|null} [options.keep] - A token shown whatever the rest say, as the
  *   focused one is, if its compartment annotates the species as its own.
+ * @param {string[]} [options.hidden] - Species left out of every compartment, with their paths, by CURIE.
  * @returns {{
  *   compartments: Map<string, Array<{species: string, label: string, variable: string, annotation: Object,
  *     flow: Object|null}>>,
@@ -103,12 +104,23 @@ export function proteinFlow(sidecar, species, side) {
  *     side: 'inside'|'outside'|null, proteinAnnotation: Object, compartmentAnnotation: Object}>,
  *   paths: Array<{protein: string, species: string, label: string, outside: string, inside: string}>,
  *   dependences: Array<{protein: string, compartment: string, species: string, label: string,
- *     side: 'inside'|'outside'|null}>
+ *     side: 'inside'|'outside'|null}>,
+ *   species: Array<{species: string, label: string}>
  * }} Compartment id -> its species tokens; each coupling of a species between a protein and a compartment; each
  *   way a membrane protein carries a species from outside its cell to inside, through flows coupled on both sides;
- *   and each compartment species a protein reads only the amount of, as a pump does its ATP, with no flow coupled.
+ *   each compartment species a protein reads only the amount of, as a pump does its ATP, with no flow coupled;
+ *   and every species in scope, hidden ones too, in CURIE order.
  */
-export function speciesNetwork({ nodes, edges, roleOf, sidecarOf, all = false, fluxes = false, keep = null }) {
+export function speciesNetwork({
+  nodes,
+  edges,
+  roleOf,
+  sidecarOf,
+  all = false,
+  fluxes = false,
+  keep = null,
+  hidden = [],
+}) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const sidecars = new Map()
   const sidecarFor = (id) => {
@@ -219,7 +231,29 @@ export function speciesNetwork({ nodes, edges, roleOf, sidecarOf, all = false, f
     const { protein, compartment, species, side } = link
     dependences.push({ protein, compartment, species, label: displayLabel(species), side })
   }
-  return { compartments, links, paths, dependences }
+
+  // Every species in scope, hidden or not: what a menu of them lists, and what their colours are counted along.
+  const inScope = new Map()
+  for (const entries of compartments.values()) for (const { species, label } of entries) inScope.set(species, label)
+  const species = [...inScope]
+    .map(([curie, label]) => ({ species: curie, label }))
+    .sort((a, b) => (a.species < b.species ? -1 : a.species > b.species ? 1 : 0))
+  const off = new Set(hidden)
+  if (!off.size) return { compartments, links, paths, dependences, species }
+
+  const isShown = (entry) => !off.has(entry.species)
+  const left = new Map()
+  for (const [id, entries] of compartments) {
+    const kept = entries.filter(isShown)
+    if (kept.length) left.set(id, kept)
+  }
+  return {
+    compartments: left,
+    links,
+    paths: paths.filter(isShown),
+    dependences: dependences.filter(isShown),
+    species,
+  }
 }
 
 /**

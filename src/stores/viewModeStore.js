@@ -15,6 +15,8 @@ export const useViewModeStore = defineStore('viewMode', () => {
    * a path through a protein) or 'all' annotated.
    */
   const speciesScope = ref('coupled')
+  /** The species species mode leaves out, by CURIE: each is hidden in every compartment, with its paths. */
+  const hiddenSpecies = ref([])
   /**
    * The species token clicked, which the selection plot shows in place of the selection:
    * { nodeId, species, label, scope } (scope: the instances a Selection run needs). Cleared when the selection
@@ -24,5 +26,5 @@ export const useViewModeStore = defineStore('viewMode', () => {
 
   const isBio = computed(() => mode.value === 'bio')
 
-  return { mode, bioViewport, speciesScope, focusedSpecies, isBio }
+  return { mode, bioViewport, speciesScope, hiddenSpecies, focusedSpecies, isBio }
 })

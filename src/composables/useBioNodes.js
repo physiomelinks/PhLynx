@@ -478,9 +478,9 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
  *
  * @param {Ref<Array<Object>>} nodes - The diagram's nodes.
  * @param {Ref<Array<Object>>} [edges] - The diagram's edges.
- * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null}|null> }} [options] - Species
- *   mode, when on: whether it shows every annotated species, only those coupled, or only those with a path through a
- *   protein, and a token it keeps whatever (see speciesNetwork). A compartment's tokens follow its
+ * @param {{ speciesMode?: Ref<{all?: boolean, fluxes?: boolean, keep?: Object|null, hidden?: string[]}|null> }}
+ *   [options] - Species mode, when on: whether it shows every annotated species, only those coupled, or only those
+ *   with a path through a protein, a token it keeps whatever, and the species it hides (see speciesNetwork). A compartment's tokens follow its
  *   bioView.speciesOrder.
  * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
  *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
@@ -572,6 +572,7 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null) } 
       all: !!mode.all,
       fluxes: !!mode.fluxes,
       keep: mode.keep ?? null,
+      hidden: mode.hidden ?? [],
     })
     const byId = new Map(nodes.value.map((node) => [node.id, node]))
     const labelOf = viewLabels(byId, layout.value, carriedArrows.value)
