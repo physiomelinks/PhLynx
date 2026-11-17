@@ -6,7 +6,7 @@
  * so nothing that reaches the library points at a file the library cannot open. Component
  * imports are left in place and reported.
  */
-import { getLibCellML } from '../../utils/cellml'
+import { getLibCellML, loggerMessages } from '../../utils/cellml'
 
 const XLINK_NS = 'http://www.w3.org/1999/xlink'
 const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:/i
@@ -240,16 +240,6 @@ function adoptInNamespace(doc, element, namespace) {
 
 function deleteAll(...objects) {
   for (const object of objects) object?.delete?.()
-}
-
-function loggerMessages(logger) {
-  const messages = []
-  for (let i = 0; i < logger.errorCount(); i++) {
-    const issue = logger.error(i)
-    messages.push(issue.description())
-    issue.delete()
-  }
-  return messages
 }
 
 /**
