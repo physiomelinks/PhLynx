@@ -199,6 +199,7 @@ export function useImportExportSend({
         modified: scope ? true : hasModelChanged.value,
         cellmlFileName,
         moduleFiles: modular.files,
+        unitsFiles: libraryStore.availableUnits,
         annotationFiles: modular.sidecars,
       }
     )

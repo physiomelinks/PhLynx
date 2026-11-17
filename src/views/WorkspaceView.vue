@@ -683,7 +683,7 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 
-import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
+import { importOmexFile, extractOmexArchive, readArchiveEntries, registerArchiveUnits } from '../services/import/omex'
 import { buildRestoredPorts, restoreOmexAnnotations } from '../services/import/omexAnnotations'
 import { withAnnotationData } from '../services/annotations/nodeData'
 import { drivenSummary } from '../services/annotations/edgeCouplings'
@@ -1574,6 +1574,8 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
   }
 
   const cellmlContent = await cellmlFile.async('string')
+  // Before the workspace loads, so its units resolve from the archive's own units files.
+  await registerArchiveUnits(archive, result.otherCellmls, libraryStore)
   let nodeNameToIdMap = new Map()
   if (result.files?.flowSnapshot) {
     // Best case scenario: we have a flow snapshot, which is the most complete representation of the workspace state.

@@ -10,6 +10,8 @@ import { PHLYNX_PROJECT_VERSION } from '../utils/constants'
 import { useOmexStore } from '../stores/omexStore.js'
 
 const CELLML_FORMAT = 'http://identifiers.org/combine.specifications/cellml'
+const SEDML_FORMAT = 'http://identifiers.org/combine.specifications/sed-ml'
+
 // A MathML derivative, as every ODE has.
 const DERIVATIVE = /<(?:[\w-]+:)?diff\s*\/>/
 
@@ -114,10 +116,21 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   const paramsForIdExport = resolveParamsForIdExport(simData.parameterScanConfig?.selections, omexStore.preservedExtras)
   if (paramsForIdExport) reservedLocations.add(paramsForIdExport.location)
 
+  // Each under its own name, the first of a name winning. Reserved, so a copy kept from an imported archive isn't
+  // also written from preservedExtras.
+  const unitsFiles = new Map()
+  for (const { componentFile, model } of addInfo.unitsFiles ?? []) {
+    const location = `units/${componentFile.split('/').pop()}`
+    if (!model || reservedLocations.has(location)) continue
+    unitsFiles.set(location, model)
+    reservedLocations.add(location)
+  }
+
   const manifestEntries = [
-    { location: 'document.sedml', format: 'http://identifiers.org/combine.specifications/sed-ml', master: true },
+    { location: 'document.sedml', format: SEDML_FORMAT, master: true },
     { location: cellmlFileName, format: CELLML_FORMAT },
     ...(flatLocation ? [{ location: flatLocation, format: CELLML_FORMAT }] : []),
+    ...Array.from(unitsFiles.keys(), (location) => ({ location, format: CELLML_FORMAT })),
     { location: 'flow-snapshot.json', format: 'application/x.vnd.phlynx-flow+json' },
     { location: 'changes.json', format: 'application/x.vnd.phlynx-changes+json' },
   ]
@@ -155,6 +168,10 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   zip.file('document.sedml', sedmlText)
   zip.file('flow-snapshot.json', flowSnapshot)
   zip.file('changes.json', JSON.stringify({ id: 'phlynx-changes', version: PHLYNX_PROJECT_VERSION, modified: addInfo.modified }))
+
+  for (const [location, model] of unitsFiles) {
+    zip.file(location, model)
+  }
 
   if (simulationJson !== null) {
     zip.file('simulation.json', simulationJson)
