@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { getBuiltInTemplate } from '../../../../src/services/bioView/builtInTemplates.js'
 import {
   dropLabel,
+  fillPlacementCouplings,
   isPlacementEdge,
   linkCouplings,
   siteLabel,
@@ -294,5 +295,49 @@ describe('staleLinks', () => {
     const edges = [{ id: 'p--cell', source: 'p', target: 'cell', data: { couplings: [], placement: 'across' } }]
     expect(staleLinks('p', ['cell'], ['cell'], edges).remove).toEqual([])
     expect(staleLinks('p', ['cell'], [], edges).remove.map((e) => e.id)).toEqual(['p--cell'])
+  })
+})
+
+describe('fillPlacementCouplings', () => {
+  const node = ({ id, ports }) => ({ id, data: { ports } })
+  const edge = (source, target, data) => ({ id: `${source}--${target}`, source, target, data })
+
+  it('couples a placement edge left empty once a new module has ports', () => {
+    const nodes = [node(io('a')), node(io('b'))]
+    const edges = [edge('a', 'b', { couplings: [], placement: 'across' })]
+    const filled = fillPlacementCouplings({ nodes, edges, nodeIds: ['b'] })
+    expect(summary([{ ...edges[0], kind: 'across', data: { couplings: filled.get('a--b') } }])).toEqual([
+      'a → b across: v>v_in',
+    ])
+  })
+
+  it('leaves an edge alone that couples already, was edited by hand, or does not touch the saved nodes', () => {
+    const nodes = [node(io('a')), node(io('b')), node(io('c'))]
+    const coupled = linkCouplings(io('a'), io('b'), 'across')
+    const edges = [
+      edge('a', 'b', { couplings: coupled, placement: 'across' }),
+      edge('b', 'c', { couplings: [], placement: false }),
+      edge('a', 'c', { couplings: [], placement: 'across' }),
+    ]
+    expect(fillPlacementCouplings({ nodes, edges, nodeIds: ['b'] }).size).toBe(0)
+  })
+
+  it('leaves edges between two annotated nodes to the annotation matcher', () => {
+    const nodes = [node(io('a')), node(io('b'))]
+    const edges = [edge('a', 'b', { couplings: [], placement: 'across' })]
+    expect(fillPlacementCouplings({ nodes, edges, nodeIds: ['b'], isAnnotated: () => true }).size).toBe(0)
+  })
+
+  it('never couples a single-connection outlet twice across the edges it fills', () => {
+    const nodes = [node(io('a')), node(io('b')), node(io('c'))]
+    const edges = [edge('a', 'b', { couplings: [], placement: 'across' }), edge('a', 'c', { couplings: [], placement: 'across' })]
+    const filled = fillPlacementCouplings({ nodes, edges, nodeIds: ['a'] })
+    expect([...filled.keys()]).toEqual(['a--b'])
+  })
+
+  it('couples nothing while the module still has no ports', () => {
+    const nodes = [node(io('a')), node(bare('b'))]
+    const edges = [edge('a', 'b', { couplings: [], placement: 'across' })]
+    expect(fillPlacementCouplings({ nodes, edges, nodeIds: ['b'] }).size).toBe(0)
   })
 })
