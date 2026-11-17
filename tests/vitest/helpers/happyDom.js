@@ -30,3 +30,22 @@ export function patchUnderscoreTagSelectors() {
     }
   }
 }
+
+/**
+ * happy-dom dispatches `selectionchange` as soon as the selection changes, so CodeMirror, which sets the selection
+ * while it updates, hears it mid-update and throws. Browsers queue the event, so it is queued here too.
+ *
+ * @param {Document} [doc=document]
+ * @returns {() => void} Restores the original dispatch.
+ */
+export function deferSelectionChange(doc = document) {
+  const dispatch = doc.dispatchEvent
+  doc.dispatchEvent = function (event) {
+    if (event.type !== 'selectionchange') return dispatch.call(this, event)
+    setTimeout(() => dispatch.call(this, event))
+    return true
+  }
+  return () => {
+    doc.dispatchEvent = dispatch
+  }
+}

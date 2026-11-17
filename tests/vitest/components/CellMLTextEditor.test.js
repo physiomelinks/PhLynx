@@ -2,11 +2,12 @@
 import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { EditorView } from '@codemirror/view'
 import { CellMLTextParser } from 'cellml-text-editor'
 
 import CellMLTextEditor from '../../../src/components/CellMLTextEditor.vue'
+import { deferSelectionChange } from '../helpers/happyDom.js'
 
 const modelWith = (rightHandSide) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="m">
   <component name="c">
@@ -24,6 +25,11 @@ const DEFINITIONS = [
 ]
 
 let wrapper
+let restoreSelectionChange
+beforeAll(() => {
+  restoreSelectionChange = deferSelectionChange()
+})
+afterAll(() => restoreSelectionChange())
 afterEach(() => {
   wrapper?.unmount()
   vi.restoreAllMocks()
