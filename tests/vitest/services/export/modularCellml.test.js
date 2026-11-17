@@ -8,7 +8,7 @@ import { analyzeMathXml } from '../../../../src/services/math/analyzeMath.js'
 import { stripIds } from '../../../../src/services/math/variableIds.js'
 import { reconcileRows } from '../../../../src/services/math/reconcileRows.js'
 import { useLibraryStore } from '../../../../src/stores/libraryStore.js'
-import { generateFlattenedModel, getLibCellML, loadParametersFromCellML } from '../../../../src/utils/cellml.js'
+import { generateFlattenedModel, getLibCellML, loadParametersFromCellML, loggerMessages } from '../../../../src/utils/cellml.js'
 import { resolvePortCouplings } from '../../../../src/utils/edges.js'
 import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
 
@@ -111,15 +111,18 @@ function analysis(text) {
   const parser = new libcellml.Parser(false)
   const analyser = new libcellml.Analyser()
   const model = parser.parseModel(text)
+  let analysed = null
   try {
     analyser.analyseModel(model)
-    const issues = Array.from({ length: analyser.errorCount() }, (_, i) => analyser.error(i).description())
-    const analysed = analyser.analyserModel()
+    const issues = loggerMessages(analyser)
+    analysed = analyser.analyserModel()
     const values = (count, get) =>
       Array.from({ length: analysed[count]() }, (_, i) => {
-        const variable = analysed[get](i).variable()
+        const analyserVariable = analysed[get](i)
+        const variable = analyserVariable.variable()
         const value = variable.initialValue()
         variable.delete()
+        analyserVariable.delete()
         return value
       }).sort()
     return {
@@ -132,7 +135,7 @@ function analysis(text) {
       constants: values('constantCount', 'constant'),
     }
   } finally {
-    ;[model, analyser, parser].forEach((object) => object.delete())
+    ;[analysed, model, analyser, parser].forEach((object) => object?.delete())
   }
 }
 

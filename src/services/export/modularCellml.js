@@ -6,7 +6,13 @@
 import JSZip from 'jszip'
 
 import { AFFINE_UNIT_CONVERSIONS, CELLML_NS, STANDARD_UNITS } from '../../utils/constants'
-import { generateFlattenedModel, getLibCellML, stripCelsiusToArbitraryUnit, uniqueComponentIds } from '../../utils/cellml'
+import {
+  generateFlattenedModel,
+  getLibCellML,
+  loggerMessages,
+  stripCelsiusToArbitraryUnit,
+  uniqueComponentIds,
+} from '../../utils/cellml'
 import { parseMathRef } from '../../utils/config'
 import { renameSidecar } from '../annotations/sidecarEdit'
 import { groupingCellmlFile, unitsUsedBy } from '../userModules'
@@ -222,15 +228,13 @@ function mainModel(flatDoc, imports) {
 function reprint(libcellml, xml) {
   const parser = new libcellml.Parser(false)
   const printer = new libcellml.Printer()
-  const model = parser.parseModel(xml)
+  let model = null
   try {
-    if (parser.errorCount()) {
-      const issues = Array.from({ length: parser.errorCount() }, (_, i) => parser.error(i).description())
-      throw new Error(`The modular CellML doesn't parse: ${issues.join(' ')}`)
-    }
+    model = parser.parseModel(xml)
+    if (parser.errorCount()) throw new Error(`The modular CellML doesn't parse: ${loggerMessages(parser).join(' ')}`)
     return printer.printModel(model, false)
   } finally {
-    model.delete()
+    model?.delete()
     printer.delete()
     parser.delete()
   }
