@@ -75,9 +75,9 @@ describe('bioTemplateStore local library', () => {
 
   it('returns the errors and adds nothing for an invalid template', () => {
     const store = freshStore()
-    const { template, errors } = store.addLocalTemplate({ ...tubule(), schemaVersion: 3 })
+    const { template, errors } = store.addLocalTemplate({ ...tubule(), schemaVersion: 4 })
     expect(template).toBeNull()
-    expect(errors).toEqual(['Template: "schemaVersion" must be 1 or 2.'])
+    expect(errors).toEqual(['Template: "schemaVersion" must be 1, 2 or 3.'])
     expect(store.localTemplates).toEqual([])
     expect(window.localStorage.getItem(LOCAL_TEMPLATES_KEY)).toBeNull()
   })

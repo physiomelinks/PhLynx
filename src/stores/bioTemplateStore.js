@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 
 import { BUILT_IN_TEMPLATES } from '../services/bioView/builtInTemplates'
+import { SKIN_ID, SKIN_LIMITS, freeSkinId, sanitiseSkin, skinParts } from '../services/bioView/skins'
 import {
   INSTANCE_ID,
   bareTemplateId,
@@ -83,6 +84,28 @@ export const NOT_KEPT_WARNING = 'It could not be kept on this device, so it will
 const withId = (template, id) =>
   validateTemplate({ ...JSON.parse(JSON.stringify(template)), id }, { allowLocalId: true }).template
 
+const skinFiles = import.meta.glob('../assets/bio_skins/*.svg', { eager: true, query: '?raw', import: 'default' })
+let shipped = null
+
+/**
+ * The skins PhLynx ships, read once: each named for its file. Reading one needs the page's XML parser, so where
+ * there is none (outside a browser) there are none, and a template that names one is drawn plain.
+ *
+ * @returns {Map<string, {id: string, name: string, svg: string, art: string|null, shape: Object|null}>}
+ */
+function builtInSkins() {
+  if (shipped) return shipped
+  if (typeof DOMParser === 'undefined') return new Map()
+  shipped = new Map()
+  for (const [path, text] of Object.entries(skinFiles)) {
+    const id = path.split('/').pop().replace(/\.svg$/, '')
+    const { svg, errors } = sanitiseSkin(text)
+    if (!svg) console.error(`Built-in skin ${path} is invalid:`, errors)
+    else shipped.set(id, Object.freeze({ id, name: id.replaceAll('-', ' '), svg, isBuiltIn: true, ...skinParts(svg) }))
+  }
+  return shipped
+}
+
 /** Whether two templates are the same apart from their ids. */
 const sameTemplate = (a, b) => JSON.stringify({ ...a, id: '' }) === JSON.stringify({ ...b, id: '' })
 
@@ -99,10 +122,46 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
   const localTemplates = ref(readLocalTemplates())
   /** Every template that can be added: the built-ins, then the user's. */
   const library = computed(() => [...BUILT_IN_TEMPLATES, ...localTemplates.value])
+  /**
+   * The workspace's skins, by id: `{ id, name, svg, art, shape }`, the SVG cleaned (see sanitiseSkin), with its
+   * artwork and the geometry it names apart (see skinParts). Replaced, never mutated.
+   */
+  const skins = shallowRef(new Map())
+  /** Every skin a piece can be drawn with: the ones PhLynx ships, then the workspace's, which win by id. */
+  const allSkins = computed(() => new Map([...builtInSkins(), ...skins.value]))
+  /** The geometry of each skin that gives a cell its shape, by skin id. */
+  const shapes = computed(() => new Map([...allSkins.value].filter(([, skin]) => skin.shape).map(([id, skin]) => [id, skin.shape])))
 
   function resetState() {
     instances.value = []
     definitions.value = new Map()
+    skins.value = new Map()
+  }
+
+  /**
+   * Adds SVG artwork to the workspace's skins, cleaned.
+   *
+   * @param {string} name - What it is called, as its file is.
+   * @param {string} text - The SVG file's contents.
+   * @returns {{ skin: {id: string, name: string, svg: string}|null, errors: string[] }}
+   */
+  function addSkin(name, text) {
+    if (skins.value.size >= SKIN_LIMITS.count) return { skin: null, errors: [`A workspace keeps at most ${SKIN_LIMITS.count} skins.`] }
+    const { svg, errors } = sanitiseSkin(text)
+    if (!svg) return { skin: null, errors }
+    const same = [...skins.value.values()].find((skin) => skin.svg === svg)
+    if (same) return { skin: same, errors: [] }
+    const label = String(name ?? '').replace(/\.svg$/i, '').trim().slice(0, SKIN_LIMITS.name) || 'Skin'
+    const skin = Object.freeze({ id: freeSkinId(label, skins.value.keys()), name: label, svg, ...skinParts(svg) })
+    skins.value = new Map([...skins.value, [skin.id, skin]])
+    return { skin, errors: [] }
+  }
+
+  /** @param {string} id - A skin's. */
+  function removeSkin(id) {
+    if (!skins.value.has(id)) return false
+    skins.value = new Map([...skins.value].filter(([key]) => key !== id))
+    return true
   }
 
   /**
@@ -361,6 +420,15 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     instances.value = kept
     definitions.value = loaded
     pruneDefinitions()
+
+    // Skins are cleaned again as they are read: a saved file is no more trusted than a loaded one.
+    const read = new Map()
+    for (const [id, saved] of Object.entries(state.skins ?? {}).slice(0, SKIN_LIMITS.count)) {
+      const { svg } = SKIN_ID.test(id) ? sanitiseSkin(saved?.svg) : { svg: null }
+      if (svg) read.set(id, Object.freeze({ id, name: String(saved.name ?? id).slice(0, SKIN_LIMITS.name), svg, ...skinParts(svg) }))
+      else console.warn(`Skipping saved skin ${id}: it is not a drawing that can be used.`)
+    }
+    skins.value = read
   }
 
   /**
@@ -374,7 +442,9 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     for (const [id, template] of definitions.value) {
       if (used.has(id)) templates[id] = JSON.parse(JSON.stringify(template))
     }
-    return { templates, instances: instances.value.map(copyInstance) }
+    const state = { templates, instances: instances.value.map(copyInstance) }
+    if (skins.value.size) state.skins = Object.fromEntries([...skins.value].map(([id, { name, svg }]) => [id, { name, svg }]))
+    return state
   }
 
   return {
@@ -382,6 +452,11 @@ export const useBioTemplateStore = defineStore('bioTemplates', () => {
     definitions,
     localTemplates,
     library,
+    skins,
+    allSkins,
+    shapes,
+    addSkin,
+    removeSkin,
     resetState,
     getDefinition,
     getInstance,

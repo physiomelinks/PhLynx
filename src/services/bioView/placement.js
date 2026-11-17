@@ -54,6 +54,21 @@ function sitePlaces(ref, { instances, definitions }) {
     return [place(key(compartment.id), compartment.label, 'region', [SELF], { sides: compartmentSides(template, compartment) })]
   }
 
+  // A link is between two spaces, as a junction is: each a cell's inside or a compartment, by its own term.
+  const link = template.links?.find((candidate) => candidate.id === parsed.path)
+  if (link) {
+    const spaces = link.between.map((id) => {
+      const space = template.compartments.find((candidate) => candidate.id === id)
+      if (space) {
+        const as = space.term ? [GO.extracellularRegion, space.term] : [GO.extracellularRegion]
+        return place(key(space.id), space.label, 'region', as, { sides: compartmentSides(template, space) })
+      }
+      const cell = template.cells.find((candidate) => candidate.id === id)
+      return place(key(cell.id), cell.label, 'cytosol', [GO.cytoplasm])
+    })
+    return [place(key(link.id), link.label, 'cytosolic', []), ...spaces]
+  }
+
   const [cellId, pieceId] = parsed.path.split('.')
   const cell = template.cells.find((candidate) => candidate.id === cellId)
   const facets = cell.facets.map((facet) => facet.id)

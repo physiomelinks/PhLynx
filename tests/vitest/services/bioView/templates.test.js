@@ -9,6 +9,8 @@ import {
 import { FACETS } from '../../../../src/services/bioView/facets.js'
 import {
   ANNOTATION_FACETS,
+  COMPARTMENT_SHAPES,
+  LINK_KINDS,
   ANNOTATION_SIDES,
   EDGES,
   LIMITS,
@@ -148,7 +150,7 @@ describe('validateTemplate', () => {
       raw.self = raw
       failsWith(raw, 'at most 64 KB')
     })
-    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 3 }), '"schemaVersion" must be 1 or 2'))
+    it('a wrong schemaVersion', () => failsWith(base({ schemaVersion: 4 }), '"schemaVersion" must be 1, 2 or 3'))
     it.each(['A-b', 'a', '1ab', 'a_b', 3])('a bad template id (%s)', (id) => failsWith(base({ id }), '"id" must start with a letter'))
     it('a missing name', () => failsWith(base({ name: '  ' }), '"name" is required'))
     it('a name that is not text', () => failsWith(base({ name: 3 }), 'Template: "name" must be text'))
@@ -157,7 +159,7 @@ describe('validateTemplate', () => {
     it('a long description', () => failsWith(base({ description: 'x'.repeat(281) }), '"description" must be at most 280'))
     it('a long author', () => failsWith(base({ author: 'x'.repeat(65) }), '"author" must be at most 64'))
     it('a long license', () => failsWith(base({ license: 'x'.repeat(65) }), '"license" must be at most 64'))
-    it('missing cells', () => failsWith(base({ cells: [] }), '"cells" must be a non-empty list'))
+    it('missing cells', () => failsWith(base({ cells: [], compartments: [] }), '"cells" must be a non-empty list'))
     it('too many cells', () => {
       const cells = Array.from({ length: 17 }, (_, i) => cell(`c${i}`, { facets: [facet('top', 'top')] }))
       failsWith(base({ cells }), 'at most 16 cells')
@@ -190,9 +192,6 @@ describe('validateTemplate', () => {
     it('two facets with the same annotation', () => {
       const facets = [facet('one', 'top', { annotation: { facet: 'apical' } }), facet('two', 'bottom', { annotation: { facet: 'apical' } })]
       failsWith(withCell({ facets }), 'Cell "a", facet 2: annotation apical is already given to facet "one"')
-    })
-    it('two facets on one edge', () => {
-      failsWith(withCell({ facets: [facet('one', 'top'), facet('two', 'top')] }), 'Cell "a", facet 2: the top edge already has facet "one"')
     })
     it('a facet id used twice', () => {
       failsWith(withCell({ facets: [facet('one', 'top'), facet('one', 'bottom')] }), 'Cell "a", facet 2: id "one" is used more than once')
@@ -252,7 +251,6 @@ describe('validateTemplate', () => {
     it('a side-by-side gap across rows', () => {
       failsWith(withCompartment({ against: ['a.right', 'b.left'] }, [cell('a'), cell('b', { row: 1 })]), 'must be neighbours in one row')
     })
-    it('a gap within one cell', () => failsWith(withCompartment({ against: ['a.right', 'a.left'] }), 'must be neighbours'))
     it('a vertical gap between rows that are not adjacent', () => {
       failsWith(withCompartment({ against: ['a.basolateral', 'b.apical'] }, [cell('a'), cell('b', { row: 2 })]), '"b" must be in the row just below "a"')
     })
@@ -266,10 +264,7 @@ describe('validateTemplate', () => {
       })
       failsWith(raw, 'facet "b.left" is already filled by the gap "cleft"')
     })
-    it('two left facets', () => failsWith(withCompartment({ against: ['a.left', 'b.left'] }, [cell('a'), cell('b')]), 'one left or right facet'))
-    it('three facets that are not one edge', () => {
-      failsWith(withCompartment({ against: ['a.apical', 'a.left', 'a.right'] }), 'A compartment lies against facets')
-    })
+    it('two left facets', () => failsWith(withCompartment({ against: ['a.left', 'b.left'] }, [cell('a'), cell('b')]), 'facets down one side of one cell'))
   })
 
   it('reports several problems at once, naming each element', () => {
@@ -352,6 +347,8 @@ describe('sitesOf', () => {
       'chemical-synapse': 11,
       'two-cell-epithelium': 15,
       cardiomyocyte: 12,
+      'rod-photoreceptor': 11,
+      tube: 1,
     })
   })
 })
@@ -378,12 +375,14 @@ describe('site references', () => {
 })
 
 describe('built-in templates', () => {
-  it('ships five, epithelial cell first and then by name', () => {
+  it('ships seven, epithelial cell first and then by name', () => {
     expect(BUILT_IN_TEMPLATES.map((template) => template.id)).toEqual([
       'epithelial-cell',
       'cardiomyocyte',
       'cell',
       'chemical-synapse',
+      'rod-photoreceptor',
+      'tube',
       'two-cell-epithelium',
     ])
     expect(Object.isFrozen(BUILT_IN_TEMPLATES)).toBe(true)
@@ -426,6 +425,9 @@ describe('schema parity', () => {
     annotation: defs.facet.properties.annotation.properties,
     process: defs.process.properties,
     compartment: defs.compartment.properties,
+    skin: defs.skin.properties,
+    at: defs.at.properties,
+    link: defs.link.properties,
   }
 
   it('lists the same enums and id patterns as the validator', () => {
@@ -436,7 +438,10 @@ describe('schema parity', () => {
     expect(defs.facet.properties.annotation.properties.at.enum).toEqual(ANNOTATION_SIDES)
     expect(schema.properties.id.pattern).toBe(TEMPLATE_ID.source)
     expect(defs.pieceId.pattern).toBe(PIECE_ID.source)
-    expect(schema.properties.schemaVersion.enum).toEqual([1, 2])
+    expect(schema.properties.schemaVersion.enum).toEqual([1, 2, 3])
+    expect(defs.compartment.properties.shape.enum).toEqual(COMPARTMENT_SHAPES)
+    expect(defs.link.properties.kind.enum).toEqual(LINK_KINDS)
+    expect(schema.properties.links.maxItems).toBe(LIMITS.links)
   })
 
   it('lists the same limits as the validator', () => {
@@ -552,11 +557,13 @@ describe('microdomains', () => {
     failsWith({ ...nested(), schemaVersion: 1, cells: [cell('a')], compartments: [{ id: 'cleft', label: 'Cleft', in: 'a', against: [`a.${first.id}`] }] }, 'needs "schemaVersion" 2')
     failsWith(nested({ in: 'nowhere' }), '"in" must be the id of the cell it is inside')
     failsWith(nested({ in: 'sr' }), 'is an organelle')
-    failsWith(nested({ against: [] }), '"against" must name one or two facets')
+    failsWith(nested({ against: [] }), '"against" must name the facets it lies against')
     failsWith(nested({ against: ['b.x'] }), 'is not a facet of "a"')
     const other = fourFacets()[1]
     failsWith(nested({ against: [`a.${first.id}`, `sr.${other.id}`] }), 'A microdomain lies against')
-    failsWith(nested({ against: [`a.${first.id}`, `a.${other.id}`] }), 'A microdomain lies against')
+    // Two facets of the cell and one of the organelle's: it is between the two membranes, or under the cell's.
+    const third = fourFacets()[2]
+    failsWith(nested({ against: [`a.${first.id}`, `a.${third.id}`, `sr.${first.id}`] }), 'A microdomain lies against')
   })
 
   it('lets a facet be against one microdomain only', () => {
@@ -655,5 +662,53 @@ describe('junctions', () => {
     failsWith(rod({ between: ['outer', 'outer'] }), '"between" must name two different spaces')
     failsWith(rod({ between: ['outer', 'elsewhere'] }), '"elsewhere" is not the cell or a microdomain in it')
     failsWith(rod({}, { compartments: [{ id: 'outer', label: 'O', in: 'a', against: [`a.${top.id}`], term: 'not a term' }, { id: 'inner', label: 'I', in: 'a', against: [`a.${bottom.id}`] }] }), '"term" must be an ontology term')
+  })
+})
+
+describe('skins', () => {
+  const skinned = (skin) => base({ cells: [cell('a', { skin })] })
+
+  it('reads the skin a cell or compartment is drawn with, by its id, with how it fills', () => {
+    expect(validateTemplate(skinned({ ref: 'myocyte-art' })).template.cells[0].skin).toEqual({ ref: 'myocyte-art', mode: 'contain', opacity: 1 })
+    const fluid = { id: 'fluid', label: 'Fluid', skin: { ref: 'plasma', mode: 'cover', opacity: 0.5 } }
+    expect(validateTemplate(base({ compartments: [fluid] })).template.compartments[0].skin).toEqual({ ref: 'plasma', mode: 'cover', opacity: 0.5 })
+    // At version 1: an older PhLynx ignores a key it doesn't know.
+    expect(validateTemplate(skinned({ ref: 'art' })).template.schemaVersion).toBe(1)
+  })
+
+  it('rejects one with no id, an unknown way of filling, or no strength', () => {
+    failsWith(skinned({ mode: 'cover' }), 'a skin’s "ref" must be a skin’s id'.replaceAll('’', "'"))
+    failsWith(skinned({ ref: 'art', mode: 'tile' }), '"mode" must be one of contain, cover, stretch')
+    failsWith(skinned({ ref: 'art', opacity: 0 }), '"opacity" must be a number above 0')
+    failsWith(skinned('art'), '"skin" must be an object')
+  })
+})
+
+describe('facets and compartments on every side of a cell', () => {
+  it('lets several facets share an edge', () => {
+    const { template, errors } = validateTemplate(withCell({ facets: [facet('one', 'top'), facet('two', 'top'), facet('three', 'bottom')] }))
+    expect(errors).toEqual([])
+    expect(template.cells[0].facets.map(({ id, edge }) => [id, edge])).toEqual([['one', 'top'], ['two', 'top'], ['three', 'bottom']])
+  })
+
+  it('puts a compartment round a cell when it is against more than one of its sides, and down one side for several facets there', () => {
+    const form = (against, cells = [cell('a')]) => {
+      const { template, errors } = validateTemplate(withCompartment({ against }, cells))
+      expect(errors).toEqual([])
+      return compartmentForm(template, 'fluid')
+    }
+    expect(form(['a.apical', 'a.left', 'a.right'])).toBe('surround')
+    expect(form(['a.right', 'a.left'])).toBe('surround')
+    const sides = [facet('upper', 'left'), facet('lower', 'left'), facet('top', 'top')]
+    expect(form(['a.upper', 'a.lower'], [cell('a', { facets: sides })])).toBe('column')
+  })
+
+  it('lets a space inside a cell lie against several of the cell’s facets', () => {
+    const [one, two] = fourFacets()
+    const inner = { id: 'segment', label: 'Segment', in: 'a', against: [`a.${one.id}`, `a.${two.id}`] }
+    const { template, errors } = validateTemplate(base({ schemaVersion: 2, compartments: [inner] }))
+    expect(errors).toEqual([])
+    for (const each of [one, two]) expect(siteNeighbours(template, `a.${each.id}`)).toContainEqual({ path: 'segment', relation: 'inside' })
+    failsWith(base({ schemaVersion: 2, compartments: [{ ...inner, against: [`a.${one.id}`, `a.${one.id}`] }] }), 'names a facet more than once')
   })
 })

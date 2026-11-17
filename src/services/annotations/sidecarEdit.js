@@ -8,6 +8,7 @@ import {
   BQBIOL,
   GO,
   GO_LOCATIONS,
+  isGoPlace,
   NS,
   SBO,
   SEMSIM,
@@ -27,6 +28,7 @@ import {
   selfEntityIri,
   isLocalResource,
   sidecarLocalNamespace,
+  sideCurie,
   sideName,
 } from './sidecar.js'
 import { speciesToken } from './species.js'
@@ -81,7 +83,7 @@ function sideTest(localNamespace) {
  * @returns {boolean}
  */
 function isSideTermTriple({ subject, predicate, object }, isSide) {
-  return isSide(subject) && predicate.value === BQBIOL.is && GO_LOCATIONS.has(canonicalCurie(object.value))
+  return isSide(subject) && predicate.value === BQBIOL.is && isGoPlace(canonicalCurie(object.value))
 }
 
 /**
@@ -235,12 +237,12 @@ function isKindTerm(value) {
 function isManagedEntityTriple(graph, { predicate, object }, { selfIris, isSide }) {
   if (predicate.value === BQBIOL.isPartOf) {
     const curie = canonicalCurie(object.value)
-    const isPlace = selfIris.has(object.value) || isSide(object) || GO_LOCATIONS.has(curie)
+    const isPlace = selfIris.has(object.value) || isSide(object) || isGoPlace(curie)
     return isPlace || isOwnPlace(graph, object, selfIris)
   }
   if (predicate.value !== BQBIOL.is) return false
   const curie = canonicalCurie(object.value)
-  return hasPrefix(curie, 'CHEBI') || GO_LOCATIONS.has(curie)
+  return hasPrefix(curie, 'CHEBI') || isGoPlace(curie)
 }
 
 /**
@@ -257,7 +259,7 @@ function isOwnPlace(graph, term, selfIris) {
   const isNode = term.termType === 'BlankNode' || (term.termType === 'NamedNode' && isLocalResource(term.value))
   if (!isNode || selfIris.has(term.value)) return false
   const is = graph.objects(term, BQBIOL.is)
-  if (is.length !== 1 || !GO_LOCATIONS.has(canonicalCurie(is[0].value))) return false
+  if (is.length !== 1 || !isGoPlace(canonicalCurie(is[0].value))) return false
   return graph.objects(term, BQBIOL.isPartOf).some((object) => selfIris.has(object.value))
 }
 
@@ -750,7 +752,8 @@ function settleSides(triples, isSide, sideOf, added) {
   const settled = []
   for (const value of used) {
     if (!linked.has(value)) continue
-    const curie = [...GO_LOCATIONS].find((go) => sideOf(go).value === value)
+    // The side's own name says which space it is: one of the two every module has a name for, or any other.
+    const curie = [...GO_LOCATIONS].find((go) => sideOf(go).value === value) ?? sideCurie(decodeURIComponent(value.split('#').pop()))
     const terms = kept.filter((t) => isSideTermTriple(t, isSide) && t.subject.value === value)
     if (!curie || (terms.length === 1 && canonicalCurie(terms[0].object.value) === curie)) continue
     for (const t of terms) kept.splice(kept.indexOf(t), 1)

@@ -2,14 +2,31 @@
   <div
     :class="[
       'bio-cell',
-      { 'bio-cell--selected': selected, 'bio-cell--empty': data.empty, 'bio-cell--own-membrane': !data.membrane },
+      { 'bio-cell--selected': selected, 'bio-cell--empty': isEmpty, 'bio-cell--own-membrane': !data.membrane },
     ]"
     data-testid="bio-cell"
+    :data-site="data.site ?? undefined"
   >
     <svg class="bio-cell__art" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" overflow="visible">
       <!-- A template's cell with no module in it yet: just where it goes -->
-      <path v-if="data.empty" class="bio-cell__outline" :d="leaflet(0)" data-testid="bio-cell-outline" />
+      <path v-if="isEmpty" class="bio-cell__outline" :d="leaflet(0)" data-testid="bio-cell-outline" />
       <path v-else class="bio-cell__cytosol" :d="leaflet(-HEAD_OFFSET)" />
+      <!-- Its skin: artwork of the user's, within its outline, under everything else in it -->
+      <template v-if="skin">
+        <clipPath :id="skinClipId"><path :d="leaflet(-HEAD_OFFSET)" /></clipPath>
+        <image
+          class="bio-cell__skin"
+          :href="skin.href"
+          x="0"
+          y="0"
+          :width="width"
+          :height="height"
+          :preserveAspectRatio="skin.aspect"
+          :opacity="skin.opacity"
+          :clip-path="`url(#${skinClipId})`"
+          data-testid="bio-skin"
+        />
+      </template>
       <!-- A fold's lumen is the space outside: in the colour of the compartment against that side -->
       <path
         v-for="fold in folds"
@@ -22,7 +39,12 @@
            empty inside once a module is the membrane, so a bound membrane shows -->
       <g v-if="hasBilayer" class="bio-cell__bilayer" data-testid="bio-bilayer">
         <path class="bio-cell__core" :d="leaflet(0)" />
-        <BioBilayer :width="width" :height="height" :folds="folds" />
+        <!-- Along an outline a skin draws, the membrane is two plain rows of heads; else lipid by lipid -->
+        <template v-if="data.outline">
+          <path class="bio-cell__membrane-heads" :d="data.outline" />
+          <path class="bio-cell__membrane-tails" :d="data.outline" />
+        </template>
+        <BioBilayer v-else :width="width" :height="height" :folds="folds" />
       </g>
       <!-- Selected with its membrane a node of its own: a ring just inside the bilayer, which is the membrane's -->
       <path
@@ -73,7 +95,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, inject, useId } from 'vue'
 import BioBilayer from './BioBilayer.vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
@@ -89,7 +111,12 @@ const props = defineProps({
 })
 
 /** Whether the bilayer is drawn: on a cell with a module inside it, or with one as its membrane. */
-const hasBilayer = computed(() => !props.data.empty || !!props.data.membrane)
+/**
+ * Whether it is a place still waiting for its module. A template's cell that takes none of its own, being all
+ * spaces inside, is never waiting: it is drawn as a cell from the start.
+ */
+const isEmpty = computed(() => !!props.data.empty && props.data.site !== null)
+const hasBilayer = computed(() => !isEmpty.value || !!props.data.membrane)
 
 /** How far inside the bilayer's inner head groups a selected cell's ring is drawn. */
 const SELECTION_INSET = 6
@@ -133,11 +160,19 @@ const labelStyle = computed(() => {
   return { left: `${at.x}px`, top: `${at.y}px`, bottom: 'auto', transform: 'none', whiteSpace: 'nowrap' }
 })
 
+/** The view's `(skin) => { href, aspect, opacity } | null`: the artwork a piece's skin names, if the workspace has it. */
+const skinOf = inject('bioSkinOf', () => null)
+const skin = computed(() => skinOf(props.data.skin))
+const skinClipId = `bio-skin-${useId()}`
+
 /** The cell's folds, each where it is in the cell (see foldPocket). */
 const folds = computed(() => props.data.folds ?? [])
 
-/** The cell's outline grown by an offset, outward when positive; it dips in round each fold. */
-const leaflet = (offset) => leafletPath(props.width, props.height, offset, folds.value)
+/**
+ * The cell's outline grown by an offset, outward when positive; it dips in round each fold. An outline a skin draws
+ * is as it is drawn, whatever the offset.
+ */
+const leaflet = (offset) => props.data.outline ?? leafletPath(props.width, props.height, offset, folds.value)
 
 const box = computed(() => ({ x: 0, y: 0, width: props.width, height: props.height }))
 
@@ -206,6 +241,21 @@ function foldNameStyle({ edge, at, depth }) {
 
 .bio-cell__lumen--slate {
   fill: color-mix(in srgb, var(--p-slate-200) 40%, var(--p-content-background));
+}
+
+/* A drawn outline's membrane: a wide band the colour of the head groups, with the tails' colour down its middle */
+.bio-cell__membrane-heads {
+  fill: none;
+  stroke: var(--bilayer-head);
+  stroke-width: 15;
+  stroke-linejoin: round;
+}
+
+.bio-cell__membrane-tails {
+  fill: none;
+  stroke: color-mix(in srgb, var(--p-amber-200) 80%, var(--p-content-background));
+  stroke-width: 7;
+  stroke-linejoin: round;
 }
 
 .bio-cell__cytosol {
