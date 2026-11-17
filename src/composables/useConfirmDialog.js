@@ -1,3 +1,4 @@
+import { reactive } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 
 // export interface AppConfirmOptions {
@@ -55,11 +56,46 @@ export function useConfirmDialog() {
         acceptLabel: options.acceptLabel ?? 'OK',
         rejectLabel: options.rejectLabel ?? 'Cancel',
         extraLabel: options.extraLabel,
+        issues: options.issues,
         closeOnEscape: true,
         accept: () => resolve('accept'),
         extra: () => resolve('extra'),
         reject: () => resolve('reject'),
         onHide: () => resolve('reject'),
+      })
+    })
+  }
+
+  /**
+   * Asks for a value: typed, with suggestions, or picked from choices. Enter accepts, Escape cancels.
+   *
+   * @param {Object} options - As confirm's, with:
+   * @param {string} [options.value] - The value it starts with.
+   * @param {string[]} [options.suggestions] - Offered as the user types.
+   * @param {Array<{label: string, value: string}>} [options.choices] - A list to pick from instead of typing.
+   * @param {(value: string) => string} [options.hint] - A note shown under the field as the value changes.
+   * @returns {Promise<string|null>} The value, or null when cancelled.
+   */
+  function prompt(options) {
+    const input = reactive({
+      value: options.value ?? '',
+      suggestions: options.suggestions ?? [],
+      choices: options.choices ?? null,
+      hint: options.hint ?? null,
+    })
+    return new Promise((resolve) => {
+      confirm.require({
+        group: 'app-confirm',
+        header: options.header,
+        message: options.message,
+        severity: options.severity,
+        acceptLabel: options.acceptLabel ?? 'OK',
+        rejectLabel: options.rejectLabel ?? 'Cancel',
+        input,
+        closeOnEscape: true,
+        accept: () => resolve(input.value ?? ''),
+        reject: () => resolve(null),
+        onHide: () => resolve(null),
       })
     })
   }
@@ -80,5 +116,6 @@ export function useConfirmDialog() {
     confirm: confirmDialog,
     alert: alertDialog,
     choose,
+    prompt,
   }
 }

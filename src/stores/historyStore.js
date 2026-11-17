@@ -41,11 +41,15 @@ export const STEP_LABELS = {
   'bio-template-rename': 'Rename template',
   'bio-template-add-piece': 'Add to template',
   'bio-template-rename-piece': 'Rename in template',
+  'bio-template-skin': 'Change skin',
   'bio-template-remove-piece': 'Remove from template',
   'bio-template-restore': 'Restore template elements',
   'bio-template-relayout': 'Re-layout template',
   'bio-template-remove': 'Delete template',
 }
+
+/** Stands for a save the history never reaches, so it never stands where the workspace was saved. */
+const NEVER_SAVED = Object.freeze({ type: 'never-saved' })
 
 /** Types that only go along with an edit, so never name a batch. */
 const INCIDENTAL_TYPES = new Set(['select', 'resize', 'update-name'])
@@ -149,6 +153,11 @@ export function createHistory() {
   function markSaved() {
     if (!isManualBatching.value) commitBatch()
     savedStep.value = stack.value[pointer.value] ?? null
+  }
+
+  /** Marks the workspace as saved nowhere the history can reach, as for work restored from a recovery draft. */
+  function markUnsaved() {
+    savedStep.value = NEVER_SAVED
   }
 
   function addCommand(command) {
@@ -303,6 +312,7 @@ export function createHistory() {
     lastChangeWasAddSetter,
     lastCommandHadOffsetApplied,
     markSaved,
+    markUnsaved,
     pointerIndex,
     redo,
     redoLabel,

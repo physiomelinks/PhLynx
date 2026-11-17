@@ -10,6 +10,7 @@ import {
   labelInEdits,
   normaliseEdits,
   removeFromEdits,
+  skinInEdits,
   sitesOf,
 } from '../../../../src/services/bioView/templates.js'
 
@@ -45,9 +46,11 @@ describe('a placed template’s own additions', () => {
   })
 
   it('refuses a piece that doesn’t fit, saying why', () => {
-    const taken = addToEdits(epithelial, null, 'facets', { cell: 'cell', id: 'site-1', label: 'Again', edge: 'top' })
+    const taken = addToEdits(epithelial, null, 'facets', { cell: 'cell', id: 'site-1', label: 'Again', edge: 'up' })
     expect(taken.edits).toBeNull()
-    expect(taken.errors.join(' ')).toMatch(/top edge already has facet "apical"/)
+    expect(taken.errors.join(' ')).toMatch(/"edge" must be one of/)
+    // A second site along a side that has one fits: they share the side.
+    expect(addToEdits(epithelial, null, 'facets', { cell: 'cell', id: 'site-1', label: 'Again', edge: 'top' }).errors).toEqual([])
     const nowhere = addToEdits(epithelial, null, 'processes', { cell: 'nope', id: 'zone-1', label: 'Z' })
     expect(nowhere).toEqual({ edits: null, errors: ['There is no cell "nope" to add "zone-1" to.'] })
   })
@@ -78,7 +81,7 @@ describe('a placed template’s own additions', () => {
     )
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const broken = { id: 'bt-3', template: 'epithelial-cell', at: { x: 0, y: 0 }, edits: { added: { facets: [{ cell: 'cell', id: 'x', label: 'X', edge: 'top' }] } } }
+    const broken = { id: 'bt-3', template: 'epithelial-cell', at: { x: 0, y: 0 }, edits: { added: { facets: [{ cell: 'cell', id: 'x', label: 'X', edge: 'up' }] } } }
     expect(instanceTemplate(broken, definitions)).toBe(epithelial)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
@@ -202,5 +205,25 @@ describe('a placed template’s added organelles', () => {
     const { edits } = addToEdits(synapse, null, 'cells', { ...organelle, in: synapse.cells[0].id })
     const without = removeFromEdits(synapse, edits, synapse.cells[0].id).edits
     expect(editedTemplate(synapse, without).template.cells.map((cell) => cell.id)).not.toContain('organelle-1')
+  })
+})
+
+describe('a placed template’s skins', () => {
+  const skinOf = (edits, id) => [...editedTemplate(epithelial, edits).template.cells, ...editedTemplate(epithelial, edits).template.compartments].find((piece) => piece.id === id).skin
+
+  it('draws a cell or compartment with a skin, changes how it fills, and takes it away again', () => {
+    const { edits } = skinInEdits(epithelial, null, 'cell', { ref: 'art' })
+    expect(skinOf(edits, 'cell')).toEqual({ ref: 'art', mode: 'contain', opacity: 1 })
+    const covered = skinInEdits(epithelial, edits, 'cell', { ref: 'art', mode: 'cover' }).edits
+    expect(skinOf(covered, 'cell').mode).toBe('cover')
+    expect(skinInEdits(epithelial, covered, 'cell', null).edits).toBeNull()
+    expect(skinOf(skinInEdits(epithelial, null, 'paracellular', { ref: 'gap' }).edits, 'paracellular').ref).toBe('gap')
+  })
+
+  it('refuses a skin it can’t read, and keeps the others through other changes', () => {
+    expect(skinInEdits(epithelial, null, 'cell', { ref: 'Not An Id' }).errors).toHaveLength(1)
+    const { edits } = skinInEdits(epithelial, null, 'cell', { ref: 'art' })
+    expect(removeFromEdits(epithelial, edits, 'paracellular').edits.skins).toEqual({ cell: { ref: 'art' } })
+    expect(normaliseEdits({ skins: { cell: { ref: 'a' }, 'cell.apical': { ref: 'b' }, 'Bad Path': null, other: 3 } })).toEqual({ skins: { cell: { ref: 'a' } } })
   })
 })

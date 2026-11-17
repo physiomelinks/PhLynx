@@ -1,0 +1,11 @@
+{
+  "$schema": "./bio-template.schema.json",
+  "schemaVersion": 3,
+  "id": "tube",
+  "name": "Tube",
+  "description": "One stretch of vessel or duct, to build on: add more and link them, or link it to cells.",
+  "author": "PhLynx",
+  "license": "CC0-1.0",
+  "cells": [],
+  "compartments": [{ "id": "segment", "label": "Segment", "shape": "tube", "at": { "x": 0, "y": 0 } }]
+}

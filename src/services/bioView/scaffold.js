@@ -196,6 +196,8 @@ export function boundSites(instances, definitions, nodes) {
  *     members }] }; site is null for a piece with none, node and membrane the ids bound to the cell and its membrane;
  *   - compartments: { key, owner: { instance, compartment }, instance, site, node, form, against: [{ cellKey,
  *     facetId, edge }], tone, depth, label, side: null, adjacent: null, storedRect: null };
+ *   - links: { key, owner: { instance, link }, instance, site, node, between: [key, key], flow, label }, key
+ *     being 'tpl:<instance>/<path>' always and node the id bound to it;
  *   - sites: site ref -> { ref, instance, path, role, kind, label, occupants, key }, key being the piece's own
  *     key or, for a facet or process, its cell's;
  *   - bound: node id -> the site ref it holds.
@@ -203,7 +205,7 @@ export function boundSites(instances, definitions, nodes) {
  */
 export function scaffoldFromTemplates(instances, definitions, nodes = []) {
   const occupied = boundSites(instances, definitions, nodes)
-  const scaffold = { cells: [], compartments: [], sites: new Map(), bound: new Map() }
+  const scaffold = { cells: [], compartments: [], links: [], sites: new Map(), bound: new Map() }
   for (const [ref, ids] of occupied) for (const id of ids) scaffold.bound.set(id, ref)
 
   for (const instance of instances) {
@@ -232,8 +234,11 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         node: members(cell.id)[0] ?? null,
         shape: shapeFromTemplateCell(cell),
         label: cell.label,
+        ...(cell.skin && { skin: cell.skin }),
         size: { ...cell.size },
         row: cell.row,
+        // A place of its own, from its template's, in place of one in a row.
+        ...(cell.at && { at: { ...cell.at } }),
         // An organelle's cell, by id until every cell has its key (below).
         parent: cell.in ?? null,
         membrane: members(membranePath)[0] ?? null,
@@ -284,11 +289,31 @@ export function scaffoldFromTemplates(instances, definitions, nodes = []) {
         tone: compartment.tone,
         depth: compartment.depth ?? null,
         label: compartment.label,
+        ...(compartment.skin && { skin: compartment.skin }),
+        ...(compartment.at && { at: { ...compartment.at } }),
+        ...(compartment.size && { size: { ...compartment.size } }),
+        ...(compartment.shape && { shape: compartment.shape }),
         side: null,
         adjacent: null,
         storedRect: null,
       })
       offer(compartment.id, key)
+    }
+
+    // Links, each drawn between its two spaces whether or not a module is on it, so keyed by its own path.
+    for (const link of template.links ?? []) {
+      const key = templateKey(instance.id, link.id)
+      scaffold.links.push({
+        key,
+        owner: { instance: instance.id, link: link.id },
+        instance: instance.id,
+        site: siteOf(link.id),
+        node: members(link.id)[0] ?? null,
+        between: link.between.map((space) => keyOf(space)),
+        flow: link.kind,
+        label: link.label,
+      })
+      offer(link.id, key)
     }
   }
   return scaffold

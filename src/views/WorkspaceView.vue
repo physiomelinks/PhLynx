@@ -550,6 +550,14 @@
             @open-edge-dialog="(edgeId) => onEdgeDoubleClick({ edge: findEdge(edgeId) })"
             @export-image="exportImageOf"
           />
+          <div v-if="showRecovery" class="recovery-layer">
+            <RecoveryPanel
+              :drafts="recovery.drafts.value"
+              :restoring="recovery.restoring.value"
+              @restore="onRestoreDraft"
+              @discard="onDiscardDraft"
+            />
+          </div>
         </div>
       </main>
       <ContextSidebar
@@ -696,6 +704,8 @@ import { useLoadFromUrl } from '../composables/useLoadFromUrl'
 import { createUrlLoaders } from '../services/urlLoaders'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
 import { prepareCellmlImport } from '../services/import/prepareCellml'
+import { configNamespace, incomingFromCellml, planNamespaceImport } from '../services/import/namespaceImport'
+import { namespaceOfFileKey } from '../utils/namespaces'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { installUnloadGuard, registerWorkspaceSaver, useUnsavedChanges } from '../composables/useUnsavedChanges'
@@ -704,6 +714,8 @@ import { useImportExportSend } from '../composables/useImportExportSend'
 import LibraryArea from '../components/LibraryArea.vue'
 import BioBuildPalette from '../components/bio/BioBuildPalette.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
+import RecoveryPanel from '../components/RecoveryPanel.vue'
+import { useWorkspaceRecovery } from '../composables/useWorkspaceRecovery'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
 import InstanceNode from '../components/InstanceNode.vue'
@@ -770,6 +782,7 @@ import { cyrb53, takeInputFile } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
 import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
 import {
+  DEFAULT_PROJECT_NAME,
   edgeLineOptions,
   FLOW_IDS,
   IMPORT_KEYS,
@@ -842,7 +855,7 @@ const {
   vueFlowRef,
 } = useVueFlow(FLOW_IDS.MAIN)
 const { processMacroGeneration } = useMacroGenerator()
-const { confirm, choose } = useConfirmDialog()
+const { confirm, choose, prompt } = useConfirmDialog()
 const toast = useToast()
 const route = useRoute()
 
@@ -874,6 +887,7 @@ const { importParameterFile, importParameterFiles, applyLinkedSets, applySetToNo
   recordEdit,
   confirm,
   choose,
+  prompt,
 })
 // Sets a config links as it arrives are offered to the instances named after them and reported then, or at the end
 // of the import that brought it.
@@ -1274,6 +1288,19 @@ const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dr
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
+  planImport: (files) =>
+    planNamespaceImport(
+      files.map(({ key }) => key),
+      {
+        store: libraryStore,
+        prompt,
+        choose,
+        incomingFor: (mapKey) =>
+          incomingFromCellml(
+            files.filter(({ key }) => mapKey(key) !== null).map(({ key, cellml }) => ({ key: mapKey(key), cellml }))
+          ),
+      }
+    ),
 })
 
 /**
@@ -1286,10 +1313,10 @@ const loadParametersData = async (content, filename, options = {}) => {
   const file = Array.isArray(content) ? { rows: content } : retryCsvAsModule(content ?? { rows: [] })
   if (file.rows) return { fileName: filename, ...(await loadParameterRows(file.rows, filename, options)) }
 
-  const { notify: shouldNotify = true, record = true } = options
+  const { notify: shouldNotify = true, record = true, namespace } = options
   let result
   try {
-    result = await importParameterFile(file, filename, { record })
+    result = await importParameterFile(file, filename, { record, namespace })
   } catch (error) {
     result = { fileName: filename, ok: false, count: 0, error: error.message }
   }
@@ -1379,9 +1406,9 @@ const loadParameterRows = async (content, filename, { notify: shouldNotify = tru
   }
 }
 
-const loadConfigData = async (content, filename, { notify: shouldNotify = true } = {}) => {
+const loadConfigData = async (content, filename, { notify: shouldNotify = true, replace = false, namespace } = {}) => {
   try {
-    const added = libraryStore.addConfigFile(filename, content)
+    const added = libraryStore.addConfigFile(filename, content, { replace, ...(namespace !== undefined && { namespace }) })
     if (shouldNotify && added > 0) {
       notify.success({
         title: 'Configurations Loaded',
@@ -1695,8 +1722,10 @@ const onImportConfirm = (importPayload, updateProgress) =>
 async function runImportConfirm(importPayload, updateProgress) {
   if (currentImportMode.value.key === IMPORT_KEYS.INSTANCE_ARRAY) {
     const instanceArrayFiles = importPayload.get(IMPORT_KEYS.INSTANCE_ARRAY)
-    const [[, instanceData]] = instanceArrayFiles
+    const [[instanceArrayKey, instanceData]] = instanceArrayFiles
     const instances = instanceData.payload
+    // The namespace the dialog settled for a loose instance array, else its own; its parameter sets go there too.
+    const namespace = instanceData.namespace ?? namespaceOfFileKey(instanceArrayKey) ?? undefined
     const parametersFiles = importPayload.get(IMPORT_KEYS.PARAMETER)
 
     if (!instances || instances.length === 0) {
@@ -1713,14 +1742,18 @@ async function runImportConfirm(importPayload, updateProgress) {
       const files = [...(parametersFiles ?? [])]
       const isModuleFile = ([, data]) => data?.payload?.kind === 'module'
       for (const [filename, data] of files.filter(isModuleFile)) {
-        parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false }))
+        parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false, namespace }))
       }
 
-      await loadFromInstanceArray({ instances }, (current, total, statusMessage) => {
-        if (updateProgress) {
-          updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
-        }
-      })
+      await loadFromInstanceArray(
+        { instances },
+        (current, total, statusMessage) => {
+          if (updateProgress) {
+            updateProgress(`${statusMessage || 'Loading instance array...'} (${current}/${total})`)
+          }
+        },
+        { preferredNamespace: namespace || null }
+      )
 
       for (const [filename, data] of files.filter((entry) => !isModuleFile(entry))) {
         parameterResults.push(await loadParametersData(data.payload, filename, { notify: false, record: false }))
@@ -1742,6 +1775,7 @@ async function runImportConfirm(importPayload, updateProgress) {
   } else if (currentImportMode.value.key === IMPORT_KEYS.CELLML_FILE) {
     const entries = [...importPayload.get(IMPORT_KEYS.CELLML_FILE)].map(([name, data]) => ({
       name,
+      path: data?.path,
       content: data?.payload,
     }))
     await loadCellMLFiles(entries)
@@ -1753,11 +1787,33 @@ async function runImportConfirm(importPayload, updateProgress) {
     await loadCelldlFiles(entries)
   } else if (currentImportMode.value.key === IMPORT_KEYS.MODULE_CONFIG) {
     const multiFile = importPayload.size > 1
-    const results = await Promise.all(
-      [...importPayload.get(IMPORT_KEYS.MODULE_CONFIG)].map(([filename, data]) =>
-        loadConfigData(data?.payload, filename, { notify: !multiFile })
-      )
+    const configFiles = [...importPayload.get(IMPORT_KEYS.MODULE_CONFIG)]
+    const deps = { store: libraryStore, prompt, choose }
+    const plan = await planNamespaceImport(
+      configFiles.map(([key]) => key),
+      {
+        ...deps,
+        incomingFor: (mapKey) => ({
+          configFiles: configFiles
+            .filter(([key]) => mapKey(key) !== null)
+            .map(([key, data]) => ({ key: mapKey(key), configs: data?.payload })),
+        }),
+      }
     )
+    const results = []
+    for (const [key, data] of configFiles) {
+      if (plan.isSkipped(key)) continue
+      // A loose config goes to the namespace holding its math, asking only when several do.
+      const namespace = await configNamespace(key, data?.payload, deps, plan)
+      if (namespace === null) continue
+      results.push(
+        await loadConfigData(data?.payload, plan.mapKey(key), {
+          notify: !multiFile,
+          replace: plan.isReplaced(key),
+          namespace,
+        })
+      )
+    }
     if (multiFile) {
       notifyMultiFileResults(results, { successTitle: 'Configurations Loaded' })
     }
@@ -2402,7 +2458,7 @@ function snapshotFlowState(nodeIds = null) {
   })
 }
 
-const { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState } = useWorkspaceSaveLoad({
+const { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState, buildSaveState } = useWorkspaceSaveLoad({
   saveDialogVisible,
   nodes,
   edges,
@@ -2755,6 +2811,48 @@ const unregisterSaver = registerWorkspaceSaver({
   hasContent: () => hasWorkspaceContent.value,
 })
 
+// Keeps a recovery draft of unsaved work, and offers back on the empty canvas the drafts of tabs closed without saving.
+const recovery = useWorkspaceRecovery({
+  hasUnsavedChanges,
+  enabled: () => appSettings.workspaceRecovery,
+  changeSignal: () => historyStore.pointerIndex,
+  isEmpty: () => !hasWorkspaceContent.value,
+  buildState: buildSaveState,
+  describe: () => ({
+    name: sessionMetadataStore.lastSaveName === DEFAULT_PROJECT_NAME ? null : sessionMetadataStore.lastSaveName,
+    nodeCount: nodes.value.length,
+  }),
+  applyState: async (state, draft) => {
+    await builtInLibraryReady
+    await applyWorkspaceState(state, { source: 'recovery' })
+    // Saved nowhere yet, and its undo history stayed with the tab it came from.
+    historyStore.clear()
+    historyStore.markUnsaved()
+    if (draft.name) sessionMetadataStore.setLastSaveName(draft.name)
+  },
+})
+const showRecovery = computed(() => !hasWorkspaceContent.value && !isDragOver.value && recovery.drafts.value.length > 0)
+
+async function onRestoreDraft(id) {
+  try {
+    await recovery.restore(id)
+  } catch (error) {
+    notify.error({ title: 'Failed to restore unsaved work', message: error.message })
+  }
+}
+
+async function onDiscardDraft(id) {
+  const discard = await confirm({
+    header: 'Discard unsaved work?',
+    message: 'Once discarded, this work cannot be recovered.',
+    severity: 'warning',
+    acceptLabel: 'Discard',
+    rejectLabel: 'Cancel',
+    isRejectDefault: true,
+  })
+  if (discard) await recovery.discard(id)
+}
+
 onUnmounted(() => {
   setWorkspaceMounted(false)
   removeUnloadGuard()
@@ -2921,6 +3019,21 @@ watch(
 .bio-flow-layer {
   position: absolute;
   inset: 0;
+}
+
+/* Centres the recovery panel on the canvas left showing between the side panels, letting clicks through around it. */
+.recovery-layer {
+  position: absolute;
+  inset: 0 var(--context-panel-cover, 0px) 0 var(--library-panel-width, 0px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.recovery-layer > * {
+  pointer-events: auto;
 }
 
 /* Tutorial Slate Background for Dark Mode */

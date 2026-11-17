@@ -8,12 +8,14 @@ import { ref } from 'vue'
 import { useLibraryStore } from './libraryStore'
 import { reconcileWithConfig } from '../utils/parameters/parse'
 import { INSTANCE_SET_KIND, isOwnInstanceSet, setEntriesFromVariables } from '../utils/parameters/instanceSet'
+import { namespaceOfModuleRef } from '../utils/namespaces'
 
 /**
  * @typedef {import('../utils/parameters/parse').Param} Param
  * @typedef {{ref: string, source: {file: string, importedAt: string, kind?: 'instance', nodeId?: string},
- *   globals: Map<string, Param>, values: Map<string, Param>}} ParamSet - An instance set (`kind: 'instance'`) was made
- *   by the node `nodeId` from its values, and follows its saved edits.
+ *   globals: Map<string, Param>, values: Map<string, Param>, namespace?: string}} ParamSet - An instance set
+ *   (`kind: 'instance'`) was made by the node `nodeId` from its values, and follows its saved edits. An unlinked set
+ *   with a namespace ('' for none) links only to configs there.
  * @typedef {'replace'|'keep-both'} CollisionChoice - `keep-both` stores the new set as `<ref>_2`, `<ref>_3`, ...
  * @typedef {{mathRef: string|null, ref: string, fileRef: string, replaced: boolean, warnings: string[], set: ParamSet}}
  *   Placement - Where a set would be stored, as what; `fileRef` is the ref it was read as, which `ref` differs from
@@ -73,6 +75,7 @@ const setState = (set) => ({
   source: sourceState(set.source),
   globals: Array.from(set.globals),
   values: Array.from(set.values),
+  ...(typeof set.namespace === 'string' && { namespace: set.namespace }),
 })
 
 /** A saved set, or null when it is malformed. */
@@ -83,6 +86,7 @@ function readSetState(saved, paramRef) {
     source: sourceState(saved.source),
     globals: new Map(Array.isArray(saved.globals) ? saved.globals : []),
     values: new Map(Array.isArray(saved.values) ? saved.values : []),
+    ...(typeof saved.namespace === 'string' && { namespace: saved.namespace }),
   }
 }
 
@@ -124,16 +128,28 @@ export const useDefaultParametersStore = defineStore('defaultParameters', () => 
    * Gives the library modules whose config names a ref as its default parameterisation, one per math.
    *
    * @param {string} paramRef
+   * @param {string} [namespace] - Only modules in it ('' for none); by default any.
    * @returns {Array<Object>}
    */
-  function modulesDefaulting(paramRef) {
+  function modulesDefaulting(paramRef, namespace) {
     const byMath = new Map()
     for (const module of libraryStore.availableModules.values()) {
+      if (typeof namespace === 'string' && (namespaceOfModuleRef(module.moduleRef) ?? '') !== namespace) continue
       if (module.defaultParameterisation && cleanRef(module.defaultParameterisation) === paramRef) {
         if (!byMath.has(module.mathRef)) byMath.set(module.mathRef, module)
       }
     }
     return [...byMath.values()]
+  }
+
+  /**
+   * The namespaces ('' for none) with a module whose config names a ref as its default parameterisation.
+   *
+   * @param {string} paramRef
+   * @returns {Set<string>}
+   */
+  function namespacesDefaulting(paramRef) {
+    return new Set(modulesDefaulting(cleanRef(paramRef)).map((module) => namespaceOfModuleRef(module.moduleRef) ?? ''))
   }
 
   /** The bucket a math's sets live in, made when missing; the unlinked bucket for no math. */
@@ -156,10 +172,11 @@ export const useDefaultParametersStore = defineStore('defaultParameters', () => 
     return { mathRef: mathRef ?? null, ref, fileRef: set.ref, replaced, warnings: [], set: { ...set, ref } }
   }
 
-  /** Plans storing a set for a module's math, sorted by the module's config types. */
+  /** Plans storing a set for a module's math, sorted by the module's config types; linked, it needs no namespace. */
   function placeFor(module, set, onCollision) {
     const { globals, values, warnings } = reconcileWithConfig(set, module)
-    return { ...place(module.mathRef, { ...set, globals, values }, onCollision), warnings }
+    const { namespace, ...linked } = set
+    return { ...place(module.mathRef, { ...linked, globals, values }, onCollision), warnings }
   }
 
   /**
@@ -182,11 +199,12 @@ export const useDefaultParametersStore = defineStore('defaultParameters', () => 
    *
    * @param {string} paramRef
    * @param {string|null} [mathRef]
+   * @param {string} [namespace] - Only for modules in it, as planSet takes it.
    * @returns {string[]}
    */
-  function collisionsFor(paramRef, mathRef = null) {
+  function collisionsFor(paramRef, mathRef = null, namespace = undefined) {
     const ref = cleanRef(paramRef)
-    const mathRefs = mathRef ? [mathRef] : modulesDefaulting(ref).map((module) => module.mathRef)
+    const mathRefs = mathRef ? [mathRef] : modulesDefaulting(ref, namespace).map((module) => module.mathRef)
     if (!mathRefs.length) return unlinked.value.has(ref) ? [keyOf('', ref)] : []
     return mathRefs.filter((each) => sets.value.get(each)?.has(ref)).map((each) => keyOf(each, ref))
   }
@@ -196,14 +214,15 @@ export const useDefaultParametersStore = defineStore('defaultParameters', () => 
    * Changes nothing, so the set each placement would store can be compared with what it replaces first.
    *
    * @param {ParamSet} set
-   * @param {{mathRef?: string|null, onCollision?: CollisionChoice}} [options]
+   * @param {{mathRef?: string|null, onCollision?: CollisionChoice, namespace?: string}} [options] - namespace keeps
+   *   it to the configs of one namespace ('' for none), now and once unlinked; by default it goes to any.
    * @returns {Placement[]}
    */
-  function planSet(set, { mathRef = null, onCollision = 'keep-both' } = {}) {
+  function planSet(set, { mathRef = null, onCollision = 'keep-both', namespace = undefined } = {}) {
     const clean = { ...set, ref: cleanRef(set.ref) }
     if (mathRef) return [place(mathRef, clean, onCollision)]
-    const modules = modulesDefaulting(clean.ref)
-    if (!modules.length) return [place(null, clean, onCollision)]
+    const modules = modulesDefaulting(clean.ref, namespace)
+    if (!modules.length) return [place(null, typeof namespace === 'string' ? { ...clean, namespace } : clean, onCollision)]
     return modules.map((module) => placeFor(module, clean, onCollision))
   }
 
@@ -224,7 +243,7 @@ export const useDefaultParametersStore = defineStore('defaultParameters', () => 
   function linkUnlinked() {
     const linked = []
     for (const [ref, set] of [...unlinked.value]) {
-      const modules = modulesDefaulting(ref)
+      const modules = modulesDefaulting(ref, set.namespace)
       if (!modules.length) continue
       for (const module of modules) linked.push(...commitSet([placeFor(module, set, 'keep-both')]))
       unlinked.value.delete(ref)
@@ -404,6 +423,7 @@ export const useDefaultParametersStore = defineStore('defaultParameters', () => 
     planSet,
     commitSet,
     collisionsFor,
+    namespacesDefaulting,
     linkUnlinked,
     takeRecentLinks,
     getSet,

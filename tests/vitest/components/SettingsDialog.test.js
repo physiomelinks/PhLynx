@@ -79,7 +79,7 @@ describe('SettingsDialog', () => {
     await rail.trigger('keydown', { key: 'ArrowDown' })
     expect(selected()).toBe('Toolbar')
     await rail.trigger('keydown', { key: 'ArrowUp' })
-    expect(selected()).toBe('Appearance')
+    expect(selected()).toBe('Workspace')
     await rail.trigger('keydown', { key: 'Home' })
     expect(selected()).toBe('Units')
   })

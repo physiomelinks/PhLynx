@@ -1,3 +1,4 @@
+import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 
 import { useFileDrop } from '../../../src/composables/useFileDrop.js'
@@ -60,6 +61,13 @@ describe('useFileDrop', () => {
       expect(result).toHaveLength(1)
     })
 
+    it('reads a file item with no entry as a file, as for a DataTransfer a script made', async () => {
+      const model = { name: 'model.cellml' }
+      const items = [{ kind: 'file', webkitGetAsEntry: () => null, getAsFile: () => model }]
+      const result = await filesFromDataTransfer({ items, files: [model] })
+      expect(result).toEqual([{ file: model, path: 'model.cellml' }])
+    })
+
     it('uses the entries path when only a later item lacks webkitGetAsEntry', async () => {
       const csv = fileEntry('a.csv')
       const items = [...itemsOf([csv]), { getAsFile: () => ({ name: 'x.csv' }) }]
@@ -83,12 +91,12 @@ describe('useFileDrop', () => {
       expect(root.reads()).toBe(4)
     })
 
-    it('ignores entries nested deeper than the default maxDepth of 2', async () => {
-      const d2 = dirEntry('d2', [[fileEntry('too-deep.csv')]])
-      const d1 = dirEntry('d1', [[fileEntry('ok.csv'), d2]])
-      const d0 = dirEntry('d0', [[d1]])
+    it('ignores entries nested deeper than the default maxDepth of 4', async () => {
+      const d4 = dirEntry('d4', [[fileEntry('too-deep.csv')]])
+      const d3 = dirEntry('d3', [[fileEntry('ok.csv'), d4]])
+      const d0 = dirEntry('d0', [[dirEntry('d1', [[dirEntry('d2', [[d3]])]])]])
       const result = await filesFromDataTransfer({ items: itemsOf([d0]) })
-      expect(result.map((r) => r.path)).toEqual(['d0/d1/ok.csv'])
+      expect(result.map((r) => r.path)).toEqual(['d0/d1/d2/d3/ok.csv'])
     })
 
     it('honours a custom maxDepth', async () => {
@@ -163,6 +171,42 @@ describe('useFileDrop', () => {
     it('returns an empty list for a null or undefined dataTransfer', async () => {
       expect(await filesFromDataTransfer(null)).toEqual([])
       expect(await filesFromDataTransfer(undefined)).toEqual([])
+    })
+  })
+
+  describe('zips', () => {
+    async function zipOf(files) {
+      const zip = new JSZip()
+      for (const [path, text] of Object.entries(files)) zip.file(path, text)
+      return new File([await zip.generateAsync({ type: 'blob' })], 'repo.zip')
+    }
+
+    const REPO = {
+      'repo/CellML/math/NCX.cellml': '<model/>',
+      'repo/CellML/units/units.cellml': '<model/>',
+      'repo/README.md': '# readme',
+      '__MACOSX/repo/._NCX.cellml': 'junk',
+      'repo/.git/config.json': '{}',
+    }
+
+    it('lists a dropped zip’s relevant files with their paths inside it', async () => {
+      const zip = await zipOf(REPO)
+      const entry = { name: 'repo.zip', isFile: true, isDirectory: false, file: (resolve) => resolve(zip) }
+      const result = await filesFromDataTransfer({ items: itemsOf([entry]) })
+      expect(result.map((r) => r.path).sort()).toEqual(['repo/CellML/math/NCX.cellml', 'repo/CellML/units/units.cellml'])
+      expect(result.map((r) => r.file.name).sort()).toEqual(['NCX.cellml', 'units.cellml'])
+      expect(await result.find((r) => r.file.name === 'NCX.cellml').file.text()).toBe('<model/>')
+    })
+
+    it('names the source after the zip when it has no single top folder', async () => {
+      const zip = await zipOf({ 'math/a.cellml': '<model/>', 'units/u.cellml': '<model/>' })
+      const result = await filesFromDataTransfer({ files: [zip] })
+      expect(result.map((r) => r.path).sort()).toEqual(['repo/math/a.cellml', 'repo/units/u.cellml'])
+    })
+
+    it('opens zips without the entries API too', async () => {
+      const result = await filesFromDataTransfer({ files: [await zipOf(REPO)] })
+      expect(result).toHaveLength(2)
     })
   })
 })

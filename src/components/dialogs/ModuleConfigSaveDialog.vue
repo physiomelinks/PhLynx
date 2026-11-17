@@ -12,17 +12,17 @@
   >
     <form class="config-form" @submit.prevent="handleConfirm">
       <p class="config-message">
-        This instance's ports or variables no longer match <strong>{{ matchRef || moduleRef }}</strong>.
+        This instance's ports or variables no longer match <strong>{{ moduleRefLabel(matchRef || moduleRef) }}</strong>.
       </p>
 
       <div v-if="canUpdate" class="config-option">
         <RadioButton v-model="choice" input-id="module-config-update" value="update" />
         <label for="module-config-update">
-          Overwrite {{ moduleRef }}
+          Overwrite {{ moduleRefLabel(moduleRef) }}
           <small class="hint-text">{{ updateHint }}</small>
         </label>
       </div>
-      <p v-else class="config-message">Its math differs from {{ moduleRef }}'s, so it needs a config of its own.</p>
+      <p v-else class="config-message">Its math differs from {{ moduleRefLabel(moduleRef) }}'s, so it needs a config of its own.</p>
 
       <div class="config-option">
         <RadioButton v-if="canUpdate" v-model="choice" input-id="module-config-new" value="new" />
@@ -48,6 +48,8 @@ import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import RadioButton from 'primevue/radiobutton'
+
+import { moduleRefLabel } from '../../utils/namespaces'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

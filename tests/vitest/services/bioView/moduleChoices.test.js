@@ -15,9 +15,14 @@ describe('module choices', () => {
     const kindOf = (module) => (module.moduleRef === 'lumen:lib' ? 'compartment' : null)
     expect(moduleChoices(modules, kindOf, 'compartment')).toEqual([
       { moduleRef: NEW_INSTANCE_MODULE_REF, label: NEW_INSTANCE_MODULE_REF, match: false },
-      { moduleRef: 'lumen:lib', label: 'lumen:lib (compartment)', match: true },
+      { moduleRef: 'lumen:lib', label: 'lumen:lib — compartment', match: true },
       { moduleRef: 'a:lib', label: 'a:lib', match: false },
       { moduleRef: 'b:lib', label: 'b:lib', match: false },
     ])
+  })
+
+  it('name a module from a source by type and subtype, with the source in brackets', () => {
+    const modules = [{ moduleRef: 'membrane:membrane:repo', mathRef: 'repo/math/membrane.cellml:membrane' }]
+    expect(moduleChoices(modules, () => 'membrane', 'membrane')[0].label).toBe('membrane:membrane (repo) — membrane')
   })
 })

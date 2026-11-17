@@ -44,7 +44,7 @@
           </span>
           <span class="header-file" :title="`Defined in ${componentFile}`">
             <i class="pi pi-file"></i>
-            <span class="header-file-name">{{ componentFile }}</span>
+            <FileLabel class="header-file-name" :file-key="componentFile" />
           </span>
         </div>
       </div>
@@ -624,6 +624,7 @@ import MathWorkbenchEditor from './MathWorkbenchEditor.vue'
 import ParameterTable from './ParameterTable.vue'
 import SimulationPanel from './simulation/SimulationPanel.vue'
 import SanitisedInput from './SanitisedInput.vue'
+import FileLabel from './FileLabel.vue'
 import MultiportKey from './MultiportKey.vue'
 import MultiportSummary from './MultiportSummary.vue'
 import PortVariableSelect from './PortVariableSelect.vue'

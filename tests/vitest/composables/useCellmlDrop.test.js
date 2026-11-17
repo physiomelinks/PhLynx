@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCellmlDrop } from '../../../src/composables/useCellmlDrop.js'
 import { importOmexFile } from '../../../src/services/import/omex'
 import { parseCellMLConnections } from '../../../src/services/import/parseCellmlConnections'
-import { prepareCellmlImport, prepareCellmlImports } from '../../../src/services/import/prepareCellml'
+import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../../../src/services/import/prepareCellml'
 import { loadParametersFromCellML } from '../../../src/utils/cellml'
 import { readFileAsText } from '../../../src/utils/misc'
 import { notify } from '../../../src/utils/notify'
@@ -37,6 +37,7 @@ vi.mock('../../../src/services/import/omex', () => ({ importOmexFile: vi.fn() })
 vi.mock('../../../src/services/import/prepareCellml', () => ({
   prepareCellmlImport: vi.fn((content) => content),
   prepareCellmlImports: vi.fn((files) => files.map((file) => file.content)),
+  resolveCellmlImports: vi.fn(async (files) => files.map((file) => file.content)),
 }))
 vi.mock('../../../src/utils/cellml', () => ({ loadParametersFromCellML: vi.fn(() => ({ params: true })) }))
 vi.mock('../../../src/utils/misc', () => ({ readFileAsText: vi.fn() }))
@@ -477,7 +478,7 @@ describe('useCellmlDrop', () => {
       expect(event.preventDefault).toHaveBeenCalled()
       expect(notify.warning).toHaveBeenCalledWith({
         title: 'Unsupported File Type',
-        message: 'Only .cellml and .omex files can be dropped onto the workspace.',
+        message: 'Only .cellml and .omex files, or folders and zips holding them, can be dropped onto the workspace.',
       })
       expect(deps.loadCellMLData).not.toHaveBeenCalled()
       expect(deps.onDropModule).not.toHaveBeenCalled()
@@ -503,6 +504,67 @@ describe('useCellmlDrop', () => {
 
       expect(notify.warning).toHaveBeenCalledTimes(1)
       expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Unsupported File Type' }))
+    })
+
+    it('walks a dropped folder and resolves imports by the paths inside it', async () => {
+      const fileEntry = (name) => ({ name, isFile: true, isDirectory: false, file: (resolve) => resolve(file(name)) })
+      const dirEntry = (name, children) => {
+        const queue = [children]
+        return { name, isFile: false, isDirectory: true, createReader: () => ({ readEntries: (resolve) => resolve(queue.shift() ?? []) }) }
+      }
+      const folder = dirEntry('CellML', [dirEntry('math', [fileEntry('NCX.cellml')]), dirEntry('units', [fileEntry('u.cellml')])])
+      readFileAsText.mockResolvedValue('<model/>')
+      const event = makeEvent({ files: [file('CellML')] })
+      event.dataTransfer.items = [{ webkitGetAsEntry: () => folder }]
+
+      await drop.onDrop(event)
+
+      expect(resolveCellmlImports).toHaveBeenCalledWith([
+        { name: 'NCX.cellml', path: 'CellML/math/NCX.cellml', content: '<model/>' },
+        { name: 'u.cellml', path: 'CellML/units/u.cellml', content: '<model/>' },
+      ])
+      expect(deps.loadCellMLData).toHaveBeenCalledTimes(2)
+      // Keyed in the folder's namespace, by name: the folders inside only resolve imports.
+      expect(deps.loadCellMLData).toHaveBeenCalledWith('<model/>', 'CellML/NCX.cellml', { notify: false })
+    })
+
+    it('loads files in the namespaces the import plan gives, leaving out those it skips', async () => {
+      readFileAsText.mockResolvedValue('<model/>')
+      const planImport = vi.fn(async () => ({
+        mapKey: (key) => key.replace(/^repo\//, 'cardiac_ap/'),
+        isSkipped: (key) => key.startsWith('other/'),
+        isReplaced: () => false,
+      }))
+      const planned = useCellmlDrop({ ...deps, planImport })
+
+      const results = await planned.loadCellMLFiles([
+        { name: 'a.cellml', path: 'repo/math/a.cellml', file: file('a.cellml') },
+        { name: 'b.cellml', path: 'other/b.cellml', file: file('b.cellml') },
+        { name: 'loose.cellml', file: file('loose.cellml') },
+      ])
+
+      expect(planImport).toHaveBeenCalledWith([
+        { key: 'repo/a.cellml', cellml: '<model/>' },
+        { key: 'other/b.cellml', cellml: '<model/>' },
+        { key: 'loose.cellml', cellml: '<model/>' },
+      ])
+      expect(deps.loadCellMLData.mock.calls.map(([, key]) => key)).toEqual(['cardiac_ap/a.cellml', 'loose.cellml'])
+      expect(results).toHaveLength(2)
+    })
+
+    it('loads one file of a name per namespace, warning about the others', async () => {
+      readFileAsText.mockResolvedValue('<model/>')
+
+      await drop.loadCellMLFiles([
+        { name: 'm.cellml', path: 'repo/math/m.cellml', file: file('m.cellml') },
+        { name: 'm.cellml', path: 'repo/old/m.cellml', file: file('m.cellml') },
+        { name: 'm.cellml', path: 'other/m.cellml', file: file('m.cellml') },
+      ])
+
+      expect(deps.loadCellMLData.mock.calls.map(([, key]) => key)).toEqual(['repo/m.cellml', 'other/m.cellml'])
+      expect(notify.warning).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Same-Named Files Left Out', message: expect.stringContaining('repo/old/m.cellml') })
+      )
     })
 
     it('loads .cellml files case-insensitively and ignores other dropped files', async () => {

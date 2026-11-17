@@ -162,6 +162,25 @@ describe('parseForRole', () => {
     expect(result).toMatchObject({ key: IMPORT_KEYS.CELLML_FILE, data: '<model/>', components: [{ name: 'child' }] })
   })
 
+  it('drops imported units it cannot find in the batch and reports them', async () => {
+    const withImport =
+      '<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:xlink="http://www.w3.org/1999/xlink" name="NCX">' +
+      '<import xlink:href="../units/units.cellml"><units name="fA" units_ref="fA"/></import>' +
+      '<component name="NCX"/></model>'
+    const cellmlField = {
+      key: IMPORT_KEYS.CELLML_FILE,
+      accept: '.cellml, .xml',
+      parser: async () => withImport,
+      processUpload: 'cellml',
+    }
+    processCellMLData.mockReturnValue({ type: 'success', components: [{ name: 'NCX' }] })
+    const result = await parseForRole(entry('repo/math/NCX.cellml').file, [cellmlField], null, { path: 'repo/math/NCX.cellml' })
+
+    expect(result.data).not.toContain('<import')
+    expect(result.data).toContain('<component name="NCX"')
+    expect(result.importIssues).toEqual(['units fA from ../units/units.cellml: file not found'])
+  })
+
   it('rejects configs that cannot be normalised', async () => {
     const broken = JSON.stringify([{ ...CONFIG[0], variables_and_units: null }])
     vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -210,6 +229,16 @@ describe('buildBatchSummary', () => {
     const summary = buildBatchSummary(base)
 
     expect(summary).toMatchObject({ type: 'success', title: 'Ready to Import', duration: 3000 })
+  })
+
+  it('warns about imports that could not be resolved, per file', () => {
+    const summary = buildBatchSummary({
+      ...base,
+      importIssues: [{ name: 'NCX.cellml', issues: ['units fA from ../units/u.cellml: file not found'] }],
+    })
+
+    expect(summary).toMatchObject({ type: 'warning', title: 'Some Imports Not Resolved' })
+    expect(summary.message).toContain('Unresolved in NCX.cellml: units fA from ../units/u.cellml: file not found')
   })
 
   it('lists what is still missing', () => {
