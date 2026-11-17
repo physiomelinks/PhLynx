@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import fs from 'node:fs'
 import path from 'node:path'
-import createLibOpenCOR from '@opencor/libopencor'
+import { createNodeLibOpenCOR } from '../helpers/libopencor.js'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -130,7 +130,7 @@ describe('variables of integration and algebraic systems in the flattened model'
 
   beforeAll(async () => {
     ;({ instance: libcellml } = await ensureLibCellmlReady())
-    libOpenCOR = await createLibOpenCOR()
+    libOpenCOR = await createNodeLibOpenCOR()
   }, 120000)
 
   beforeEach(() => {
