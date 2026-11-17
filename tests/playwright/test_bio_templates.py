@@ -454,6 +454,13 @@ class TestBioTemplates(unittest.TestCase):
         options = page.locator(".p-select-overlay .p-select-option")
         (options.nth(option) if isinstance(option, int) else options.filter(has_text=option).first).click()
 
+    def cancel_editor(self):
+        """Close the instance editor a new module opens in, leaving the module as it is."""
+        editor = self.page.locator(".module-editor-dialog")
+        expect(editor).to_be_visible()
+        editor.get_by_role("button", name="Cancel").click()
+        expect(editor).to_be_hidden()
+
     def drop_module(self, index, point):
         """Drag the library's index-th module onto a screen point of the physiological view."""
         page = self.page
@@ -1176,9 +1183,10 @@ class TestBioTemplates(unittest.TestCase):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
 
-        # On the empty lumen: a new module bound to it, as one step.
+        # On the empty lumen: a new module bound to it, as one step, opened in the editor to write its math.
         lumen = piece(page, "apical-fluid").bounding_box()
         self.menu_at((lumen["x"] + 30, lumen["y"] + 20), "New Module Here")
+        self.cancel_editor()
         expect(empty_piece(page, "apical-fluid")).to_have_count(0)
         expect(bound(page, "bioRegion")).to_have_count(1)
         undo(page)
@@ -1188,12 +1196,14 @@ class TestBioTemplates(unittest.TestCase):
         # On the apical slot of the empty cell: a new protein there, joined to its neighbours.
         cell = piece(page, "cell").bounding_box()
         self.menu_at((cell["x"] + cell["width"] / 2, cell["y"] + 2), "New Module Here")
+        self.cancel_editor()
         protein = bound(page, "bioProtein")
         expect(protein).to_have_count(1)
         self.assertAlmostEqual(centre(protein.bounding_box())[1], piece(page, "cell").bounding_box()["y"], delta=3)
 
         # Not on an occupied single site: the lumen bound again offers no new module.
         self.menu_at((lumen["x"] + 30, lumen["y"] + 20), "New Module Here")
+        self.cancel_editor()
         region = bound(page, "bioRegion")
         expect(region).to_have_count(1)
         box = region.bounding_box()

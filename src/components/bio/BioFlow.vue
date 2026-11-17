@@ -2247,6 +2247,8 @@ function applyTile(tile, point) {
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 async function placeTile(tile, point) {
+  // A new module adds no sites, and keeps its own step: a drop asking what it is holds that step open past here.
+  if (tile.kind === 'module') return applyTile(tile, point)
   const before = new Set(siteTargets.value.map((target) => target.ref))
   history.startBatch()
   try {
@@ -2825,7 +2827,6 @@ async function onModuleDrop(event) {
   return placeModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
 }
 
-
 /** The library's new, empty module, which the Module tile and "New Module Here" add. */
 const newModule = () => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null
 
@@ -2882,24 +2883,10 @@ async function placeModuleAt(module, point) {
 async function addModuleAt(module, target) {
   history.startBatch()
   try {
-    if (area) {
-      // A node-owned cell's membrane, or a process in it.
-      const id = props.createInstance(module, { role: area.role, cell: area.cellId })
-      await connectToCellNeighbours(id)
-      return id
-    }
-    if (site) {
-      // An instance of the module, bound to the site; planned against the sites as they were drawn.
-      const id = props.createInstance(module, { role: site.role, facet: null })
-      await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
-      await connectToNeighbours(id, site)
-      return id
-    }
-    // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
-    const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
-    await applyPlan(slotPlan(id, slot), 'bio-add')
-    await connectToCellNeighbours(id)
-    return id
+    // A placeholder there goes, for the module to take its place.
+    const replaced = target.site && replacedOccupant(target.site, null)
+    if (replaced && isPlaceholder(main.findNode(replaced), main.edges.value)) main.removeNodes([replaced], true)
+    return await addModuleIn(module, target)
   } finally {
     history.endBatch('bio-add')
   }
