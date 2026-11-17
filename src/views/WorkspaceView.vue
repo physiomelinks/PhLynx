@@ -2113,6 +2113,8 @@ const contextMenuItems = ref(paneContextMenuItems)
 
 function onPaneContextMenu(event) {
   event.preventDefault()
+  // Vue Flow stopped doing this in 1.48. The menu closes on any context menu that reaches the document, this one too.
+  event.stopPropagation()
   contextMenuItems.value = paneContextMenuItems
   contextMenuRef.value.open(event.clientX, event.clientY)
 }
