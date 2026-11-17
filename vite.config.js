@@ -8,11 +8,11 @@ import { visualizer } from 'rollup-plugin-visualizer'
 import LinkAttributes from 'markdown-it-link-attributes'
 import MarkdownItAttrs from 'markdown-it-attrs'
 import MarkdownItGitHubAlerts from 'markdown-it-github-alerts'
-import packageJson from './package.json'
+import packageJson from './package.json' with { type: 'json' }
 import { execSync } from 'child_process'
 import { libopencorAssets } from './scripts/libopencorAssets.js'
 
-const latestChangelogPath = path.resolve(__dirname, 'changelogs/latest.md')
+const latestChangelogPath = path.resolve(import.meta.dirname, 'changelogs/latest.md')
 
 let buildStateMarker = ''
 if (fs.existsSync(latestChangelogPath)) {
@@ -45,9 +45,6 @@ export default defineConfig({
     // The live conversion's worker imports these. Listed up front, so the dev server doesn't find them
     // when the CellDL tab first opens and reload the page.
     include: ['libcellml.js/libcellml.js', '@xmldom/xmldom'],
-    esbuildOptions: {
-      target: 'es2020',
-    },
   },
   plugins: [
     vue({
@@ -79,7 +76,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@docs': path.resolve(__dirname, './docs'),
+      '@docs': path.resolve(import.meta.dirname, './docs'),
     },
     // One copy of protocol-kit's peers, PhLynx's, even when the package is linked from a checkout with its own.
     dedupe: ['vue', 'primevue', 'papaparse', '@primeuix/utils'],

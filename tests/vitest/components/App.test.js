@@ -118,9 +118,16 @@ describe('App', () => {
   })
 
   it('fetches the notices on start', async () => {
-    const { wrapper } = await mountApp()
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('LynxNotices'), { cache: 'no-cache' })
-    wrapper.unmount()
+    // Past the hourly refresh limit, so an earlier test's fetch doesn't stand in for this one.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000)
+    try {
+      const { wrapper } = await mountApp()
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('LynxNotices'), { cache: 'no-cache' })
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('offers a bug button after the notices bell that opens a new GitHub issue', async () => {

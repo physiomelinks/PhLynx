@@ -1,18 +1,16 @@
 import createLibOpenCOR from '@opencor/libopencor'
 
 /**
- * Creates libOpenCOR as Node runs it, also under happy-dom. libOpenCOR takes a `window` to mean a browser and starts
- * its threads from a blob: URL, which Node's Worker can't load. It reads `window` once, as the module starts.
- *
- * @returns {Promise<Object>} The libOpenCOR module.
+ * Creates a libOpenCOR instance that runs its pthreads as Node worker threads.
+ * libOpenCOR takes any `window` as a browser and starts workers from blob URLs, which Node can't load, so happy-dom's
+ * `window` is hidden while the factory reads its environment.
  */
 export function createNodeLibOpenCOR() {
-  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'window')
-  if (!descriptor) return createLibOpenCOR()
-  Object.defineProperty(globalThis, 'window', { value: undefined, configurable: true, writable: true })
+  const saved = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  if (saved) delete globalThis.window
   try {
     return createLibOpenCOR()
   } finally {
-    Object.defineProperty(globalThis, 'window', descriptor)
+    if (saved) Object.defineProperty(globalThis, 'window', saved)
   }
 }
