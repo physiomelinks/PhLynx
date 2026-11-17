@@ -312,7 +312,7 @@
               aria-label="Modules"
               v-hint.bottom="'Modules'"
               data-testid="library-tab-modules"
-              @click="chosenLibraryTab = 'modules'"
+              @click="libraryTab = 'modules'"
             >
               <i class="pi pi-box" aria-hidden="true"></i>
               <span class="library-tab-label">Modules</span>
@@ -322,12 +322,10 @@
               role="tab"
               :class="['library-tab', { 'library-tab--active': libraryTab === 'build' }]"
               :aria-selected="libraryTab === 'build'"
-              :disabled="!viewMode.isBio"
               aria-label="Build"
               v-hint.bottom="'Build'"
-              :title="viewMode.isBio ? undefined : 'Switch to the Physiology view to build it'"
               data-testid="library-tab-build"
-              @click="chosenLibraryTab = 'build'"
+              @click="libraryTab = 'build'"
             >
               <i class="pi pi-hammer" aria-hidden="true"></i>
               <span class="library-tab-label">Build</span>
@@ -339,7 +337,20 @@
             <LibraryArea />
           </div>
           <div v-if="libraryTab === 'build'" class="library-tab-panel library-tab-panel--scroll" role="tabpanel">
-            <BioBuildPalette />
+            <BioBuildPalette v-if="viewMode.isBio" />
+            <!-- The pieces are placed on the physiology view, so elsewhere the tab offers to open it. -->
+            <div v-else class="library-build-elsewhere" data-testid="library-build-elsewhere">
+              <p>Cells, compartments and templates are built on the Physiology view.</p>
+              <Button
+                label="Switch to Physiology view"
+                icon="pi pi-arrow-right"
+                icon-pos="right"
+                size="small"
+                outlined
+                data-testid="library-build-switch-view"
+                @click="viewMode.mode = 'bio'"
+              />
+            </div>
           </div>
         </div>
       </ResizableLibraryPanel>
@@ -948,9 +959,14 @@ const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
 const bioTemplateStore = useBioTemplateStore()
 const viewMode = useViewModeStore()
-/** The library tab picked; the Build tab is only there in the physiology view, so the diagram shows the modules. */
-const chosenLibraryTab = ref('modules')
-const libraryTab = computed(() => (viewMode.isBio ? chosenLibraryTab.value : 'modules'))
+/** The library tab shown. Build pieces go on the physiology view, so leaving it goes back to the modules. */
+const libraryTab = ref('modules')
+watch(
+  () => viewMode.isBio,
+  (isBio) => {
+    if (!isBio) libraryTab.value = 'modules'
+  }
+)
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -2920,7 +2936,7 @@ watch(
   cursor: pointer;
 }
 
-.library-tab:hover:not(:disabled) {
+.library-tab:hover {
   color: var(--p-text-color);
 }
 
@@ -2941,10 +2957,6 @@ watch(
   }
 }
 
-.library-tab:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
 
 .library-tab:focus-visible {
   outline: 2px solid var(--p-primary-color);
@@ -2958,6 +2970,20 @@ watch(
 
 .library-tab-panel--scroll {
   overflow-y: auto;
+}
+
+.library-build-elsewhere {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  color: var(--p-text-muted-color);
+  font-size: 0.875rem;
+}
+
+.library-build-elsewhere p {
+  margin: 0;
 }
 </style>
 
