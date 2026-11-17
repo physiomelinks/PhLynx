@@ -114,7 +114,7 @@
     "vite-plugin-electron": "^1.2.0",
     "vitest": "^5.1.0"
   },
-  "packageManager": "yarn@4.12.0",
+  "packageManager": "yarn@4.18.1",
   "changelog": {
     "labels": {
       "uncategorized": "Not Specified",
