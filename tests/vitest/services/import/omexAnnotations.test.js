@@ -33,6 +33,7 @@ async function exportOmex(library, nodes) {
     cellmlFileName: 'model.cellml',
     extractedData: {},
     moduleFiles: modular.files,
+    unitsFiles: library.availableUnits,
     annotationFiles: modular.sidecars,
   })
   return { omex: await omex.arrayBuffer(), warnings: modular.warnings }
@@ -66,17 +67,30 @@ describe('OMEX export and import of annotations', () => {
     expect(await archive.file('model.cellml').async('string')).toMatch(/xlink:href="porter\.cellml"/)
   })
 
-  it('runs a flattened copy from the SED-ML, and imports the modular main model', async () => {
+  it('runs the modular main model from the SED-ML, with no flattened copy, and imports it', async () => {
+    const { omex } = await exportOmex(library, nodes)
+    const archive = await JSZip.loadAsync(omex)
+    expect(await archive.file('manifest.xml').async('string')).not.toContain('flattened/')
+    expect(archive.file(/^flattened\//)).toEqual([])
+    expect(await archive.file('document.sedml').async('string')).toContain('source="model.cellml"')
+    const result = await importOmexFile(omex)
+    expect(result.files.cellml).toBe('model.cellml')
+    // The modules aren't units files.
+    expect(result.otherCellmls.length).toBeGreaterThan(0)
+    expect(result.otherCellmls.every((location) => location.startsWith('units/'))).toBe(true)
+  })
+
+  it('imports the main model of an older export, whose SED-ML runs a flattened copy', async () => {
     const { omex } = await exportOmex(library, nodes)
     const archive = await JSZip.loadAsync(omex)
     const manifest = await archive.file('manifest.xml').async('string')
-    expect(manifest).toContain('<content location="flattened/model.cellml" format="http://identifiers.org/combine.specifications/cellml"/>')
-    expect(await archive.file('document.sedml').async('string')).toContain('source="flattened/model.cellml"')
-    expect(await archive.file('flattened/model.cellml').async('string')).not.toMatch(/<import\b/)
-    const result = await importOmexFile(omex)
+    archive.file('manifest.xml', manifest.replace('</omexManifest>', '  <content location="flattened/model.cellml" format="http://identifiers.org/combine.specifications/cellml"/>\n</omexManifest>'))
+    archive.file('flattened/model.cellml', await archive.file('model.cellml').async('string'))
+    const sedml = await archive.file('document.sedml').async('string')
+    archive.file('document.sedml', sedml.replace('source="model.cellml"', 'source="flattened/model.cellml"'))
+    const result = await importOmexFile(await archive.generateAsync({ type: 'arraybuffer' }))
     expect(result.files.cellml).toBe('model.cellml')
-    // Neither the flattened copy nor the modules are units files.
-    expect(result.otherCellmls.every((location) => location.startsWith('units/'))).toBe(true)
+    expect(result.otherCellmls.some((location) => location.startsWith('flattened/'))).toBe(false)
   })
 
   it('brings the sidecars back', async () => {

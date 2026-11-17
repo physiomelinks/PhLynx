@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import createLibOpenCOR from '@opencor/libopencor'
+import { createNodeLibOpenCOR } from '../helpers/libopencor.js'
 import JSZip from 'jszip'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -95,7 +95,7 @@ describe('importing a CellML constant shared through connections (#786)', () => 
   beforeAll(async () => {
     restoreSelectors = patchUnderscoreTagSelectors()
     await ensureLibCellmlReady()
-    libOpenCOR = await createLibOpenCOR()
+    libOpenCOR = await createNodeLibOpenCOR()
   }, 120000)
 
   afterAll(() => restoreSelectors?.())

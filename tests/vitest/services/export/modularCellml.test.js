@@ -76,15 +76,15 @@ beforeAll(async () => {
 }, 120000)
 
 /**
- * Flattens the modular export with libCellML's Importer, its module files given by location.
+ * Flattens the modular export with libCellML's Importer, its module and units files given by location.
  *
  * @returns {string} The flattened model.
  */
-function flattenModular({ main, files }) {
+function flattenModular({ main, files, unitsFiles = [] }) {
   const parser = new libcellml.Parser(false)
   const importer = new libcellml.Importer(true)
   const printer = new libcellml.Printer()
-  const modules = files.map(({ location, text }) => {
+  const modules = [...files, ...unitsFiles].map(({ location, text }) => {
     const model = parser.parseModel(text)
     importer.addModel(model, location)
     return model
@@ -196,7 +196,8 @@ describe('buildModularModel', () => {
     expect(modular.main).not.toMatch(/<diff\/>/)
     const [{ text }] = modular.files
     expect(text).toMatch(/id="b4da56"/)
-    expect(text).toMatch(/<units name="mM_per_s">/)
+    expect(text).toMatch(/<import [^>]*xlink:href="units\/units\.cellml">\s*<units units_ref="mM" name="mM"\/>/)
+    expect(text).not.toMatch(/<units name=/)
   })
 
   it('keeps the parameter values an OMEX import reads back', async () => {
@@ -326,11 +327,20 @@ describe('buildModularModel', () => {
     expect(modular.main).toMatch(/xlink:href="tank\.cellml"/)
   })
 
-  it('leaves out the units ids, which could repeat a component one', async () => {
-    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS.replace('<units name="mM">', '<units name="mM" id="b4da56">') })
+  it('imports the units from the units file that defines them, which it lists', async () => {
     const nodes = [buildNode('tank_a', 'tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
-    const { files } = await buildModularModel(nodes, [], store)
-    expect(files[0].text).toMatch(/<units name="mM">/)
-    expect(files[0].text.match(/id="b4da56"/g)).toHaveLength(1)
+    const { main, files, unitsFiles } = await buildModularModel(nodes, [], store)
+    expect(unitsFiles).toEqual([{ location: 'units/units.cellml', text: UNITS }])
+    for (const text of [main, files[0].text]) {
+      expect(text).toMatch(/<import [^>]*xlink:href="units\/units\.cellml">/)
+      expect(text).not.toMatch(/<units name=/)
+    }
+  })
+
+  it('imports the units from back up the folders when the main model sits in one', async () => {
+    const nodes = [buildNode('tank_a', 'tank.cellml:tank', { values: { q_init: '1', v: '0.1', k: '0.5' } })]
+    const { main, files } = await buildModularModel(nodes, [], store, [], { mainFileName: 'models/main.cellml' })
+    expect(files[0].location).toBe('models/tank.cellml')
+    for (const text of [main, files[0].text]) expect(text).toMatch(/xlink:href="\.\.\/units\/units\.cellml"/)
   })
 })
