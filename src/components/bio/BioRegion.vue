@@ -8,12 +8,27 @@
         'bio-region--selected': selected,
         'bio-region--empty': data.empty,
         'bio-region--template': data.instance,
-        'bio-region--inner': data.form === 'inner',
+        'bio-region--inner': data.form === 'inner' && !data.clip,
+        'bio-region--drawn': !!data.clip,
+        'bio-region--tube': data.shape === 'tube',
       },
     ]"
     :style="cutoutStyle"
     data-testid="bio-region"
+    :data-site="data.site ?? undefined"
   >
+    <!-- Its skin: artwork of the user's, filling it under its name -->
+    <svg v-if="skin" class="bio-region__skin" :width="data.width" :height="data.height" data-testid="bio-skin">
+      <image
+        :href="skin.href"
+        x="0"
+        y="0"
+        :width="data.width"
+        :height="data.height"
+        :preserveAspectRatio="skin.aspect"
+        :opacity="skin.opacity"
+      />
+    </svg>
     <BioHandles :handles="data.handles ?? []" />
     <span class="bio-region__label">
       <BioPieceName :id="id" :name="data.name" />
@@ -23,7 +38,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
 import { partOf } from '../../services/bioView/geometry'
@@ -49,8 +64,15 @@ const edge = computed(() => {
   if (!props.data.side) return null
   return facetById(EPITHELIAL_SHAPE, partOf(props.data.side, props.data.at ?? undefined))?.edge ?? null
 })
+/** The view's `(skin) => { href, aspect, opacity } | null`: the artwork a piece's skin names, if the workspace has it. */
+const skinOf = inject('bioSkinOf', () => null)
+const skin = computed(() => skinOf(props.data.skin))
+
 /** A microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it. */
 const cutoutStyle = computed(() => {
+  // An area a skin draws is drawn to its own outline, not its box.
+  const clip = props.data.clip
+  if (clip?.length) return { clipPath: `polygon(${clip.map((point) => `${point.x}px ${point.y}px`).join(', ')})` }
   const hole = props.data.cutout
   if (!hole) return undefined
   const { x, y, width, height, radius } = hole
@@ -154,6 +176,27 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   background: var(--p-content-background);
 }
 
+/* A tube, a stretch of vessel or duct: walls along its length, open at its ends */
+.bio-region--tube,
+.bio-region--tube.bio-region--empty {
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  border-top: 6px solid color-mix(in srgb, var(--p-text-muted-color) 55%, transparent);
+  border-bottom: 6px solid color-mix(in srgb, var(--p-text-muted-color) 55%, transparent);
+}
+
+.bio-region--tube.bio-region--selected {
+  border-top-color: var(--p-primary-color);
+  border-bottom-color: var(--p-primary-color);
+}
+
+/* An area a skin draws shows the skin's artwork through its tint, and is outlined by the skin, not by a box */
+.bio-region--drawn,
+.bio-region--drawn.bio-region--empty {
+  border-color: transparent;
+}
+
 .bio-region--empty {
   border: 2px dashed color-mix(in srgb, var(--p-text-muted-color) 45%, transparent);
   opacity: 0.75;
@@ -169,7 +212,17 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   font-size: 0.75rem;
 }
 
+.bio-region__skin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .bio-region__label {
+  position: relative;
   display: block;
   padding: 8px 12px;
   font-weight: 600;

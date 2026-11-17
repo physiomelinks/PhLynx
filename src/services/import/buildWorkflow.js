@@ -5,6 +5,7 @@ import { getId as getNextNodeId } from '../../utils/nodes'
 import { getPortVariables, reconcileRows } from '../math/reconcileRows'
 import { isBlank } from '../../utils/variables'
 import { seedInstance, seedRefFor } from '../../utils/parameters/seed'
+import { findModule } from '../../utils/namespaces'
 
 /**
  * Builds an instance's variables from its math analysis, keeping the module's configured values
@@ -72,7 +73,8 @@ function buildInstances(
   currentNodes,
   progressCallback,
   getMathDefaults,
-  getParameterSet
+  getParameterSet,
+  preferredNamespace
 ) {
   const pendingInstances = []
   let nodeId = getNextNodeId(currentNodes.map((n) => n.id))
@@ -82,8 +84,18 @@ function buildInstances(
       progressCallback(index, instanceRefs.length, instanceRef.name)
     }
 
-    const module = availableModules.get(`${instanceRef.module_type}:${instanceRef.module_subtype}`)
-    if (!module) {
+    const { module, ambiguous } = findModule(
+      availableModules,
+      instanceRef.module_type,
+      instanceRef.module_subtype,
+      preferredNamespace
+    )
+    if (ambiguous.length) {
+      console.warn(
+        `Module "${instanceRef.name}" (${instanceRef.module_type}:${instanceRef.module_subtype}) ` +
+          `is defined in several namespaces: ${ambiguous.join(', ')}`
+      )
+    } else if (!module) {
       console.warn(
         `No config found for module "${instanceRef.name}" ` +
           `(module_type: ${instanceRef.module_type}, module_subtype: ${instanceRef.module_subtype})`
@@ -223,6 +235,8 @@ function buildEdges(instanceRefs, pendingInstances) {
  * @param {Function} [progressCallback]
  * @param {(mathRef: string) => Map<string, string>} [getMathDefaults]
  * @param {(mathRef: string, ref: string) => Object|null} [getParameterSet] - Gives the set an instance is seeded with.
+ * @param {string|null} [preferredNamespace] - The namespace the instance array targets; its modules are
+ *   preferred where several namespaces define a row's type and subtype (see findModule).
  * @returns {{pendingInstances: Array, pendingEdges: Array}}
  */
 export function buildWorkflowGraph(
@@ -232,7 +246,8 @@ export function buildWorkflowGraph(
   currentNodes,
   progressCallback = null,
   getMathDefaults = null,
-  getParameterSet = null
+  getParameterSet = null,
+  preferredNamespace = null
 ) {
   const pendingInstances = buildInstances(
     instanceRefs,
@@ -241,7 +256,8 @@ export function buildWorkflowGraph(
     currentNodes,
     progressCallback,
     getMathDefaults,
-    getParameterSet
+    getParameterSet,
+    preferredNamespace
   )
   const pendingEdges = buildEdges(instanceRefs, pendingInstances)
   return { pendingInstances, pendingEdges }

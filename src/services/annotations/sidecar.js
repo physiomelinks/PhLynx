@@ -96,6 +96,18 @@ export function sideName(curie) {
 }
 
 /**
+ * Gives the GO cellular component a side node stands for, from its name.
+ *
+ * @param {string} fragment - Decoded, as sideName names it.
+ * @returns {string|null} Null for a fragment that names no side.
+ */
+export function sideCurie(fragment) {
+  const known = Object.entries(SIDE_NAMES).find(([, name]) => name === fragment)?.[0]
+  const id = /^side_GO_(\d+)$/.exec(fragment ?? '')?.[1]
+  return known ?? (id ? `GO:${id}` : null)
+}
+
+/**
  * Whether a fragment of a sidecar's own namespace names a side node.
  *
  * @param {string} fragment - Decoded.

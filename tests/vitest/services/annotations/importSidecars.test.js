@@ -39,3 +39,26 @@ describe('matchSidecarFiles', () => {
     ])
   })
 })
+
+describe('matching side-cars to a namespace’s files', () => {
+  const mathRefs = ['enterocyte/membrane.cellml:membrane', 'cardiac/membrane.cellml:membrane', 'cardiac/NCX.cellml:NCX']
+  const hasMath = (mathRef) => mathRefs.includes(mathRef)
+  const sidecar = (name, mathRef) => ({ name, text: `# ${name}`, mathRef })
+
+  it('finds a file the subject names by name, in the side-car’s own namespace', () => {
+    const { matched } = matchSidecarFiles(
+      [sidecar('cardiac/membrane.ttl', 'membrane.cellml:membrane'), sidecar('NCX.ttl', 'NCX.cellml:NCX')],
+      hasMath,
+      mathRefs
+    )
+    expect(matched.map(({ mathRef }) => mathRef)).toEqual(['cardiac/membrane.cellml:membrane', 'cardiac/NCX.cellml:NCX'])
+  })
+
+  it('names the candidates when a loose side-car could annotate several namespaces’ files', () => {
+    const { matched, unmatched } = matchSidecarFiles([sidecar('membrane.ttl', 'membrane.cellml:membrane')], hasMath, mathRefs)
+    expect(matched).toEqual([])
+    expect(unmatched[0].reason).toBe(
+      'annotates membrane.cellml:membrane, which several namespaces have: enterocyte/membrane.cellml:membrane, cardiac/membrane.cellml:membrane'
+    )
+  })
+})

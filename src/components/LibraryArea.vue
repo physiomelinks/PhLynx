@@ -30,7 +30,20 @@
             @click="toggleGroup(collection.componentFile)"
           >
             <i class="pi pi-chevron-right mlc__group-chevron" />
-            <span class="mlc__group-name"><span class="mlc__group-name-text">{{ collection.label }}</span></span>
+            <span class="mlc__group-name" :title="collection.componentFile">
+              <span class="mlc__group-name-text">{{ collection.label }}</span>
+              <span
+                v-if="collection.namespace"
+                class="mlc__group-namespace"
+                :class="{ 'mlc__group-namespace--action': !selectable }"
+                :role="selectable ? undefined : 'button'"
+                :tabindex="selectable ? undefined : 0"
+                :aria-label="selectable ? undefined : `Rename namespace ${collection.namespace}`"
+                v-hint.top="selectable ? '' : 'Rename namespace'"
+                @click="onNamespaceClick($event, collection.namespace)"
+                @keydown.enter.prevent="onNamespaceClick($event, collection.namespace)"
+              >{{ collection.namespace }}</span>
+            </span>
             <Tag 
               severity="secondary" 
               rounded 
@@ -105,7 +118,7 @@
                       <Select
                         :modelValue="moduleIndex(card)"
                         @update:modelValue="(val) => selectedModuleIndex[card.cardKey] = val"
-                        :options="card.modules.map((m, idx) => ({ label: m.moduleRef, value: idx }))"
+                        :options="card.modules.map((m, idx) => ({ label: moduleRefLabel(m.moduleRef, { withNamespace: false }), value: idx }))"
                         optionLabel="label"
                         optionValue="value"
                         size="small"
@@ -197,6 +210,8 @@ import {
 import useDragAndDrop from '../composables/useDnD'
 import ModulePreviewDialog from './ModulePreviewDialog.vue'
 import { GHOST_MODULE_REF, NEW_MODULE_REF } from '../utils/constants.js'
+import { moduleRefLabel } from '../utils/namespaces'
+import { useNamespaceRename } from '../composables/useNamespaceRename'
 
 const props = defineProps({
   selectable: { type: Boolean, default: false },
@@ -210,6 +225,7 @@ const history = useFlowHistoryStore()
 const defaultParameters = useDefaultParametersStore()
 
 const { onDragStart } = useDragAndDrop()
+const { renameNamespace } = useNamespaceRename()
 
 const filterText = ref('')
 const activeCollapseNames = ref([])
@@ -261,7 +277,10 @@ const filteredCollections = computed(() => {
   return view.groups
     .map((group) => ({
       ...group,
-      cards: group.cards.filter((card) => group.label.toLowerCase().includes(q) || cardMatches(card, q)),
+      cards: group.cards.filter(
+        (card) =>
+          group.label.toLowerCase().includes(q) || (group.namespace ?? '').toLowerCase().includes(q) || cardMatches(card, q)
+      ),
     }))
     .filter((group) => group.cards.length > 0)
 })
@@ -272,6 +291,15 @@ function cardMatches(card, q) {
     (module) =>
       (module.moduleSubtype ?? '').toLowerCase().includes(q) || module.moduleRef.toLowerCase().includes(q)
   )
+}
+
+// ─── Namespaces ─────────────────────────────────────────────────────────────
+
+/** Renames a namespace from its tag, leaving the group as it is; a picking library only shows the tag. */
+function onNamespaceClick(event, namespace) {
+  if (props.selectable) return
+  event.stopPropagation()
+  renameNamespace(namespace)
 }
 
 // ─── Accordion ───────────────────────────────────────────────────────────────
@@ -483,6 +511,31 @@ function handleSelect(module) {
   overflow-wrap: normal;
   word-break: normal;
   line-height: 1.4;
+}
+
+.mlc__group-namespace {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: 3px;
+  padding: 0 0.5em;
+  border-radius: 999px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--mlc-text-muted);
+  background: color-mix(in srgb, var(--mlc-text-muted) 14%, transparent);
+}
+
+.mlc__group-namespace--action {
+  cursor: pointer;
+}
+.mlc__group-namespace--action:hover,
+.mlc__group-namespace--action:focus-visible {
+  color: var(--mlc-accent);
+  background: var(--mlc-accent-light);
 }
 
 .mlc__group-count {

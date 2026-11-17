@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 930 320">
+  <title>Rod photoreceptor</title>
+  <!-- Geometry: read for where things are, not drawn. The rod lies on its side: the outer segment on the left, the
+       connecting cilium, then the inner segment, with the nucleus, on the right. The outline runs round all three. -->
+  <path id="outline" d="M60 60 H280 Q300 60 300 80 V125 H540 V70 Q540 40 570 40 H870 Q900 40 900 70 V230 Q900 260 870 260 H570 Q540 260 540 230 V175 H300 V220 Q300 240 280 240 H60 Q30 240 30 210 V90 Q30 60 60 60 Z"/>
+  <!-- Stretches of membrane on every side: above and below each segment, and at each end. -->
+  <path id="facet-os-upper" d="M70 60 H270"/>
+  <path id="facet-os-lower" d="M70 240 H270"/>
+  <path id="facet-is-upper" d="M580 40 H860"/>
+  <path id="facet-is-lower" d="M580 260 H860"/>
+  <path id="facet-os-tip" d="M30 100 V200"/>
+  <path id="facet-terminal" d="M900 80 V220"/>
+  <path id="region-outer-segment" d="M60 60 H280 Q300 60 300 80 V220 Q300 240 280 240 H60 Q30 240 30 210 V90 Q30 60 60 60 Z"/>
+  <path id="region-inner-segment" d="M570 40 H870 Q900 40 900 70 V230 Q900 260 870 260 H570 Q540 260 540 230 V70 Q540 40 570 40 Z"/>
+  <circle id="anchor-cilium" cx="420" cy="150" r="6"/>
+  <circle id="anchor-name" cx="420" cy="218" r="2"/>
+
+  <!-- Artwork: the outer segment's discs, the inner segment's mitochondria and the nucleus. -->
+  <g fill="none" stroke="#a78bfa" stroke-width="5" stroke-linecap="round" opacity="0.55">
+    <path d="M70 85 V215"/><path d="M95 85 V215"/><path d="M120 85 V215"/><path d="M145 85 V215"/><path d="M170 85 V215"/>
+    <path d="M195 85 V215"/><path d="M220 85 V215"/><path d="M245 85 V215"/><path d="M270 85 V215"/>
+  </g>
+  <g fill="#34d399" opacity="0.45">
+    <ellipse cx="600" cy="95" rx="13" ry="26"/><ellipse cx="610" cy="205" rx="13" ry="26"/><ellipse cx="660" cy="150" rx="13" ry="26"/>
+  </g>
+  <ellipse cx="800" cy="150" rx="58" ry="64" fill="#93c5fd" opacity="0.55"/>
+  <circle cx="788" cy="138" r="14" fill="#3b82f6" opacity="0.5"/>
+</svg>

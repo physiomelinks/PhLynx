@@ -791,4 +791,39 @@ describe('listOtherTriples', () => {
     expect(others.map((t) => t.object.value)).toContain('A pool')
     expect(await listOtherTriples('', 'pool.cellml:pool')).toEqual([])
   })
+
+  describe('a place that is none of the usual ones', () => {
+    const DUCT = read('duct.cellml')
+    const located = (sidecar) => Object.fromEntries(sidecar.variables.map((entry) => [entry.variable, [entry.location, entry.from ?? null]]))
+
+    it('is written as a side of its own, named for its term, and read back the same', async () => {
+      const mathRef = 'pool.cellml:pool'
+      const text = read('pool.ttl')
+      const { variables } = await readToySidecar(text, 'pool')
+      const c = variables.find((entry) => entry.variable === 'c_A')
+      const edited = await editSidecar(text, mathRef, {
+        variables: { c_A: { property: c.property, species: c.species, location: 'GO:0001750' } },
+        cellml: POOL,
+      })
+      expect(edited).toContain('side_GO_0001750')
+      const again = await readToySidecar(edited, 'pool')
+      expect(located(again).c_A).toEqual(['GO:0001750', null])
+      expect(again.warnings.filter(({ message }) => /Unrecognised|no location/.test(message))).toEqual([])
+      // Set again, it is written the same.
+      const edits = { c_A: { property: c.property, species: c.species, location: 'GO:0001750' } }
+      expect(await editSidecar(edited, mathRef, { variables: edits, cellml: POOL })).toBe(edited)
+    })
+
+    it('keeps a flow between two such places as it is rewritten', async () => {
+      const mathRef = 'duct.cellml:duct'
+      const before = await parseSidecar(read('duct.ttl'), { mathRef, cellml: DUCT })
+      const edits = Object.fromEntries(
+        before.variables.map(({ variable, property, species, location, from }) => [variable, { property, species, location, from }])
+      )
+      const written = await editSidecar(read('duct.ttl'), mathRef, { variables: edits, cellml: DUCT })
+      const after = await parseSidecar(written, { mathRef, cellml: DUCT })
+      expect(located(after)).toEqual(located(before))
+      expect(located(after).v_A_a).toEqual(['GO:0001750', 'GO:0001917'])
+    })
+  })
 })

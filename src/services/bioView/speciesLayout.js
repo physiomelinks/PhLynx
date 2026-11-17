@@ -350,6 +350,18 @@ export function facetLabelBoxes(cellId, layout, labelOf = () => undefined) {
     const length = [...(facet.label ?? '')].length * char + padding
     const sideways = facet.edge === 'left' || facet.edge === 'right'
     const [w, h] = sideways ? [height, length] : [length, height]
+    // By the stretch of membrane a skin draws for it: out from the stretch's middle, clear of a protein there.
+    if (facet.at) {
+      const out = GLYPH_HEIGHT / 2 + FACET_LABEL_OFFSET
+      const corner = {
+        top: { x: facet.at.x - w / 2, y: facet.at.y - out - h },
+        bottom: { x: facet.at.x - w / 2, y: facet.at.y + out },
+        left: { x: facet.at.x - out - w, y: facet.at.y - h / 2 },
+        right: { x: facet.at.x + out, y: facet.at.y - h / 2 },
+      }[facet.edge]
+      own.push(box(rect.x + corner.x, rect.y + corner.y, w, h))
+      return { ...facet, ...corner, width: w, height: h }
+    }
     const run = sideways ? rect.height : rect.width
     // The name's start along its edge, from the cell's corner.
     const at = (along) => {

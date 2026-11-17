@@ -17,7 +17,7 @@ import { locationSource } from '../services/annotations/locationSources'
 
 /** Stacking: regions under cells under everything drawn on them. */
 // A microdomain is drawn over its cell, and an organelle over both.
-const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8 }
+const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8, link: -7, joint: -6 }
 
 /**
  * What a template piece's node shows of its template: which instance and site it is, and how it is drawn.
@@ -30,15 +30,16 @@ function templateData(place) {
   // A cell that is a node of its own still shows the area its processes take up.
   if (!place.instance) return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
   const { instance, site = null, tone = null, edge = null } = place
-  const data = { instance, site, tone, edge }
+  const data = { instance, site, tone, edge, ...(place.skin && { skin: place.skin }), ...(place.shape && { shape: place.shape }) }
   // A microdomain is drawn over its cell.
-  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }) } : data
+  if (place.kind !== 'cell') return place.form === 'inner' ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }), ...(place.clip && { clip: place.clip }) } : data
   return {
     ...data,
     facetLabels: place.facetLabels ?? [],
     zones: zonesIn(place),
     ...(place.hintAt && { hintAt: { ...place.hintAt } }),
     ...(place.folds && { folds: place.folds }),
+    ...(place.outline && { outline: place.outline }),
   }
 }
 
@@ -64,6 +65,9 @@ const viewLabels = (byId, layout, transport) => (id) => ({
 
 /** Whether a place is an empty piece of a template, drawn with no node behind it. */
 const isEmptyPiece = (place) => !!place.instance && place.empty && (place.kind === 'cell' || place.kind === 'region')
+
+/** Whether a place is a link of a template's, drawn whether or not a module is on it. */
+const isLink = (place) => place.kind === 'link' && !!place.instance
 
 /**
  * Turns the physiological layout into nodes for the physiological view's flow. Each has the id of the
@@ -108,8 +112,39 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
   const children = []
 
   for (const [id, place] of layout) {
-    if (!byId.has(id) && !isEmptyPiece(place)) continue
+    if (!byId.has(id) && !isEmptyPiece(place) && !isLink(place)) continue
     switch (place.kind) {
+      case 'link': {
+        // Its line between its two spaces, and the room for its module; the module on it is drawn as a card.
+        const { x, y, width, height } = place.rect
+        const shift = (point) => ({ x: point.x - x, y: point.y - y })
+        parents.push({
+          ...UNSET,
+          id,
+          type: 'bioLink',
+          position: { x, y },
+          width,
+          height,
+          selectable: false,
+          draggable: false,
+          zIndex: Z.link,
+          style: { pointerEvents: 'none' },
+          data: {
+            name: place.label,
+            empty: place.empty,
+            flow: place.flow,
+            instance: place.instance,
+            site: place.site,
+            ...(place.joint
+              ? { joint: place.joint, tone: place.tone }
+              : { from: shift(place.line.from), to: shift(place.line.to), ...(place.line.via && { via: shift(place.line.via) }) }),
+            zone: { ...place.zone, ...shift(place.zone) },
+            width,
+            height,
+          },
+        })
+        break
+      }
       case 'cell': {
         const { x, y, width, height } = place.rect
         const own = base(id)
@@ -147,7 +182,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           width,
           height,
           zIndex: place.form === 'inner' ? Z.microdomain : Z.region,
-          data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null },
+          // Its size too, where it has a skin: an image is drawn to a size, in the view and in an exported picture.
+          data: { ...own.data, ...templateData(place), side: place.side, at: place.adjacent?.[0]?.at ?? null, ...(place.skin && { width, height }) },
         })
         break
       }
@@ -211,6 +247,20 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         break
       }
       case 'card':
+        // A module in a link's joint is drawn as the joint itself: over it, named, to select or drag out.
+        if (place.joint) {
+          const { zone } = layout.get(place.link)
+          parents.push({
+            ...base(id),
+            type: 'bioJoint',
+            position: { x: zone.x, y: zone.y },
+            width: zone.width,
+            height: zone.height,
+            zIndex: Z.joint,
+            data: { ...base(id).data, joint: place.joint, tone: layout.get(place.link).tone, width: zone.width, height: zone.height, droppable: true },
+          })
+          break
+        }
         // Something with no physiological role can be dropped into a membrane to make it a protein.
         parents.push({
           ...base(id),
@@ -236,7 +286,13 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           zIndex: Z.cell,
           // Dragging its outline moves its cell (see BioFlow).
           style: { pointerEvents: 'none' },
-          data: { ...own.data, width: cell.width, height: cell.height, ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }) },
+          data: {
+            ...own.data,
+            width: cell.width,
+            height: cell.height,
+            ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }),
+            ...(layout.get(place.cell).outline && { outline: layout.get(place.cell).outline }),
+          },
         })
         break
       }
@@ -298,6 +354,7 @@ function boxOf(place) {
     case 'cell':
     case 'region':
     case 'membrane':
+    case 'link':
       return place.rect
     case 'protein':
       return { x: place.x - GLYPH_WIDTH / 2, y: place.y - GLYPH_HEIGHT / 2, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
@@ -525,6 +582,7 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
       instances: templateStore.instances,
       definitions: templateStore.definitions,
       detailOf,
+      shapes: templateStore.shapes,
     })
   })
   const layout = computed(() => physiology.value.places)
