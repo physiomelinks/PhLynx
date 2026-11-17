@@ -683,7 +683,7 @@ import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 
-import { importOmexFile, extractOmexArchive, readArchiveEntries } from '../services/import/omex'
+import { importOmexFile, extractOmexArchive, readArchiveEntries, registerArchiveUnits } from '../services/import/omex'
 import { buildRestoredPorts, restoreOmexAnnotations } from '../services/import/omexAnnotations'
 import { withAnnotationData } from '../services/annotations/nodeData'
 import { drivenSummary } from '../services/annotations/edgeCouplings'
