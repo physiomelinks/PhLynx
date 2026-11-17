@@ -295,45 +295,62 @@
 
     <div class="app-body-container">
       <ResizableLibraryPanel
-        :title="libraryTab === 'build' ? 'Build' : 'Available Modules'"
         :initial-width="300"
         :min-width="150"
         :max-width="400"
         @resize="onLibraryPanelResize"
       >
-        <!-- The library's two tabs: the modules to place, and the pieces the physiology view is built from -->
-        <div class="library-tabbed">
+        <!-- The library's two tabs name the panel: the modules to place, and the pieces the physiology view is
+             built from. A narrow panel shows only their icons; each keeps its name as its aria-label and hint. -->
+        <template #title>
           <div class="library-tabs" role="tablist" aria-label="Library">
             <button
               type="button"
               role="tab"
               :class="['library-tab', { 'library-tab--active': libraryTab === 'modules' }]"
               :aria-selected="libraryTab === 'modules'"
+              aria-label="Modules"
+              v-hint.bottom="'Modules'"
               data-testid="library-tab-modules"
-              @click="chosenLibraryTab = 'modules'"
+              @click="libraryTab = 'modules'"
             >
               <i class="pi pi-box" aria-hidden="true"></i>
-              Modules
+              <span class="library-tab-label">Modules</span>
             </button>
             <button
               type="button"
               role="tab"
               :class="['library-tab', { 'library-tab--active': libraryTab === 'build' }]"
               :aria-selected="libraryTab === 'build'"
-              :disabled="!viewMode.isBio"
-              :title="viewMode.isBio ? 'Cells, compartments and templates to build the physiology view from' : 'Switch to the Physiology view to build it'"
+              aria-label="Build"
+              v-hint.bottom="'Build'"
               data-testid="library-tab-build"
-              @click="chosenLibraryTab = 'build'"
+              @click="libraryTab = 'build'"
             >
               <i class="pi pi-hammer" aria-hidden="true"></i>
-              Build
+              <span class="library-tab-label">Build</span>
             </button>
           </div>
+        </template>
+        <div class="library-tabbed">
           <div v-show="libraryTab === 'modules'" class="library-tab-panel" role="tabpanel">
             <LibraryArea />
           </div>
           <div v-if="libraryTab === 'build'" class="library-tab-panel library-tab-panel--scroll" role="tabpanel">
-            <BioBuildPalette />
+            <BioBuildPalette v-if="viewMode.isBio" />
+            <!-- The pieces are placed on the physiology view, so elsewhere the tab offers to open it. -->
+            <div v-else class="library-build-elsewhere" data-testid="library-build-elsewhere">
+              <p>Cells, compartments and templates are built on the Physiology view.</p>
+              <Button
+                label="Switch to Physiology view"
+                icon="pi pi-arrow-right"
+                icon-pos="right"
+                size="small"
+                outlined
+                data-testid="library-build-switch-view"
+                @click="viewMode.mode = 'bio'"
+              />
+            </div>
           </div>
         </div>
       </ResizableLibraryPanel>
@@ -942,9 +959,14 @@ const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
 const bioTemplateStore = useBioTemplateStore()
 const viewMode = useViewModeStore()
-/** The library tab picked; the Build tab is only there in the physiology view, so the diagram shows the modules. */
-const chosenLibraryTab = ref('modules')
-const libraryTab = computed(() => (viewMode.isBio ? chosenLibraryTab.value : 'modules'))
+/** The library tab shown. Build pieces go on the physiology view, so leaving it goes back to the modules. */
+const libraryTab = ref('modules')
+watch(
+  () => viewMode.isBio,
+  (isBio) => {
+    if (!isBio) libraryTab.value = 'modules'
+  }
+)
 const nodeThemeStore = useNodeThemeStore()
 const { isDarkMode } = useColorScheme()
 const { settings: appSettings } = useAppSettings()
@@ -2887,43 +2909,56 @@ watch(
   min-height: 0;
 }
 
+/* A segmented switch in the panel header, where the title would be. */
 .library-tabs {
   display: flex;
-  flex: 0 0 auto;
-  gap: 0.25rem;
-  padding: 0 0.75rem;
-  border-bottom: 1px solid var(--p-content-border-color);
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p-text-color) 7%, transparent);
 }
 
 .library-tab {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.375rem;
-  padding: 0.375rem 0.625rem;
-  margin-bottom: -1px;
+  min-width: 0;
+  padding: 0.3rem 0.625rem;
   color: var(--p-text-muted-color);
   background: none;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: 6px;
   font: inherit;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.library-tab:hover:not(:disabled) {
+.library-tab:hover {
   color: var(--p-text-color);
 }
 
 .library-tab--active {
   color: var(--p-primary-color);
-  border-bottom-color: var(--p-primary-color);
+  background: var(--p-content-background);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--p-text-color) 18%, transparent);
 }
 
-.library-tab:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+/* Too narrow for both names, the tabs show only their icons. */
+@container library-header (max-width: 11rem) {
+  .library-tab {
+    padding: 0.3rem 0.5rem;
+  }
+
+  .library-tab-label {
+    display: none;
+  }
 }
+
 
 .library-tab:focus-visible {
   outline: 2px solid var(--p-primary-color);
@@ -2937,6 +2972,20 @@ watch(
 
 .library-tab-panel--scroll {
   overflow-y: auto;
+}
+
+.library-build-elsewhere {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem;
+  color: var(--p-text-muted-color);
+  font-size: 0.875rem;
+}
+
+.library-build-elsewhere p {
+  margin: 0;
 }
 </style>
 

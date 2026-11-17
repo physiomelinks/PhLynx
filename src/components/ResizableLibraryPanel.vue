@@ -32,10 +32,13 @@
         <aside :style="{ width: width + 'px' }" class="module-aside">
           <div class="module-aside-header">
             <!-- Detail such as a count or the selected item's name follows the title, muted. -->
-            <h4 class="module-aside-title">
-              <!-- Kept on one line so a space separates title and detail when read aloud. -->
-              <span class="module-aside-title-text">{{ title }}</span> <span v-if="$slots['title-detail']" class="module-aside-title-detail"><slot name="title-detail" /></span>
-            </h4>
+            <!-- A parent may put its own control here in place of the title, such as tabs that name the panel. -->
+            <slot name="title">
+              <h4 class="module-aside-title">
+                <!-- Kept on one line so a space separates title and detail when read aloud. -->
+                <span class="module-aside-title-text">{{ title }}</span> <span v-if="$slots['title-detail']" class="module-aside-title-detail"><slot name="title-detail" /></span>
+              </h4>
+            </slot>
             <div v-if="$slots['header-actions']" class="module-aside-header-actions">
               <slot name="header-actions" />
             </div>
@@ -198,6 +201,8 @@ defineExpose({ isCollapsed, toggleCollapsed })
   align-items: center;
   gap: 0.5rem;
   min-height: var(--library-toggle-size);
+  /* What goes in the title slot can query this to fit itself to a narrow panel. */
+  container: library-header / inline-size;
   margin: calc(var(--library-toggle-top) - 1rem) 0 0.75rem
     calc(var(--library-toggle-left) + var(--library-toggle-size) - 0.5rem);
 }
