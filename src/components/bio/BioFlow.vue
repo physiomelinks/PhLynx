@@ -1251,7 +1251,16 @@ async function settleNodeDrag({ nodes: dragged }) {
 }
 
 function onNodeDoubleClick({ node }) {
-  const instance = main.findNode(node.id)
+  openEditor(node.id)
+}
+
+/**
+ * Opens an instance in the instance editor, as a double-click on it does.
+ *
+ * @param {string} id
+ */
+function openEditor(id) {
+  const instance = id && main.findNode(id)
   if (!instance) return
   const { name, mathRef, variables, ports, handles } = instance.data
   emit('open-instance-editor', {
@@ -2175,13 +2184,18 @@ function viewCentre() {
 
 /**
  * Places what a palette tile stands for at a point of the view: a template, an empty cell (a template of one plain
- * cell), or a piece added to the cell there, a compartment against the side of the cell it is dropped beside.
+ * cell), a piece added to the cell there, a compartment against the side of the cell it is dropped beside, or a
+ * new module, as a drop of one from the library would be.
  *
  * @param {{kind: string, template?: string}} tile
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
+  if (tile.kind === 'module') {
+    const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
+    return module && props.createInstance ? placeModuleAt(module, point) : null
+  }
   if (tile.kind === 'cell') return addCell(point)
   if (tile.kind === 'tube') return addTube(point)
   if (tile.kind === 'link') {
@@ -2233,6 +2247,8 @@ function applyTile(tile, point) {
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 async function placeTile(tile, point) {
+  // A new module adds no sites, and keeps its own step: a drop asking what it is holds that step open past here.
+  if (tile.kind === 'module') return applyTile(tile, point)
   const before = new Set(siteTargets.value.map((target) => target.ref))
   history.startBatch()
   try {
@@ -2808,25 +2824,30 @@ async function onModuleDrop(event) {
   libraryDrag.isDragging.value = false
   libraryDrag.isDragOver.value = false
   draggingId.value = activeTarget.value = pointer.value = null
-  return dropModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+  return placeModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
 }
 
 /** The library's new, empty module, which the Module tile and "New Module Here" add. */
 const newModule = () => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null
 
 /**
- * Adds an instance of a library module where it was dropped: into the membrane slot or onto the template site
- * there, as one step, or else at the point, asking what it is.
+ * Adds a library module where it was dropped or the armed New Module tile put: into the membrane slot or onto the
+ * template site there, as one step, or loose, asking what it is. A new module opens in the instance editor once
+ * placed, its math being what is wanted of it.
  *
  * @param {Object} module - A library module.
  * @param {{x: number, y: number}} point - In flow coordinates.
+ * @returns {Promise<void>}
  */
-async function dropModuleAt(module, point) {
+async function placeModuleAt(module, point) {
+  const isNew = module.moduleRef === NEW_INSTANCE_MODULE_REF
   const target = targetAt(point)
   if (target) {
     const { site } = target
     if (site && !(await confirmReplace(site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
-    return addModuleAt(module, target)
+    const id = await addModuleAt(module, target)
+    if (isNew) openEditor(id)
+    return
   }
   const position = whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 })
   // Adding it and saying what it is make one step, which Cancel takes back (see endAssign).
@@ -2847,6 +2868,7 @@ async function dropModuleAt(module, point) {
     at: point,
     name: main.findNode(id)?.data?.name ?? id,
     initialRole: roles.value.get(id)?.role ?? 'none',
+    openEditor: isNew,
   }
 }
 
@@ -2856,7 +2878,7 @@ async function dropModuleAt(module, point) {
  *
  * @param {Object} module - A library module.
  * @param {{site: Object}|{slot: Object}|{area: Object}} target - From targetAt.
- * @returns {Promise<void>}
+ * @returns {Promise<string>} The instance's id.
  */
 async function addModuleAt(module, target) {
   history.startBatch()
@@ -2864,7 +2886,7 @@ async function addModuleAt(module, target) {
     // A placeholder there goes, for the module to take its place.
     const replaced = target.site && replacedOccupant(target.site, null)
     if (replaced && isPlaceholder(main.findNode(replaced), main.edges.value)) main.removeNodes([replaced], true)
-    await addModuleIn(module, target)
+    return await addModuleIn(module, target)
   } finally {
     history.endBatch('bio-add')
   }
@@ -2908,7 +2930,9 @@ function newModuleItem(event) {
   if (!module || !props.createInstance) return []
   const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
   if (!target || (target.site && replacedOccupant(target.site, null))) return []
-  return [{ label: 'New Module Here', icon: 'pi pi-file-plus', command: () => addModuleAt(module, target) }]
+  return [
+    { label: 'New Module Here', icon: 'pi pi-file-plus', command: async () => openEditor(await addModuleAt(module, target)) },
+  ]
 }
 
 /**
@@ -2957,13 +2981,15 @@ const regionRectAt = (at) => ({ x: at.x - 160, y: at.y - REGION_HEIGHT / 2, widt
 async function onPlaceConfirm(choice) {
   const { mode } = placing.value
   if (mode === 'assign') {
-    const { id, at } = placing.value
+    const { id, at, openEditor: isNew } = placing.value
     placing.value = null
-    return endAssign(async () => {
+    await endAssign(async () => {
       await assignRole(id, at, choice)
       // Put on a node-owned cell, it joins its neighbours there in the same step.
       if (choice.cell || choice.placement) await connectToCellNeighbours(id)
     })
+    if (isNew) openEditor(id)
+    return
   }
   const { moduleRef, membraneRef, placement } = choice
   const { at } = placing.value

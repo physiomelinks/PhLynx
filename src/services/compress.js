@@ -1,7 +1,7 @@
 import JSZip from 'jszip'
 
 import { generateSedmlData } from './export/sedml'
-import { FLATTENED_FOLDER, buildManifestXml } from './export/omex'
+import { buildManifestXml, unitsFileLocation } from './export/omex'
 import { buildSimulationJson } from './export/simulation'
 import { resolveParamsForIdExport } from './simulation/paramsForId'
 
@@ -86,8 +86,8 @@ export async function createCellMLDataFragment(cellmlBlob, fileName) {
  * through regardless so that wiring is already in place once
  * generateSedmlData is fleshed out — right now it's simply ignored.
  *
- * @param {object} cellmlData - The CellML model: `blob`, the main model, and `flat`, its flattened text, which tells
- *   whether it has ODEs and is what the SED-ML runs, from `flattened/`, while libOpenCOR can't resolve imports.
+ * @param {object} cellmlData - The CellML model: `blob`, the main model, which the SED-ML runs, and `flat`, its
+ *   flattened text, which tells whether it has ODEs, as a modular main model's imported components hide them.
  * @param {object} flowSnapshot - The current workspace flow snapshot (nodes/edges).
  * @param {object} [simData] - Simulation/plot/parameter-scan config for the SED-ML doc. Currently unused by generateSedmlData.
  * @param {object} [addInfo] - Additional information not carried by the other parameters.
@@ -104,13 +104,10 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   // A model without ODEs is solved once rather than over time. Only when neither the analysis found a VOI
   // nor the model has a derivative, so a caller that doesn't know the VOI never loses a time course.
   const isSteadyState = !addInfo.extractedData?.voi && !DERIVATIVE.test(cellmlData.flat ?? (await cellmlData.blob.text()))
-  // Until libOpenCOR resolves imports, the SED-ML runs a flattened copy; the main model stays modular.
-  const flatLocation = cellmlData.flat ? `${FLATTENED_FOLDER}/${cellmlFileName}` : null
-  const sedmlText = generateSedmlData(simData.simulationSettings, flatLocation ?? cellmlFileName, { isSteadyState })
+  const sedmlText = generateSedmlData(simData.simulationSettings, cellmlFileName, { isSteadyState })
   const simulationJson = buildSimulationJson(simData.plotConfig, simData.parameterScanConfig, addInfo.extractedData)
 
   const reservedLocations = new Set(['manifest.xml', 'document.sedml', cellmlFileName, 'flow-snapshot.json', 'changes.json'])
-  if (flatLocation) reservedLocations.add(flatLocation)
 
   // Refreshed from the current sliders below, so it isn't also passed through verbatim from preservedExtras.
   const paramsForIdExport = resolveParamsForIdExport(simData.parameterScanConfig?.selections, omexStore.preservedExtras)
@@ -120,7 +117,7 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   // also written from preservedExtras.
   const unitsFiles = new Map()
   for (const { componentFile, model } of addInfo.unitsFiles ?? []) {
-    const location = `units/${componentFile.split('/').pop()}`
+    const location = unitsFileLocation(componentFile)
     if (!model || reservedLocations.has(location)) continue
     unitsFiles.set(location, model)
     reservedLocations.add(location)
@@ -129,7 +126,6 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   const manifestEntries = [
     { location: 'document.sedml', format: SEDML_FORMAT, master: true },
     { location: cellmlFileName, format: CELLML_FORMAT },
-    ...(flatLocation ? [{ location: flatLocation, format: CELLML_FORMAT }] : []),
     ...Array.from(unitsFiles.keys(), (location) => ({ location, format: CELLML_FORMAT })),
     { location: 'flow-snapshot.json', format: 'application/x.vnd.phlynx-flow+json' },
     { location: 'changes.json', format: 'application/x.vnd.phlynx-changes+json' },
@@ -164,7 +160,6 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
   const zip = new JSZip()
   zip.file('manifest.xml', manifestXml)
   zip.file(cellmlFileName, cellmlData.blob)
-  if (flatLocation) zip.file(flatLocation, cellmlData.flat)
   zip.file('document.sedml', sedmlText)
   zip.file('flow-snapshot.json', flowSnapshot)
   zip.file('changes.json', JSON.stringify({ id: 'phlynx-changes', version: PHLYNX_PROJECT_VERSION, modified: addInfo.modified }))

@@ -8,7 +8,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
  * Hides as few of a row's controls as fit it, and hides more or fewer as its width or contents change.
  *
  * @param {import('vue').Ref<HTMLElement|null>} rowRef The row, which overflows (rather than wraps or clips) when its
- *   controls don't fit.
+ *   controls don't fit. It can appear, or be replaced, after mounting.
  * @param {import('vue').Ref<Array<string>>} ids The ids of the controls that can be hidden, the first to go first.
  * @param {Function} [contents] Gives what, besides its width, changes how wide the row's controls are, such as a
  *   button's label, so the row is fitted again when it changes.
@@ -40,18 +40,31 @@ export function useOverflowMenu(rowRef, ids, contents = () => null) {
   // Fitted again when what it can hide, or how wide its controls are, changes. Not on hiding, which fitting does.
   watch(() => [ids.value.join('\n'), contents()], fit, { flush: 'post', deep: true })
 
+  // Watched from when the row appears, which can be after mounting, as a dialog renders its header only once shown.
   let resizeObserver = null
-  onMounted(() => {
+  /**
+   * Fits the row, and fits it again as its width changes, from when it appears until it goes.
+   *
+   * @param {HTMLElement|null} row
+   */
+  function observe(row) {
+    resizeObserver?.disconnect()
+    resizeObserver = null
+    if (!row) return
     fit()
     // Its width only: hiding a control changes what is in the row, not how wide it is.
-    if (typeof ResizeObserver === 'undefined' || !rowRef.value) return
+    if (typeof ResizeObserver === 'undefined') return
     let lastWidth = null
     resizeObserver = new ResizeObserver(([entry]) => {
       if (entry.contentRect.width === lastWidth) return
       lastWidth = entry.contentRect.width
       fit()
     })
-    resizeObserver.observe(rowRef.value)
+    resizeObserver.observe(row)
+  }
+  onMounted(() => {
+    observe(rowRef.value)
+    watch(rowRef, observe, { flush: 'post' })
   })
   onBeforeUnmount(() => resizeObserver?.disconnect())
 

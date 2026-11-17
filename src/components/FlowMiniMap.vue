@@ -1,5 +1,5 @@
 <template>
-  <!-- The minimap, with a button on its corner that shrinks it to a button of its own -->
+  <!-- The minimap, with a button on its bottom right corner that shrinks it to a button of its own in the same place -->
   <template v-if="settings.showMiniMap">
     <MiniMap v-bind="$attrs" />
     <Panel position="bottom-right" class="minimap-toggle minimap-toggle--hide">
@@ -45,7 +45,7 @@ const setShown = (shown) => saveAppSettings({ showMiniMap: shown })
 <style>
 /* Not scoped: Vue Flow's panel draws the root these style. */
 .minimap-toggle {
-  /* Above the minimap, whose corner the hide button sits on. */
+  /* Above the minimap, on whose bottom right corner the hide button sits, where the show button is. */
   z-index: 6;
   /* Moves with the minimap, out from under the floating context panel while it is open. */
   transform: translateX(calc(-1 * var(--context-panel-cover, 0px)));
@@ -54,10 +54,6 @@ const setShown = (shown) => saveAppSettings({ showMiniMap: shown })
 /* No gap under the drawing, so the minimap is as tall as it is asked to be. */
 .vue-flow__minimap svg {
   display: block;
-}
-/* On the top right corner of the minimap, which is 150px tall unless told otherwise. */
-.minimap-toggle--hide {
-  margin-bottom: calc(15px + var(--minimap-height, 150px) - 22px);
 }
 .minimap-toggle--show {
   box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
@@ -70,13 +66,14 @@ const setShown = (shown) => saveAppSettings({ showMiniMap: shown })
   outline: 2px solid var(--p-primary-color);
   outline-offset: -2px;
 }
-/* Small and quiet until it is pointed at; dark in either colour scheme, as the minimap is always light. */
+/* Quiet until it is pointed at; dark in either colour scheme, as the minimap is always light.
+   The show button's size, so the two swap in place under the pointer. */
 .minimap-hide-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: none;
   background: transparent;

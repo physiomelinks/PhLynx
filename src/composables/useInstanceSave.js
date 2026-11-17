@@ -12,6 +12,7 @@ import {
 } from '../utils/parameters/instanceSet'
 import { planSharedSetUpdate } from '../utils/parameters/apply'
 import { countDroppedCouplings, findSidecarPortChanges, reconcileNodePorts } from '../services/annotations/reconcileNodes'
+import { placesOf } from '../services/annotations/couple'
 import { parseSidecar } from '../services/annotations/sidecar'
 import { renameSidecar } from '../services/annotations/sidecarEdit'
 import { analyzeMathXml } from '../services/math/analyzeMath'
@@ -29,6 +30,7 @@ import { instanceConfigSource, isSoleOwnConfig } from '../services/configOwnersh
 import { spreadConfig } from '../services/configSpread'
 import { separateParameters } from '../services/math/separateParameters'
 import { rescaleRows } from '../services/math/unitRescale'
+import { fillPlacementCouplings } from '../services/bioView/links'
 import { getModuleFormat } from '../services/moduleFormats'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, GHOST_NODE_TYPE, PROTECTED_MATH_REFS } from '../utils/constants'
@@ -201,7 +203,14 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
       if (!couplings.has(edge.id)) return
       edge.data = { ...edge.data, couplings: carryDrivesState(marked.get(edge.id) ?? [], couplings.get(edge.id), { byLabel: true }) }
     })
-    driveEdgesNow({ context: buildSaveContext(sidecarFor, nodes.value), edgeIds: findIncidentEdgeIds(nodeIds) })
+    const context = buildSaveContext(sidecarFor, nodes.value)
+    // A placement edge the drop left empty, as a new module's are, couples once the module has ports to couple.
+    const isAnnotated = (node) => !!libraryStore.getModuleAnnotations(node.data?.mathRef) && placesOf(node, context).length > 0
+    const filled = fillPlacementCouplings({ nodes: nodes.value, edges: edges.value, nodeIds, isAnnotated })
+    edges.value.forEach((edge) => {
+      if (filled.has(edge.id)) edge.data = { ...edge.data, couplings: filled.get(edge.id) }
+    })
+    driveEdgesNow({ context, edgeIds: findIncidentEdgeIds(nodeIds) })
   }
 
   /**

@@ -734,17 +734,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opencor/libopencor@npm:^1.20261113.0":
-  version: 1.20261113.0
-  resolution: "@opencor/libopencor@npm:1.20261113.0"
-  checksum: 10c0/65e38693bb5a96b2b2b3473446ec4c5137adf5ee423255d3ab68eb04c089e85cb66741512d7e708bed5b7e1963c12457d27560140ee33078006c03a0dbbd94ca
-  languageName: node
-  linkType: hard
-
 "@oxc-project/types@npm:=0.156.0":
   version: 0.156.0
   resolution: "@oxc-project/types@npm:0.156.0"
   checksum: 10c0/7f101d33e967179c10d38708c71c8c602ad862843a788603d6b8c2accebf2fce420ca95a26d74d90bc35db36daa0a8285c3af1589c38ae20e46e47153549313f
+  languageName: node
+  linkType: hard
+
+"@opencor/libopencor@npm:^1.20261113.0":
+  version: 1.20261113.0
+  resolution: "@opencor/libopencor@npm:1.20261113.0"
+  checksum: 10c0/65e38693bb5a96b2b2b3473446ec4c5137adf5ee423255d3ab68eb04c089e85cb66741512d7e708bed5b7e1963c12457d27560140ee33078006c03a0dbbd94ca
   languageName: node
   linkType: hard
 
