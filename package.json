@@ -55,7 +55,7 @@
     "@dagrejs/dagre": "^1.1.8",
     "@lezer/highlight": "^1.2.3",
     "@lezer/lr": "^1.4.8",
-    "@opencor/libopencor": "^1.20261006.1",
+    "@opencor/libopencor": "^1.20261113.0",
     "@physiomelinks/bg2cellml": "0.6.1",
     "@physiomelinks/protocol-kit": "^0.5.0",
     "@primeuix/utils": "^0.6.2",

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import createLibOpenCOR from '@opencor/libopencor'
+import { createNodeLibOpenCOR } from '../helpers/libopencor.js'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -160,7 +160,7 @@ describe('importing a CellML model with encapsulated components (#787)', () => {
   beforeAll(async () => {
     restoreSelectors = patchUnderscoreTagSelectors()
     libcellml = (await ensureLibCellmlReady()).instance
-    libOpenCOR = await createLibOpenCOR()
+    libOpenCOR = await createNodeLibOpenCOR()
   }, 120000)
 
   afterAll(() => restoreSelectors?.())

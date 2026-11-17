@@ -1131,10 +1131,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@opencor/libopencor@npm:^1.20261006.1":
-  version: 1.20261006.1
-  resolution: "@opencor/libopencor@npm:1.20261006.1"
-  checksum: 10c0/bd2fdeff0cd8da4fb59e066efbcadd91871393935f3297508acf98fc65810d1d03bca2c84229ad54626d330a089fa18fe287d67d8ebd9ae7a6bccdcb35ac1729
+"@opencor/libopencor@npm:^1.20261113.0":
+  version: 1.20261113.0
+  resolution: "@opencor/libopencor@npm:1.20261113.0"
+  checksum: 10c0/65e38693bb5a96b2b2b3473446ec4c5137adf5ee423255d3ab68eb04c089e85cb66741512d7e708bed5b7e1963c12457d27560140ee33078006c03a0dbbd94ca
   languageName: node
   linkType: hard
 
@@ -6262,7 +6262,7 @@ __metadata:
     "@hsorby/changelog": "patch:@hsorby/changelog@npm%3A3.0.3#~/.yarn/patches/@hsorby-changelog-npm-3.0.3-fa30fc0b80.patch"
     "@lezer/highlight": "npm:^1.2.3"
     "@lezer/lr": "npm:^1.4.8"
-    "@opencor/libopencor": "npm:^1.20261006.1"
+    "@opencor/libopencor": "npm:^1.20261113.0"
     "@physiomelinks/bg2cellml": "npm:0.6.1"
     "@physiomelinks/protocol-kit": "npm:^0.5.0"
     "@primeuix/utils": "npm:^0.6.2"

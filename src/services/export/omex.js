@@ -1,7 +1,15 @@
 import JSZip from 'jszip'
 
-/** The OMEX folder of the flattened copy of a modular model, which the SED-ML runs until libOpenCOR resolves imports. */
-export const FLATTENED_FOLDER = 'flattened'
+/**
+ * Where an export writes a library units file, which its modular model imports units from: `units/` and the file's
+ * own name, so two files of one name share a place.
+ *
+ * @param {string} componentFile - The units file's library key.
+ * @returns {string}
+ */
+export function unitsFileLocation(componentFile) {
+  return `units/${componentFile.split('/').pop()}`
+}
 
 /**
  * Builds the COMBINE archive manifest.xml listing every file included in the
