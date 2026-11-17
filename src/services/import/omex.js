@@ -2,7 +2,10 @@ import JSZip from 'jszip'
 import { processCellMLData } from '../../utils/cellml'
 import { isModuleConfigFile, isPhlynxFlowSnapshotFile, isSimulationJsonFile } from './omexClassifiers'
 import { classifyAnnotationEntry, isAnnotationCandidate } from './omexAnnotations'
-import { FLATTENED_FOLDER } from '../export/omex'
+
+// Where exports made before libOpenCOR resolved imports kept a flattened copy of the modular model, which their SED-ML
+// runs. Read only, to load those archives.
+const FLATTENED_FOLDER = 'flattened'
 
 const jsonMimeTypeRegex = /^application\/(?:json|.+\+json)$/i
 const CELLML_FORMAT = 'http://identifiers.org/combine.specifications/cellml'
@@ -56,7 +59,7 @@ export function readSedmlModelSources(sedmlText, sedmlLocation) {
     .map((model) => model.getAttribute('source'))
     .filter(Boolean)
     .map((source) => (source.startsWith('./') ? source.slice(2) : source))
-    // An export's SED-ML runs the flattened copy of its modular main model (see generateOmexArchive).
+    // An older export's SED-ML runs the flattened copy of its modular main model.
     .map((source) => (source.startsWith(`${FLATTENED_FOLDER}/`) ? source.slice(FLATTENED_FOLDER.length + 1) : source))
     .flatMap((source) => (folder ? [folder + source, source] : [source]))
 }
@@ -246,7 +249,8 @@ export const importOmexFile = async (payload, updateProgress) => {
   const sedmlFile = foundFiles.sedml && archive.file(foundFiles.sedml)
   const modelSources = sedmlFile ? readSedmlModelSources(await sedmlFile.async('string'), foundFiles.sedml) : []
   const cellmlLocation = validateCellmlEntries(foundFiles.cellmls, modelSources)
-  // The flattened copy and the modules the model imports components from carry the model's math, not units files.
+  // An older export's flattened copy and the modules the model imports components from carry the model's math, not
+  // units files.
   const moduleLocations = readComponentImports(await archive.file(cellmlLocation).async('string'), cellmlLocation)
 
   if (typeof updateProgress === 'function') {

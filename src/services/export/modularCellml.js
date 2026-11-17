@@ -1,7 +1,8 @@
 /**
  * The modular CellML export: a main model that imports each instance's component from a module file, with the
- * modules' sidecars. The main model keeps the parameter values, couplings and generated components; only simulation
- * flattens (generateFlattenedModel). Ids stay as the library stores them, so they may repeat across module files.
+ * modules' sidecars. The main model keeps the parameter values, couplings and generated components. Both import their
+ * units from the library's units files, written under `units/`. Ids stay as the library stores them, so they may
+ * repeat across module files.
  */
 import JSZip from 'jszip'
 
@@ -17,6 +18,7 @@ import { parseMathRef } from '../../utils/config'
 import { renameSidecar } from '../annotations/sidecarEdit'
 import { groupingCellmlFile, unitsUsedBy } from '../userModules'
 import { TURTLE_FORMAT, sidecarLocation } from './annotationsRdf'
+import { unitsFileLocation } from './omex'
 import { flatFileNames } from '../../utils/namespaces'
 
 export const MODULAR_MAIN_FILE = 'model.cellml'
@@ -36,8 +38,9 @@ const STANDARD = new Set(STANDARD_UNITS)
  * @param {Object} [options] - Passed to generateFlattenedModel.
  * @param {string} [options.mainFileName] - The main model's location, which no module file may take.
  * @returns {Promise<{ main: string, flat: string, files: Array<{ location: string, text: string }>,
- *   sidecars: Array<{ location: string, format: string, text: string }>, warnings: string[] }>} The main model, the
- *   flattened model it is equivalent to, the module files and sidecars, and why any sidecar is left out.
+ *   unitsFiles: Array<{ location: string, text: string }>, sidecars: Array<{ location: string, format: string,
+ *   text: string }>, warnings: string[] }>} The main model, the flattened model it is equivalent to, the module files,
+ *   the units files they import from (see unitsFileLocation), the sidecars, and why any sidecar is left out.
  * @throws {Error} As generateFlattenedModel does.
  */
 export async function buildModularModel(nodes, edges, libraryStore, inspectionModules = [], options = {}) {
@@ -49,6 +52,7 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
 
   // Module files sit beside the main model, which imports them by name.
   const folder = mainFileName.slice(0, mainFileName.lastIndexOf('/') + 1)
+  const units = unitsSources(libraryStore.availableUnits, '../'.repeat(folder.split('/').length - 1))
   const taken = new Set([mainFileName.slice(folder.length).toLowerCase()])
   const claim = (name) => {
     const stem = name.replace(/\.cellml$/i, '')
@@ -102,7 +106,7 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
     locationOf.set(componentFile, location)
     const names = [...maths.keys()]
     const { models, idMaps } = uniqueComponentIds([...maths.values()])
-    files.push({ location: folder + location, text: moduleFile(location, models, flatUnits, names) })
+    files.push({ location: folder + location, text: moduleFile(location, models, flatUnits, names, units) })
     for (const [i, name] of names.entries()) await addSidecar(`${componentFile}:${name}`, `${location}:${name}`, idMaps[i])
   }
   for (const { name, componentFile, componentName } of sharedInstances) {
@@ -110,26 +114,27 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
   }
   for (const source of own) {
     const location = claim(`${source.componentName}_${source.name}`)
-    files.push({ location: folder + location, text: moduleFile(location, [source.xml], flatUnits, [source.componentName]) })
+    files.push({ location: folder + location, text: moduleFile(location, [source.xml], flatUnits, [source.componentName], units) })
     imports.set(source.name, { href: location, componentRef: source.componentName })
     await addSidecar(source.mathRef, `${location}:${source.componentName}`)
   }
 
-  return { main: mainModel(flatDoc, imports), flat, files, sidecars, warnings }
+  const main = mainModel(flatDoc, imports, units)
+  return { main, flat, files, unitsFiles: units.used(), sidecars, warnings }
 }
 
 /**
- * Zips a modular export: the main model, its module files and their sidecars.
+ * Zips a modular export: the main model, its module files, the units files they import from and their sidecars.
  *
- * @param {{ main: string, files: Array<{ location: string, text: string }>, sidecars: Array<{ location: string,
- *   text: string }> }} modular - From buildModularModel.
+ * @param {{ main: string, files: Array<{ location: string, text: string }>, unitsFiles?: Array<{ location: string,
+ *   text: string }>, sidecars: Array<{ location: string, text: string }> }} modular - From buildModularModel.
  * @param {string} [mainFileName]
  * @returns {Promise<Blob>}
  */
-export function zipModularModel({ main, files, sidecars }, mainFileName = MODULAR_MAIN_FILE) {
+export function zipModularModel({ main, files, unitsFiles = [], sidecars }, mainFileName = MODULAR_MAIN_FILE) {
   const zip = new JSZip()
   zip.file(mainFileName, main)
-  for (const { location, text } of [...files, ...sidecars]) zip.file(location, text)
+  for (const { location, text } of [...files, ...unitsFiles, ...sidecars]) zip.file(location, text)
   return zip.generateAsync({ type: 'blob' })
 }
 
@@ -145,16 +150,69 @@ function childrenNamed(parent, localName) {
 }
 
 /**
+ * Finds the library units file that defines each units, as generateFlattenedModel imports them: the first file to
+ * define it, among those written to the export (one per location, the first of a name winning).
+ *
+ * @param {Array<{ componentFile: string, model: string }>} [availableUnits] - The library's units files.
+ * @param {string} prefix - Leads from the model files' folder back to the archive's root.
+ * @returns {{ href: (name: string) => string|null, used: () => Array<{ location: string, text: string }> }} `href`
+ *   gives where a model file imports a units from, or null when no units file defines it; `used` lists the files
+ *   imported from.
+ */
+function unitsSources(availableUnits = [], prefix) {
+  const texts = new Map()
+  const definedIn = new Map()
+  for (const { componentFile, model } of availableUnits) {
+    const location = unitsFileLocation(componentFile)
+    if (!model || texts.has(location)) continue
+    const doc = new DOMParser().parseFromString(model, 'application/xml')
+    if (doc.getElementsByTagName('parsererror')[0]) continue
+    texts.set(location, model)
+    for (const units of childrenNamed(doc.documentElement, 'units')) {
+      const name = units.getAttribute('name')
+      if (name && !definedIn.has(name)) definedIn.set(name, location)
+    }
+  }
+  const used = new Set()
+  return {
+    href(name) {
+      const location = definedIn.get(name)
+      if (!location) return null
+      used.add(location)
+      return prefix + location
+    },
+    used: () => [...used].map((location) => ({ location, text: texts.get(location) })),
+  }
+}
+
+/**
+ * Writes units imports, one import per file.
+ *
+ * @param {Map<string, Set<string>>} imported - Units names, by the href they come from.
+ * @returns {string}
+ */
+function unitsImportsXml(imported) {
+  return [...imported]
+    .map(([href, names]) => {
+      const units = [...names].map((name) => `<units name="${name}" units_ref="${name}"/>`).join('')
+      return `<import xmlns:xlink="${XLINK_NS}" xlink:href="${href}">${units}</import>`
+    })
+    .join('')
+}
+
+/**
  * Writes a module file: the maths' components, named as their mathRefs name them (which component_ref uses), each
- * variable public so the main model can connect it, and the units they use, as the flattened model defines them.
+ * variable public so the main model can connect it, and the units they use: imported from the units file that
+ * defines them, or else as the flattened model defines them.
  *
  * @param {string} location - Names the file's model.
  * @param {string[]} maths - One-component models whose ids don't repeat across them.
  * @param {Map<string, Element>} flatUnits - The flattened model's units, by name.
  * @param {string[]} names - Each math's component name.
+ * @param {ReturnType<typeof unitsSources>} sources
  * @returns {string}
  */
-function moduleFile(location, maths, flatUnits, names) {
+function moduleFile(location, maths, flatUnits, names, sources) {
   const libcellml = getLibCellML()
   const serializer = new XMLSerializer()
   const components = maths.map((math, index) => {
@@ -169,12 +227,20 @@ function moduleFile(location, maths, flatUnits, names) {
   })
 
   const units = new Map()
+  const imported = new Map() // href -> units names
+  const importedNames = new Set()
   const pending = maths.flatMap((math) => [...unitsUsedBy(math)])
   while (pending.length) {
     const name = pending.shift()
-    if (units.has(name) || STANDARD.has(name)) continue
+    if (units.has(name) || importedNames.has(name) || STANDARD.has(name)) continue
     const definition = flatUnits.get(name)
-    if (definition) {
+    // Affine units are masked, never imported, as generateFlattenedModel does.
+    const href = AFFINE_UNIT_CONVERSIONS[name] ? null : sources.href(name)
+    if (href) {
+      if (!imported.has(href)) imported.set(href, new Set())
+      imported.get(href).add(name)
+      importedNames.add(name)
+    } else if (definition) {
       // Units' ids, which no module sidecar points at, could repeat the components' ones.
       const copy = definition.cloneNode(true)
       for (const el of [copy, ...copy.querySelectorAll('[id]')]) el.removeAttribute('id')
@@ -188,39 +254,57 @@ function moduleFile(location, maths, flatUnits, names) {
 
   const name = location.replace(/\.cellml$/i, '').replace(/[^A-Za-z0-9_]/g, '_').replace(/^(?=\d)/, '_')
   const xml = stripCelsiusToArbitraryUnit(
-    `<model xmlns="${CELLML_NS}" xmlns:cellml="${CELLML_NS}" name="${name}">${[...units.values(), ...components].join('')}</model>`
+    `<model xmlns="${CELLML_NS}" xmlns:cellml="${CELLML_NS}" name="${name}">${unitsImportsXml(imported)}${[...units.values(), ...components].join('')}</model>`
   )
   return reprint(libcellml, xml)
 }
 
 /**
- * Replaces each imported instance's component in the flattened model with its import.
+ * Replaces each imported instance's component in the flattened model with its import, and each units a units file
+ * defines with its import from that file.
  *
  * @param {Document} flatDoc - Changed in place.
  * @param {Map<string, { href: string, componentRef: string }>} imports - By instance name.
+ * @param {ReturnType<typeof unitsSources>} sources
  * @returns {string}
  */
-function mainModel(flatDoc, imports) {
+function mainModel(flatDoc, imports, sources) {
   const model = flatDoc.documentElement
+  // Each import, made once per file. Declared outright, as happy-dom's serializer leaves the prefix undeclared.
+  const fragment = flatDoc.createDocumentFragment()
   const importOf = new Map()
-  const firstChild = childrenNamed(model, 'units')[0] ?? childrenNamed(model, 'component')[0] ?? null
+  const importFrom = (href) => {
+    if (!importOf.has(href)) {
+      const element = flatDoc.createElementNS(CELLML_NS, 'import')
+      element.setAttributeNS(XMLNS_NS, 'xmlns:xlink', XLINK_NS)
+      element.setAttributeNS(XLINK_NS, 'xlink:href', href)
+      fragment.appendChild(element)
+      importOf.set(href, element)
+    }
+    return importOf.get(href)
+  }
+
   for (const component of childrenNamed(model, 'component')) {
     const target = imports.get(component.getAttribute('name'))
     if (!target) continue
-    if (!importOf.has(target.href)) {
-      const element = flatDoc.createElementNS(CELLML_NS, 'import')
-      // Declared outright, as happy-dom's serializer leaves the prefix undeclared.
-      element.setAttributeNS(XMLNS_NS, 'xmlns:xlink', XLINK_NS)
-      element.setAttributeNS(XLINK_NS, 'xlink:href', target.href)
-      model.insertBefore(element, firstChild)
-      importOf.set(target.href, element)
-    }
     const imported = flatDoc.createElementNS(CELLML_NS, 'component')
     imported.setAttribute('name', component.getAttribute('name'))
     imported.setAttribute('component_ref', target.componentRef)
-    importOf.get(target.href).appendChild(imported)
+    importFrom(target.href).appendChild(imported)
     component.remove()
   }
+  for (const units of childrenNamed(model, 'units')) {
+    const name = units.getAttribute('name')
+    // Affine units are masked, never imported, as generateFlattenedModel does.
+    const href = AFFINE_UNIT_CONVERSIONS[name] ? null : sources.href(name)
+    if (!href) continue
+    const imported = flatDoc.createElementNS(CELLML_NS, 'units')
+    imported.setAttribute('name', name)
+    imported.setAttribute('units_ref', name)
+    importFrom(href).appendChild(imported)
+    units.remove()
+  }
+  model.insertBefore(fragment, model.firstChild)
   return reprint(getLibCellML(), new XMLSerializer().serializeToString(flatDoc))
 }
 

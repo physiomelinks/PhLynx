@@ -22,6 +22,7 @@
       {{ data.name }}
       <span v-if="species" class="bio-protein__species" data-testid="bio-protein-species">{{ species }}</span>
     </span>
+    <BioUncoupledBadge v-if="data.uncoupled" :name="data.name" />
     <!-- Moved from where its annotations put it -->
     <span
       v-if="movedFrom"
@@ -38,6 +39,7 @@
 import BioHandles from './BioHandles.vue'
 import { computed } from 'vue'
 import ProteinGlyph from './ProteinGlyph.vue'
+import BioUncoupledBadge from './BioUncoupledBadge.vue'
 
 const props = defineProps({
   data: { type: Object, required: true },

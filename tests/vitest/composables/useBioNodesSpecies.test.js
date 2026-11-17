@@ -182,3 +182,25 @@ describe('species mode in the physiological view', () => {
     expect(species.value.paths[0].direction).toBe('out')
   })
 })
+
+describe('uncoupled modules in the physiological view', () => {
+  it('marks a protein or process no edge couples, as a new module is until its math has ports', () => {
+    const nodes = ref([
+      node('cell', 'pool', { role: 'cytosol' }),
+      node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
+      node('fresh', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
+      node('works', 'porter', { role: 'cytosolic', cell: 'cell' }),
+    ])
+    // Joined to the cell by its drop, but coupled through nothing.
+    const edges = ref([
+      couple('porter', 'cell', [['v_Na_i', 'v_Na']]),
+      { id: 'fresh-cell', source: 'fresh', target: 'cell', data: { couplings: [], placement: 'across' } },
+    ])
+    const { bioNodes } = useBioNodes(nodes, edges)
+    const flag = (id) => bioNodes.value.find((n) => n.id === id)?.data.uncoupled
+    expect([flag('porter'), flag('fresh'), flag('works'), flag('cell')]).toEqual([false, true, true, undefined])
+    // Once its math is saved with ports, its edge couples and the mark goes.
+    edges.value = [...edges.value.slice(0, 1), couple('fresh', 'cell', [['v_Na_i', 'v_Na']])]
+    expect(flag('fresh')).toBe(false)
+  })
+})

@@ -79,6 +79,42 @@ export function linkCouplings(from, to, kind, edges = []) {
 }
 
 /**
+ * The couplings a placement edge left empty now gets, once an end's ports have changed: a module dropped before its
+ * math had ports, such as a new one, is joined to its neighbours but coupled to none of them until its math is
+ * saved. Only edges placement made (data.placement is their link's kind) that still couple nothing are filled, so
+ * no coupling made or removed by hand is undone; an edge between two annotated nodes is left to the annotation
+ * matcher, as connectNodes leaves it.
+ *
+ * @param {Object} options
+ * @param {Array<Object>} options.nodes - Workspace nodes.
+ * @param {Array<Object>} options.edges - Workspace edges.
+ * @param {Array<string>} options.nodeIds - The nodes whose ports changed.
+ * @param {(node: Object) => boolean} [options.isAnnotated] - Whether a node couples by annotation.
+ * @returns {Map<string, Array<Object>>} Each filled edge's new couplings, by edge id.
+ */
+export function fillPlacementCouplings({ nodes, edges, nodeIds, isAnnotated = () => false }) {
+  const ids = new Set(nodeIds)
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const end = (node) => ({ id: node.id, ports: node.data?.ports ?? [] })
+  const filled = new Map()
+  for (const edge of edges) {
+    if (!ids.has(edge.source) && !ids.has(edge.target)) continue
+    const { placement, couplings = [], manualCouplings } = edge.data ?? {}
+    if (!LINK_KINDS.includes(placement) || couplings.length || manualCouplings?.length) continue
+    const from = byId.get(edge.source)
+    const to = byId.get(edge.target)
+    if (!from || !to || (isAnnotated(from) && isAnnotated(to))) continue
+    // The edges as they would be had this one been made last, its ports clear of those another already holds.
+    const others = edges
+      .filter((other) => other.id !== edge.id)
+      .map((other) => (filled.has(other.id) ? { ...other, data: { ...other.data, couplings: filled.get(other.id) } } : other))
+    const found = linkCouplings(end(from), end(to), placement, others)
+    if (found.length) filled.set(edge.id, found)
+  }
+  return filled
+}
+
+/**
  * Whether placement made an edge, so a move that takes one end away from the other may remove it. The edges a
  * drop makes carry their link's kind in data.placement; an edge drawn or edited by hand has data.placement false.
  * An edge with neither comes from a workspace saved before edges were marked: it counts as placement-made when

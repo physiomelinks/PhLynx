@@ -1,7 +1,8 @@
 <template>
   <div class="bio-palette" aria-label="Build the physiology view" data-testid="bio-palette">
     <p class="bio-palette__hint">
-      Drag a piece onto the physiology view, or click it and then click where it goes. Drop modules on what you build.
+      Drag a piece onto the physiology view, or click it and then click where it goes. Drop modules on what you build,
+      or a new module to write its math there.
     </p>
     <h5 class="bio-palette__heading">Pieces</h5>
     <div class="bio-palette__tiles">
@@ -21,6 +22,25 @@
       >
         <i :class="tile.icon" aria-hidden="true"></i>
         {{ tile.label }}
+      </button>
+    </div>
+
+    <h5 class="bio-palette__heading">Modules</h5>
+    <div class="bio-palette__tiles">
+      <button
+        type="button"
+        :class="['bio-palette__tile', { 'bio-palette__tile--armed': viewMode.armedTile?.kind === 'module' }]"
+        :draggable="!!newModule"
+        :disabled="!newModule"
+        title="A module with no math yet: drop it on a site, or anywhere, and write its math in the editor that opens"
+        :aria-pressed="viewMode.armedTile?.kind === 'module'"
+        data-testid="bio-palette-new-module"
+        @dragstart="onModuleDragStart"
+        @dragend="onModuleDragEnd"
+        @click="toggle({ kind: 'module' })"
+      >
+        <i class="pi pi-file-plus" aria-hidden="true"></i>
+        New module
       </button>
     </div>
 
@@ -62,14 +82,23 @@
  * the view or clicked and then placed with a click on it. The view does the placing (see BioFlow); what is being
  * carried there is kept in the view-mode store.
  */
-import { onBeforeUnmount } from 'vue'
+import { computed, onBeforeUnmount } from 'vue'
+
+import useDragAndDrop from '../../composables/useDnD'
 
 import { PALETTE_TILES, TILE_DRAG_TYPE } from '../../services/bioView/palette'
 import { useBioTemplateStore } from '../../stores/bioTemplateStore'
+import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
+import { NEW_INSTANCE_MODULE_REF } from '../../utils/constants'
 
 const viewMode = useViewModeStore()
 const templateStore = useBioTemplateStore()
+const libraryStore = useLibraryStore()
+const libraryDrag = useDragAndDrop()
+
+/** The blank module the New Module tile adds: the one the library's own New Module adds. */
+const newModule = computed(() => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null)
 
 const isSame = (a, b) => !!a && !!b && a.kind === b.kind && a.template === b.template
 
@@ -83,6 +112,18 @@ function onDragStart(event, tile) {
   event.dataTransfer.effectAllowed = 'copy'
   viewMode.armedTile = null
   viewMode.draggedTile = tile
+}
+
+/** Carries a new module as a drag from the library would, so the view places it as it places one of those. */
+function onModuleDragStart(event) {
+  viewMode.armedTile = null
+  libraryDrag.onDragStart(event, newModule.value)
+}
+
+/** A drag let go of anywhere but a drop target carries nothing on. */
+function onModuleDragEnd() {
+  libraryDrag.draggedType.value = null
+  libraryDrag.isDragging.value = false
 }
 
 // Nothing stays armed once the tab is left.
