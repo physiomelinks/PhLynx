@@ -8,13 +8,15 @@
     :content-style="{ display: 'flex', flexDirection: 'column', minHeight: 0, padding: '0 12px 12px' }"
     :pt="{
       root: { class: ['simulation-floating-viewer', { 'simulation-floating-viewer--parked': !isCanvasShown }] },
-      header: { style: { padding: '8px 12px' } },
+      // The container the header's width is queried on, to make its buttons smaller as it narrows.
+      header: { style: { padding: '8px 12px', containerType: 'inline-size' } },
     }"
     aria-label="Floating simulation viewer"
     @show="pinWhereShown"
   >
     <template #header>
-      <div class="viewer-head">
+      <!-- Too narrow for every button: those that don't fit go into a menu, as in the Simulation tab's toolbar. -->
+      <div ref="head" class="viewer-head">
         <!-- The header drags the window; the grip shows where, and its controls don't drag it. -->
         <i class="pi pi-ellipsis-v viewer-grip" aria-hidden="true"></i>
         <!-- Pick a plot, or start a new one from the list's last option; the pencil edits its variables. -->
@@ -37,6 +39,7 @@
         </Select>
         <Button
           v-if="isEditablePlot"
+          v-show="!hidden.has('edit')"
           icon="pi pi-pencil"
           text
           rounded
@@ -48,6 +51,7 @@
           @mousedown.stop
           @click="(event) => plotEditor.toggle(event)"
         />
+        <span class="viewer-spacer"></span>
         <!-- As the light/dark switch does, its handle shows the mode: the whole model, or the selection. -->
         <ToggleSwitch
           v-model="isWholeModel"
@@ -85,6 +89,7 @@
           @click="play"
         />
         <Button
+          v-show="!hidden.has('sliders')"
           icon="pi pi-sliders-h"
           :text="!showSliders"
           rounded
@@ -98,6 +103,7 @@
         />
         <!-- Keeps the shown run's lines on the plot, as the Simulation tab's toolbar does. -->
         <Button
+          v-show="!hidden.has('track')"
           icon="pi pi-bookmark"
           text
           rounded
@@ -110,6 +116,7 @@
           @click="track"
         />
         <Button
+          v-show="!hidden.has('tab')"
           icon="pi pi-window-maximize"
           text
           rounded
@@ -120,6 +127,22 @@
           @mousedown.stop
           @click="returnToTab"
         />
+        <Button
+          v-if="hidden.size"
+          ref="moreButton"
+          icon="pi pi-ellipsis-h"
+          text
+          rounded
+          size="small"
+          severity="secondary"
+          class="viewer-more"
+          aria-label="More viewer actions"
+          aria-haspopup="true"
+          v-hint.top="'More'"
+          @mousedown.stop
+          @click="(event) => moreMenu.toggle(event)"
+        />
+        <Menu ref="moreMenu" :model="moreItems" popup />
       </div>
     </template>
 
@@ -242,6 +265,7 @@ import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
+import Menu from 'primevue/menu'
 import Select from 'primevue/select'
 import Popover from 'primevue/popover'
 import Splitter from 'primevue/splitter'
@@ -254,6 +278,7 @@ import SimulationPlot from './SimulationPlot.vue'
 import SliderList from './SliderList.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { useFloatingViewer } from '../../composables/useFloatingViewer'
+import { useOverflowMenu } from '../../composables/useOverflowMenu'
 import { useSimulation } from '../../composables/useSimulation'
 import { INSPECTION_PLOT, PROTOCOL_INPUTS_PLOT, useSimulationCharts } from '../../composables/useSimulationCharts'
 import { OBS_DATA_PLOT } from '../../services/simulation/protocolPlotGroups'
@@ -451,6 +476,43 @@ function startNewPlot() {
   plotNote.value = ''
 }
 
+// The header's buttons that go into the more menu when the window is too narrow for them, the least used first. Play
+// and the scope switch stay, as in the Simulation tab's toolbar.
+const head = ref(null)
+const hideable = computed(() => ['tab', 'track', 'sliders', isEditablePlot.value && 'edit'].filter(Boolean))
+// Play's button changes to stop and back, but keeps its width.
+const { hidden } = useOverflowMenu(head, hideable)
+
+// The menu's items, for the buttons hidden, in the header's order.
+const moreMenu = ref(null)
+const moreButton = ref(null)
+const moreItems = computed(() => {
+  const items = {
+    edit: {
+      label: 'Edit this plot’s variables',
+      icon: 'pi pi-pencil',
+      // Beside the more button, as the menu item it was opened from goes with the menu.
+      command: ({ originalEvent }) => plotEditor.value.toggle(originalEvent, moreButton.value?.$el),
+    },
+    sliders: { label: showSliders.value ? 'Hide the sliders' : 'Show the sliders', icon: 'pi pi-sliders-h', command: () => (showSliders.value = !showSliders.value) },
+    track: {
+      label: `Track this run (${store.trackedRuns.length} of ${MAX_TRACKED_RUNS} tracked)`,
+      icon: 'pi pi-bookmark',
+      disabled: !!trackBlocker.value,
+      command: track,
+    },
+    tab: { label: 'Back to the Simulation tab', icon: 'pi pi-window-maximize', command: returnToTab },
+  }
+  return Object.keys(items).filter((id) => hidden.value.has(id)).map((id) => items[id])
+})
+// Its button gone, the menu closes too.
+watch(
+  () => hidden.value.size,
+  (size) => {
+    if (!size) moreMenu.value?.hide()
+  }
+)
+
 // The plot fills the space left to it, so resizing the window resizes the plot.
 const chartEl = ref(null)
 const chartAreaHeight = ref(300)
@@ -493,15 +555,38 @@ function pinWhereShown() {
 }
 
 .viewer-grip {
+  flex-shrink: 0;
   padding: 4px 2px;
   color: var(--p-text-muted-color);
   cursor: move;
 }
 
+/* Narrows as the window does, down to enough to read a few letters of the plot's name; narrower still, the header's
+   buttons go into its more menu instead. */
 .viewer-chart-select {
   flex: 0 1 auto;
-  min-width: 0;
-  max-width: calc(100% - 13rem);
+  min-width: 6rem;
+}
+
+.viewer-spacer {
+  flex: 1;
+}
+
+/* Every button keeps its full circle: squeezed, their hover backgrounds would run together. */
+.viewer-head > :deep(.p-button) {
+  flex-shrink: 0;
+}
+
+/* Narrower: smaller buttons, closer together, as in the Simulation tab's toolbar. */
+@container (max-width: 340px) {
+  .viewer-head {
+    gap: 2px;
+  }
+
+  .viewer-head :deep(.p-button-icon-only.p-button-sm) {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
 }
 
 .scope-icon {
@@ -510,7 +595,6 @@ function pinWhereShown() {
 
 .viewer-plot-edit {
   flex-shrink: 0;
-  margin-right: auto;
 }
 
 .viewer-new-plot {
