@@ -22,7 +22,7 @@ import { useOmexStore } from '../stores/omexStore'
 import { useProtocolStore } from '../stores/protocolStore'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 
-import { generateOmexArchive, createOmexDataFragment } from '../services/compress'
+import { buildOpenCorUrl, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { findCaExportBlocker, generateExportZip } from '../services/export/ca'
 import { buildModularModel, zipModularModel } from '../services/export/modularCellml'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
@@ -256,13 +256,14 @@ export function useImportExportSend({
       message: 'Generating OMEX archive for Web OpenCOR.',
       action: generateOmexArchiveAction,
       successMessage: async (blob, finalName) => {
-        const dataUri = await createOmexDataFragment(blob)
+        const url = buildOpenCorUrl(await createOmexDataFragment(blob))
+        if (!url) return 'OMEX archive generated for Web OpenCOR. Open the saved file in OpenCOR.'
         return h('div', null, [
           'OMEX archive generated for Web OpenCOR. Open this model directly in ',
           h(
             'a',
             {
-              href: `https://opencor.ws/app/?opencor://openFile/#${dataUri}`,
+              href: url,
               rel: 'noopener noreferrer',
               style: { color: 'var(--p-primary-color)', fontWeight: 'bold' },
               target: '_blank',
@@ -434,11 +435,17 @@ export function useImportExportSend({
     const notification = notify.info({ title: 'Sending...', message: mode.message, duration: 0 })
     try {
       const blob = await mode.action(baseName)
-      const dataUri = await createOmexDataFragment(blob)
       // Open the generated OMEX archive in Web OpenCOR
       // This needs to change to support other send modes in the future, but for now we only have OpenCOR.
-      const url = `https://opencor.ws/app/?opencor://openFile/#${dataUri}`
-      window.open(url, '_blank', 'noreferrer')
+      const url = buildOpenCorUrl(await createOmexDataFragment(blob))
+      if (url) {
+        window.open(url, '_blank', 'noreferrer')
+      } else {
+        notify.error({
+          title: 'Send failed',
+          message: 'The model is too large to send to Web OpenCOR by link. Export it to OpenCOR and open the saved file in OpenCOR instead.',
+        })
+      }
     } catch (error) {
       notify.error({ title: 'Send failed', message: error.message })
     } finally {

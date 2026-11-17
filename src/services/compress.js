@@ -175,7 +175,21 @@ export async function generateOmexArchive(cellmlData, flowSnapshot, simData = {}
     }
   }
 
-  return zip.generateAsync({ type: 'blob' })
+  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 9 } })
+}
+
+/** Longest URL every common browser opens: Firefox refuses longer ones as "an invalid or illegal string". */
+export const OPENCOR_URL_LIMIT = 1024 * 1024
+
+/**
+ * Builds the Web OpenCOR link that opens an archive passed as a data URL.
+ *
+ * @param {string} dataUri - The archive as a base64 data URL.
+ * @returns {string|null} The link, or null when it's longer than OPENCOR_URL_LIMIT.
+ */
+export function buildOpenCorUrl(dataUri) {
+  const url = `https://opencor.ws/app/?opencor://openFile/#${dataUri}`
+  return url.length <= OPENCOR_URL_LIMIT ? url : null
 }
 
 export async function createOmexDataFragment(omexBlob) {

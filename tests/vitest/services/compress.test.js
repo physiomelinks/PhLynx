@@ -2,7 +2,7 @@ import JSZip from 'jszip'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-import { generateOmexArchive } from '../../../src/services/compress.js'
+import { buildOpenCorUrl, generateOmexArchive, OPENCOR_URL_LIMIT } from '../../../src/services/compress.js'
 import { buildSimulationJson, SIM_STEPS } from '../../../src/services/export/simulation.js'
 import { rehydrateSimulationConfig } from '../../../src/services/import/simulation.js'
 
@@ -317,5 +317,21 @@ describe('generateOmexArchive', () => {
     const paramsForIdCsv = await archive.file('params_for_id.csv').async('string')
     expect(paramsForIdCsv).toContain('membrane,gNa,const,0.1,10,')
     expect(manifestXml).toContain('<content location="params_for_id.csv" format="text/csv"/>')
+  })
+})
+
+describe('sending to Web OpenCOR', () => {
+  it('deflates the archive, so its link stays short', async () => {
+    const cellml = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="big">${'<component name="c" />'.repeat(5000)}</model>`
+    const blob = await generateOmexArchive({ blob: new Blob([cellml]) }, JSON.stringify({}), {}, { cellmlFileName: 'model.cellml', extractedData: {} })
+
+    const zip = await readArchive(blob)
+    expect(zip.file('model.cellml')._data.compression.magic).toBe('\x08\x00')
+    expect(blob.size).toBeLessThan(cellml.length / 10)
+  })
+
+  it('builds the Web OpenCOR link, or none when it is longer than every browser opens', () => {
+    expect(buildOpenCorUrl('data:application/zip;base64,UEsF')).toBe('https://opencor.ws/app/?opencor://openFile/#data:application/zip;base64,UEsF')
+    expect(buildOpenCorUrl(`data:application/zip;base64,${'A'.repeat(OPENCOR_URL_LIMIT)}`)).toBeNull()
   })
 })

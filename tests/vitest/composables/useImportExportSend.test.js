@@ -7,9 +7,11 @@ const confirm = vi.fn(async () => true)
 vi.mock('../../../src/composables/useConfirmDialog', () => ({ useConfirmDialog: () => ({ confirm }) }))
 vi.mock('../../../src/utils/notify', () => ({ notify: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn(), warning: vi.fn() } }))
 vi.mock('../../../src/utils/save', () => ({ getFileHandle: vi.fn(async () => ({ success: true, handle: {}, cleanName: 'model' })) }))
-vi.mock('../../../src/services/compress', () => ({
+vi.mock('../../../src/services/compress', async (importActual) => ({
+  buildOpenCorUrl: (await importActual()).buildOpenCorUrl,
+  OPENCOR_URL_LIMIT: (await importActual()).OPENCOR_URL_LIMIT,
   generateOmexArchive: vi.fn(async () => new Blob(['omex'])),
-  createOmexDataFragment: vi.fn(),
+  createOmexDataFragment: vi.fn(async () => 'data:application/zip;base64,UEsF'),
 }))
 vi.mock('../../../src/utils/cellml', () => ({
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
@@ -31,7 +33,7 @@ vi.mock('../../../src/services/moduleFormats', async (importActual) => {
 })
 
 const { useImportExportSend } = await import('../../../src/composables/useImportExportSend.js')
-const { generateOmexArchive } = await import('../../../src/services/compress')
+const { createOmexDataFragment, generateOmexArchive, OPENCOR_URL_LIMIT } = await import('../../../src/services/compress')
 const { buildModularModel } = await import('../../../src/services/export/modularCellml')
 const { notify } = await import('../../../src/utils/notify')
 const { getFileHandle } = await import('../../../src/utils/save')
@@ -226,6 +228,21 @@ describe('useImportExportSend selection exports', () => {
     await menuItem(sendMenuItems, 'OpenCOR (selection)').command()
     expect(notify.error).toHaveBeenLastCalledWith({ title: 'Send failed', message: 'Analyser error count: 1' })
     expect(open).not.toHaveBeenCalled()
+    open.mockRestore()
+  })
+
+  it('opens the archive in Web OpenCOR, unless its link is too long for the browser', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const { sendMenuItems } = setup()
+
+    await menuItem(sendMenuItems, 'OpenCOR').command()
+    expect(open).toHaveBeenCalledWith('https://opencor.ws/app/?opencor://openFile/#data:application/zip;base64,UEsF', '_blank', 'noreferrer')
+
+    open.mockClear()
+    createOmexDataFragment.mockResolvedValueOnce(`data:application/zip;base64,${'A'.repeat(OPENCOR_URL_LIMIT)}`)
+    await menuItem(sendMenuItems, 'OpenCOR').command()
+    expect(open).not.toHaveBeenCalled()
+    expect(notify.error).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Send failed', message: expect.stringContaining('too large') }))
     open.mockRestore()
   })
 
