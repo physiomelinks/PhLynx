@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
-import { resolveBoundaryValues } from '../services/export/boundaryValues'
+import { resolveBoundaryValues, unitOptions } from '../services/export/boundaryValues'
 import { SimulationError } from '../services/simulation/engine'
 import { libopencor, whenLibOpenCORReady } from '../services/simulation/libopencorLoader'
 import { buildParameterChanges } from '../services/simulation/parameterChanges'
@@ -180,7 +180,7 @@ export function useSimulation() {
       const problem = findSweepProblem(settings.sweep)
       if (problem) throw new SimulationError(problem)
       // A boundary condition a connection in the scope supplies would sweep what supplies it instead.
-      const { status } = resolveBoundaryValues(scope.nodes, scope.internalEdges)
+      const { status } = resolveBoundaryValues(scope.nodes, scope.internalEdges, null, unitOptions(libraryStore))
       const boundaryProblem = findBoundarySweepProblem(settings.sweep, { nodes: scope.nodes, status })
       if (boundaryProblem) throw new SimulationError(boundaryProblem)
       const found = { nodes: scope.nodes, mapping: source.mapping, variables: source.variables }

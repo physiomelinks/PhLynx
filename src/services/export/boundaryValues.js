@@ -459,12 +459,22 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { is
  * @returns {{isCelldlMath?: (mathRef: string) => boolean, unitDefinitions?: Map<string, Array<Object>>}}
  */
 export function storeOptions(libraryStore) {
-  const options = {}
-  if (libraryStore?.unitDefinitions instanceof Map) options.unitDefinitions = libraryStore.unitDefinitions
+  const options = unitOptions(libraryStore)
   if (typeof libraryStore?.getMathSource === 'function') {
     options.isCelldlMath = (mathRef) => libraryStore.getMathSource(mathRef)?.format === 'celldl'
   }
   return options
+}
+
+/**
+ * Gets just the library's units for resolveBoundaryValues, so values coupled in different units compare, for callers
+ * that don't otherwise pass the library's options.
+ *
+ * @param {Object} [libraryStore] - With unitDefinitions; a store without them gives no options.
+ * @returns {{unitDefinitions?: Map<string, Array<Object>>}}
+ */
+export function unitOptions(libraryStore) {
+  return libraryStore?.unitDefinitions instanceof Map ? { unitDefinitions: libraryStore.unitDefinitions } : {}
 }
 
 /**

@@ -159,7 +159,7 @@ export function useImportExportSend({
    */
   const buildModular = async (scope = null, options = {}) => {
     const inputs = scope
-      ? scopedModelInputs(scope)
+      ? scopedModelInputs(scope, libraryStore)
       : { nodes: nodes.value, edges: edges.value, inspectionModules: inspectionModuleStore.modules, options: {} }
     const modular = await buildModularModel(inputs.nodes, inputs.edges, libraryStore, inputs.inspectionModules, {
       ...inputs.options,

@@ -2,7 +2,7 @@
  * Scoped models: a selection of instances, the couplings between them, and the inspection modules that
  * reach them, flattened on their own. The whole model is the scope of every node.
  */
-import { resolveBoundaryValues, storeOptions } from '../export/boundaryValues'
+import { resolveBoundaryValues, storeOptions, unitOptions } from '../export/boundaryValues'
 import { generateFlattenedModel } from '../../utils/cellml'
 import { cyrb53 } from '../../utils/misc'
 import { couplingConflicts, variableTypes } from '../../utils/multiport'
@@ -148,11 +148,12 @@ function findCouplingConflicts(scope, libraryStore) {
  * doesn't concern it, so it gives null rather than throwing.
  *
  * @param {ReturnType<typeof resolveScope>} scope
+ * @param {Object} libraryStore - Provides unitDefinitions.
  * @returns {ReturnType<typeof resolveBoundaryValues>|null}
  */
-function resolveWholeBoundaryValues(scope) {
+function resolveWholeBoundaryValues(scope, libraryStore) {
   try {
-    return resolveBoundaryValues(scope.allNodes, scope.allEdges)
+    return resolveBoundaryValues(scope.allNodes, scope.allEdges, null, unitOptions(libraryStore))
   } catch {
     return null
   }
@@ -200,7 +201,7 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
       ...scoped.overdetermined.map(({ message }) => message),
       ...findCouplingConflicts(scope, libraryStore),
     ]
-    const whole = resolveWholeBoundaryValues(scope)
+    const whole = resolveWholeBoundaryValues(scope, libraryStore)
 
     // Boundary conditions coupled only to each other in the whole model, which export rejects too.
     const wholeBcOnly = new Set((whole?.bcOnly ?? []).flatMap(({ keys }) => keys))
@@ -253,10 +254,11 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
  *
  * @param {Array<Object>} nodes
  * @param {Array<Object>} edges
+ * @param {Object} [libraryStore] - Provides unitDefinitions.
  * @returns {Array<Object>}
  */
-function zeroUnsuppliedBoundaries(nodes, edges) {
-  const { missing } = resolveBoundaryValues(nodes, edges)
+function zeroUnsuppliedBoundaries(nodes, edges, libraryStore) {
+  const { missing } = resolveBoundaryValues(nodes, edges, null, unitOptions(libraryStore))
   if (!missing.size) return nodes
   return nodes.map((node) => {
     const names = missing.get(node.id)
@@ -289,6 +291,7 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
         availableUnits: libraryStore.availableUnits,
         getMathAnalysis: libraryStore.getMathAnalysis,
         getMathSource: libraryStore.getMathSource,
+        unitDefinitions: libraryStore.unitDefinitions,
         getGlobalConstant: (name) => {
           const constant = libraryStore.getGlobalConstant(name)
           return globals.has(name) ? { ...constant, value: String(globals.get(name)) } : constant
@@ -310,7 +313,7 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
  * @throws {Error} When the scope can't be flattened; run checkScope first for a readable report.
  */
 export function buildScopedModel(scope, libraryStore, options = {}) {
-  const { nodes, edges, inspectionModules, options: scoped } = scopedModelInputs(scope)
+  const { nodes, edges, inspectionModules, options: scoped } = scopedModelInputs(scope, libraryStore)
   return generateFlattenedModel(nodes, edges, libraryStore, inspectionModules, { ...scoped, ...options })
 }
 
@@ -318,15 +321,16 @@ export function buildScopedModel(scope, libraryStore, options = {}) {
  * The inputs a scope's model is built from, for generateFlattenedModel or buildModularModel.
  *
  * @param {ReturnType<typeof resolveScope>} scope
+ * @param {Object} [libraryStore] - Provides unitDefinitions.
  * @returns {{ nodes: Array, edges: Array, inspectionModules: Array, options: { allowBcOnly: boolean } }}
  * @throws {Error} When the scope has no instances.
  */
-export function scopedModelInputs(scope) {
+export function scopedModelInputs(scope, libraryStore) {
   if (!scope.nodes.length) throw new Error('Select at least one instance to simulate.')
   // Boundary conditions the cut leaves coupled only to each other use their own value; checkScope stops those
   // coupled so in the whole model.
   return {
-    nodes: zeroUnsuppliedBoundaries(scope.nodes, scope.internalEdges),
+    nodes: zeroUnsuppliedBoundaries(scope.nodes, scope.internalEdges, libraryStore),
     edges: scope.internalEdges,
     inspectionModules: scope.inspectionModules,
     options: { allowBcOnly: true },
