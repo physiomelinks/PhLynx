@@ -47,6 +47,24 @@
             <FileLabel class="header-file-name" :file-key="componentFile" />
           </span>
         </div>
+
+        <span class="header-divider" aria-hidden="true"></span>
+
+        <!-- Whether this instance runs its module's full kinetics or the cycle at steady state -->
+        <div class="header-group header-group--secondary">
+          <span class="header-label header-label--secondary">Kinetics</span>
+          <SelectButton
+            :model-value="kinetics"
+            :options="KINETICS_OPTIONS"
+            option-label="label"
+            option-value="value"
+            :allow-empty="false"
+            :disabled="loading || isSwitchingKinetics"
+            size="small"
+            aria-label="Kinetics"
+            @update:model-value="setKinetics"
+          />
+        </div>
       </div>
     </template>
 
@@ -208,6 +226,10 @@
             <Tab value="annotations">
               <i class="pi pi-tag tab-icon"></i>
               Annotations ({{ annotationCounts.annotated }}/{{ annotationCounts.annotatable }})
+            </Tab>
+            <Tab value="steady">
+              <i class="pi pi-sync tab-icon"></i>
+              Steady state
             </Tab>
           </TabList>
 
@@ -476,7 +498,11 @@
 
             <!-- TAB 4: ANNOTATIONS, shared by every instance of the math -->
             <TabPanel value="annotations" class="tab-panel-flex">
+              <Message v-if="isSteady" severity="info" size="small" :closable="false" class="steady-annotations-note">
+                Annotations describe the module's full kinetics. Switch Kinetics to Full to edit them.
+              </Message>
               <AnnotationTab
+                v-else
                 v-model:draft="annotationDraft"
                 :rows="parameterRows"
                 :variable-kinds="variableKinds"
@@ -492,6 +518,18 @@
                 :is-placed="isNodePlaced"
                 :held-constant="heldConstant"
                 @update:held-constant="setHeldConstant"
+              />
+            </TabPanel>
+
+            <!-- TAB 5: STEADY STATE, the module's setup for running at steady state -->
+            <TabPanel value="steady" class="tab-panel-flex">
+              <SteadyStateSetup
+                :spec="steadyState.spec.value"
+                :analysis="steadyState.analysis.value"
+                :is-pending="steadyState.isPending.value"
+                :rows="isSteady ? (otherKineticsRows ?? []) : parameterRows"
+                @update:spec="(value) => (steadyState.spec.value = value)"
+                @reset="steadyState.resetSpec()"
               />
             </TabPanel>
           </TabPanels>
@@ -612,6 +650,7 @@ import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import ProgressSpinner from 'primevue/progressspinner'
 import Select from 'primevue/select'
+import SelectButton from 'primevue/selectbutton'
 import Tab from 'primevue/tab'
 import TabList from 'primevue/tablist'
 import TabPanel from 'primevue/tabpanel'
@@ -647,6 +686,10 @@ import { createHistory } from '../stores/historyStore'
 import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
+import { useSteadyState } from '../composables/useSteadyState'
+import SteadyStateSetup from './steadyState/SteadyStateSetup.vue'
+import { STEADY_STATE_KINETICS } from '../services/steadyState/steadyStateLibrary'
+import { declarationsFromModel } from '../services/steadyState/reducedModel'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useInstanceSave } from '../composables/useInstanceSave'
 import { useCouplingContext } from '../composables/useCouplingContext'
@@ -796,6 +839,18 @@ function suggestUnitsFor(typed) {
 const loading = ref(false)
 const activeTab = ref('parameters')
 
+// ── Kinetics ────────────────────────────────────────────────────────────────
+const KINETICS_OPTIONS = [
+  { value: 'full', label: 'Full' },
+  { value: STEADY_STATE_KINETICS, label: 'Steady state' },
+]
+/** 'full', or STEADY_STATE_KINETICS: the module's cycle at steady state, shown read-only and run as such. */
+const kinetics = ref('full')
+const isSteady = computed(() => kinetics.value === STEADY_STATE_KINETICS)
+/** The other kinetics' rows, kept so switching back restores its values. */
+const otherKineticsRows = ref(null)
+const isSwitchingKinetics = ref(false)
+
 // Ticked by default, so math edits reach the other instances, except on the template: a new module made from it
 // is this instance's alone.
 const applyToAll = ref(props.mathRef !== NEW_MODULE_MATH_REF)
@@ -913,7 +968,8 @@ const chosenFormat = computed(() => {
 /** The format the math is authored in (see services/moduleFormats). */
 const moduleFormat = computed(() => chosenFormat.value ?? storedFormat.value)
 /** Whether the math is generated from a source, so only its values can be edited here. */
-const isMathLocked = computed(() => moduleFormat.value.isMathLocked)
+// At steady state the math shown is derived from the module's, so it can't be edited either.
+const isMathLocked = computed(() => moduleFormat.value.isMathLocked || isSteady.value)
 /** Whether the format is settled, so editors for other formats' sources are locked. */
 const isSourceLocked = computed(() => !isTemplate.value || chosenFormat.value !== null)
 
@@ -923,13 +979,15 @@ const isDiagramEditable = computed(() => isEditorOffered('celldl'))
  * as a renamed CellML component does. The template is always saved as a new component.
  */
 const isDiagramRenamable = computed(
-  () => isDiagramEditable.value && isMathLocked.value && !isTemplate.value && moduleFormat.value.id === 'celldl'
+  () => isDiagramEditable.value && isMathLocked.value && !isSteady.value && !isTemplate.value && moduleFormat.value.id === 'celldl'
 )
 /** Whether the diagram has edits, which a run doesn't see either. */
 const isDiagramDirty = computed(() => isDiagramEditable.value && celldlHost.isDirty.value)
 
 const componentNameTitle = computed(() =>
-  isMathLocked.value
+  isSteady.value
+    ? 'At steady state, the component is the module’s, reduced.'
+    : isMathLocked.value
     ? `The ${moduleFormat.value.label} source sets the component name.`
     : 'While Simple Mode is off, the text sets the component name (def comp ... as).'
 )
@@ -950,8 +1008,12 @@ const editorOptions = computed(() => [
   ...MATH_EDITOR_OPTIONS,
   ...getEditorTabFormats().map((format) => ({
     ...format.editorTab,
-    isLocked: isSourceLocked.value && format.id !== moduleFormat.value.id,
-    lockedNotice: isTemplate.value ? format.editorTab.editedNotice : format.editorTab.lockedNotice,
+    isLocked: (isSourceLocked.value && format.id !== moduleFormat.value.id) || isSteady.value,
+    lockedNotice: isSteady.value
+      ? 'Switch Kinetics to Full to edit the module’s source.'
+      : isTemplate.value
+        ? format.editorTab.editedNotice
+        : format.editorTab.lockedNotice,
   })),
 ])
 
@@ -1161,6 +1223,123 @@ const shownLayout = computed(() => {
   const conversion = liveConvert.cellml.value
   return sectionLayout(liveMath.value, conversion.componentName, conversion.sections)
 })
+
+// ── Steady State ────────────────────────────────────────────────────────────
+// The module's full math, which the steady state is derived from: at steady state the session shows the reduced math.
+const fullMath = computed(() => store.availableMath.get(props.mathRef) ?? '')
+const steadyState = useSteadyState({
+  xml: computed(() => (isSteady.value ? fullMath.value : shownModel.value)),
+  rows: computed(() => (isSteady.value ? (otherKineticsRows.value ?? []) : parameterRows.value)),
+  unitDefinitions: computed(() => store.unitDefinitions),
+  isActive: computed(() => isSteady.value || activeTab.value === 'steady'),
+})
+
+/**
+ * Gives the variables the steady state adds, such as the cycle's total, a value from the full kinetics' rows when
+ * they have none: the total is the sum of the cycle's states' initial amounts.
+ *
+ * @param {Array} fullRows
+ */
+function fillSteadyStateTotals(fullRows) {
+  const result = steadyState.analysis.value
+  const byName = new Map(fullRows.map((row) => [row.name, row]))
+  const amountOf = (state) => {
+    const row = byName.get(state)
+    const own = Number(row?.value)
+    return row?.value !== '' && Number.isFinite(own) ? own : Number(byName.get(row?.initialiser)?.value)
+  }
+  const total = (result?.spec?.cycleStates ?? []).reduce((sum, state) => sum + amountOf(state), 0)
+  if (!Number.isFinite(total)) return
+  for (const name of result?.reduced?.parameters ?? []) {
+    const row = parameterRows.value.find((candidate) => candidate.name === name)
+    if (row && (row.value === '' || row.value == null)) row.value = String(total)
+  }
+}
+
+/**
+ * Lists the ports' and plots' variables that aren't among `names`, which a switch of kinetics would lose.
+ *
+ * @param {Set<string>} names
+ * @returns {string[]}
+ */
+function variablesMissingFrom(names) {
+  const used = [...editablePorts.value.flatMap((port) => port.variables ?? []), ...trackedNames.value.map(({ name }) => name)]
+  return [...new Set(used)].filter((name) => !names.has(name))
+}
+
+/**
+ * Switches the instance between its module's full kinetics and the cycle at steady state, keeping each one's values.
+ *
+ * @param {string} mode - 'full' or STEADY_STATE_KINETICS.
+ */
+async function setKinetics(mode) {
+  if (!mode || mode === kinetics.value || isSwitchingKinetics.value) return
+  isSwitchingKinetics.value = true
+  try {
+    await session.flushPendingChanges()
+    if (mode === STEADY_STATE_KINETICS) {
+      if (session.isDirty() || isDiagramDirty.value) {
+        await alert({
+          header: 'Save the Math First',
+          message: 'The steady state is derived from the module’s saved math. Save or undo your edits to the math, then switch.',
+        })
+        return
+      }
+      const reduced = await steadyState.ready()
+      const why = steadyState.analysis.value?.issues?.[0]?.message || steadyState.error.value
+      if (!reduced) return notify.error({ message: why || 'This module has no steady state.' })
+      if (reduced.unresolved.length) return notify.error({ message: `Units couldn't be worked out for ${reduced.unresolved.join(', ')}.` })
+      const missing = variablesMissingFrom(new Set(declarationsFromModel(reduced.xml).map(({ name }) => name)))
+      if (missing.length) {
+        await alert({
+          header: 'Variables Not at Steady State',
+          message: `At steady state this instance doesn't have ${missing.join(', ')}, which its ports or plots use. Remove them first.`,
+        })
+        return
+      }
+      const fullRows = detachReactivity(parameterRows.value)
+      const steadyRows = otherKineticsRows.value ?? fullRows
+      otherKineticsRows.value = fullRows
+      kinetics.value = STEADY_STATE_KINETICS
+      await session.load({ mathRef: props.mathRef, rows: steadyRows, managed: false, math: reduced.xml, layout: reduced.layout })
+      fillSteadyStateTotals(fullRows)
+    } else {
+      const missing = variablesMissingFrom(new Set(declarationsFromModel(fullMath.value).map(({ name }) => name)))
+      if (missing.length) {
+        await alert({
+          header: 'Variables Only at Steady State',
+          message: `With full kinetics this instance doesn't have ${missing.join(', ')}, which its ports or plots use. Remove them first.`,
+        })
+        return
+      }
+      const steadyRows = detachReactivity(parameterRows.value)
+      const fullRows = otherKineticsRows.value ?? []
+      otherKineticsRows.value = steadyRows
+      kinetics.value = 'full'
+      await session.load({
+        mathRef: props.mathRef,
+        rows: fullRows,
+        managed: !isMathLocked.value && (loadStoredManaged() || editorKind.value === 'math'),
+      })
+    }
+    mathEditorRef.value?.setModel?.(shownModel.value, shownLayout.value)
+  } finally {
+    isSwitchingKinetics.value = false
+  }
+}
+
+// At steady state, a new setup reduces the math again: the editors and rows follow it.
+watch(
+  () => steadyState.reduced.value?.xml,
+  async (xml) => {
+    const reduced = steadyState.reduced.value
+    if (!isSteady.value || !xml || loading.value || isSwitchingKinetics.value || reduced.unresolved.length) return
+    if (xml === currentModel.value) return
+    await session.load({ mathRef: props.mathRef, rows: detachReactivity(parameterRows.value), managed: false, math: xml, layout: reduced.layout })
+    fillSteadyStateTotals(otherKineticsRows.value ?? [])
+    mathEditorRef.value?.setModel?.(shownModel.value, shownLayout.value)
+  }
+)
 
 // A mounted editor follows the live math, and goes back to the session's once the diagram is saved.
 watch(liveMath, () => {
@@ -1639,6 +1818,8 @@ const signEditorState = () =>
     ports: editablePorts.value,
     parameterisation: chosenParameterRef.value,
     annotations: signDraft(annotationDraft.value),
+    kinetics: kinetics.value,
+    steadyState: steadyState.spec.value,
   })
 // The signature as loaded, so edits to values, the name or the ports count as unsaved.
 const savedEditorState = ref('')
@@ -1680,6 +1861,7 @@ const rightTabLabel = computed(() => {
   if (activeTab.value === 'annotations') {
     return `Annotations (${annotationCounts.value.annotated}/${annotationCounts.value.annotatable})`
   }
+  if (activeTab.value === 'steady') return 'Steady state'
   return `Parameters (${parametersCount.value})`
 })
 
@@ -1914,12 +2096,30 @@ async function loadEditor({ keepTab = false } = {}) {
     ...(row.stateRole === 'state' ? { stateRole: 'state', initialiser: row.initialiser } : {}),
   }))
 
+  // The instance's kinetics, the other kinetics' rows, and the module's steady-state setup.
+  const node = editedNode()
+  kinetics.value = node?.data?.kinetics === STEADY_STATE_KINETICS ? STEADY_STATE_KINETICS : 'full'
+  otherKineticsRows.value = detachReactivity(node?.data?.kineticsStash?.variables ?? null)
+  steadyState.spec.value = detachReactivity(store.getSteadyStateConfig(props.mathRef))
+
   try {
+    // At steady state, the rows are the reduced math's and the math shown is the reduction of the module's.
+    const reduced = isSteady.value ? await steadyState.ready() : null
+    if (requestId !== openRequestId) return
+    if (isSteady.value && (!reduced || reduced.unresolved.length)) {
+      const why = steadyState.analysis.value?.issues?.[0]?.message || steadyState.error.value || 'its units couldn’t be worked out'
+      notify.warning({ message: `This instance's steady state can't be derived (${why}), so it shows the full kinetics.` })
+      kinetics.value = 'full'
+      const fullRows = otherKineticsRows.value ?? []
+      otherKineticsRows.value = [...savedRows]
+      savedRows.splice(0, savedRows.length, ...fullRows)
+    }
     await session.load({
       mathRef: props.mathRef,
       rows: savedRows,
       // Locked math is shown as stored, never rebuilt from the table.
       managed: !isMathLocked.value && (loadStoredManaged() || editorKind.value === 'math'),
+      ...(isSteady.value ? { math: reduced.xml, layout: reduced.layout } : {}),
     })
     isLockedSimple.value = loadStoredManaged()
   } catch (e) {
@@ -3099,7 +3299,8 @@ async function saveInstance(options) {
     isRegenerated || session.isDirty() || (isAnnotationChanged && PROTECTED_MATH_REFS.has(props.mathRef))
   // The editor drops ids, so the stored math's go back on, following renamed variables. A variable annotated
   // anew gets one, which its sidecar subject names.
-  const editedMath = target?.math ?? currentModel.value
+  // At steady state the session holds the reduced math, which is never saved: the module's stays as it is.
+  const editedMath = target?.math ?? (isSteady.value ? fullMath.value : currentModel.value)
   const idRenames = isRegenerated
     ? renames
     : isMathChanged
@@ -3122,7 +3323,7 @@ async function saveInstance(options) {
   if (idsChanged) target = { mathRef: props.mathRef, math: savedMath, layout: currentLayout.value }
   const newMathRef = target?.mathRef ?? props.mathRef
   const mathToSave = target?.math
-  const layoutToSave = target ? target.layout : currentLayout.value
+  const layoutToSave = target ? target.layout : isSteady.value ? store.getMathLayout(props.mathRef) : currentLayout.value
 
   let annotations
   const annotationWarnings = []
@@ -3141,12 +3342,15 @@ async function saveInstance(options) {
   const updateAll = applyToAll.value || siblingCount.value === 0
 
   // 4. Check the ports and variable kinds against the module
-  const config = await resolveModuleConfig({
-    mathRef: newMathRef,
-    math: isMathChanged ? mathToSave : null,
-    ports: renamePortVariables(finalPorts, renames),
-    updateAll,
-  })
+  // At steady state the ports are on the reduced math, so the module's config, on its full math, isn't compared.
+  const config = isSteady.value
+    ? null
+    : await resolveModuleConfig({
+        mathRef: newMathRef,
+        math: isMathChanged ? mathToSave : null,
+        ports: renamePortVariables(finalPorts, renames),
+        updateAll,
+      })
   if (config === false) return
 
   // 5. A port change that couples a CellDL store to what another instance computes asks, once for every instance an
@@ -3208,6 +3412,13 @@ async function saveInstance(options) {
     plotVariables: renamedPlotEntries(),
     ...(annotations ? { annotations } : {}),
     annotationOverlay: overlayToSave(),
+    // How the instance runs its module, the other kinetics' rows to switch back to, and the module's steady-state
+    // setup when it was changed here.
+    kinetics: isSteady.value ? STEADY_STATE_KINETICS : null,
+    kineticsStash: otherKineticsRows.value ? { variables: otherKineticsRows.value } : null,
+    ...(JSON.stringify(steadyState.spec.value ?? null) !== JSON.stringify(store.getSteadyStateConfig(props.mathRef) ?? null)
+      ? { steadyStateConfig: steadyState.spec.value }
+      : {}),
     updateAll,
     siblings: updateAll ? siblings.value : [],
     config,

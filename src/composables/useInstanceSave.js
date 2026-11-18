@@ -366,7 +366,13 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const moduleFields = moduleRef ? { moduleRef } : {}
     // The parameter set the editor last applied, which a later import of that set re-applies.
     const setFields = save.parameterisation ? { parameterisation: save.parameterisation } : {}
-    updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields, ...setFields })
+    // How the instance runs its module: at steady state, or (absent) its full kinetics, with the other's rows kept.
+    const kineticsFields =
+      'kinetics' in save ? { kinetics: save.kinetics ?? undefined, kineticsStash: save.kineticsStash ? detachReactivity(save.kineticsStash) : undefined } : {}
+    updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields, ...setFields, ...kineticsFields })
+    // The module's steady-state setup is its math's, so every instance on it at steady state follows (below).
+    if ('steadyStateConfig' in save) libraryStore.setSteadyStateConfig(mathRef, save.steadyStateConfig ?? null)
+    if (save.kinetics) libraryStore.ensureSteadyState(mathRef)
     // Whether its summed flows are held at 0, which the matcher reads.
     if ('annotationOverlay' in save) setOverlay(id, save.annotationOverlay)
     if (updateAll) {
