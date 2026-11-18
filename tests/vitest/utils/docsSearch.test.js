@@ -52,11 +52,14 @@ describe('the docs index', () => {
   })
 
   it('anchors glossary entries at their terms', () => {
-    const glossary = JSON.parse(fs.readFileSync(path.resolve('docs/glossary.json'), 'utf8'))
+    // The terms' explicit ids, which glossary links point at. Read from the page, not the generated glossary.json,
+    // which only `yarn build:glossary` writes.
+    const glossary = fs.readFileSync(path.resolve('docs/reference/glossary.md'), 'utf8')
+    const termIds = [...glossary.matchAll(/^#+\s+.+?\s+\{#(.+?)\}\s*$/gm)].map((match) => match[1])
     const anchors = index.filter((section) => section.path === '/docs/reference/glossary' && section.anchor).map((s) => s.anchor)
 
-    expect(anchors.length).toBeGreaterThan(0)
-    for (const anchor of anchors) expect(glossary).toHaveProperty(anchor)
+    expect(termIds.length).toBeGreaterThan(0)
+    expect(anchors).toEqual(termIds)
   })
 })
 
