@@ -72,6 +72,67 @@ describe('resolveBoundaryValues', () => {
     expect(conflicts).toEqual(['a.T=310, b.T=300'])
   })
 
+  describe('comparing values as numbers in their units', () => {
+    const per = (units, prefix = 0) => [
+      { units: 'mole', prefix, exponent: 1, multiplier: 1 },
+      { units: 'litre', prefix: 0, exponent: -1, multiplier: 1 },
+    ]
+    const unitDefinitions = new Map([
+      ['mM', per('mM', -3)],
+      ['M', per('M')],
+    ])
+    const coupled = ([valueA, unitsA], [valueB, unitsB], options = { unitDefinitions }) =>
+      resolveBoundaryValues(
+        [node('a', [row('c', 'boundary_condition', valueA, unitsA)]), node('b', [row('c', 'boundary_condition', valueB, unitsB)])],
+        [edge('a', 'b', port(['c']), port(['c']))],
+        null,
+        options
+      )
+    const suppliedCount = ({ supplied }) => [...supplied.values()].reduce((count, names) => count + names.size, 0)
+
+    it('agrees on numbers written differently', () => {
+      const result = coupled(['1', 'mM'], ['1.0', 'mM'])
+      expect(result.conflicts).toEqual([])
+      expect(suppliedCount(result)).toBe(1)
+      expect(coupled(['1e-3', 'mM'], ['0.001', 'mM']).conflicts).toEqual([])
+    })
+
+    it('agrees on one quantity given in different units', () => {
+      const result = coupled(['140', 'mM'], ['0.14', 'M'])
+      expect(result.conflicts).toEqual([])
+      expect(suppliedCount(result)).toBe(1)
+    })
+
+    it('reports values in different units that are different quantities, showing the units', () => {
+      const result = coupled(['140', 'mM'], ['140', 'M'])
+      expect(result.conflicts).toEqual(['a.c=140 mM, b.c=140 M'])
+      expect(result.supplied.size).toBe(0)
+    })
+
+    it('reports values whose units it cannot resolve, rather than guessing', () => {
+      expect(coupled(['140', 'mM'], ['0.14', 'M'], {}).conflicts).toEqual(["a.c=140 mM, b.c=0.14 M (mM and M can't be compared)"])
+    })
+
+    it('reports values whose units measure different things', () => {
+      expect(coupled(['1', 'mM'], ['1', 'second']).conflicts).toEqual(['a.c=1 mM, b.c=1 second (mM and second measure different things)'])
+    })
+
+    it('compares constants the same way', () => {
+      const constants = (valueB, unitsB) =>
+        resolveBoundaryValues(
+          [node('a', [row('k', 'constant', '140', 'mM')]), node('b', [row('k', 'constant', valueB, unitsB)])],
+          [edge('a', 'b', port(['k']), port(['k']))],
+          null,
+          { unitDefinitions }
+        ).overdetermined
+      expect(constants('140.0', 'mM')).toEqual([])
+      expect(constants('0.14', 'M')).toEqual([])
+      expect(constants('140', 'M').map(({ message }) => message)).toEqual([
+        'a.k=140 mM and b.k=140 M are connected but set to different values; give them one value, or let one module compute it.',
+      ])
+    })
+  })
+
   it('reports a group nothing supplies', () => {
     const nodes = [node('a', [row('T', 'boundary_condition')]), node('b', [row('T', 'boundary_condition')])]
     const { missing } = resolveBoundaryValues(nodes, [edge('a', 'b', port(['T']), port(['T']))])

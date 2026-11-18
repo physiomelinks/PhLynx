@@ -170,7 +170,7 @@ import SelectButton from 'primevue/selectbutton'
 
 import InfoTip from './InfoTip.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
-import { resolveBoundaryValues } from '../../services/export/boundaryValues'
+import { resolveBoundaryValues, unitOptions } from '../../services/export/boundaryValues'
 import { resolveScope } from '../../services/simulation/scopedModel'
 import {
   createFamily,
@@ -234,7 +234,7 @@ const isBoundarySweep = computed(() => [sweep.value, sweep.value?.family].some((
 const scope = computed(() => (isAdding.value || isBoundarySweep.value ? resolveScope(scopeIds.value, props.nodes, edges.value) : null))
 // The boundary conditions nothing connected in the scope supplies, whose own values a sweep can vary. For the whole
 // model, this also leaves out what export ignores.
-const boundaryValues = computed(() => (scope.value ? resolveBoundaryValues(scope.value.nodes, scope.value.internalEdges) : null))
+const boundaryValues = computed(() => (scope.value ? resolveBoundaryValues(scope.value.nodes, scope.value.internalEdges, null, unitOptions(libraryStore)) : null))
 const unsupplied = computed(() => boundaryValues.value?.unsupplied ?? new Set())
 const ignored = computed(() => boundaryValues.value?.ignored ?? new Map())
 

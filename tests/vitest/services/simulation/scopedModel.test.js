@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import { getHandleId } from '../../../../src/utils/handles.js'
 
-import { buildScopeSignature, checkScope, resolveScope, scopeFlowObject, summariseScopeReport } from '../../../../src/services/simulation/scopedModel.js'
+import {
+  applyParameterOverrides,
+  buildScopeSignature,
+  checkScope,
+  resolveScope,
+  scopeFlowObject,
+  summariseScopeReport,
+} from '../../../../src/services/simulation/scopedModel.js'
 
 const flowPort = (portType, multiportType = 'None') => ({ portType, label: 'flow', variables: ['v'], multiportType })
 
@@ -348,5 +355,16 @@ describe('scopeFlowObject', () => {
   it('returns the flow as it is for every node', () => {
     const flow = { nodes: [], edges: [] }
     expect(scopeFlowObject(flow, null)).toBe(flow)
+  })
+})
+
+describe('applyParameterOverrides', () => {
+  it("keeps the library's units when it wraps the library for overridden globals", () => {
+    const unitDefinitions = new Map([['mM', []]])
+    const store = { ...library({ T: { value: '310' } }), unitDefinitions }
+    const { libraryStore } = applyParameterOverrides(resolveScope(null, [createNode('a')], []), store, { globals: new Map([['T', 300]]) })
+    expect(libraryStore).not.toBe(store)
+    expect(libraryStore.unitDefinitions).toBe(unitDefinitions)
+    expect(libraryStore.getGlobalConstant('T').value).toBe('300')
   })
 })

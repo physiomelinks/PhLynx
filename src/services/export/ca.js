@@ -7,7 +7,7 @@ import { isAnnotatedPort } from '../../utils/portIdentity'
 import { isBlank } from '../../utils/variables'
 import { fileSafeNamespace, namespaceOfModuleRef } from '../../utils/namespaces'
 import { configSignature, librarySignatures, moduleConfigEntry } from '../moduleConfig'
-import { resolveBoundaryValues, storeOptions } from './boundaryValues'
+import { resolveBoundaryValues, storeOptions, unitOptions } from './boundaryValues'
 import { buildCaCellmlFiles, isHeart, listNamed } from './caCellml'
 import { modelParametersJson, parametersFileName, parametersJson } from '../../utils/parameters/write'
 import { setAsUsedBy } from '../../utils/parameters/instanceSet'
@@ -110,7 +110,7 @@ export async function generateExportZip(fileName, nodes, edges, libraryStore, ob
       if (params.size) instanceParameters.set(node.data.name, params)
     }
 
-    warnMissingBoundaryValues(nodes, edges)
+    warnMissingBoundaryValues(nodes, edges, libraryStore)
     const module_config = assignSubtypes(configsByRef, libraryStore)
     addPulmonaryModule(instance_array, module_config, libraryStore)
 
@@ -284,10 +284,11 @@ function drivenStoreLabels(nodes, edges, libraryStore) {
  *
  * @param {Array} nodes - The array of nodes from Vue Flow.
  * @param {Array} edges - The array of edges from Vue Flow.
+ * @param {Object} libraryStore - Provides unitDefinitions.
  */
-function warnMissingBoundaryValues(nodes, edges) {
+function warnMissingBoundaryValues(nodes, edges, libraryStore) {
   const nodeNames = new Map(nodes.map((node) => [node.id, node.data.name]))
-  const missing = [...resolveBoundaryValues(nodes, edges).missing].flatMap(([nodeId, names]) =>
+  const missing = [...resolveBoundaryValues(nodes, edges, null, unitOptions(libraryStore)).missing].flatMap(([nodeId, names]) =>
     [...names].map((name) => `${nodeNames.get(nodeId)}.${name}`)
   )
   if (!missing.length) return

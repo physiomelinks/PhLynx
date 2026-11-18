@@ -16,9 +16,11 @@
  * `drivesState` drops that instance's own equation and initial value for the state, so the connection sets it.
  */
 import { AFFINE_UNIT_CONVERSIONS, VALUE_REQUIRED_TYPES } from '../../utils/constants'
-import { isBlank } from '../../utils/variables'
+import { cleanName } from '../../utils/identifiers'
+import { isBlank, isNumericLiteral } from '../../utils/variables'
 import { variableTypes } from '../../utils/multiport'
 import { portDisplayName } from '../../utils/portIdentity'
+import { resolveUnits, sameDimensions } from '../../utils/units'
 
 const keyOf = (nodeId, name) => `${nodeId}::${name}`
 // How a generated component computes a variable from its inputs, for messages.
@@ -26,6 +28,50 @@ const GENERATED = { sum: 'the sum of', multiply: 'scaled from', conversion: 'con
 const isPlain = (type) => type === 'None' || type === 'True'
 // Row types whose value export may emit.
 const VALUE_TYPES = new Set([...VALUE_REQUIRED_TYPES, 'boundary_condition'])
+
+// How close two numbers, relative to the larger, must be to count as one value: 0.14 M × 1000 isn't exactly 140 mM.
+const RELATIVE_TOLERANCE = 1e-9
+const listedNames = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0])
+
+/**
+ * Checks whether values given to equivalent variables agree. Numbers are compared as numbers, so 1 and 1.0 agree, and
+ * values in different units are first converted to SI base units, so 140 mM and 0.14 M agree but 140 mM and 140 M
+ * don't. Units that can't be resolved, or that measure different things, can't be compared, so the values don't
+ * agree. A value that isn't a number agrees only with the same text in the same units, and a global constant only
+ * with one of the same name.
+ *
+ * @param {Array<{value: *, units?: string, global?: string}>} entries
+ * @param {Map<string, Array<Object>>} definitions - The library's units, as libraryStore.unitDefinitions.
+ * @returns {{agree: boolean, mixedUnits: boolean, reason: string|null}} `mixedUnits` when the entries' units
+ *   differ, so messages should show them; `reason` when the units are why the values can't be compared.
+ */
+export function compareValues(entries, definitions = new Map()) {
+  const units = [...new Set(entries.map(({ units }) => cleanName(units)))]
+  const mixedUnits = units.length > 1
+  const result = (agree, reason = null) => ({ agree, mixedUnits, reason })
+
+  if (entries.some(({ global }) => global)) return result(new Set(entries.map(({ global }) => global ?? '')).size === 1)
+  const values = entries.map(({ value }) => String(value ?? '').trim())
+  if (!values.every(isNumericLiteral)) {
+    if (new Set(values).size > 1) return result(false)
+    return mixedUnits ? result(false, `${listedNames(units.map((name) => name || 'no units'))} differ`) : result(true)
+  }
+
+  let numbers = values.map(Number)
+  if (mixedUnits) {
+    const cache = new Map()
+    const expansions = entries.map(({ units }) => resolveUnits(cleanName(units), definitions, cache))
+    const shown = listedNames(units.map((name) => name || 'no units'))
+    if (expansions.some((expansion) => !expansion || expansion.affine)) return result(false, `${shown} can't be compared`)
+    if (!expansions.every((expansion) => sameDimensions(expansion, expansions[0]))) {
+      return result(false, `${shown} measure different things`)
+    }
+    numbers = numbers.map((number, i) => number * expansions[i].coefficient * 10 ** expansions[i].power)
+  }
+  const [first] = numbers
+  const close = (number) => Math.abs(number - first) <= RELATIVE_TOLERANCE * Math.max(Math.abs(number), Math.abs(first))
+  return result(numbers.every(close))
+}
 
 /**
  * Finds the variable an affine unit conversion computes between two coupled variables, mirroring
@@ -60,6 +106,8 @@ function affineOutputKey(source, target) {
  * @param {Object} [options]
  * @param {(mathRef: string) => boolean} [options.isCelldlMath] - Whether math is drawn in CellDL, so its states are
  *   stores a connection may drive. Without it, any state on a `drivesState` coupling is driven, and none is offered.
+ * @param {Map<string, Array<Object>>} [options.unitDefinitions] - The library's units, so values coupled in different
+ *   units can be compared (see compareValues). Without them, only CellML's built-in units are known.
  * @returns {{supplied: Map<string, Set<string>>, missing: Map<string, Set<string>>, conflicts: string[],
  *   emptySums: Map<string, Set<string>>, unsupplied: Set<string>, ignored: Map<string, Set<string>>,
  *   bcOnly: Array<{keys: string[], label: string}>, overdetermined: Array<{keys: string[], message: string}>,
@@ -87,7 +135,7 @@ function affineOutputKey(source, target) {
  *     else sets it; `drivenInitial`: the initial value of a driven state, with `from` what sets the state. Rows coupled to nothing, other than boundary conditions, and empty
  *     sums have no status.
  */
-export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { isCelldlMath = null } = {}) {
+export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { isCelldlMath = null, unitDefinitions = new Map() } = {}) {
   const rows = new Map()
   const mathRefs = new Map(nodes.map((node) => [node.id, node.data?.mathRef]))
   for (const node of nodes) {
@@ -237,7 +285,19 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { is
     !drivenKeys.has(key) && row.type === 'variable' && (mathComputed.get(nodeId)?.has(row.name) ?? true)
   /** How many equations set a member: its own math's, and each generated component's. */
   const equationsOf = (member) => (equations.get(member.key)?.size ?? 0) + ownMath(member)
-  const listed = (items) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items.at(-1)}` : items[0])
+  const listed = listedNames
+  /** Compares members' values as numbers, in a common unit where their units differ. */
+  const compare = (members) =>
+    compareValues(
+      members.map(({ row }) => ({ value: row.value, units: row.units, global: row.type === 'global_constant' ? row.name : undefined })),
+      unitDefinitions
+    )
+  /** Describes a member's value for a message, with its units when the values compared had different ones. */
+  const describeValue = (member, { mixedUnits }) => {
+    const value = String(member.row.value).trim()
+    const units = mixedUnits && cleanName(member.row.units)
+    return `${label(member)}=${value}${units ? ` ${units}` : ''}`
+  }
   /** Describes how a computed member is set: by its own math, a generated component, or both. */
   const describeComputed = (member) => {
     const ways = []
@@ -312,12 +372,16 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { is
     const valued = members.filter((member) => VALUE_REQUIRED_TYPES.has(member.row.type) && hasValue(member))
     // Constants each initialise the group; as with boundary conditions, those agreeing on a value settle it once. A
     // global constant's value is the library's, so only one of the same name agrees with it.
-    const valueOf = ({ row }) => (row.type === 'global_constant' ? `global ${row.name}` : String(row.value).trim())
-    if (new Set(valued.map(valueOf)).size > 1) {
+    const valuedComparison = compare(valued)
+    if (!valuedComparison.agree) {
       const described = valued.map((member) =>
-        member.row.type === 'global_constant' ? `${label(member)} (global)` : `${label(member)}=${valueOf(member)}`
+        member.row.type === 'global_constant' ? `${label(member)} (global)` : describeValue(member, valuedComparison)
       )
-      overdetermine(valued, `${listed(described)} are connected but set to different values; give them one value, or let one module compute it.`)
+      const why = valuedComparison.reason ? ` (${valuedComparison.reason})` : ''
+      overdetermine(
+        valued,
+        `${listed(described)} are connected but set to different values${why}; give them one value, or let one module compute it.`
+      )
       continue
     }
     const [kept, ...duplicates] = valued
@@ -349,9 +413,10 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { is
       continue
     }
 
-    const distinct = new Set(withValues.map(({ row }) => String(row.value).trim()))
-    if (distinct.size > 1) {
-      conflicts.push(withValues.map((member) => `${label(member)}=${String(member.row.value).trim()}`).join(', '))
+    const comparison = compare(withValues)
+    if (!comparison.agree) {
+      const why = comparison.reason ? ` (${comparison.reason})` : ''
+      conflicts.push(withValues.map((member) => describeValue(member, comparison)).join(', ') + why)
       boundaries.forEach((member) => setStatus(member, 'conflict', othersOf(member)))
       continue
     }
@@ -387,14 +452,29 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { is
 }
 
 /**
- * Gets resolveBoundaryValues' options from the library: which math is drawn in CellDL, so its states are stores.
+ * Gets resolveBoundaryValues' options from the library: which math is drawn in CellDL, so its states are stores, and
+ * the units values may be given in.
  *
- * @param {Object} [libraryStore] - With getMathSource; a store without it gives no options.
- * @returns {{isCelldlMath?: (mathRef: string) => boolean}}
+ * @param {Object} [libraryStore] - With getMathSource and unitDefinitions; a store without them gives no options.
+ * @returns {{isCelldlMath?: (mathRef: string) => boolean, unitDefinitions?: Map<string, Array<Object>>}}
  */
 export function storeOptions(libraryStore) {
-  if (typeof libraryStore?.getMathSource !== 'function') return {}
-  return { isCelldlMath: (mathRef) => libraryStore.getMathSource(mathRef)?.format === 'celldl' }
+  const options = unitOptions(libraryStore)
+  if (typeof libraryStore?.getMathSource === 'function') {
+    options.isCelldlMath = (mathRef) => libraryStore.getMathSource(mathRef)?.format === 'celldl'
+  }
+  return options
+}
+
+/**
+ * Gets just the library's units for resolveBoundaryValues, so values coupled in different units compare, for callers
+ * that don't otherwise pass the library's options.
+ *
+ * @param {Object} [libraryStore] - With unitDefinitions; a store without them gives no options.
+ * @returns {{unitDefinitions?: Map<string, Array<Object>>}}
+ */
+export function unitOptions(libraryStore) {
+  return libraryStore?.unitDefinitions instanceof Map ? { unitDefinitions: libraryStore.unitDefinitions } : {}
 }
 
 /**
