@@ -14,6 +14,7 @@ import { findCaExportBlocker } from '../../../src/services/export/ca.js'
 import { buildInstance } from '../../../src/services/import/buildWorkflow.js'
 import { createSimulationSession } from '../../../src/services/simulation/engine.js'
 import { buildScopeSignature, checkScope } from '../../../src/services/simulation/scopedModel.js'
+import { nodeInKinetics, scopeWithKinetics } from '../../../src/services/steadyState/kineticsOverride.js'
 import { steadyStateRows } from '../../../src/services/steadyState/steadyStateLibrary.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { generateFlattenedModel, processCellMLData } from '../../../src/utils/cellml.js'
@@ -152,6 +153,29 @@ describe('instances at steady state', () => {
       session.dispose()
     }
   }, 120000)
+
+  it('runs an instance in the other kinetics for one run, keeping its own values', async () => {
+    const full = makeNode('n')
+    // Scarce transporter in this instance: 0.001 mol in each state, so its total is 0.004
+    for (const row of full.data.variables) if (/^q_E\d_E\d(_init)?$/.test(row.name) && row.value !== '') row.value = '0.001'
+    const asSteady = await withHappyDom(() => nodeInKinetics(full, 'steady', store))
+    expect(asSteady).not.toBe(full)
+    expect(full.data.kinetics).toBeUndefined()
+    expect(asSteady.data.kinetics).toBe('steady')
+    expect(asSteady.data.variables.find((row) => row.name === 'q_tot').value).toBe('0.004')
+    expect(asSteady.data.kineticsStash.variables).toBe(full.data.variables)
+    // And back: its full rows, as kept
+    const back = await nodeInKinetics(asSteady, 'full', store)
+    expect(back.data.kinetics).toBeUndefined()
+    expect(back.data.variables).toBe(full.data.variables)
+
+    const scope = { nodes: [full], internalEdges: [], allNodes: [full], allEdges: [], inspectionModules: [] }
+    const swapped = await withHappyDom(() => scopeWithKinetics(scope, new Map([['n', 'steady']]), store))
+    expect(swapped.nodes[0].data.kinetics).toBe('steady')
+    expect(swapped.allNodes[0]).toBe(swapped.nodes[0])
+    const flat = await withHappyDom(async () => (await generateFlattenedModel(swapped.nodes, [], store)).text())
+    expect(flat).toContain('name="v_ss"')
+  }, 60000)
 
   it('reports a steady-state instance whose steady state isn’t derived yet, and blocks the CA export', () => {
     const node = makeNode('reduced')

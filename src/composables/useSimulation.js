@@ -19,6 +19,7 @@ import { listFeatureOperands, resolveFeatureOperands } from '../services/simulat
 import { clampSolverSettings, prepareProtocolRun } from '../services/simulation/protocolRun'
 import { familyValues, findBoundarySweepProblem, findSweepProblem, listSweptBoundaries, resolveSweepTarget, splitFamily, sweepLabel, sweepReadout, sweepValues } from '../services/simulation/sweep'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
+import { scopeWithKinetics } from '../services/steadyState/kineticsOverride'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useProtocolStore } from '../stores/protocolStore'
@@ -147,14 +148,25 @@ export function useSimulation() {
    * once per value of the swept parameter, or with ODEs, its time course run once per value.
    *
    * @param {string[]|null} [nodeIds] - The nodes to simulate, or null for every node.
+   * @param {{kinetics?: Map<string, string>}} [options] - Instances to run in other kinetics this once, by node id.
    * @returns {Promise<void>}
    */
-  async function run(nodeIds = null) {
+  async function run(nodeIds = null, { kinetics = null } = {}) {
     cancelSimulation()
     const token = runToken
     store.startRun(nodeIds)
 
-    const scope = resolveCurrentScope(nodeIds)
+    let scope = resolveCurrentScope(nodeIds)
+    // Instances run in other kinetics for this run only, as a comparison of full kinetics and steady state does
+    if (kinetics?.size) {
+      try {
+        scope = await scopeWithKinetics(scope, kinetics, libraryStore)
+      } catch (error) {
+        if (token === runToken) store.failRun('error', String(error?.message ?? error))
+        return
+      }
+      if (token !== runToken) return
+    }
     // Read once, so a mode switched while the simulator loads can't mix the time course's inputs into a protocol run.
     const isProtocolRun = protocolStore.isActive
     // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from. Read

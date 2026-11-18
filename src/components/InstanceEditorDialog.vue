@@ -510,6 +510,22 @@
                     <span class="plot-tab-auto-text">Auto-update</span>
                   </label>
                   <span v-if="plotNotice" class="plot-tab-auto-notice" role="status" :title="plotNotice">{{ plotNotice }}</span>
+                  <Button
+                    v-if="canCompareKinetics"
+                    label="Compare"
+                    aria-label="Compare kinetics"
+                    icon="pi pi-clone"
+                    size="small"
+                    text
+                    :loading="kineticsComparison.isComparing.value"
+                    :disabled="hasUnsavedEdits"
+                    v-hint.bottom="
+                      hasUnsavedEdits
+                        ? 'Save first: the comparison runs the saved instance.'
+                        : 'Runs this instance with full kinetics and at steady state, and keeps both runs, to see where they differ.'
+                    "
+                    @click="compareKinetics"
+                  />
                 </template>
               </SimulationPanel>
             </TabPanel>
@@ -707,6 +723,8 @@ import { useGtm } from '../composables/useGtm'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useSteadyState } from '../composables/useSteadyState'
+import { useKineticsComparison } from '../composables/useKineticsComparison'
+import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import SteadyStateSetup from './steadyState/SteadyStateSetup.vue'
 import { STEADY_STATE_KINETICS, annotatedVariables } from '../services/steadyState/steadyStateLibrary'
 import { declarationsFromModel } from '../services/steadyState/reducedModel'
@@ -1326,6 +1344,36 @@ async function createReducedModule() {
   store.addMath(mathRef, built.xml, false, built.layout)
   store.createModuleForMath(mathRef)
   notify.success({ message: `Added ${name} to ${file} in the module library.`, duration: 3000 })
+}
+
+// ── Comparing kinetics ──────────────────────────────────────────────────────
+const kineticsComparison = useKineticsComparison()
+const simulationResults = useSimulationResultsStore()
+
+/** Whether this instance's module can run at steady state, so its two kinetics can be compared on the plots. */
+const canCompareKinetics = computed(
+  () => isSteady.value || !!store.getSteadyStateConfig(props.mathRef) || !!steadyState.analysis.value?.reduced
+)
+
+/** Runs the saved instance in both kinetics, in the scope the Plot tab plays, and keeps both runs. */
+function compareKinetics() {
+  const node = editedNode()
+  if (!node) return
+  // With nothing plotted there would be nothing to compare: plot a held species, which both kinetics have
+  if (!plottedCount.value) {
+    const analysis = steadyState.analysis.value
+    const held = analysis?.spec?.solutes ?? analysis?.suggestions?.find((s) => s.spec.flux === analysis?.spec?.flux)?.solutes ?? []
+    const row = held.map((name) => node.data?.variables?.find((candidate) => candidate.name === name)).find(Boolean)
+    if (row) editorPlotConfig.value = replacePlotSelections(editorPlotConfig.value, node, row)
+  }
+  // What the Plot tab's play would run: the instance alone, or the whole model
+  const panelScope = simulationPanelRef.value?.playScopeNodeIds
+  const lastScope = panelScope !== undefined ? panelScope : [props.id]
+  kineticsComparison.compare({
+    nodeId: props.id,
+    kinetics: node.data?.kinetics === STEADY_STATE_KINETICS ? STEADY_STATE_KINETICS : 'full',
+    nodeIds: lastScope,
+  })
 }
 
 /**

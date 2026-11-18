@@ -313,7 +313,8 @@ function ensureResults() {
   if (canPlay.value && (!store.results || isOutdated.value)) play()
 }
 
-defineExpose({ ensureResults })
+// What play would simulate, for actions that run alongside it, such as comparing an instance's kinetics.
+defineExpose({ ensureResults, playScopeNodeIds })
 </script>
 
 <style scoped>
