@@ -101,6 +101,15 @@
 
     <div class="setup-actions">
       <Button label="Use suggested" icon="pi pi-refresh" size="small" text :disabled="spec === null" @click="emit('reset')" />
+      <Button
+        label="Create reduced module"
+        icon="pi pi-plus"
+        size="small"
+        outlined
+        :disabled="!canCreate"
+        v-tooltip.top="'Adds this steady state to the module library as a module of its own, whose equations can be edited'"
+        @click="emit('create')"
+      />
       <i v-if="isPending" class="pi pi-spin pi-spinner" aria-label="Deriving"></i>
     </div>
 
@@ -137,8 +146,10 @@ const props = defineProps({
   isPending: { type: Boolean, default: false },
   /** The module's parameter rows. */
   rows: { type: Array, default: () => [] },
+  /** Whether a module can be created from the steady state now. */
+  canCreate: { type: Boolean, default: false },
 })
-const emit = defineEmits(['update:spec', 'reset'])
+const emit = defineEmits(['update:spec', 'reset', 'create'])
 
 const BRACKETS = [
   { value: 'auto', label: 'Automatic' },

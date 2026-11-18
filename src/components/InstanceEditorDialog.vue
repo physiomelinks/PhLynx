@@ -120,7 +120,14 @@
         <!-- Why the math can't be edited here, and where it can -->
         <div v-if="readOnlyNotice" class="read-only-notice" role="note">
           <i class="pi pi-lock" aria-hidden="true"></i>
-          <span>{{ readOnlyNotice }}</span>
+          <span>
+            {{ readOnlyNotice }}
+            <template v-if="isSteady">
+              Or
+              <Button label="create a reduced module" link size="small" class="read-only-action" @click="createReducedModule" />
+              to edit these equations.
+            </template>
+          </span>
         </div>
         <MultiportSummary v-if="isEditorReady" :entries="multiportEntries" />
         <div ref="editorWrapperRef" class="editor-wrapper">
@@ -540,7 +547,9 @@
                 :is-pending="steadyState.isPending.value"
                 :rows="isSteady ? (otherKineticsRows ?? []) : parameterRows"
                 @update:spec="(value) => (steadyState.spec.value = value)"
+                :can-create="!!steadyState.reduced.value && !steadyState.reduced.value.unresolved.length"
                 @reset="steadyState.resetSpec()"
+                @create="createReducedModule"
               />
             </TabPanel>
           </TabPanels>
@@ -1265,6 +1274,59 @@ const steadyState = useSteadyState({
 })
 
 /**
+ * The cycle's total amount: the sum of its states' initial amounts in the full kinetics' rows.
+ *
+ * @param {Array} fullRows
+ * @returns {number} NaN when a state has no amount.
+ */
+function steadyStateTotal(fullRows) {
+  const byName = new Map(fullRows.map((row) => [row.name, row]))
+  const amountOf = (state) => {
+    const row = byName.get(state)
+    const own = Number(row?.value)
+    return row?.value !== '' && Number.isFinite(own) ? own : Number(byName.get(row?.initialiser)?.value)
+  }
+  return (steadyState.analysis.value?.spec?.cycleStates ?? []).reduce((sum, state) => sum + amountOf(state), 0)
+}
+
+/**
+ * Adds the steady state, as this instance has it, to the library as a module of its own, `<component>_ss`, next to
+ * this module so it shares its units: its equations can then be edited, apart from the module's full kinetics.
+ */
+async function createReducedModule() {
+  if (!(await steadyState.ready())) {
+    notify.error({ message: steadyState.analysis.value?.issues?.[0]?.message || 'This module has no steady state.' })
+    return
+  }
+  const file = props.mathRef === NEW_MODULE_MATH_REF ? newComponentGrouping(props.mathRef) : componentFile.value
+  const base = `${componentNameForEditor.value || componentName.value}_ss`
+  let name = base
+  for (let i = 2; isComponentNameTaken(name, { file }); i++) name = `${base}_${i}`
+
+  // This instance's values, at steady state the reduced rows' over the full kinetics', and the cycle's total
+  const fullRows = isSteady.value ? (otherKineticsRows.value ?? []) : parameterRows.value
+  const values = {}
+  for (const row of isSteady.value ? [...fullRows, ...parameterRows.value] : fullRows) {
+    const value = Number(row.value)
+    if (row.value !== '' && row.value != null && Number.isFinite(value)) values[row.name] = value
+  }
+  const total = steadyStateTotal(fullRows)
+  for (const totalName of steadyState.analysis.value?.reduced?.parameters ?? []) {
+    if (!(totalName in values) && Number.isFinite(total)) values[totalName] = total
+  }
+
+  const built = steadyState.buildModule(name, values)
+  if (built.error) {
+    notify.error({ message: built.error })
+    return
+  }
+  const mathRef = `${file}:${name}`
+  store.addMath(mathRef, built.xml, false, built.layout)
+  store.createModuleForMath(mathRef)
+  notify.success({ message: `Added ${name} to ${file} in the module library.`, duration: 3000 })
+}
+
+/**
  * Gives the variables the steady state adds, such as the cycle's total, a value from the full kinetics' rows when
  * they have none: the total is the sum of the cycle's states' initial amounts.
  *
@@ -1272,13 +1334,7 @@ const steadyState = useSteadyState({
  */
 function fillSteadyStateTotals(fullRows) {
   const result = steadyState.analysis.value
-  const byName = new Map(fullRows.map((row) => [row.name, row]))
-  const amountOf = (state) => {
-    const row = byName.get(state)
-    const own = Number(row?.value)
-    return row?.value !== '' && Number.isFinite(own) ? own : Number(byName.get(row?.initialiser)?.value)
-  }
-  const total = (result?.spec?.cycleStates ?? []).reduce((sum, state) => sum + amountOf(state), 0)
+  const total = steadyStateTotal(fullRows)
   if (!Number.isFinite(total)) return
   for (const name of result?.reduced?.parameters ?? []) {
     const row = parameterRows.value.find((candidate) => candidate.name === name)
@@ -3632,6 +3688,12 @@ async function saveInstance(options) {
   background: var(--p-content-hover-background);
   color: var(--p-text-muted-color);
   font-size: 0.85rem;
+}
+
+.read-only-action {
+  padding: 0;
+  font-size: inherit;
+  vertical-align: baseline;
 }
 
 .tab-lock {
