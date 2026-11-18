@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { parseLayout } from 'cellml-text-editor'
-import { ref, computed, markRaw, shallowReactive } from 'vue'
+import { ref, computed, markRaw, shallowReactive, watch } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
 import {
   baseNameOf,
@@ -9,7 +9,7 @@ import {
   namespaceOfFileKey,
   namespaceOfModuleRef,
 } from '../utils/namespaces'
-import { areModelsEquivalent } from '../utils/cellml'
+import { areModelsEquivalent, getLibCellML, whenLibCellMLReady } from '../utils/cellml'
 import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
@@ -22,6 +22,7 @@ import { expandUnits, extractUnitDefinitions, extractUnitNames, mergeUnitDefinit
 import { unitsModelXml } from '../utils/unitExpression'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import { analyzeBatchInBackground, analyzeInBackground } from '../services/math/mathWorkerClient'
+import { findUnitImbalances } from '../services/math/unitBalance'
 import { separateParameters } from '../services/math/separateParameters'
 import { detachReactivity } from '../utils/reactivity'
 import { DEFAULT_MODULE_FORMAT, checkMathSource } from '../services/moduleFormats'
@@ -72,6 +73,8 @@ export const useLibraryStore = defineStore('library', () => {
 
   // mathRef -> MathAnalysis. Non-reactive, since analyses are large and only read imperatively.
   const availableMathAnalysis = markRaw(new Map())
+  // mathRef -> the equations whose units don't balance; checked when asked for, and dropped when the math or units change.
+  const mathUnitImbalances = shallowReactive(new Map())
 
   // mathRef -> the module's sidecar RDF text, saved as written. Its parse is a cache, never saved.
   const moduleAnnotations = ref(new Map())
@@ -138,6 +141,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathSources.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
+    mathUnitImbalances.clear()
     moduleAnnotations.value.clear()
     parsedModuleAnnotations.clear()
     pendingAnnotationParses.clear()
@@ -419,6 +423,7 @@ export const useLibraryStore = defineStore('library', () => {
    */
   function scheduleMathAnalysis(mathRef, math) {
     availableMathAnalysis.delete(mathRef)
+    mathUnitImbalances.delete(mathRef)
     pendingAnalysis.set(mathRef, math)
     if (!isAnalysisFlushScheduled) {
       isAnalysisFlushScheduled = true
@@ -681,6 +686,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathSources.value.delete(mathRef)
     setModuleAnnotations(mathRef, null)
     pendingAnalysis.delete(mathRef)
+    mathUnitImbalances.delete(mathRef)
     if (!availableMath.value.has(mathRef)) return
 
     removeMathHashEntry(mathRef, mathRefHash.value.get(mathRef))
@@ -979,6 +985,52 @@ export const useLibraryStore = defineStore('library', () => {
   /** Every library units definition, the first of each name winning. Derived, so never saved. */
   const unitDefinitions = computed(() => mergeUnitDefinitions(availableUnits.value.map((file) => file.model)))
 
+  const NO_IMBALANCES = Object.freeze([])
+  const pendingUnitChecks = new Set()
+
+  // A units file added, edited or removed can change whether any math balances.
+  watch(unitDefinitions, () => mathUnitImbalances.clear())
+
+  /** Checks the math waiting for a units check, once libCellML has loaded. */
+  function scheduleUnitChecks() {
+    if (pendingUnitChecks.size !== 1) return // already scheduled
+    whenLibCellMLReady()
+      .then(() => setTimeout(runUnitChecks))
+      .catch(() => pendingUnitChecks.clear())
+  }
+
+  function runUnitChecks() {
+    const libcellml = getLibCellML()
+    for (const mathRef of pendingUnitChecks) {
+      const math = availableMath.value.get(mathRef)
+      if (!math) continue
+      try {
+        mathUnitImbalances.set(mathRef, findUnitImbalances(libcellml, math, unitDefinitions.value))
+      } catch (err) {
+        console.error(`Failed to check the units of "${mathRef}":`, err)
+        mathUnitImbalances.set(mathRef, NO_IMBALANCES)
+      }
+    }
+    pendingUnitChecks.clear()
+  }
+
+  /**
+   * Gets the equations in a math whose units don't balance (see findUnitImbalances). The first call for a math
+   * checks it in the background and gives none; reactive callers update when the check lands.
+   *
+   * @param {string} mathRef
+   * @returns {string[]} libCellML's description of each.
+   */
+  function getMathUnitImbalances(mathRef) {
+    const found = mathUnitImbalances.get(mathRef)
+    if (found) return found
+    if (availableMath.value.has(mathRef) && !pendingUnitChecks.has(mathRef)) {
+      pendingUnitChecks.add(mathRef)
+      scheduleUnitChecks()
+    }
+    return NO_IMBALANCES
+  }
+
   /** Each units name's SI base-unit expansion, for display. Derived, so never saved. */
   const unitExpansions = computed(() => expandUnits(availableUnits.value.map((file) => file.model)))
 
@@ -1045,6 +1097,7 @@ export const useLibraryStore = defineStore('library', () => {
     getMathRefsByHash,
     getMathAnalysis,
     ensureMathAnalysis,
+    getMathUnitImbalances,
     getMathDefaults,
     setMathDefaults,
     getMathLayout,

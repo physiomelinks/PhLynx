@@ -24,10 +24,10 @@
           </div>
         </div>
         <div style="flex-grow: 1; min-width: 1.5em;"></div> <!-- Spacer to push buttons to the right -->
-        <div v-if="isMissingParameters || isMissingUnits" class="status-indicator">
+        <div v-if="warnings.length" class="status-indicator">
           <i
             class="pi pi-exclamation-triangle warning-icon"
-            v-tooltip.top="`At least one ${isMissingParameters ? 'parameter' : 'unit'} has not been ${isMissingParameters ? 'assigned a value' : 'given a valid definition'}`"
+            v-tooltip.top="warnings.join('\n\n')"
           ></i>
         </div>
 
@@ -125,8 +125,9 @@ import { notify } from '../utils/notify'
 import { isEditableVariableType, isEmpty } from '../utils/variables'
 import { detachReactivity } from '../utils/reactivity'
 import { HANDLE_VARIANT } from '../utils/constants'
-import { isUnitKnown } from '../utils/parameterRows'
+import { isUnitKnown, rowUnitConflicts } from '../utils/parameterRows'
 import { categoryStyle as themeCategoryStyle } from '../utils/nodeThemes'
+import { summariseImbalance } from '../services/math/unitBalance'
 import { useHandleManagement } from '../composables/useHandleManagement'
 import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 
@@ -210,6 +211,42 @@ const isMissingUnits = computed(() => {
     }
   }
   return false
+})
+
+// The math's own equations, checked by libCellML in the background.
+const unitImbalances = computed(() => libraryStore.getMathUnitImbalances(props.data.mathRef))
+
+// Parameter rows in units of other dimensions than the math's, with the units the export gives each value.
+const rowUnitMismatches = computed(() => {
+  const rows = (props.data.variables || [])
+    .filter((variable) => isEditableVariableType(variable.type))
+    .map((variable) =>
+      variable.type === 'global_constant'
+        ? { name: variable.name, units: libraryStore.getGlobalConstant(variable.name)?.units }
+        : variable
+    )
+  if (!rows.length) return []
+  const declared = libraryStore.getMathAnalysis(props.data.mathRef)?.declared
+  return rowUnitConflicts(rows, declared, libraryStore.unitDefinitions)
+})
+
+/** What the warning icon's tooltip lists; the icon shows while there's any. */
+const warnings = computed(() => {
+  const list = []
+  if (isMissingParameters.value) list.push('At least one parameter has not been assigned a value.')
+  if (isMissingUnits.value) list.push('At least one unit has not been given a valid definition.')
+  const imbalances = unitImbalances.value
+  if (imbalances.length) {
+    const count = imbalances.length === 1 ? 'an equation' : `${imbalances.length} equations`
+    const shown = imbalances.slice(0, 3).map((description) => `• ${summariseImbalance(description)}`)
+    if (imbalances.length > shown.length) shown.push(`• and ${imbalances.length - shown.length} more`)
+    list.push(`Units don't balance in ${count} of this module's math:\n${shown.join('\n')}`)
+  }
+  const mismatches = rowUnitMismatches.value
+  if (mismatches.length) {
+    list.push(`Parameter units don't match the math's dimensions:\n${mismatches.map((message) => `• ${message}`).join('\n')}`)
+  }
+  return list
 })
 
 const portMenuRef = ref(null)
