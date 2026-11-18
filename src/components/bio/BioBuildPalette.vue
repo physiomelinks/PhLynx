@@ -4,6 +4,26 @@
       Drag a piece onto the physiology view, or click it and then click where it goes. Drop modules on what you build,
       or a new module to write its math there.
     </p>
+
+    <h5 class="bio-palette__heading">Modules</h5>
+    <div class="bio-palette__tiles">
+      <button
+        type="button"
+        :class="['bio-palette__tile', { 'bio-palette__tile--armed': viewMode.armedTile?.kind === 'module' }]"
+        :draggable="!!newModule"
+        :disabled="!newModule"
+        title="A module with no math yet: drop it on a site, or anywhere, and write its math in the editor that opens"
+        :aria-pressed="viewMode.armedTile?.kind === 'module'"
+        data-testid="bio-palette-new-module"
+        @dragstart="onModuleDragStart"
+        @dragend="onModuleDragEnd"
+        @click="toggle({ kind: 'module' })"
+      >
+        <i class="pi pi-file-plus" aria-hidden="true"></i>
+        New module
+      </button>
+    </div>
+
     <h5 class="bio-palette__heading">Pieces</h5>
     <div class="bio-palette__tiles">
       <button
@@ -22,25 +42,6 @@
       >
         <i :class="tile.icon" aria-hidden="true"></i>
         {{ tile.label }}
-      </button>
-    </div>
-
-    <h5 class="bio-palette__heading">Modules</h5>
-    <div class="bio-palette__tiles">
-      <button
-        type="button"
-        :class="['bio-palette__tile', { 'bio-palette__tile--armed': viewMode.armedTile?.kind === 'module' }]"
-        :draggable="!!newModule"
-        :disabled="!newModule"
-        title="A module with no math yet: drop it on a site, or anywhere, and write its math in the editor that opens"
-        :aria-pressed="viewMode.armedTile?.kind === 'module'"
-        data-testid="bio-palette-new-module"
-        @dragstart="onModuleDragStart"
-        @dragend="onModuleDragEnd"
-        @click="toggle({ kind: 'module' })"
-      >
-        <i class="pi pi-file-plus" aria-hidden="true"></i>
-        New module
       </button>
     </div>
 
