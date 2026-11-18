@@ -54,7 +54,7 @@
         <div class="header-group header-group--secondary">
           <span class="header-label header-label--secondary">Kinetics</span>
           <SelectButton
-            :model-value="kinetics"
+            :model-value="requestedKinetics ?? kinetics"
             :options="KINETICS_OPTIONS"
             option-label="label"
             option-value="value"
@@ -131,9 +131,9 @@
         </div>
         <MultiportSummary v-if="isEditorReady" :entries="multiportEntries" />
         <div ref="editorWrapperRef" class="editor-wrapper">
-          <div v-if="!isEditorReady" class="editor-pending">
+          <div v-if="!isEditorReady || requestedKinetics" class="editor-pending">
             <ProgressSpinner style="width: 32px; height: 32px" strokeWidth="4" />
-            <span>Preparing editor...</span>
+            <span>{{ requestedKinetics === STEADY_STATE_KINETICS ? 'Deriving the steady state...' : requestedKinetics ? 'Loading the full kinetics...' : 'Preparing editor...' }}</span>
           </div>
           <CellMLTextEditor
             v-else-if="editorKind === 'text'"
@@ -870,6 +870,8 @@ const isSteady = computed(() => kinetics.value === STEADY_STATE_KINETICS)
 /** The other kinetics' rows, kept so switching back restores its values. */
 const otherKineticsRows = ref(null)
 const isSwitchingKinetics = ref(false)
+/** The kinetics a switch under way is going to, shown at once while it derives; null otherwise. */
+const requestedKinetics = ref(null)
 
 // Ticked by default, so math edits reach the other instances, except on the template: a new module made from it
 // is this instance's alone.
@@ -1361,6 +1363,7 @@ function variablesMissingFrom(names) {
 async function setKinetics(mode) {
   if (!mode || mode === kinetics.value || isSwitchingKinetics.value) return
   isSwitchingKinetics.value = true
+  requestedKinetics.value = mode
   try {
     await session.flushPendingChanges()
     if (mode === STEADY_STATE_KINETICS) {
@@ -1408,9 +1411,10 @@ async function setKinetics(mode) {
         managed: !isMathLocked.value && (loadStoredManaged() || editorKind.value === 'math'),
       })
     }
-    mathEditorRef.value?.setModel?.(shownModel.value, shownLayout.value)
   } finally {
     isSwitchingKinetics.value = false
+    requestedKinetics.value = null
+    // The editor remounts as the pending note goes, reading the math the switch loaded
   }
 }
 

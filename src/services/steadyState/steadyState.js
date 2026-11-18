@@ -44,10 +44,11 @@ export function readEquations(xml) {
  * @param {string[]} [options.ratios] - Parameters that are transformer ratios, to recognise as multiples of F.
  * @param {string[]} [options.keep] - The cycle's variables to keep at their steady state, such as reaction fluxes the
  *   module's annotations name, so they still can.
- * @param {boolean} [options.check] - Also check the result numerically against the full cycle.
+ * @param {boolean} [options.check] - Also check the result numerically against the full cycle; only when asked, as it
+ *   costs a numeric solve per sample.
  * @returns {SteadyStateAnalysis}
  */
-export function analyseSteadyState({ xml, spec = null, values = {}, ratios = [], keep = [], check = true }) {
+export function analyseSteadyState({ xml, spec = null, values = {}, ratios = [], keep = [], check = false }) {
   const empty = { suggestions: [], spec: null, issues: [], common: null, reduced: null, verifyError: null }
   if (typeof xml !== 'string' || !xml.trim()) return empty
 

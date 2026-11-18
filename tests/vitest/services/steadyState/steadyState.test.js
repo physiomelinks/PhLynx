@@ -22,7 +22,7 @@ describe('analyseSteadyState', () => {
   })
 
   it('finds GLUT2’s cycle and reduces the module, checked numerically', () => {
-    const result = analyseSteadyState({ xml: fixture('glut2') })
+    const result = analyseSteadyState({ xml: fixture('glut2'), check: true })
     expect(result.issues).toEqual([])
     expect(result.suggestions).toHaveLength(1)
     expect(result.spec.cycleStates).toHaveLength(4)
