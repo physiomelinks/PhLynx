@@ -367,33 +367,16 @@
           class="workspace-search-container"
           :class="{ 'search-inactive': !isSearchFocused && !searchQuery, 'search-mode-var': parsedQuery.mode === 'var' }"
         >
-          <div class="workspace-search-input-wrapper">
-            <IconField>
-              <InputIcon class="pi pi-search" />
-              <InputText
-                ref="searchInputRef"
-                v-model="searchQuery"
-                class="w-full"
-                @input="runSearch()"
-                @keydown="onSearchKeydown"
-                @focus="onSearchFocus"
-                @blur="onSearchBlur"
-              />
-              <div
-                v-if="!searchQuery && !isSearchFocused"
-                class="search-placeholder"
-              >
-                <span>Type</span>
-                <kbd>/</kbd>
-                <span>to search</span>
-              </div>
-              <InputIcon
-                v-if="searchQuery"
-                class="search-clear-input pi pi-times-circle"
-                @click="clearSearch"
-              />
-            </IconField>
-          </div>
+          <SearchField
+            ref="searchInputRef"
+            v-model="searchQuery"
+            label="Search instances"
+            @input="runSearch()"
+            @keydown="onSearchKeydown"
+            @focus="onSearchFocus"
+            @blur="onSearchBlur"
+            @clear="clearSearch"
+          />
           <div v-if="showModePicker" class="search-suffix-content">
             <ul class="search-match-list search-mode-picker">
               <li
@@ -673,9 +656,7 @@ import Button from 'primevue/button'
 import SplitButton from 'primevue/splitbutton'
 import JSZip from 'jszip'
 import Divider from 'primevue/divider'
-import InputText from 'primevue/inputtext'
-import IconField from 'primevue/iconfield'
-import InputIcon from 'primevue/inputicon'
+import SearchField from '../components/SearchField.vue'
 import Tag from 'primevue/tag'
 import ConfirmDialog from 'primevue/confirmdialog'
 import BioFlow from '../components/bio/BioFlow.vue'
@@ -1131,11 +1112,7 @@ const onPaneClick = () => {
 }
 
 /** Focuses the search box and selects its text, so typing replaces the last query. */
-const focusSearch = () => {
-  const input = searchInputRef.value?.$el
-  input?.focus()
-  input?.select()
-}
+const focusSearch = () => searchInputRef.value?.focus()
 
 /**
  * Centres the view on a node.
@@ -3256,117 +3233,9 @@ watch(
   opacity: 1;
 }
 
-.workspace-search-input-wrapper {
-  position: relative;
-}
-
-.search-placeholder {
-  position: absolute;
-  left: 2.5rem;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: #8b949e;
-  font-size: 0.875rem;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-.search-placeholder kbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.2rem;
-  height: 1.25rem;
-  padding: 0 0.25rem;
-  border: 1px solid #d0d7de;
-  border-radius: 4px;
-  background: #f6f8fa;
-  color: #57606a;
-  font-family: inherit;
-  font-size: 0.75rem;
-  line-height: 1;
-  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
-}
-
-.search-clear-input:hover {
-  color: var(--p-text-color);
-}
-
-.search-match-count {
-  font-size: 12px;
-  color: var(--p-text-muted-color);
-  padding-right: 8px;
-}
-
-.search-suffix-content {
-  display: flex;
-  flex-direction: column;
-  background: var(--p-content-background);
-  border-radius: 4px;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--p-text-color) 15%, transparent);
-  overflow: hidden;
-}
-
-.search-suffix-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 4px 8px;
-}
-
 .search-nav-buttons {
   display: flex;
   gap: 2px;
-}
-
-.search-match-list {
-  list-style: none;
-  margin: 0;
-  padding: 4px;
-  max-height: 168px;
-  overflow-y: auto;
-  border-top: 1px solid var(--p-content-border-color, color-mix(in srgb, var(--p-text-color) 10%, transparent));
-}
-
-.search-match-item {
-  padding: 8px 10px;
-  border-radius: 4px;
-  font-size: 13px;
-  color: var(--p-text-color);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.search-match-item:hover {
-  background: color-mix(in srgb, var(--p-text-color) 6%, transparent);
-}
-
-.search-match-item.active {
-  background: color-mix(in srgb, var(--p-primary-color) 15%, transparent);
-  color: var(--p-primary-color);
-  font-weight: 600;
-}
-
-.search-match-vars {
-  display: block;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--p-text-muted-color);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.search-empty {
-  margin: 0;
-  padding: 4px 2px;
-  font-size: 12px;
-  color: var(--p-text-muted-color);
 }
 
 .cursor-pointer {

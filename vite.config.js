@@ -5,9 +5,8 @@ import fs from 'fs'
 import path from 'path'
 import Markdown from 'unplugin-vue-markdown/vite'
 import { visualizer } from 'rollup-plugin-visualizer'
-import LinkAttributes from 'markdown-it-link-attributes'
-import MarkdownItAttrs from 'markdown-it-attrs'
-import MarkdownItGitHubAlerts from 'markdown-it-github-alerts'
+import { markdownItOptions, markdownItSetup } from './scripts/markdownSetup.js'
+import { docsSearchIndex } from './scripts/docsSearchIndex.js'
 import packageJson from './package.json' with { type: 'json' }
 import { execSync } from 'child_process'
 import { libopencorAssets } from './scripts/libopencorAssets.js'
@@ -54,24 +53,10 @@ export default defineConfig({
     libopencorAssets(),
     Markdown({
       headEnabled: false, // Set true to manage <head> tags
-      markdownItSetup(md) {
-        // Enable the attribute syntax
-        md.use(MarkdownItAttrs)
-        md.use(LinkAttributes, {
-          pattern: /^https?:\/\//,
-          attrs: {
-            target: '_blank',
-            rel: 'noopener',
-          },
-        })
-        md.use(MarkdownItGitHubAlerts)
-      },
-      markdownItOptions: {
-        html: true,
-        linkify: true,
-        typographer: true,
-      },
+      markdownItSetup,
+      markdownItOptions,
     }),
+    docsSearchIndex(),
     visualizer(),
   ],
   resolve: {
