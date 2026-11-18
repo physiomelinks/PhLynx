@@ -126,6 +126,17 @@ describe('libraryStore.getMathCheck', () => {
     await checked({ invalid: [], imbalances: [] })
   })
 
+  it('drops a check of math edited while it ran, and checks the new math', async () => {
+    store.addUnitsFile({ componentFile: 'units.cellml', model: UNITS })
+    store.addMath('file:decay', decay('per_second'))
+    store.getMathCheck('file:decay') // checking the balanced math
+    store.addMath('file:decay', decay('second'))
+
+    // Without asking again, as a node whose math changed under it wouldn't.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(store.getMathCheck('file:decay').imbalances).toHaveLength(1)
+  })
+
   it('checks again when the units change', async () => {
     store.addMath('file:decay', decay('per_second'))
     await checked({ invalid: [expect.stringContaining("'per_second'")], imbalances: [] })

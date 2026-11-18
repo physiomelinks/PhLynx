@@ -9,7 +9,7 @@ import {
   namespaceOfFileKey,
   namespaceOfModuleRef,
 } from '../utils/namespaces'
-import { areModelsEquivalent, getLibCellML, whenLibCellMLReady } from '../utils/cellml'
+import { areModelsEquivalent } from '../utils/cellml'
 import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
@@ -22,7 +22,8 @@ import { expandUnits, extractUnitDefinitions, extractUnitNames, mergeUnitDefinit
 import { unitsModelXml } from '../utils/unitExpression'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import { analyzeBatchInBackground, analyzeInBackground } from '../services/math/mathWorkerClient'
-import { NO_FINDINGS, checkMath } from '../services/math/checkMath'
+import { NO_FINDINGS } from '../services/math/checkMath'
+import { checkMathInBackground } from '../services/math/mathCheckClient'
 import { separateParameters } from '../services/math/separateParameters'
 import { detachReactivity } from '../utils/reactivity'
 import { DEFAULT_MODULE_FORMAT, checkMathSource } from '../services/moduleFormats'
@@ -73,7 +74,7 @@ export const useLibraryStore = defineStore('library', () => {
 
   // mathRef -> MathAnalysis. Non-reactive, since analyses are large and only read imperatively.
   const availableMathAnalysis = markRaw(new Map())
-  // mathRef -> what checkMath finds in it; checked when asked for, and dropped when the math or units change.
+  // mathRef -> what checkModel finds in it; checked when asked for, and dropped when the math or units change.
   const mathChecks = shallowReactive(new Map())
 
   // mathRef -> the module's sidecar RDF text, saved as written. Its parse is a cache, never saved.
@@ -990,33 +991,10 @@ export const useLibraryStore = defineStore('library', () => {
   // A units file added, edited or removed can change whether any math is valid or balances.
   watch(unitDefinitions, () => mathChecks.clear())
 
-  /** Checks the math waiting for a check, once libCellML has loaded. */
-  function scheduleMathChecks() {
-    if (pendingMathChecks.size !== 1) return // already scheduled
-    whenLibCellMLReady()
-      .then(() => setTimeout(runMathChecks))
-      .catch(() => pendingMathChecks.clear())
-  }
-
-  function runMathChecks() {
-    const libcellml = getLibCellML()
-    for (const mathRef of pendingMathChecks) {
-      const math = availableMath.value.get(mathRef)
-      if (!math) continue
-      try {
-        mathChecks.set(mathRef, checkMath(libcellml, math, unitDefinitions.value))
-      } catch (err) {
-        console.error(`Failed to check the math of "${mathRef}":`, err)
-        mathChecks.set(mathRef, NO_FINDINGS)
-      }
-    }
-    pendingMathChecks.clear()
-  }
-
   /**
-   * Gets what checkMath finds in a math: whether it's valid CellML on its own, and which equations' units don't
-   * balance. The first call for a math checks it in the background and finds nothing; reactive callers update
-   * when the check lands.
+   * Gets what checkModel finds in a math: whether it's valid CellML on its own, and which equations' units don't
+   * balance. The first call for a math checks it in a worker and finds nothing; reactive callers update when the
+   * check lands.
    *
    * @param {string} mathRef
    * @returns {{ invalid: string[], imbalances: string[] }} libCellML's descriptions.
@@ -1024,10 +1002,23 @@ export const useLibraryStore = defineStore('library', () => {
   function getMathCheck(mathRef) {
     const found = mathChecks.get(mathRef)
     if (found) return found
-    if (availableMath.value.has(mathRef) && !pendingMathChecks.has(mathRef)) {
-      pendingMathChecks.add(mathRef)
-      scheduleMathChecks()
-    }
+    const math = availableMath.value.get(mathRef)
+    if (!math || pendingMathChecks.has(mathRef)) return NO_FINDINGS
+
+    pendingMathChecks.add(mathRef)
+    const definitions = unitDefinitions.value
+    checkMathInBackground(math, definitions)
+      .catch((err) => {
+        console.error(`Failed to check the math of "${mathRef}":`, err)
+        return NO_FINDINGS
+      })
+      .then((result) => {
+        pendingMathChecks.delete(mathRef)
+        const isCurrent = availableMath.value.get(mathRef) === math && unitDefinitions.value === definitions
+        // Edited while it was checked: nothing reactive changed for the node to ask again, so check the new math.
+        if (isCurrent) mathChecks.set(mathRef, result)
+        else getMathCheck(mathRef)
+      })
     return NO_FINDINGS
   }
 
