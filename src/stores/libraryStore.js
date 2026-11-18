@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { parseLayout } from 'cellml-text-editor'
-import { ref, computed, markRaw, shallowReactive } from 'vue'
+import { ref, computed, markRaw, shallowReactive, watch } from 'vue'
 import { normaliseConfig, buildModule, parseMathRef, uniqueModuleRef } from '../utils/config'
 import {
   baseNameOf,
@@ -22,6 +22,8 @@ import { expandUnits, extractUnitDefinitions, extractUnitNames, mergeUnitDefinit
 import { unitsModelXml } from '../utils/unitExpression'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import { analyzeBatchInBackground, analyzeInBackground } from '../services/math/mathWorkerClient'
+import { NO_FINDINGS } from '../services/math/checkMath'
+import { checkMathInBackground } from '../services/math/mathCheckClient'
 import { separateParameters } from '../services/math/separateParameters'
 import { detachReactivity } from '../utils/reactivity'
 import { DEFAULT_MODULE_FORMAT, checkMathSource } from '../services/moduleFormats'
@@ -72,6 +74,8 @@ export const useLibraryStore = defineStore('library', () => {
 
   // mathRef -> MathAnalysis. Non-reactive, since analyses are large and only read imperatively.
   const availableMathAnalysis = markRaw(new Map())
+  // mathRef -> what checkModel finds in it; checked when asked for, and dropped when the math or units change.
+  const mathChecks = shallowReactive(new Map())
 
   // mathRef -> the module's sidecar RDF text, saved as written. Its parse is a cache, never saved.
   const moduleAnnotations = ref(new Map())
@@ -138,6 +142,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathSources.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
+    mathChecks.clear()
     moduleAnnotations.value.clear()
     parsedModuleAnnotations.clear()
     pendingAnnotationParses.clear()
@@ -419,6 +424,7 @@ export const useLibraryStore = defineStore('library', () => {
    */
   function scheduleMathAnalysis(mathRef, math) {
     availableMathAnalysis.delete(mathRef)
+    mathChecks.delete(mathRef)
     pendingAnalysis.set(mathRef, math)
     if (!isAnalysisFlushScheduled) {
       isAnalysisFlushScheduled = true
@@ -681,6 +687,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathSources.value.delete(mathRef)
     setModuleAnnotations(mathRef, null)
     pendingAnalysis.delete(mathRef)
+    mathChecks.delete(mathRef)
     if (!availableMath.value.has(mathRef)) return
 
     removeMathHashEntry(mathRef, mathRefHash.value.get(mathRef))
@@ -979,6 +986,42 @@ export const useLibraryStore = defineStore('library', () => {
   /** Every library units definition, the first of each name winning. Derived, so never saved. */
   const unitDefinitions = computed(() => mergeUnitDefinitions(availableUnits.value.map((file) => file.model)))
 
+  const pendingMathChecks = new Set()
+
+  // A units file added, edited or removed can change whether any math is valid or balances.
+  watch(unitDefinitions, () => mathChecks.clear())
+
+  /**
+   * Gets what checkModel finds in a math: whether it's valid CellML on its own, and which equations' units don't
+   * balance. The first call for a math checks it in a worker and finds nothing; reactive callers update when the
+   * check lands.
+   *
+   * @param {string} mathRef
+   * @returns {{ invalid: string[], imbalances: string[] }} libCellML's descriptions.
+   */
+  function getMathCheck(mathRef) {
+    const found = mathChecks.get(mathRef)
+    if (found) return found
+    const math = availableMath.value.get(mathRef)
+    if (!math || pendingMathChecks.has(mathRef)) return NO_FINDINGS
+
+    pendingMathChecks.add(mathRef)
+    const definitions = unitDefinitions.value
+    checkMathInBackground(math, definitions)
+      .catch((err) => {
+        console.error(`Failed to check the math of "${mathRef}":`, err)
+        return NO_FINDINGS
+      })
+      .then((result) => {
+        pendingMathChecks.delete(mathRef)
+        const isCurrent = availableMath.value.get(mathRef) === math && unitDefinitions.value === definitions
+        // Edited while it was checked: nothing reactive changed for the node to ask again, so check the new math.
+        if (isCurrent) mathChecks.set(mathRef, result)
+        else getMathCheck(mathRef)
+      })
+    return NO_FINDINGS
+  }
+
   /** Each units name's SI base-unit expansion, for display. Derived, so never saved. */
   const unitExpansions = computed(() => expandUnits(availableUnits.value.map((file) => file.model)))
 
@@ -1045,6 +1088,7 @@ export const useLibraryStore = defineStore('library', () => {
     getMathRefsByHash,
     getMathAnalysis,
     ensureMathAnalysis,
+    getMathCheck,
     getMathDefaults,
     setMathDefaults,
     getMathLayout,

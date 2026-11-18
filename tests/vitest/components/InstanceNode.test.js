@@ -6,6 +6,7 @@ import PrimeVue from 'primevue/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
+import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { SVG_EXCLUDE_SELECTOR } from '../../../src/services/export/svg.js'
 
 const nodes = ref([])
@@ -191,5 +192,93 @@ describe('InstanceNode', () => {
     expect(notifyError).toHaveBeenCalledWith({ message: 'An instance with this name already exists.' })
     expect(nameInput().exists()).toBe(true)
     expect(nodes.value[0].data.name).toBe('soma')
+  })
+})
+
+describe('InstanceNode warning', () => {
+  const MATH = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="PhLynxComponent">
+  <component name="soma"><variable name="k" units="per_second" interface="public_and_private"/></component>
+</model>`
+  const IMBALANCE =
+    "The units in 'dx/dt = k*x' in component 'soma' are not equivalent. 'dx/dt' is in 'metre x second^-1' while 'k*x' is in 'metre x second'."
+
+  // Records the tooltip's text, which the real directive keeps out of the DOM.
+  const tooltip = {
+    mounted: (el, { value }) => (el.dataset.tooltip = value),
+    updated: (el, { value }) => (el.dataset.tooltip = value),
+  }
+  let store
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    store = useLibraryStore()
+    store.addMath('cell.cellml:soma', MATH)
+    store.addUnitsFile({
+      componentFile: 'units.cellml',
+      model: `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
+  <units name="per_second"><unit units="second" exponent="-1"/></units>
+</model>`,
+    })
+    store.getMathCheck = vi.fn(() => ({ invalid: [], imbalances: [] }))
+  })
+
+  afterEach(() => wrapper?.unmount())
+
+  function mountWith(variables) {
+    nodes.value = [reactive({ id: 'a', data: { name: 'soma', mathRef: 'cell.cellml:soma', variables, handles: [] } })]
+    wrapper = mount(InstanceNode, {
+      props: { id: 'a', data: nodes.value[0].data },
+      global: { plugins: [PrimeVue], directives: { tooltip, hint: {} } },
+    })
+  }
+  const warning = () => wrapper.find('.status-indicator .warning-icon')
+
+  it('shows no warning when the parameters and units are fine', () => {
+    mountWith([{ name: 'k', type: 'constant', value: '1', units: 'per_second' }])
+    expect(warning().exists()).toBe(false)
+  })
+
+  it("warns when the module's math doesn't balance its units", () => {
+    store.getMathCheck = vi.fn(() => ({ invalid: [], imbalances: [IMBALANCE] }))
+    mountWith([{ name: 'k', type: 'constant', value: '1', units: 'per_second' }])
+    expect(store.getMathCheck).toHaveBeenCalledWith('cell.cellml:soma')
+    expect(warning().attributes('data-tooltip')).toBe(
+      "Units don't balance in an equation of this module's math:\n" +
+        "• dx/dt = k*x: 'dx/dt' is in 'metre x second^-1' while 'k*x' is in 'metre x second'."
+    )
+  })
+
+  it("warns when a parameter's units have other dimensions than the math's", () => {
+    mountWith([{ name: 'k', type: 'constant', value: '1', units: 'second' }])
+    expect(warning().attributes('data-tooltip')).toBe(
+      'Parameter units don\'t match the math\'s dimensions:\n• "k" is in second, but its math uses per_second'
+    )
+  })
+
+  it("warns when the module's math isn't valid CellML", () => {
+    store.getMathCheck = vi.fn(() => ({
+      invalid: [
+        "MathML ci element has the child text 'r_max' which does not correspond with any variable names present in component 'soma'.",
+      ],
+      imbalances: [],
+    }))
+    mountWith([{ name: 'k', type: 'constant', value: '1', units: 'per_second' }])
+    expect(warning().attributes('data-tooltip')).toBe(
+      "This module's math isn't valid CellML:\n• MathML ci element has the child text 'r_max' which does not correspond with any variable names."
+    )
+  })
+
+  it('lists only the first few problems of a kind', () => {
+    const invalid = ['a', 'b', 'c', 'd', 'e'].map((name) => `Variable '${name}' is wrong.`)
+    store.getMathCheck = vi.fn(() => ({ invalid, imbalances: [] }))
+    mountWith([])
+    expect(warning().attributes('data-tooltip').split('\n').slice(-2)).toEqual(["• Variable 'c' is wrong.", '• and 2 more'])
+  })
+
+  it('lists every problem in one warning', () => {
+    store.getMathCheck = vi.fn(() => ({ invalid: [], imbalances: [IMBALANCE] }))
+    mountWith([{ name: 'k', type: 'constant', value: '', units: 'per_second' }])
+    expect(wrapper.findAll('.warning-icon')).toHaveLength(1)
+    expect(warning().attributes('data-tooltip').split('\n\n')).toHaveLength(2)
   })
 })
