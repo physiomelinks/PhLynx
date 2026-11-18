@@ -1,0 +1,603 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="BG_model">
+  <units name="C_per_mol">
+    <unit units="coulomb"/>
+    <unit exponent="-1" units="mole"/>
+  </units>
+  <units name="J_per_mol">
+    <unit units="joule"/>
+    <unit exponent="-1" units="mole"/>
+  </units>
+  <units name="mol_per_s">
+    <unit units="mole"/>
+    <unit exponent="-1" units="second"/>
+  </units>
+  <units name="C2_per_J">
+    <unit exponent="2" units="coulomb"/>
+    <unit exponent="-1" units="joule"/>
+  </units>
+  <units name="J_per_C">
+    <unit units="joule"/>
+    <unit exponent="-1" units="coulomb"/>
+  </units>
+  <units name="C_per_s">
+    <unit units="coulomb"/>
+    <unit exponent="-1" units="second"/>
+  </units>
+  <units name="per_mol">
+    <unit exponent="-1" units="mole"/>
+  </units>
+  <units name="mol_per_C">
+    <unit units="mole"/>
+    <unit exponent="-1" units="coulomb"/>
+  </units>
+  <component name="uniporter" id="uniporter">
+    <variable name="t" units="second" interface="public" id="uniporter-t"/>
+    <variable name="F" units="C_per_mol" initial_value="96485" interface="public" id="uniporter-F"/>
+    <variable name="RT" units="J_per_mol" initial_value="2578.73058" interface="public" id="uniporter-RT"/>
+    <variable name="u_Ai_Ai" units="J_per_mol" interface="public" id="uniporter-u_Ai_Ai"/>
+    <variable name="v_Ai_Ai" units="mol_per_s" interface="public" id="uniporter-v_Ai_Ai"/>
+    <variable name="u_Ao_Ao" units="J_per_mol" interface="public" id="uniporter-u_Ao_Ao"/>
+    <variable name="v_Ao_Ao" units="mol_per_s" interface="public" id="uniporter-v_Ao_Ao"/>
+    <variable name="C_C_m" units="C2_per_J" initial_value="0.1" interface="public" id="uniporter-C_C_m"/>
+    <variable name="u_C_m" units="J_per_C" interface="public" id="uniporter-u_C_m"/>
+    <variable name="v_C_m" units="C_per_s" interface="public" id="uniporter-v_C_m"/>
+    <variable name="u_E1_E1" units="J_per_mol" interface="public" id="uniporter-u_E1_E1"/>
+    <variable name="v_E1_E1" units="mol_per_s" interface="public" id="uniporter-v_E1_E1"/>
+    <variable name="u_E2_E2" units="J_per_mol" interface="public" id="uniporter-u_E2_E2"/>
+    <variable name="v_E2_E2" units="mol_per_s" interface="public" id="uniporter-v_E2_E2"/>
+    <variable name="u_E3_E3" units="J_per_mol" interface="public" id="uniporter-u_E3_E3"/>
+    <variable name="v_E3_E3" units="mol_per_s" interface="public" id="uniporter-v_E3_E3"/>
+    <variable name="u_E4_E4" units="J_per_mol" interface="public" id="uniporter-u_E4_E4"/>
+    <variable name="v_E4_E4" units="mol_per_s" interface="public" id="uniporter-v_E4_E4"/>
+    <variable name="K_Ai_Ai" units="per_mol" initial_value="1" interface="public" id="uniporter-K_Ai_Ai"/>
+    <variable name="K_Ao_Ao" units="per_mol" initial_value="1" interface="public" id="uniporter-K_Ao_Ao"/>
+    <variable name="K_E1_E1" units="per_mol" initial_value="2" interface="public" id="uniporter-K_E1_E1"/>
+    <variable name="K_E2_E2" units="per_mol" initial_value="5" interface="public" id="uniporter-K_E2_E2"/>
+    <variable name="K_E3_E3" units="per_mol" initial_value="5" interface="public" id="uniporter-K_E3_E3"/>
+    <variable name="K_E4_E4" units="per_mol" initial_value="2" interface="public" id="uniporter-K_E4_E4"/>
+    <variable name="v_Rb" units="mol_per_s" interface="public" id="uniporter-v_Rb"/>
+    <variable name="v_Rr" units="mol_per_s" interface="public" id="uniporter-v_Rr"/>
+    <variable name="v_Rt" units="mol_per_s" interface="public" id="uniporter-v_Rt"/>
+    <variable name="v_Ru" units="mol_per_s" interface="public" id="uniporter-v_Ru"/>
+    <variable name="TF_f" units="C_per_mol" initial_value="-48242.666" interface="public" id="uniporter-TF_f"/>
+    <variable name="v_TF_f_0" units="C_per_s" interface="public" id="uniporter-v_TF_f_0"/>
+    <variable name="u_TF_f_1" units="J_per_mol" interface="public" id="uniporter-u_TF_f_1"/>
+    <variable name="TF_r" units="mol_per_C" initial_value="2.07285049e-05" interface="public" id="uniporter-TF_r"/>
+    <variable name="u_TF_r_0" units="J_per_mol" interface="public" id="uniporter-u_TF_r_0"/>
+    <variable name="v_TF_r_1" units="C_per_s" interface="public" id="uniporter-v_TF_r_1"/>
+    <variable name="u_f_Rb" units="J_per_mol" interface="public" id="uniporter-u_f_Rb"/>
+    <variable name="u_f_Rr" units="J_per_mol" interface="public" id="uniporter-u_f_Rr"/>
+    <variable name="u_f_Rt" units="J_per_mol" interface="public" id="uniporter-u_f_Rt"/>
+    <variable name="u_f_Ru" units="J_per_mol" interface="public" id="uniporter-u_f_Ru"/>
+    <variable name="kappa_Rb" units="mol_per_s" initial_value="100" interface="public" id="uniporter-kappa_Rb"/>
+    <variable name="kappa_Rr" units="mol_per_s" initial_value="0.3" interface="public" id="uniporter-kappa_Rr"/>
+    <variable name="kappa_Rt" units="mol_per_s" initial_value="0.5" interface="public" id="uniporter-kappa_Rt"/>
+    <variable name="kappa_Ru" units="mol_per_s" initial_value="100" interface="public" id="uniporter-kappa_Ru"/>
+    <variable name="q_Ai_Ai" units="mole" initial_value="0.01" interface="public" id="uniporter-q_Ai_Ai"/>
+    <variable name="q_Ao_Ao" units="mole" initial_value="0.14" interface="public" id="uniporter-q_Ao_Ao"/>
+    <variable name="q_C_m" units="coulomb" initial_value="-0.006" interface="public" id="uniporter-q_C_m"/>
+    <variable name="q_E1_E1" units="mole" initial_value="0.25" interface="public" id="uniporter-q_E1_E1"/>
+    <variable name="q_E2_E2" units="mole" initial_value="0.25" interface="public" id="uniporter-q_E2_E2"/>
+    <variable name="q_E3_E3" units="mole" initial_value="0.25" interface="public" id="uniporter-q_E3_E3"/>
+    <variable name="q_E4_E4" units="mole" initial_value="0.25" interface="public" id="uniporter-q_E4_E4"/>
+    <variable name="u_r_Rb" units="J_per_mol" interface="public" id="uniporter-u_r_Rb"/>
+    <variable name="u_r_Rr" units="J_per_mol" interface="public" id="uniporter-u_r_Rr"/>
+    <variable name="u_r_Rt" units="J_per_mol" interface="public" id="uniporter-u_r_Rt"/>
+    <variable name="u_r_Ru" units="J_per_mol" interface="public" id="uniporter-u_r_Ru"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_Ai_Ai</ci>
+        <apply>
+          <times/>
+          <ci>RT</ci>
+          <apply>
+            <ln/>
+            <apply>
+              <times/>
+              <ci>K_Ai_Ai</ci>
+              <ci>q_Ai_Ai</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_Ao_Ao</ci>
+        <apply>
+          <times/>
+          <ci>RT</ci>
+          <apply>
+            <ln/>
+            <apply>
+              <times/>
+              <ci>K_Ao_Ao</ci>
+              <ci>q_Ao_Ao</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_C_m</ci>
+        <apply>
+          <divide/>
+          <ci>q_C_m</ci>
+          <ci>C_C_m</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_E1_E1</ci>
+        <apply>
+          <times/>
+          <ci>RT</ci>
+          <apply>
+            <ln/>
+            <apply>
+              <times/>
+              <ci>K_E1_E1</ci>
+              <ci>q_E1_E1</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_E2_E2</ci>
+        <apply>
+          <times/>
+          <ci>RT</ci>
+          <apply>
+            <ln/>
+            <apply>
+              <times/>
+              <ci>K_E2_E2</ci>
+              <ci>q_E2_E2</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_E3_E3</ci>
+        <apply>
+          <times/>
+          <ci>RT</ci>
+          <apply>
+            <ln/>
+            <apply>
+              <times/>
+              <ci>K_E3_E3</ci>
+              <ci>q_E3_E3</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_E4_E4</ci>
+        <apply>
+          <times/>
+          <ci>RT</ci>
+          <apply>
+            <ln/>
+            <apply>
+              <times/>
+              <ci>K_E4_E4</ci>
+              <ci>q_E4_E4</ci>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_TF_f_1</ci>
+        <apply>
+          <times/>
+          <ci>TF_f</ci>
+          <ci>u_C_m</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_TF_r_0</ci>
+        <apply>
+          <divide/>
+          <ci>u_C_m</ci>
+          <ci>TF_r</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_f_Rb</ci>
+        <apply>
+          <plus/>
+          <ci>u_Ao_Ao</ci>
+          <ci>u_E1_E1</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_f_Rr</ci>
+        <ci>u_E4_E4</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_f_Rt</ci>
+        <apply>
+          <plus/>
+          <ci>u_E2_E2</ci>
+          <ci>u_TF_f_1</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_f_Ru</ci>
+        <ci>u_E3_E3</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_r_Rb</ci>
+        <ci>u_E2_E2</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_r_Rr</ci>
+        <ci>u_E1_E1</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_r_Rt</ci>
+        <apply>
+          <plus/>
+          <ci>u_E3_E3</ci>
+          <ci>u_TF_r_0</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>u_r_Ru</ci>
+        <apply>
+          <plus/>
+          <ci>u_Ai_Ai</ci>
+          <ci>u_E4_E4</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_Rb</ci>
+        <apply>
+          <times/>
+          <ci>kappa_Rb</ci>
+          <apply>
+            <minus/>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_f_Rb</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_r_Rb</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_Rr</ci>
+        <apply>
+          <times/>
+          <ci>kappa_Rr</ci>
+          <apply>
+            <minus/>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_f_Rr</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_r_Rr</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_Rt</ci>
+        <apply>
+          <times/>
+          <ci>kappa_Rt</ci>
+          <apply>
+            <minus/>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_f_Rt</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_r_Rt</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_Ru</ci>
+        <apply>
+          <times/>
+          <ci>kappa_Ru</ci>
+          <apply>
+            <minus/>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_f_Ru</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+            <apply>
+              <exp/>
+              <apply>
+                <divide/>
+                <ci>u_r_Ru</ci>
+                <ci>RT</ci>
+              </apply>
+            </apply>
+          </apply>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_Ai_Ai</ci>
+        <ci>v_Ru</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_Ao_Ao</ci>
+        <apply>
+          <minus/>
+          <ci>v_Rb</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_C_m</ci>
+        <apply>
+          <minus/>
+          <ci>v_TF_r_1</ci>
+          <ci>v_TF_f_0</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_E1_E1</ci>
+        <apply>
+          <minus/>
+          <ci>v_Rr</ci>
+          <ci>v_Rb</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_E2_E2</ci>
+        <apply>
+          <minus/>
+          <ci>v_Rb</ci>
+          <ci>v_Rt</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_E3_E3</ci>
+        <apply>
+          <minus/>
+          <ci>v_Rt</ci>
+          <ci>v_Ru</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_E4_E4</ci>
+        <apply>
+          <minus/>
+          <ci>v_Ru</ci>
+          <ci>v_Rr</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_TF_f_0</ci>
+        <apply>
+          <times/>
+          <ci>TF_f</ci>
+          <ci>v_Rt</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <ci>v_TF_r_1</ci>
+        <apply>
+          <divide/>
+          <ci>v_Rt</ci>
+          <ci>TF_r</ci>
+        </apply>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_Ai_Ai</ci>
+        </apply>
+        <ci>v_Ai_Ai</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_Ao_Ao</ci>
+        </apply>
+        <ci>v_Ao_Ao</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_C_m</ci>
+        </apply>
+        <ci>v_C_m</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_E1_E1</ci>
+        </apply>
+        <ci>v_E1_E1</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_E2_E2</ci>
+        </apply>
+        <ci>v_E2_E2</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_E3_E3</ci>
+        </apply>
+        <ci>v_E3_E3</ci>
+      </apply>
+    </math>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply>
+        <eq/>
+        <apply>
+          <diff/>
+          <bvar>
+            <ci>t</ci>
+          </bvar>
+          <ci>q_E4_E4</ci>
+        </apply>
+        <ci>v_E4_E4</ci>
+      </apply>
+    </math>
+  </component>
+</model>

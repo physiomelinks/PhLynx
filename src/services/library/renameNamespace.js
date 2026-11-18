@@ -30,6 +30,7 @@ export function renameNamespaceInLibrary(state, from, to) {
     mathLayouts: renameEntries(state.mathLayouts, file),
     mathSources: renameEntries(state.mathSources, file),
     ...(state.moduleAnnotations && { moduleAnnotations: renameEntries(state.moduleAnnotations, file) }),
+    ...(state.steadyStateConfigs && { steadyStateConfigs: renameEntries(state.steadyStateConfigs, file) }),
   }
 }
 

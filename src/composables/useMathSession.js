@@ -236,23 +236,27 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    * @param {string} options.mathRef
    * @param {Array} options.rows - The instance's saved rows.
    * @param {boolean} options.managed - Whether to start in Simple Mode.
+   * @param {string} [options.math] - Math to show instead of the stored math, such as the instance's steady state;
+   *   its layout is `options.layout`.
+   * @param {Object|null} [options.layout]
    * @returns {Promise<void>}
    */
-  async function load({ mathRef, rows, managed }) {
+  async function load({ mathRef, rows, managed, math: givenMath, layout: givenLayout = null }) {
     const requestId = ++loadRequestId
     isManaged.value = managed
     loadedMathRef.value = mathRef ?? null
-    const math = (mathRef && store.availableMath.get(mathRef)) || ''
+    const isGiven = typeof givenMath === 'string'
+    const math = isGiven ? givenMath : (mathRef && store.availableMath.get(mathRef)) || ''
     currentModel.value = math
     originalModel.value = math
-    loadedLayout.value = (mathRef && store.getMathLayout(mathRef)) || null
+    loadedLayout.value = isGiven ? givenLayout : (mathRef && store.getMathLayout(mathRef)) || null
     originalLayout.value = loadedLayout.value
     currentText.value = { format: null, value: '', layout: null }
     pendingRename.value = null
     hasInitialised = false
     parkedRows.clear()
 
-    const nextAnalysis = mathRef ? await store.ensureMathAnalysis(mathRef) : null
+    const nextAnalysis = isGiven ? analyzeMathXml(math) : mathRef ? await store.ensureMathAnalysis(mathRef) : null
     if (requestId !== loadRequestId) return
     analysis.value = nextAnalysis
     unusedDeclared.value = findUnusedDeclared(nextAnalysis)

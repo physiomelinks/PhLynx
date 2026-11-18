@@ -19,6 +19,7 @@ import { listFeatureOperands, resolveFeatureOperands } from '../services/simulat
 import { clampSolverSettings, prepareProtocolRun } from '../services/simulation/protocolRun'
 import { familyValues, findBoundarySweepProblem, findSweepProblem, listSweptBoundaries, resolveSweepTarget, splitFamily, sweepLabel, sweepReadout, sweepValues } from '../services/simulation/sweep'
 import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
+import { scopeWithKinetics } from '../services/steadyState/kineticsOverride'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useProtocolStore } from '../stores/protocolStore'
@@ -147,14 +148,25 @@ export function useSimulation() {
    * once per value of the swept parameter, or with ODEs, its time course run once per value.
    *
    * @param {string[]|null} [nodeIds] - The nodes to simulate, or null for every node.
+   * @param {{kinetics?: Map<string, string>}} [options] - Instances to run in other kinetics this once, by node id.
    * @returns {Promise<void>}
    */
-  async function run(nodeIds = null) {
+  async function run(nodeIds = null, { kinetics = null } = {}) {
     cancelSimulation()
     const token = runToken
     store.startRun(nodeIds)
 
-    const scope = resolveCurrentScope(nodeIds)
+    let scope = resolveCurrentScope(nodeIds)
+    // Instances run in other kinetics for this run only, as a comparison of full kinetics and steady state does
+    if (kinetics?.size) {
+      try {
+        scope = await scopeWithKinetics(scope, kinetics, libraryStore)
+      } catch (error) {
+        if (token === runToken) store.failRun('error', String(error?.message ?? error))
+        return
+      }
+      if (token !== runToken) return
+    }
     // Read once, so a mode switched while the simulator loads can't mix the time course's inputs into a protocol run.
     const isProtocolRun = protocolStore.isActive
     // A protocol's ramps and traces are written into the model, so they are part of what it was flattened from. Read
@@ -215,6 +227,8 @@ export function useSimulation() {
     // Checked every run, since cut connections and inspection modules outside the scope change its warnings. A swept
     // boundary condition takes the sweep's values, so it isn't left at 0.
     const suppliedKeys = isSweepRun ? listSweptBoundaries(settings.sweep) : new Set()
+    // Steady-state instances' reduced math, which checkScope reports if it can't be derived.
+    await libraryStore.ensureInstanceMath?.(scope.nodes).catch(() => {})
     store.report = summariseScopeReport(checkScope(scope, libraryStore, { suppliedKeys }))
     if (isProtocolRun) {
       const { errors, warnings } = protocolStore.validation
@@ -441,6 +455,7 @@ export function useSimulation() {
     const refusal = { errors: ['Wait for the run to finish, or stop it, before exporting the protocol.'] }
     if (busy()) return refusal
     const scope = resolveCurrentScope(nodeIds)
+    await libraryStore.ensureInstanceMath?.(scope.nodes).catch(() => {})
     const report = summariseScopeReport(checkScope(scope, libraryStore))
     const errors = [...report.errors, ...protocolStore.validation.errors]
     if (errors.length || !protocolStore.view) return { errors: errors.length ? errors : ['The workspace has no protocol to export.'] }
@@ -507,6 +522,7 @@ export function useSimulation() {
     const refusal = { errors: ['Wait for the run to finish, or stop it, before exporting it.'] }
     if (busy()) return refusal
     const scope = resolveCurrentScope(nodeIds)
+    await libraryStore.ensureInstanceMath?.(scope.nodes).catch(() => {})
     const { errors } = summariseScopeReport(checkScope(scope, libraryStore))
     if (errors.length) return { errors }
 

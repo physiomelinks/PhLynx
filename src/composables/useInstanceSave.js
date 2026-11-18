@@ -32,6 +32,7 @@ import { separateParameters } from '../services/math/separateParameters'
 import { rescaleRows } from '../services/math/unitRescale'
 import { fillPlacementCouplings } from '../services/bioView/links'
 import { getModuleFormat } from '../services/moduleFormats'
+import { isSteadyInstance, steadyStateRows } from '../services/steadyState/steadyStateLibrary'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, GHOST_NODE_TYPE, PROTECTED_MATH_REFS } from '../utils/constants'
 import { carryDrivesState } from '../utils/edges'
@@ -129,6 +130,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @param {string} mathRef - The math the node now uses.
    */
   function updateVariablesFromMath(node, mathRef) {
+    // A steady-state instance's rows follow its reduced math, derived again for the new math in the worker.
+    if (isSteadyInstance(node)) {
+      libraryStore.ensureSteadyState(mathRef).then((entry) => {
+        const current = findNode(node.id)
+        if (entry?.status !== 'ready' || !isSteadyInstance(current) || current.data.mathRef !== mathRef) return
+        updateNodeData(node.id, { variables: steadyStateRows(entry, current.data.variables, current.data.ports) })
+      })
+      return
+    }
     const analysis = libraryStore.getMathAnalysis(mathRef)
     if (!analysis) return
     const isLocked = getModuleFormat(libraryStore.getMathFormat(mathRef)).isMathLocked
@@ -356,7 +366,13 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
     const moduleFields = moduleRef ? { moduleRef } : {}
     // The parameter set the editor last applied, which a later import of that set re-applies.
     const setFields = save.parameterisation ? { parameterisation: save.parameterisation } : {}
-    updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields, ...setFields })
+    // How the instance runs its module: at steady state, or (absent) its full kinetics, with the other's rows kept.
+    const kineticsFields =
+      'kinetics' in save ? { kinetics: save.kinetics ?? undefined, kineticsStash: save.kineticsStash ? detachReactivity(save.kineticsStash) : undefined } : {}
+    updateNodeData(id, { name, variables, ports, mathRef, ...moduleFields, ...setFields, ...kineticsFields })
+    // The module's steady-state setup is its math's, so every instance on it at steady state follows (below).
+    if ('steadyStateConfig' in save) libraryStore.setSteadyStateConfig(mathRef, save.steadyStateConfig ?? null)
+    if (save.kinetics) libraryStore.ensureSteadyState(mathRef)
     // Whether its summed flows are held at 0, which the matcher reads.
     if ('annotationOverlay' in save) setOverlay(id, save.annotationOverlay)
     if (updateAll) {

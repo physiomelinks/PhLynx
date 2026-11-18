@@ -1322,7 +1322,7 @@ export function generateFlattenedModel(
     model.addComponent(parameterComponent)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
-    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
+    const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getNodeMathAnalysis ?? libraryStore.getMathAnalysis, storeOptions(libraryStore))
     // As in circulatory_autogen, nothing gives such a group a value. A scope that cuts it off from what computes it
     // falls back to their own values (see checkScope).
     if (boundaryValues.bcOnly.length && !allowBcOnly) {
@@ -1366,7 +1366,11 @@ export function generateFlattenedModel(
       const mathRef = node.data?.mathRef
       if (!mathRef) throw new Error(`Node '${node.data?.name ?? node.id}' has no mathRef.`)
 
-      const modelString = libraryStore.availableMath.get(mathRef)
+      // A steady-state instance runs its module's reduced math (libraryStore.ensureInstanceMath derives it).
+      const modelString = libraryStore.getInstanceMath ? libraryStore.getInstanceMath(node) : libraryStore.availableMath.get(mathRef)
+      if (!modelString && node.data.kinetics === 'steady') {
+        throw new Error(`The steady state of '${node.data.name ?? node.id}' isn't derived: ${libraryStore.getSteadyState?.(mathRef)?.message ?? 'derive it first'}.`)
+      }
       if (!modelString) throw new Error(`Missing math definition for '${mathRef}'`)
 
       // A state a connection drives loses its own equation and initial value, in this instance only.
@@ -1392,7 +1396,7 @@ export function generateFlattenedModel(
       nodeComponentMap.set(node.id, originalComponent)
 
       // The VoI is what the math integrates over, not a name; a value set in the parameter rows makes it a parameter.
-      const analysis = libraryStore.getMathAnalysis?.(mathRef) ?? analyzeMathXml(modelString)
+      const analysis = (libraryStore.getInstanceAnalysis ? libraryStore.getInstanceAnalysis(node) : libraryStore.getMathAnalysis?.(mathRef)) ?? analyzeMathXml(modelString)
       const voiNames = findVoiNames(analysis)
       for (const v of node.data.variables ?? []) {
         if (v.type === 'global_constant' || isSetAsConstant(node.id, v)) voiNames.delete(v.name)

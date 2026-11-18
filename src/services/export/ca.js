@@ -233,6 +233,11 @@ export function findCaExportBlocker(nodes, edges, libraryStore) {
       `${listNamed(annotated)}. Export CellML instead.`
     )
   }
+  // CA writes one file per module type, so an instance can't have its own steady-state math there yet.
+  const steady = nodes.filter((node) => node.data?.kinetics === 'steady').map((node) => node.data.name)
+  if (steady.length) {
+    return `The CA export can't hold steady-state instances yet: ${steady.join(', ')}. Set them to full kinetics, or export CellML instead.`
+  }
   // CA would run the module's own equation for the store, so the export would hold the wrong math.
   const driven = drivenStoreLabels(nodes, edges, libraryStore)
   if (driven.length) return `Driving a CellDL store from a connection isn't supported in the CA export yet: ${driven.join(', ')}`

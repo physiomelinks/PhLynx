@@ -100,7 +100,7 @@ function affineOutputKey(source, target) {
  *
  * @param {Array} nodes - Workspace nodes with `data.name` and `data.variables` rows.
  * @param {Array} edges - Workspace edges with `data.couplings`.
- * @param {(mathRef: string) => (Object|null)} [getMathAnalysis] - libraryStore.getMathAnalysis. With it, a `variable`
+ * @param {(mathRef: string, node?: Object) => (Object|null)} [getMathAnalysis] - libraryStore.getNodeMathAnalysis, or getMathAnalysis. With it, a `variable`
  *   row counts towards `overdetermined` only when its math computes it, since a saved row may still call an input
  *   `variable` (see reconcileRows). Without it, or for math it can't analyse, every `variable` row counts.
  * @param {Object} [options]
@@ -276,7 +276,7 @@ export function resolveBoundaryValues(nodes, edges, getMathAnalysis = null, { is
   // What each node's math computes as a state or by assignment, or null when that isn't known.
   const mathComputed = new Map(
     nodes.map((node) => {
-      const analysis = getMathAnalysis && node.data?.mathRef ? getMathAnalysis(node.data.mathRef) : null
+      const analysis = getMathAnalysis && node.data?.mathRef ? getMathAnalysis(node.data.mathRef, node) : null
       return [node.id, analysis ? new Set([...(analysis.stateVariables ?? []), ...(analysis.assigned ?? [])]) : null]
     })
   )

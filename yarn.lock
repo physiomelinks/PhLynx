@@ -977,7 +977,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@physiomelinks/math-ast@npm:^0.6.2":
+"@physiomelinks/math-ast@npm:0.6.2, @physiomelinks/math-ast@npm:^0.6.2":
   version: 0.6.2
   resolution: "@physiomelinks/math-ast@npm:0.6.2"
   checksum: 10c0/d5d83f9d98bac3d0398eb17b348f704c8e409c7d4d71b3d1e669032bf88cf48c4225cded3788224b29ceef1366f2e057513537b363dda71830414205b3c2404f
@@ -999,6 +999,15 @@ __metadata:
     vue:
       optional: true
   checksum: 10c0/67a6ce93467e496df9517a904e8e475cbb3a7d7c28dd25ee8040a66b959271dd9f762fa0f6d3eacf75f6292307461ca63020a2af10f8c82d92abfb79d418cf87
+  languageName: node
+  linkType: hard
+
+"@physiomelinks/steady-state@file:./vendor/physiomelinks-steady-state-0.0.0.tgz::locator=phlynx%40workspace%3A.":
+  version: 0.0.0
+  resolution: "@physiomelinks/steady-state@file:./vendor/physiomelinks-steady-state-0.0.0.tgz#./vendor/physiomelinks-steady-state-0.0.0.tgz::hash=9e962b&locator=phlynx%40workspace%3A."
+  dependencies:
+    "@physiomelinks/math-ast": "npm:^0.6.2"
+  checksum: 10c0/f2c7410a822bbca9a546f0e17c028da529cbeb36a5a5113b2e91622b469d561c13c27969ab24ab912ac238b4f92be3b1b8b6cbc3f0480b1565e1662ab1ff0d3c
   languageName: node
   linkType: hard
 
@@ -5299,7 +5308,9 @@ __metadata:
     "@lezer/lr": "npm:^1.4.12"
     "@opencor/libopencor": "npm:^1.20261113.0"
     "@physiomelinks/bg2cellml": "npm:0.6.2"
+    "@physiomelinks/math-ast": "npm:0.6.2"
     "@physiomelinks/protocol-kit": "npm:^0.6.0"
+    "@physiomelinks/steady-state": "file:./vendor/physiomelinks-steady-state-0.0.0.tgz"
     "@primeuix/utils": "npm:^0.6.4"
     "@primevue/themes": "npm:4"
     "@tailwindcss/vite": "npm:^4.3.5"
