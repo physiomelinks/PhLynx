@@ -30,6 +30,16 @@ export function steadyStateRows(entry, rows, ports = []) {
   return fillBlankValues(reconciled, entry.defaults)
 }
 
+/**
+ * The variables a module's annotations name, which its steady state keeps so the annotations still apply.
+ *
+ * @param {Object|null} sidecar - A parsed side-car (libraryStore.getParsedModuleAnnotations).
+ * @returns {string[]}
+ */
+export function annotatedVariables(sidecar) {
+  return [...new Set((sidecar?.variables ?? []).map(({ variable }) => variable).filter(Boolean))]
+}
+
 /** Parameters named like transformer ratios, which a reduction recognises as multiples of F. */
 const isRatioName = (name) => /^TF(_|$)/.test(name)
 
@@ -72,7 +82,15 @@ export function isSteadyStateSpec(spec) {
  * @param {import('vue').Ref<Map>} options.unitDefinitions
  * @param {typeof analyseSteadyStateInBackground} [options.analyse] - For tests.
  */
-export function createSteadyStateLibrary({ availableMath, getMathDefaults, getMathAnalysis, unitDefinitions, analyse = analyseSteadyStateInBackground }) {
+export function createSteadyStateLibrary({
+  availableMath,
+  getMathDefaults,
+  getMathAnalysis,
+  unitDefinitions,
+  getModuleAnnotations = () => null,
+  ensureModuleAnnotations = async () => null,
+  analyse = analyseSteadyStateInBackground,
+}) {
   // mathRef -> the steady-state spec chosen for it. A math without one uses the first cycle found.
   const steadyStateConfigs = ref(new Map())
   // mathRef -> SteadyStateEntry. Non-reactive, like analyses; `revision` changes when one lands.
@@ -82,7 +100,10 @@ export function createSteadyStateLibrary({ availableMath, getMathDefaults, getMa
 
   const keyOf = (mathRef) => {
     const math = availableMath.value.get(mathRef)
-    return math === undefined ? null : cyrb53(`${math}\u0000${JSON.stringify(steadyStateConfigs.value.get(mathRef) ?? null)}`)
+    if (math === undefined) return null
+    // The annotations too: the fluxes they name are kept at their steady state
+    const setup = JSON.stringify([steadyStateConfigs.value.get(mathRef) ?? null, getModuleAnnotations(mathRef) ?? null])
+    return cyrb53(`${math}\u0000${setup}`)
   }
 
   function getSteadyStateConfig(mathRef) {
@@ -114,11 +135,13 @@ export function createSteadyStateLibrary({ availableMath, getMathDefaults, getMa
     const defaults = getMathDefaults(mathRef) ?? new Map()
     const values = {}
     for (const [name, value] of defaults) if (Number.isFinite(Number(value)) && value !== '') values[name] = Number(value)
+    const annotations = await ensureModuleAnnotations(mathRef).catch(() => null)
     const result = await analyse({
       xml,
       spec: plain(steadyStateConfigs.value.get(mathRef) ?? null),
       values,
       ratios: Object.keys(values).filter(isRatioName),
+      keep: annotatedVariables(annotations),
     })
     if (!result?.reduced) {
       return { key, status: 'error', result, message: result?.issues?.[0]?.message ?? 'This module has no steady state.' }

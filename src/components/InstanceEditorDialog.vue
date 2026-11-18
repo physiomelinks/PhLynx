@@ -509,13 +509,13 @@
 
             <!-- TAB 4: ANNOTATIONS, shared by every instance of the math -->
             <TabPanel value="annotations" class="tab-panel-flex">
-              <Message v-if="isSteady" severity="info" size="small" :closable="false" class="steady-annotations-note">
-                Annotations describe the module's full kinetics. Switch Kinetics to Full to edit them.
+              <Message v-if="isSteady" severity="secondary" size="small" variant="simple" class="steady-annotations-note">
+                At steady state, only the variables the module's full kinetics also has can be annotated here; the
+                transporter's own states are annotated with Kinetics set to Full.
               </Message>
               <AnnotationTab
-                v-else
                 v-model:draft="annotationDraft"
-                :rows="parameterRows"
+                :rows="annotatableRows"
                 :variable-kinds="variableKinds"
                 :sidecar="renamedSidecar"
                 :sidecar-text="store.getModuleAnnotations(mathRef)"
@@ -699,7 +699,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useSteadyState } from '../composables/useSteadyState'
 import SteadyStateSetup from './steadyState/SteadyStateSetup.vue'
-import { STEADY_STATE_KINETICS } from '../services/steadyState/steadyStateLibrary'
+import { STEADY_STATE_KINETICS, annotatedVariables } from '../services/steadyState/steadyStateLibrary'
 import { declarationsFromModel } from '../services/steadyState/reducedModel'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useInstanceSave } from '../composables/useInstanceSave'
@@ -982,6 +982,16 @@ const moduleFormat = computed(() => chosenFormat.value ?? storedFormat.value)
 // At steady state the math shown is derived from the module's, so it can't be edited either.
 const isMathLocked = computed(() => moduleFormat.value.isMathLocked || isSteady.value)
 
+/**
+ * The rows the Annotations tab lists: at steady state only those the module's full math also has, since annotations
+ * are the module's and the variables only the steady state has aren't in its math.
+ */
+const annotatableRows = computed(() => {
+  if (!isSteady.value) return parameterRows.value
+  const names = new Set(declarationsFromModel(fullMath.value).map(({ name }) => name))
+  return parameterRows.value.filter((row) => names.has(row.name))
+})
+
 /** Why a math editor shows the math read-only, or null when it can be edited. */
 const readOnlyNotice = computed(() => {
   if (!isMathLocked.value || !MATH_EDITOR_KINDS.has(editorKind.value)) return null
@@ -1250,6 +1260,8 @@ const steadyState = useSteadyState({
   rows: computed(() => (isSteady.value ? (otherKineticsRows.value ?? []) : parameterRows.value)),
   unitDefinitions: computed(() => store.unitDefinitions),
   isActive: computed(() => isSteady.value || activeTab.value === 'steady'),
+  // The fluxes the module's annotations name stay, at their steady state, so the annotations and their ports still apply
+  keep: computed(() => annotatedVariables(store.getParsedModuleAnnotations(props.mathRef))),
 })
 
 /**
@@ -3338,7 +3350,9 @@ async function saveInstance(options) {
     if (!target) return
   }
   // Only ids changed: the math is written under its own reference, as the same math (see isNewModuleSave).
-  if (idsChanged) target = { mathRef: props.mathRef, math: savedMath, layout: currentLayout.value }
+  if (idsChanged) {
+    target = { mathRef: props.mathRef, math: savedMath, layout: isSteady.value ? store.getMathLayout(props.mathRef) : currentLayout.value }
+  }
   const newMathRef = target?.mathRef ?? props.mathRef
   const mathToSave = target?.math
   const layoutToSave = target ? target.layout : isSteady.value ? store.getMathLayout(props.mathRef) : currentLayout.value

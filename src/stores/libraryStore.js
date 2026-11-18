@@ -1004,7 +1004,14 @@ export const useLibraryStore = defineStore('library', () => {
   })
 
   // Each math's steady-state setup, and the reduced math steady-state instances run.
-  const steadyState = createSteadyStateLibrary({ availableMath, getMathDefaults, getMathAnalysis, unitDefinitions })
+  const steadyState = createSteadyStateLibrary({
+    availableMath,
+    getMathDefaults,
+    getMathAnalysis,
+    unitDefinitions,
+    getModuleAnnotations,
+    ensureModuleAnnotations,
+  })
 
   function hasUnits(name) {
     return availableUnitNames.value.has(name)

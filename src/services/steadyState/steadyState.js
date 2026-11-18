@@ -42,10 +42,12 @@ export function readEquations(xml) {
  * @param {SteadyStateSpec|null} [options.spec] - What to reduce; by default the first cycle found.
  * @param {Object<string, number>} [options.values] - Parameter values: for transformer ratios, and the numeric check.
  * @param {string[]} [options.ratios] - Parameters that are transformer ratios, to recognise as multiples of F.
+ * @param {string[]} [options.keep] - The cycle's variables to keep at their steady state, such as reaction fluxes the
+ *   module's annotations name, so they still can.
  * @param {boolean} [options.check] - Also check the result numerically against the full cycle.
  * @returns {SteadyStateAnalysis}
  */
-export function analyseSteadyState({ xml, spec = null, values = {}, ratios = [], check = true }) {
+export function analyseSteadyState({ xml, spec = null, values = {}, ratios = [], keep = [], check = true }) {
   const empty = { suggestions: [], spec: null, issues: [], common: null, reduced: null, verifyError: null }
   if (typeof xml !== 'string' || !xml.trim()) return empty
 
@@ -62,7 +64,7 @@ export function analyseSteadyState({ xml, spec = null, values = {}, ratios = [],
   const result = deriveSteadyState(equations, chosen)
   if (!result.ok) return { ...empty, suggestions, spec: chosen, issues: [...result.issues] }
 
-  const reduced = reduceModel(equations, chosen, result)
+  const reduced = reduceModel(equations, chosen, result, { keep })
   const cnUnits = (cn) => cn.units ?? 'dimensionless'
   let verifyError = null
   if (check) {

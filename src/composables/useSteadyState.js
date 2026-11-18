@@ -19,8 +19,10 @@ const isRatioName = (name) => /^TF(_|$)/.test(name)
  * @param {import('vue').Ref<Array>} options.rows - Parameter rows with values, for transformer ratios.
  * @param {import('vue').Ref<Map>} options.unitDefinitions - The library's units (mergeUnitDefinitions).
  * @param {import('vue').Ref<boolean>} options.isActive - Whether anything shows the preview; work waits until it does.
+ * @param {import('vue').Ref<string[]>} [options.keep] - Cycle variables to keep at their steady state, such as fluxes the
+ *   module's annotations name.
  */
-export function useSteadyState({ xml, rows, unitDefinitions, isActive }) {
+export function useSteadyState({ xml, rows, unitDefinitions, isActive, keep = ref([]) }) {
   /** The setup being edited, or null for the first cycle found. */
   const spec = ref(null)
   const analysis = shallowRef(null)
@@ -49,6 +51,7 @@ export function useSteadyState({ xml, rows, unitDefinitions, isActive }) {
       spec: spec.value ? structuredClone(toRaw(spec.value)) : null,
       values: known,
       ratios: Object.keys(known).filter(isRatioName),
+      keep: [...(keep.value ?? [])],
     })
       .then((result) => {
         if (id === sequence) analysis.value = result
@@ -65,7 +68,7 @@ export function useSteadyState({ xml, rows, unitDefinitions, isActive }) {
   }
 
   watch(
-    [xml, spec, isActive],
+    [xml, spec, isActive, keep],
     () => {
       if (!isActive.value) return
       clearTimeout(timer)

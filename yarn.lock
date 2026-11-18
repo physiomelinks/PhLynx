@@ -1004,10 +1004,10 @@ __metadata:
 
 "@physiomelinks/steady-state@file:./vendor/physiomelinks-steady-state-0.0.0.tgz::locator=phlynx%40workspace%3A.":
   version: 0.0.0
-  resolution: "@physiomelinks/steady-state@file:./vendor/physiomelinks-steady-state-0.0.0.tgz#./vendor/physiomelinks-steady-state-0.0.0.tgz::hash=76faa3&locator=phlynx%40workspace%3A."
+  resolution: "@physiomelinks/steady-state@file:./vendor/physiomelinks-steady-state-0.0.0.tgz#./vendor/physiomelinks-steady-state-0.0.0.tgz::hash=9e962b&locator=phlynx%40workspace%3A."
   dependencies:
     "@physiomelinks/math-ast": "npm:^0.6.2"
-  checksum: 10c0/5f1774f0b5ad967fb6172520fd6e43324cec163ca75d1a5b9b98ba2818839f0ae7c14722ce901765baffe474915b508b872663f042aab26418fd56b0ff3ff423
+  checksum: 10c0/f2c7410a822bbca9a546f0e17c028da529cbeb36a5a5113b2e91622b469d561c13c27969ab24ab912ac238b4f92be3b1b8b6cbc3f0480b1565e1662ab1ff0d3c
   languageName: node
   linkType: hard
 
