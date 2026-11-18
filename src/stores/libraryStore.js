@@ -22,7 +22,7 @@ import { expandUnits, extractUnitDefinitions, extractUnitNames, mergeUnitDefinit
 import { unitsModelXml } from '../utils/unitExpression'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import { analyzeBatchInBackground, analyzeInBackground } from '../services/math/mathWorkerClient'
-import { findUnitImbalances } from '../services/math/unitBalance'
+import { NO_FINDINGS, checkMath } from '../services/math/checkMath'
 import { separateParameters } from '../services/math/separateParameters'
 import { detachReactivity } from '../utils/reactivity'
 import { DEFAULT_MODULE_FORMAT, checkMathSource } from '../services/moduleFormats'
@@ -73,8 +73,8 @@ export const useLibraryStore = defineStore('library', () => {
 
   // mathRef -> MathAnalysis. Non-reactive, since analyses are large and only read imperatively.
   const availableMathAnalysis = markRaw(new Map())
-  // mathRef -> the equations whose units don't balance; checked when asked for, and dropped when the math or units change.
-  const mathUnitImbalances = shallowReactive(new Map())
+  // mathRef -> what checkMath finds in it; checked when asked for, and dropped when the math or units change.
+  const mathChecks = shallowReactive(new Map())
 
   // mathRef -> the module's sidecar RDF text, saved as written. Its parse is a cache, never saved.
   const moduleAnnotations = ref(new Map())
@@ -141,7 +141,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathSources.value.clear()
     availableMathAnalysis.clear()
     pendingAnalysis.clear()
-    mathUnitImbalances.clear()
+    mathChecks.clear()
     moduleAnnotations.value.clear()
     parsedModuleAnnotations.clear()
     pendingAnnotationParses.clear()
@@ -423,7 +423,7 @@ export const useLibraryStore = defineStore('library', () => {
    */
   function scheduleMathAnalysis(mathRef, math) {
     availableMathAnalysis.delete(mathRef)
-    mathUnitImbalances.delete(mathRef)
+    mathChecks.delete(mathRef)
     pendingAnalysis.set(mathRef, math)
     if (!isAnalysisFlushScheduled) {
       isAnalysisFlushScheduled = true
@@ -686,7 +686,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathSources.value.delete(mathRef)
     setModuleAnnotations(mathRef, null)
     pendingAnalysis.delete(mathRef)
-    mathUnitImbalances.delete(mathRef)
+    mathChecks.delete(mathRef)
     if (!availableMath.value.has(mathRef)) return
 
     removeMathHashEntry(mathRef, mathRefHash.value.get(mathRef))
@@ -985,50 +985,50 @@ export const useLibraryStore = defineStore('library', () => {
   /** Every library units definition, the first of each name winning. Derived, so never saved. */
   const unitDefinitions = computed(() => mergeUnitDefinitions(availableUnits.value.map((file) => file.model)))
 
-  const NO_IMBALANCES = Object.freeze([])
-  const pendingUnitChecks = new Set()
+  const pendingMathChecks = new Set()
 
-  // A units file added, edited or removed can change whether any math balances.
-  watch(unitDefinitions, () => mathUnitImbalances.clear())
+  // A units file added, edited or removed can change whether any math is valid or balances.
+  watch(unitDefinitions, () => mathChecks.clear())
 
-  /** Checks the math waiting for a units check, once libCellML has loaded. */
-  function scheduleUnitChecks() {
-    if (pendingUnitChecks.size !== 1) return // already scheduled
+  /** Checks the math waiting for a check, once libCellML has loaded. */
+  function scheduleMathChecks() {
+    if (pendingMathChecks.size !== 1) return // already scheduled
     whenLibCellMLReady()
-      .then(() => setTimeout(runUnitChecks))
-      .catch(() => pendingUnitChecks.clear())
+      .then(() => setTimeout(runMathChecks))
+      .catch(() => pendingMathChecks.clear())
   }
 
-  function runUnitChecks() {
+  function runMathChecks() {
     const libcellml = getLibCellML()
-    for (const mathRef of pendingUnitChecks) {
+    for (const mathRef of pendingMathChecks) {
       const math = availableMath.value.get(mathRef)
       if (!math) continue
       try {
-        mathUnitImbalances.set(mathRef, findUnitImbalances(libcellml, math, unitDefinitions.value))
+        mathChecks.set(mathRef, checkMath(libcellml, math, unitDefinitions.value))
       } catch (err) {
-        console.error(`Failed to check the units of "${mathRef}":`, err)
-        mathUnitImbalances.set(mathRef, NO_IMBALANCES)
+        console.error(`Failed to check the math of "${mathRef}":`, err)
+        mathChecks.set(mathRef, NO_FINDINGS)
       }
     }
-    pendingUnitChecks.clear()
+    pendingMathChecks.clear()
   }
 
   /**
-   * Gets the equations in a math whose units don't balance (see findUnitImbalances). The first call for a math
-   * checks it in the background and gives none; reactive callers update when the check lands.
+   * Gets what checkMath finds in a math: whether it's valid CellML on its own, and which equations' units don't
+   * balance. The first call for a math checks it in the background and finds nothing; reactive callers update
+   * when the check lands.
    *
    * @param {string} mathRef
-   * @returns {string[]} libCellML's description of each.
+   * @returns {{ invalid: string[], imbalances: string[] }} libCellML's descriptions.
    */
-  function getMathUnitImbalances(mathRef) {
-    const found = mathUnitImbalances.get(mathRef)
+  function getMathCheck(mathRef) {
+    const found = mathChecks.get(mathRef)
     if (found) return found
-    if (availableMath.value.has(mathRef) && !pendingUnitChecks.has(mathRef)) {
-      pendingUnitChecks.add(mathRef)
-      scheduleUnitChecks()
+    if (availableMath.value.has(mathRef) && !pendingMathChecks.has(mathRef)) {
+      pendingMathChecks.add(mathRef)
+      scheduleMathChecks()
     }
-    return NO_IMBALANCES
+    return NO_FINDINGS
   }
 
   /** Each units name's SI base-unit expansion, for display. Derived, so never saved. */
@@ -1097,7 +1097,7 @@ export const useLibraryStore = defineStore('library', () => {
     getMathRefsByHash,
     getMathAnalysis,
     ensureMathAnalysis,
-    getMathUnitImbalances,
+    getMathCheck,
     getMathDefaults,
     setMathDefaults,
     getMathLayout,

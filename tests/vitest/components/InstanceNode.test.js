@@ -219,7 +219,7 @@ describe('InstanceNode warning', () => {
   <units name="per_second"><unit units="second" exponent="-1"/></units>
 </model>`,
     })
-    store.getMathUnitImbalances = vi.fn(() => [])
+    store.getMathCheck = vi.fn(() => ({ invalid: [], imbalances: [] }))
   })
 
   afterEach(() => wrapper?.unmount())
@@ -239,9 +239,9 @@ describe('InstanceNode warning', () => {
   })
 
   it("warns when the module's math doesn't balance its units", () => {
-    store.getMathUnitImbalances = vi.fn(() => [IMBALANCE])
+    store.getMathCheck = vi.fn(() => ({ invalid: [], imbalances: [IMBALANCE] }))
     mountWith([{ name: 'k', type: 'constant', value: '1', units: 'per_second' }])
-    expect(store.getMathUnitImbalances).toHaveBeenCalledWith('cell.cellml:soma')
+    expect(store.getMathCheck).toHaveBeenCalledWith('cell.cellml:soma')
     expect(warning().attributes('data-tooltip')).toBe(
       "Units don't balance in an equation of this module's math:\n" +
         "• dx/dt = k*x: 'dx/dt' is in 'metre x second^-1' while 'k*x' is in 'metre x second'."
@@ -255,8 +255,28 @@ describe('InstanceNode warning', () => {
     )
   })
 
+  it("warns when the module's math isn't valid CellML", () => {
+    store.getMathCheck = vi.fn(() => ({
+      invalid: [
+        "MathML ci element has the child text 'r_max' which does not correspond with any variable names present in component 'soma'.",
+      ],
+      imbalances: [],
+    }))
+    mountWith([{ name: 'k', type: 'constant', value: '1', units: 'per_second' }])
+    expect(warning().attributes('data-tooltip')).toBe(
+      "This module's math isn't valid CellML:\n• MathML ci element has the child text 'r_max' which does not correspond with any variable names."
+    )
+  })
+
+  it('lists only the first few problems of a kind', () => {
+    const invalid = ['a', 'b', 'c', 'd', 'e'].map((name) => `Variable '${name}' is wrong.`)
+    store.getMathCheck = vi.fn(() => ({ invalid, imbalances: [] }))
+    mountWith([])
+    expect(warning().attributes('data-tooltip').split('\n').slice(-2)).toEqual(["• Variable 'c' is wrong.", '• and 2 more'])
+  })
+
   it('lists every problem in one warning', () => {
-    store.getMathUnitImbalances = vi.fn(() => [IMBALANCE])
+    store.getMathCheck = vi.fn(() => ({ invalid: [], imbalances: [IMBALANCE] }))
     mountWith([{ name: 'k', type: 'constant', value: '', units: 'per_second' }])
     expect(wrapper.findAll('.warning-icon')).toHaveLength(1)
     expect(warning().attributes('data-tooltip').split('\n\n')).toHaveLength(2)

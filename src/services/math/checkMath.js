@@ -1,3 +1,4 @@
+import { loggerMessages } from '../../utils/cellml'
 import { AFFINE_UNIT_CONVERSIONS, STANDARD_UNITS } from '../../utils/constants'
 import { unitsModelXml } from '../../utils/unitExpression'
 
@@ -36,20 +37,33 @@ export function unitsNeededBy(mathXml, unitDefinitions) {
   return needed
 }
 
+/** Each message once: libCellML reports a misspelt name at each place the math uses it. */
+const unique = (messages) => [...new Set(messages)]
+
+/** What checkMath finds in a math with nothing wrong. */
+export const NO_FINDINGS = Object.freeze({ invalid: Object.freeze([]), imbalances: Object.freeze([]) })
+
 /**
- * Finds the equations in a math whose units don't balance, such as `dx/dt = k*x` with k in seconds, as
- * libCellML's Analyser reports them. That includes terms that differ only in scale (ms and s), which
- * libCellML doesn't convert inside an equation. A units the Analyser can't work out, such as a power
- * with a variable exponent, isn't reported.
+ * Checks a math on its own, with the library's units: whether it's valid CellML, and, if it is, which equations'
+ * units don't balance.
+ *
+ * Invalid is what the Parser and Validator report, such as a variable the math uses but doesn't declare, or a
+ * units no units file defines; the export rejects such math. The Analyser's own errors (a state with no initial
+ * value, a variable it can't classify) aren't reported: on its own a math lacks the values its parameter rows and
+ * connections give it.
+ *
+ * Imbalances are equations such as `dx/dt = k*x` with k in seconds, as the Analyser reports them. That includes
+ * terms that differ only in scale (ms and s), which libCellML doesn't convert inside an equation. A units the
+ * Analyser can't work out, such as a power with a variable exponent, isn't reported. The Analyser checks units
+ * only in valid math, so invalid math has none.
  *
  * @param {Object} libcellml - The libCellML instance.
  * @param {string} mathXml - A math as libraryStore keeps it: a CellML 2.0 model with one component.
  * @param {Map<string, Array<Object>>} unitDefinitions - The library's, as libraryStore.unitDefinitions.
- * @returns {string[]} The Analyser's descriptions. A math that doesn't validate on its own (a units the library
- *   lacks, say) has none: the Analyser checks units only in a valid model.
+ * @returns {{ invalid: string[], imbalances: string[] }} libCellML's descriptions.
  */
-export function findUnitImbalances(libcellml, mathXml, unitDefinitions) {
-  if (typeof mathXml !== 'string' || !mathXml.trim()) return []
+export function checkMath(libcellml, mathXml, unitDefinitions) {
+  if (typeof mathXml !== 'string' || !mathXml.trim()) return NO_FINDINGS
 
   // The math's units definitions go before its component, in its own model.
   const units = unitsModelXml(unitsNeededBy(mathXml, unitDefinitions))
@@ -57,11 +71,15 @@ export function findUnitImbalances(libcellml, mathXml, unitDefinitions) {
   const xml = mathXml.replace(/<model\b[^>]*>/, (open) => `${open}\n${definitions}`)
 
   const parser = new libcellml.Parser(false)
+  const validator = new libcellml.Validator()
   const analyser = new libcellml.Analyser()
   let model = null
   try {
     model = parser.parseModel(xml)
-    if (!model || parser.errorCount()) return []
+    if (!model || parser.errorCount()) return { invalid: unique(loggerMessages(parser)), imbalances: [] }
+
+    validator.validateModel(model)
+    if (validator.errorCount()) return { invalid: unique(loggerMessages(validator)), imbalances: [] }
 
     analyser.analyseModel(model)
     const unitsRule = libcellml.Issue.ReferenceRule.ANALYSER_UNITS.value
@@ -80,17 +98,19 @@ export function findUnitImbalances(libcellml, mathXml, unitDefinitions) {
       }
       issue.delete()
     }
-    return imbalances
+    return imbalances.length ? { invalid: [], imbalances: unique(imbalances) } : NO_FINDINGS
   } finally {
     model?.delete()
     analyser.delete()
+    validator.delete()
     parser.delete()
   }
 }
 
 /**
- * Shortens a description from findUnitImbalances to its equation and what doesn't match, e.g.
- * "dx/dt = k*x: 'dx/dt' is in 'metre x second^-1' while 'k*x' is in 'metre x second'." Others stay whole.
+ * Shortens an imbalance from checkMath to its equation and what doesn't match, e.g.
+ * "dx/dt = k*x: 'dx/dt' is in 'metre x second^-1' while 'k*x' is in 'metre x second'." or
+ * "dx/dt = k*exp(x): 'x' in 'exp(x)' is not dimensionless; 'x' is in 'metre'." Others stay whole.
  *
  * @param {string} description
  * @returns {string}
@@ -98,6 +118,20 @@ export function findUnitImbalances(libcellml, mathXml, unitDefinitions) {
 export function summariseImbalance(description) {
   const equation =
     description.match(/ in equation '(.+?)' in component '/)?.[1] ?? description.match(/^The units in '(.+?)' in component '/)?.[1]
-  const detail = description.match(/ are not equivalent\. (.+)$/s)?.[1]
-  return equation && detail ? `${equation}: ${detail}` : description
+  const [, problem, detail] = description.match(/ in component '[^']*' (.+?)\. (.+)$/s) ?? []
+  if (!equation || !detail) return description
+  if (problem === 'are not equivalent') return `${equation}: ${detail}`
+  // "The unit of 'x' in 'exp(x)' in … is not dimensionless.": say which term, and in what.
+  const [, term, within] = description.match(/^The unit of '(.+?)' in '(.+?)' in /) ?? []
+  return term ? `${equation}: '${term}' in '${within}' ${problem}; ${detail}` : `${equation}: ${problem}; ${detail}`
+}
+
+/**
+ * Shortens a validity error from checkMath: the component is always the math's own, so isn't named.
+ *
+ * @param {string} description
+ * @returns {string}
+ */
+export function summariseInvalid(description) {
+  return description.replace(/ (in|of|present in) component '[^']*'/g, '').replace(/ in the parent model/g, ' in the units library')
 }
