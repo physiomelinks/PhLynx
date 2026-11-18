@@ -912,9 +912,13 @@ describe('InstanceEditorDialog new module template (#634)', () => {
       await report(editor, 'edit', EDITED_TEMPLATE_XML)
       expect(wrapper.vm.currentModel).not.toContain('<cn>1</cn>')
 
+      expect(wrapper.find('.read-only-notice').exists()).toBe(true)
+
       host.isDirty.value = false
       await flushPromises()
       expect(stubProps(FakeEditor).readonly).toBe(false)
+      expect(wrapper.find('.read-only-notice').exists()).toBe(false)
+      expect(wrapper.find('.editor-tabs .tab-lock').exists()).toBe(false)
       expect(stubProps(ParameterTableStub)['values-only']).toBe(false)
       await report(editor, 'edit', EDITED_TEMPLATE_XML)
       expect(wrapper.vm.currentModel).toContain('<cn>1</cn>')
@@ -1562,6 +1566,9 @@ describe('InstanceEditorDialog locked math', () => {
     await report(editor, 'init', XML)
 
     expect(stubProps(FakeEditor).readonly).toBe(true)
+    // Read-only is shown, with why
+    expect(wrapper.find('.read-only-notice').text()).toContain('generated from the module’s CellDL diagram')
+    expect(wrapper.findAll('.editor-tabs .tab-lock')).toHaveLength(2)
     // Its Parameters tab is the diagram's, with the math's text editor shown too.
     expect(wrapper.findComponent(CelldlParametersTabStub).exists()).toBe(true)
     expect(wrapper.findComponent(ParameterTableStub).exists()).toBe(false)

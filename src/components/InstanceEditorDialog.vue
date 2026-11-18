@@ -95,6 +95,12 @@
               <Tab v-else :value="option.value">
                 <i :class="['pi', option.icon, 'tab-icon']"></i>
                 {{ option.label }}
+                <i
+                  v-if="isMathLocked && MATH_EDITOR_KINDS.has(option.value)"
+                  class="pi pi-lock tab-lock"
+                  aria-label="(read-only)"
+                  v-tooltip.bottom="'Read-only'"
+                ></i>
               </Tab>
             </template>
           </TabList>
@@ -111,6 +117,11 @@
             </span>
           </div>
         </Message>
+        <!-- Why the math can't be edited here, and where it can -->
+        <div v-if="readOnlyNotice" class="read-only-notice" role="note">
+          <i class="pi pi-lock" aria-hidden="true"></i>
+          <span>{{ readOnlyNotice }}</span>
+        </div>
         <MultiportSummary v-if="isEditorReady" :entries="multiportEntries" />
         <div ref="editorWrapperRef" class="editor-wrapper">
           <div v-if="!isEditorReady" class="editor-pending">
@@ -970,6 +981,13 @@ const moduleFormat = computed(() => chosenFormat.value ?? storedFormat.value)
 /** Whether the math is generated from a source, so only its values can be edited here. */
 // At steady state the math shown is derived from the module's, so it can't be edited either.
 const isMathLocked = computed(() => moduleFormat.value.isMathLocked || isSteady.value)
+
+/** Why a math editor shows the math read-only, or null when it can be edited. */
+const readOnlyNotice = computed(() => {
+  if (!isMathLocked.value || !MATH_EDITOR_KINDS.has(editorKind.value)) return null
+  if (isSteady.value) return 'Read-only: derived from the module’s full kinetics. Switch Kinetics to Full to edit them.'
+  return `Read-only: generated from the module’s ${moduleFormat.value.label} diagram. Edit the diagram; values can still be changed in Parameters.`
+})
 /** Whether the format is settled, so editors for other formats' sources are locked. */
 const isSourceLocked = computed(() => !isTemplate.value || chosenFormat.value !== null)
 
@@ -3587,6 +3605,25 @@ async function saveInstance(options) {
 
 .rename-notice {
   margin-bottom: 8px;
+}
+
+/* Says the math editors are read-only, and why */
+.read-only-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--p-content-hover-background);
+  color: var(--p-text-muted-color);
+  font-size: 0.85rem;
+}
+
+.tab-lock {
+  margin-left: 4px;
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color);
 }
 
 .rename-notice-body {
