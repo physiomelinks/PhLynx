@@ -461,7 +461,7 @@ const overdetermined = computed(() => {
     ])
   )
   try {
-    return resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
+    return resolveBoundaryValues(nodes, edges, libraryStore.getNodeMathAnalysis ?? libraryStore.getMathAnalysis, storeOptions(libraryStore))
       .overdetermined.filter(({ keys }) => keys.some((key) => ownKeys.has(key)))
       .map(({ message }) => message)
   } catch {

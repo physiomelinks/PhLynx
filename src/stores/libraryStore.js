@@ -26,6 +26,7 @@ import { separateParameters } from '../services/math/separateParameters'
 import { detachReactivity } from '../utils/reactivity'
 import { DEFAULT_MODULE_FORMAT, checkMathSource } from '../services/moduleFormats'
 import { parseSidecar } from '../services/annotations/sidecar'
+import { createSteadyStateLibrary } from '../services/steadyState/steadyStateLibrary'
 
 function mergeIntoStore(newModules, target) {
   const moduleMap = new Map(target.map((mod) => [mod.componentFile, mod]))
@@ -142,6 +143,7 @@ export const useLibraryStore = defineStore('library', () => {
     parsedModuleAnnotations.clear()
     pendingAnnotationParses.clear()
     landedAnnotationParses.clear()
+    steadyState.resetSteadyState()
   }
 
   function createMathHash(math) {
@@ -679,6 +681,7 @@ export const useLibraryStore = defineStore('library', () => {
     mathDefaults.value.delete(mathRef)
     mathLayouts.value.delete(mathRef)
     mathSources.value.delete(mathRef)
+    steadyState.removeSteadyState(mathRef)
     setModuleAnnotations(mathRef, null)
     pendingAnalysis.delete(mathRef)
     if (!availableMath.value.has(mathRef)) return
@@ -708,6 +711,7 @@ export const useLibraryStore = defineStore('library', () => {
       layout: layout && detachReactivity(layout),
       source: source && detachReactivity(source),
       annotations: getModuleAnnotations(mathRef),
+      steadyState: detachReactivity(steadyState.getSteadyStateConfig(mathRef)),
     }
   }
 
@@ -727,6 +731,7 @@ export const useLibraryStore = defineStore('library', () => {
     setMathLayout(mathRef, entry.layout && detachReactivity(entry.layout))
     setMathSource(mathRef, entry.source && detachReactivity(entry.source))
     if ('annotations' in entry) setModuleAnnotations(mathRef, entry.annotations)
+    if ('steadyState' in entry) steadyState.setSteadyStateConfig(mathRef, entry.steadyState)
     addMathHashEntry(mathRef, entry.math)
     updateStubStatus(mathRef)
     scheduleMathAnalysis(mathRef, entry.math)
@@ -880,6 +885,8 @@ export const useLibraryStore = defineStore('library', () => {
       }
     }
 
+    steadyState.loadSteadyStateState(state.steadyStateConfigs)
+
     if (state.mathSources) {
       // A malformed source is skipped, leaving its math as plain CellML.
       for (const [mathRef, source] of state.mathSources) {
@@ -963,6 +970,8 @@ export const useLibraryStore = defineStore('library', () => {
       mathSources: Array.from(mathSources.value.entries()),
       // Until the format version that records sidecars, a library without any saves as before.
       ...(moduleAnnotations.value.size ? { moduleAnnotations: Array.from(moduleAnnotations.value.entries()) } : {}),
+      // Optional, like moduleAnnotations: a library with no steady-state setups saves as before.
+      ...(steadyState.steadyStateConfigs.value.size ? { steadyStateConfigs: steadyState.getSteadyStateState() } : {}),
     }
   }
 
@@ -994,6 +1003,9 @@ export const useLibraryStore = defineStore('library', () => {
     return new Set([...definitions].filter(([, parts]) => !parts.length).map(([name]) => name))
   })
 
+  // Each math's steady-state setup, and the reduced math steady-state instances run.
+  const steadyState = createSteadyStateLibrary({ availableMath, getMathDefaults, getMathAnalysis, unitDefinitions })
+
   function hasUnits(name) {
     return availableUnitNames.value.has(name)
   }
@@ -1014,6 +1026,16 @@ export const useLibraryStore = defineStore('library', () => {
     builtInUnitExpansions,
     unitDefinitions,
     generatedBaseUnits,
+
+    steadyStateConfigs: steadyState.steadyStateConfigs,
+    getSteadyStateConfig: steadyState.getSteadyStateConfig,
+    setSteadyStateConfig: steadyState.setSteadyStateConfig,
+    getSteadyState: steadyState.getSteadyState,
+    ensureSteadyState: steadyState.ensureSteadyState,
+    ensureInstanceMath: steadyState.ensureInstanceMath,
+    getInstanceMath: steadyState.getInstanceMath,
+    getInstanceAnalysis: steadyState.getInstanceAnalysis,
+    getNodeMathAnalysis: steadyState.getNodeMathAnalysis,
 
     // Actions
     addConfigFile,

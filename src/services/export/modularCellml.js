@@ -46,6 +46,7 @@ const STANDARD = new Set(STANDARD_UNITS)
 export async function buildModularModel(nodes, edges, libraryStore, inspectionModules = [], options = {}) {
   const { mainFileName = MODULAR_MAIN_FILE, ...flattenOptions } = options
   const instanceSources = new Map()
+  await libraryStore.ensureInstanceMath?.(nodes)
   const flat = await (await generateFlattenedModel(nodes, edges, libraryStore, inspectionModules, { ...flattenOptions, instanceSources })).text()
   const flatDoc = new DOMParser().parseFromString(flat, 'application/xml')
   const flatUnits = new Map(childrenNamed(flatDoc.documentElement, 'units').map((el) => [el.getAttribute('name'), el]))

@@ -32,6 +32,7 @@ import { separateParameters } from '../services/math/separateParameters'
 import { rescaleRows } from '../services/math/unitRescale'
 import { fillPlacementCouplings } from '../services/bioView/links'
 import { getModuleFormat } from '../services/moduleFormats'
+import { isSteadyInstance, steadyStateRows } from '../services/steadyState/steadyStateLibrary'
 import { getNodeSelections, replaceNodeSelections, setNodePlotVariables } from '../services/simulation/plotSelections'
 import { FLOW_IDS, GHOST_NODE_TYPE, PROTECTED_MATH_REFS } from '../utils/constants'
 import { carryDrivesState } from '../utils/edges'
@@ -129,6 +130,15 @@ export function useInstanceSave(flowId = FLOW_IDS.MAIN) {
    * @param {string} mathRef - The math the node now uses.
    */
   function updateVariablesFromMath(node, mathRef) {
+    // A steady-state instance's rows follow its reduced math, derived again for the new math in the worker.
+    if (isSteadyInstance(node)) {
+      libraryStore.ensureSteadyState(mathRef).then((entry) => {
+        const current = findNode(node.id)
+        if (entry?.status !== 'ready' || !isSteadyInstance(current) || current.data.mathRef !== mathRef) return
+        updateNodeData(node.id, { variables: steadyStateRows(entry, current.data.variables, current.data.ports) })
+      })
+      return
+    }
     const analysis = libraryStore.getMathAnalysis(mathRef)
     if (!analysis) return
     const isLocked = getModuleFormat(libraryStore.getMathFormat(mathRef)).isMathLocked

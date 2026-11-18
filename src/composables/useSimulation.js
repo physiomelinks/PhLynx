@@ -215,6 +215,8 @@ export function useSimulation() {
     // Checked every run, since cut connections and inspection modules outside the scope change its warnings. A swept
     // boundary condition takes the sweep's values, so it isn't left at 0.
     const suppliedKeys = isSweepRun ? listSweptBoundaries(settings.sweep) : new Set()
+    // Steady-state instances' reduced math, which checkScope reports if it can't be derived.
+    await libraryStore.ensureInstanceMath?.(scope.nodes).catch(() => {})
     store.report = summariseScopeReport(checkScope(scope, libraryStore, { suppliedKeys }))
     if (isProtocolRun) {
       const { errors, warnings } = protocolStore.validation
@@ -441,6 +443,7 @@ export function useSimulation() {
     const refusal = { errors: ['Wait for the run to finish, or stop it, before exporting the protocol.'] }
     if (busy()) return refusal
     const scope = resolveCurrentScope(nodeIds)
+    await libraryStore.ensureInstanceMath?.(scope.nodes).catch(() => {})
     const report = summariseScopeReport(checkScope(scope, libraryStore))
     const errors = [...report.errors, ...protocolStore.validation.errors]
     if (errors.length || !protocolStore.view) return { errors: errors.length ? errors : ['The workspace has no protocol to export.'] }
@@ -507,6 +510,7 @@ export function useSimulation() {
     const refusal = { errors: ['Wait for the run to finish, or stop it, before exporting it.'] }
     if (busy()) return refusal
     const scope = resolveCurrentScope(nodeIds)
+    await libraryStore.ensureInstanceMath?.(scope.nodes).catch(() => {})
     const { errors } = summariseScopeReport(checkScope(scope, libraryStore))
     if (errors.length) return { errors }
 

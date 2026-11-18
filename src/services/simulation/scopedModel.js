@@ -187,6 +187,9 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
     if (!node.data?.mathRef) incompleteNodes.push({ nodeId: node.id, nodeName, reason: 'has no module' })
     else if (!libraryStore.availableMath.get(node.data.mathRef)) {
       incompleteNodes.push({ nodeId: node.id, nodeName, reason: `uses missing math "${node.data.mathRef}"` })
+    } else if (node.data.kinetics === 'steady' && libraryStore.getInstanceMath && !libraryStore.getInstanceMath(node)) {
+      const why = libraryStore.getSteadyState?.(node.data.mathRef)?.message
+      incompleteNodes.push({ nodeId: node.id, nodeName, reason: why ? `is set to steady state, but ${why.charAt(0).toLowerCase()}${why.slice(1).replace(/\.$/, '')}` : 'is set to steady state, which is still being derived' })
     }
   }
 
@@ -194,7 +197,7 @@ export function checkScope(scope, libraryStore, { suppliedKeys = new Set() } = {
   if (!scope.nodes.length) errors.push('Select at least one instance to simulate.')
 
   try {
-    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
+    const scoped = resolveBoundaryValues(scope.nodes, scope.internalEdges, libraryStore.getNodeMathAnalysis ?? libraryStore.getMathAnalysis, storeOptions(libraryStore))
     conflicts = [
       ...scoped.conflicts,
       ...scoped.overdetermined.map(({ message }) => message),
@@ -288,6 +291,10 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
         availableMath: libraryStore.availableMath,
         availableUnits: libraryStore.availableUnits,
         getMathAnalysis: libraryStore.getMathAnalysis,
+        getNodeMathAnalysis: libraryStore.getNodeMathAnalysis,
+        getInstanceMath: libraryStore.getInstanceMath,
+        getInstanceAnalysis: libraryStore.getInstanceAnalysis,
+        getSteadyState: libraryStore.getSteadyState,
         getMathSource: libraryStore.getMathSource,
         getGlobalConstant: (name) => {
           const constant = libraryStore.getGlobalConstant(name)
@@ -346,7 +353,8 @@ export function buildScopeSignature(scope, libraryStore) {
     id,
     name: data?.name,
     mathRef: data?.mathRef,
-    math: libraryStore.availableMath.get(data?.mathRef) ?? null,
+    kinetics: data?.kinetics ?? null,
+    math: (libraryStore.getInstanceMath ? libraryStore.getInstanceMath({ data }) : libraryStore.availableMath.get(data?.mathRef)) ?? null,
     variables: data?.variables,
     ports: data?.ports,
     globals: (data?.variables ?? [])
