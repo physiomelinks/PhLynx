@@ -4,8 +4,24 @@
  * postMessage. The client (libcellmlClient.js) runs the same functions on the main thread when it can't use the worker.
  */
 import { checkModel } from '../math/checkModel'
+import { prepareSavedMath } from '../math/variableIds'
 import { buildModularModel } from '../export/modularCellml'
-import { generateFlattenedModel } from '../../utils/cellml'
+import { flattenImportedUnits } from '../import/cellmlImports'
+import { liveComponentMath } from '../celldl/liveMath'
+import { buildVariableMapping } from '../simulation/variableMapping'
+import { addProtocolClock, addProtocolDrivers } from '../simulation/protocolDriverModel'
+import {
+  areModelsEquivalent,
+  combineComponentModels,
+  extractComponentsFromCellmlString,
+  extractVoiAndParametersFromModel,
+  generateFlattenedModel,
+  getModelComponentNames,
+  hoistEncapsulatedComponents,
+  isCellML,
+  loadParametersFromCellML,
+  processCellMLData,
+} from '../../utils/cellml'
 import { libraryFromSnapshot } from './librarySnapshot'
 
 /**
@@ -54,10 +70,52 @@ async function buildModular(libcellml, nodes, edges, snapshot, inspectionModules
   return { ...modular, exportedIds }
 }
 
+/**
+ * Runs processCellMLData, hoisting encapsulated components first when asked.
+ *
+ * @param {Object} libcellml - Unused, as for flattenModel.
+ * @param {string} cellml
+ * @param {{ hoist?: boolean }} [options]
+ * @returns {Object} What processCellMLData returns.
+ */
+function processCellml(libcellml, cellml, { hoist = false } = {}) {
+  return processCellMLData(hoist ? hoistEncapsulatedComponents(cellml).cellml : cellml)
+}
+
+/**
+ * Runs buildVariableMapping on the names a run reported, rather than its values.
+ *
+ * @param {Object} libcellml
+ * @param {string} cellml
+ * @param {Array<Object>} nodes - With `id`, and `data` with `name` and `variables`.
+ * @param {string[]} reportedNames - The VoI's name, then every variable's.
+ * @returns {Map<string, string>}
+ */
+function mapVariables(libcellml, cellml, nodes, [voiName, ...variableNames]) {
+  const results = { voi: { name: voiName }, variables: new Map(variableNames.map((name) => [name, null])) }
+  return buildVariableMapping({ libcellml, cellml, nodes, results })
+}
+
+// Operations on utils/cellml and the services below use the instance initLibCellML bound, so drop the argument.
 export const operations = {
   checkModel,
   flattenModel,
   buildModularModel: buildModular,
+  processCellMLData: processCellml,
+  hoistEncapsulatedComponents: (libcellml, cellml) => hoistEncapsulatedComponents(cellml),
+  isCellML: (libcellml, content) => isCellML(content),
+  extractComponentsFromCellmlString: (libcellml, cellml) => extractComponentsFromCellmlString(cellml),
+  flattenImportedUnits: (libcellml, modelXml, files) => flattenImportedUnits(modelXml, files),
+  liveComponentMath: (libcellml, cellml, componentName) => liveComponentMath(cellml, componentName),
+  areModelsEquivalent: (libcellml, a, b) => areModelsEquivalent(a, b),
+  combineComponentModels: (libcellml, ...args) => combineComponentModels(...args),
+  getModelComponentNames: (libcellml, model) => getModelComponentNames(model),
+  extractVoiAndParametersFromModel: (libcellml, model, parameterInfo) => extractVoiAndParametersFromModel(model, parameterInfo),
+  loadParametersFromCellML: (libcellml, model) => loadParametersFromCellML(model),
+  prepareSavedMath: (libcellml, options) => prepareSavedMath(options),
+  buildVariableMapping: mapVariables,
+  addProtocolDrivers: (libcellml, cellml, drivers) => addProtocolDrivers({ libcellml, cellml, drivers }),
+  addProtocolClock: (libcellml, cellml) => addProtocolClock({ libcellml, cellml }),
 }
 
 /**

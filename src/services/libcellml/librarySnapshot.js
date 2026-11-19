@@ -5,8 +5,8 @@
 import { toRaw } from 'vue'
 
 /**
- * Copies a value as plain data, without Vue's proxies: arrays, plain objects, Maps, Sets and primitives. Functions
- * and other class instances are left out, and a value met again is copied once.
+ * Copies a value as plain data, without Vue's proxies: arrays, plain objects, Maps, Sets and primitives. Typed arrays
+ * are kept as they are, functions and other class instances left out, and a value met again is copied once.
  *
  * @param {*} value
  * @param {WeakMap} [copies] - Copies made so far, by original.
@@ -16,6 +16,7 @@ export function toPlain(value, copies = new WeakMap()) {
   const raw = toRaw(value)
   if (raw === null || typeof raw !== 'object') return typeof raw === 'function' ? undefined : raw
   if (copies.has(raw)) return copies.get(raw)
+  if (ArrayBuffer.isView(raw)) return raw
   if (raw instanceof Map) {
     const copy = new Map()
     copies.set(raw, copy)
