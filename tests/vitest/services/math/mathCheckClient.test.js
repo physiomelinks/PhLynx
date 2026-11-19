@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { checkModel } from '../../../../src/services/math/checkModel.js'
+import { handleRequest } from '../../../../src/services/libcellml/protocol.js'
 import { getLibCellML } from '../../../../src/utils/cellml.js'
 import { mergeUnitDefinitions } from '../../../../src/utils/units.js'
 import { ensureLibCellmlReady } from '../../helpers/libcellml-bootstrap.js'
@@ -28,7 +28,7 @@ const MATH = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="PhLynxCompo
   </component>
 </model>`
 
-/** Answers like workers/mathCheckWorker.js, with the tests' libCellML; or fails like a worker that can't start. */
+/** Answers like workers/libcellmlWorker.js, with the tests' libCellML; or fails like a worker that can't start. */
 class FakeWorker {
   static instances = []
   static fails = false
@@ -41,7 +41,7 @@ class FakeWorker {
     this.messages.push(message)
     queueMicrotask(() => {
       if (FakeWorker.fails) this.onerror(new Event('error'))
-      else this.onmessage({ data: { id: message.id, result: checkModel(getLibCellML(), message.xml) } })
+      else handleRequest(message, async () => getLibCellML()).then((data) => this.onmessage({ data }))
     })
   }
   terminate() {}
@@ -76,8 +76,9 @@ describe('checkMathInBackground', () => {
     expect(result.invalid).toEqual([])
     expect(result.imbalances).toHaveLength(1)
     const [worker] = FakeWorker.instances
-    expect(worker.url).toMatch(/workers\/mathCheckWorker\.js/)
-    expect(worker.messages[0].xml).toContain('<units name="per_second">')
+    expect(worker.url).toMatch(/workers\/libcellmlWorker\.js/)
+    expect(worker.messages[0].op).toBe('checkModel')
+    expect(worker.messages[0].args[0]).toContain('<units name="per_second">')
   })
 
   it('starts one worker for every check', async () => {
