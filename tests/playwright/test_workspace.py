@@ -171,7 +171,7 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         workspace_json = read_resource("workspace-json.base64").strip()
         page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
-        # The instances come once libcellml is ready, which takes a while with other tests running at the same time.
+        # The instances come once the built-in library has loaded, which takes a while with other tests running at the same time.
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT, timeout=60000)
         expect(page.locator(EDGE)).to_have_count(2)
         # Let the initial fit-view finish so tests start from a stable viewport.
@@ -182,8 +182,8 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         page.goto(BASE_URL)
         expect(page.locator(".vue-flow__pane")).to_be_visible()
-        # The Import button enables at once (its first mode is Instance Array), but a CellML file dropped before
-        # libcellml is ready is turned away: wait for the menu's CellML File item, which enables with libcellml.
+        # A dropped CellML file waits for the built-in library itself; this waits for the Import menu's CellML File item,
+        # so the app has mounted.
         page.locator(".file-io-buttons .p-splitbutton").first.locator(".p-splitbutton-dropdown").click()
         cellml_item = page.get_by_role("menuitem", name="CellML File", exact=True)
         expect(cellml_item).to_be_enabled(timeout=60000)
