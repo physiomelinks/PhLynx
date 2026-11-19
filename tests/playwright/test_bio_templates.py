@@ -347,6 +347,31 @@ class TestBioTemplates(unittest.TestCase):
         expect(page.locator(f'{BIO_NODE}[data-id^="pc:"]')).to_have_count(0)
         expect(instances).to_have_count(0)
 
+    def test_a_carried_template_previews_its_pieces(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+
+        # Armed, a template shows the pieces it would add where the pointer is, and says what it would add.
+        page.locator("[data-testid=bio-palette-template][data-template=cell]").click()
+        page.mouse.move(*self.pane_point(0.4, 0.4))
+        expect(page.locator("[data-testid=bio-piece-ghost]").first).to_be_visible()
+        expect(page.locator("[data-testid=bio-piece-drop-label]")).to_have_text("Add Cell")
+        ghost = page.locator("[data-testid=bio-piece-ghost]").first.bounding_box()
+
+        # The preview follows the pointer.
+        page.mouse.move(*self.pane_point(0.5, 0.5))
+        for _ in range(20):
+            moved = page.locator("[data-testid=bio-piece-ghost]").first.bounding_box()
+            if moved["x"] > ghost["x"] + 10:
+                break
+            page.wait_for_timeout(50)
+        self.assertGreater(moved["x"], ghost["x"] + 10)
+
+        # Let go of, it is gone.
+        page.locator("[data-testid=bio-palette-template][data-template=cell]").click()
+        expect(page.locator("[data-testid=bio-piece-preview]")).to_have_count(0)
+
     def test_the_build_palette_puts_an_organelle_inside_a_cell(self):
         page = self.page
         self.open_physiology()

@@ -482,6 +482,7 @@ import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
 import { PIECES_INSTANCE, layoutPieces, pieceSiteRef } from '../../services/bioView/pieces/layout'
 import { topologyOf } from '../../services/bioView/pieces/topology'
+import { stampTemplate } from '../../services/bioView/pieces/stamp'
 import { compartmentAtPoint, dropScene, previewDrop, resolveDrop } from '../../services/bioView/pieces/drops'
 import { relabelPiece, removePieces, skinPiece } from '../../services/bioView/pieces/edits'
 import {
@@ -2137,10 +2138,13 @@ function onRenameConfirm() {
 // A piece carried from the palette, dragged or armed, shows what it would go on and where it would be drawn, worked
 // out again only when its target changes (see pieces/drops.js).
 const isPieceTile = (tile) => tile?.kind === 'piece'
-const carriedPiece = computed(() => [draggedTile.value, armedTile.value].find(isPieceTile) ?? null)
+const isTemplateTile = (tile) => tile?.kind === 'template'
+/** A tile that previews where it would go: one of the five pieces, or a template's pieces. */
+const isPreviewedTile = (tile) => isPieceTile(tile) || isTemplateTile(tile)
+const carriedTile = computed(() => [draggedTile.value, armedTile.value].find(isPreviewedTile) ?? null)
 /** The pieces and where each is drawn, read once while a piece is carried. */
 const pieceScene = computed(() =>
-  carriedPiece.value ? dropScene(piecesStore.pieces, { shapes: piecesStore.shapes }) : null,
+  carriedTile.value ? dropScene(piecesStore.pieces, { shapes: piecesStore.shapes }) : null,
 )
 /** What the carried piece would do where the pointer is: { key, label | invalid, highlights, ghosts }. */
 const piecePreview = shallowRef(null)
@@ -2148,11 +2152,12 @@ const piecePointer = ref(null)
 
 /** Follows a carried piece: works out its drop where the target is a new one, and moves its label. */
 function trackPiece(point) {
-  const tile = carriedPiece.value
+  const tile = carriedTile.value
   const scene = pieceScene.value
   if (!tile || !scene) return
   if (point.x !== piecePointer.value?.x || point.y !== piecePointer.value?.y) piecePointer.value = point
-  const drop = resolveDrop(tile.piece, point, scene)
+  const drop = isTemplateTile(tile) ? templateDrop(tile.template, point, scene) : resolveDrop(tile.piece, point, scene)
+  if (!drop) return
   if (drop.key === piecePreview.value?.key) return
   if (drop.invalid) {
     piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
@@ -2164,11 +2169,35 @@ function trackPiece(point) {
     : { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts: preview.ghosts }
 }
 
+/**
+ * A template carried to a point, as a drop previewDrop can show: its pieces stamped there, as placePiecesTemplate
+ * would add them, with no target of its own to highlight.
+ *
+ * @param {string} templateId
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @param {Object} scene - From dropScene.
+ * @returns {Object|null}
+ */
+function templateDrop(templateId, point, scene) {
+  const template = templateLibrary.getTemplate(templateId)
+  if (!template) return null
+  const at = whole(point)
+  return {
+    key: `template ${templateId} ${at.x} ${at.y}`,
+    label: `Add ${template.name}`,
+    highlights: [],
+    apply: (pieces) => {
+      const { pieces: next, errors } = stampTemplate(pieces, template, at, { shapes: scene.shapes })
+      return errors.length ? { pieces: null, error: errors[0] } : { pieces: next, id: null }
+    },
+  }
+}
+
 function clearPiecePreview() {
   piecePreview.value = null
   piecePointer.value = null
 }
-watch(carriedPiece, (tile) => {
+watch(carriedTile, (tile) => {
   if (!tile) clearPiecePreview()
 })
 
@@ -2187,7 +2216,7 @@ const pieceLabel = computed(() => {
 
 /** An armed piece previews where the pointer is over the view, as a dragged one does. */
 function onArmedMove(event) {
-  if (!isPieceTile(armedTile.value)) return
+  if (!isPreviewedTile(armedTile.value)) return
   if (
     !event.target.closest('.vue-flow') ||
     event.target.closest('.vue-flow__controls, .vue-flow__minimap, .vue-flow__panel')
@@ -2722,7 +2751,7 @@ function onModuleDragOver(event) {
   if (isTileDrag(event)) {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
-    if (isPieceTile(draggedTile.value)) trackPiece(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+    if (isPreviewedTile(draggedTile.value)) trackPiece(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
     return
   }
   if (!isLibraryDrag(event)) return
