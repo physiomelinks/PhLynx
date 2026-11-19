@@ -56,9 +56,9 @@ vi.mock('../../../src/services/simulation/libopencorLoader', () => ({
 const built = vi.hoisted(() => ({ scopes: [] }))
 vi.mock('../../../src/services/simulation/scopedModel', async (importOriginal) => ({
   ...(await importOriginal()),
-  buildScopedModel: (scope) => {
+  buildScopedModelInBackground: async (scope) => {
     built.scopes.push(scope)
-    return new Blob(['<model/>'])
+    return '<model/>'
   },
 }))
 vi.mock('../../../src/services/simulation/variableMapping', () => ({

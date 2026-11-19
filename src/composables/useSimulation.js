@@ -8,7 +8,7 @@ import { buildParameterChanges } from '../services/simulation/parameterChanges'
 import { buildParameterOverrides } from '../services/simulation/parameterSliders'
 import {
   applyParameterOverrides,
-  buildScopedModel,
+  buildScopedModelInBackground,
   buildScopeSignature,
   checkScope,
   resolveScope,
@@ -269,7 +269,7 @@ export function useSimulation() {
       } else {
         const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
         // libOpenCOR checks the model and reports its issues, so the flatten's own check is skipped.
-        const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+        const cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
         if (token !== runToken) return
         built = {
           key: ++sessionCount,
@@ -348,7 +348,7 @@ export function useSimulation() {
     let source = kept
     if (!source) {
       const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
-      let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+      let cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
       if (token !== runToken) return
       if (drivers.length) {
         const added = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml, drivers })
@@ -449,7 +449,7 @@ export function useSimulation() {
     if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'] }
     // As runProtocolOn flattens it: the model as it is, without the sliders' values.
     const withOverrides = applyParameterOverrides(scope, libraryStore, selectRunOverrides(true))
-    let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+    let cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
     const libcellml = await whenLibCellMLReady()
     const { drivers } = protocolStore
     if (drivers.length) {
@@ -514,7 +514,7 @@ export function useSimulation() {
     if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'] }
     // As run flattens it: with the sliders' values, as the results show them.
     const withOverrides = applyParameterOverrides(scope, libraryStore, selectRunOverrides(false))
-    const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+    const cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
     if (busy()) return refusal
 
     const built = { key: ++sessionCount, cellml }

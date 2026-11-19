@@ -4,6 +4,7 @@
  */
 import { resolveBoundaryValues, storeOptions, unitOptions } from '../export/boundaryValues'
 import { generateFlattenedModel } from '../../utils/cellml'
+import { generateFlattenedModelInBackground } from '../libcellml/modelBuilding'
 import { cyrb53 } from '../../utils/misc'
 import { couplingConflicts, variableTypes } from '../../utils/multiport'
 import { couplingUnitConflicts } from '../../utils/couplingUnits'
@@ -315,6 +316,19 @@ export function applyParameterOverrides(scope, libraryStore, { rows = new Map(),
 export function buildScopedModel(scope, libraryStore, options = {}) {
   const { nodes, edges, inspectionModules, options: scoped } = scopedModelInputs(scope, libraryStore)
   return generateFlattenedModel(nodes, edges, libraryStore, inspectionModules, { ...scoped, ...options })
+}
+
+/**
+ * Flattens a scope as buildScopedModel does, in the libCellML worker.
+ *
+ * @param {ReturnType<typeof resolveScope>} scope
+ * @param {Object} libraryStore
+ * @param {{check?: boolean}} [options]
+ * @returns {Promise<string>} The flattened CellML model; rejects as buildScopedModel throws.
+ */
+export async function buildScopedModelInBackground(scope, libraryStore, options = {}) {
+  const { nodes, edges, inspectionModules, options: scoped } = scopedModelInputs(scope, libraryStore)
+  return generateFlattenedModelInBackground(nodes, edges, libraryStore, inspectionModules, { ...scoped, ...options })
 }
 
 /**

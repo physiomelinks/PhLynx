@@ -24,7 +24,8 @@ import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 
 import { buildOpenCorUrl, generateOmexArchive, createOmexDataFragment } from '../services/compress'
 import { findCaExportBlocker, generateExportZip } from '../services/export/ca'
-import { buildModularModel, zipModularModel } from '../services/export/modularCellml'
+import { zipModularModel } from '../services/export/modularCellml'
+import { buildModularModelInBackground } from '../services/libcellml/modelBuilding'
 import { resolvePlotConfig } from '../services/simulation/plotSelections'
 import { checkScope, resolveScope, scopedModelInputs, summariseScopeReport } from '../services/simulation/scopedModel'
 import { useConfirmDialog } from './useConfirmDialog'
@@ -155,13 +156,13 @@ export function useImportExportSend({
    *
    * @param {ReturnType<typeof resolveScope>|null} [scope]
    * @param {Object} [options] - See buildModularModel.
-   * @returns {Promise<Object>} From buildModularModel.
+   * @returns {Promise<Object>} From buildModularModel, run in the libCellML worker.
    */
   const buildModular = async (scope = null, options = {}) => {
     const inputs = scope
       ? scopedModelInputs(scope, libraryStore)
       : { nodes: nodes.value, edges: edges.value, inspectionModules: inspectionModuleStore.modules, options: {} }
-    const modular = await buildModularModel(inputs.nodes, inputs.edges, libraryStore, inputs.inspectionModules, {
+    const modular = await buildModularModelInBackground(inputs.nodes, inputs.edges, libraryStore, inputs.inspectionModules, {
       ...inputs.options,
       ...options,
     })

@@ -17,8 +17,10 @@ vi.mock('../../../src/utils/cellml', () => ({
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
 }))
 vi.mock('../../../src/services/export/modularCellml', () => ({
-  buildModularModel: vi.fn(async () => ({ main: '<model/>', flat: '<model/>', files: [], sidecars: [], warnings: [] })),
   zipModularModel: vi.fn(async () => new Blob(['zip'])),
+}))
+vi.mock('../../../src/services/libcellml/modelBuilding', () => ({
+  buildModularModelInBackground: vi.fn(async () => ({ main: '<model/>', flat: '<model/>', files: [], sidecars: [], warnings: [] })),
 }))
 const { getModuleFormat } = vi.hoisted(() => ({ getModuleFormat: vi.fn() }))
 const caExportBlocker = vi.hoisted(() => vi.fn(() => null))
@@ -34,7 +36,7 @@ vi.mock('../../../src/services/moduleFormats', async (importActual) => {
 
 const { useImportExportSend } = await import('../../../src/composables/useImportExportSend.js')
 const { createOmexDataFragment, generateOmexArchive, OPENCOR_URL_LIMIT } = await import('../../../src/services/compress')
-const { buildModularModel } = await import('../../../src/services/export/modularCellml')
+const { buildModularModelInBackground: buildModularModel } = await import('../../../src/services/libcellml/modelBuilding')
 const { notify } = await import('../../../src/utils/notify')
 const { getFileHandle } = await import('../../../src/utils/save')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
@@ -222,9 +224,7 @@ describe('useImportExportSend selection exports', () => {
     expect(open).not.toHaveBeenCalled()
 
     nodes.value[0].data.variables[2].value = '1'
-    buildModularModel.mockImplementationOnce(() => {
-      throw new Error('Analyser error count: 1')
-    })
+    buildModularModel.mockRejectedValueOnce(new Error('Analyser error count: 1'))
     await menuItem(sendMenuItems, 'OpenCOR (selection)').command()
     expect(notify.error).toHaveBeenLastCalledWith({ title: 'Send failed', message: 'Analyser error count: 1' })
     expect(open).not.toHaveBeenCalled()
