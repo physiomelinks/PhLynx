@@ -1,18 +1,18 @@
 /**
  * Runs libCellML operations (operations.js) in the libCellML worker (workers/libcellmlWorker.js), off the main
- * thread. Where Workers are unavailable (tests, a failed start), operations run on the main thread instead, once the
- * page's libCellML has loaded; requests still pending when the worker fails rerun there.
+ * thread. Where Workers are unavailable (tests, a failed start), operations run on the main thread instead, loading
+ * libCellML there on first use; requests still pending when the worker fails rerun there.
  */
 import { deserialiseError } from './protocol'
 import { runOperation } from './operations'
-import { getLibCellML, whenLibCellMLReady } from '../../utils/cellml'
+import { loadLibCellML } from '../../utils/cellml'
 
 let activeWorker = null
 let isWorkerUnavailable = false
 let nextRequestId = 1
 const pendingRequests = new Map() // request id -> { resolve, reject, runInline }
 
-const runInline = (op, args) => whenLibCellMLReady().then(() => runOperation(getLibCellML(), op, args))
+const runInline = (op, args) => loadLibCellML().then((libcellml) => runOperation(libcellml, op, args))
 
 /** Stops using the worker, rerunning its pending requests on the main thread. */
 function abandonWorker() {

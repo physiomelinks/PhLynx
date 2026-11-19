@@ -267,9 +267,9 @@
             v-tooltip.bottom="{
               value:
                 !somethingAvailable || currentSendDisabled
-                  ? currentSendMode.isSelection && libcellml.status === 'ready'
+                  ? currentSendMode.isSelection && somethingAvailable
                     ? 'Select instances to send them on their own.'
-                    : 'The Send option is disabled because CellML library is not ready yet.'
+                    : 'The Send option is disabled because there is nothing to send. Please add some modules to the workspace first.'
                   : `Send to ${currentSendMode.label}`,
             }"
           >
@@ -648,7 +648,7 @@ export default {
 </script>
 
 <script setup>
-import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useVueFlow, VueFlow } from '@vue-flow/core'
 import { useRoute } from 'vue-router'
 
@@ -779,7 +779,6 @@ import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { categoryColour } from '../utils/nodeThemes'
 import { cyrb53, takeInputFile } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
-import { bindLibCellML } from '../utils/cellml'
 import { processCellMLDataInBackground } from '../services/libcellml/cellmlImport'
 import { loadParametersFromCellMLInBackground } from '../services/libcellml/modelQueries'
 import {
@@ -977,12 +976,10 @@ const helperLineHorizontal = ref(null)
 const helperLineVertical = ref(null)
 const alignment = ref('edge')
 
-const libcellmlReadyPromise = inject('$libcellml_ready')
 // Settles once registerBuiltInLibrary finishes or fails. Workspace and OMEX loads wait on it, so a loaded
 // library always lands after the built-in one, whatever the timing.
 let markBuiltInLibraryReady
 const builtInLibraryReady = new Promise((resolve) => (markBuiltInLibraryReady = resolve))
-const libcellml = inject('$libcellml')
 const instanceEditorDefaultTab = ref('parameters')
 const instanceEditorDialogVisible = ref(false)
 const saveDialogVisible = ref(false)
@@ -1078,7 +1075,6 @@ const {
   triggerCurrentImport,
   triggerCurrentSend,
 } = useImportExportSend({
-  libcellml,
   nodes,
   edges,
   importDialogVisible,
@@ -1092,9 +1088,6 @@ const {
 
 const cellMlExportTooltip = computed(() => {
   const prefix = 'The CellML export option is disabled because '
-  if (libcellml.status !== 'ready') {
-    return prefix + 'the CellML library is not ready yet. Please wait a moment and try again.'
-  }
   if (!somethingAvailable.value) {
     return prefix + 'there is nothing to export. Please add some modules to the workspace first.'
   }
@@ -1284,7 +1277,6 @@ const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dr
   loadFromCellML,
   rebuildNodeEdgeIndex,
   confirm,
-  libcellml,
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
@@ -2693,12 +2685,10 @@ const moduleConfigs = import.meta.glob('../assets/module_configs/*.json', {
 })
 
 /**
- * Binds libCellML and adds the bundled modules, units and configs to the library. Never waits on the network, and
+ * Adds the bundled modules, units and configs to the library. Never waits on the network, and
  * never displaces a units file already loaded under the same name, such as a workspace's own units.cellml.
  */
 const registerBuiltInLibrary = async () => {
-  await bindLibCellML(libcellmlReadyPromise)
-
   const promises = []
   for (const [path, content] of Object.entries(cellmlModules)) {
     promises.push(loadCellMLData(content.default, path.split('/').pop(), { notify: false }))

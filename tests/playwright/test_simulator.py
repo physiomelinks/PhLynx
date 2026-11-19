@@ -81,13 +81,13 @@ MAP_WORKSPACE_RESULTS = """async () => {
   const { resolveScope, buildScopedModel } = await importAppModule('/src/services/simulation/scopedModel.js')
   const { buildVariableMapping, mappingKey } = await importAppModule('/src/services/simulation/variableMapping.js')
   const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
-  const { whenLibCellMLReady } = await importAppModule('/src/utils/cellml.js')
+  const { loadLibCellML } = await importAppModule('/src/utils/cellml.js')
   const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const scope = resolveScope(null, nodes.value, edges.value, [])
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
   const results = await (await whenLibOpenCORReady()).startSimulation({ cellml, settings }).promise
-  const mapping = buildVariableMapping({ libcellml: await whenLibCellMLReady(), cellml, nodes: scope.nodes, results })
+  const mapping = buildVariableMapping({ libcellml: await loadLibCellML(), cellml, nodes: scope.nodes, results })
   const soma = scope.nodes.find((node) => node.data.name === 'soma_SN')
   return {
     rows: scope.nodes.reduce((total, node) => total + node.data.variables.length, 0),

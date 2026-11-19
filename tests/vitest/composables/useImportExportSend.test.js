@@ -104,12 +104,10 @@ describe('useImportExportSend selection exports', () => {
   /**
    * Sets up the composable over the test's workspace.
    *
-   * @param {string} [libcellmlStatus]
    * @returns {ReturnType<typeof useImportExportSend>}
    */
-  function setup(libcellmlStatus = 'ready') {
+  function setup() {
     return useImportExportSend({
-      libcellml: { status: libcellmlStatus },
       nodes,
       edges,
       importDialogVisible: ref(false),
@@ -137,8 +135,7 @@ describe('useImportExportSend selection exports', () => {
     expect(menuItem(sendMenuItems, 'OpenCOR (selection)').disabled).toBe(false)
   })
 
-  it('offers the Circulatory Autogen export once libCellML is ready, as it writes CellML', () => {
-    expect(menuItem(setup('loading').exportMenuItems, 'Circulatory Autogen').disabled).toBe(true)
+  it('offers the Circulatory Autogen export without waiting for libCellML, which loads in its worker on first use', () => {
     expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen').disabled).toBe(false)
   })
 
@@ -326,10 +323,9 @@ describe('useImportExportSend selection exports', () => {
 describe('useImportExportSend import options', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  /** The import menu's labels, with libCellML ready. */
+  /** The import menu's labels. */
   const importLabels = () =>
     useImportExportSend({
-      libcellml: { status: 'ready' },
       nodes: ref([]),
       edges: ref([]),
       importDialogVisible: ref(false),

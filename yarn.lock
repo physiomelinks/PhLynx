@@ -4348,7 +4348,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"libcellml.js@npm:0.7.2, libcellml.js@npm:^0.7.1":
+"libcellml.js@npm:0.7.2":
   version: 0.7.2
   resolution: "libcellml.js@npm:0.7.2"
   checksum: 10c0/6457030576d6124a2a68aefb868e607ed36b006002917f6d76688b3bd7b36f682ccff88a42bd2af63f5926f2e08b01f040274bd7ddcbbd660a81830d171fc258
@@ -5350,7 +5350,6 @@ __metadata:
     vue: "npm:3.5.45"
     vue-codemirror: "npm:^6.1.1"
     vue-router: "npm:^5.5.1"
-    vue3-libcellml.js: "npm:^0.7.1"
     vue3-math-editor: "npm:^0.3.5"
   languageName: unknown
   linkType: soft
@@ -7094,17 +7093,6 @@ __metadata:
   peerDependencies:
     vue: ^3.2.0
   checksum: 10c0/fd18deffd52a6b1923e93c7271b21104644578faccf125b490cfceba274a0ca807ffac56d222349e839816f1a42f0650f5eb5c96ebe60e6e4d3ec13ac2470b19
-  languageName: node
-  linkType: hard
-
-"vue3-libcellml.js@npm:^0.7.1":
-  version: 0.7.1
-  resolution: "vue3-libcellml.js@npm:0.7.1"
-  dependencies:
-    libcellml.js: "npm:^0.7.1"
-  peerDependencies:
-    vue: ^3.5.12
-  checksum: 10c0/b977e5ff2a49dc9b0af0ccee4091a0f5850f4ae637820fca3fd5de8dec4ad957f6132767dbd37e060327c30120807c4c3827b37f606f0f3ba5b50a53db0bc67a
   languageName: node
   linkType: hard
 

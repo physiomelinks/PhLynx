@@ -11,7 +11,7 @@ function mockModules({ init, frameworkIssues = [] }) {
     this.runtime = runtime
     this.loadFramework = loadFramework
   })
-  vi.doMock('../../../../src/utils/cellml.js', () => ({ whenLibCellMLReady: () => Promise.resolve('libcellml') }))
+  vi.doMock('../../../../src/utils/cellml.js', () => ({ loadLibCellML: () => Promise.resolve('libcellml') }))
   vi.doMock('@celldl/editor', () => ({ initialiseRdf, bgRdfStatements: () => ['quad'] }))
   vi.doMock('@physiomelinks/bg2cellml', () => ({ Converter }))
   return { initialiseRdf, loadFramework, Converter }

@@ -89,7 +89,6 @@
     "vue": "3.5.45",
     "vue-codemirror": "^6.1.1",
     "vue-router": "^5.5.1",
-    "vue3-libcellml.js": "^0.7.1",
     "vue3-math-editor": "^0.3.5"
   },
   "devDependencies": {

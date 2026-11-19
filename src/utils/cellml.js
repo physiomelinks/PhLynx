@@ -19,39 +19,38 @@ import {
 } from './constants.js'
 
 let _libcellml = null
-let resolveLibCellMLReady
-let rejectLibCellMLReady
-const libcellmlReady = new Promise((resolve, reject) => {
-  resolveLibCellMLReady = resolve
-  rejectLibCellMLReady = reject
-})
-// Avoid an unhandled rejection when nothing is waiting on readiness.
-libcellmlReady.catch(() => {})
+let libcellmlLoading = null
 
+/**
+ * Binds the libCellML instance the synchronous functions here use.
+ *
+ * @param {Object} instance - A loaded libCellML module.
+ */
 export function initLibCellML(instance) {
   _libcellml = instance
-  resolveLibCellMLReady(instance)
+  libcellmlLoading = Promise.resolve(instance)
 }
 
 /**
- * Initialises libCellML once the plugin's promise resolves, or fails whenLibCellMLReady() if it rejects.
+ * Loads libCellML on first call and binds it with initLibCellML; later calls share that load, and a failed load is
+ * tried again. Resolves at once with an instance already bound (tests bind one directly).
  *
- * @param {Promise} ready - The plugin's libCellML promise.
- * @returns {Promise} Settles with ready.
+ * @returns {Promise<Object>} The libCellML module.
  */
-export function bindLibCellML(ready) {
-  return ready.then(initLibCellML, (error) => {
-    rejectLibCellMLReady(error)
-    throw error
-  })
-}
-
-/**
- * Resolves once initLibCellML has been called and CellML parsing is available; rejects if libCellML
- * fails to load.
- */
-export function whenLibCellMLReady() {
-  return libcellmlReady
+export function loadLibCellML() {
+  libcellmlLoading ??= Promise.all([import('libcellml.js/libcellml.js'), import('libcellml.js/libcellml.wasm?url')])
+    .then(([{ default: createLibCellML }, { default: wasmUrl }]) => createLibCellML({ locateFile: () => wasmUrl }))
+    .then(
+      (instance) => {
+        initLibCellML(instance)
+        return instance
+      },
+      (error) => {
+        libcellmlLoading = null
+        throw error
+      }
+    )
+  return libcellmlLoading
 }
 
 /**

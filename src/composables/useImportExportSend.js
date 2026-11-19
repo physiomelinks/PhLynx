@@ -36,7 +36,6 @@ import { getImportConfig } from '../utils/import'
 import { getModuleFormat } from '../services/moduleFormats'
 
 export function useImportExportSend({
-  libcellml,
   nodes,
   edges,
   importDialogVisible,
@@ -73,7 +72,7 @@ export function useImportExportSend({
       key: IMPORT_KEYS.CELLML_FILE,
       label: 'CellML File',
       icon: CellMLIcon,
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
     },
     // Only in builds that can convert CellDL.
     ...(getModuleFormat('celldl').isAvailable
@@ -82,7 +81,7 @@ export function useImportExportSend({
             key: IMPORT_KEYS.CELLDL_FILE,
             label: 'CellDL Diagram',
             icon: 'pi pi-sitemap',
-            disabled: libcellml.status !== 'ready',
+            disabled: false,
           },
         ]
       : []),
@@ -90,7 +89,7 @@ export function useImportExportSend({
       key: IMPORT_KEYS.MODULE_CONFIG,
       label: 'Module Config',
       icon: 'pi pi-wrench',
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
     },
     {
       key: IMPORT_KEYS.PARAMETER,
@@ -102,13 +101,13 @@ export function useImportExportSend({
       key: IMPORT_KEYS.TURTLE,
       label: 'Module Annotations',
       icon: 'pi pi-tags',
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
     },
     {
       key: IMPORT_KEYS.OMEX,
       label: 'COMBINE Archive',
       icon: CombineIcon,
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
     },
   ])
 
@@ -212,7 +211,7 @@ export function useImportExportSend({
     key,
     label: 'OpenCOR (selection)',
     icon: OpenCORIcon,
-    disabled: libcellml.status !== 'ready' || !hasSelection.value,
+    disabled: !hasSelection.value,
     isSelection: true,
     suffix: '.omex',
     fileTypes: OMEX_FILE_TYPES,
@@ -226,7 +225,7 @@ export function useImportExportSend({
       key: EXPORT_KEYS.CELLML,
       label: 'CellML',
       icon: CellMLIcon,
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating the CellML model and its modules.',
@@ -237,7 +236,7 @@ export function useImportExportSend({
       key: EXPORT_KEYS.CA,
       label: 'Circulatory Autogen',
       icon: 'pi pi-box',
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
       message: 'Generating and zipping CA files.',
@@ -252,7 +251,7 @@ export function useImportExportSend({
       key: EXPORT_KEYS.OMEX,
       label: 'OpenCOR',
       icon: OpenCORIcon,
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
       suffix: '.omex',
       fileTypes: OMEX_FILE_TYPES,
       message: 'Generating OMEX archive for Web OpenCOR.',
@@ -279,7 +278,7 @@ export function useImportExportSend({
       key: EXPORT_KEYS.CUFLYNX,
       label: 'CUFLynx',
       icon: CUFLynxIcon,
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
       suffix: '.omex',
       fileTypes: OMEX_FILE_TYPES,
       message: 'Generating OMEX archive for CUFLynx.',
@@ -307,7 +306,7 @@ export function useImportExportSend({
       key: EXPORT_KEYS.CELLML_SELECTION,
       label: 'CellML (selection)',
       icon: CellMLIcon,
-      disabled: libcellml.status !== 'ready' || !hasSelection.value,
+      disabled: !hasSelection.value,
       isSelection: true,
       suffix: '.zip',
       fileTypes: ZIP_FILE_TYPES,
@@ -328,7 +327,7 @@ export function useImportExportSend({
       key: SEND_KEYS.OPENCOR,
       label: 'OpenCOR',
       icon: OpenCORIcon,
-      disabled: libcellml.status !== 'ready',
+      disabled: false,
       suffix: '.omex',
       fileTypes: OMEX_FILE_TYPES,
       message: 'Generating OMEX archive for Web OpenCOR.',

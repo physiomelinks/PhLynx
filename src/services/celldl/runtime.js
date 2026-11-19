@@ -5,7 +5,7 @@
  * bg2cellml never imports oxigraph, and only uses the module it is given; PhLynx's own oxigraph is
  * for the live conversion's worker alone (useLiveCelldlConvert).
  */
-import { whenLibCellMLReady } from '../../utils/cellml.js'
+import { loadLibCellML } from '../../utils/cellml.js'
 
 let converterPromise = null
 
@@ -16,7 +16,8 @@ let converterPromise = null
  */
 async function createConverter() {
   const [libcellml, editor, { Converter }] = await Promise.all([
-    whenLibCellMLReady(),
+    // bg2cellml's Converter needs a live libCellML in this thread: the one main-thread copy, loaded on first conversion.
+    loadLibCellML(),
     import('@celldl/editor'),
     import('@physiomelinks/bg2cellml'),
   ])

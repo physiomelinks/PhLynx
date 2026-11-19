@@ -25,7 +25,7 @@ PARITY = os.path.join(RESOURCE_PATH, "protocols", "parity")
 RUN_CASE = """async () => {
   const spec = __CASE__
   const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
-  const { whenLibCellMLReady } = await importAppModule('/src/utils/cellml.js')
+  const { loadLibCellML } = await importAppModule('/src/utils/cellml.js')
   const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
   const { planDrivers } = await importAppModule('/src/services/protocol/libopencorEngine/protocolDrivers.js')
   const { addProtocolDrivers } = await importAppModule('/src/services/simulation/protocolDriverModel.js')
@@ -36,7 +36,7 @@ RUN_CASE = """async () => {
   const drivers = planDrivers(view)
   let cellml = __CELLML__
   if (drivers.length) {
-    const added = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml, drivers })
+    const added = addProtocolDrivers({ libcellml: await loadLibCellML(), cellml, drivers })
     if (added.errors.length) return { errors: added.errors }
     cellml = added.cellml
   }

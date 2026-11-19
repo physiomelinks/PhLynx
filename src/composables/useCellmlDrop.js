@@ -25,7 +25,6 @@ const RESTORE_OFFSET_X = 1500
  * @param {Function} options.loadFromCellML - Builds the connection graph from parsed CellML.
  * @param {Function} options.rebuildNodeEdgeIndex - Rebuilds the node to edge index after a load.
  * @param {Function} options.confirm - Confirm dialog; resolves true to overwrite the workspace.
- * @param {Object} options.libcellml - Injected libCellML state; drops wait for `status === 'ready'`.
  * @param {Function} options.processImportedOmexArchive - Applies an imported OMEX archive.
  * @param {Function} options.onDragOverModule - Internal module-drag dragover handler (from useDnD).
  * @param {Function} options.onDropModule - Internal module-drag drop handler (from useDnD).
@@ -42,7 +41,6 @@ export function useCellmlDrop({
   loadFromCellML,
   rebuildNodeEdgeIndex,
   confirm,
-  libcellml,
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
@@ -360,14 +358,6 @@ export function useCellmlDrop({
         notify.warning({
           title: 'Unsupported File Type',
           message: 'Only .cellml and .omex files, or folders and zips holding them, can be dropped onto the workspace.',
-        })
-        return
-      }
-
-      if (libcellml.status !== 'ready') {
-        notify.warning({
-          title: 'CellML Library Not Ready',
-          message: 'Please wait for the CellML library to finish loading and try again.',
         })
         return
       }
