@@ -218,6 +218,32 @@ class TestBioTemplates(unittest.TestCase):
         self.delete_at(inside)
         expect(page.locator(f"{BIO} .vue-flow__node-bioCell")).to_have_count(0)
 
+    def test_delete_on_a_cells_membrane_takes_its_module_then_the_membrane_alone(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        cells = page.locator(f"{BIO} .vue-flow__node-bioCell")
+
+        cell = self.drop_cell(self.pane_point(0.5, 0.45), "compartment")
+        box = cell.bounding_box()
+        band = (box["x"] + 2, box["y"] + box["height"] / 2)
+        inside = (box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.3)
+
+        # The membrane's module goes, the membrane staying, empty, round the compartment and its module.
+        self.delete_at(band)
+        expect(bound(page, "bioMembrane")).to_have_count(0)
+        expect(bound(page, "bioCell")).to_have_count(1)
+        # The empty membrane is still selectable by its band; Delete takes it, leaving the compartment as it was.
+        self.delete_at(band)
+        expect(cells).to_have_count(0)
+        expect(bound(page, "bioRegion")).to_have_count(1)
+        # Then the compartment, a layer at a time: its module, then itself.
+        self.delete_at(inside)
+        expect(bound(page, "bioRegion")).to_have_count(0)
+        expect(empty_piece(page, "compartment")).to_have_count(1)
+        self.delete_at(inside)
+        expect(page.locator(f"{BIO} .vue-flow__node-bioRegion")).to_have_count(0)
+
     def test_delete_takes_a_tube_and_a_process_zone_a_layer_at_a_time(self):
         page = self.page
         self.open_physiology()

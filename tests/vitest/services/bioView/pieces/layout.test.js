@@ -4,7 +4,7 @@ import {
   BUILT_IN_PIECE_TEMPLATES,
   getBuiltInPieceTemplate,
 } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
-import { layoutPieces, pieceKey, routeTube } from '../../../../../src/services/bioView/pieces/layout.js'
+import { layoutPieces, membraneKey, pieceKey, routeTube } from '../../../../../src/services/bioView/pieces/layout.js'
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
 import { MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
 
@@ -81,6 +81,25 @@ describe('layoutPieces', () => {
     const cellOf = (layout) => [...layout.places.values()].find((place) => place.kind === 'cell')
     expect(cellOf(laidOut(pieces, { nodes: [on('cell')] })).membraneEmpty).toBe(true)
     expect(cellOf(laidOut(pieces, { nodes: [on('cell'), on('pm')] })).membraneEmpty).toBe(false)
+  })
+
+  it('gives an empty membrane a place of its own, so its band can be selected and deleted', () => {
+    const pieces = [
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'pm', kind: 'membrane', label: 'Plasma membrane', encloses: ['cell'] },
+    ]
+    const on = (site) => ({ id: site, data: { bioView: { site: `pieces/${site}` } } })
+    // Whether or not the cell's inside has a module, which the cell is keyed by.
+    for (const [nodes, cell] of [
+      [[on('cell')], 'cell'],
+      [[], pieceKey('pm')],
+    ]) {
+      const { places } = laidOut(pieces, { nodes })
+      expect(places.get(membraneKey('pm'))).toMatchObject({ kind: 'membrane', cell, piece: 'pm' })
+    }
+    const { places } = laidOut(pieces, { nodes: [on('cell'), on('pm')] })
+    expect(places.has(membraneKey('pm'))).toBe(false)
+    expect(places.get('pm')).toMatchObject({ kind: 'membrane', cell: 'cell' })
   })
 
   it('grows a membrane for its process zones, which go in rows inside it', () => {

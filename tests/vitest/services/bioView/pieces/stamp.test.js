@@ -13,14 +13,15 @@ describe('stampTemplate', () => {
     expect(errors).toEqual([])
     expect(pieces.map((piece) => piece.id)).toEqual(template.pieces.map((piece) => piece.id))
     // Laid out, the template's corner, the fluids round its cell and all, is where it was dropped.
-    const rects = [...layoutPieces(pieces).places.values()].map((place) => place.rect)
+    const rects = [...layoutPieces(pieces).places.values()].filter((place) => place.rect).map((place) => place.rect)
     expect(Math.min(...rects.map((rect) => rect.x))).toBe(500)
     expect(Math.min(...rects.map((rect) => rect.y))).toBe(300)
     // The cell inside them, the same as in the template.
     const own = layoutPieces(template.pieces).places
     const cell = layoutPieces(pieces).places.get(pieceKey('plasma-membrane')).rect
     expect(cell.x - 500).toBe(
-      own.get(pieceKey('plasma-membrane')).rect.x - Math.min(...[...own.values()].map((p) => p.rect.x)),
+      own.get(pieceKey('plasma-membrane')).rect.x -
+        Math.min(...[...own.values()].filter((p) => p.rect).map((p) => p.rect.x)),
     )
   })
 

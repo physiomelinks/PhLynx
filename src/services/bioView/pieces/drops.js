@@ -313,8 +313,8 @@ export function previewDrop(scene, drop) {
   const { places } = layoutPieces(pieces, { shapes: scene.shapes })
   const ghosts = []
   for (const place of places.values()) {
-    // A grip is a handle on a piece, not part of it.
-    if (place.kind === 'grip') continue
+    // A grip is a handle on a piece, not part of it, and a membrane's band is drawn by its cell.
+    if (place.kind === 'grip' || place.kind === 'membrane') continue
     if (before.has(place.piece)) {
       // A membrane already there with a fold added.
       for (const fold of place.folds ?? []) {

@@ -35,6 +35,12 @@ import { spanPath, topologyOf } from './topology.js'
 /** The key a piece's place has in the view's layout. */
 export const pieceKey = (id) => `pc:${id}`
 
+/**
+ * The key of an empty membrane's band. It needs a key of its own because its cell takes pieceKey(id) once the cell's
+ * inside is empty too.
+ */
+export const membraneKey = (id) => `pc:${id}/membrane`
+
 /** The instance a site of the pieces is named under, as a template instance's sites are. */
 export const PIECES_INSTANCE = 'pieces'
 
@@ -744,6 +750,16 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     if (bulk && bulk.site !== false) offer(bulkId, 'cytosol', 'single', bulk.label, key, { key, rect })
     if (membraneNode) {
       places.set(membraneNode, { kind: 'membrane', cell: key, ...own, site: pieceSiteRef(membrane.id) })
+    } else if (membrane.site !== false) {
+      // An empty membrane is still selectable by its band, so that it can be deleted on its own (see BioFlow's
+      // deletionLayers).
+      places.set(membraneKey(membrane.id), {
+        kind: 'membrane',
+        cell: key,
+        ...own,
+        piece: membrane.id,
+        label: membrane.label,
+      })
     }
     if (membrane.site !== false) offer(membrane.id, 'membrane', 'single', membrane.label, key, { key, rect })
 
