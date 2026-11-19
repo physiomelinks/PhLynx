@@ -1,4 +1,5 @@
 import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { Parser as HtmlParser } from 'htmlparser2'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues.js'
 import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
@@ -1652,8 +1653,47 @@ export function generateFlattenedModel(
   }
 }
 
-const COMPONENT_TAG_PATTERN = /<(?:[\w-]+:)?component[\s/>]/g
-const MODEL_NAME_PATTERN = /<(?:[\w-]+:)?model\b[^>]*\bname\s*=\s*["']([^"']*)["']/
+/**
+ * Reads a model's name and top-level components from its text, as libCellML's Model.componentCount counts them:
+ * imported components count, encapsulated ones (CellML 2.0 `<encapsulation>`, 1.x encapsulation groups) don't, and
+ * comments are skipped. A streaming pass, which costs far less than a DOM or libCellML parse of every module.
+ *
+ * @param {string} xml
+ * @returns {{ modelName: string, componentCount: number }}
+ */
+function countTopLevelComponents(xml) {
+  const names = []
+  const encapsulated = new Set()
+  const stack = []
+  let modelName = ''
+  let group = null // the open 1.x group: whether it's an encapsulation, and its child components
+  const parser = new HtmlParser(
+    {
+      onopentag(rawName, attributes) {
+        const name = rawName.slice(rawName.indexOf(':') + 1)
+        if (name === 'model') modelName = attributes.name ?? ''
+        else if (name === 'component') names.push(attributes.name)
+        else if (name === 'group') group = { isEncapsulation: false, children: [] }
+        else if (name === 'relationship_ref' && group && attributes.relationship === 'encapsulation') {
+          group.isEncapsulation = true
+        } else if (name === 'component_ref' && stack.at(-1) === 'component_ref') {
+          if (stack.includes('encapsulation')) encapsulated.add(attributes.component)
+          else group?.children.push(attributes.component)
+        }
+        stack.push(name)
+      },
+      onclosetag() {
+        if (stack.pop() !== 'group') return
+        if (group?.isEncapsulation) group.children.forEach((child) => encapsulated.add(child))
+        group = null
+      },
+    },
+    { xmlMode: true }
+  )
+  parser.write(xml)
+  parser.end()
+  return { modelName, componentCount: names.filter((name) => !encapsulated.has(name)).length }
+}
 
 function isPossibleParameter(variable, voiNames, includeInitialised = false) {
   if (voiNames.has(variable.name)) return false
@@ -1666,17 +1706,16 @@ function isPossibleParameter(variable, voiNames, includeInitialised = false) {
  * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
  * Reads the math's analysis, not libCellML, so the library store can call it on the main thread.
  *
- * @param {string} math - A model holding one component.
+ * @param {string} math - A model holding one top-level component, which may encapsulate others.
  * @param {boolean} [includeInitialisedVariables]
  * @param {Map<string, string>} [defaults] - The math's values, for stored math, which holds none (libraryStore.getMathDefaults).
- * @throws {Error} When the model holds no component, or more than one.
+ * @throws {Error} When the model holds no top-level component, or more than one.
  */
 export function extractVariablesFromMath(math, includeInitialisedVariables = true, defaults = new Map()) {
   const variables = []
   if (!math) return variables
-  // Counted from the text, as a DOM parse of every module would cost more than the rest; CellML components never nest.
-  const componentCount = math.match(COMPONENT_TAG_PATTERN)?.length ?? 0
-  if (componentCount > 1) throw new Error(`More than one component detected in ${math.match(MODEL_NAME_PATTERN)?.[1] ?? 'the model'}.`)
+  const { modelName, componentCount } = countTopLevelComponents(math)
+  if (componentCount > 1) throw new Error(`More than one component detected in ${modelName || 'the model'}.`)
   if (!componentCount) throw new Error(`No component found in file.`)
 
   const analysis = analyzeMathXml(math)
