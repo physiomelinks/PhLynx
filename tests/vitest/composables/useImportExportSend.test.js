@@ -13,6 +13,7 @@ vi.mock('../../../src/services/compress', async (importActual) => ({
   generateOmexArchive: vi.fn(async () => new Blob(['omex'])),
   createOmexDataFragment: vi.fn(async () => 'data:application/zip;base64,UEsF'),
 }))
+vi.mock('../../../src/services/libcellml/libcellmlClient', () => import('../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../src/utils/cellml', () => ({
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
 }))

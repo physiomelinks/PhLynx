@@ -30,7 +30,7 @@ import { resolvePlotConfig } from '../services/simulation/plotSelections'
 import { checkScope, resolveScope, scopedModelInputs, summariseScopeReport } from '../services/simulation/scopedModel'
 import { useConfirmDialog } from './useConfirmDialog'
 import { notify } from '../utils/notify'
-import { extractVoiAndParametersFromModel } from '../utils/cellml'
+import { extractVoiAndParametersFromModelInBackground } from '../services/libcellml/modelQueries'
 import { getFileHandle } from '../utils/save'
 import { getImportConfig } from '../utils/import'
 import { getModuleFormat } from '../services/moduleFormats'
@@ -183,7 +183,7 @@ export function useImportExportSend({
     const modular = await buildModular(scope, { mainFileName: cellmlFileName })
     const inScope = (selection) => !scope || scope.nodeIds.includes(selection.nodeId)
     const scanConfig = { ...parameterScanConfig.value, selections: (parameterScanConfig.value?.selections ?? []).filter(inScope) }
-    const extractedData = extractVoiAndParametersFromModel(modular.flat, scanConfig)
+    const extractedData = await extractVoiAndParametersFromModelInBackground(modular.flat, scanConfig)
     const snapshot = snapshotFlowState(scope?.nodeIds ?? null)
 
     return generateOmexArchive(

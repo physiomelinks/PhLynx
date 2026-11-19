@@ -4,7 +4,8 @@
  * files by the `units.cellml` ending, beside the config.
  */
 import { STANDARD_UNITS } from '../../utils/constants'
-import { combineComponentModels, uniqueComponentIds, whenLibCellMLReady } from '../../utils/cellml'
+import { uniqueComponentIds } from '../../utils/cellml'
+import { combineComponentModelsInBackground } from '../libcellml/modelQueries'
 import { parseMathRef } from '../../utils/config'
 import { unitsModelXml } from '../../utils/unitExpression'
 import { groupingCellmlFile, unitsUsedBy } from '../userModules'
@@ -161,7 +162,6 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
     entry.component_file = renames.get(entry.component_file)
   }
 
-  await whenLibCellMLReady()
   const files = new Map()
   const usedUnits = new Set()
   const idRenames = new Map()
@@ -172,7 +172,7 @@ export async function buildCaCellmlFiles(fileName, moduleConfig, libraryStore) {
     maths.forEach((math) => unitsUsedBy(math).forEach((name) => usedUnits.add(name)))
     const names = [...types].map((type) => exportNames.get(`${file}:${type}`))
     // The model's name can't hold "component": CA copies from the first line that does.
-    files.set(renames.get(file), combineComponentModels('modules', maths, names))
+    files.set(renames.get(file), await combineComponentModelsInBackground('modules', maths, names))
   }
 
   // Units are defined in terms of other units, which the file needs too.
