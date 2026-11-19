@@ -8,7 +8,6 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
 import { useBioPiecesStore } from '../stores/bioPiecesStore'
-import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
@@ -28,7 +27,6 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const inspectionStore = useInspectionModuleStore()
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
-  const bioTemplateStore = useBioTemplateStore()
   const bioPiecesStore = useBioPiecesStore()
   const glyphLibraryStore = useGlyphLibraryStore()
   const nodeThemeStore = useNodeThemeStore()
@@ -43,8 +41,8 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldGlobalConstants = Array.from(libraryStore.globalVariables.entries())
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
-    const oldBioTemplateState = bioTemplateStore.snapshot()
     const oldBioPiecesState = bioPiecesStore.snapshot()
+    const oldBioSkins = bioPiecesStore.skins
     const oldGlyphState = glyphLibraryStore.snapshot()
     const oldThemeState = nodeThemeStore.snapshot()
     const oldSessionMetadata = sessionMetadataStore.getState()
@@ -55,8 +53,8 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       edges.value = oldEdges
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
-        bioTemplateStore.restoreSnapshot(oldBioTemplateState)
         bioPiecesStore.restoreSnapshot(oldBioPiecesState)
+        bioPiecesStore.skins = oldBioSkins
         glyphLibraryStore.restoreSnapshot(oldGlyphState)
         nodeThemeStore.restoreSnapshot(oldThemeState)
         inspectionStore.loadState(oldInspectStore)
@@ -84,7 +82,6 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         useProtocolStore().resetState()
         inspectionStore.resetState()
         omexStore.resetState()
-        bioTemplateStore.resetState()
         bioPiecesStore.resetState()
         glyphLibraryStore.resetState()
         nodeThemeStore.resetState()

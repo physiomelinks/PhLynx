@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useClearWorkspace } from '../../../src/composables/useClearWorkspace.js'
 import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
-import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
+import { getBuiltInPieceTemplate } from '../../../src/services/bioView/pieces/builtInTemplates.js'
+import { useBioPiecesStore } from '../../../src/stores/bioPiecesStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
 import { DEFAULT_PROJECT_NAME } from '../../../src/utils/constants.js'
@@ -84,28 +85,29 @@ describe('useClearWorkspace', () => {
     expect(parameters.getSet('NKA.cellml:NKA', 'NKA').values.get('K').value).toBe('1')
   })
 
-  it('resets the template store, and undo brings the placed templates back', async () => {
-    const bioTemplateStore = useBioTemplateStore()
+  it('resets the pieces and their skins, and undo brings them back', async () => {
+    const bioPiecesStore = useBioPiecesStore()
     const historyStore = useFlowHistoryStore()
-    bioTemplateStore.addInstance('epithelial-cell', { x: 10, y: 20 }, 'Gut')
-    const before = bioTemplateStore.getState()
+    bioPiecesStore.addTemplate(getBuiltInPieceTemplate('epithelial-cell'), { x: 10, y: 20 })
+    const before = bioPiecesStore.getState()
+    const skins = bioPiecesStore.skins
 
     const { clearWorkspace } = useClearWorkspace()
     await clearWorkspace()
-    expect(bioTemplateStore.getState()).toBeNull()
-    expect(bioTemplateStore.definitions.size).toBe(0)
+    expect(bioPiecesStore.getState()).toBeNull()
 
     await historyStore.undo()
-    expect(bioTemplateStore.getState()).toEqual(before)
+    expect(bioPiecesStore.getState()).toEqual(before)
+    expect(bioPiecesStore.skins).toBe(skins)
 
     await historyStore.redo()
-    expect(bioTemplateStore.getState()).toBeNull()
+    expect(bioPiecesStore.getState()).toBeNull()
   })
 
-  it('undoes a clear so that an earlier template edit can still be undone', async () => {
-    const bioTemplateStore = useBioTemplateStore()
+  it('undoes a clear so that an earlier edit to the pieces can still be undone', async () => {
+    const bioPiecesStore = useBioPiecesStore()
     const historyStore = useFlowHistoryStore()
-    const add = bioTemplateStore.edit(() => bioTemplateStore.addInstance('epithelial-cell', { x: 0, y: 0 }))
+    const add = bioPiecesStore.edit(() => bioPiecesStore.addTemplate(getBuiltInPieceTemplate('cell'), { x: 0, y: 0 }))
     add.apply()
 
     const { clearWorkspace } = useClearWorkspace()

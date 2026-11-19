@@ -5,14 +5,15 @@
  */
 
 import { SIDES } from './constants.js'
+import { writtenPieces } from './model.js'
 import { freeId } from './stamp.js'
 import { topologyOf } from './topology.js'
 
 /** How near a compartment's edge must be to its enclosure's to count as meeting it. */
 const MEETS = 2
 
-/** A plain copy of the pieces, to change. */
-const copy = (pieces) => JSON.parse(JSON.stringify(pieces))
+/** A plain copy of the pieces as they are written, to change. */
+const copy = writtenPieces
 
 /** The ids of every piece. */
 const taken = (pieces) => new Set(pieces.map((piece) => piece.id))
@@ -122,6 +123,7 @@ export function dockCompartment(pieces, { membrane: membraneId, side, face, from
   const topology = topologyOf(pieces)
   const raw = copy(pieces)
   const membrane = raw.find((piece) => piece.id === membraneId)
+  const validated = pieces.find((piece) => piece.id === membraneId)
   const id = freeId(face === 'inside' ? 'microdomain' : 'compartment', taken(pieces))
   const name =
     label ??
@@ -148,7 +150,8 @@ export function dockCompartment(pieces, { membrane: membraneId, side, face, from
   membrane.sides = Object.fromEntries(
     SIDES.map((each) => [
       each,
-      written(each === side ? splitSpans(membrane.sides[each], from, to, stretch, ids) : membrane.sides[each]),
+      // The validated spans know where each starts; the copy's are as written.
+      each === side ? written(splitSpans(validated.sides[each], from, to, stretch, ids)) : membrane.sides[each],
     ]),
   )
   return { pieces: [...raw, piece], id }
@@ -357,4 +360,103 @@ export function addZone(pieces, compartment) {
   const id = freeId('zone', taken(pieces))
   const label = numbered(pieces, 'zone', 'Process zone')
   return { pieces: [...copy(pieces), { id, kind: 'zone', label, compartment }], id }
+}
+
+/**
+ * Renames a piece, or a stretch of a membrane.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {string} path - A piece's id, or '<membrane>.<span>'.
+ * @param {string} label - Not blank.
+ * @returns {Array<Object>|null} Null when there is no such piece or stretch, or the label is blank.
+ */
+export function relabelPiece(pieces, path, label) {
+  const name = String(label ?? '').trim()
+  if (!name) return null
+  const [id, spanId] = path.split('.')
+  const raw = copy(pieces)
+  const piece = raw.find((each) => each.id === id)
+  if (!piece) return null
+  if (spanId === undefined) {
+    piece.label = name
+    return raw
+  }
+  for (const side of SIDES) {
+    const spans = piece.sides?.[side]
+    const span = spans?.find((each) => each.id === spanId)
+    if (!span) continue
+    span.label = name
+    piece.sides[side] = written(spans)
+    return raw
+  }
+  return null
+}
+
+/**
+ * Draws a membrane or compartment with a skin, or plain.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {string} id
+ * @param {{ref: string, mode?: string, opacity?: number}|null} skin - Null for none.
+ * @returns {Array<Object>|null} Null when there is no such membrane or compartment.
+ */
+export function skinPiece(pieces, id, skin) {
+  const raw = copy(pieces)
+  const piece = raw.find((each) => each.id === id && (each.kind === 'membrane' || each.kind === 'compartment'))
+  if (!piece) return null
+  if (skin) piece.skin = { ...skin }
+  else delete piece.skin
+  return raw
+}
+
+/**
+ * What goes with the pieces removed: what stands in them, the tubes to them, the zones in them, the folds on them,
+ * the compartments docked to them, and a membrane once all it encloses has gone; each in turn, until nothing more
+ * depends on what goes.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {Iterable<string>} ids
+ * @returns {Set<string>} The ids that go, those asked for among them.
+ */
+export function removedWith(pieces, ids) {
+  const going = new Set(ids)
+  const dependsOnGoing = (piece) =>
+    going.has(piece.parent) ||
+    (piece.kind === 'tube' && piece.ends.some((end) => going.has(end))) ||
+    (piece.kind === 'zone' && going.has(piece.compartment)) ||
+    (piece.kind === 'fold' && going.has(piece.membrane)) ||
+    (piece.docks ?? []).some((dock) => going.has(dock.on)) ||
+    (piece.kind === 'membrane' && piece.encloses.every((id) => going.has(id)))
+  for (let grew = true; grew;) {
+    grew = false
+    for (const piece of pieces) {
+      if (going.has(piece.id) || !dependsOnGoing(piece)) continue
+      going.add(piece.id)
+      grew = true
+    }
+  }
+  return going
+}
+
+/**
+ * Removes pieces, and what goes with them (see removedWith). A membrane removed on its own leaves what it enclosed
+ * standing where it was, its inside a compartment of its own the membrane's size.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {Iterable<string>} ids
+ * @returns {{pieces: Array<Object>, removed: Set<string>}}
+ */
+export function removePieces(pieces, ids) {
+  const removed = removedWith(pieces, ids)
+  const topology = topologyOf(pieces)
+  const raw = copy(pieces).filter((piece) => !removed.has(piece.id))
+  for (const piece of raw) {
+    if (piece.kind === 'membrane') piece.encloses = piece.encloses.filter((id) => !removed.has(id))
+  }
+  // A bulk whose membrane goes keeps the place the membrane had.
+  for (const membrane of pieces.filter((piece) => piece.kind === 'membrane' && removed.has(piece.id))) {
+    const bulk = raw.find((piece) => piece.id === topology.bulkOf(membrane.id))
+    if (bulk && !bulk.frame && membrane.frame) bulk.frame = { ...membrane.frame }
+  }
+  return { pieces: raw, removed }
 }

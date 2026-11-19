@@ -23,14 +23,15 @@ vi.mock('../../../src/stores/libraryStore', () => ({
     ensureModuleAnnotations: vi.fn(),
   }),
 }))
-vi.mock('../../../src/stores/bioTemplateStore', () => ({ useBioTemplateStore: () => ({ instances: [], definitions: new Map() }) }))
-vi.mock('../../../src/stores/bioPiecesStore', () => ({ useBioPiecesStore: () => ({ pieces: [] }) }))
+vi.mock('../../../src/stores/bioPiecesStore', () => ({ useBioPiecesStore: () => ({ pieces: [], shapes: new Map() }) }))
 vi.mock('../../../src/stores/simulationResultsStore', () => ({ useSimulationResultsStore: () => run }))
 
 const { useBioNodes } = await import('../../../src/composables/useBioNodes.js')
 
 describe('the arrows on a physiological view’s proteins', () => {
-  const nodes = ref([{ id: 'n1', data: { name: 'pump', mathRef: 'pump.cellml:pump', bioView: { role: 'membraneProtein' } } }])
+  const nodes = ref([
+    { id: 'n1', data: { name: 'pump', mathRef: 'pump.cellml:pump', bioView: { role: 'membraneProtein' } } },
+  ])
 
   it('shows what each protein carries both ways before a run, and which way after one', () => {
     const protein = () => useBioNodes(nodes).bioNodes.value.find((n) => n.id === 'n1')

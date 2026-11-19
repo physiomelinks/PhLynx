@@ -27,18 +27,21 @@
     <h5 class="bio-palette__heading">Pieces</h5>
     <div class="bio-palette__tiles">
       <button
-        v-for="tile in PALETTE_TILES"
+        v-for="tile in PIECE_TILES"
         :key="tile.kind"
         type="button"
-        :class="['bio-palette__tile', { 'bio-palette__tile--armed': viewMode.armedTile?.kind === tile.kind }]"
+        :class="[
+          'bio-palette__tile',
+          { 'bio-palette__tile--armed': isSame(viewMode.armedTile, { kind: 'piece', piece: tile.kind }) },
+        ]"
         draggable="true"
         :title="tile.hint"
-        :aria-pressed="viewMode.armedTile?.kind === tile.kind"
-        data-testid="bio-palette-tile"
-        :data-kind="tile.kind"
-        @dragstart="onDragStart($event, { kind: tile.kind })"
+        :aria-pressed="isSame(viewMode.armedTile, { kind: 'piece', piece: tile.kind })"
+        data-testid="bio-palette-piece"
+        :data-piece="tile.kind"
+        @dragstart="onDragStart($event, { kind: 'piece', piece: tile.kind })"
         @dragend="viewMode.draggedTile = null"
-        @click="toggle({ kind: tile.kind })"
+        @click="toggle({ kind: 'piece', piece: tile.kind })"
       >
         <i :class="tile.icon" aria-hidden="true"></i>
         {{ tile.label }}
@@ -48,13 +51,16 @@
     <h5 class="bio-palette__heading">Templates</h5>
     <div class="bio-palette__templates">
       <button
-        v-for="template in templateStore.library"
+        v-for="template in templates.library"
         :key="template.id"
         type="button"
-        :class="['bio-palette__tile', { 'bio-palette__tile--armed': viewMode.armedTile?.template === template.id }]"
+        :class="[
+          'bio-palette__tile',
+          { 'bio-palette__tile--armed': isSame(viewMode.armedTile, { kind: 'template', template: template.id }) },
+        ]"
         draggable="true"
         :title="template.description ?? `${template.name}: drag onto the view`"
-        :aria-pressed="viewMode.armedTile?.template === template.id"
+        :aria-pressed="isSame(viewMode.armedTile, { kind: 'template', template: template.id })"
         data-testid="bio-palette-template"
         :data-template="template.id"
         @dragstart="onDragStart($event, { kind: 'template', template: template.id })"
@@ -67,6 +73,7 @@
       <button
         type="button"
         class="bio-palette__tile bio-palette__tile--action"
+        title="Add a template file (.pieces.json) to My Templates, and place it"
         data-testid="bio-palette-load-template"
         @click="viewMode.templateFileRequests += 1"
       >
@@ -74,53 +81,6 @@
         Load file…
       </button>
     </div>
-
-    <!-- The five fundamental pieces, and the templates written as them, while they are being built -->
-    <template v-if="showPieces">
-      <h5 class="bio-palette__heading">Pieces (preview)</h5>
-      <div class="bio-palette__tiles">
-        <button
-          v-for="tile in PIECE_TILES"
-          :key="tile.kind"
-          type="button"
-          :class="['bio-palette__tile', { 'bio-palette__tile--armed': isSame(viewMode.armedTile, { kind: 'piece', piece: tile.kind }) }]"
-          draggable="true"
-          :title="tile.hint"
-          :aria-pressed="isSame(viewMode.armedTile, { kind: 'piece', piece: tile.kind })"
-          data-testid="bio-palette-piece"
-          :data-piece="tile.kind"
-          @dragstart="onDragStart($event, { kind: 'piece', piece: tile.kind })"
-          @dragend="viewMode.draggedTile = null"
-          @click="toggle({ kind: 'piece', piece: tile.kind })"
-        >
-          <i :class="tile.icon" aria-hidden="true"></i>
-          {{ tile.label }}
-        </button>
-      </div>
-      <h5 class="bio-palette__heading">Templates from pieces (preview)</h5>
-      <div class="bio-palette__templates">
-        <button
-          v-for="template in BUILT_IN_PIECE_TEMPLATES"
-          :key="template.id"
-          type="button"
-          :class="[
-            'bio-palette__tile',
-            { 'bio-palette__tile--armed': isSame(viewMode.armedTile, { kind: 'pieces', template: template.id }) },
-          ]"
-          draggable="true"
-          :title="template.description ?? `${template.name}: drag onto the view`"
-          :aria-pressed="isSame(viewMode.armedTile, { kind: 'pieces', template: template.id })"
-          data-testid="bio-palette-pieces-template"
-          :data-template="template.id"
-          @dragstart="onDragStart($event, { kind: 'pieces', template: template.id })"
-          @dragend="viewMode.draggedTile = null"
-          @click="toggle({ kind: 'pieces', template: template.id })"
-        >
-          <i class="pi pi-th-large" aria-hidden="true"></i>
-          {{ template.name }}
-        </button>
-      </div>
-    </template>
   </div>
 </template>
 
@@ -134,24 +94,20 @@ import { computed, onBeforeUnmount } from 'vue'
 
 import useDragAndDrop from '../../composables/useDnD'
 
-import { PALETTE_TILES, TILE_DRAG_TYPE, isPiecesPreview } from '../../services/bioView/palette'
-import { BUILT_IN_PIECE_TEMPLATES } from '../../services/bioView/pieces/builtInTemplates'
+import { TILE_DRAG_TYPE } from '../../services/bioView/palette'
 import { PIECE_TILES } from '../../services/bioView/pieces/drops'
-import { useBioTemplateStore } from '../../stores/bioTemplateStore'
+import { useBioTemplateLibraryStore } from '../../stores/bioTemplateLibraryStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
 import { NEW_INSTANCE_MODULE_REF } from '../../utils/constants'
 
 const viewMode = useViewModeStore()
-const templateStore = useBioTemplateStore()
+const templates = useBioTemplateLibraryStore()
 const libraryStore = useLibraryStore()
 const libraryDrag = useDragAndDrop()
 
 /** The blank module the New Module tile adds: the one the library's own New Module adds. */
 const newModule = computed(() => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null)
-
-/** Whether the templates written as pieces are offered (see isPiecesPreview). */
-const showPieces = isPiecesPreview()
 
 const isSame = (a, b) => !!a && !!b && a.kind === b.kind && a.template === b.template && a.piece === b.piece
 

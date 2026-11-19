@@ -129,7 +129,7 @@ Every contribution is added ×1. There is no `semsim:hasMultiplier`, and no fact
 
 ## How Places Resolve {#resolution}
 
-Each place resolves, from where the instance sits in the [physiology view](../guides/physiology-view.md), to a physical place: a template site, or a cell, membrane or compartment of the view. Two quantities can couple only at the same place.
+Each place resolves, from where the instance sits in the [physiology view](../guides/physiology-view.md), to a physical place: a site of the pieces the view is built from, or a cell, membrane or compartment of the view. Two quantities can couple only at the same place.
 
 | Instance is | self | self + plasma membrane | cytoplasm | plasma membrane | extracellular region |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -139,6 +139,6 @@ Each place resolves, from where the instance sits in the [physiology view](../gu
 | A membrane protein on a facet | | | The cell's inside | The membrane, that facet | Each compartment against that facet |
 | A process in a cell | | | The cell's inside | | |
 
-On a template, the sites say what lies against what. Off templates, a compartment lies against what **Lies Against** says. On a membrane, the relative side's facets must lie within the self-located side's, so a membrane of all facets takes an apical transporter's charge flow.
+On the pieces, the sites say what lies against what. Off them, a compartment lies against what **Lies Against** says. On a membrane, the relative side's facets must lie within the self-located side's, so a membrane of all facets takes an apical transporter's charge flow.
 
 A place with no meaning for the instance, such as a compartment's cytoplasm, is left unresolved and gets no coupling. An instance with no place, such as one shown as a card, keeps its stored couplings.

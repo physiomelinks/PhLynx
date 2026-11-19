@@ -32,10 +32,7 @@ vi.mock('../../../src/stores/libraryStore', () => ({
     ensureModuleAnnotations: vi.fn(),
   }),
 }))
-vi.mock('../../../src/stores/bioTemplateStore', () => ({
-  useBioTemplateStore: () => ({ instances: [], definitions: new Map() }),
-}))
-vi.mock('../../../src/stores/bioPiecesStore', () => ({ useBioPiecesStore: () => ({ pieces: [] }) }))
+vi.mock('../../../src/stores/bioPiecesStore', () => ({ useBioPiecesStore: () => ({ pieces: [], shapes: new Map() }) }))
 vi.mock('../../../src/stores/simulationResultsStore', () => ({ useSimulationResultsStore: () => run }))
 
 const { useBioNodes } = await import('../../../src/composables/useBioNodes.js')

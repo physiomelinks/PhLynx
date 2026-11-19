@@ -6,7 +6,8 @@
  */
 
 import { isValidColour, normaliseColour } from '../../utils/nodeThemes.js'
-import { LOCAL_TEMPLATE_PREFIX, TEMPLATE_ID, bareTemplateId } from './templates.js'
+import { LOCAL_TEMPLATE_PREFIX, bareTemplateId } from './localIds.js'
+import { TEMPLATE_ID } from './pieces/constants.js'
 
 /** The glyph library format this build understands. */
 export const GLYPH_SCHEMA_VERSION = 1
@@ -351,7 +352,7 @@ export function validateGlyph(raw, { allowLocalId = false, where: named } = {}) 
 }
 
 /**
- * Validates a glyph library file, modelled on validateTemplate: unknown keys are dropped with a warning, and
+ * Validates a glyph library file, modelled on validatePiecesTemplate: unknown keys are dropped with a warning, and
  * any error rejects the whole library.
  *
  * @param {*} raw - Parsed JSON.

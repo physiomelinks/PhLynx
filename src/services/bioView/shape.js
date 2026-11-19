@@ -4,16 +4,14 @@
  * only way an annotation's facet and side reach it; nothing is inferred.
  */
 
-import { DEFAULT_TEMPLATE_ID, getBuiltInTemplate } from './builtInTemplates.js'
-
 /**
- * Gives the shape of one of a template's cells.
+ * Gives a cell's shape from its facets and processes, frozen.
  *
- * @param {Object} cell - A validated template's cell.
+ * @param {{facets?: Array<Object>, processes?: Array<Object>}} cell
  * @returns {{facets: Array<{id: string, label: string, edge: string, group?: string,
  *   annotation?: {facet: string, at?: string}}>, processes: Array<{id: string, label: string}>}}
  */
-export function shapeFromTemplateCell(cell) {
+export function shapeOf(cell) {
   const facets = (cell.facets ?? []).map(({ id, label, edge, fold, depth, group, annotation }) =>
     Object.freeze({
       id,
@@ -22,7 +20,7 @@ export function shapeFromTemplateCell(cell) {
       ...(fold ? { fold, ...(depth && { depth }) } : { edge }),
       ...(group && { group }),
       ...(annotation && { annotation: Object.freeze({ ...annotation }) }),
-    })
+    }),
   )
   const processes = (cell.processes ?? []).map(({ id, label }) => Object.freeze({ id, label }))
   return Object.freeze({ facets: Object.freeze(facets), processes: Object.freeze(processes) })
@@ -59,12 +57,37 @@ export function withFolds(shape, drawnAs) {
  * @returns {Object}
  */
 export function withOutline(shape, geometry) {
-  const facets = shape.facets.map((facet) => (geometry.facets[facet.id] ? Object.freeze({ ...facet, path: geometry.facets[facet.id] }) : facet))
+  const facets = shape.facets.map((facet) =>
+    geometry.facets[facet.id] ? Object.freeze({ ...facet, path: geometry.facets[facet.id] }) : facet,
+  )
   return Object.freeze({ ...shape, facets: Object.freeze(facets), outline: geometry.outline })
 }
 
-/** The shape of the built-in epithelial cell: the geometry annotated cells are drawn with. */
-export const EPITHELIAL_SHAPE = shapeFromTemplateCell(getBuiltInTemplate(DEFAULT_TEMPLATE_ID).cells[0])
+/**
+ * The shape of an epithelial cell: the geometry the cells a module owns (not built from pieces) are drawn with, and
+ * that annotations name the sides of.
+ */
+export const EPITHELIAL_SHAPE = shapeOf({
+  facets: [
+    { id: 'apical', label: 'Apical membrane', edge: 'top', annotation: { facet: 'apical' } },
+    { id: 'basolateral', label: 'Basolateral membrane', edge: 'bottom', annotation: { facet: 'basolateral' } },
+    {
+      id: 'lateral-left',
+      label: 'Lateral membrane (left)',
+      edge: 'left',
+      group: 'lateral',
+      annotation: { facet: 'lateral', at: 'left' },
+    },
+    {
+      id: 'lateral-right',
+      label: 'Lateral membrane (right)',
+      edge: 'right',
+      group: 'lateral',
+      annotation: { facet: 'lateral', at: 'right' },
+    },
+  ],
+  processes: [{ id: 'metabolism', label: 'Metabolism' }],
+})
 
 /**
  * @param {Object} shape
@@ -85,7 +108,7 @@ export function facetById(shape, facetId) {
  */
 export function facetOfAnnotation(shape, { facet, at }) {
   const match = shape.facets.find(
-    ({ annotation }) => annotation?.facet === facet && (annotation.at === undefined || annotation.at === at)
+    ({ annotation }) => annotation?.facet === facet && (annotation.at === undefined || annotation.at === at),
   )
   return match?.id ?? null
 }

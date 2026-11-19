@@ -26,7 +26,7 @@ import {
   proteinPlacement,
 } from '../geometry.js'
 import { byName, inSlotOrder } from '../scaffold.js'
-import { parseSiteRef } from '../templates.js'
+import { parseSiteRef } from '../siteRefs.js'
 import { withFolds, withOutline } from '../shape.js'
 import { pathOf } from '../shapeGeometry.js'
 import { dragModeOf } from './moves.js'

@@ -679,7 +679,7 @@ import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
-import { useBioTemplateStore } from '../stores/bioTemplateStore'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
 
 import { importOmexFile, extractOmexArchive, readArchiveEntries, registerArchiveUnits } from '../services/import/omex'
 import { buildRestoredPorts, restoreOmexAnnotations } from '../services/import/omexAnnotations'
@@ -939,7 +939,7 @@ const inspectionModuleStore = useInspectionModuleStore()
 const historyStore = useFlowHistoryStore()
 const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
-const bioTemplateStore = useBioTemplateStore()
+const bioPiecesStore = useBioPiecesStore()
 const viewMode = useViewModeStore()
 /** The library tab shown. Build pieces go on the physiology view, so leaving it goes back to the modules. */
 const libraryTab = ref('modules')
@@ -1057,8 +1057,8 @@ watch(currentMatchIndex, async () => {
 
 const allNodeNames = computed(() => nodes.value.map((n) => n.data.name))
 const somethingAvailable = computed(() => nodes.value.length > 0)
-/** Whether there is anything to save or clear: modules, or templates placed in the physiological view. */
-const hasWorkspaceContent = computed(() => somethingAvailable.value || bioTemplateStore.instances.length > 0)
+/** Whether there is anything to save or clear: modules, or pieces placed in the physiological view. */
+const hasWorkspaceContent = computed(() => somethingAvailable.value || bioPiecesStore.pieces.length > 0)
 const somethingSelected = computed(() => getSelectedNodes.value.length > 0)
 const hasModelChanged = computed(() => cyrb53(snapshotFlowState()) !== omexStore.archiveHash)
 

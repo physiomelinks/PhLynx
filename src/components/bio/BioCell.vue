@@ -8,7 +8,7 @@
     :data-site="data.site ?? undefined"
   >
     <svg class="bio-cell__art" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" overflow="visible">
-      <!-- A template's cell with no module in it yet: just where it goes -->
+      <!-- A cell of the pieces with no module in it yet: just where it goes -->
       <path v-if="isEmpty" class="bio-cell__outline" :d="leaflet(0)" data-testid="bio-cell-outline" />
       <path v-else class="bio-cell__cytosol" :d="leaflet(-HEAD_OFFSET)" />
       <!-- Its skin: artwork of the user's, within its outline, under everything else in it -->
@@ -53,7 +53,7 @@
         :d="leaflet(-HEAD_OFFSET - SELECTION_INSET)"
         data-testid="bio-cell-selection"
       />
-      <!-- A template's process areas, where cards for what goes on in the cell are put -->
+      <!-- Its process areas, where cards for what goes on in the cell are put -->
       <g
         v-for="zone in data.zones ?? []"
         :key="zone.processId ?? 'process'"
@@ -65,7 +65,7 @@
         <text v-if="zone.label" :x="zone.rect.x + 8" :y="zone.rect.y + 12">{{ zone.label }}</text>
       </g>
     </svg>
-    <!-- A template's names for its facets, just inside each edge, clear of its proteins -->
+    <!-- The names of its membrane's stretches, just inside each edge, clear of its proteins -->
     <span
       v-for="label in facetLabels"
       :key="label.facetId"
@@ -90,7 +90,7 @@
     <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
     <span class="bio-cell__label" :style="labelStyle">
       <BioPieceName :id="id" :name="data.name" />
-      <!-- Not on a template's cell that takes no module of its own, as one that is all microdomains inside -->
+      <!-- Not on a cell that takes no module of its own, as one that is all docked compartments inside -->
       <small v-if="data.empty && data.site !== null" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
@@ -115,7 +115,7 @@ const props = defineProps({
 
 /** Whether the bilayer is drawn: on a cell with a module inside it, or with one as its membrane. */
 /**
- * Whether it is a place still waiting for its module. A template's cell that takes none of its own, being all
+ * Whether it is a place still waiting for its module. A cell that takes none of its own, being all
  * spaces inside, is never waiting: it is drawn as a cell from the start.
  */
 const isEmpty = computed(() => !!props.data.empty && props.data.site !== null)
@@ -153,7 +153,7 @@ const facetLabels = computed(() => {
 
 /**
  * The name goes where the layout found room, in a corner clear of the proteins (see cellNameBox). An empty
- * template cell's name and hint are centred where a drop goes to the cell (see cellHint); else centred low.
+ * piece's name and hint are centred where a drop goes to the cell (see cellHint); else centred low.
  */
 const labelStyle = computed(() => {
   const hint = props.data.empty && props.data.hintAt

@@ -84,11 +84,10 @@ describe('process areas', () => {
 })
 
 describe('layoutPhysiology', () => {
-  it('returns the places and no sites when there are no template instances', () => {
+  it('returns the places of the cells modules own', () => {
     const nodes = [{ id: 'c', data: { name: 'c' } }]
     const roles = new Map([['c', { role: 'cytosol' }]])
-    const { places, sites } = layoutPhysiology(nodes, roles, { instances: [], definitions: new Map() })
+    const { places } = layoutPhysiology(nodes, roles)
     expect(places.get('c')).toMatchObject({ kind: 'cell', membrane: null })
-    expect(sites).toEqual([])
   })
 })

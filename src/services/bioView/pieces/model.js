@@ -476,6 +476,34 @@ export function validatePieces(raw) {
 }
 
 /**
+ * Writes validated pieces back as a file or a save writes them: a plain copy, with each side's spans as they are
+ * written, each with its `to` but the last, and none with the `from` validation fills in. A side of one span named for
+ * its side, as validation fills in for a side left out, is left out.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @returns {Array<Object>} Plain objects, which validate to the same pieces.
+ */
+export function writtenPieces(pieces) {
+  return JSON.parse(JSON.stringify(pieces)).map((piece) => {
+    if (piece.kind !== 'membrane' || !piece.sides) return piece
+    for (const [side, spans] of Object.entries(piece.sides)) {
+      piece.sides[side] = spans.map(({ from, to, ...span }, index) =>
+        index === spans.length - 1 ? span : { ...span, to },
+      )
+    }
+    return piece
+  })
+}
+
+/**
+ * Writes a validated template back as a file writes it (see writtenPieces).
+ *
+ * @param {Object} template - Validated.
+ * @returns {Object} A plain object, which validates to the same template.
+ */
+export const writtenTemplate = (template) => ({ ...template, pieces: writtenPieces(template.pieces) })
+
+/**
  * Validates a template written as pieces (schema 4).
  *
  * @param {*} raw - Parsed JSON, usually a template file.

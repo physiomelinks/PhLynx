@@ -148,7 +148,7 @@ describe('naming and rolling back steps', () => {
     await history.executeAndAddCommand(loggedCommand('select', log))
     history.endBatch()
     expect(history.undoLabel).toBe('Cartoon')
-    expect(stepLabel({ type: 'bio-template-move' })).toBe('Move template')
+    expect(stepLabel({ type: 'bio-pieces-move' })).toBe('Move piece')
     expect(stepLabel({ type: 'add-annotated-ports' })).toBe('Add annotated ports')
   })
 

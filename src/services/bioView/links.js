@@ -24,7 +24,7 @@ const ENDS = {
 
 /**
  * Which way a neighbour's link runs, by the dropped site's role and how the neighbour lies to it (see
- * siteNeighbours): 'in' when it runs neighbour → dropped, 'out' when dropped → neighbour.
+ * topologyOf().neighbours): 'in' when it runs neighbour → dropped, 'out' when dropped → neighbour.
  */
 const DIRECTIONS = {
   membraneProtein: { outside: ['across', 'in'], inside: ['across', 'out'] },
@@ -41,7 +41,7 @@ const FLOWS = { upstream: ['flow', 'in'], downstream: ['flow', 'out'] }
  * @param {string} id - The dropped node.
  * @param {string} role - Its site's role, e.g. 'membraneProtein', 'cytosol' or 'region'.
  * @param {Array<{id: string, relation: string}>} neighbours - The nodes on the sites next to it, each with how its
- *   site lies to the dropped one (see siteNeighbours and neighbourNodes).
+ *   site lies to the dropped one (see topologyOf().neighbours and neighbourNodes).
  * @returns {Array<{from: string, to: string, kind: 'flow'|'across'|'exchange'}>} One per neighbour, in order.
  */
 export function siteLinks(id, role, neighbours) {

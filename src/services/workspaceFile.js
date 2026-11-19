@@ -17,7 +17,6 @@ import { notify } from '../utils/notify'
  * @param {Object} sources.inspectionModules - inspectionModuleStore.
  * @param {Object} sources.omex - omexStore.
  * @param {Object} sources.parameters - defaultParametersStore.
- * @param {Object} [sources.bioTemplates] - bioTemplateStore.
  * @param {Object} [sources.bioPieces] - bioPiecesStore.
  * @param {Object} [sources.bioGlyphs] - glyphLibraryStore.
  * @param {Object} [sources.nodeTheme] - nodeThemeStore.
@@ -30,14 +29,12 @@ export function buildWorkspaceFile({
   inspectionModules,
   omex,
   parameters,
-  bioTemplates,
   bioPieces,
   bioGlyphs,
   nodeTheme,
 }) {
-  // Older builds ignore the key, and nodes bound to a template's sites fall back to their role.
-  const templateState = bioTemplates?.getState() ?? null
-  // And the pieces the physiology view is built from, likewise ignored by older builds.
+  // The pieces the physiology view is built from, and their skins; older builds ignore the key, and nodes bound to the
+  // pieces' sites fall back to their role there.
   const piecesState = bioPieces?.getState() ?? null
   // Likewise the user's own cartoons the nodes are drawn as: a copy of each, so the workspace looks the same
   // elsewhere.
@@ -53,7 +50,6 @@ export function buildWorkspaceFile({
     inspectionModules: inspectionModules.getState(),
     workspace: omex.getState(),
     parameters: parameters.getState(),
-    ...(templateState ? { bioTemplates: templateState } : {}),
     ...(piecesState ? { bioPieces: piecesState } : {}),
     ...(glyphState ? { bioGlyphs: glyphState } : {}),
     ...(themeState ? { nodeTheme: themeState } : {}),

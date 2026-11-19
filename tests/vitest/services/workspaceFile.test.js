@@ -5,9 +5,10 @@ vi.mock('../../../src/utils/notify', () => ({ notify }))
 
 import { createPinia, setActivePinia } from 'pinia'
 
-import { getBuiltInTemplate } from '../../../src/services/bioView/builtInTemplates'
+import { getBuiltInPieceTemplate } from '../../../src/services/bioView/pieces/builtInTemplates'
+import { validatePieces, writtenPieces } from '../../../src/services/bioView/pieces/model'
 import { buildWorkspaceFile, loadWorkspaceFile } from '../../../src/services/workspaceFile'
-import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore'
+import { useBioPiecesStore } from '../../../src/stores/bioPiecesStore'
 import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore'
 import { useLibraryStore } from '../../../src/stores/libraryStore'
@@ -92,14 +93,14 @@ describe('buildWorkspaceFile annotations', () => {
   })
 })
 
-describe('buildWorkspaceFile bioTemplates', () => {
+describe('buildWorkspaceFile bioPieces', () => {
   const FLOW = { nodes: [{ id: 'n1', position: { x: 0, y: 0 }, data: { name: 'pump' } }], edges: [] }
 
-  /** Builds the file from fresh stores, with or without the template store. */
-  function build({ withTemplates = true, fill } = {}) {
+  /** Builds the file from fresh stores, with or without the pieces store. */
+  function build({ withPieces = true, fill } = {}) {
     setActivePinia(createPinia())
-    const bioTemplates = useBioTemplateStore()
-    fill?.(bioTemplates)
+    const bioPieces = useBioPiecesStore()
+    fill?.(bioPieces)
     return buildWorkspaceFile({
       flow: FLOW,
       library: useLibraryStore(),
@@ -107,35 +108,43 @@ describe('buildWorkspaceFile bioTemplates', () => {
       inspectionModules: useInspectionModuleStore(),
       omex: useOmexStore(),
       parameters: useDefaultParametersStore(),
-      ...(withTemplates ? { bioTemplates } : {}),
+      ...(withPieces ? { bioPieces } : {}),
     })
   }
 
-  it('saves a workspace without templates byte for byte as before', () => {
+  it('saves a workspace without pieces byte for byte as before', () => {
     const file = build()
-    expect(file).not.toHaveProperty('bioTemplates')
-    expect(JSON.stringify(file, null, 2)).toBe(JSON.stringify(build({ withTemplates: false }), null, 2))
+    expect(file).not.toHaveProperty('bioPieces')
+    expect(JSON.stringify(file, null, 2)).toBe(JSON.stringify(build({ withPieces: false }), null, 2))
   })
 
-  it('writes the placed templates and their definitions once there are instances', () => {
-    const file = build({ fill: (store) => store.addInstance('epithelial-cell', { x: 3, y: 4 }, 'Villus') })
-
+  it('writes the pieces as they are written once a template is placed', () => {
+    const epithelial = getBuiltInPieceTemplate('epithelial-cell')
+    const file = build({ fill: (store) => store.addTemplate(epithelial, { x: 3, y: 4 }) })
     expect(file.version).toBe(PHLYNX_PROJECT_VERSION)
-    expect(file.bioTemplates.instances).toEqual([
-      { id: expect.stringMatching(/^bt-/), template: 'epithelial-cell', at: { x: 3, y: 4 }, label: 'Villus' },
-    ])
-    const epithelial = JSON.parse(JSON.stringify(getBuiltInTemplate('epithelial-cell')))
-    expect(file.bioTemplates.templates).toEqual({ 'epithelial-cell': epithelial })
+    expect(file.bioPieces.pieces.map((piece) => piece.id)).toEqual(epithelial.pieces.map((piece) => piece.id))
+    // The template's corner, its fluids and all, is where it was placed, so its membrane is further in.
+    const { frame } = file.bioPieces.pieces.find((piece) => piece.id === 'plasma-membrane')
+    expect(frame.x).toBeGreaterThan(3)
+    expect(frame.y).toBeGreaterThan(4)
+    expect(validatePieces(file.bioPieces.pieces)).toMatchObject({ errors: [], warnings: [] })
   })
 
-  it('carries the templates through load and save', () => {
-    const bioTemplates = {
-      templates: { 'epithelial-cell': JSON.parse(JSON.stringify(getBuiltInTemplate('epithelial-cell'))) },
-      instances: [{ id: 'bt-a1', template: 'epithelial-cell', at: { x: 0, y: 0 } }],
-    }
-    const doc = { id: PHLYNX_PROJECT_IDENTIFIER, version: PHLYNX_PROJECT_VERSION, flow: FLOW, store: {}, bioTemplates }
+  it('carries the pieces through load and save', () => {
+    const bioPieces = { pieces: writtenPieces(getBuiltInPieceTemplate('cardiomyocyte').pieces) }
+    const doc = { id: PHLYNX_PROJECT_IDENTIFIER, version: PHLYNX_PROJECT_VERSION, flow: FLOW, store: {}, bioPieces }
+    expect(loadAndSave(doc).bioPieces).toEqual(bioPieces)
+  })
 
-    expect(loadAndSave(doc).bioTemplates).toEqual(bioTemplates)
+  it('drops what an older build saved as placed templates, which no longer load', () => {
+    const doc = {
+      id: PHLYNX_PROJECT_IDENTIFIER,
+      version: PHLYNX_PROJECT_VERSION,
+      flow: FLOW,
+      store: {},
+      bioTemplates: { templates: {}, instances: [] },
+    }
+    expect(loadAndSave(doc)).not.toHaveProperty('bioTemplates')
   })
 })
 

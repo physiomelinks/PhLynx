@@ -1,18 +1,17 @@
 /**
- * The scaffold the physiological view is laid out on: its cells, the compartments lying against them, and the
- * sites modules can be bound to. Cells and compartments are owned either by a node (worked out from its role,
- * keyed by the node id) or by a piece of a template instance (keyed 'tpl:<instance>/<path>' while empty, else
- * by the id of the node bound to it). Annotations never bind a node to a template site; only an explicit
- * bioView.site does.
+ * The scaffold of the cells and compartments modules own, not built from pieces (see pieces/layout.js for those):
+ * each worked out from its node's role and keyed by the node id. Annotations never bind a node to a site of the
+ * pieces; only an explicit bioView.site does.
  */
 
-import { DEFAULT_TEMPLATE_ID, getBuiltInTemplate } from './builtInTemplates.js'
 import { partOf } from './geometry.js'
-import { EPITHELIAL_SHAPE, facetById, facetOfAnnotation, facetsInGroup, shapeFromTemplateCell } from './shape.js'
-import { MEMBRANE, compartmentForm, instanceTemplate, parseSiteRef, siteRef, sitesOf } from './templates.js'
+import { EPITHELIAL_SHAPE, facetById, facetOfAnnotation, facetsInGroup } from './shape.js'
 
-/** The tone of a compartment against nothing the epithelial template colours. */
+/** The tone of a compartment against nothing the epithelial cell colours. */
 export const DEFAULT_TONE = 'sky'
+
+/** The tone of the compartment against each of the epithelial cell's facets, as the epithelial template has them. */
+const EPITHELIAL_TONES = Object.freeze({ apical: 'sky', basolateral: 'rose', 'lateral-right': 'teal' })
 
 /** Sorts node ids by their node's name, then by id. */
 export const byName = (nodes) => (a, b) =>
@@ -27,7 +26,9 @@ export const byName = (nodes) => (a, b) =>
  */
 export function inSlotOrder(ids, nodes) {
   const ordered = (id) => Number.isInteger(nodes.get(id)?.data?.bioView?.order)
-  const placed = ids.filter(ordered).sort((a, b) => nodes.get(a).data.bioView.order - nodes.get(b).data.bioView.order || byName(nodes)(a, b))
+  const placed = ids
+    .filter(ordered)
+    .sort((a, b) => nodes.get(a).data.bioView.order - nodes.get(b).data.bioView.order || byName(nodes)(a, b))
   return [...placed, ...ids.filter((id) => !ordered(id)).sort(byName(nodes))]
 }
 
@@ -41,12 +42,15 @@ const roleFinder = (roles) => (id) => roles.get(id) ?? { role: 'none' }
  * @returns {string}
  */
 export function epithelialTone(facetId) {
-  const template = getBuiltInTemplate(DEFAULT_TEMPLATE_ID)
-  const cellId = template.cells[0].id
-  const against = (id) => template.compartments.find((c) => c.against.includes(`${cellId}.${id}`))
   const group = facetId && facetById(EPITHELIAL_SHAPE, facetId)?.group
-  const match = facetId && (against(facetId) ?? (group && facetsInGroup(EPITHELIAL_SHAPE, group).map(against).find(Boolean)))
-  return match?.tone ?? DEFAULT_TONE
+  const tone =
+    facetId &&
+    (EPITHELIAL_TONES[facetId] ??
+      (group &&
+        facetsInGroup(EPITHELIAL_SHAPE, group)
+          .map((id) => EPITHELIAL_TONES[id])
+          .find(Boolean)))
+  return tone ?? DEFAULT_TONE
 }
 
 /**
@@ -125,7 +129,8 @@ export function scaffoldFromNodes(nodes, roles) {
       const [first] = adjacent
       facetId = partOf(first.facet, first.at)
       const edge = edgeOf(facetId)
-      const entries = edge === 'left' || edge === 'right' ? [first] : adjacent.filter((entry) => entry.facet === first.facet)
+      const entries =
+        edge === 'left' || edge === 'right' ? [first] : adjacent.filter((entry) => entry.facet === first.facet)
       against = entries.map((entry) => ({ cellKey: entry.cell, facetId: partOf(entry.facet, entry.at), edge }))
     } else if (side) {
       facetId = facetOfAnnotation(EPITHELIAL_SHAPE, { facet: side })
@@ -142,179 +147,6 @@ export function scaffoldFromNodes(nodes, roles) {
       label: byId.get(id).data?.name ?? id,
       storedRect: bioViewOf(id)?.rect ?? null,
     })
-  }
-  return scaffold
-}
-
-/** The key of a template piece no node is bound to. */
-export const templateKey = (instanceId, path) => `tpl:${instanceId}/${path}`
-
-/**
- * Finds the template site each node is bound to through its bioView.site. A site whose instance, template or
- * path is missing is dangling, so its node is unbound; of several nodes on a one-module site, the first by
- * name holds it and the rest are unbound.
- *
- * @param {Array<Object>} instances
- * @param {Map<string, Object>} definitions
- * @param {Array<{id: string, data?: Object}>} nodes
- * @returns {Map<string, string[]>} Site ref -> the ids bound to it, in slot order.
- */
-export function boundSites(instances, definitions, nodes) {
-  const byId = new Map(nodes.map((node) => [node.id, node]))
-  const offered = new Map()
-  for (const instance of instances) {
-    const template = instanceTemplate(instance, definitions)
-    if (!template) continue
-    for (const site of sitesOf(template)) offered.set(siteRef(instance.id, site.path), site)
-  }
-  const bound = new Map()
-  for (const id of nodes.map((node) => node.id).sort(byName(byId))) {
-    const parsed = parseSiteRef(byId.get(id).data?.bioView?.site)
-    const ref = parsed && siteRef(parsed.instance, parsed.path)
-    const site = ref && offered.get(ref)
-    if (!site) continue
-    const ids = bound.get(ref) ?? []
-    if (site.kind === 'single' && ids.length) continue
-    bound.set(ref, [...ids, id])
-  }
-  for (const [ref, ids] of bound) bound.set(ref, inSlotOrder(ids, byId))
-  return bound
-}
-
-/**
- * Builds the scaffold of template instances: each instance's cells and compartments, in declaration order,
- * keyed by the node bound to its one-module site or 'tpl:<instance>/<path>' while that is empty, with the
- * nodes bound to each facet and process area.
- *
- * @param {Array<{id: string, template: string, at: {x: number, y: number}, label?: string, edits?: Object}>} instances
- *   - Each drawn with its own changes to its template (see instanceTemplate).
- * @param {Map<string, Object>} definitions - Template id -> its validated template.
- * @param {Array<{id: string, data?: Object}>} [nodes] - The flow's nodes, to find the ones bound to sites.
- * @returns {{cells: Array<Object>, compartments: Array<Object>, sites: Map<string, Object>, bound: Map<string, string>}}
- *   - cells: { key, owner: { instance, cell }, instance, site, node, shape, label, size, row, membrane,
- *     membraneSite, membraneLabel, facets: [{ id, label, edge, site, members }], processes: [{ id, label, site,
- *     members }] }; site is null for a piece with none, node and membrane the ids bound to the cell and its membrane;
- *   - compartments: { key, owner: { instance, compartment }, instance, site, node, form, against: [{ cellKey,
- *     facetId, edge }], tone, depth, label, side: null, adjacent: null, storedRect: null };
- *   - links: { key, owner: { instance, link }, instance, site, node, between: [key, key], flow, label }, key
- *     being 'tpl:<instance>/<path>' always and node the id bound to it;
- *   - sites: site ref -> { ref, instance, path, role, kind, label, occupants, key }, key being the piece's own
- *     key or, for a facet or process, its cell's;
- *   - bound: node id -> the site ref it holds.
- *   Instances whose template is missing are left out.
- */
-export function scaffoldFromTemplates(instances, definitions, nodes = []) {
-  const occupied = boundSites(instances, definitions, nodes)
-  const scaffold = { cells: [], compartments: [], links: [], sites: new Map(), bound: new Map() }
-  for (const [ref, ids] of occupied) for (const id of ids) scaffold.bound.set(id, ref)
-
-  for (const instance of instances) {
-    const template = instanceTemplate(instance, definitions)
-    if (!template) continue
-    const offered = new Map(sitesOf(template).map((site) => [site.path, site]))
-    // A piece's own site, if it offers one, and the nodes bound to it.
-    const siteOf = (path) => (offered.has(path) ? siteRef(instance.id, path) : null)
-    const members = (path) => occupied.get(siteOf(path)) ?? []
-    const keyOf = (path) => members(path)[0] ?? templateKey(instance.id, path)
-    const offer = (path, key) => {
-      const ref = siteOf(path)
-      if (ref) scaffold.sites.set(ref, { ref, instance: instance.id, ...offered.get(path), occupants: members(path), key })
-    }
-
-    const cellKeys = new Map()
-    for (const cell of template.cells) {
-      const key = keyOf(cell.id)
-      cellKeys.set(cell.id, key)
-      const membranePath = `${cell.id}.${MEMBRANE}`
-      scaffold.cells.push({
-        key,
-        owner: { instance: instance.id, cell: cell.id },
-        instance: instance.id,
-        site: siteOf(cell.id),
-        node: members(cell.id)[0] ?? null,
-        shape: shapeFromTemplateCell(cell),
-        label: cell.label,
-        ...(cell.skin && { skin: cell.skin }),
-        size: { ...cell.size },
-        row: cell.row,
-        // A place of its own, from its template's, in place of one in a row.
-        ...(cell.at && { at: { ...cell.at } }),
-        // An organelle's cell, by id until every cell has its key (below).
-        parent: cell.in ?? null,
-        membrane: members(membranePath)[0] ?? null,
-        membraneSite: siteOf(membranePath),
-        membraneLabel: cell.membrane ? cell.membrane.label : null,
-        facets: cell.facets.map(({ id, label, edge, fold }) => ({
-          id,
-          label,
-          edge,
-          ...(fold && { fold }),
-          site: siteOf(`${cell.id}.${id}`),
-          members: members(`${cell.id}.${id}`),
-        })),
-        processes: cell.processes.map(({ id, label, between }) => ({
-          id,
-          label,
-          // A junction's two spaces, each by its key: the cell's own, or a microdomain's.
-          ...(between && { between: between.map((space) => keyOf(space)) }),
-          site: siteOf(`${cell.id}.${id}`),
-          members: members(`${cell.id}.${id}`),
-        })),
-      })
-      offer(cell.id, key)
-      offer(membranePath, key)
-      for (const piece of [...cell.facets, ...cell.processes]) offer(`${cell.id}.${piece.id}`, key)
-    }
-    for (const cell of scaffold.cells) {
-      if (cell.instance === instance.id && cell.parent) cell.parent = cellKeys.get(cell.parent) ?? null
-    }
-
-    for (const compartment of template.compartments) {
-      const key = keyOf(compartment.id)
-      const against = compartment.against.map((entry) => {
-        const [cellId, facetId] = entry.split('.')
-        const { edge, fold } = template.cells.find((cell) => cell.id === cellId).facets.find((facet) => facet.id === facetId)
-        return { cellKey: cellKeys.get(cellId), facetId, edge, ...(fold && { fold }) }
-      })
-      scaffold.compartments.push({
-        key,
-        owner: { instance: instance.id, compartment: compartment.id },
-        instance: instance.id,
-        site: siteOf(compartment.id),
-        node: members(compartment.id)[0] ?? null,
-        form: compartmentForm(template, compartment),
-        // A microdomain's cell.
-        parent: compartment.in !== undefined ? (cellKeys.get(compartment.in) ?? null) : null,
-        against,
-        tone: compartment.tone,
-        depth: compartment.depth ?? null,
-        label: compartment.label,
-        ...(compartment.skin && { skin: compartment.skin }),
-        ...(compartment.at && { at: { ...compartment.at } }),
-        ...(compartment.size && { size: { ...compartment.size } }),
-        ...(compartment.shape && { shape: compartment.shape }),
-        side: null,
-        adjacent: null,
-        storedRect: null,
-      })
-      offer(compartment.id, key)
-    }
-
-    // Links, each drawn between its two spaces whether or not a module is on it, so keyed by its own path.
-    for (const link of template.links ?? []) {
-      const key = templateKey(instance.id, link.id)
-      scaffold.links.push({
-        key,
-        owner: { instance: instance.id, link: link.id },
-        instance: instance.id,
-        site: siteOf(link.id),
-        node: members(link.id)[0] ?? null,
-        between: link.between.map((space) => keyOf(space)),
-        flow: link.kind,
-        label: link.label,
-      })
-      offer(link.id, key)
-    }
   }
   return scaffold
 }

@@ -46,7 +46,7 @@ const props = defineProps({
   name: { type: String, required: true },
 })
 
-/** The view's `(id, name) => void`, which names the piece: a template's own, or the module on it. */
+/** The view's `(id, name) => void`, which names the piece: the piece itself, or the module on it. */
 const rename = inject('bioRenamePiece', null)
 
 // As the diagram's name: short enough to feel immediate, and dropped by a double-click, which opens the instance editor.

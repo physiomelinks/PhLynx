@@ -570,7 +570,7 @@ export function planRelayout(bioViews) {
  * The nodes a node dropped on a template site connects to: whatever occupies the sites next to it.
  *
  * @param {Array<Object>} targets - From dropSites.
- * @param {Array<{ref: string, relation: string}>} neighbours - The neighbouring sites (see siteNeighbours).
+ * @param {Array<{ref: string, relation: string}>} neighbours - The neighbouring sites (see topologyOf().neighbours).
  * @param {Object} options
  * @param {string} options.id - The dropped node, never its own neighbour.
  * @param {Array<{source: string, target: string}>} [options.edges] - Pairs joined either way are left out.
@@ -602,7 +602,7 @@ const KIND_ROLES = { cell: 'cytosol', membrane: 'membrane', protein: 'membranePr
 
 /**
  * The nodes a node on a node-owned cell (not a template's) connects to, as for a template site (see
- * siteNeighbours): a protein its cell, the cell's membrane and the compartments against its part; a membrane
+ * topologyOf().neighbours): a protein its cell, the cell's membrane and the compartments against its part; a membrane
  * its cell and the cell's proteins; a cell its membrane, proteins and processes; a process its cell; a
  * compartment the proteins on the parts it lies against.
  *
@@ -660,16 +660,16 @@ export function ownedNeighbours(layout, id, { edges = [] } = {}) {
 }
 
 /** The node types whose drag moves a whole structure; any other drag moves only the node dragged. */
-export const STRUCTURE_TYPES = new Set(['bioCell', 'bioRegion', 'bioTemplateTitle', 'bioMembrane'])
+export const STRUCTURE_TYPES = new Set(['bioCell', 'bioRegion', 'bioMembrane'])
 
 /** Whether a node-owned region lies against one cell and nothing else. */
 const liesOnlyAgainst = (place, cellId) =>
   place.kind === 'region' && !place.instance && !!place.adjacent?.length && place.adjacent.every((entry) => entry.cell === cellId)
 
 /**
- * The other top-level pieces a structure's drag moves with it: a template's other cells and compartments and
- * its name, or the regions lying against only a node-owned cell. A cell's proteins and cards are its children,
- * so they follow it anyway. Any other node, such as a protein, card or node-owned region, moves alone.
+ * The other top-level pieces a structure's drag moves with it: the regions lying against only a node-owned cell. A
+ * cell's proteins and cards are its children, so they follow it anyway. Any other node, such as a protein, card or
+ * node-owned region, moves alone; the pieces move through their own drags (see pieces/moves.js).
  *
  * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {{id: string, type: string, data?: Object}} node - The dragged bio flow node; a membrane stands for its cell.
@@ -679,18 +679,7 @@ export function dragCompanions(layout, node) {
   if (!STRUCTURE_TYPES.has(node.type)) return []
   const id = node.type === 'bioMembrane' ? layout.get(node.id)?.cell : node.id
   const place = layout.get(id)
-  const instance = node.type === 'bioTemplateTitle' ? node.data?.instance : place?.instance
-  // A piece with a place of its own moves alone, with what is in or against it: its block.
-  if (instance && place?.block && node.type !== 'bioTemplateTitle') {
-    return [...layout].filter(([other, entry]) => other !== id && entry.instance === instance && entry.block === place.block).map(([other]) => other)
-  }
-  if (instance) {
-    const pieces = [...layout]
-      .filter(([, other]) => other.instance === instance && (other.kind === 'cell' || other.kind === 'region'))
-      .map(([other]) => other)
-    return [...pieces, `tpl:${instance}`].filter((other) => other !== id)
-  }
-  if (place?.kind !== 'cell') return []
+  if (place?.instance || place?.kind !== 'cell') return []
   return [...layout].filter(([, other]) => liesOnlyAgainst(other, id)).map(([other]) => other)
 }
 

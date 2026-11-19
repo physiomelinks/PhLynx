@@ -120,6 +120,10 @@ A CellML modelling and simulation tool; [Web OpenCOR](https://opencor.ws/app/) r
 <!-- aliases: physiological view, bio view -->
 The workspace drawn as cells, membranes, proteins and compartments. Where an instance sits there is its place for [annotation](#annotation) coupling. See [The Physiology View](../guides/physiology-view.md).
 
+### Piece {#piece}
+<!-- aliases: pieces, site, sites -->
+One of the five parts the physiology view is built from (compartment, membrane, tube, fold and process zone), each with sites to drop modules on. See [Building the View](../guides/physiology-view.md#building).
+
 ### Port {#port}
 <!-- aliases: ports, port-option, port-options -->
 A labelled set of variables an instance shares with connected instances.
@@ -160,8 +164,8 @@ A model with no differential equations, solved once rather than over the VoI. Se
 A simulation repeated over a range of one parameter's values; an optional second "family" parameter draws one curve per value.
 
 ### Template {#template}
-<!-- aliases: templates, physiology template, site, sites -->
-A ready-made layout of cells and compartments in the physiology view, with sites to drop modules on. See [Templates](../guides/physiology-view.md#templates).
+<!-- aliases: templates, physiology template -->
+A ready-made arrangement of pieces in the physiology view, such as an epithelial cell: placing one adds a copy of its pieces, edited like any others. See [Templates](../guides/physiology-view.md#templates).
 
 ### Tracked Run {#tracked-run}
 <!-- aliases: tracked runs, track -->

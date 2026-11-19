@@ -1,13 +1,14 @@
 /**
  * Template files the user loads and saves: reading their text, wording what is wrong with them, and writing a
- * template back out. The user's own library itself lives in the template store.
+ * template back out. The user's own library itself lives in the template library store.
  */
 
 import { escapeHtml } from '../../utils/importBatch.js'
-import { bareTemplateId } from './templates.js'
+import { bareTemplateId } from './localIds.js'
+import { writtenTemplate } from './pieces/model.js'
 
 /** The suffix template files are saved with. */
-export const TEMPLATE_FILE_SUFFIX = '.template.json'
+export const TEMPLATE_FILE_SUFFIX = '.pieces.json'
 
 /** How many problems a notification lists before it just counts the rest. */
 export const SHOWN_PROBLEMS = 3
@@ -68,13 +69,14 @@ export function summariseProblems(problems, max = SHOWN_PROBLEMS) {
 }
 
 /**
- * Writes a template as a file anyone can load: its own id, without the `local:` prefix.
+ * Writes a template as a file anyone can load: its own id, without the `local:` prefix, its pieces as they are
+ * written (see writtenPieces), and pointing to the schema that describes it.
  *
  * @param {Object} template - A validated template.
  * @returns {{ filename: string, text: string }}
  */
 export function templateFile(template) {
   const id = bareTemplateId(template.id)
-  const text = JSON.stringify({ ...template, id }, null, 2) + '\n'
+  const text = JSON.stringify({ $schema: './bio-pieces.schema.json', ...writtenTemplate(template), id }, null, 2) + '\n'
   return { filename: `${id}${TEMPLATE_FILE_SUFFIX}`, text }
 }

@@ -3,7 +3,7 @@ import { computed, ref, shallowRef } from 'vue'
 
 import { isLocalGlyphId, validateGlyph, validateGlyphLibrary } from '../services/bioView/glyphLibrary'
 import { setLoadedGlyphs } from '../services/bioView/glyphs'
-import { bareTemplateId, freeLocalId } from '../services/bioView/templates'
+import { bareTemplateId, freeLocalId } from '../services/bioView/localIds'
 
 /** Where the user's own glyph libraries are kept, in localStorage. */
 export const LOCAL_GLYPHS_KEY = 'phlynx-bio-glyphs-local'

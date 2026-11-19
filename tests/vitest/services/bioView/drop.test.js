@@ -58,7 +58,10 @@ describe('dropping in the physiological view', () => {
     expect(at(rect.width * 0.12, 4)).toMatchObject({ type: 'area', area: 'membrane', cellId: 'cell', role: 'membrane' })
     expect(at(rect.width / 2, rect.height / 2)).toMatchObject({ type: 'area', area: 'cell', role: 'cytosolic' })
     const { x, y } = layout.get('b')
-    expect(nearestSite(targets, { x, y: y + 4 })).toMatchObject({ type: 'slot', slot: { cellId: 'cell', part: 'apical', order: 1 } })
+    expect(nearestSite(targets, { x, y: y + 4 })).toMatchObject({
+      type: 'slot',
+      slot: { cellId: 'cell', part: 'apical', order: 1 },
+    })
     // Inside, near a facet's edge: that facet's slot, as on a template.
     expect(at(rect.width / 2, rect.height - 20)).toMatchObject({ type: 'slot', slot: { part: 'basolateral' } })
     // A protein never becomes the membrane, even round a corner, clear of the facets' bands: it finds a slot.
@@ -73,14 +76,24 @@ describe('dropping in the physiological view', () => {
   it('makes a node dropped on a hand-added cell its membrane or a process in it, closing up the row it left', () => {
     const { layout, bioViews } = epithelium()
     const plan = planCellArea({ id: 'b', area: { cellId: 'cell', role: 'cytosolic' }, layout, bioViews })
-    expect(Object.fromEntries(plan)).toEqual({ a: { order: 0 }, c: { order: 1 }, b: { role: 'cytosolic', cell: 'cell' } })
+    expect(Object.fromEntries(plan)).toEqual({
+      a: { order: 0 },
+      c: { order: 1 },
+      b: { role: 'cytosolic', cell: 'cell' },
+    })
     const card = planCellArea({ id: 'card', area: { cellId: 'cell', role: 'membrane' }, layout, bioViews })
     expect(Object.fromEntries(card)).toEqual({ card: { role: 'membrane', cell: 'cell' } })
   })
 
   it('moves a protein to another facet, closing up the one it left', () => {
     const { layout, roles, bioViews } = epithelium()
-    const plan = planSlotDrop({ id: 'a', slot: { cellId: 'cell', part: 'basolateral', facet: 'basolateral', order: 0 }, layout, roles, bioViews })
+    const plan = planSlotDrop({
+      id: 'a',
+      slot: { cellId: 'cell', part: 'basolateral', facet: 'basolateral', order: 0 },
+      layout,
+      roles,
+      bioViews,
+    })
     expect(Object.fromEntries(plan)).toEqual({
       b: { order: 0 },
       c: { order: 1 },
@@ -91,7 +104,13 @@ describe('dropping in the physiological view', () => {
 
   it('reorders within a facet', () => {
     const { layout, roles, bioViews } = epithelium()
-    const plan = planSlotDrop({ id: 'c', slot: { cellId: 'cell', part: 'apical', facet: 'apical', order: 0 }, layout, roles, bioViews })
+    const plan = planSlotDrop({
+      id: 'c',
+      slot: { cellId: 'cell', part: 'apical', facet: 'apical', order: 0 },
+      layout,
+      roles,
+      bioViews,
+    })
     expect(['c', 'a', 'b'].map((id) => plan.get(id).order)).toEqual([0, 1, 2])
   })
 
@@ -106,14 +125,23 @@ describe('dropping in the physiological view', () => {
   it('takes a protein out of its membrane to where it was dropped', () => {
     const { layout, bioViews } = epithelium()
     const plan = planUnplace({ id: 'b', position: { x: -300, y: 40 }, layout, bioViews })
-    expect(Object.fromEntries(plan)).toEqual({ a: { order: 0 }, c: { order: 1 }, b: { facet: null, position: { x: -300, y: 40 } } })
+    expect(Object.fromEntries(plan)).toEqual({
+      a: { order: 0 },
+      c: { order: 1 },
+      b: { facet: null, position: { x: -300, y: 40 } },
+    })
   })
 
   it('leaves a dragged protein out of its own facet’s count, so its own place is one of the slots', () => {
     const { layout } = epithelium()
     expect(dropTargets(layout, 'b')[0].counts).toMatchObject({ apical: 2, basolateral: 1 })
     const { x, y } = layout.get('b')
-    expect(nearestSlot(dropTargets(layout, 'b'), { x: x + 3, y: y + 2 })).toMatchObject({ part: 'apical', order: 1, x, y })
+    expect(nearestSlot(dropTargets(layout, 'b'), { x: x + 3, y: y + 2 })).toMatchObject({
+      part: 'apical',
+      order: 1,
+      x,
+      y,
+    })
   })
 
   it('plans nothing when a protein is dropped back in its own slot', () => {
@@ -135,11 +163,17 @@ describe('dropping in the physiological view', () => {
       ['c', undefined],
       ['cell', { rect: { x: 0, y: 0, width: 1, height: 1 } }],
     ])
-    expect(Object.fromEntries(planRelayout(bioViews))).toEqual({ a: { role: 'membraneProtein', glyph: 'pump' }, cell: {} })
+    expect(Object.fromEntries(planRelayout(bioViews))).toEqual({
+      a: { role: 'membraneProtein', glyph: 'pump' },
+      cell: {},
+    })
   })
 
   it('drops fields set to undefined when patching', () => {
-    expect(patchBioView({ facet: 'apical', order: 1 }, { order: undefined, cell: 'x' })).toEqual({ facet: 'apical', cell: 'x' })
+    expect(patchBioView({ facet: 'apical', order: 1 }, { order: undefined, cell: 'x' })).toEqual({
+      facet: 'apical',
+      cell: 'x',
+    })
   })
 })
 
@@ -156,13 +190,16 @@ describe('dropping without moving untouched lateral proteins', () => {
 
   /** Lays out again with a plan applied, the way the resolver would read it back. */
   function sidesAfter({ nodes, roles }, plan) {
-    const next = nodes.map((n) => ({ ...n, data: { ...n.data, bioView: plan.has(n.id) ? plan.get(n.id) : n.data.bioView } }))
+    const next = nodes.map((n) => ({
+      ...n,
+      data: { ...n.data, bioView: plan.has(n.id) ? plan.get(n.id) : n.data.bioView },
+    }))
     const nextRoles = new Map(
       [...roles].map(([id, r]) => {
         const bioView = plan.get(id)
         if (!bioView) return [id, r]
         return [id, { ...r, facet: bioView.facet === null ? null : (bioView.facet ?? r.facet), at: bioView.at ?? null }]
-      })
+      }),
     )
     const layout = layoutBioView(next, nextRoles)
     return Object.fromEntries(['A', 'B', 'C', 'D'].map((id) => [id, layout.get(id).part ?? layout.get(id).kind]))
@@ -213,13 +250,25 @@ describe('dragging a structure or a part', () => {
   /** A hand-added cell with a card kept at its own place, a region against it alone and one against nothing. */
   function handAdded() {
     const nodes = [
-      { id: 'cell', data: { name: 'cell', bioView: { role: 'cytosol', added: true, rect: { x: 0, y: 0, width: 400, height: 300 } } } },
+      {
+        id: 'cell',
+        data: {
+          name: 'cell',
+          bioView: { role: 'cytosol', added: true, rect: { x: 0, y: 0, width: 400, height: 300 } },
+        },
+      },
       { id: 'p', data: { name: 'p' } },
       { id: 'kept', data: { name: 'kept', bioView: { role: 'cytosolic', cell: 'cell', position: { x: 40, y: 120 } } } },
       { id: 'laid', data: { name: 'laid' } },
-      { id: 'lumen', data: { name: 'lumen', bioView: { role: 'region', rect: { x: -80, y: -200, width: 560, height: 140 } } } },
+      {
+        id: 'lumen',
+        data: { name: 'lumen', bioView: { role: 'region', rect: { x: -80, y: -200, width: 560, height: 140 } } },
+      },
       { id: 'blood', data: { name: 'blood' } },
-      { id: 'free', data: { name: 'free', bioView: { role: 'region', rect: { x: 0, y: 900, width: 300, height: 140 } } } },
+      {
+        id: 'free',
+        data: { name: 'free', bioView: { role: 'region', rect: { x: 0, y: 900, width: 300, height: 140 } } },
+      },
     ]
     const against = (facet) => [{ cell: 'cell', facet }]
     const roles = new Map([
@@ -243,27 +292,24 @@ describe('dragging a structure or a part', () => {
     layout.set('wall', { kind: 'membrane', cell: 'cell' })
     expect(dragCompanions(layout, { id: 'wall', type: 'bioMembrane' }).sort()).toEqual(['blood', 'lumen'])
     // Parts, and a node-owned region, move alone.
-    for (const [id, type] of [['p', 'bioProtein'], ['kept', 'bioCard'], ['lumen', 'bioRegion'], ['free', 'bioRegion']]) {
+    for (const [id, type] of [
+      ['p', 'bioProtein'],
+      ['kept', 'bioCard'],
+      ['lumen', 'bioRegion'],
+      ['free', 'bioRegion'],
+    ]) {
       expect(dragCompanions(layout, { id, type })).toEqual([])
     }
   })
 
-  it('takes a template’s other pieces and its name along, from any of its handles', () => {
+  it('leaves a piece’s companions to its own drag', () => {
     const layout = new Map([
-      ['tpl:bt-1/cell', { kind: 'cell', instance: 'bt-1', rect: {} }],
-      ['tpl:bt-1/lumen', { kind: 'region', instance: 'bt-1', rect: {} }],
-      ['cyto', { kind: 'cell', instance: 'bt-1', rect: {} }],
-      ['pump', { kind: 'protein', instance: 'bt-1', cell: 'cyto' }],
-      ['wall', { kind: 'membrane', instance: 'bt-1', cell: 'cyto' }],
-      ['tpl:bt-2/cell', { kind: 'cell', instance: 'bt-2', rect: {} }],
+      ['pc:pm', { kind: 'cell', instance: 'pieces', rect: {} }],
+      ['pc:lumen', { kind: 'region', instance: 'pieces', rect: {} }],
+      ['pump', { kind: 'protein', instance: 'pieces', cell: 'pc:pm' }],
     ])
-    expect(dragCompanions(layout, { id: 'tpl:bt-1/lumen', type: 'bioRegion' })).toEqual(['tpl:bt-1/cell', 'cyto', 'tpl:bt-1'])
-    expect(dragCompanions(layout, { id: 'wall', type: 'bioMembrane' })).toEqual(['tpl:bt-1/cell', 'tpl:bt-1/lumen', 'tpl:bt-1'])
-    expect(dragCompanions(layout, { id: 'tpl:bt-1', type: 'bioTemplateTitle', data: { instance: 'bt-1' } })).toEqual([
-      'tpl:bt-1/cell',
-      'tpl:bt-1/lumen',
-      'cyto',
-    ])
+    expect(dragCompanions(layout, { id: 'pc:pm', type: 'bioCell' })).toEqual([])
+    expect(dragCompanions(layout, { id: 'pc:lumen', type: 'bioRegion' })).toEqual([])
     expect(dragCompanions(layout, { id: 'pump', type: 'bioProtein' })).toEqual([])
   })
 

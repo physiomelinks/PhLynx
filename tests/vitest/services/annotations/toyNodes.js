@@ -2,32 +2,29 @@ import { buildCouplingContext } from '../../../../src/services/annotations/coupl
 import { PLACEMENT_SOURCE } from '../../../../src/services/annotations/locationSources.js'
 import { roleOf } from '../../../../src/services/annotations/match.js'
 import { portFor } from '../../../../src/services/annotations/ports.js'
-import { getBuiltInTemplate } from '../../../../src/services/bioView/builtInTemplates.js'
+import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
 import { TOY_MODULES, loadToy } from './toyModel.js'
 
 const mathRefOf = (name) => `${TOY_MODULES[name]}.cellml:${TOY_MODULES[name]}`
 
-/** The template instance the toy instances are placed on. */
-export const TOY_TEMPLATE_INSTANCE = 'bt-toy'
+/** What owns the sites the toy instances are placed on: the pieces. */
+export const TOY_TEMPLATE_INSTANCE = 'pieces'
 
-/** The site of the epithelial-cell template each toy instance is placed at. */
+/** The site of the epithelial-cell template's pieces each toy instance is placed at. */
 export const TOY_PLACEMENTS = {
   outside: 'apical-fluid',
   cell: 'cell',
-  wall: 'cell.membrane',
-  porter_in: 'cell.apical',
-  porter_out: 'cell.basolateral',
+  wall: 'plasma-membrane',
+  porter_in: 'plasma-membrane.apical',
+  porter_out: 'plasma-membrane.basolateral',
   vessel: 'basolateral-fluid',
 }
 
-/** What the placement source reads: one epithelial-cell template instance. */
-export const TOY_TEMPLATES = {
-  instances: [{ id: TOY_TEMPLATE_INSTANCE, template: 'epithelial-cell', at: { x: 0, y: 0 } }],
-  definitions: new Map([['epithelial-cell', getBuiltInTemplate('epithelial-cell')]]),
-}
+/** What the placement source reads: the pieces of one epithelial cell. */
+export const TOY_TEMPLATES = { pieces: getBuiltInPieceTemplate('epithelial-cell').pieces }
 
 /**
- * The toy model as workspace nodes placed on an epithelial-cell template, with a coupling context.
+ * The toy model as workspace nodes placed on an epithelial cell's pieces, with a coupling context.
  *
  * @returns {Promise<{ toy: Object, sidecarFor: Function, node: Function, unplaced: Function, port: Function,
  *   context: Function }>} node(name, ports?, data?) makes a node placed at its TOY_PLACEMENTS site; unplaced(…) the

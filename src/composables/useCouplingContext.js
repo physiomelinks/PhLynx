@@ -1,6 +1,5 @@
 import { useLibraryStore } from '../stores/libraryStore'
 import { useBioPiecesStore } from '../stores/bioPiecesStore'
-import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { buildCouplingContext } from '../services/annotations/couple'
 import { locationSource } from '../services/annotations/locationSources'
 
@@ -14,7 +13,6 @@ import { locationSource } from '../services/annotations/locationSources'
  */
 export function useCouplingContext() {
   const libraryStore = useLibraryStore()
-  const bioTemplateStore = useBioTemplateStore()
   const bioPiecesStore = useBioPiecesStore()
 
   /**
@@ -31,8 +29,6 @@ export function useCouplingContext() {
       nodes,
       source,
       data: {
-        instances: bioTemplateStore.instances ?? [],
-        definitions: bioTemplateStore.definitions ?? new Map(),
         pieces: bioPiecesStore.pieces ?? [],
         ...(source.read?.() ?? {}),
       },

@@ -48,6 +48,7 @@ from test_annotations import (  # noqa: E402
     BIO_NODE,
     DRAG_OVER_AND_DROP_JS,
     LIBRARY_CARD,
+    PLACED,
     POOL_FILES,
     READ_FLOW,
     TOY_MATHS,
@@ -616,7 +617,7 @@ def import_toy_sidecar(page, toy_name, sidecar):
 
 
 def place_toy_on_epithelial_cell(page):
-    """Load the synthetic toy maths and place them on the epithelial-cell template, then annotate them."""
+    """Load the synthetic toy maths and place them on an epithelial cell's pieces, then annotate them."""
     open_app(page)
     import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
     page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
@@ -625,7 +626,7 @@ def place_toy_on_epithelial_cell(page):
     menu = page.locator(".p-contextmenu")
     menu.get_by_text("Add Template", exact=True).hover()
     menu.get_by_text("Epithelial cell", exact=True).click()
-    expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+    expect(piece(page, "cell")).to_be_visible()
     page.keyboard.press("Escape")
     page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
     page.wait_for_timeout(400)
@@ -641,7 +642,7 @@ def place_toy_on_epithelial_cell(page):
     ]
     for count, (module, point) in enumerate(drops, start=1):
         drop_toy_module(page, module, point)
-        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count)
+        expect(page.locator(PLACED)).to_have_count(count)
     import_toy_sidecar(page, "outside", "pool.ttl")
     import_toy_sidecar(page, "porter_in", "porter.ttl")
     wait_for_settled_transform(page)

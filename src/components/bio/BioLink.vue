@@ -1,5 +1,5 @@
 <template>
-  <!-- A link of a template's: a line from one of its spaces to the other, and room midway for its module -->
+  <!-- A tube: a line from one of its compartments to the other, and room along it for its module -->
   <div :class="['bio-link', `bio-link--${data.flow}`, { 'bio-link--empty': data.empty }]" data-testid="bio-link">
     <!-- One that joins its pieces is the joint between them; with a module in it, the module draws it (BioJoint) -->
     <template v-if="data.joint">

@@ -11,7 +11,7 @@
 | [Workspace](#workspace-file) | `.json` | A saved PhLynx session |
 | [COMBINE archive](#combine-archive) | `.omex` | Model and simulation |
 | [Module sidecar](#annotation-files) | `.ttl` | What a module's variables mean |
-| [Physiology template](#template-files) | `.template.json` | A layout of cells and compartments |
+| [Physiology template](#template-files) | `.pieces.json` | Pieces to build the physiology view from |
 | [Glyph library](#glyph-files) | `.glyphs.json` | Protein cartoons |
 | [CA export](../guides/use-with-circulatory-autogen.md#output) | `.zip` | A Circulatory Autogen model |
 
@@ -60,7 +60,7 @@ A module sidecar is a Turtle (`.ttl`) file saying what each variable of one modu
 
 ### Template files {#template-files}
 
-A JSON file describing cells (their facets, membrane and processes) and the compartments between them, each a site modules are dropped on. Load one with **Add Template ▸ Load Template File…** in the [physiology view](../guides/physiology-view.md#my-templates), and save a placed template with **Save Template As File…**. The format is described by `src/assets/bio_templates/bio-template.schema.json` in the PhLynx repository. Files over 1 MB are refused.
+A JSON file (format version 4) listing the pieces a part of the physiology view is built from: compartments, membranes, tubes, folds and process zones, each with sites modules are dropped on. Load one with **Load file…** in the Build tab or **Add Template ▸ Load Template File…** in the [physiology view](../guides/physiology-view.md#my-templates), and save the view's pieces with **Save Pieces As Template File…**. The format is described by `src/assets/bio_pieces/bio-pieces.schema.json` in the PhLynx repository. Files written for the earlier template format (`.template.json`) no longer load. Files over 1 MB are refused.
 
 ### Glyph library files {#glyph-files}
 

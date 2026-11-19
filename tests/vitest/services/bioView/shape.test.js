@@ -17,11 +17,11 @@ import {
   annotationOfFacet,
   facetOfAnnotation,
   facetsInGroup,
-  shapeFromTemplateCell,
+  shapeOf,
 } from '../../../../src/services/bioView/shape.js'
 
 /** A cell with membrane only along its top and bottom. */
-const SLAB = shapeFromTemplateCell({
+const SLAB = shapeOf({
   id: 'slab',
   label: 'Slab',
   facets: [
@@ -33,7 +33,7 @@ const SLAB = shapeFromTemplateCell({
 const rect = { x: 0, y: 0, width: 400, height: 300 }
 
 describe('cell shapes', () => {
-  it('reads the epithelial shape from the built-in template', () => {
+  it('gives the epithelial shape the cells modules own are drawn with', () => {
     expect(EPITHELIAL_SHAPE.facets.map(({ id, edge, group }) => ({ id, edge, group }))).toEqual([
       { id: 'apical', edge: 'top', group: undefined },
       { id: 'basolateral', edge: 'bottom', group: undefined },
