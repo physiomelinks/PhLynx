@@ -183,6 +183,71 @@ describe('species mode in the physiological view', () => {
   })
 })
 
+describe('a focused species’ concentration tint', () => {
+  const nodes = ref([
+    node('cell', 'pool', { role: 'cytosol' }),
+    node('lumen', 'pool', { role: 'region', adjacent: [{ cell: 'cell', facet: 'apical' }] }),
+    node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
+  ])
+  const edges = ref([
+    couple('lumen', 'porter', [['c_Na', 'c_Na_o']]),
+    couple('porter', 'cell', [['c_Na_i', 'c_Na']]),
+  ])
+  const sodium = (unit = 'mM') => {
+    run.results = {
+      voi: { name: 't', unit: 's', values: Float64Array.from([0, 1, 2]) },
+      variables: new Map([
+        ['lumen/c_Na', { unit: 'mM', values: Float64Array.from([140, 140, 140]) }],
+        ['cell/c_Na', { unit, values: Float64Array.from([10, 14, 28]) }],
+      ]),
+    }
+    run.mapping = new Map([
+      [mappingKey('lumen', 'c_Na'), 'lumen/c_Na'],
+      [mappingKey('cell', 'c_Na'), 'cell/c_Na'],
+    ])
+  }
+  const focusOn = (nodeId) => ref({ nodeId, species: CHEBI.sodium })
+  const tintsOf = (bioNodes) =>
+    Object.fromEntries(bioNodes.value.filter((n) => n.data.tint !== undefined).map((n) => [n.id, n.data.tint]))
+
+  it('tints every compartment holding the focused species, against the most any holds', () => {
+    sodium()
+    const voiCursor = ref(null)
+    const { bioNodes, concentrationTint } = useBioNodes(nodes, edges, {
+      speciesMode: ref({ all: false }),
+      voiCursor,
+      focusedSpecies: focusOn('cell'),
+    })
+    // With no cursor, the run's end.
+    expect(tintsOf(bioNodes)).toEqual({ lumen: 1, cell: 0.2 })
+    expect(concentrationTint.value.unit).toBe('mM')
+    expect(concentrationTint.value.tints.find((tint) => tint.nodeId === 'cell').value).toBe(28)
+    voiCursor.value = { index: 0, range: [0, 2] }
+    expect(tintsOf(bioNodes).cell).toBeCloseTo(10 / 140)
+  })
+
+  it('scales as the mode says, and tints nothing with no focus, no run or a sweep', () => {
+    sodium()
+    const focus = ref(null)
+    const tintMode = ref('compartment')
+    const { bioNodes, concentrationTint } = useBioNodes(nodes, edges, { speciesMode: ref({ all: false }), focusedSpecies: focus, tintMode })
+    expect(concentrationTint.value).toBeNull()
+    expect(tintsOf(bioNodes)).toEqual({})
+    focus.value = { nodeId: 'lumen', species: CHEBI.sodium }
+    expect(tintsOf(bioNodes)).toEqual({ lumen: 0.5, cell: 1 })
+    // The mocked results aren't reactive: a sweep is checked on views made after it.
+    run.results = { ...run.results, isSweep: true }
+    const swept = useBioNodes(nodes, edges, { speciesMode: ref({ all: false }), focusedSpecies: focus })
+    expect(swept.concentrationTint.value).toBeNull()
+  })
+
+  it('leaves a compartment in another unit than the focused one’s untinted', () => {
+    sodium('uM')
+    const { bioNodes } = useBioNodes(nodes, edges, { speciesMode: ref({ all: false }), focusedSpecies: focusOn('lumen') })
+    expect(tintsOf(bioNodes)).toEqual({ lumen: 1 })
+  })
+})
+
 describe('uncoupled modules in the physiological view', () => {
   it('marks a protein or process no edge couples, as a new module is until its math has ports', () => {
     const nodes = ref([

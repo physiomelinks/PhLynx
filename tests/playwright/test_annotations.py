@@ -122,6 +122,20 @@ RUN_WITH_FALLING_FLOWS = """(ids) => {
 }"""
 
 
+# Gives the app a finished run of eleven points, t = 0..10 s, in which the nth given node's c_A goes from n to 10 n mM.
+RUN_WITH_RISING_CONCENTRATIONS = """(ids) => {
+    const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationResults')
+    const t = Float64Array.from({ length: 11 }, (_, i) => i)
+    const variables = new Map()
+    const mapping = new Map()
+    ids.forEach((id, n) => {
+        variables.set(`${id}/c_A`, { kind: 'state', unit: 'mM', values: t.map((x) => (n + 1) * (1 + 0.9 * x)) })
+        mapping.set(`${id}::c_A`, `${id}/c_A`)
+    })
+    store.mapping = mapping
+    store.results = { voi: { name: 't', unit: 's', values: t }, variables }
+}"""
+
 def piece(page, path):
     """An empty piece of the placed template, by its path in the template ('cell', 'apical-fluid', ...)."""
     return page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/{path}"]')
@@ -712,6 +726,39 @@ class TestAnnotationCoupling(unittest.TestCase):
         page.locator("[data-testid=bio-species-play]").click()
         page.locator("[data-testid=bio-species-playback-reset]").click()
         expect(readout).to_have_text("t = 10 s")
+
+    def test_focusing_a_species_tints_its_compartments_by_its_concentration(self):
+        page = self.page
+        self.open_physiology_with_template()
+        self.place_toys()
+        self.place_cell_pool()
+        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
+        self.show_species("Coupled Species", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
+        page.evaluate(RUN_WITH_RISING_CONCENTRATIONS, [n["id"] for n in self.flow()["nodes"]])
+        regions = page.locator("[data-testid=bio-region][data-tint]")
+        cell_tint = page.locator("[data-testid=bio-concentration-tint]")
+        expect(regions).to_have_count(0)
+
+        # Every compartment holding the species is tinted, the one holding most fully.
+        page.locator("[data-testid=bio-species-token]").first.click()
+        expect(regions).to_have_count(2)
+        expect(cell_tint).to_have_count(1)
+        tints = lambda: sorted(float(t) for t in regions.evaluate_all("(els) => els.map((el) => el.dataset.tint)"))
+        before = tints()
+        self.assertTrue(all(0 < t <= 1 for t in before), before)
+
+        # Scrubbed back to the start, each holds a tenth as much, and is tinted a tenth as strongly.
+        page.locator("[data-testid=bio-species-scrubber]").fill("0")
+        expect(page.locator("[data-testid=bio-species-voi]")).to_have_text("t = 0 s")
+        for now, then in zip(tints(), before):
+            self.assertAlmostEqual(now, then / 10, places=3)
+
+        # Clicking off the species clears the tint.
+        page.mouse.click(pane["x"] + pane["width"] - 80, pane["y"] + 80)
+        expect(page.locator(".bio-species-token--focused")).to_have_count(0)
+        expect(regions).to_have_count(0)
+        expect(cell_tint).to_have_count(0)
 
     def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
         page = self.page
