@@ -19,7 +19,10 @@ import { locationSource } from '../services/annotations/locationSources'
 
 /** Stacking: regions under cells under everything drawn on them. */
 // A microdomain is drawn over its cell, and an organelle over both.
-const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8, link: -7, joint: -6, zone: -5 }
+const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8, link: -7, joint: -6, zone: -5, grip: 5 }
+
+/** How big a grip is drawn. */
+const GRIP = 14
 
 /**
  * What a template piece's node shows of its template: which instance and site it is, and how it is drawn.
@@ -61,6 +64,7 @@ function pieceData(place) {
     site,
     tone,
     edge,
+    ...(place.resize && { resize: place.resize }),
     ...(place.skin && { skin: place.skin }),
     ...(place.shape && place.kind === 'region' && { shape: place.shape }),
   }
@@ -149,7 +153,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
   const children = []
 
   for (const [id, place] of layout) {
-    if (!byId.has(id) && !isEmptyPiece(place) && !isLink(place) && !place.piece) continue
+    if (!byId.has(id) && !isEmptyPiece(place) && !isLink(place) && !place.piece && place.kind !== 'grip') continue
     switch (place.kind) {
       case 'zone': {
         // A process zone of the pieces, over the compartment it is within.
@@ -161,7 +165,24 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           width,
           height,
           zIndex: Z.zone,
-          data: { ...base(id).data, piece: place.piece, site: place.site, width, height },
+          draggable: !!place.drag,
+          data: { ...base(id).data, piece: place.piece, site: place.site, width, height, ...(place.resize && { resize: place.resize }) },
+        })
+        break
+      }
+      case 'grip': {
+        // A handle on a piece that is no node of its own: a fold's end, a tube's end or its bend.
+        parents.push({
+          ...UNSET,
+          id,
+          type: 'bioGrip',
+          position: { x: place.x - GRIP / 2, y: place.y - GRIP / 2 },
+          width: GRIP,
+          height: GRIP,
+          zIndex: Z.grip,
+          selectable: false,
+          draggable: true,
+          data: { name: '', grip: place.grip, piece: place.piece, ...(place.end !== undefined && { end: place.end }), ...(place.below && { below: place.below }) },
         })
         break
       }
@@ -208,8 +229,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const hint = own.data.empty && cellHintAt(id, layout, labelOf)
         parents.push({
           ...own,
-          // A piece stays where its frame puts it, for now, with or without a module on it.
-          ...(place.piece && { draggable: false }),
+          // A piece moves as its own drag says (see BioFlow), with or without a module on it.
+          ...(place.piece && { draggable: !!place.drag }),
           type: 'bioCell',
           position: { x, y },
           width,
@@ -234,7 +255,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const own = base(id)
         parents.push({
           ...own,
-          ...(place.piece && { draggable: false }),
+          ...(place.piece && { draggable: !!place.drag }),
           type: 'bioRegion',
           position: { x, y },
           width,
@@ -639,15 +660,17 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
         .join(' · ')
     }
     const options = { instances: templateStore.instances, definitions: templateStore.definitions, detailOf, shapes: templateStore.shapes }
-    if (!piecesStore.pieces.length) return layoutPhysiology(nodes.value, roles.value, options)
+    // A drag of a piece lays it out as the drag would leave it (the draft), so all that goes with it follows.
+    const pieces = piecesStore.draft ?? piecesStore.pieces
+    if (!pieces.length) return layoutPhysiology(nodes.value, roles.value, options)
     // The pieces the view is built from (schema 4), with the nodes bound to their sites; the rest as before.
     const widthOf = (id) => proteinLabelWidth(byId.get(id)?.data?.name ?? id, detailOf(id))
-    const pieces = layoutPieces(piecesStore.pieces, { shapes: templateStore.shapes, nodes: nodes.value, widthOf })
-    const { bound } = boundToPieces(piecesStore.pieces, nodes.value)
+    const laidOut = layoutPieces(pieces, { shapes: templateStore.shapes, nodes: nodes.value, widthOf })
+    const { bound } = boundToPieces(pieces, nodes.value)
     const physiology = layoutPhysiology(nodes.value, roles.value, { ...options, placedElsewhere: new Set(bound.keys()) })
     return {
-      places: new Map([...physiology.places, ...pieces.places]),
-      sites: [...physiology.sites, ...pieces.sites],
+      places: new Map([...physiology.places, ...laidOut.places]),
+      sites: [...physiology.sites, ...laidOut.sites],
     }
   })
   const layout = computed(() => physiology.value.places)

@@ -92,7 +92,17 @@ export function dropScene(pieces, { shapes = new Map() } = {}) {
   return { pieces, rects, byId: new Map(pieces.map((piece) => [piece.id, piece])), shapes }
 }
 
-/** The compartment a point is in: the smallest of those drawn round it. */
+/**
+ * The compartment a point is in: the smallest of those drawn round it.
+ *
+ * @param {Object} scene - From dropScene.
+ * @param {{x: number, y: number}} point
+ * @returns {Object|null}
+ */
+export function compartmentAtPoint(scene, point) {
+  return compartmentAt(scene, point)
+}
+
 function compartmentAt(scene, point) {
   return (
     scene.pieces
@@ -315,6 +325,8 @@ export function previewDrop(scene, drop) {
   const { places } = layoutPieces(pieces, { shapes: scene.shapes })
   const ghosts = []
   for (const place of places.values()) {
+    // A grip is a handle on a piece, not part of it.
+    if (place.kind === 'grip') continue
     if (before.has(place.piece)) {
       // A membrane already there with a fold added.
       for (const fold of place.folds ?? []) {

@@ -279,7 +279,10 @@
         <BioCard :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioZone="props">
-        <BioZone :data="props.data" />
+        <BioZone :id="props.id" :data="props.data" />
+      </template>
+      <template #node-bioGrip="props">
+        <BioGrip :data="props.data" />
       </template>
       <template #node-bioTemplateTitle="props">
         <BioTemplateTitle :data="props.data" />
@@ -447,6 +450,7 @@ import BioLink from './BioLink.vue'
 import BioJoint from './BioJoint.vue'
 import BioTemplateTitle from './BioTemplateTitle.vue'
 import BioZone from './BioZone.vue'
+import BioGrip from './BioGrip.vue'
 import SpeciesMenu from './SpeciesMenu.vue'
 import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
@@ -486,11 +490,21 @@ import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
 import { getBuiltInPieceTemplate } from '../../services/bioView/pieces/builtInTemplates'
-import { PIECES_INSTANCE, pieceSiteRef } from '../../services/bioView/pieces/layout'
+import { PIECES_INSTANCE, layoutPieces, pieceSiteRef } from '../../services/bioView/pieces/layout'
 import { topologyOf } from '../../services/bioView/pieces/topology'
-import { dropScene, previewDrop, resolveDrop } from '../../services/bioView/pieces/drops'
+import { compartmentAtPoint, dropScene, previewDrop, resolveDrop } from '../../services/bioView/pieces/drops'
+import {
+  bendTube,
+  fitToContents,
+  moveFold,
+  moveFrame,
+  reattachTube,
+  resizeFrame,
+  setDepth,
+  slideDock,
+} from '../../services/bioView/pieces/moves'
 import { PIECES_SCHEMA_VERSION } from '../../services/bioView/pieces/constants'
-import { validatePiecesTemplate } from '../../services/bioView/pieces/model'
+import { validatePieces, validatePiecesTemplate } from '../../services/bioView/pieces/model'
 import { useBioPiecesStore } from '../../stores/bioPiecesStore'
 import { BLANK_CELL_TEMPLATE, BLANK_TUBE_TEMPLATE, TILE_DRAG_TYPE, linkEndsAt, nearestEdge, templateCellAt } from '../../services/bioView/palette'
 import { ROLE_LABELS } from '../../services/bioView/roles'
@@ -1072,6 +1086,8 @@ function snapToSlot(change) {
 }
 
 function onNodesChange(changes) {
+  // A piece being moved or resized is laid out from its draft, not where the drag or resizer would put its node.
+  changes = changes.filter((change) => !takesPieceChange(change))
   // A membrane is dragged only to move its cell (see onNodeDrag), so it stays on the cell's outline, and a
   // structure grabbed on its own leaves whatever else was selected where it is.
   changes = changes.filter(
@@ -1121,6 +1137,8 @@ function onNodeDragStart({ event, node, nodes }) {
   dragStarts.clear()
   for (const moved of nodes) dragStarts.set(moved.id, { ...moved.position })
   structureDrag = null
+  // A piece, or a grip on one, moves as its own drag says.
+  if (startPieceMove(node, event)) return
   // A structure's handle takes its other pieces along; a part, such as a protein or card, moves alone.
   const lead = node.type === 'bioMembrane' ? findNode(node.parentNode) : node
   const companions = dragCompanions(layout.value, node)
@@ -1137,6 +1155,11 @@ function onNodeDragStart({ event, node, nodes }) {
 
 /** Moves the rest of a dragged structure with it, as the drag goes, and the species drawn over what moved. */
 function onNodeDrag({ event, node, nodes }) {
+  if (pieceMove) {
+    const pointer = pointerAt(event)
+    if (pointer) followPiece(pointer)
+    return
+  }
   moveStructure(event, node)
   driftWithDrag(nodes ?? [node])
 }
@@ -1193,6 +1216,7 @@ function putBack(nodes) {
  * is joined to the nodes on the sites next to it in that step too, once the user agrees to any replace.
  */
 async function onNodeDragStop(event) {
+  if (pieceMove) return endPieceMove(event)
   try {
     await settleNodeDrag(event)
   } finally {
@@ -2249,6 +2273,177 @@ async function placePiecesAt(templateId, point) {
   if (errors.length) notify.error({ title: 'Could not add the template', message: summariseProblems(errors) })
 }
 
+// ── Moving and resizing the pieces ─────────────────────────────────────
+// A piece dragged, or resized, is laid out as the drag would leave it (the store's draft), worked out once a frame,
+// so everything in, against or joined to it follows; the drop keeps the draft as one step. See pieces/moves.js.
+/** The piece being dragged: its node, the piece, how it moves, where its node started, and the pieces then. */
+let pieceMove = null
+/** The piece being resized, likewise. */
+let pieceResize = null
+let moveFrameRequest = 0
+let pendingPosition = null
+
+/** Where each piece is drawn, from the pieces as they are (not as a draft has them). */
+const pieceRects = () => layoutPieces(piecesStore.pieces, { shapes: templateStore.shapes }).rects
+
+/**
+ * Begins a drag of a piece, or of a grip on one, if the node is one that moves so. The piece follows the pointer, by
+ * how far it has gone: the node's own position is the draft's, which a drag would otherwise move twice.
+ */
+function startPieceMove(node, event) {
+  const place = layout.value.get(node.id)
+  const pointer = pointerAt(event)
+  if (!place?.piece || !pointer) return false
+  const mode = node.type === 'bioGrip' ? `grip:${place.grip}` : place.drag
+  if (!mode) return false
+  // The view stays where the user is working, however the layout's extent changes.
+  isViewChosen = true
+  pieceMove = {
+    nodeId: node.id,
+    piece: place.piece,
+    mode,
+    pointer,
+    grip: place.kind === 'grip' ? { x: place.x, y: place.y } : null,
+    base: piecesStore.pieces,
+    rects: pieceRects(),
+    end: place.end,
+    below: place.below ?? 0,
+  }
+  return true
+}
+
+/** Whether a node change is one a piece's move or resize stands in for, and so is left unapplied. */
+function takesPieceChange(change) {
+  if (pieceMove && change.type === 'position') {
+    // A tube's end follows the pointer, to be dropped on another compartment.
+    if (change.id === pieceMove.nodeId && (pieceMove.mode === 'grip:start' || pieceMove.mode === 'grip:end')) return false
+    return true
+  }
+  return !!pieceResize && change.id === pieceResize.nodeId && (change.type === 'position' || change.type === 'dimensions')
+}
+
+/** The pieces as a move with the pointer here leaves them, validated; null where it can't go there. */
+function moveDraft(pointer) {
+  const { mode, piece, base, rects, below } = pieceMove
+  const delta = { x: pointer.x - pieceMove.pointer.x, y: pointer.y - pieceMove.pointer.y }
+  const grip = pieceMove.grip && { x: pieceMove.grip.x + delta.x, y: pieceMove.grip.y + delta.y }
+  const raw =
+    mode === 'frame'
+      ? moveFrame(base, piece, delta, rects)
+      : mode === 'slide'
+        ? slideDock(base, piece, delta, rects)
+        : mode === 'grip:fold'
+          ? moveFold(base, piece, grip, rects)
+          : mode === 'grip:bend'
+            ? bendTube(base, piece, { x: grip.x, y: grip.y + below })
+            : null
+  return raw && validatePieces(raw).pieces
+}
+
+/** Lays the dragged piece out for where the pointer is now, once a frame. */
+function followPiece(pointer) {
+  pendingPosition = pointer
+  if (moveFrameRequest) return
+  moveFrameRequest = requestAnimationFrame(() => {
+    moveFrameRequest = 0
+    if (!pieceMove || !pendingPosition) return
+    const draft = moveDraft(pendingPosition)
+    if (draft) piecesStore.draft = draft
+  })
+}
+
+/** Ends a drag of a piece: keeps where it went, as one step, or joins a tube's end to the compartment it is on. */
+async function endPieceMove({ event, node }) {
+  const move = pieceMove
+  pieceMove = null
+  cancelAnimationFrame(moveFrameRequest)
+  moveFrameRequest = 0
+  pendingPosition = null
+  if (move.mode === 'grip:start' || move.mode === 'grip:end') {
+    const point = pointerAt(event)
+    const target = point && compartmentAtPoint(dropScene(piecesStore.pieces, { shapes: templateStore.shapes }), point)
+    const raw = target && reattachTube(move.base, move.piece, move.end, target.id)
+    const next = raw && validatePieces(raw).pieces
+    if (next) await editPieces(next, 'bio-pieces-tube-end')
+    // Back where its layout puts it: on the end it is joined to now.
+    putBack([node])
+    return
+  }
+  const draft = piecesStore.draft
+  try {
+    if (draft && draft !== move.base) await editPieces(draft, 'bio-pieces-move')
+  } finally {
+    piecesStore.draft = null
+  }
+}
+
+/** Resizes a piece from its handle (see BioPieceResize): its frame, or a docked compartment's depth. */
+function onPieceResize(nodeId, phase, params) {
+  if (phase === 'start') {
+    const place = layout.value.get(nodeId)
+    if (!place?.piece || !place.resize) return
+    const base = piecesStore.pieces
+    isViewChosen = true
+    pieceResize = { nodeId, piece: place.piece, resize: place.resize, base, rects: pieceRects(), startRect: { ...place.rect } }
+    return
+  }
+  if (pieceResize?.nodeId !== nodeId) return
+  if (phase === 'resize') {
+    const draft = resizeDraft(params)
+    if (draft) piecesStore.draft = draft
+    return
+  }
+  const draft = piecesStore.draft
+  const base = pieceResize.base
+  pieceResize = null
+  const keep = draft && draft !== base ? editPieces(draft, 'bio-pieces-resize') : Promise.resolve()
+  keep.finally(() => (piecesStore.draft = null))
+}
+provide('bioPieceResize', onPieceResize)
+
+/** The pieces as a resize to these bounds leaves them, validated. */
+function resizeDraft(params) {
+  const { piece, resize, base, rects, startRect } = pieceResize
+  let raw
+  if (resize.mode === 'frame') raw = resizeFrame(base, piece, params, rects)
+  else {
+    // Across its side, by how much it grew; outside a membrane it reaches in under its rounded corners too.
+    const across = resize.side === 'top' || resize.side === 'bottom'
+    const before = across ? startRect.height : startRect.width
+    const after = across ? params.height : params.width
+    raw = setDepth(base, piece, before - (resize.face === 'outside' ? CELL_RADIUS : 0) + (after - before))
+  }
+  return raw && validatePieces(raw).pieces
+}
+
+/** What can be done to a piece from its menu: fit it to its contents, or straighten a bent tube. */
+function pieceMenu(place) {
+  const piece = place?.piece && piecesStore.pieces.find((each) => each.id === place.piece)
+  if (!piece) return []
+  const items = []
+  if (piece.frame && piece.kind !== 'zone') {
+    items.push({
+      label: 'Fit to Contents',
+      icon: 'pi pi-arrows-alt',
+      command: () => keepPieces(fitToContents(piecesStore.pieces, piece.id), 'bio-pieces-resize'),
+    })
+  }
+  if (piece.kind === 'tube' && piece.bends?.length) {
+    items.push({
+      label: 'Straighten Tube',
+      icon: 'pi pi-minus',
+      command: () => keepPieces(bendTube(piecesStore.pieces, piece.id, null), 'bio-pieces-move'),
+    })
+  }
+  return items.length ? [{ separator: true }, ...items] : []
+}
+
+/** Keeps an edit to the pieces as one step, once it validates. */
+function keepPieces(raw, type) {
+  const next = raw && validatePieces(raw).pieces
+  if (next) editPieces(next, type)
+}
+
 // ── The five pieces ────────────────────────────────────────────────────
 // A piece carried from the palette, dragged or armed, shows what it would go on and where it would be drawn, worked
 // out again only when its target changes (see pieces/drops.js).
@@ -2739,7 +2934,9 @@ function onNodeContextMenu({ event, node }) {
   if (!main.findNode(node.id)) {
     if (!instance) return
     const here = newModuleItem(event)
-    menuItems.value = [...here, ...templateMenu(instance, place).slice(here.length ? 0 : 1)]
+    const items = [...templateMenu(instance, place), ...pieceMenu(place)]
+    menuItems.value = [...here, ...items.slice(here.length ? 0 : 1)]
+    if (!menuItems.value.length) return
     contextMenu.value.show(event)
     return
   }
@@ -2779,6 +2976,8 @@ function onNodeContextMenu({ event, node }) {
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
   if (role?.role === 'region' && !role.site) items.push(liesAgainstMenu(node.id, role))
+  // On a piece of the pieces: what can be done to the piece itself.
+  if (place?.piece) items.push(...pieceMenu(place))
   // Bound to a template site that is there: unbinding goes where its role puts it, a protein to the tray.
   const site = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
   const unbind = (type) =>
@@ -3489,6 +3688,11 @@ function assignRole(id, at, { role, cell, placement }) {
 
 .bio-rename-error {
   color: var(--p-red-500);
+}
+
+/* A piece's resize handle shows while the pointer is over it. */
+.bio-flow :deep(.vue-flow__node:not(:hover) .bio-piece-resize) {
+  opacity: 0;
 }
 
 /* Where a carried piece can't go: said in red. */

@@ -7,11 +7,16 @@
   >
     <span class="bio-zone__label">{{ data.name }}</span>
     <small v-if="data.empty" class="bio-zone__hint" data-testid="bio-empty-hint">Drop a module</small>
+    <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
   </div>
 </template>
 
 <script setup>
+import BioPieceResize from './BioPieceResize.vue'
+
 defineProps({
+  /** Its node id, for its resize handle. */
+  id: { type: String, default: null },
   data: { type: Object, required: true },
 })
 </script>

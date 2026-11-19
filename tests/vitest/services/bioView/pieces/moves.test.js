@@ -1,0 +1,181 @@
+import { describe, expect, it } from 'vitest'
+
+import { getBuiltInPieceTemplate } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
+import { layoutPieces, pieceKey } from '../../../../../src/services/bioView/pieces/layout.js'
+import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
+import {
+  bendTube,
+  dragModeOf,
+  fitToContents,
+  moveFold,
+  moveFrame,
+  reattachTube,
+  resizeFrame,
+  setDepth,
+  slideDock,
+} from '../../../../../src/services/bioView/pieces/moves.js'
+import { topologyOf } from '../../../../../src/services/bioView/pieces/topology.js'
+
+const valid = (raw) => {
+  const { pieces, errors } = validatePieces(raw)
+  expect(errors).toEqual([])
+  return pieces
+}
+const rectsOf = (pieces) => layoutPieces(pieces).rects
+const byId = (pieces, id) => pieces.find((piece) => piece.id === id)
+
+const cardiomyocyte = valid(getBuiltInPieceTemplate('cardiomyocyte').pieces)
+
+/** A cell with a microdomain docked along the middle of its top, inside. */
+const withMicrodomain = valid([
+  { id: 'cell', kind: 'compartment', label: 'Cell' },
+  {
+    id: 'pm',
+    kind: 'membrane',
+    label: 'PM',
+    encloses: ['cell'],
+    frame: { x: 0, y: 0, width: 400, height: 300 },
+    sides: {
+      top: [
+        { id: 'top', label: 'Top', to: 0.25 },
+        { id: 'md', label: 'Microdomain', to: 0.5 },
+        { id: 'top-2', label: 'Top' },
+      ],
+    },
+  },
+  {
+    id: 'md',
+    kind: 'compartment',
+    label: 'MD',
+    parent: 'cell',
+    docks: [{ on: 'pm', side: 'top', face: 'inside', from: 0.25, to: 0.5 }],
+  },
+])
+
+describe('dragModeOf', () => {
+  it('moves membranes, free compartments and zones by their frames, docked stretches along their side', () => {
+    expect(dragModeOf(cardiomyocyte, 'sarcolemma')).toBe('frame')
+    expect(dragModeOf(cardiomyocyte, 'sr-membrane')).toBe('frame')
+    expect(dragModeOf(cardiomyocyte, 'myofilaments')).toBe('frame')
+    expect(dragModeOf(withMicrodomain, 'md')).toBe('slide')
+    // A bulk is its membrane's to move; a fluid along a whole side has nowhere to go; a cleft is held by its docks.
+    expect(dragModeOf(cardiomyocyte, 'myocyte')).toBeNull()
+    expect(dragModeOf(cardiomyocyte, 'extracellular')).toBeNull()
+    expect(dragModeOf(cardiomyocyte, 'cleft')).toBeNull()
+    expect(dragModeOf(cardiomyocyte, 't-tubule')).toBeNull()
+  })
+})
+
+describe('moveFrame', () => {
+  it('moves a cell, and everything in and against it with it', () => {
+    const rects = rectsOf(cardiomyocyte)
+    const moved = valid(moveFrame(cardiomyocyte, 'sarcolemma', { x: 100, y: 50 }, rects))
+    const after = rectsOf(moved)
+    for (const id of ['sarcolemma', 'sr-membrane', 'extracellular', 'cleft', 'myofilaments']) {
+      expect(after.get(id), id).toMatchObject({ x: rects.get(id).x + 100, y: rects.get(id).y + 50 })
+    }
+  })
+
+  it('keeps an organelle in its cell’s top and left, and grows the cell past its right', () => {
+    const rects = rectsOf(cardiomyocyte)
+    const up = valid(moveFrame(cardiomyocyte, 'sr-membrane', { x: -1000, y: -1000 }, rects))
+    expect(byId(up, 'sr-membrane').frame).toMatchObject({ x: 8, y: 8 })
+    const out = valid(moveFrame(cardiomyocyte, 'sr-membrane', { x: 800, y: 0 }, rects))
+    const cell = rectsOf(out).get('sarcolemma')
+    const sr = rectsOf(out).get('sr-membrane')
+    expect(cell.x + cell.width).toBeGreaterThan(sr.x + sr.width)
+  })
+
+  it('gives a zone placed in a row a frame of its own where it is dropped', () => {
+    const rects = rectsOf(cardiomyocyte)
+    const moved = valid(moveFrame(cardiomyocyte, 'mitochondria', { x: 0, y: 200 }, rects))
+    const cell = rects.get('sarcolemma')
+    expect(byId(moved, 'mitochondria').frame).toMatchObject({ y: rects.get('mitochondria').y - cell.y + 200 })
+  })
+})
+
+describe('resizeFrame and fitToContents', () => {
+  it('sizes a cell at least as big as it is resized, and back to what its contents need', () => {
+    const rects = rectsOf(cardiomyocyte)
+    const cell = rects.get('sarcolemma')
+    const big = valid(resizeFrame(cardiomyocyte, 'sarcolemma', { ...cell, width: cell.width + 200 }, rects))
+    expect(rectsOf(big).get('sarcolemma').width).toBe(cell.width + 200)
+    const fitted = valid(fitToContents(big, 'sarcolemma'))
+    expect(rectsOf(fitted).get('sarcolemma').width).toBeLessThan(cell.width)
+  })
+})
+
+describe('slideDock', () => {
+  it('slides a microdomain along its side, its span and the spans beside it going with it', () => {
+    const rects = rectsOf(withMicrodomain)
+    // A tenth of the side along; across it counts for nothing.
+    const width = rects.get('pm').width
+    const slid = valid(slideDock(withMicrodomain, 'md', { x: width / 10, y: 300 }, rects))
+    expect(byId(slid, 'md').docks[0]).toMatchObject({ from: 0.35, to: 0.6 })
+    const top = topologyOf(slid)
+      .spansOf('pm')
+      .filter((span) => span.side === 'top')
+    expect(top.map(({ id, from, to }) => [id, from, to])).toEqual([
+      ['top', 0, 0.35],
+      ['md', 0.35, 0.6],
+      ['top-2', 0.6, 1],
+    ])
+    expect(topologyOf(slid).insideOf('pm.md')).toBe('md')
+  })
+
+  it('stops short of leaving a span beside it too short', () => {
+    const rects = rectsOf(withMicrodomain)
+    const slid = valid(slideDock(withMicrodomain, 'md', { x: -2000, y: 0 }, rects))
+    expect(byId(slid, 'md').docks[0]).toMatchObject({ from: 0.05, to: 0.3 })
+  })
+})
+
+describe('setDepth, moveFold, bendTube and reattachTube', () => {
+  it('sets a docked compartment’s depth', () => {
+    expect(byId(valid(setDepth(cardiomyocyte, 'extracellular', 60)), 'extracellular').depth).toBe(60)
+  })
+
+  it('moves a fold along its side to its grip, as deep as the grip is', () => {
+    const rects = rectsOf(cardiomyocyte)
+    const cell = rects.get('sarcolemma')
+    const moved = valid(moveFold(cardiomyocyte, 't-tubule', { x: cell.x + cell.width / 2, y: cell.y + 200 }, rects))
+    expect(byId(moved, 't-tubule')).toMatchObject({ at: 0.5, depth: 200 })
+  })
+
+  it('bends a tube through a point, its room there, and joins an end to another compartment', () => {
+    const start = valid([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 100 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 500, y: 0, width: 200, height: 100 } },
+      { id: 'c', kind: 'compartment', label: 'C', frame: { x: 0, y: 400, width: 200, height: 100 } },
+      { id: 't', kind: 'tube', label: 'T', ends: ['a', 'b'] },
+    ])
+    const bent = valid(bendTube(start, 't', { x: 350, y: 80 }))
+    const place = layoutPieces(bent).places.get(pieceKey('t'))
+    expect(place.points).toEqual([
+      { x: 200, y: 80 },
+      { x: 350, y: 80 },
+      { x: 500, y: 80 },
+    ])
+    expect(place.zone.x + place.zone.width / 2).toBe(350)
+    const moved = valid(reattachTube(bent, 't', 1, 'c'))
+    expect(byId(moved, 't')).toMatchObject({ ends: ['a', 'c'] })
+    expect(byId(moved, 't').bends).toBeUndefined()
+    expect(reattachTube(bent, 't', 1, 'a')).toBeNull()
+  })
+
+  it('puts grips on a routed tube’s ends and above its room, and at a fold’s end', () => {
+    const start = valid([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 100 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 500, y: 0, width: 200, height: 100 } },
+      { id: 't', kind: 'tube', label: 'T', ends: ['a', 'b'] },
+    ])
+    const { places } = layoutPieces(start)
+    expect(places.get('grip:start:t')).toMatchObject({ kind: 'grip', grip: 'start', piece: 't', end: 0, x: 200, y: 50 })
+    expect(places.get('grip:end:t')).toMatchObject({ end: 1, x: 500, y: 50 })
+    expect(places.get('grip:bend:t')).toMatchObject({ grip: 'bend', x: 350 })
+    expect(layoutPieces(cardiomyocyte).places.get('grip:fold:t-tubule')).toMatchObject({
+      grip: 'fold',
+      piece: 't-tubule',
+    })
+  })
+})

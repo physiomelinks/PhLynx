@@ -14,9 +14,15 @@ const NONE = Object.freeze([])
 export const useBioPiecesStore = defineStore('bioPieces', () => {
   /** The pieces, validated. */
   const pieces = shallowRef(NONE)
+  /**
+   * The pieces as a drag in progress would leave them, validated, which the view lays out in their place until the
+   * drag ends; null while nothing is dragged. Never saved, nor part of a step.
+   */
+  const draft = shallowRef(null)
 
   function resetState() {
     pieces.value = NONE
+    draft.value = null
   }
 
   /**
@@ -91,5 +97,5 @@ export const useBioPiecesStore = defineStore('bioPieces', () => {
     return pieces.value.length ? { pieces: JSON.parse(JSON.stringify(pieces.value)) } : null
   }
 
-  return { pieces, resetState, setPieces, addTemplate, snapshot, restoreSnapshot, edit, loadState, getState }
+  return { pieces, draft, resetState, setPieces, addTemplate, snapshot, restoreSnapshot, edit, loadState, getState }
 })

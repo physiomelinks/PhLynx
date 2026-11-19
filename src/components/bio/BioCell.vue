@@ -86,6 +86,8 @@
       {{ fold.label }}
     </span>
     <BioHandles :handles="data.handles ?? []" />
+    <!-- A piece of the pieces is resized from its handle -->
+    <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
     <span class="bio-cell__label" :style="labelStyle">
       <BioPieceName :id="id" :name="data.name" />
       <!-- Not on a template's cell that takes no module of its own, as one that is all microdomains inside -->
@@ -99,6 +101,7 @@ import { computed, inject, useId } from 'vue'
 import BioBilayer from './BioBilayer.vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
+import BioPieceResize from './BioPieceResize.vue'
 import { HEAD_OFFSET, foldPoint, leafletPath } from '../../services/bioView/geometry'
 
 const props = defineProps({

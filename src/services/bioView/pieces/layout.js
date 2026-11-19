@@ -29,6 +29,7 @@ import { byName, inSlotOrder } from '../scaffold.js'
 import { parseSiteRef } from '../templates.js'
 import { withFolds, withOutline } from '../shape.js'
 import { pathOf } from '../shapeGeometry.js'
+import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
 
 /** The key a piece's place has in the view's layout. */
@@ -57,6 +58,13 @@ const FOLD_REACH = 46
 const BAND_OVERRUN = GAP
 /** The room a tube leaves for its module, and a joint between two compartments that touch. */
 const TUBE_ZONE = Object.freeze({ width: CARD.width + 16, height: CARD.height + 16 })
+/** A piece with a frame is resized from its bottom-right corner. */
+const FRAME_RESIZE = Object.freeze({ mode: 'frame', position: 'bottom-right' })
+const OPPOSITE = Object.freeze({ top: 'bottom', bottom: 'top', left: 'right', right: 'left' })
+
+/** How far above a tube's room its bend grip sits. */
+const GRIP_RISE = 10
+
 /** How close two compartments' edges are to count as touching, for a tube between them. */
 const TOUCHING = 8
 
@@ -621,6 +629,22 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     pending = pending.filter((compartment) => !placeDocked(compartment))
 
   // ── The places ────────────────────────────────────────────────────────
+  /** How a piece is dragged (see dragModeOf) and resized, as its place says for the view. */
+  const handling = (id, resize) => {
+    const drag = dragModeOf(pieces, id)
+    return { ...(drag && { drag }), ...(resize && { resize }) }
+  }
+  /** A compartment docked along one side is resized across it, from its far edge: its depth. */
+  const depthResize = (compartment) => {
+    const [dock] = compartment.docks
+    if (compartment.docks.length !== 1 || !dock.side) return null
+    return {
+      mode: 'depth',
+      side: dock.side,
+      face: dock.face,
+      position: dock.face === 'outside' ? dock.side : OPPOSITE[dock.side],
+    }
+  }
   // A piece that takes one module is drawn as that module's node once one is on it, as a template's piece is; a
   // membrane as its cell, keyed by what is on its bulk.
   const occupantOf = (path) => occupants.get(path)?.[0] ?? null
@@ -676,6 +700,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     places.set(key, {
       kind: 'cell',
       ...own,
+      ...handling(membrane.id, drawn ? null : FRAME_RESIZE),
       piece: membrane.id,
       path: membrane.id,
       bulk: bulkId ?? null,
@@ -764,6 +789,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     places.set(key, {
       kind: 'region',
       ...own,
+      ...handling(compartment.id, isDocked(compartment) ? depthResize(compartment) : FRAME_RESIZE),
       piece: compartment.id,
       path: compartment.id,
       side: null,
@@ -799,6 +825,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     places.set(pieceKey(zone.id), {
       kind: 'zone',
       ...own,
+      ...handling(zone.id, FRAME_RESIZE),
       piece: zone.id,
       path: zone.id,
       compartment: zone.compartment,
@@ -858,9 +885,16 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       places.set(key, { ...base, rect: zone, joint, tone: byId.get(tube.ends[0]).tone, zone })
     } else {
       const points = routeTube(a, b, tube.bends ?? [])
-      zone = clearOfEnds(zoneAt(pathMiddle(points)), points, [a, b])
+      // Bent by the user, its room is at its bend; else midway along its way, clear of its ends.
+      zone = tube.bends?.length === 1 ? zoneAt(tube.bends[0]) : clearOfEnds(zoneAt(pathMiddle(points)), points, [a, b])
       const rect = boxOf([zone, ...points.map((point) => ({ ...point, width: 0, height: 0 }))])
       places.set(key, { ...base, rect, points, zone })
+      // Grips: one at each end, to join it to another compartment, and one above its room, to bend it.
+      const grip = (what, at, extra = {}) =>
+        places.set(`grip:${what}:${tube.id}`, { kind: 'grip', grip: what, piece: tube.id, ...own, ...at, ...extra })
+      grip('start', points[0], { end: 0 })
+      grip('end', points.at(-1), { end: 1 })
+      grip('bend', { x: zone.x + zone.width / 2, y: zone.y - GRIP_RISE }, { below: zone.height / 2 + GRIP_RISE })
     }
     // The module on it is drawn as a card in the room it leaves, or as its joint.
     if (node) {
@@ -882,6 +916,16 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         ...(joint && { joint: true }),
       })
     }
+  }
+
+  // A grip at each fold's far end, to move it along its side and change its depth.
+  for (const fold of ofKind('fold')) {
+    const rect = rects.get(fold.membrane)
+    const facet = rect && shapeOf.get(fold.membrane).facets.find((each) => each.id === fold.id)
+    if (!facet) continue
+    const pocket = foldPocket(rect, facet)
+    const end = foldPoint(rect, pocket.edge, pocket.at, pocket.depth)
+    places.set(`grip:fold:${fold.id}`, { kind: 'grip', grip: 'fold', piece: fold.id, ...own, ...end })
   }
 
   return { places, rects, sites }

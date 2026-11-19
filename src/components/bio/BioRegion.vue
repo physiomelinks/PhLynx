@@ -30,6 +30,8 @@
       />
     </svg>
     <BioHandles :handles="data.handles ?? []" />
+    <!-- A piece of the pieces is resized from its handle -->
+    <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
     <span class="bio-region__label">
       <BioPieceName :id="id" :name="data.name" />
       <small v-if="data.empty" class="bio-region__hint" data-testid="bio-empty-hint">Drop a module</small>
@@ -41,6 +43,7 @@
 import { computed, inject } from 'vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
+import BioPieceResize from './BioPieceResize.vue'
 import { partOf } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, facetById } from '../../services/bioView/shape'
 
