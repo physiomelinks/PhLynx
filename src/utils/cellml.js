@@ -1892,61 +1892,6 @@ export function combineComponentModels(modelName, componentModels, names = []) {
   }
 }
 
-export function mergeModelComponents(targetModelString, sourceModelString, newComponentName, oldComponentName) {
-  const parser = new _libcellml.Parser(false)
-
-  let targetModel = null
-  if (targetModelString && targetModelString.trim().length > 0) {
-    try {
-      targetModel = parser.parseModel(targetModelString)
-    } catch (error) {
-      parser.delete()
-      return ''
-      // Handle parsing error if needed
-    }
-  }
-
-  if (!targetModel) {
-    targetModel = new _libcellml.Model()
-    targetModel.setName('User_Modules')
-  }
-
-  let sourceModel = null
-  try {
-    sourceModel = parser.parseModel(sourceModelString)
-  } catch (error) {
-    targetModel.delete()
-    parser.delete()
-    return ''
-  }
-
-  if (sourceModel.componentCount() > 0) {
-    const component = sourceModel.componentByIndex(0)
-    const existingComponent = targetModel.componentByName(oldComponentName || newComponentName, true)
-
-    if (existingComponent) {
-      targetModel.removeComponentByName(oldComponentName || newComponentName, true)
-      existingComponent.delete()
-    }
-
-    const clonedComponent = component.clone()
-    clonedComponent.setName(newComponentName)
-    targetModel.addComponent(clonedComponent)
-    clonedComponent.delete()
-    component.delete()
-  }
-
-  const printer = new _libcellml.Printer()
-  const mergedModelString = printer.printModel(targetModel, false)
-
-  targetModel.delete()
-  sourceModel.delete()
-  parser.delete()
-  printer.delete()
-
-  return mergedModelString
-}
-
 /**
  * Checks whether two CellML models are the same, whatever their order or whitespace between tags.
  *
