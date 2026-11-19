@@ -37,15 +37,22 @@
       </nav>
     </ResizableLibraryPanel>
 
-    <main class="markdown-body">
-      <component :is="currentPageComponent" v-if="currentPageComponent" />
-      <div v-else>
-        <h2>Documentation Page Not Found</h2>
-        <p>Select a page from the sidebar.</p>
+    <div class="docs-main-column">
+      <div class="docs-search-row">
+        <DocsSearchBar ref="searchBarRef" />
       </div>
-    </main>
 
-    <aside class="toc-sidebar">
+      <main class="markdown-body">
+        <DocsSearchResults v-if="isSearchPage" :query="searchPageQuery" />
+        <component :is="currentPageComponent" v-else-if="currentPageComponent" />
+        <div v-else>
+          <h2>Documentation Page Not Found</h2>
+          <p>Select a page from the sidebar.</p>
+        </div>
+      </main>
+    </div>
+
+    <aside v-if="!isSearchPage" class="toc-sidebar">
       <div class="toc-container">
         <h3 class="toc-title">On This Page</h3>
         <nav class="toc-nav">
@@ -70,6 +77,9 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
+import DocsSearchBar from '../components/docs/DocsSearchBar.vue'
+import DocsSearchResults from '../components/docs/DocsSearchResults.vue'
+import { shouldIgnoreShortcut } from '../composables/useWorkspaceClipboard'
 import { useRoute, useRouter } from 'vue-router'
 import { useColorScheme } from '../composables/useColorScheme'
 import githubMarkdownLightCss from 'github-markdown-css/github-markdown-light.css?inline'
@@ -160,6 +170,24 @@ const currentSlug = computed(() => {
   }
   return route.params.slug || 'getting-started/introduction'
 })
+
+// The full search results, at /docs/search?q=…
+const isSearchPage = computed(() => currentSlug.value === 'search')
+const searchPageQuery = computed(() => (typeof route.query.q === 'string' ? route.query.q.trim() : ''))
+
+const searchBarRef = ref(null)
+
+/**
+ * `/` focuses the search box, as it does the workspace's. Ctrl+F stays the browser's find, for the page in view.
+ *
+ * @param {KeyboardEvent} event
+ */
+function onDocsKeydown(event) {
+  if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return
+  if (shouldIgnoreShortcut(event, false) || event.target.isContentEditable) return
+  event.preventDefault()
+  searchBarRef.value?.focus()
+}
 
 const currentPageComponent = computed(() => {
   const slug = currentSlug.value
@@ -288,8 +316,51 @@ watch(isDarkMode, (dark) => {
 
 let scrollElement = null
 
+/**
+ * Shows the route's heading, such as a search result's, or the top of a newly opened page.
+ *
+ * @param {boolean} pageChanged
+ */
+function revealRouteTarget(pageChanged) {
+  const hash = decodeURIComponent(route.hash.replace(/^#/, ''))
+  if (hash && document.getElementById(hash)) {
+    scrollToHeading(hash)
+    realignAfterImagesLoad(hash)
+  } else if (pageChanged && scrollElement) {
+    scrollElement.scrollTop = 0
+  }
+}
+
+// How long a heading waits for the images above it; past this the reader has likely scrolled on.
+const IMAGE_SETTLE_LIMIT_MS = 3000
+
+/**
+ * Scrolls back to a heading once the page's images have loaded, as they push it down, or leave the page too short to
+ * scroll to it before they do.
+ *
+ * @param {string} id
+ */
+function realignAfterImagesLoad(id) {
+  const pending = [...(scrollElement?.querySelectorAll('img') ?? [])].filter((img) => !img.complete)
+  if (!pending.length) return
+
+  const startedAt = Date.now()
+  const loaded = pending.map(
+    (img) =>
+      new Promise((resolve) => {
+        img.addEventListener('load', resolve, { once: true })
+        img.addEventListener('error', resolve, { once: true })
+      })
+  )
+  Promise.all(loaded).then(() => {
+    if (Date.now() - startedAt > IMAGE_SETTLE_LIMIT_MS || route.hash !== `#${id}`) return
+    document.getElementById(id)?.scrollIntoView({ block: 'start' })
+  })
+}
+
 onMounted(() => {
   applyMarkdownTheme(isDarkMode.value)
+  window.addEventListener('keydown', onDocsKeydown)
 
   nextTick(() => {
     headings.value = extractHeadings()
@@ -299,6 +370,7 @@ onMounted(() => {
       updateActiveHeading()
     }
     setupInternalLinks()
+    revealRouteTarget(false)
   })
 })
 
@@ -342,6 +414,7 @@ const setupInternalLinks = () => {
 }
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', onDocsKeydown)
   if (scrollElement) {
     scrollElement.removeEventListener('scroll', updateActiveHeading)
   }
@@ -351,14 +424,18 @@ onUnmounted(() => {
   }
 })
 
-watch(currentSlug, () => {
-  nextTick(() => {
-    headings.value = extractHeadings()
-    if (scrollElement) {
-      updateActiveHeading()
-    }
-  })
-})
+watch(
+  () => [currentSlug.value, route.hash, route.query.q],
+  ([slug], [previousSlug]) => {
+    nextTick(() => {
+      headings.value = isSearchPage.value ? [] : extractHeadings()
+      revealRouteTarget(slug !== previousSlug || isSearchPage.value)
+      if (scrollElement) {
+        updateActiveHeading()
+      }
+    })
+  }
+)
 </script>
 
 <style>
@@ -433,6 +510,29 @@ watch(currentSlug, () => {
 }
 
 
+
+.docs-main-column {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Above the scrolling page, so the box stays in reach. Its dropdown lies over the page. */
+.docs-search-row {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 40px 0;
+  background-color: var(--p-content-background);
+}
+
+.docs-main-column > .markdown-body {
+  flex: 1;
+  min-height: 0;
+}
 
 .markdown-body {
   flex: 1;
