@@ -1652,65 +1652,54 @@ export function generateFlattenedModel(
   }
 }
 
+const COMPONENT_TAG_PATTERN = /<(?:[\w-]+:)?component[\s/>]/g
+const MODEL_NAME_PATTERN = /<(?:[\w-]+:)?model\b[^>]*\bname\s*=\s*["']([^"']*)["']/
+
 function isPossibleParameter(variable, voiNames, includeInitialised = false) {
-  if (voiNames.has(variable.name())) return false
-  if (!includeInitialised && variable.initialValue() !== '') return false
+  if (voiNames.has(variable.name)) return false
+  if (!includeInitialised && variable.initialValue !== '') return false
   return true
 }
 
 /**
  * Extracts unique variable names from a CellML model/component. A variable the math computes, or a
  * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
+ * Reads the math's analysis, not libCellML, so the library store can call it on the main thread.
  *
- * @param {string} math
+ * @param {string} math - A model holding one component.
  * @param {boolean} [includeInitialisedVariables]
  * @param {Map<string, string>} [defaults] - The math's values, for stored math, which holds none (libraryStore.getMathDefaults).
+ * @throws {Error} When the model holds no component, or more than one.
  */
 export function extractVariablesFromMath(math, includeInitialisedVariables = true, defaults = new Map()) {
-  const garbageCollector = new Set() // To track created objects for cleanup.
-  try {
-    const variables = []
-    if (math) {
-      const analysis = analyzeMathXml(math)
-      const roles = {
-        states: new Set(analysis?.stateVariables),
-        assigned: new Set(analysis?.assigned),
-        voi: findVoiNames(analysis),
-      }
-      const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
-      const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
-      roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
-      const parser = new _libcellml.Parser(false)
-      garbageCollector.add(parser)
-      const model = parser.parseModel(math)
-      garbageCollector.add(model)
-      if (model.componentCount() > 1) throw new Error(`More than one component detected in ${model.modelName()}.`)
-      const comp = model.componentByIndex(0)
-      garbageCollector.add(comp)
-      if (!comp) throw new Error(`No component found in file.`)
-      for (let v = 0; v < comp.variableCount(); v++) {
-        const variable = comp.variableByIndex(v)
-        garbageCollector.add(variable)
-        const units = variable.units()
-        garbageCollector.add(units)
-        if (isPossibleParameter(variable, roles.voi, includeInitialisedVariables)) {
-          const initialValue = variable.initialValue()
-          variables.push({
-            name: variable.name(),
-            units: units.name(),
-            value: isNumericLiteral(initialValue) ? initialValue : '',
-            type: inferType(variable.name(), roles),
-            access: 'access',
-            data_reference: 'unknown',
-          })
-        }
-      }
-    }
+  const variables = []
+  if (!math) return variables
+  // Counted from the text, as a DOM parse of every module would cost more than the rest; CellML components never nest.
+  const componentCount = math.match(COMPONENT_TAG_PATTERN)?.length ?? 0
+  if (componentCount > 1) throw new Error(`More than one component detected in ${math.match(MODEL_NAME_PATTERN)?.[1] ?? 'the model'}.`)
+  if (!componentCount) throw new Error(`No component found in file.`)
 
-    return variables
-  } finally {
-    garbageCollector.forEach((obj) => obj?.delete())
+  const analysis = analyzeMathXml(math)
+  const roles = {
+    states: new Set(analysis?.stateVariables),
+    assigned: new Set(analysis?.assigned),
+    voi: findVoiNames(analysis),
   }
+  const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
+  const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
+  roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
+  for (const variable of analysis?.declared ?? []) {
+    if (!isPossibleParameter(variable, roles.voi, includeInitialisedVariables)) continue
+    variables.push({
+      name: variable.name,
+      units: variable.units,
+      value: isNumericLiteral(variable.initialValue) ? variable.initialValue : '',
+      type: inferType(variable.name, roles),
+      access: 'access',
+      data_reference: 'unknown',
+    })
+  }
+  return variables
 }
 
 function removeComments(node) {

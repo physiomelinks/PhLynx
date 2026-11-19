@@ -1,4 +1,4 @@
-import { hoistEncapsulatedComponents } from '../../utils/cellml'
+import { hoistEncapsulatedComponentsInBackground } from '../libcellml/cellmlImport'
 import { escapeHtml } from '../../utils/importBatch'
 import { notify } from '../../utils/notify'
 import { createMapSource, describeImportIssues, inlineUnitsImports } from './cellmlImports'
@@ -61,10 +61,10 @@ export async function resolveCellmlImports(files) {
  *
  * @param {string} content - Raw CellML XML string.
  * @param {string} fileName - Shown in the notices.
- * @returns {string} The CellML to import; the same string when there is no encapsulation.
+ * @returns {Promise<string>} The CellML to import; the same string when there is no encapsulation.
  */
-export function prepareCellmlImport(content, fileName) {
-  const [cellml] = prepareCellmlImports([{ name: fileName, content }])
+export async function prepareCellmlImport(content, fileName) {
+  const [cellml] = await prepareCellmlImports([{ name: fileName, content }])
   return cellml
 }
 
@@ -73,10 +73,12 @@ export function prepareCellmlImport(content, fileName) {
  * kind for the whole batch.
  *
  * @param {Array<{name: string, content: string}>} files
- * @returns {string[]} The CellML to import for each file, in order.
+ * @returns {Promise<string[]>} The CellML to import for each file, in order.
  */
-export function prepareCellmlImports(files) {
-  const prepared = files.map(({ name, content }) => ({ name, ...hoistEncapsulatedComponents(content) }))
+export async function prepareCellmlImports(files) {
+  const prepared = await Promise.all(
+    files.map(async ({ name, content }) => ({ name, ...(await hoistEncapsulatedComponentsInBackground(content)) }))
+  )
   const namesWith = (flag) => prepared.filter((file) => file[flag]).map((file) => file.name)
 
   const containment = namesWith('ignoredContainment')

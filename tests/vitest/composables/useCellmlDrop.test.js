@@ -39,6 +39,7 @@ vi.mock('../../../src/services/import/prepareCellml', () => ({
   prepareCellmlImports: vi.fn((files) => files.map((file) => file.content)),
   resolveCellmlImports: vi.fn(async (files) => files.map((file) => file.content)),
 }))
+vi.mock('../../../src/services/libcellml/libcellmlClient', () => import('../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../src/utils/cellml', () => ({ loadParametersFromCellML: vi.fn(() => ({ params: true })) }))
 vi.mock('../../../src/utils/misc', () => ({ readFileAsText: vi.fn() }))
 

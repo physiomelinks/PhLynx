@@ -1,7 +1,8 @@
 import Papa from 'papaparse'
 
 import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS, TTL_FILE_TYPES } from './constants'
-import { isCellML, doesComponentExistInModel } from './cellml'
+import { doesComponentExistInModel } from './cellml'
+import { isCellMLInBackground } from '../services/libcellml/cellmlImport'
 import { csvToParameterFile, parseParametersJson } from './parameters/parse'
 import { readSidecarComponent } from '../services/annotations/sidecarFiles'
 import { findModule } from './namespaces'
@@ -490,24 +491,13 @@ export const parseParameters = async (input, fileName) => {
     : csvToParameterFile(await parseParametersFile(input), name)
 }
 
-const parseCellML = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const content = e.target.result
-        if (!isCellML(content)) {
-          // Files without the CellML namespace are some other XML, not broken CellML.
-          reject(Object.assign(new Error('Invalid CellML file.'), { unrelated: !/cellml\.org\/cellml/.test(content) }))
-          return
-        }
-        resolve(content)
-      } catch (err) {
-        reject(err)
-      }
-    }
-    reader.readAsText(file)
-  })
+const parseCellML = async (file) => {
+  const content = await readText(file)
+  if (!(await isCellMLInBackground(content))) {
+    // Files without the CellML namespace are some other XML, not broken CellML.
+    throw Object.assign(new Error('Invalid CellML file.'), { unrelated: !/cellml\.org\/cellml/.test(content) })
+  }
+  return content
 }
 
 /** The metadata element a CellDL document keeps its BG-RDF Turtle in. */

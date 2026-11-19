@@ -1,5 +1,5 @@
 import { describeImportIssues, inlineUnitsImports } from '../services/import/cellmlImports'
-import { hoistEncapsulatedComponents, processCellMLData } from './cellml'
+import { processCellMLDataInBackground } from '../services/libcellml/cellmlImport'
 import { fileKeyFromPath } from './namespaces'
 import { normaliseConfig, parseMathRef } from './config'
 import { extensionOf } from './import'
@@ -110,7 +110,7 @@ export async function parseForRole(file, candidates, store = null, { path = file
         // and checks readiness against them. In CellML mode the notices come when the file is loaded.
         const resolved = await inlineUnitsImports(data, path, source)
         data = resolved.cellml
-        const result = processCellMLData(hoistEncapsulatedComponents(data).cellml)
+        const result = await processCellMLDataInBackground(data, { hoist: true })
         if (result?.type !== 'success') {
           throw new Error(`Invalid CellML: ${result?.issues?.[0]?.description ?? 'the model could not be read.'}`)
         }

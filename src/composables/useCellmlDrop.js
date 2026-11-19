@@ -7,7 +7,7 @@ import { fileKeyFromPath } from '../utils/namespaces'
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
-import { loadParametersFromCellML } from '../utils/cellml'
+import { loadParametersFromCellMLInBackground } from '../services/libcellml/modelQueries'
 import { FLOW_IDS } from '../utils/constants'
 import { offsetEdgeData } from '../utils/edgeRoute'
 import { readFileAsText } from '../utils/misc'
@@ -120,7 +120,7 @@ export function useCellmlDrop({
       const entry = entries[0]
       const text = await readEntry(entry)
       const [resolved] = await resolveCellmlImports([{ name: entry.name, path: entry.path, content: text }])
-      const content = prepareCellmlImport(resolved, entry.name)
+      const content = await prepareCellmlImport(resolved, entry.name)
       const plan = await planImport([{ key: keyOf(entry), cellml: content }])
       if (plan.isSkipped(keyOf(entry))) return []
       const key = plan.mapKey(keyOf(entry))
@@ -142,7 +142,7 @@ export function useCellmlDrop({
 
             // Load new graph into clean workspace using the normal path
             const result = await loadCellMLData(content, key, { notify: false })
-            const parameters = loadParametersFromCellML(content)
+            const parameters = await loadParametersFromCellMLInBackground(content)
             // Nothing placed means nothing was cleared, so there is nothing to restore.
             if (!(await loadFromCellML(parsedCellmlPayload, key, parameters))) return [result]
 
@@ -185,7 +185,7 @@ export function useCellmlDrop({
 
         // Register modules/units in the store first, then build the graph.
         const result = await loadCellMLData(content, key, { notify: false })
-        const parameters = loadParametersFromCellML(content)
+        const parameters = await loadParametersFromCellMLInBackground(content)
         await loadFromCellML(parsedCellmlPayload, key, parameters)
 
         rebuildNodeEdgeIndex()
@@ -219,7 +219,7 @@ export function useCellmlDrop({
     const resolved = await resolveCellmlImports(
       entries.map((entry, index) => ({ name: entry.name, path: entry.path, content: texts[index] }))
     )
-    const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
+    const contents = await prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
     // A namespace holds one file of a name: a later one, from another folder of the same import, is left out.
     const firstOfKey = new Map()
     const duplicates = []

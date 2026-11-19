@@ -2,7 +2,7 @@
  * Converts a CellDL diagram to a PhLynx module: bg2cellml's CellML, split into its component and
  * units as a CellML import is. Load it with import(), as it brings in the converter.
  */
-import { processCellMLData } from '../../utils/cellml.js'
+import { processCellMLDataInBackground } from '../libcellml/cellmlImport.js'
 import { separateParameters } from '../math/separateParameters.js'
 import { documentUriFor } from './documentUri.js'
 import { getConverter } from './runtime.js'
@@ -52,7 +52,7 @@ export async function convertCelldl(document, { documentUri, componentName, know
   let errors = blockingErrors(result)
   let processed = null
   if (!errors.length) {
-    processed = processCellMLData(result.cellml)
+    processed = await processCellMLDataInBackground(result.cellml)
     if (processed.type !== 'success') {
       errors = processed.issues.map((issue) => errorIssue(issue.description, 'build'))
       processed = null

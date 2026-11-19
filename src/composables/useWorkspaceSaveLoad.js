@@ -14,7 +14,7 @@ import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { driveEdgesByAnnotations, drivenSummary, withCouplings } from '../services/annotations/edgeCouplings'
 import { dropStaleAnnotatedPorts } from '../services/annotations/reconcileNodes'
 import { buildWorkspaceFile } from '../services/workspaceFile'
-import { migrateWorkspace } from '../services/workspaceMigrator'
+import { migrateWorkspaceInBackground } from '../services/workspaceMigrator'
 import { JSON_FILE_TYPES } from '../utils/constants'
 import { notify } from '../utils/notify'
 import { isAnnotatedPort } from '../utils/portIdentity'
@@ -201,7 +201,7 @@ export function useWorkspaceSaveLoad({
       }
 
       // Handles legacy formats if needed
-      const migratedState = migrateWorkspace(loadedState)
+      const migratedState = await migrateWorkspaceInBackground(loadedState)
 
       // Clear the current Vue Flow state without creating a history step for this load action.
       await clearWorkspace({ recordHistory: false })

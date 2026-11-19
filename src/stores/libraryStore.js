@@ -9,7 +9,7 @@ import {
   namespaceOfFileKey,
   namespaceOfModuleRef,
 } from '../utils/namespaces'
-import { areModelsEquivalent } from '../utils/cellml'
+import { areModelsEquivalentInBackground } from '../services/libcellml/modelQueries'
 import {
   AFFINE_UNIT_CONVERSIONS,
   GENERATED_UNITS_FILE,
@@ -296,35 +296,32 @@ export const useLibraryStore = defineStore('library', () => {
    * @param {Array<{ key: string, model: string }>} [incoming.unitsFiles]
    * @param {Array<{ key: string, configs: Object[], namespace?: string|null }>} [incoming.configFiles] - namespace
    *   is where the configs load, by default their key's.
-   * @returns {Array<{ kind: 'math'|'units'|'module', key: string, existing: any, incoming: any }>}
+   * @returns {Promise<Array<{ kind: 'math'|'units'|'module', key: string, existing: any, incoming: any }>>} Models are
+   *   compared in the libCellML worker.
    */
-  function findClashes({ mathFiles = [], unitsFiles = [], configFiles = [] } = {}) {
-    const clashes = []
-
-    for (const { key, components } of mathFiles) {
-      for (const component of components ?? []) {
+  async function findClashes({ mathFiles = [], unitsFiles = [], configFiles = [] } = {}) {
+    const mathClashes = mathFiles.flatMap(({ key, components }) =>
+      (components ?? []).map(async (component) => {
         const mathRef = `${key}:${component.name}`
         const stored = availableMath.value.get(mathRef)
-        if (stored === undefined) continue
+        if (stored === undefined) return null
         const { math, values } = separateParameters(component.math)
         const sameDefaults = sameValues(getMathDefaults(mathRef), values)
-        if (!sameDefaults || !areModelsEquivalent(stored, math)) {
-          clashes.push({
-            kind: 'math',
-            key: mathRef,
-            existing: { math: stored, defaults: getMathDefaults(mathRef) },
-            incoming: { math, defaults: values },
-          })
+        if (sameDefaults && (await areModelsEquivalentInBackground(stored, math))) return null
+        return {
+          kind: 'math',
+          key: mathRef,
+          existing: { math: stored, defaults: getMathDefaults(mathRef) },
+          incoming: { math, defaults: values },
         }
-      }
-    }
-
-    for (const { key, model } of unitsFiles) {
+      })
+    )
+    const unitsClashes = unitsFiles.map(async ({ key, model }) => {
       const stored = availableUnits.value.find((file) => file.componentFile === key)
-      if (stored && model && !areModelsEquivalent(stored.model, model)) {
-        clashes.push({ kind: 'units', key, existing: stored.model, incoming: model })
-      }
-    }
+      if (!stored || !model || (await areModelsEquivalentInBackground(stored.model, model))) return null
+      return { kind: 'units', key, existing: stored.model, incoming: model }
+    })
+    const clashes = (await Promise.all([...mathClashes, ...unitsClashes])).filter(Boolean)
 
     for (const { key, configs, namespace = namespaceOfFileKey(key) } of configFiles) {
       for (const config of configs ?? []) {

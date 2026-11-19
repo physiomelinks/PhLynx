@@ -779,7 +779,9 @@ import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { categoryColour } from '../utils/nodeThemes'
 import { cyrb53, takeInputFile } from '../utils/misc'
 import { buildGhostHandles, normaliseHandleSlots } from '../utils/handles'
-import { bindLibCellML, processCellMLData, loadParametersFromCellML } from '../utils/cellml'
+import { bindLibCellML } from '../utils/cellml'
+import { processCellMLDataInBackground } from '../services/libcellml/cellmlImport'
+import { loadParametersFromCellMLInBackground } from '../services/libcellml/modelQueries'
 import {
   DEFAULT_PROJECT_NAME,
   edgeLineOptions,
@@ -1192,89 +1194,87 @@ const { connectNodes } = useConnect({
 
 const screenshotDisabled = computed(() => nodes.value.length === 0 && vueFlowRef.value !== null)
 
-const loadCellMLData = (
+const loadCellMLData = async (
   content,
   filename,
   { notify: shouldNotify = true, trackEvents = true, replaceUnits = true } = {}
 ) => {
-  return new Promise((resolve) => {
-    const result = processCellMLData(content)
+  const result = await processCellMLDataInBackground(content)
 
-    if (result.type === 'success') {
-      const componentCount = result.components?.length ?? 0
-      const unitsCount = result.units.count
+  if (result.type === 'success') {
+    const componentCount = result.components?.length ?? 0
+    const unitsCount = result.units.count
 
-      // Register math with the store
-      if (componentCount > 0) {
-        libraryStore.addMathFile(filename, result.components)
-      }
-
-      // Register units with the store
-      if (unitsCount > 0) {
-        libraryStore.addUnitsFile(
-          {
-            componentFile: filename,
-            model: result.units.model,
-          },
-          { replace: replaceUnits }
-        )
-      }
-
-      if (trackEvents) {
-        trackEvent('cellml_load_action', {
-          category: 'CellML',
-          action: 'load_cellml_file',
-          label: `Modules: ${componentCount}, Units: ${unitsCount}`,
-          file_type: 'cellml',
-        })
-      }
-
-      if (shouldNotify) {
-        if (componentCount > 0 && unitsCount > 0) {
-          notify.success({
-            title: 'CellML File Loaded',
-            message: `Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} and ${unitsCount} unit${
-              unitsCount !== 1 ? 's' : ''
-            } from ${filename}.`,
-          })
-        } else if (componentCount > 0) {
-          notify.success({
-            title: 'CellML Components Loaded',
-            message: `Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} from ${filename}.`,
-          })
-        } else if (unitsCount > 0) {
-          notify.success({
-            title: 'CellML Units Loaded',
-            message: `Loaded ${unitsCount} unit${unitsCount !== 1 ? 's' : ''} from ${filename}.`,
-          })
-        } else {
-          notify.info({
-            title: 'CellML File Loaded',
-            message: `${filename} contained no components or unit definitions.`,
-          })
-        }
-      }
-
-      resolve({ ok: true, componentCount: componentCount, unitsCount: unitsCount })
-    } else {
-      if (trackEvents) {
-        trackEvent('cellml_load_action', {
-          category: 'CellML',
-          action: 'load_cellml_file',
-          label: `Error: encountered ${result.issues.length} error(s)`,
-          file_type: 'cellml',
-        })
-      }
-      if (shouldNotify) {
-        notify.error({
-          title: 'CellML Load Error',
-          message: `${result.issues.length} issue${result.issues.length !== 1 ? 's' : ''} found in ${filename}.`,
-        })
-      }
-      console.error('CellML import issues:', result.issues)
-      resolve({ ok: false, componentCount: 0, unitsCount: 0 })
+    // Register math with the store
+    if (componentCount > 0) {
+      libraryStore.addMathFile(filename, result.components)
     }
-  })
+
+    // Register units with the store
+    if (unitsCount > 0) {
+      libraryStore.addUnitsFile(
+        {
+          componentFile: filename,
+          model: result.units.model,
+        },
+        { replace: replaceUnits }
+      )
+    }
+
+    if (trackEvents) {
+      trackEvent('cellml_load_action', {
+        category: 'CellML',
+        action: 'load_cellml_file',
+        label: `Modules: ${componentCount}, Units: ${unitsCount}`,
+        file_type: 'cellml',
+      })
+    }
+
+    if (shouldNotify) {
+      if (componentCount > 0 && unitsCount > 0) {
+        notify.success({
+          title: 'CellML File Loaded',
+          message: `Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} and ${unitsCount} unit${
+            unitsCount !== 1 ? 's' : ''
+          } from ${filename}.`,
+        })
+      } else if (componentCount > 0) {
+        notify.success({
+          title: 'CellML Components Loaded',
+          message: `Loaded ${componentCount} component${componentCount !== 1 ? 's' : ''} from ${filename}.`,
+        })
+      } else if (unitsCount > 0) {
+        notify.success({
+          title: 'CellML Units Loaded',
+          message: `Loaded ${unitsCount} unit${unitsCount !== 1 ? 's' : ''} from ${filename}.`,
+        })
+      } else {
+        notify.info({
+          title: 'CellML File Loaded',
+          message: `${filename} contained no components or unit definitions.`,
+        })
+      }
+    }
+
+    return { ok: true, componentCount: componentCount, unitsCount: unitsCount }
+  } else {
+    if (trackEvents) {
+      trackEvent('cellml_load_action', {
+        category: 'CellML',
+        action: 'load_cellml_file',
+        label: `Error: encountered ${result.issues.length} error(s)`,
+        file_type: 'cellml',
+      })
+    }
+    if (shouldNotify) {
+      notify.error({
+        title: 'CellML Load Error',
+        message: `${result.issues.length} issue${result.issues.length !== 1 ? 's' : ''} found in ${filename}.`,
+      })
+    }
+    console.error('CellML import issues:', result.issues)
+    return { ok: false, componentCount: 0, unitsCount: 0 }
+  }
 }
 
 const { loadCelldlFiles } = useCelldlImport({ confirm })
@@ -1583,7 +1583,7 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
     if (flowSnapshotFile) {
       const flowSnapshot = JSON.parse(await flowSnapshotFile.async('string'))
 
-      const parameters = loadParametersFromCellML(cellmlContent)
+      const parameters = await loadParametersFromCellMLInBackground(cellmlContent)
       const loaded = await loadFlowSnapshot(fileName, flowSnapshot, parameters.parameters, { notify: false })
       nodeNameToIdMap = loaded?.nodeNameToIdMap
 
@@ -1604,19 +1604,19 @@ async function processImportedOmexArchive(archivePayload, result, fileName) {
       'This case is not fully implemented yet, but we will load the CellML file but the module configuration is not currently used to build the workspace.'
     )
     console.warn('moduleConfigFile', moduleConfigFile)
-    const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
+    const importedCellml = await prepareCellmlImport(cellmlContent, result.files.cellml)
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
-    const parameters = loadParametersFromCellML(importedCellml)
+    const parameters = await loadParametersFromCellMLInBackground(importedCellml)
     if (!(await loadFromCellML(cellmlPayload, result.files.cellml))) {
       throw new Error(`${result.files.cellml} has no modules to place.`)
     }
   } else {
     // Last, and not great, scenario: if we don't have a flow snapshot or module configuration, we can still load the CellML file to build the workspace.
-    const importedCellml = prepareCellmlImport(cellmlContent, result.files.cellml)
+    const importedCellml = await prepareCellmlImport(cellmlContent, result.files.cellml)
     const cellmlPayload = parseCellMLConnections(importedCellml, result.files.cellml)
     await loadCellMLData(importedCellml, result.files.cellml, { notify: false })
-    const parameters = loadParametersFromCellML(importedCellml)
+    const parameters = await loadParametersFromCellMLInBackground(importedCellml)
     if (!(await loadFromCellML(cellmlPayload, result.files.cellml, parameters))) {
       throw new Error(`${result.files.cellml} has no modules to place.`)
     }

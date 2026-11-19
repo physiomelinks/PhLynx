@@ -1,4 +1,5 @@
 import { extractComponentsFromCellmlString } from '../utils/cellml'
+import { extractComponentsFromCellmlStringInBackground } from './libcellml/cellmlImport'
 import {
   MAIN_NODE_TYPE,
   HANDLE_VARIANT,
@@ -238,7 +239,7 @@ function extractComponentsToMathRefs(availableModules) {
   for (const collection of availableModules) {
     if (!collection.model) continue
 
-    const result = extractComponentsFromCellmlString(collection.model)
+    const result = collection.extractedComponents ?? extractComponentsFromCellmlString(collection.model)
 
     if (result.errors && result.errors.length > 0) {
       console.warn(`Errors extracting components from ${collection.filename}:`, result.errors)
@@ -522,6 +523,26 @@ export function migrateWorkspace(doc) {
     throw new Error(`Unsupported workspace version '${version}'. It may have been saved by a newer version of PhLynx.`)
   }
   return MIGRATIONS.slice(start).reduce((migrated, step) => ({ ...step.migrate(migrated), version: step.to }), current)
+}
+
+/**
+ * Migrates a workspace as migrateWorkspace does, splitting a legacy file's CellML into components in the libCellML
+ * worker first.
+ *
+ * @param {Object} doc - A parsed workspace file.
+ * @returns {Promise<Object>} The workspace at PHLYNX_PROJECT_VERSION.
+ */
+export async function migrateWorkspaceInBackground(doc) {
+  const collections = doc?.store?.availableModules
+  if (detectVersion(doc) !== LEGACY_VERSION || !Array.isArray(collections)) return migrateWorkspace(doc)
+  const availableModules = await Promise.all(
+    collections.map(async (collection) =>
+      collection?.model
+        ? { ...collection, extractedComponents: await extractComponentsFromCellmlStringInBackground(collection.model) }
+        : collection
+    )
+  )
+  return migrateWorkspace({ ...doc, store: { ...doc.store, availableModules } })
 }
 
 /**

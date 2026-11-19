@@ -1,8 +1,6 @@
 import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { whenLibCellMLReady } from '../utils/cellml'
-
 function normaliseKeyword(open) {
   return open?.replace(/\/+$/, '').toLowerCase() ?? ''
 }
@@ -21,7 +19,6 @@ export function useLoadFromUrl() {
     const handler = handlers[keyword]
 
     try {
-      await whenLibCellMLReady()
       if (!handler) {
         onError?.(`Don't know how to open "${route.query.open ?? ''}".`)
         return
