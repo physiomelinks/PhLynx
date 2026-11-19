@@ -4,6 +4,7 @@
  */
 
 import { CELLML_NS } from '../../utils/constants.js'
+import { parseXml } from '../../utils/xmlDom.js'
 import { parseRdf } from './rdf.js'
 import { createGraph, termKey } from './graph.js'
 import {
@@ -190,7 +191,8 @@ function emptySidecar(mathRef = null) {
  * @returns {{ ids: Map<string, string>, hasComponent: boolean }}
  */
 function readVariableIds(cellml, componentName) {
-  const doc = new DOMParser().parseFromString(cellml, 'application/xml')
+  const doc = parseXml(cellml)
+  if (!doc) return { ids: new Map(), hasComponent: false }
   const component = Array.from(doc.getElementsByTagNameNS(CELLML_NS, 'component')).find(
     (element) => element.getAttribute('name') === componentName
   )

@@ -5,6 +5,7 @@ import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import { couplingUnitConflicts } from './couplingUnits.js'
 import { portDisplayName } from './portIdentity.js'
+import { appendChildren, childElements, elementsWithId, parseXml, removeNode, tryParseXml } from './xmlDom.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -66,13 +67,11 @@ export function getLibCellML() {
 export { loggerMessages } from './libcellmlLogger.js'
 
 export function extractParametersFromCellML(cellmlString, filename) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
-  const model = doc.getElementsByTagName('model')[0]
+  const model = parseXml(cellmlString)?.getElementsByTagName('model')[0]
   if (!model) return []
 
   const params = []
-  for (const node of model.childNodes) {
-    if (node.nodeType !== Node.ELEMENT_NODE || node.localName !== 'component') continue
+  for (const node of childElements(model, 'component')) {
     for (const variable of node.getElementsByTagName('variable')) {
       const initialValue = variable.getAttribute('initial_value')
       if (!initialValue || isNaN(parseFloat(initialValue))) continue
@@ -88,19 +87,15 @@ export function extractParametersFromCellML(cellmlString, filename) {
 }
 
 export function inferPrimaryComponentName(cellmlString) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
-  const model = doc.getElementsByTagName('model')[0]
+  const model = parseXml(cellmlString)?.getElementsByTagName('model')[0]
   if (!model) return null
-  for (const node of model.childNodes) {
-    if (node.nodeType === Node.ELEMENT_NODE && node.localName === 'component') {
-      return node.getAttribute('name')
-    }
-  }
-  return null
+  const [component] = childElements(model, 'component')
+  return component ? component.getAttribute('name') : null
 }
 
 export function inferComponentNameFromConnections(cellmlString, paramsComponentName) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
+  const doc = parseXml(cellmlString)
+  if (!doc) return null
 
   // CellML 2.0: component names on <map_components> child of <connection>
   for (const mapComponents of doc.getElementsByTagName('map_components')) {
@@ -746,14 +741,12 @@ function extractUnitsFromMath(multiBlockMathString) {
   const wrappedString = `<root>${multiBlockMathString}</root>`
 
   // Parse the XML String
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(wrappedString, 'application/xml')
+  const { doc, error } = tryParseXml(wrappedString)
 
   // Check for parsing errors (optional safety)
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
-    console.error('XML Parse Error:', parserError.textContent)
-    throw new Error('XML Parse Error:', parserError.textContent)
+  if (!doc) {
+    console.error('XML Parse Error:', error)
+    throw new Error('XML Parse Error:', error)
   }
 
   // Find all <cn> elements
@@ -870,34 +863,35 @@ export function splitWideMath(math) {
   // Too few elements to exceed either limit.
   if (!math || (math.match(/<[A-Za-z]/g)?.length ?? 0) <= Math.min(MAX_MATH_EQUATIONS, MAX_MATH_OPERANDS)) return math
 
-  const doc = new DOMParser().parseFromString(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`, 'application/xml')
-  if (doc.querySelector('parsererror')) return math
+  const doc = parseXml(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`)
+  if (!doc) return math
   let isChanged = false
 
   for (const apply of Array.from(doc.getElementsByTagNameNS(MATHML_NS, 'apply'))) {
-    const [operator, ...operands] = Array.from(apply.children)
+    const [operator, ...operands] = childElements(apply)
     if (operands.length <= MAX_MATH_OPERANDS || !GROUPABLE_OPERATORS.has(operator.localName)) continue
     let groups = operands
     while (groups.length > MAX_MATH_OPERANDS) {
       const grouped = []
       for (let i = 0; i < groups.length; i += MAX_MATH_OPERANDS) {
         const group = doc.createElementNS(MATHML_NS, 'apply')
-        group.append(doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS))
+        appendChildren(group, [doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS)])
         grouped.push(group)
       }
       groups = grouped
     }
-    apply.replaceChildren(operator, ...groups)
+    while (apply.firstChild) apply.removeChild(apply.firstChild)
+    appendChildren(apply, [operator, ...groups])
     isChanged = true
   }
 
-  for (const mathElement of Array.from(doc.documentElement.children)) {
-    const equations = Array.from(mathElement.children)
+  for (const mathElement of childElements(doc.documentElement)) {
+    const equations = childElements(mathElement)
     let last = mathElement
     for (let i = MAX_MATH_EQUATIONS; i < equations.length; i += MAX_MATH_EQUATIONS) {
       const next = mathElement.cloneNode(false)
-      next.append(...equations.slice(i, i + MAX_MATH_EQUATIONS))
-      last.after(next)
+      appendChildren(next, equations.slice(i, i + MAX_MATH_EQUATIONS))
+      last.parentNode.insertBefore(next, last.nextSibling)
       last = next
       isChanged = true
     }
@@ -905,7 +899,7 @@ export function splitWideMath(math) {
 
   if (!isChanged) return math
   const serializer = new XMLSerializer()
-  return Array.from(doc.documentElement.children, (element) => serializer.serializeToString(element)).join('\n')
+  return childElements(doc.documentElement).map((element) => serializer.serializeToString(element)).join('\n')
 }
 
 /**
@@ -926,13 +920,11 @@ function splitWideComponentMath(parent) {
 }
 
 function prioritizeEnvironmentComponent(xmlString) {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(xmlString, 'application/xml')
+  const { doc, error } = tryParseXml(xmlString)
 
   // Check for parse errors.
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
-    console.error('XML Parse Error during reordering:', parserError.textContent)
+  if (!doc) {
+    console.error('XML Parse Error during reordering:', error)
     return xmlString // Return original if parsing fails
   }
 
@@ -1040,11 +1032,11 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
   const unchanged = { xml: xmlString, idMap: new Map(), variableIds: new Map() }
   if (!wanted.size && !/\sid\s*=/.test(xmlString)) return unchanged
 
-  const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
-  if (doc.querySelector('parsererror')) return unchanged
+  const doc = parseXml(xmlString)
+  if (!doc) return unchanged
 
-  const component = [...doc.documentElement.children].find((el) => el.localName === 'component') ?? null
-  const elements = [...doc.querySelectorAll('[id]')]
+  const component = childElements(doc.documentElement, 'component')[0] ?? null
+  const elements = elementsWithId(doc)
   const componentName = component?.getAttribute('name')
   // The instance's name is the component's id, so no other element may take it.
   const renamed = (id) => {
@@ -1071,7 +1063,7 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
   if (component && !component.hasAttribute('id')) component.setAttribute('id', instanceName)
 
   const variableIds = new Map()
-  for (const variable of component ? [...component.children].filter((el) => el.localName === 'variable') : []) {
+  for (const variable of component ? childElements(component, 'variable') : []) {
     const name = variable.getAttribute('name')
     if (!name) continue
     if (!variable.hasAttribute('id') && wanted.has(name)) {
@@ -1103,11 +1095,8 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
 export function stripCelsiusToArbitraryUnit(xmlString) {
   const CELSIUS_UNIT_NAME = 'celsius'
 
-  const domParser = new DOMParser()
-  const doc = domParser.parseFromString(xmlString, 'application/xml')
-
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
+  const doc = parseXml(xmlString)
+  if (!doc) {
     console.warn('stripCelsiusToArbitraryUnit: XML parse error — returning original string unchanged.')
     return xmlString
   }
@@ -1122,7 +1111,7 @@ export function stripCelsiusToArbitraryUnit(xmlString) {
   // Remove the <units name="celsius"> definition.
   for (const el of unitsElements) {
     if (el.getAttribute('name') === CELSIUS_UNIT_NAME) {
-      el.parentNode.removeChild(el)
+      removeNode(el)
     }
   }
 
@@ -1738,18 +1727,6 @@ function removeComments(node) {
   }
 }
 
-function hasParserError(parsedDocument) {
-  var parser = new DOMParser(),
-    errorneousParse = parser.parseFromString('<', 'application/xml'),
-    parsererrorNS = errorneousParse.getElementsByTagName('parsererror')[0].namespaceURI
-
-  if (parsererrorNS === 'http://www.w3.org/1999/xhtml') {
-    return parsedDocument.getElementsByTagName('parsererror').length > 0
-  }
-
-  return parsedDocument.getElementsByTagNameNS(parsererrorNS, 'parsererror').length > 0
-}
-
 export function extractComponentsFromCellmlString(cellmlString) {
   if (!cellmlString) {
     return { xml: null, errors: ['CellML string not provided'] }
@@ -1834,11 +1811,9 @@ export function uniqueComponentIds(componentModels) {
   const idMaps = []
   for (const xml of componentModels) {
     const idMap = new Map()
-    const doc = /\sid\s*=/.test(xml) ? new DOMParser().parseFromString(xml, 'application/xml') : null
-    const component = doc?.querySelector('parsererror')
-      ? null
-      : ([...(doc?.documentElement.children ?? [])].find((el) => el.localName === 'component') ?? null)
-    const tree = component ? [component, ...component.querySelectorAll('[id]')] : []
+    const doc = /\sid\s*=/.test(xml) ? parseXml(xml) : null
+    const component = doc ? (childElements(doc.documentElement, 'component')[0] ?? null) : null
+    const tree = component ? [component, ...elementsWithId(component)] : []
     const elements = tree.filter((el) => el.hasAttribute('id'))
     const own = new Set(elements.map((el) => el.getAttribute('id')))
     for (const el of elements) {
@@ -2008,7 +1983,8 @@ export function getModelComponentNames(modelString) {
  * @returns {string} The renamed model's XML.
  */
 export function renameModelComponent(modelString, fromName, toName) {
-  const doc = new DOMParser().parseFromString(modelString, 'application/xml')
+  const doc = parseXml(modelString)
+  if (!doc) return modelString
   const renameAttribute = (tagName, attribute) => {
     Array.from(doc.getElementsByTagNameNS(CELLML_NS, tagName)).forEach((el) => {
       if (el.getAttribute(attribute) === fromName) el.setAttribute(attribute, toName)

@@ -7,6 +7,7 @@
  * imports are left in place and reported.
  */
 import { getLibCellML, loggerMessages } from '../../utils/cellml'
+import { childElements, parseXml, removeNode } from '../../utils/xmlDom'
 
 const XLINK_NS = 'http://www.w3.org/1999/xlink'
 const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:/i
@@ -141,21 +142,12 @@ export function createGitHubSource({ owner, repo, ref, root = '' }, options = {}
   return createUrlSource(base, options)
 }
 
-function parseXml(text) {
-  const doc = new DOMParser().parseFromString(text, 'application/xml')
-  return doc.getElementsByTagName('parsererror').length ? null : doc
-}
-
 function hrefOf(element) {
   return element.getAttributeNS(XLINK_NS, 'href') || element.getAttribute('xlink:href') || ''
 }
 
-function childrenNamed(element, localName) {
-  return [...element.children].filter((child) => child.localName === localName)
-}
-
 function importElements(doc) {
-  return childrenNamed(doc.documentElement, 'import')
+  return childElements(doc.documentElement, 'import')
 }
 
 /**
@@ -234,7 +226,7 @@ function adoptInNamespace(doc, element, namespace) {
     if (attribute.name === 'xmlns') continue
     copy.setAttribute(attribute.name, attribute.value)
   }
-  for (const child of element.children) copy.appendChild(adoptInNamespace(doc, child, namespace))
+  for (const child of childElements(element)) copy.appendChild(adoptInNamespace(doc, child, namespace))
   return copy
 }
 
@@ -285,7 +277,7 @@ function flattenUnitsImports(namespace, unitsImports, files) {
     if (!flattened) return { error: loggerMessages(importer)[0] ?? 'the imported units could not be flattened' }
 
     const printed = parseXml(printer.printModel(flattened, false))
-    return { units: printed ? childrenNamed(printed.documentElement, 'units') : [] }
+    return { units: printed ? childElements(printed.documentElement, 'units') : [] }
   } finally {
     deleteAll(flattened, model, ...libraryModels, printer, importer, parser)
   }
@@ -315,8 +307,8 @@ export async function inlineUnitsImports(cellml, path, source) {
   const issues = []
   const resolvable = []
   for (const element of imports) {
-    const units = childrenNamed(element, 'units')
-    const components = childrenNamed(element, 'component')
+    const units = childElements(element, 'units')
+    const components = childElements(element, 'component')
     const target = targets.get(element)
     const report = (reason) =>
       issues.push({
@@ -352,14 +344,14 @@ export async function inlineUnitsImports(cellml, path, source) {
   // units go where the first units import was.
   const marker = doc.createComment('')
   for (const element of imports) {
-    const units = childrenNamed(element, 'units')
+    const units = childElements(element, 'units')
     if (!units.length) continue
     if (!marker.parentNode) doc.documentElement.insertBefore(marker, element)
-    units.forEach((unit) => unit.remove())
-    if (element.children.length === 0) element.remove()
+    units.forEach(removeNode)
+    if (childElements(element).length === 0) removeNode(element)
   }
 
-  const localNames = new Set(childrenNamed(doc.documentElement, 'units').map((u) => u.getAttribute('name')))
+  const localNames = new Set(childElements(doc.documentElement, 'units').map((u) => u.getAttribute('name')))
   const inlined = []
   for (const unit of concrete) {
     const name = unit.getAttribute('name')
@@ -368,7 +360,7 @@ export async function inlineUnitsImports(cellml, path, source) {
     doc.documentElement.insertBefore(adoptInNamespace(doc, unit, namespace), marker)
     inlined.push(name)
   }
-  marker.remove()
+  removeNode(marker)
 
   return { cellml: new XMLSerializer().serializeToString(doc), inlined, issues }
 }

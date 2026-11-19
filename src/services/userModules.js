@@ -16,6 +16,7 @@ import { getCellmlAttributeNode } from '../utils/cellml'
 import { parseMathRef } from '../utils/config'
 import { extractUnitDefinitions } from '../utils/units'
 import { unitsModelXml } from '../utils/unitExpression'
+import { parseXml } from '../utils/xmlDom'
 
 const STANDARD = new Set(STANDARD_UNITS)
 
@@ -93,7 +94,8 @@ export function findInGrouping(mathRefs, grouping, name) {
 export function unitsUsedBy(math) {
   const used = new Set()
   if (typeof math !== 'string' || !math.trim()) return used
-  const doc = new DOMParser().parseFromString(math, 'application/xml')
+  const doc = parseXml(math)
+  if (!doc) return used
   for (const variable of doc.getElementsByTagNameNS(CELLML_NS, 'variable')) used.add(variable.getAttribute('units'))
   for (const cn of doc.getElementsByTagNameNS(MATHML_NS, 'cn')) used.add(getCellmlAttributeNode(cn, 'units')?.value)
   return new Set([...used].filter((name) => name && !STANDARD.has(name)))
