@@ -29,6 +29,8 @@ const RESTORE_OFFSET_X = 1500
  * @param {Function} options.processImportedOmexArchive - Applies an imported OMEX archive.
  * @param {Function} options.onDragOverModule - Internal module-drag dragover handler (from useDnD).
  * @param {Function} options.onDropModule - Internal module-drag drop handler (from useDnD).
+ * @param {Promise} [options.libraryReady] - Settles once the built-in library has loaded, which loads wait for, so
+ *   their modules land after it and convert against its units.
  * @param {(files: Array<{ key: string, cellml: string }>) => Promise<Object>} [options.planImport] - Asks
  *   which namespace files from a folder or zip go in, and what to do about clashes there (see planNamespaceImport).
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
@@ -44,6 +46,7 @@ export function useCellmlDrop({
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
+  libraryReady = Promise.resolve(),
   planImport = async () => AS_IS,
   flowId = FLOW_IDS.MAIN,
 }) {
@@ -115,6 +118,7 @@ export function useCellmlDrop({
    * Shows per-file notifications for a single file; a combined summary for multiple.
    */
   const loadCellMLFiles = async (entries) => {
+    await libraryReady
     // Single-file fast path: check for connections and load as a graph if present
     if (entries.length === 1) {
       const entry = entries[0]

@@ -1288,6 +1288,7 @@ const { loadCellMLFiles, onDragOver, onFileDragLeave, onDrop, isFileDragOver, dr
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
+  libraryReady: builtInLibraryReady,
   planImport: (files) =>
     planNamespaceImport(
       files.map(({ key }) => key),
@@ -1720,6 +1721,8 @@ const onImportConfirm = (importPayload, updateProgress) =>
   holdLinkReports(() => runImportConfirm(importPayload, updateProgress))
 
 async function runImportConfirm(importPayload, updateProgress) {
+  // The built-in library loads in the libCellML worker: imports land after it, and CellDL converts against its units.
+  await builtInLibraryReady
   if (currentImportMode.value.key === IMPORT_KEYS.INSTANCE_ARRAY) {
     const instanceArrayFiles = importPayload.get(IMPORT_KEYS.INSTANCE_ARRAY)
     const [[instanceArrayKey, instanceData]] = instanceArrayFiles

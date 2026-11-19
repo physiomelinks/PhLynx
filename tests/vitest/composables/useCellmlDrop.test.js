@@ -79,6 +79,18 @@ describe('useCellmlDrop', () => {
     drop = useCellmlDrop(deps)
   })
 
+  it('waits for the built-in library before loading, so its modules and units land first', async () => {
+    let markReady
+    const loading = useCellmlDrop({ ...deps, libraryReady: new Promise((resolve) => (markReady = resolve)) })
+      .loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(deps.loadCellMLData).not.toHaveBeenCalled()
+
+    markReady()
+    await loading
+    expect(deps.loadCellMLData).toHaveBeenCalledTimes(1)
+  })
+
   describe('loadCellMLFiles, single file with connections', () => {
     it('loads into an empty workspace without asking, then rebuilds the edge index', async () => {
       const results = await drop.loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
