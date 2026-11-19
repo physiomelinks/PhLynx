@@ -79,7 +79,6 @@ import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import DocsSearchBar from '../components/docs/DocsSearchBar.vue'
 import DocsSearchResults from '../components/docs/DocsSearchResults.vue'
-import { menuGroups } from '../utils/docsMenu'
 import { shouldIgnoreShortcut } from '../composables/useWorkspaceClipboard'
 import { useRoute, useRouter } from 'vue-router'
 import { useColorScheme } from '../composables/useColorScheme'
@@ -92,6 +91,59 @@ const { isDarkMode } = useColorScheme()
 const openGroups = ref(['Getting Started', 'Guides', 'Reference', 'Help'])
 const markdownFiles = import.meta.glob('@docs/**/*.md', { eager: true })
 const docsMap = {}
+
+const menuGroups = [
+  {
+    title: 'Getting Started',
+    icon: 'pi pi-star-fill',
+    items: [
+      { label: 'Introduction', path: '/docs/getting-started/introduction' },
+      { label: 'Quick Start Guide', path: '/docs/getting-started/quick-start-guide' },
+      { label: "What's New in 0.7", path: '/docs/getting-started/whats-new' },
+    ],
+  },
+  {
+    title: 'Guides',
+    icon: 'pi pi-book',
+    items: [
+      { label: 'Building Macros', path: '/docs/guides/macro-build-guide' },
+      { label: 'Using Custom Modules', path: '/docs/guides/build-custom-module' },
+      { label: 'Writing CellML', path: '/docs/guides/writing-cellml' },
+      { label: 'Drawing CellDL Modules (beta)', path: '/docs/guides/drawing-celldl-modules' },
+      { label: 'Simulating Your Model', path: '/docs/guides/simulating-your-model' },
+      { label: 'Running Protocols', path: '/docs/guides/running-protocols' },
+      { label: 'The Physiology View', path: '/docs/guides/physiology-view' },
+      { label: 'Coupling with Annotations', path: '/docs/guides/annotation-coupling' },
+      { label: 'Using Circulatory Autogen', path: '/docs/guides/use-with-circulatory-autogen' },
+      { label: 'Developer Guide', path: '/docs/guides/develop-phlynx' },
+    ],
+  },
+  {
+    title: 'Reference',
+    icon: 'pi pi-list',
+    items: [
+      { label: 'Interface Overview', path: '/docs/reference/ui-overview' },
+      { label: 'Simulation UI Reference', path: '/docs/reference/simulation-ui-overview' },
+      { label: 'Keyboard Shortcuts', path: '/docs/reference/keyboard-shortcuts' },
+      { label: 'Ghost Nodes', path: '/docs/reference/ghost-nodes' },
+      { label: 'Port Logic', path: '/docs/reference/valid-port-configurations' },
+      { label: 'Annotation Vocabulary', path: '/docs/reference/annotation-vocabulary' },
+      { label: 'Supported File Formats', path: '/docs/reference/file-types' },
+      { label: 'CellML Module Format', path: '/docs/reference/cellml-module-format' },
+      { label: 'CellML Units File', path: '/docs/reference/cellml-units-file' },
+      { label: 'Glossary', path: '/docs/reference/glossary' },
+      { label: 'Changelog', path: '/docs/reference/change-log' },
+    ],
+  },
+  {
+    title: 'Help',
+    icon: 'pi pi-question-circle',
+    items: [
+      { label: 'FAQs & Troubleshooting', path: '/docs/support/faq-and-troubleshooting' },
+      { label: 'Feedback & Support', path: '/docs/support/support' },
+    ],
+  },
+]
 
 function toggleGroup(title) {
   if (openGroups.value.includes(title)) {

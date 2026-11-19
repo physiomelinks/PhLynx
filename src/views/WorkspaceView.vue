@@ -714,6 +714,7 @@ import BioBuildPalette from '../components/bio/BioBuildPalette.vue'
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
 import RecoveryPanel from '../components/RecoveryPanel.vue'
 import { useWorkspaceRecovery } from '../composables/useWorkspaceRecovery'
+import { useWhatsNew } from '../composables/useWhatsNew'
 import Workbench from '../components/WorkbenchArea.vue'
 import CouplingEdge from '../components/CouplingEdge.vue'
 import InstanceNode from '../components/InstanceNode.vue'
@@ -2833,6 +2834,10 @@ const recovery = useWorkspaceRecovery({
   },
 })
 const showRecovery = computed(() => !hasWorkspaceContent.value && !isDragOver.value && recovery.drafts.value.length > 0)
+// The release card waits while unsaved work is on offer: getting that back comes first.
+const { holdWhatsNew } = useWhatsNew()
+watch(showRecovery, (shown) => holdWhatsNew('recovery', shown), { immediate: true })
+onUnmounted(() => holdWhatsNew('recovery', false))
 
 async function onRestoreDraft(id) {
   try {

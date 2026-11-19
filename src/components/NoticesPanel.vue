@@ -14,7 +14,12 @@
           <h3 class="notice-title">{{ notice.title }}</h3>
           <Tag v-if="fresh.has(notice.id)" value="New" class="notice-new" data-testid="notice-new" />
         </div>
-        <p v-if="notice.description" class="notice-description">{{ notice.description }}</p>
+        <!-- Rendered without raw HTML or images, following https links only: see renderNoticeMarkdown. -->
+        <div
+          v-if="notice.description"
+          class="notice-description"
+          v-html="renderNoticeMarkdown(notice.description)"
+        ></div>
         <div v-if="notice.published !== null || notice.link" class="notice-footer">
           <time v-if="notice.published !== null" :datetime="new Date(notice.published).toISOString()">
             {{ formatDate(notice.published) }}
@@ -33,6 +38,7 @@ import { reactive, watch } from 'vue'
 import Tag from 'primevue/tag'
 
 import { useNotices } from '../composables/useNotices'
+import { renderNoticeMarkdown } from '../services/noticeMarkdown'
 
 const props = defineProps({
   /** Whether the panel is on show: its notices are marked read once it is. */
@@ -128,8 +134,77 @@ watch(
 
 .notice-description {
   margin: 8px 0 0;
-  /* The feed's text as written, line breaks and all - never as markup. */
-  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.notice-description :deep(> :first-child) {
+  margin-top: 0;
+}
+
+.notice-description :deep(> :last-child) {
+  margin-bottom: 0;
+}
+
+.notice-description :deep(p),
+.notice-description :deep(ul),
+.notice-description :deep(ol),
+.notice-description :deep(blockquote),
+.notice-description :deep(pre) {
+  margin: 0 0 8px;
+}
+
+.notice-description :deep(ul),
+.notice-description :deep(ol) {
+  padding-left: 1.4rem;
+}
+
+.notice-description :deep(li) {
+  margin-bottom: 2px;
+}
+
+/* A notice is a card in a list: its headings stay below the notice's own title. */
+.notice-description :deep(h1),
+.notice-description :deep(h2),
+.notice-description :deep(h3),
+.notice-description :deep(h4),
+.notice-description :deep(h5),
+.notice-description :deep(h6) {
+  margin: 12px 0 4px;
+  font-size: 0.95rem;
+}
+
+.notice-description :deep(a) {
+  color: var(--p-primary-color, #3b82f6);
+  text-decoration: none;
+}
+
+.notice-description :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.notice-description :deep(code) {
+  padding: 0 4px;
+  border-radius: 4px;
+  background-color: var(--p-content-hover-background, #f3f4f6);
+  font-size: 0.85em;
+}
+
+.notice-description :deep(pre) {
+  padding: 8px;
+  border-radius: 4px;
+  background-color: var(--p-content-hover-background, #f3f4f6);
+  overflow-x: auto;
+}
+
+.notice-description :deep(pre code) {
+  padding: 0;
+  background: none;
+}
+
+.notice-description :deep(blockquote) {
+  padding-left: 10px;
+  border-left: 3px solid var(--p-content-border-color, #e5e7eb);
+  color: var(--p-text-muted-color, #6b7280);
 }
 
 .notice-footer {
