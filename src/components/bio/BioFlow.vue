@@ -3,6 +3,7 @@
   <div
     :class="['bio-flow-root', { 'bio-flow-root--dragging': draggingId, 'bio-flow-root--placing': armedTile }]"
     @click.capture="onArmedClick"
+    @pointermove="onArmedMove"
     @dragover="onModuleDragOver"
     @dragleave="onModuleDragLeave"
     @drop="onModuleDrop"
@@ -223,6 +224,35 @@
             />
           </g>
         </svg>
+        <!-- While a piece is carried: what it would go on, and where it would be drawn -->
+        <svg v-if="piecePreview" class="bio-piece-preview" data-testid="bio-piece-preview">
+          <template v-for="(mark, index) in piecePreview.highlights" :key="`target-${index}`">
+            <line
+              v-if="mark.type === 'line'"
+              class="bio-piece-preview__target bio-piece-preview__target--line"
+              :x1="mark.from.x"
+              :y1="mark.from.y"
+              :x2="mark.to.x"
+              :y2="mark.to.y"
+            />
+            <rect v-else class="bio-piece-preview__target" v-bind="mark.rect" rx="12" />
+          </template>
+          <template v-for="(ghost, index) in piecePreview.ghosts" :key="`ghost-${index}`">
+            <polyline
+              v-if="ghost.type === 'path'"
+              class="bio-piece-preview__way"
+              :points="ghost.points.map((point) => `${point.x},${point.y}`).join(' ')"
+            />
+            <rect
+              v-else
+              :class="['bio-piece-preview__ghost', `bio-piece-preview__ghost--${ghost.kind}`]"
+              v-bind="ghost.rect"
+              :rx="ghost.kind === 'cell' ? CELL_RADIUS : 10"
+              data-testid="bio-piece-ghost"
+              :data-kind="ghost.kind"
+            />
+          </template>
+        </svg>
       </template>
       <template #edge-bioCoupling="props">
         <BioCouplingEdge v-bind="props" />
@@ -265,6 +295,14 @@
     >
       <div>{{ pointerLabel.text }}</div>
       <div v-if="pointerLabel.replace" class="bio-drop-label__replace">{{ pointerLabel.replace }}</div>
+    </div>
+    <div
+      v-if="pieceLabel"
+      :class="['bio-drop-label', { 'bio-drop-label--invalid': pieceLabel.invalid }]"
+      data-testid="bio-piece-drop-label"
+      :style="{ left: `${pieceLabel.left}px`, top: `${pieceLabel.top}px` }"
+    >
+      {{ pieceLabel.text }}
     </div>
     <ContextMenu
       ref="contextMenu"
@@ -450,6 +488,9 @@ import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/b
 import { getBuiltInPieceTemplate } from '../../services/bioView/pieces/builtInTemplates'
 import { PIECES_INSTANCE, pieceSiteRef } from '../../services/bioView/pieces/layout'
 import { topologyOf } from '../../services/bioView/pieces/topology'
+import { dropScene, previewDrop, resolveDrop } from '../../services/bioView/pieces/drops'
+import { PIECES_SCHEMA_VERSION } from '../../services/bioView/pieces/constants'
+import { validatePiecesTemplate } from '../../services/bioView/pieces/model'
 import { useBioPiecesStore } from '../../stores/bioPiecesStore'
 import { BLANK_CELL_TEMPLATE, BLANK_TUBE_TEMPLATE, TILE_DRAG_TYPE, linkEndsAt, nearestEdge, templateCellAt } from '../../services/bioView/palette'
 import { ROLE_LABELS } from '../../services/bioView/roles'
@@ -576,6 +617,7 @@ const {
   templateMoves,
   placeTemplate,
   placePiecesTemplate,
+  editPieces,
   renameTemplate,
   nameError,
   renameInstance,
@@ -2207,6 +2249,78 @@ async function placePiecesAt(templateId, point) {
   if (errors.length) notify.error({ title: 'Could not add the template', message: summariseProblems(errors) })
 }
 
+// ── The five pieces ────────────────────────────────────────────────────
+// A piece carried from the palette, dragged or armed, shows what it would go on and where it would be drawn, worked
+// out again only when its target changes (see pieces/drops.js).
+const isPieceTile = (tile) => tile?.kind === 'piece'
+const carriedPiece = computed(() => [draggedTile.value, armedTile.value].find(isPieceTile) ?? null)
+/** The pieces and where each is drawn, read once while a piece is carried. */
+const pieceScene = computed(() =>
+  carriedPiece.value ? dropScene(piecesStore.pieces, { shapes: templateStore.shapes }) : null
+)
+/** What the carried piece would do where the pointer is: { key, label | invalid, highlights, ghosts }. */
+const piecePreview = shallowRef(null)
+const piecePointer = ref(null)
+
+/** Follows a carried piece: works out its drop where the target is a new one, and moves its label. */
+function trackPiece(point) {
+  const tile = carriedPiece.value
+  const scene = pieceScene.value
+  if (!tile || !scene) return
+  if (point.x !== piecePointer.value?.x || point.y !== piecePointer.value?.y) piecePointer.value = point
+  const drop = resolveDrop(tile.piece, point, scene)
+  if (drop.key === piecePreview.value?.key) return
+  if (drop.invalid) {
+    piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
+    return
+  }
+  const preview = previewDrop(scene, drop)
+  piecePreview.value = preview.errors.length
+    ? { key: drop.key, invalid: summariseProblems(preview.errors), highlights: drop.highlights, ghosts: [] }
+    : { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts: preview.ghosts }
+}
+
+function clearPiecePreview() {
+  piecePreview.value = null
+  piecePointer.value = null
+}
+watch(carriedPiece, (tile) => {
+  if (!tile) clearPiecePreview()
+})
+
+/** The label that follows a carried piece: what it would do there, or why it can't go there. */
+const pieceLabel = computed(() => {
+  if (!piecePreview.value || !piecePointer.value) return null
+  const { x, y, zoom } = viewport.value
+  const { invalid, label } = piecePreview.value
+  return { left: piecePointer.value.x * zoom + x + 18, top: piecePointer.value.y * zoom + y + 18, text: invalid ?? label, invalid: !!invalid }
+})
+
+/** An armed piece previews where the pointer is over the view, as a dragged one does. */
+function onArmedMove(event) {
+  if (!isPieceTile(armedTile.value)) return
+  if (!event.target.closest('.vue-flow') || event.target.closest('.vue-flow__controls, .vue-flow__minimap, .vue-flow__panel')) {
+    clearPiecePreview()
+    return
+  }
+  trackPiece(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+}
+
+/**
+ * Adds one of the five pieces where it is dropped, as one step, saying why where it can't go there.
+ *
+ * @param {'compartment'|'membrane'|'tube'|'fold'|'zone'} kind
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ */
+async function placePieceAt(kind, point) {
+  const scene = dropScene(piecesStore.pieces, { shapes: templateStore.shapes })
+  const drop = resolveDrop(kind, point, scene)
+  if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
+  const { pieces, errors } = previewDrop(scene, drop)
+  if (!pieces) return notify.error({ title: 'It can’t go there', message: summariseProblems(errors) })
+  await editPieces(pieces, `bio-pieces-${kind}`)
+}
+
 const isTileDrag = (event) => [...(event.dataTransfer?.types ?? [])].includes(TILE_DRAG_TYPE)
 
 /** The middle of the view as shown, in flow coordinates. */
@@ -2226,6 +2340,7 @@ function viewCentre() {
 function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
   if (tile.kind === 'pieces') return placePiecesAt(tile.template, point)
+  if (isPieceTile(tile)) return placePieceAt(tile.piece, point)
   if (tile.kind === 'module') {
     const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
     return module && props.createInstance ? placeModuleAt(module, point) : null
@@ -2440,6 +2555,8 @@ async function onTemplateFile(event) {
   if (!file) return
   const at = templateFileAt ?? { x: 0, y: 0 }
   const { raw, errors: parseErrors } = await readTemplateFile(file)
+  // A template written as pieces (schema 4) is placed as its pieces.
+  if (!parseErrors.length && raw?.schemaVersion === PIECES_SCHEMA_VERSION) return loadPiecesTemplate(file.name, raw, at)
   const { template, errors, warnings } = parseErrors.length
     ? { template: null, errors: parseErrors, warnings: [] }
     : templateStore.addLocalTemplate(raw)
@@ -2448,6 +2565,20 @@ async function onTemplateFile(event) {
     return
   }
   placeTemplate(template.id, at)
+  if (warnings.length) notify.warning({ title: `Loaded ${template.name}`, message: summariseProblems(warnings) })
+}
+
+/**
+ * Places a template file written as pieces, its corner at a point, or says what is wrong with it.
+ *
+ * @param {string} name - The file's.
+ * @param {*} raw - Its parsed contents.
+ * @param {{x: number, y: number}} at
+ */
+async function loadPiecesTemplate(name, raw, at) {
+  const { template, errors, warnings } = validatePiecesTemplate(raw, { allowLocalId: true })
+  const problems = template ? await placePiecesTemplate(template, at) : errors
+  if (problems.length) return notify.error({ title: `Could not load ${name}`, message: summariseProblems(problems) })
   if (warnings.length) notify.warning({ title: `Loaded ${template.name}`, message: summariseProblems(warnings) })
 }
 
@@ -2821,6 +2952,7 @@ function onModuleDragOver(event) {
   if (isTileDrag(event)) {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
+    if (isPieceTile(draggedTile.value)) trackPiece(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
     return
   }
   if (!isLibraryDrag(event)) return
@@ -2832,6 +2964,7 @@ function onModuleDragOver(event) {
 
 function onModuleDragLeave(event) {
   if (event.currentTarget.contains(event.relatedTarget)) return
+  clearPiecePreview()
   if (draggingId.value === 'library') draggingId.value = activeTarget.value = pointer.value = null
 }
 
@@ -3356,6 +3489,46 @@ function assignRole(id, at, { role, cell, placement }) {
 
 .bio-rename-error {
   color: var(--p-red-500);
+}
+
+/* Where a carried piece can't go: said in red. */
+.bio-drop-label--invalid {
+  border-color: var(--p-red-500);
+  color: var(--p-red-600);
+}
+
+/* A carried piece's preview: what it would go on, solid, and where it would be drawn, a dashed ghost. */
+.bio-piece-preview {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bio-piece-preview__target {
+  fill: none;
+  stroke: var(--bio-drop-active);
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+.bio-piece-preview__target--line {
+  stroke-width: 8;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+.bio-piece-preview__ghost {
+  fill: color-mix(in srgb, var(--bio-drop-active) 12%, transparent);
+  stroke: var(--bio-drop-active);
+  stroke-width: 2;
+  stroke-dasharray: 8 5;
+}
+
+.bio-piece-preview__way {
+  fill: none;
+  stroke: var(--bio-drop-active);
+  stroke-width: 3;
+  stroke-dasharray: 8 5;
 }
 
 .bio-drop-label__replace {

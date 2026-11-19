@@ -1,0 +1,613 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PhLynx physiology template, written as pieces",
+  "description": "A template for the physiology view written as the five pieces it is built from: compartments, membranes, tubes, folds and process zones. Dropping it on the view adds copies of its pieces, the workspace's own from then on. Keys this schema does not list are ignored with a warning.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "name"
+  ],
+  "properties": {
+    "$schema": {
+      "description": "Path to this schema, for editors. Ignored by PhLynx.",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "description": "The format version: 4 for a template written as pieces.",
+      "const": 4
+    },
+    "id": {
+      "description": "The template's id: a lower-case letter, then lower-case letters, digits and hyphens (2-48 characters).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,47}$"
+    },
+    "name": {
+      "description": "The name shown in menus.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "description": {
+      "description": "A sentence or two on what the template shows.",
+      "type": "string",
+      "maxLength": 280
+    },
+    "author": {
+      "description": "Who made the template.",
+      "type": "string",
+      "maxLength": 64
+    },
+    "license": {
+      "description": "The template's licence, as an SPDX identifier such as CC0-1.0.",
+      "type": "string",
+      "maxLength": 64
+    },
+    "pieces": {
+      "description": "The pieces, each a compartment, membrane, tube, fold or process zone.",
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/piece"
+      }
+    }
+  },
+  "$defs": {
+    "pieceId": {
+      "description": "A piece's id, or a span's within its membrane: a lower-case letter, then lower-case letters, digits and hyphens (1-32 characters).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,31}$"
+    },
+    "label": {
+      "description": "Text shown on the piece.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "piece": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/compartment"
+        },
+        {
+          "$ref": "#/$defs/membrane"
+        },
+        {
+          "$ref": "#/$defs/tube"
+        },
+        {
+          "$ref": "#/$defs/fold"
+        },
+        {
+          "$ref": "#/$defs/zone"
+        }
+      ]
+    },
+    "compartment": {
+      "description": "A space: standing freely in another compartment or on the view, docked against membrane sides, or filling the membrane that encloses it.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Its id, unique among the pieces."
+        },
+        "kind": {
+          "const": "compartment",
+          "description": "A compartment."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "Its name."
+        },
+        "parent": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The compartment it stands in; none for the view itself. A compartment a membrane encloses stands where the membrane does."
+        },
+        "frame": {
+          "description": "Where a compartment standing freely is drawn, from the corner of what it stands in. One docked, or filling its membrane, is drawn by them instead.",
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": -20000,
+              "maximum": 20000
+            },
+            "y": {
+              "type": "number",
+              "minimum": -20000,
+              "maximum": 20000
+            },
+            "width": {
+              "type": "number",
+              "minimum": 20,
+              "maximum": 4000
+            },
+            "height": {
+              "type": "number",
+              "minimum": 20,
+              "maximum": 4000
+            }
+          }
+        },
+        "docks": {
+          "description": "The membrane sides, or folds, it lies against, on their inner face (within the membrane, as a microdomain) or outer face (beside it, as a fluid).",
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/dock"
+          }
+        },
+        "depth": {
+          "description": "How far a docked compartment reaches from its docks, in pixels.",
+          "type": "number",
+          "minimum": 20,
+          "maximum": 1000
+        },
+        "tone": {
+          "description": "Its colour. Defaults to sky.",
+          "enum": [
+            "sky",
+            "rose",
+            "teal",
+            "amber",
+            "violet",
+            "lime",
+            "slate"
+          ]
+        },
+        "term": {
+          "description": "What annotations call the place, as an ontology term's CURIE (GO:0001750, say).",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}:[A-Za-z0-9_]{1,32}$"
+        },
+        "style": {
+          "description": "Drawn as a vessel: walled along its length, open at its ends.",
+          "enum": [
+            "vessel"
+          ]
+        },
+        "skin": {
+          "description": "Artwork the piece is drawn with: an SVG skin of the workspace's, by its id.",
+          "type": "object",
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,47}$"
+            },
+            "mode": {
+              "enum": [
+                "contain",
+                "cover",
+                "stretch"
+              ]
+            },
+            "opacity": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "site": {
+          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
+          "type": "boolean"
+        }
+      }
+    },
+    "dock": {
+      "description": "A stretch of a membrane's side, or a fold, that a compartment lies against.",
+      "type": "object",
+      "required": [
+        "on",
+        "face"
+      ],
+      "properties": {
+        "on": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The membrane, or fold, it lies against."
+        },
+        "side": {
+          "description": "The membrane's side; not for a fold.",
+          "enum": [
+            "top",
+            "right",
+            "bottom",
+            "left"
+          ]
+        },
+        "face": {
+          "description": "The face it lies against: inside (it is within the membrane) or outside (it stands beside it).",
+          "enum": [
+            "inside",
+            "outside"
+          ]
+        },
+        "from": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Where along the side the stretch starts, 0 to 1, left to right or top to bottom. Defaults to 0."
+        },
+        "to": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Where it ends, after from. Defaults to 1."
+        }
+      }
+    },
+    "membrane": {
+      "description": "A membrane round the compartments it encloses: a cell's, or an organelle's within a compartment. The one it encloses that is docked to none of its sides fills it.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "encloses"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Its id, unique among the pieces."
+        },
+        "kind": {
+          "const": "membrane",
+          "description": "A membrane."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "Its name."
+        },
+        "parent": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The compartment it stands in, as an organelle's does; none for the view."
+        },
+        "encloses": {
+          "description": "The compartments it encloses, each standing where it does.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/pieceId"
+          }
+        },
+        "sides": {
+          "description": "Each side's spans: the protein sites along it, side by side. A side not listed is one span, named for the side.",
+          "type": "object",
+          "properties": {
+            "top": {
+              "$ref": "#/$defs/side"
+            },
+            "right": {
+              "$ref": "#/$defs/side"
+            },
+            "bottom": {
+              "$ref": "#/$defs/side"
+            },
+            "left": {
+              "$ref": "#/$defs/side"
+            }
+          }
+        },
+        "frame": {
+          "description": "Where the membrane is drawn, from the corner of what it stands in, and how big at least.",
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": -20000,
+              "maximum": 20000
+            },
+            "y": {
+              "type": "number",
+              "minimum": -20000,
+              "maximum": 20000
+            },
+            "width": {
+              "type": "number",
+              "minimum": 20,
+              "maximum": 4000
+            },
+            "height": {
+              "type": "number",
+              "minimum": 20,
+              "maximum": 4000
+            }
+          }
+        },
+        "skin": {
+          "description": "Artwork the piece is drawn with: an SVG skin of the workspace's, by its id.",
+          "type": "object",
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,47}$"
+            },
+            "mode": {
+              "enum": [
+                "contain",
+                "cover",
+                "stretch"
+              ]
+            },
+            "opacity": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "site": {
+          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
+          "type": "boolean"
+        }
+      }
+    },
+    "side": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/span"
+      }
+    },
+    "span": {
+      "description": "A stretch of a membrane's side: a site for membrane proteins.",
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Its id, unique within its membrane."
+        },
+        "label": {
+          "$ref": "#/$defs/label"
+        },
+        "to": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Where it ends along its side, 0 to 1; it starts where the span before it ends. The last span runs to the end and may leave it out."
+        },
+        "annotation": {
+          "description": "The annotated facet this span stands for, so annotated proteins land on it.",
+          "type": "object",
+          "required": [
+            "facet"
+          ],
+          "properties": {
+            "facet": {
+              "enum": [
+                "apical",
+                "lateral",
+                "basolateral"
+              ]
+            },
+            "at": {
+              "enum": [
+                "left",
+                "right"
+              ]
+            }
+          }
+        },
+        "group": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Spans in the same group share the proteins that do not name a side."
+        },
+        "site": {
+          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
+          "type": "boolean"
+        }
+      }
+    },
+    "tube": {
+      "description": "A connector between two compartments, carrying one flux module.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "ends"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Its id, unique among the pieces."
+        },
+        "kind": {
+          "const": "tube",
+          "description": "A tube."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "Its name."
+        },
+        "ends": {
+          "description": "The two compartments it joins, upstream first.",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/pieceId"
+          }
+        },
+        "flux": {
+          "description": "What it carries: a flow (the default), a junction, or diffusion.",
+          "enum": [
+            "flow",
+            "junction",
+            "diffusion"
+          ]
+        },
+        "bends": {
+          "description": "Its corners, from the view's corner; its way is drawn square through them.",
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": [
+              "x",
+              "y"
+            ],
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "site": {
+          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
+          "type": "boolean"
+        }
+      }
+    },
+    "fold": {
+      "description": "An invagination of a membrane, such as a T-tubule: proteins sit down its walls, and its lumen is what lies outside the side it dips in from, or what is docked to its outer face.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "membrane",
+        "side"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Its id, unique among the pieces."
+        },
+        "kind": {
+          "const": "fold",
+          "description": "A fold."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "Its name."
+        },
+        "membrane": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The membrane it is a fold of."
+        },
+        "side": {
+          "description": "The side it dips in from.",
+          "enum": [
+            "top",
+            "right",
+            "bottom",
+            "left"
+          ]
+        },
+        "at": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Where along the side, 0 to 1. Defaults to 0.75."
+        },
+        "depth": {
+          "description": "Its least depth, in pixels; it is drawn deeper for more proteins.",
+          "type": "number",
+          "minimum": 80,
+          "maximum": 1000
+        },
+        "site": {
+          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
+          "type": "boolean"
+        }
+      }
+    },
+    "zone": {
+      "description": "An area in a compartment for process modules.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "compartment"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/pieceId",
+          "description": "Its id, unique among the pieces."
+        },
+        "kind": {
+          "const": "zone",
+          "description": "A process zone."
+        },
+        "label": {
+          "$ref": "#/$defs/label",
+          "description": "Its name."
+        },
+        "compartment": {
+          "$ref": "#/$defs/pieceId",
+          "description": "The compartment it is within."
+        },
+        "frame": {
+          "description": "Where it is drawn, from its compartment's corner; without one, in a row along its compartment's top.",
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": -20000,
+              "maximum": 20000
+            },
+            "y": {
+              "type": "number",
+              "minimum": -20000,
+              "maximum": 20000
+            },
+            "width": {
+              "type": "number",
+              "minimum": 20,
+              "maximum": 4000
+            },
+            "height": {
+              "type": "number",
+              "minimum": 20,
+              "maximum": 4000
+            }
+          }
+        },
+        "site": {
+          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

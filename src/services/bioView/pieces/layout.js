@@ -190,12 +190,45 @@ function pathMiddle(points) {
   return best.point
 }
 
+/** Whether two rects overlap. */
+const overlap = (r, q) => r.x < q.x + q.width && q.x < r.x + r.width && r.y < q.y + q.height && q.y < r.y + r.height
+
+/**
+ * A tube's room for its module, moved beside its way where the way is too short to hold it clear of the two
+ * compartments it joins, as a link's is: square to the way's longest stretch, the nearer side first.
+ */
+function clearOfEnds(zone, points, ends) {
+  if (!ends.some((end) => overlap(zone, end))) return zone
+  let longest = [points[0], points[1]]
+  for (let i = 1; i < points.length; i++) {
+    const [p, q] = [points[i - 1], points[i]]
+    if (Math.hypot(q.x - p.x, q.y - p.y) > Math.hypot(longest[1].x - longest[0].x, longest[1].y - longest[0].y))
+      longest = [p, q]
+  }
+  const isAcross = longest[0].y === longest[1].y
+  for (let shift = 8; shift <= 800; shift += 8) {
+    for (const sign of [-1, 1]) {
+      const moved = isAcross ? { ...zone, y: zone.y + sign * shift } : { ...zone, x: zone.x + sign * shift }
+      if (!ends.some((end) => overlap(moved, end))) return moved
+    }
+  }
+  return zone
+}
+
 const zoneAt = (centre, size = TUBE_ZONE) => ({ x: centre.x - size.width / 2, y: centre.y - size.height / 2, ...size })
 
-/** Where two rects touch, if they do: the middle of the stretch of edge they share. */
+/**
+ * Where two rects touch, if they do: the middle of the stretch of edge they share; or, with one inside the other, the
+ * middle of the inner one's right side.
+ */
 function contact(a, b) {
   const near = (p, q) => Math.abs(p - q) <= TOUCHING
   const shared = (lowA, highA, lowB, highB) => (Math.max(lowA, lowB) + Math.min(highA, highB)) / 2
+  // One inside the other: where the inner one's right side meets the outer's inside.
+  const holds = (outer, inner) =>
+    inner.x >= outer.x && inner.y >= outer.y && rightOf(inner) <= rightOf(outer) && bottomOf(inner) <= bottomOf(outer)
+  const inner = holds(a, b) ? b : holds(b, a) ? a : null
+  if (inner) return { x: rightOf(inner), y: inner.y + inner.height / 2 }
   const overlapX = a.x < rightOf(b) && b.x < rightOf(a)
   const overlapY = a.y < bottomOf(b) && b.y < bottomOf(a)
   if (overlapY && near(rightOf(a), b.x))
@@ -337,15 +370,19 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     others.forEach(measure)
     // Process zones without a frame in rows from the top, below the proteins on its top side, as wide as it is.
     let row = 0
+    // What the zones that span the container need of its width: room for their cards and a spare place past them,
+    // not the width they take from it, which would grow it again and again.
+    let zonesNeed = 0
     for (const zone of zones) {
       if (zone.frame) rel.set(zone.id, { ...zone.frame })
       else {
         const area = processZone({ x: 0, y: 0, width }, row++)
-        // Wide enough for its cards and a spare place past them.
-        const cards = (occupants.get(zone.id) ?? []).length + 1
-        rel.set(zone.id, { ...area, width: Math.max(area.width, CELL_RADIUS / 2 + cards * (CARD.width + 16)) })
+        const cards = CELL_RADIUS / 2 + ((occupants.get(zone.id) ?? []).length + 1) * (CARD.width + 16)
+        zonesNeed = Math.max(zonesNeed, area.x + cards + CELL_RADIUS / 2)
+        rel.set(zone.id, { ...area, width: Math.max(area.width, cards) })
       }
     }
+    const spanning = new Set(zones.filter((zone) => !zone.frame).map((zone) => zone.id))
     const below = containerId ? Math.max(GLYPH_HEIGHT + 40, ...[...rel.values()].map(bottomOf)) + ROOM : 0
     // The rest by their frames, or in a row below the zones; on the canvas, side by side from its corner.
     let x = containerId ? CELL_RADIUS + ROOM : 0
@@ -357,9 +394,16 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         x += size.width + (containerId ? 2 * ROOM : 2 * GAP)
       }
     }
-    const reach = boxOf([...rel.values(), { x: 0, y: 0, width: 0, height: 0 }])
+    const fixed = [...rel].filter(([id]) => !spanning.has(id)).map(([, rect]) => rect)
+    const reach = boxOf([...fixed, { x: 0, y: 0, width: 0, height: 0 }])
+    const tall = boxOf([...rel.values(), { x: 0, y: 0, width: 0, height: 0 }])
     arrangements.set(containerId ?? '', rel)
-    return { width: reach.x + reach.width, height: reach.y + reach.height, zones: zones.length }
+    return {
+      width: fixed.length ? reach.x + reach.width : 0,
+      zonesNeed,
+      height: tall.y + tall.height,
+      zones: zones.length,
+    }
   }
 
   function measure(piece) {
@@ -375,11 +419,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       if (bulk && !skin) {
         const inside = arrange(bulk, size.width)
         size = {
-          width: Math.max(
-            size.width,
-            inside.width + CELL_RADIUS + ROOM,
-            inside.zones ? CARD.width + 2 * CELL_RADIUS : 0,
-          ),
+          width: Math.max(size.width, inside.width ? inside.width + CELL_RADIUS + ROOM : 0, inside.zonesNeed),
           height: Math.max(size.height, inside.height + (inside.zones || standing.has(bulk) ? HINT_ROOM : 0)),
         }
         // The zones span the cell as it finally is.
@@ -394,9 +434,9 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       : piece.style === 'vessel'
         ? { ...TUBE }
         : { ...FREE_COMPARTMENT }
-    const inside = standing.has(piece.id) ? arrange(piece.id, base.width) : { width: 0, height: 0 }
+    const inside = standing.has(piece.id) ? arrange(piece.id, base.width) : { width: 0, zonesNeed: 0, height: 0 }
     const size = {
-      width: Math.max(base.width, inside.width + ROOM),
+      width: Math.max(base.width, inside.width ? inside.width + ROOM : 0, inside.zonesNeed),
       height: Math.max(base.height, inside.height + ROOM),
     }
     if (standing.has(piece.id)) arrange(piece.id, size.width)
@@ -818,7 +858,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       places.set(key, { ...base, rect: zone, joint, tone: byId.get(tube.ends[0]).tone, zone })
     } else {
       const points = routeTube(a, b, tube.bends ?? [])
-      zone = zoneAt(pathMiddle(points))
+      zone = clearOfEnds(zoneAt(pathMiddle(points)), points, [a, b])
       const rect = boxOf([zone, ...points.map((point) => ({ ...point, width: 0, height: 0 }))])
       places.set(key, { ...base, rect, points, zone })
     }

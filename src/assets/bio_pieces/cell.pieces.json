@@ -1,4 +1,5 @@
 {
+  "$schema": "./bio-pieces.schema.json",
   "schemaVersion": 4,
   "id": "cell",
   "name": "Cell",

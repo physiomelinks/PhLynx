@@ -75,8 +75,28 @@
       </button>
     </div>
 
-    <!-- The templates written as the five fundamental pieces, while they are being built -->
+    <!-- The five fundamental pieces, and the templates written as them, while they are being built -->
     <template v-if="showPieces">
+      <h5 class="bio-palette__heading">Pieces (preview)</h5>
+      <div class="bio-palette__tiles">
+        <button
+          v-for="tile in PIECE_TILES"
+          :key="tile.kind"
+          type="button"
+          :class="['bio-palette__tile', { 'bio-palette__tile--armed': isSame(viewMode.armedTile, { kind: 'piece', piece: tile.kind }) }]"
+          draggable="true"
+          :title="tile.hint"
+          :aria-pressed="isSame(viewMode.armedTile, { kind: 'piece', piece: tile.kind })"
+          data-testid="bio-palette-piece"
+          :data-piece="tile.kind"
+          @dragstart="onDragStart($event, { kind: 'piece', piece: tile.kind })"
+          @dragend="viewMode.draggedTile = null"
+          @click="toggle({ kind: 'piece', piece: tile.kind })"
+        >
+          <i :class="tile.icon" aria-hidden="true"></i>
+          {{ tile.label }}
+        </button>
+      </div>
       <h5 class="bio-palette__heading">Templates from pieces (preview)</h5>
       <div class="bio-palette__templates">
         <button
@@ -116,6 +136,7 @@ import useDragAndDrop from '../../composables/useDnD'
 
 import { PALETTE_TILES, TILE_DRAG_TYPE, isPiecesPreview } from '../../services/bioView/palette'
 import { BUILT_IN_PIECE_TEMPLATES } from '../../services/bioView/pieces/builtInTemplates'
+import { PIECE_TILES } from '../../services/bioView/pieces/drops'
 import { useBioTemplateStore } from '../../stores/bioTemplateStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
@@ -132,7 +153,7 @@ const newModule = computed(() => libraryStore.availableModules.get(NEW_INSTANCE_
 /** Whether the templates written as pieces are offered (see isPiecesPreview). */
 const showPieces = isPiecesPreview()
 
-const isSame = (a, b) => !!a && !!b && a.kind === b.kind && a.template === b.template
+const isSame = (a, b) => !!a && !!b && a.kind === b.kind && a.template === b.template && a.piece === b.piece
 
 /** Arms a tile for placing with a click on the view, or lets go of the one armed. */
 function toggle(tile) {

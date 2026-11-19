@@ -89,7 +89,7 @@ describe('layoutPieces', () => {
     const layout = laidOut(getBuiltInPieceTemplate('cardiomyocyte').pieces)
     const cell = rectOf(layout, 'sarcolemma')
     const sr = rectOf(layout, 'sr-membrane')
-    expect(sr).toMatchObject({ x: cell.x + 150, y: cell.y + 310 })
+    expect(sr).toMatchObject({ x: cell.x + 80, y: cell.y + 310 })
     expect(layout.places.get(pieceKey('sr-membrane'))).toMatchObject({ kind: 'cell', parent: pieceKey('sarcolemma') })
   })
 
@@ -239,5 +239,56 @@ describe('routeTube', () => {
     for (let i = 1; i < points.length; i++) {
       expect(points[i].x === points[i - 1].x || points[i].y === points[i - 1].y).toBe(true)
     }
+  })
+})
+
+describe('a tube too short for its module', () => {
+  it('has its module’s room beside its way, clear of both ends', () => {
+    const layout = laidOut([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 300, height: 200 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 360, y: 0, width: 300, height: 200 } },
+      { id: 't', kind: 'tube', label: 'T', ends: ['a', 'b'] },
+    ])
+    const { zone, points } = layout.places.get(pieceKey('t'))
+    expect(points).toEqual([
+      { x: 300, y: 100 },
+      { x: 360, y: 100 },
+    ])
+    const clear = (rect) => zone.y >= rect.y + rect.height || zone.y + zone.height <= rect.y
+    expect(clear({ x: 0, y: 0, width: 300, height: 200 })).toBe(true)
+  })
+})
+
+describe('a tube between a compartment and one inside it', () => {
+  it('is the joint on the inner one’s side', () => {
+    const layout = laidOut([
+      { id: 'outer', kind: 'compartment', label: 'Outer', frame: { x: 0, y: 0, width: 600, height: 400 } },
+      {
+        id: 'inner',
+        kind: 'compartment',
+        label: 'Inner',
+        parent: 'outer',
+        frame: { x: 100, y: 100, width: 200, height: 100 },
+      },
+      { id: 't', kind: 'tube', label: 'T', ends: ['outer', 'inner'], flux: 'diffusion' },
+    ])
+    const tube = layout.places.get(pieceKey('t'))
+    expect(tube).toMatchObject({ joint: 'diffusion' })
+    expect(tube.zone.x + tube.zone.width / 2).toBe(300)
+    expect(tube.zone.y + tube.zone.height / 2).toBe(150)
+  })
+})
+
+describe('a process zone spanning its cell', () => {
+  it('stays within the cell, which grows only for the zone’s cards', () => {
+    const layout = laidOut([
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'], frame: { x: 0, y: 0, width: 320, height: 240 } },
+      { id: 'zone', kind: 'zone', label: 'Zone', compartment: 'cell' },
+    ])
+    const cell = rectOf(layout, 'pm')
+    const zone = rectOf(layout, 'zone')
+    expect(cell.width).toBe(320)
+    expect(contains(cell, zone)).toBe(true)
   })
 })

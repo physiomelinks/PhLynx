@@ -93,6 +93,18 @@ export function useBioEdits(roles = null) {
   }
 
   /**
+   * Replaces the pieces, as one step: an edit worked out from them (see pieces/edits.js), already validated.
+   *
+   * @param {ReadonlyArray<Object>} next - The pieces as the edit leaves them.
+   * @param {string} [type='bio-pieces-edit'] - The command type.
+   * @returns {Promise<boolean>}
+   */
+  function editPieces(next, type = 'bio-pieces-edit') {
+    if (busy()) return Promise.resolve(false)
+    return applyPlan(new Map(), type, pieces.edit(() => pieces.setPieces(next)))
+  }
+
+  /**
    * Gives the store change that moves several instances, for applyPlan.
    *
    * @param {Map<string, {x: number, y: number}>} moves - Instance id -> how far it moves.
@@ -246,6 +258,7 @@ export function useBioEdits(roles = null) {
     templateMoves,
     placeTemplate,
     placePiecesTemplate,
+    editPieces,
     moveTemplate,
     renameTemplate,
     nameError,
