@@ -565,6 +565,7 @@ const {
   applyNodeChanges,
   findNode,
   fitView,
+  getSelectedNodes,
   onMoveStart,
   screenToFlowCoordinate,
   setViewport,
@@ -2586,8 +2587,32 @@ async function deleteNodes(ids) {
   return deleteInstances(going, { removeNodes: main.removeNodes, history, before })
 }
 
-/** Deletes the selected instances, for the workspace's Delete and Backspace keys. */
-const deleteSelection = () => deleteNodes(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
+/**
+ * The pieces whose drawn nodes are selected, as their Remove would take them: a cell whole, with what it encloses.
+ * Grips are handles on a piece, not the piece, so they are left out.
+ */
+function selectedPieceIds() {
+  const ids = new Set()
+  for (const node of getSelectedNodes.value) {
+    const place = layout.value.get(node.id)
+    const piece = place?.piece && place.kind !== 'grip' && piecesStore.pieces.find((each) => each.id === place.piece)
+    if (!piece) continue
+    ids.add(piece.id)
+    if (place.kind === 'cell') for (const id of piece.encloses ?? []) ids.add(id)
+  }
+  return [...ids]
+}
+
+/**
+ * Deletes the selection, for the workspace's Delete and Backspace keys: the selected instances, then the selected
+ * pieces, so modules going with their background are not first asked about as stranded.
+ */
+async function deleteSelection() {
+  const pieces = selectedPieceIds()
+  const instances = main.nodes.value.filter((node) => node.selected).map((node) => node.id)
+  if (instances.length && !(await deleteNodes(instances))) return
+  if (pieces.length) await removeThesePieces(pieces)
+}
 
 /** A shown connection's menu: delete it, as the diagram would. */
 function onEdgeContextMenu({ event, edge }) {
