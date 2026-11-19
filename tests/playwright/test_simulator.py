@@ -84,10 +84,12 @@ MAP_WORKSPACE_RESULTS = """async () => {
   const { loadLibCellML } = await importAppModule('/src/utils/cellml.js')
   const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const scope = resolveScope(null, nodes.value, edges.value, [])
+  // buildScopedModel runs libCellML on this thread, which loads it only on demand.
+  const libcellml = await loadLibCellML()
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
   const results = await (await whenLibOpenCORReady()).startSimulation({ cellml, settings }).promise
-  const mapping = buildVariableMapping({ libcellml: await loadLibCellML(), cellml, nodes: scope.nodes, results })
+  const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
   const soma = scope.nodes.find((node) => node.data.name === 'soma_SN')
   return {
     rows: scope.nodes.reduce((total, node) => total + node.data.variables.length, 0),
@@ -113,6 +115,8 @@ COMPARE_WITH_EXPORT = """async () => {
   const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const settings = __SETTINGS__
   const scope = resolveScope(null, nodes.value, edges.value, [])
+  // buildScopedModel runs libCellML on this thread, which loads it only on demand.
+  await (await importAppModule('/src/utils/cellml.js')).loadLibCellML()
   const blob = buildScopedModel(scope, useLibraryStore())
   const inApp = await (await whenLibOpenCORReady()).startSimulation({ cellml: await blob.text(), settings }).promise
 

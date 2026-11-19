@@ -194,6 +194,8 @@ CARRY_WORKSPACE_STATES = """async () => {
   const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const scope = resolveScope(null, nodes.value, edges.value, [])
+  // buildScopedModel runs libCellML on this thread, which loads it only on demand.
+  await (await importAppModule('/src/utils/cellml.js')).loadLibCellML()
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-carry-' + Math.round(performance.now())
