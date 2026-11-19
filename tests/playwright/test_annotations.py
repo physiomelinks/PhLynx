@@ -739,11 +739,19 @@ class TestAnnotationCoupling(unittest.TestCase):
         regions = page.locator("[data-testid=bio-region][data-tint]")
         cell_tint = page.locator("[data-testid=bio-concentration-tint]")
         expect(regions).to_have_count(0)
+        # Each compartment's own colour, under any tint.
+        bases = lambda: set(
+            page.locator("[data-testid=bio-region]").evaluate_all(
+                "(els) => els.map((el) => getComputedStyle(el).backgroundColor)"
+            )
+        )
+        self.assertGreater(len(bases()), 1)
 
-        # Every compartment holding the species is tinted, the one holding most fully.
+        # Every compartment holding the species is tinted, the one holding most fully, over one neutral colour.
         page.locator("[data-testid=bio-species-token]").first.click()
         expect(regions).to_have_count(2)
         expect(cell_tint).to_have_count(1)
+        self.assertEqual(len(bases()), 1)
         tints = lambda: sorted(float(t) for t in regions.evaluate_all("(els) => els.map((el) => el.dataset.tint)"))
         before = tints()
         self.assertTrue(all(0 < t <= 1 for t in before), before)
@@ -759,6 +767,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         expect(page.locator(".bio-species-token--focused")).to_have_count(0)
         expect(regions).to_have_count(0)
         expect(cell_tint).to_have_count(0)
+        self.assertGreater(len(bases()), 1)
 
     def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
         page = self.page

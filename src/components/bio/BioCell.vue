@@ -2,7 +2,12 @@
   <div
     :class="[
       'bio-cell',
-      { 'bio-cell--selected': selected, 'bio-cell--empty': isEmpty, 'bio-cell--own-membrane': !data.membrane },
+      {
+        'bio-cell--selected': selected,
+        'bio-cell--empty': isEmpty,
+        'bio-cell--own-membrane': !data.membrane,
+        'bio-cell--tinting': !!tintOf,
+      },
     ]"
     data-testid="bio-cell"
     :data-site="data.site ?? undefined"
@@ -276,6 +281,12 @@ function foldNameStyle({ edge, at, depth }) {
 
 .bio-cell__tint {
   pointer-events: none;
+}
+
+/* While a species tints the compartments holding it, none keeps its own colour, so a tint means the same everywhere */
+.bio-cell--tinting .bio-cell__cytosol,
+.bio-cell--tinting .bio-cell__lumen {
+  fill: var(--p-content-background);
 }
 
 .bio-cell__cytosol {

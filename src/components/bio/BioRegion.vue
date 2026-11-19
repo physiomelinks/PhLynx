@@ -11,6 +11,7 @@
         'bio-region--inner': data.form === 'inner' && !data.clip,
         'bio-region--drawn': !!data.clip,
         'bio-region--tube': data.shape === 'tube',
+        'bio-region--tinting': !!tintOf,
       },
     ]"
     :style="[cutoutStyle, tintStyle]"
@@ -185,6 +186,11 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   z-index: -1;
   border-radius: inherit;
   background: var(--p-content-background);
+}
+
+/* While a species tints the compartments holding it, none keeps its own colour, so a tint means the same everywhere */
+.bio-region.bio-region--tinting {
+  background-color: var(--p-content-background);
 }
 
 /* A tube, a stretch of vessel or duct: walls along its length, open at its ends */
