@@ -72,6 +72,17 @@ describe('layoutPieces', () => {
     expect(layout.places.has(pieceKey('cell'))).toBe(false)
   })
 
+  it('marks a membrane with no module of its own as empty, whatever is in its cell', () => {
+    const pieces = [
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'pm', kind: 'membrane', label: 'Plasma membrane', encloses: ['cell'] },
+    ]
+    const on = (site) => ({ id: site, data: { bioView: { site: `pieces/${site}` } } })
+    const cellOf = (layout) => [...layout.places.values()].find((place) => place.kind === 'cell')
+    expect(cellOf(laidOut(pieces, { nodes: [on('cell')] })).membraneEmpty).toBe(true)
+    expect(cellOf(laidOut(pieces, { nodes: [on('cell'), on('pm')] })).membraneEmpty).toBe(false)
+  })
+
   it('grows a membrane for its process zones, which go in rows inside it', () => {
     const layout = laidOut(getBuiltInPieceTemplate('cardiomyocyte').pieces)
     const cell = rectOf(layout, 'sarcolemma')

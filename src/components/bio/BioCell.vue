@@ -2,7 +2,12 @@
   <div
     :class="[
       'bio-cell',
-      { 'bio-cell--selected': selected, 'bio-cell--empty': isEmpty, 'bio-cell--own-membrane': !data.membrane },
+      {
+        'bio-cell--selected': selected,
+        'bio-cell--empty': isEmpty,
+        'bio-cell--own-membrane': !data.membrane,
+        'bio-cell--membrane-empty': data.membraneEmpty,
+      },
     ]"
     data-testid="bio-cell"
     :data-site="data.site ?? undefined"
@@ -205,6 +210,20 @@ function foldNameStyle({ edge, at, depth }) {
   height: 100%;
   --bilayer-head: var(--p-amber-700);
   --bilayer-tail: var(--p-amber-600);
+  --bilayer-core: color-mix(in srgb, var(--p-amber-200) 70%, var(--p-content-background));
+}
+
+/* A membrane still waiting for its module: its lipids greyed, as the other pieces are outlined while empty */
+.bio-cell--membrane-empty {
+  --bilayer-head: var(--p-surface-400);
+  --bilayer-tail: var(--p-surface-300);
+  --bilayer-core: color-mix(in srgb, var(--p-surface-200) 70%, var(--p-content-background));
+}
+
+.p-dark .bio-cell--membrane-empty {
+  --bilayer-head: var(--p-surface-500);
+  --bilayer-tail: var(--p-surface-600);
+  --bilayer-core: color-mix(in srgb, var(--p-surface-700) 70%, var(--p-content-background));
 }
 
 .bio-cell__art {
@@ -256,7 +275,7 @@ function foldNameStyle({ edge, at, depth }) {
 
 .bio-cell__membrane-tails {
   fill: none;
-  stroke: color-mix(in srgb, var(--p-amber-200) 80%, var(--p-content-background));
+  stroke: var(--bilayer-core);
   stroke-width: 7;
   stroke-linejoin: round;
 }
@@ -267,7 +286,7 @@ function foldNameStyle({ edge, at, depth }) {
 
 .bio-cell__core {
   fill: none;
-  stroke: color-mix(in srgb, var(--p-amber-200) 70%, var(--p-content-background));
+  stroke: var(--bilayer-core);
   stroke-width: 14;
 }
 

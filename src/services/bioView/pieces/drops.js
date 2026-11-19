@@ -6,16 +6,7 @@
  */
 
 import { SIDES } from './constants.js'
-import {
-  addCompartment,
-  addEnclosure,
-  addFold,
-  addTube,
-  addZone,
-  dockCompartment,
-  encloseCompartment,
-  freeStretch,
-} from './edits.js'
+import { addCompartment, addFold, addTube, addZone, dockCompartment, encloseCompartment, freeStretch } from './edits.js'
 import { layoutPieces } from './layout.js'
 import { validatePieces } from './model.js'
 import { topologyOf } from './topology.js'
@@ -32,7 +23,7 @@ export const PIECE_TILES = Object.freeze([
     kind: 'membrane',
     label: 'Membrane',
     icon: 'pi pi-circle',
-    hint: 'Round a compartment, dropped on its edge, with all the compartments tubes join to it; inside one, an organelle; on the view, a new cell',
+    hint: 'Round the compartment it is dropped on, with all the compartments tubes join to it: a cell, or an organelle for one inside a cell',
   },
   {
     kind: 'tube',
@@ -52,7 +43,7 @@ export const PIECE_TILES = Object.freeze([
 /** How near a membrane's side a compartment or fold must be dropped to go against it, or into it. */
 const DOCK_BAND = 28
 const FOLD_BAND = 44
-/** How near a compartment's edge a membrane must be dropped to go round it. */
+/** How far outside a compartment's edge a membrane may be dropped and still go round it. */
 const EDGE_BAND = 24
 /** How far from the compartment it is dropped on, or nearest, a tube's other end may be. */
 const TUBE_REACH = 480
@@ -60,8 +51,6 @@ const TUBE_REACH = 480
 const SIZES = Object.freeze({
   compartment: { width: 320, height: 140 },
   subcompartment: { width: 200, height: 120 },
-  cell: { width: 320, height: 240 },
-  organelle: { width: 220, height: 150 },
 })
 
 const contains = (rect, { x, y }) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
@@ -200,40 +189,39 @@ function resolveCompartment(scene, point) {
   }
 }
 
+/**
+ * A membrane goes only round a compartment, as a zone goes only in one: the one it is dropped on, or by the edge of,
+ * with those tubes join to it. Round one standing freely it makes a cell; round one inside a cell, an organelle.
+ */
 function resolveMembrane(scene, point) {
   const topology = topologyOf(scene.pieces)
-  // On the edge of a compartment no membrane encloses yet, standing freely: round it and those tubes join to it.
-  const edge = scene.pieces
-    .filter((piece) => piece.kind === 'compartment' && !piece.docks?.length && !topology.enclosureOf(piece.id))
+  // The innermost compartment it is on or just outside the edge of decides: an outer one is never enclosed past it.
+  const target = scene.pieces
+    .filter((piece) => piece.kind === 'compartment')
     .map((piece) => ({ piece, rect: scene.rects.get(piece.id) }))
-    .filter(({ rect }) => rect && edgeDistance(rect, point) <= EDGE_BAND)
-    .sort((a, b) => area(a.rect) - area(b.rect))[0]
-  if (edge) {
-    const group = topology.tubeGroupOf(edge.piece.id)
-    const names = group.map((id) => scene.byId.get(id).label)
-    const listed = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
+    .filter(({ rect }) => rect && (contains(rect, point) || edgeDistance(rect, point) <= EDGE_BAND))
+    .sort((a, b) => area(a.rect) - area(b.rect))[0]?.piece
+  if (!target) return { key: 'membrane|none', invalid: 'Drop it on a compartment, to enclose it.' }
+  if (topology.enclosureOf(target.id)) {
     return {
-      key: `membrane|enclose|${edge.piece.id}`,
-      label: `Encloses ${listed}`,
-      highlights: group.map((id) => ({ type: 'rect', rect: scene.rects.get(id) })).filter((h) => h.rect),
-      apply: (pieces) => encloseCompartment(pieces, edge.piece.id, scene.rects),
+      key: `membrane|enclosed|${target.id}`,
+      invalid: `${target.label} has a membrane already. Drop it on a compartment inside it, to make an organelle.`,
     }
   }
-  const host = compartmentAt(scene, point)
-  if (host) {
-    const rect = scene.rects.get(host.id)
+  if (target.docks?.length) {
     return {
-      key: `membrane|in|${host.id}|${snap(point)}`,
-      label: `An organelle in ${host.label}`,
-      highlights: [{ type: 'rect', rect }],
-      apply: (pieces) => addEnclosure(pieces, { parent: host.id, frame: frameAt(point, SIZES.organelle, rect) }),
+      key: `membrane|docked|${target.id}`,
+      invalid: `${target.label} is against a membrane, so it can’t be enclosed by another.`,
     }
   }
+  const group = topology.tubeGroupOf(target.id)
+  const names = group.map((id) => scene.byId.get(id).label)
+  const listed = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
   return {
-    key: `membrane|cell|${snap(point)}`,
-    label: 'A cell',
-    highlights: [],
-    apply: (pieces) => addEnclosure(pieces, { frame: frameAt(point, SIZES.cell) }),
+    key: `membrane|enclose|${target.id}`,
+    label: `Encloses ${listed}`,
+    highlights: group.map((id) => ({ type: 'rect', rect: scene.rects.get(id) })).filter((h) => h.rect),
+    apply: (pieces) => encloseCompartment(pieces, target.id, scene.rects),
   }
 }
 

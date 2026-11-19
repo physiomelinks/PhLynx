@@ -1,7 +1,7 @@
 <template>
   <!-- A process zone of the pieces: an area within a compartment for process modules, outlined while empty -->
   <div
-    :class="['bio-zone', { 'bio-zone--empty': data.empty }]"
+    :class="['bio-zone', { 'bio-zone--empty': data.empty, 'bio-zone--selected': selected }]"
     data-testid="bio-process-zone"
     :data-site="data.site ?? undefined"
   >
@@ -18,6 +18,7 @@ defineProps({
   /** Its node id, for its resize handle. */
   id: { type: String, default: null },
   data: { type: Object, required: true },
+  selected: { type: Boolean, default: false },
 })
 </script>
 
@@ -32,6 +33,10 @@ defineProps({
 /* Drawn as a template cell's process area is: a faint dashed outline, named in its corner. */
 .bio-zone--empty {
   border: 1px dashed color-mix(in srgb, var(--p-amber-500) 60%, transparent);
+}
+
+.bio-zone--selected {
+  border: 2px solid var(--p-primary-color);
 }
 
 .bio-zone__label {

@@ -87,23 +87,49 @@ describe('dropping a compartment', () => {
 })
 
 describe('dropping a membrane', () => {
-  it('on the view makes a new cell', () => {
-    const { pieces, drop, ghosts } = dropped([], 'membrane', { x: 200, y: 200 })
-    expect(drop.label).toBe('A cell')
-    expect(pieces.map((piece) => piece.kind)).toEqual(['compartment', 'membrane'])
+  it('goes nowhere but on a compartment', () => {
+    expect(resolveDrop('membrane', { x: 200, y: 200 }, dropScene([])).invalid).toMatch(/Drop it on a compartment/)
+    const start = valid([{ id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 160 } }])
+    expect(resolveDrop('membrane', { x: 600, y: 600 }, dropScene(start)).invalid).toMatch(/Drop it on a compartment/)
+  })
+
+  it('anywhere on a compartment standing freely makes it a cell', () => {
+    const start = valid([{ id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 320, height: 240 } }])
+    const { pieces, id, drop, ghosts } = dropped(start, 'membrane', { x: 160, y: 120 })
+    expect(drop.label).toBe('Encloses A')
+    expect(topologyOf(pieces).bulkOf(id)).toBe('a')
     expect(ghosts.map((ghost) => ghost.kind)).toEqual(['cell'])
   })
 
-  it('in a compartment makes an organelle there, with a lumen of its own', () => {
+  it('won’t go in a cell’s cytoplasm, which has a membrane already', () => {
     const rect = cellRect(cell())
-    const { pieces, id, drop } = dropped(cell(), 'membrane', {
+    const drop = resolveDrop('membrane', { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }, dropScene(cell()))
+    expect(drop.invalid).toMatch(/Cell has a membrane already/)
+  })
+
+  it('on a compartment inside a cell makes it an organelle', () => {
+    const inCell = dropped(cell(), 'compartment', { x: 200, y: 160 })
+    const inner = inCell.pieces.find((piece) => piece.id === inCell.id)
+    const rect = dropScene(inCell.pieces).rects.get(inner.id)
+    const { pieces, id, drop } = dropped(inCell.pieces, 'membrane', {
       x: rect.x + rect.width / 2,
       y: rect.y + rect.height / 2,
     })
-    expect(drop.label).toBe('An organelle in Cell')
-    const membrane = pieces.find((piece) => piece.id === id)
-    expect(membrane.parent).toBe('cell')
-    expect(topologyOf(pieces).outsideOf(`${id}.top`)).toEqual(['cell'])
+    expect(drop.label).toBe(`Encloses ${inner.label}`)
+    expect(pieces.find((piece) => piece.id === id).parent).toBe('cell')
+    expect(topologyOf(pieces).bulkOf(id)).toBe(inner.id)
+  })
+
+  it('won’t enclose a compartment docked against a membrane', () => {
+    const rect = cellRect(cell())
+    const docked = dropped(cell(), 'compartment', { x: rect.x + rect.width / 2, y: rect.y - 10 })
+    const dockedRect = dropScene(docked.pieces).rects.get(docked.id)
+    const drop = resolveDrop(
+      'membrane',
+      { x: dockedRect.x + dockedRect.width / 2, y: dockedRect.y + dockedRect.height / 2 },
+      dropScene(docked.pieces),
+    )
+    expect(drop.invalid).toMatch(/against a membrane/)
   })
 
   it('on a compartment’s edge encloses it, and every compartment tubes join to it', () => {

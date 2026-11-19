@@ -1,6 +1,9 @@
 <template>
   <!-- A tube: a line from one of its compartments to the other, and room along it for its module -->
-  <div :class="['bio-link', `bio-link--${data.flow}`, { 'bio-link--empty': data.empty }]" data-testid="bio-link">
+  <div
+    :class="['bio-link', `bio-link--${data.flow}`, { 'bio-link--empty': data.empty, 'bio-link--selected': selected }]"
+    data-testid="bio-link"
+  >
     <!-- One that joins its pieces is the joint between them; with a module in it, the module draws it (BioJoint) -->
     <template v-if="data.joint">
       <div v-if="data.empty" class="bio-link__joint">
@@ -39,6 +42,7 @@ import BioJointGlyph from './BioJointGlyph.vue'
 
 const props = defineProps({
   data: { type: Object, required: true },
+  selected: { type: Boolean, default: false },
 })
 
 const markerId = `bio-link-head-${useId()}`
@@ -110,6 +114,18 @@ function offsetPoints(by) {
   background: var(--p-content-background);
   pointer-events: auto;
   text-align: center;
+}
+
+.bio-link--selected .bio-link__zone {
+  border: 2px solid var(--p-primary-color);
+}
+
+.bio-link--selected .bio-link__stroke {
+  stroke: var(--p-primary-color);
+}
+
+.bio-link--selected .bio-link__head {
+  fill: var(--p-primary-color);
 }
 
 .bio-link__joint {

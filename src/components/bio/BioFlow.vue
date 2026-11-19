@@ -283,7 +283,7 @@
         <BioRegion :id="props.id" :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioLink="props">
-        <BioLink :data="props.data" />
+        <BioLink :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioJoint="props">
         <BioJoint :id="props.id" :data="props.data" :selected="props.selected" />
@@ -295,7 +295,7 @@
         <BioCard :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioZone="props">
-        <BioZone :id="props.id" :data="props.data" />
+        <BioZone :id="props.id" :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioGrip="props">
         <BioGrip :data="props.data" />
@@ -2588,28 +2588,53 @@ async function deleteNodes(ids) {
 }
 
 /**
- * The pieces whose drawn nodes are selected, as their Remove would take them: a cell whole, with what it encloses.
- * Grips are handles on a piece, not the piece, so they are left out.
+ * The module a piece's own node holds apart from it, if any: a cell's membrane's (drawn as a band over it), or a
+ * tube's (drawn as a card in its room). A compartment's module is drawn as the piece itself, so it is never apart.
  */
-function selectedPieceIds() {
-  const ids = new Set()
-  for (const node of getSelectedNodes.value) {
-    const place = layout.value.get(node.id)
-    const piece = place?.piece && place.kind !== 'grip' && piecesStore.pieces.find((each) => each.id === place.piece)
-    if (!piece) continue
-    ids.add(piece.id)
-    if (place.kind === 'cell') for (const id of piece.encloses ?? []) ids.add(id)
+function moduleApartFrom(id, place) {
+  if (place.kind === 'cell') return place.membrane ?? null
+  if (place.kind === 'link') {
+    for (const [cardId, card] of layout.value) if (card.kind === 'card' && card.link === id) return cardId
   }
-  return [...ids]
+  return null
 }
 
 /**
- * Deletes the selection, for the workspace's Delete and Backspace keys: the selected instances, then the selected
- * pieces, so modules going with their background are not first asked about as stranded.
+ * What Delete takes of the selection, a layer at a time: a module before the piece it is on. A selected node that
+ * is a module (a piece holding one is drawn as its module's node) loses only its module, leaving the piece empty; a
+ * selected empty piece loses its own module if it holds one apart, else goes itself, as its Remove would take it: a
+ * cell whole, with what it encloses. Grips are handles on a piece, not the piece, so they are left out.
+ *
+ * @returns {{instances: string[], pieces: string[]}}
+ */
+function deletionLayers() {
+  const instances = new Set(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
+  const pieces = new Set()
+  for (const node of getSelectedNodes.value) {
+    if (main.findNode(node.id)) {
+      instances.add(node.id)
+      continue
+    }
+    const place = layout.value.get(node.id)
+    const piece = place?.piece && place.kind !== 'grip' && piecesStore.pieces.find((each) => each.id === place.piece)
+    if (!piece) continue
+    const held = moduleApartFrom(node.id, place)
+    if (held && main.findNode(held)) {
+      instances.add(held)
+      continue
+    }
+    pieces.add(piece.id)
+    if (place.kind === 'cell') for (const id of piece.encloses ?? []) pieces.add(id)
+  }
+  return { instances: [...instances], pieces: [...pieces] }
+}
+
+/**
+ * Deletes the selection, for the workspace's Delete and Backspace keys, a layer at a time (see deletionLayers): the
+ * modules first, then the empty pieces.
  */
 async function deleteSelection() {
-  const pieces = selectedPieceIds()
-  const instances = main.nodes.value.filter((node) => node.selected).map((node) => node.id)
+  const { instances, pieces } = deletionLayers()
   if (instances.length && !(await deleteNodes(instances))) return
   if (pieces.length) await removeThesePieces(pieces)
 }

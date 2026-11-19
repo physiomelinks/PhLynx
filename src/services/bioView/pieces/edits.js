@@ -281,39 +281,6 @@ export function encloseCompartment(pieces, compartmentId, rects) {
 }
 
 /**
- * Adds a membrane inside a compartment, round a new compartment of its own: an organelle and its lumen.
- *
- * @param {ReadonlyArray<Object>} pieces
- * @param {{parent: string|null, frame: Object}} options - The compartment it stands in (none: a new cell on the
- *   canvas), and where it goes, from that compartment's corner.
- * @returns {{pieces: Array<Object>, id: string, lumen: string}}
- */
-export function addEnclosure(pieces, { parent = null, frame }) {
-  const ids = taken(pieces)
-  const isCell = !parent
-  const lumen = freeId(isCell ? 'cell' : 'lumen', ids)
-  ids.add(lumen)
-  const id = freeId(isCell ? 'membrane' : 'organelle-membrane', ids)
-  const name = isCell ? numbered(pieces, 'compartment', 'Cell') : numbered(pieces, 'compartment', 'Organelle')
-  return {
-    pieces: [
-      ...copy(pieces),
-      { id: lumen, kind: 'compartment', label: name, ...(parent && { parent }) },
-      {
-        id,
-        kind: 'membrane',
-        label: isCell ? numbered(pieces, 'membrane', 'Plasma membrane') : `${name} membrane`,
-        ...(parent && { parent }),
-        encloses: [lumen],
-        frame: whole(frame),
-      },
-    ],
-    id,
-    lumen,
-  }
-}
-
-/**
  * Adds a tube between two compartments: a junction between two spaces within one membrane, else a flow.
  *
  * @param {ReadonlyArray<Object>} pieces

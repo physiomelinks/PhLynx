@@ -137,8 +137,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
     if (!node) {
       const place = layout.get(id)
       const data = { name: place.label ?? id, domainType: null, empty: true }
-      // A piece stays where its frame puts it, for now.
-      return { ...UNSET, id, selectable: false, draggable: !place.piece, data }
+      // An empty piece is selected to be deleted, its module gone first (see BioFlow's deletionLayers).
+      return { ...UNSET, id, selectable: true, draggable: !place.piece, data }
     }
     return {
       ...UNSET,
@@ -208,7 +208,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x, y },
           width,
           height,
-          selectable: false,
+          // A tube of the pieces is selected by its empty room or joint, the rest of it taking no pointer.
+          selectable: !!place.piece,
           draggable: false,
           zIndex: Z.link,
           style: { pointerEvents: 'none' },
@@ -255,6 +256,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             ...own.data,
             ...placeData(place),
             membrane: place.membrane,
+            ...(place.membraneEmpty && { membraneEmpty: true }),
             width,
             height,
             ...(named && { nameAt: { x: named.x - x, y: named.y - y } }),

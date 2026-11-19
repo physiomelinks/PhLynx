@@ -707,6 +707,8 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       rect,
       shape,
       membrane: membraneNode,
+      // A membrane that takes a module and has none yet, which its cell draws greyed (folds with it, being its).
+      membraneEmpty: membrane.site !== false && !membraneNode,
       membraneSite: sitePath(membrane),
       site: bulk ? sitePath(bulk) : null,
       empty: !(bulkId && occupantOf(bulkId)),
