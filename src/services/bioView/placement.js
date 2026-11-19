@@ -18,6 +18,8 @@ import { resolveBioRole } from './roles.js'
 import { cellFinder, scaffoldFromNodes, scaffoldFromTemplates } from './scaffold.js'
 import { EPITHELIAL_SHAPE } from './shape.js'
 import { MEMBRANE, instanceTemplate, parseSiteRef, sitesOf } from './templates.js'
+import { PIECES_INSTANCE, boundToPieces } from './pieces/layout.js'
+import { piecePlaces } from './pieces/placement.js'
 
 const SELF = 'self'
 const SELF_MEMBRANE = `self+${GO.plasmaMembrane}`
@@ -42,8 +44,10 @@ function compartmentSides(template, compartment) {
  *
  * @returns {Array<Object>|null} Null when the site is dangling: its instance, template or path is missing.
  */
-function sitePlaces(ref, { instances, definitions }) {
+function sitePlaces(ref, { instances, definitions, pieces }) {
   const parsed = parseSiteRef(ref)
+  // A site of the pieces the view is built from (schema 4).
+  if (parsed?.instance === PIECES_INSTANCE) return pieces.length ? piecePlaces(pieces, parsed.path) : null
   const instance = parsed && instances.find((candidate) => candidate.id === parsed.instance)
   const template = instance && instanceTemplate(instance, definitions)
   if (!template || !sitesOf(template).some((site) => site.path === parsed.path)) return null
@@ -131,22 +135,28 @@ function sitePlaces(ref, { instances, definitions }) {
  * @param {(mathRef: string) => Object|null} [options.sidecarFor] - A math's parsed side-car, for its role.
  * @param {Array<{id: string, template: string}>} [options.instances] - The template instances placed.
  * @param {Map<string, Object>} [options.definitions] - Template id -> its validated template.
+ * @param {ReadonlyArray<Object>} [options.pieces] - The pieces the view is built from (schema 4), validated.
  * @param {(node: Object, options: { sidecar: Object|null }) => Object|null} [options.workedRole] - A role worked
  *   out elsewhere (see resolveBioRole).
  * @returns {Object}
  */
-export function preparePlacement(nodes, { sidecarFor = () => null, instances = [], definitions = new Map(), workedRole } = {}) {
+export function preparePlacement(
+  nodes,
+  { sidecarFor = () => null, instances = [], definitions = new Map(), pieces = [], workedRole } = {}
+) {
   const roleOf = (node) => {
     const sidecar = node.data?.mathRef ? (sidecarFor(node.data.mathRef) ?? null) : null
     return resolveBioRole(node.data, { sidecar, worked: workedRole?.(node, { sidecar }) ?? null })
   }
   const roles = new Map(nodes.map((node) => [node.id, roleOf(node)]))
   const { bound } = scaffoldFromTemplates(instances, definitions, nodes)
-  const free = nodes.filter((node) => !bound.has(node.id))
+  const onPieces = boundToPieces(pieces, nodes).bound
+  const free = nodes.filter((node) => !bound.has(node.id) && !onPieces.has(node.id))
   const scaffold = scaffoldFromNodes(free, roles)
   return {
     instances,
     definitions,
+    pieces,
     roles,
     roleOf,
     scaffold,

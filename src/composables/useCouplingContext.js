@@ -1,4 +1,5 @@
 import { useLibraryStore } from '../stores/libraryStore'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { buildCouplingContext } from '../services/annotations/couple'
 import { locationSource } from '../services/annotations/locationSources'
@@ -14,6 +15,7 @@ import { locationSource } from '../services/annotations/locationSources'
 export function useCouplingContext() {
   const libraryStore = useLibraryStore()
   const bioTemplateStore = useBioTemplateStore()
+  const bioPiecesStore = useBioPiecesStore()
 
   /**
    * @param {Array<Object>} [nodes] - Workspace nodes: every node, so a node's places can name the cell it is on.
@@ -31,6 +33,7 @@ export function useCouplingContext() {
       data: {
         instances: bioTemplateStore.instances ?? [],
         definitions: bioTemplateStore.definitions ?? new Map(),
+        pieces: bioPiecesStore.pieces ?? [],
         ...(source.read?.() ?? {}),
       },
     })

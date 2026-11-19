@@ -448,6 +448,9 @@ import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
 import { getBuiltInPieceTemplate } from '../../services/bioView/pieces/builtInTemplates'
+import { PIECES_INSTANCE, pieceSiteRef } from '../../services/bioView/pieces/layout'
+import { topologyOf } from '../../services/bioView/pieces/topology'
+import { useBioPiecesStore } from '../../stores/bioPiecesStore'
 import { BLANK_CELL_TEMPLATE, BLANK_TUBE_TEMPLATE, TILE_DRAG_TYPE, linkEndsAt, nearestEdge, templateCellAt } from '../../services/bioView/palette'
 import { ROLE_LABELS } from '../../services/bioView/roles'
 import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
@@ -526,6 +529,7 @@ const libraryDrag = useDragAndDrop()
 const history = useFlowHistoryStore()
 const libraryStore = useLibraryStore()
 const templateStore = useBioTemplateStore()
+const piecesStore = useBioPiecesStore()
 const glyphStore = useGlyphLibraryStore()
 const { choose } = useConfirmDialog()
 const {
@@ -732,6 +736,13 @@ const nearCells = computed(() => {
  */
 function neighbourSites(site) {
   const parsed = parseSiteRef(site.ref)
+  // A site of the pieces: its neighbours are the topology's.
+  if (parsed?.instance === PIECES_INSTANCE) {
+    if (!piecesStore.pieces.length) return []
+    return topologyOf(piecesStore.pieces)
+      .neighbours(parsed.path)
+      .map(({ path, relation }) => ({ ref: pieceSiteRef(path), relation }))
+  }
   const instance = parsed && templateStore.getInstance(parsed.instance)
   const template = instance && instanceTemplate(instance, templateStore.definitions)
   if (!template) return []
@@ -870,6 +881,9 @@ function pieceOfRef(ref) {
   return parsed ? `${parsed.instance}/${parsed.path.split('.')[0]}` : null
 }
 
+/** The piece a drop target's site is drawn on: a site of the pieces names its group, the place drawing it. */
+const groupOf = (target) => (target.group ? `group ${target.group}` : pieceOfRef(target.ref))
+
 const isNear = (rect, { x, y }, margin) =>
   x >= rect.x - margin &&
   x <= rect.x + rect.width + margin &&
@@ -922,12 +936,12 @@ const sitePrompts = computed(() => {
     const isActive = active?.area?.cellId === cellId && active.area.area === area
     areas.push({ key: `${cellId}#${area}`, ref: cellId, area, rect, path: areaPath(target), active: isActive })
   }
-  const piece = active?.site ? pieceOfRef(active.site.ref) : null
+  const piece = active?.site ? groupOf(active.site) : null
   if (!piece) return { ...empty, slots, areas: sortAreas(areas) }
   const isActive = ({ ref, type, order }) =>
     active.site.ref === ref && active.site.type === type && active.site.order === order
   for (const target of siteTargets.value) {
-    if (pieceOfRef(target.ref) !== piece) continue
+    if (groupOf(target) !== piece) continue
     if (target.type === 'slot') {
       const size = target.role === 'cytosolic' ? CARD : glyph
       const { ref, x, y, order, spare } = target

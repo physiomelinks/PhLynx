@@ -1061,6 +1061,8 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
  * @param {Map<string, Object>} [templates.definitions] - Template id -> its validated template.
  * @param {(id: string) => string} [templates.detailOf] - What a protein carries, as drawn under its name, so
  *   neighbours along a top or bottom edge are spaced for both.
+ * @param {Set<string>} [templates.placedElsewhere] - Nodes laid out elsewhere, as those on the pieces' sites are,
+ *   which get no place here.
  * @returns {{places: Map<string, Object>, sites: Array<Object>}}
  *   - places: see layoutBioView; a template piece's place, keyed by its node or 'tpl:<instance>/<path>' while
  *     empty, also has { instance, path, site, empty, tone, edge?, form, label }, a cell's facetLabels: [{ facetId, label,
@@ -1071,7 +1073,13 @@ function layoutTemplates(scaffold, instances, layout, widthOf, shapes = new Map(
  *     positions, the last marked spare, plus a process area's rect, or a facet's cellRect, shape and its
  *     occupants' name widths.
  */
-export function layoutPhysiology(nodes, roles, { instances = [], definitions = new Map(), detailOf = () => '', shapes = new Map() } = {}) {
+export function layoutPhysiology(
+  allNodes,
+  roles,
+  { instances = [], definitions = new Map(), detailOf = () => '', shapes = new Map(), placedElsewhere = new Set() } = {}
+) {
+  // Nodes bound to a site of the pieces are laid out with them (see layoutPieces), so left out here.
+  const nodes = placedElsewhere.size ? allNodes.filter((node) => !placedElsewhere.has(node.id)) : allNodes
   // Nodes bound to a template site are placed by it; the rest make the node-owned scaffold.
   const templates = scaffoldFromTemplates(instances, definitions, nodes)
   const free = templates.bound.size ? nodes.filter((node) => !templates.bound.has(node.id)) : nodes

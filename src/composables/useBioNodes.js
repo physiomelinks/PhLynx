@@ -1,7 +1,7 @@
 import { computed, ref, unref, watch } from 'vue'
 import { useBioPiecesStore } from '../stores/bioPiecesStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
-import { PIECES_INSTANCE, layoutPieces } from '../services/bioView/pieces/layout'
+import { PIECES_INSTANCE, boundToPieces, layoutPieces } from '../services/bioView/pieces/layout'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { readNodeSeries } from '../services/simulation/variableMapping'
@@ -11,7 +11,7 @@ import { getGlyph } from '../services/bioView/glyphs'
 import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/species'
 import { cellHintAt, cellNameBox, facetLabelBoxes, placeSpeciesTokens, flowScales, routeSpecies } from '../services/bioView/speciesLayout'
 import { getHandleId } from '../utils/handles'
-import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../services/bioView/geometry'
+import { GLYPH_HEIGHT, GLYPH_WIDTH, proteinLabelWidth } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
 import { CARD, PROCESS_INSET, layoutPhysiology } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
@@ -208,6 +208,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const hint = own.data.empty && cellHintAt(id, layout, labelOf)
         parents.push({
           ...own,
+          // A piece stays where its frame puts it, for now, with or without a module on it.
+          ...(place.piece && { draggable: false }),
           type: 'bioCell',
           position: { x, y },
           width,
@@ -232,6 +234,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const own = base(id)
         parents.push({
           ...own,
+          ...(place.piece && { draggable: false }),
           type: 'bioRegion',
           position: { x, y },
           width,
@@ -333,6 +336,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const own = base(id)
         children.push({
           ...own,
+          ...(layout.get(place.cell).piece && { draggable: false }),
           type: 'bioMembrane',
           parentNode: place.cell,
           position: { x: 0, y: 0 },
@@ -634,16 +638,17 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
         .map(({ label }) => label)
         .join(' · ')
     }
-    const physiology = layoutPhysiology(nodes.value, roles.value, {
-      instances: templateStore.instances,
-      definitions: templateStore.definitions,
-      detailOf,
-      shapes: templateStore.shapes,
-    })
-    if (!piecesStore.pieces.length) return physiology
-    // The pieces the view is built from (schema 4), drawn alongside, each keyed by pieceKey.
-    const pieces = layoutPieces(piecesStore.pieces, { shapes: templateStore.shapes })
-    return { ...physiology, places: new Map([...physiology.places, ...pieces.places]) }
+    const options = { instances: templateStore.instances, definitions: templateStore.definitions, detailOf, shapes: templateStore.shapes }
+    if (!piecesStore.pieces.length) return layoutPhysiology(nodes.value, roles.value, options)
+    // The pieces the view is built from (schema 4), with the nodes bound to their sites; the rest as before.
+    const widthOf = (id) => proteinLabelWidth(byId.get(id)?.data?.name ?? id, detailOf(id))
+    const pieces = layoutPieces(piecesStore.pieces, { shapes: templateStore.shapes, nodes: nodes.value, widthOf })
+    const { bound } = boundToPieces(piecesStore.pieces, nodes.value)
+    const physiology = layoutPhysiology(nodes.value, roles.value, { ...options, placedElsewhere: new Set(bound.keys()) })
+    return {
+      places: new Map([...physiology.places, ...pieces.places]),
+      sites: [...physiology.sites, ...pieces.sites],
+    }
   })
   const layout = computed(() => physiology.value.places)
 

@@ -21,9 +21,12 @@ import {
   fitCellRect,
   foldDepthFor,
   foldPocket,
+  facetSlots,
   foldPoint,
   proteinPlacement,
 } from '../geometry.js'
+import { byName, inSlotOrder } from '../scaffold.js'
+import { parseSiteRef } from '../templates.js'
 import { withFolds, withOutline } from '../shape.js'
 import { pathOf } from '../shapeGeometry.js'
 import { spanPath, topologyOf } from './topology.js'
@@ -206,20 +209,57 @@ function contact(a, b) {
   return null
 }
 
+/** Where the card at a place in a process zone's row goes: in from the zone's corner. */
+const zoneSlot = (zone, order) => ({ x: zone.x + CELL_RADIUS / 2 + order * (CARD.width + 16), y: zone.y + 8 })
+
+/**
+ * Finds the nodes bound to the pieces' sites through their bioView.site ('pieces/<path>'). A site the pieces don't
+ * offer leaves its node unbound; of several nodes on a one-module site, the first by name holds it and the rest are
+ * unbound.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @param {Array<{id: string, data?: Object}>} nodes
+ * @returns {{occupants: Map<string, string[]>, bound: Map<string, string>}} occupants: site path -> the ids on it, in
+ *   slot order; bound: node id -> the site ref it holds.
+ */
+export function boundToPieces(pieces, nodes) {
+  const occupants = new Map()
+  const bound = new Map()
+  if (!pieces.length || !nodes.length) return { occupants, bound }
+  const offered = new Map(topologyOf(pieces).sites.map((site) => [site.path, site]))
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  for (const id of nodes.map((node) => node.id).sort(byName(byId))) {
+    const parsed = parseSiteRef(byId.get(id).data?.bioView?.site)
+    const site = parsed?.instance === PIECES_INSTANCE && offered.get(parsed.path)
+    if (!site) continue
+    const ids = occupants.get(site.path) ?? []
+    if (site.kind === 'single' && ids.length) continue
+    occupants.set(site.path, [...ids, id])
+  }
+  for (const [path, ids] of occupants) {
+    occupants.set(path, inSlotOrder(ids, byId))
+    for (const id of ids) bound.set(id, pieceSiteRef(path))
+  }
+  return { occupants, bound }
+}
+
 /**
  * Lays the pieces out.
  *
  * @param {ReadonlyArray<Object>} pieces - Validated (see validatePieces).
  * @param {Object} [options]
  * @param {Map<string, Object>} [options.shapes] - Skin id -> the geometry it gives (see the template store's shapes).
- * @param {Map<string, string[]>} [options.occupants] - Site path -> the nodes on it, in slot order, which a span or
- *   fold is sized for.
+ * @param {Array<{id: string, data?: Object}>} [options.nodes] - The diagram's nodes: those bound to a site of the
+ *   pieces are drawn on it (see boundToPieces).
  * @param {(id: string) => number} [options.widthOf] - How wide a node's name is drawn under its cartoon.
- * @returns {{places: Map<string, Object>, rects: Map<string, Object>}} places: by pieceKey; rects: piece id -> where
- *   it is drawn (a bulk has its membrane's).
+ * @returns {{places: Map<string, Object>, rects: Map<string, Object>, sites: Array<Object>}} places: by pieceKey, or
+ *   by the node on a piece that takes one module, and the nodes bound to sites (a protein, a process card, a tube's
+ *   module, a membrane's); rects: piece id -> where it is drawn (a bulk has its membrane's); sites: every site, as
+ *   layoutPhysiology gives a template's, for the drop prompts.
  */
-export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map(), widthOf = () => 0 } = {}) {
+export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf = () => 0 } = {}) {
   const topology = topologyOf(pieces)
+  const { occupants } = boundToPieces(pieces, nodes)
   const byId = new Map(pieces.map((piece) => [piece.id, piece]))
   const ofKind = (kind) => pieces.filter((piece) => piece.kind === kind)
   const membranes = ofKind('membrane')
@@ -245,19 +285,17 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
   for (const membrane of membranes) {
     const folds = ofKind('fold').filter((fold) => fold.membrane === membrane.id)
     const facets = [
-      ...topology
-        .spansOf(membrane.id)
-        .map(({ id, label, side, from, to, group, annotation }) =>
-          Object.freeze({
-            id,
-            label,
-            edge: side,
-            from,
-            to,
-            ...(group && { group }),
-            ...(annotation && { annotation }),
-          }),
-        ),
+      ...topology.spansOf(membrane.id).map(({ id, label, side, from, to, group, annotation }) =>
+        Object.freeze({
+          id,
+          label,
+          edge: side,
+          from,
+          to,
+          ...(group && { group }),
+          ...(annotation && { annotation }),
+        }),
+      ),
       ...folds.map(({ id, label, side, at, depth }) =>
         Object.freeze({ id, label, fold: side, at, ...(depth && { depth }) }),
       ),
@@ -303,7 +341,9 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
       if (zone.frame) rel.set(zone.id, { ...zone.frame })
       else {
         const area = processZone({ x: 0, y: 0, width }, row++)
-        rel.set(zone.id, area)
+        // Wide enough for its cards and a spare place past them.
+        const cards = (occupants.get(zone.id) ?? []).length + 1
+        rel.set(zone.id, { ...area, width: Math.max(area.width, CELL_RADIUS / 2 + cards * (CARD.width + 16)) })
       }
     }
     const below = containerId ? Math.max(GLYPH_HEIGHT + 40, ...[...rel.values()].map(bottomOf)) + ROOM : 0
@@ -541,11 +581,36 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
     pending = pending.filter((compartment) => !placeDocked(compartment))
 
   // ── The places ────────────────────────────────────────────────────────
+  // A piece that takes one module is drawn as that module's node once one is on it, as a template's piece is; a
+  // membrane as its cell, keyed by what is on its bulk.
+  const occupantOf = (path) => occupants.get(path)?.[0] ?? null
+  const cellKeyOf = (membraneId) => occupantOf(topology.bulkOf(membraneId)) ?? pieceKey(membraneId)
+  /** The key of the place a compartment is drawn by: its membrane's cell for a bulk, else its own. */
+  const keyOfCompartment = (id) => (bulks.has(id) ? cellKeyOf(bulks.get(id)) : (occupantOf(id) ?? pieceKey(id)))
+  const own = { instance: PIECES_INSTANCE }
   const places = new Map()
+  const sites = []
   const zonesIn = (compartmentId) =>
     (standing.get(compartmentId) ?? [])
       .filter((piece) => piece.kind === 'zone')
       .map((zone) => ({ rect: rects.get(zone.id) }))
+  /** A site, as dropSites reads it, grouped with the rest of the piece it is drawn by. */
+  const offer = (path, role, kind, label, group, extra) => {
+    const ref = pieceSiteRef(path)
+    const members = occupants.get(path) ?? []
+    sites.push({
+      ref,
+      instance: PIECES_INSTANCE,
+      path,
+      role,
+      kind,
+      label,
+      group,
+      occupant: kind === 'single' ? (members[0] ?? null) : null,
+      ...(kind === 'slots' && { occupants: members }),
+      ...extra,
+    })
+  }
 
   for (const membrane of membranes) {
     const rect = rects.get(membrane.id)
@@ -554,6 +619,7 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
     const bulk = bulkId && byId.get(bulkId)
     const shape = shapeOf.get(membrane.id)
     const drawn = membrane.skin && shapes.get(membrane.skin.ref)
+    const key = cellKeyOf(membrane.id)
     // Each fold in the membrane's own coordinates, in the colour of what fills it.
     const folds = ofKind('fold')
       .filter((fold) => fold.membrane === membrane.id)
@@ -566,19 +632,22 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
       .filter((piece) => piece.kind !== 'zone')
       .map((piece) => ({ rect: rects.get(piece.id) }))
     const anchor = drawn?.anchors?.name
-    places.set(pieceKey(membrane.id), {
+    const membraneNode = membrane.site === false ? null : occupantOf(membrane.id)
+    places.set(key, {
       kind: 'cell',
+      ...own,
       piece: membrane.id,
+      path: membrane.id,
       bulk: bulkId ?? null,
       rect,
       shape,
-      membrane: null,
+      membrane: membraneNode,
       membraneSite: sitePath(membrane),
       site: bulk ? sitePath(bulk) : null,
-      empty: true,
+      empty: !(bulkId && occupantOf(bulkId)),
       label: bulk?.label ?? membrane.label,
       tone: null,
-      ...(membrane.parent && { parent: pieceKey(membrane.parent) }),
+      ...(membrane.parent && { parent: keyOfCompartment(membrane.parent) }),
       ...(bulk?.skin || membrane.skin ? { skin: membrane.skin ?? bulk.skin } : {}),
       ...(drawn && { outline: pathOf(drawn.outline) }),
       hintAt: anchor
@@ -605,6 +674,43 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
       ...(folds.length && { folds }),
       zones: zonesIn(bulkId),
     })
+    if (bulk && bulk.site !== false) offer(bulkId, 'cytosol', 'single', bulk.label, key, { key, rect })
+    if (membraneNode) {
+      places.set(membraneNode, { kind: 'membrane', cell: key, ...own, site: pieceSiteRef(membrane.id) })
+    }
+    if (membrane.site !== false) offer(membrane.id, 'membrane', 'single', membrane.label, key, { key, rect })
+
+    // The proteins on each span and fold, in slot order, and the slots a drop can take.
+    for (const facet of shape.facets) {
+      const path = facetPath(membrane.id, facet)
+      const span = facet.fold ? null : topology.span(path)
+      if ((span ?? byId.get(facet.id)).site === false) continue
+      const members = occupants.get(path) ?? []
+      const widths = members.map(widthOf)
+      const name = facet.annotation?.facet ?? facet.id
+      members.forEach((id, order) => {
+        const placement = proteinPlacement(rect, facet.id, order, members.length, shape, widths)
+        places.set(id, {
+          kind: 'protein',
+          cell: key,
+          facet: name,
+          part: facet.id,
+          order,
+          ...placement,
+          ...own,
+          site: pieceSiteRef(path),
+        })
+      })
+      const slots = facetSlots(rect, facet.id, members.length, shape, { widths })
+      offer(path, 'membraneProtein', 'slots', facet.label, key, {
+        cell: key,
+        facet: facet.id,
+        slots,
+        widths,
+        cellRect: rect,
+        shape,
+      })
+    }
   }
 
   for (const compartment of ofKind('compartment')) {
@@ -614,17 +720,20 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
     const inner = isDocked(compartment) && compartment.docks[0].face === 'inside'
     const host = inner && byId.get(compartment.docks[0].on)
     const hostMembrane = host && (host.kind === 'fold' ? host.membrane : host.id)
-    places.set(pieceKey(compartment.id), {
+    const key = keyOfCompartment(compartment.id)
+    places.set(key, {
       kind: 'region',
+      ...own,
       piece: compartment.id,
+      path: compartment.id,
       side: null,
       adjacent: null,
       rect,
       site: sitePath(compartment),
-      empty: true,
+      empty: !occupantOf(compartment.id),
       tone: compartment.tone,
       form: inner ? 'inner' : isDocked(compartment) ? 'band' : 'free',
-      ...(inner && { parent: pieceKey(hostMembrane) }),
+      ...(inner && { parent: cellKeyOf(hostMembrane) }),
       // Named along the side it lies against; one round a membrane, or on more than two sides, in its own corner.
       ...(isDocked(compartment) &&
         new Set(compartment.docks.map((dock) => dock.side)).size <= 2 && {
@@ -636,20 +745,46 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
       ...(compartment.style === 'vessel' && { shape: 'tube' }),
       label: compartment.label,
     })
+    // One within a membrane is told from the cell round it by being the smaller (see nearestSite).
+    if (compartment.site !== false) {
+      offer(compartment.id, 'region', 'single', compartment.label, key, { key, rect, ...(inner && { inner: true }) })
+    }
   }
 
   for (const zone of ofKind('zone')) {
     const rect = rects.get(zone.id)
     if (!rect) continue
+    const host = keyOfCompartment(zone.compartment)
+    const members = occupants.get(zone.id) ?? []
     places.set(pieceKey(zone.id), {
       kind: 'zone',
+      ...own,
       piece: zone.id,
+      path: zone.id,
       compartment: zone.compartment,
+      cell: host,
       rect,
       site: sitePath(zone),
-      empty: true,
+      empty: !members.length,
       label: zone.label,
     })
+    // Its processes in a row along its top, as a template's process area's are.
+    members.forEach((id, order) => {
+      places.set(id, {
+        kind: 'cytosolic',
+        cell: host,
+        order,
+        ...zoneSlot(rect, order),
+        ...own,
+        site: pieceSiteRef(zone.id),
+      })
+    })
+    if (zone.site === false) continue
+    const slots = Array.from({ length: members.length + 1 }, (_, order) => ({
+      ...zoneSlot(rect, order),
+      spare: order === members.length,
+    }))
+    offer(zone.id, 'cytosolic', 'slots', zone.label, host, { cell: host, process: zone.id, slots, rect })
   }
 
   // ── 3. Tubes ──────────────────────────────────────────────────────────
@@ -660,20 +795,54 @@ export function layoutPieces(pieces, { shapes = new Map(), occupants = new Map()
     // A skin may anchor it, as the rod's cilium.
     const host = [tube.ends[0], tube.ends[1]].map((id) => byId.get(topology.enclosureOf(id))).find(Boolean)
     const anchor = host?.skin && shapes.get(host.skin.ref)?.anchors?.[tube.id]
-    const base = { kind: 'link', piece: tube.id, site: sitePath(tube), empty: true, flow: tube.flux, label: tube.label }
+    const key = pieceKey(tube.id)
+    const node = occupantOf(tube.id)
+    const base = {
+      kind: 'link',
+      ...own,
+      piece: tube.id,
+      path: tube.id,
+      site: sitePath(tube),
+      empty: !node,
+      flow: tube.flux,
+      label: tube.label,
+    }
+    let zone
+    let joint = null
     if (touch || anchor) {
       const hostRect = host && rects.get(host.id)
-      const zone = anchor
+      zone = anchor
         ? zoneAt({ x: hostRect.x + anchor.x + anchor.width / 2, y: hostRect.y + anchor.y + anchor.height / 2 })
         : zoneAt(touch)
-      places.set(pieceKey(tube.id), { ...base, rect: zone, joint: tube.flux, tone: byId.get(tube.ends[0]).tone, zone })
-      continue
+      joint = tube.flux
+      places.set(key, { ...base, rect: zone, joint, tone: byId.get(tube.ends[0]).tone, zone })
+    } else {
+      const points = routeTube(a, b, tube.bends ?? [])
+      zone = zoneAt(pathMiddle(points))
+      const rect = boxOf([zone, ...points.map((point) => ({ ...point, width: 0, height: 0 }))])
+      places.set(key, { ...base, rect, points, zone })
     }
-    const points = routeTube(a, b, tube.bends ?? [])
-    const zone = zoneAt(pathMiddle(points))
-    const rect = boxOf([zone, ...points.map((point) => ({ ...point, width: 0, height: 0 }))])
-    places.set(pieceKey(tube.id), { ...base, rect, points, zone })
+    // The module on it is drawn as a card in the room it leaves, or as its joint.
+    if (node) {
+      places.set(node, {
+        kind: 'card',
+        ...(joint && { joint }),
+        x: zone.x + (zone.width - CARD.width) / 2,
+        y: zone.y + (zone.height - CARD.height) / 2,
+        ...own,
+        site: pieceSiteRef(tube.id),
+        link: key,
+      })
+    }
+    if (tube.site !== false) {
+      offer(tube.id, 'cytosolic', 'single', tube.label, key, {
+        key,
+        rect: zone,
+        inner: true,
+        ...(joint && { joint: true }),
+      })
+    }
   }
 
-  return { places, rects }
+  return { places, rects, sites }
 }

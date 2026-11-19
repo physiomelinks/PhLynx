@@ -308,7 +308,8 @@ export function dropSites(sites, dragged = null) {
     const { ref, role, kind, label, key } = site
     const isInRow = kind === 'slots' && !!dragged && (site.occupants ?? []).includes(dragged)
     const occupants = (site.occupants ?? []).filter((id) => !isInRow || id !== dragged)
-    const base = { ref, role, kind, label, key, occupants, occupant: site.occupant ?? null }
+    // A site of the pieces names the place it is drawn on (its group), so its prompts show with that place's.
+    const base = { ref, role, kind, label, key, occupants, occupant: site.occupant ?? null, ...(site.group && { group: site.group }) }
     if (kind === 'slots') {
       // A process area's slots are where its cards' corners go; a facet's are its proteins' centres.
       const centre = site.process ? ({ x, y }) => ({ x: x + CARD.width / 2, y: y + CARD.height / 2 }) : (slot) => slot

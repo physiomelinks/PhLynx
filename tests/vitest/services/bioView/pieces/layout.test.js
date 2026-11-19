@@ -90,7 +90,7 @@ describe('layoutPieces', () => {
     const cell = rectOf(layout, 'sarcolemma')
     const sr = rectOf(layout, 'sr-membrane')
     expect(sr).toMatchObject({ x: cell.x + 150, y: cell.y + 310 })
-    expect(layout.places.get(pieceKey('sr-membrane'))).toMatchObject({ kind: 'cell', parent: pieceKey('myocyte') })
+    expect(layout.places.get(pieceKey('sr-membrane'))).toMatchObject({ kind: 'cell', parent: pieceKey('sarcolemma') })
   })
 
   it('lays a fluid docked to one side out along it as a band, past its ends', () => {
