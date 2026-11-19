@@ -248,6 +248,9 @@
       <template #node-bioCard="props">
         <BioCard :data="props.data" :selected="props.selected" />
       </template>
+      <template #node-bioZone="props">
+        <BioZone :data="props.data" />
+      </template>
       <template #node-bioTemplateTitle="props">
         <BioTemplateTitle :data="props.data" />
       </template>
@@ -405,6 +408,7 @@ import BioRegion from './BioRegion.vue'
 import BioLink from './BioLink.vue'
 import BioJoint from './BioJoint.vue'
 import BioTemplateTitle from './BioTemplateTitle.vue'
+import BioZone from './BioZone.vue'
 import SpeciesMenu from './SpeciesMenu.vue'
 import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
@@ -443,6 +447,7 @@ import {
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
+import { getBuiltInPieceTemplate } from '../../services/bioView/pieces/builtInTemplates'
 import { BLANK_CELL_TEMPLATE, BLANK_TUBE_TEMPLATE, TILE_DRAG_TYPE, linkEndsAt, nearestEdge, templateCellAt } from '../../services/bioView/palette'
 import { ROLE_LABELS } from '../../services/bioView/roles'
 import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
@@ -566,6 +571,7 @@ const {
   applyPlan,
   templateMoves,
   placeTemplate,
+  placePiecesTemplate,
   renameTemplate,
   nameError,
   renameInstance,
@@ -2174,6 +2180,19 @@ function addTube(point) {
   })
 }
 
+/**
+ * Adds copies of a built-in template written as pieces where it is dropped, saying why where it can't.
+ *
+ * @param {string} templateId
+ * @param {{x: number, y: number}} point - Its corner, in flow coordinates.
+ */
+async function placePiecesAt(templateId, point) {
+  const template = getBuiltInPieceTemplate(templateId)
+  if (!template) return
+  const errors = await placePiecesTemplate(template, point)
+  if (errors.length) notify.error({ title: 'Could not add the template', message: summariseProblems(errors) })
+}
+
 const isTileDrag = (event) => [...(event.dataTransfer?.types ?? [])].includes(TILE_DRAG_TYPE)
 
 /** The middle of the view as shown, in flow coordinates. */
@@ -2192,6 +2211,7 @@ function viewCentre() {
  */
 function applyTile(tile, point) {
   if (tile.kind === 'template') return placeTemplate(tile.template, point)
+  if (tile.kind === 'pieces') return placePiecesAt(tile.template, point)
   if (tile.kind === 'module') {
     const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
     return module && props.createInstance ? placeModuleAt(module, point) : null

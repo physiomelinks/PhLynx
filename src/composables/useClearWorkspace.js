@@ -7,6 +7,7 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
@@ -28,6 +29,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
   const bioTemplateStore = useBioTemplateStore()
+  const bioPiecesStore = useBioPiecesStore()
   const glyphLibraryStore = useGlyphLibraryStore()
   const nodeThemeStore = useNodeThemeStore()
   const sessionMetadataStore = useSessionMetadataStore()
@@ -42,6 +44,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
     const oldBioTemplateState = bioTemplateStore.snapshot()
+    const oldBioPiecesState = bioPiecesStore.snapshot()
     const oldGlyphState = glyphLibraryStore.snapshot()
     const oldThemeState = nodeThemeStore.snapshot()
     const oldSessionMetadata = sessionMetadataStore.getState()
@@ -53,6 +56,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
         bioTemplateStore.restoreSnapshot(oldBioTemplateState)
+        bioPiecesStore.restoreSnapshot(oldBioPiecesState)
         glyphLibraryStore.restoreSnapshot(oldGlyphState)
         nodeThemeStore.restoreSnapshot(oldThemeState)
         inspectionStore.loadState(oldInspectStore)
@@ -81,6 +85,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         inspectionStore.resetState()
         omexStore.resetState()
         bioTemplateStore.resetState()
+        bioPiecesStore.resetState()
         glyphLibraryStore.resetState()
         nodeThemeStore.resetState()
         sessionMetadataStore.resetState()

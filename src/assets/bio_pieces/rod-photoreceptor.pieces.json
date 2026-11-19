@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 4,
+  "id": "rod-photoreceptor",
+  "name": "Rod photoreceptor",
+  "description": "A rod on its side: its outer and inner segments, two spaces inside one membrane joined by the connecting cilium, which carries the circulating current between them, with the space round the cell on every side.",
+  "pieces": [
+    {
+      "id": "outer-segment",
+      "kind": "compartment",
+      "label": "Outer segment",
+      "term": "GO:0001750",
+      "tone": "violet",
+      "docks": [
+        {
+          "on": "plasma-membrane",
+          "side": "top",
+          "face": "inside",
+          "to": 0.5
+        },
+        {
+          "on": "plasma-membrane",
+          "side": "bottom",
+          "face": "inside",
+          "to": 0.5
+        },
+        {
+          "on": "plasma-membrane",
+          "side": "left",
+          "face": "inside"
+        }
+      ]
+    },
+    {
+      "id": "inner-segment",
+      "kind": "compartment",
+      "label": "Inner segment",
+      "term": "GO:0001917",
+      "tone": "teal",
+      "docks": [
+        {
+          "on": "plasma-membrane",
+          "side": "top",
+          "face": "inside",
+          "from": 0.5
+        },
+        {
+          "on": "plasma-membrane",
+          "side": "bottom",
+          "face": "inside",
+          "from": 0.5
+        },
+        {
+          "on": "plasma-membrane",
+          "side": "right",
+          "face": "inside"
+        }
+      ]
+    },
+    {
+      "id": "plasma-membrane",
+      "kind": "membrane",
+      "label": "Plasma membrane",
+      "encloses": [
+        "outer-segment",
+        "inner-segment"
+      ],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 900,
+        "height": 260
+      },
+      "skin": {
+        "ref": "rod-photoreceptor"
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "os-upper",
+            "label": "Outer segment membrane",
+            "to": 0.5
+          },
+          {
+            "id": "is-upper",
+            "label": "Inner segment membrane"
+          }
+        ],
+        "bottom": [
+          {
+            "id": "os-lower",
+            "label": "Outer segment membrane",
+            "to": 0.5
+          },
+          {
+            "id": "is-lower",
+            "label": "Inner segment membrane"
+          }
+        ],
+        "left": [
+          {
+            "id": "os-tip",
+            "label": "Outer segment tip"
+          }
+        ],
+        "right": [
+          {
+            "id": "terminal",
+            "label": "Synaptic end"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cilium",
+      "kind": "tube",
+      "label": "Connecting cilium",
+      "ends": [
+        "outer-segment",
+        "inner-segment"
+      ],
+      "flux": "junction"
+    },
+    {
+      "id": "extracellular",
+      "kind": "compartment",
+      "label": "Extracellular space",
+      "tone": "sky",
+      "docks": [
+        {
+          "on": "plasma-membrane",
+          "side": "top",
+          "face": "outside"
+        },
+        {
+          "on": "plasma-membrane",
+          "side": "right",
+          "face": "outside"
+        },
+        {
+          "on": "plasma-membrane",
+          "side": "bottom",
+          "face": "outside"
+        },
+        {
+          "on": "plasma-membrane",
+          "side": "left",
+          "face": "outside"
+        }
+      ]
+    }
+  ],
+  "author": "PhLynx",
+  "license": "CC0-1.0"
+}

@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 4,
+  "id": "cardiomyocyte",
+  "name": "Cardiomyocyte",
+  "description": "A ventricular myocyte: the sarcolemma with a T-tubule, the sarcoplasmic reticulum inside, and the dyadic cleft between the T-tubule and the junctional SR.",
+  "pieces": [
+    {
+      "id": "myocyte",
+      "kind": "compartment",
+      "label": "Cardiomyocyte"
+    },
+    {
+      "id": "sarcolemma",
+      "kind": "membrane",
+      "label": "Sarcolemma",
+      "encloses": [
+        "myocyte"
+      ],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 680,
+        "height": 580
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "surface",
+            "label": "Surface sarcolemma"
+          }
+        ],
+        "right": [
+          {
+            "id": "right",
+            "label": "Sarcolemma (right)",
+            "site": false
+          }
+        ],
+        "bottom": [
+          {
+            "id": "bottom",
+            "label": "Sarcolemma (bottom)",
+            "site": false
+          }
+        ],
+        "left": [
+          {
+            "id": "left",
+            "label": "Sarcolemma (left)",
+            "site": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "t-tubule",
+      "kind": "fold",
+      "label": "T-tubule",
+      "membrane": "sarcolemma",
+      "side": "top",
+      "at": 0.75,
+      "depth": 450
+    },
+    {
+      "id": "myofilaments",
+      "kind": "zone",
+      "label": "Myofilaments",
+      "compartment": "myocyte"
+    },
+    {
+      "id": "mitochondria",
+      "kind": "zone",
+      "label": "Mitochondria",
+      "compartment": "myocyte"
+    },
+    {
+      "id": "sr",
+      "kind": "compartment",
+      "label": "Sarcoplasmic reticulum",
+      "parent": "myocyte"
+    },
+    {
+      "id": "sr-membrane",
+      "kind": "membrane",
+      "label": "SR membrane",
+      "parent": "myocyte",
+      "encloses": [
+        "sr"
+      ],
+      "frame": {
+        "x": 150,
+        "y": 310,
+        "width": 240,
+        "height": 150
+      },
+      "sides": {
+        "right": [
+          {
+            "id": "junctional",
+            "label": "Junctional SR"
+          }
+        ],
+        "bottom": [
+          {
+            "id": "network",
+            "label": "Network SR"
+          }
+        ],
+        "top": [
+          {
+            "id": "top",
+            "label": "SR membrane (top)",
+            "site": false
+          }
+        ],
+        "left": [
+          {
+            "id": "left",
+            "label": "SR membrane (left)",
+            "site": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "extracellular",
+      "kind": "compartment",
+      "label": "Extracellular space",
+      "tone": "sky",
+      "docks": [
+        {
+          "on": "sarcolemma",
+          "side": "top",
+          "face": "outside"
+        }
+      ]
+    },
+    {
+      "id": "cleft",
+      "kind": "compartment",
+      "label": "Dyadic cleft",
+      "tone": "violet",
+      "parent": "myocyte",
+      "docks": [
+        {
+          "on": "t-tubule",
+          "face": "inside"
+        },
+        {
+          "on": "sr-membrane",
+          "side": "right",
+          "face": "outside"
+        }
+      ]
+    }
+  ],
+  "author": "PhLynx",
+  "license": "CC0-1.0"
+}

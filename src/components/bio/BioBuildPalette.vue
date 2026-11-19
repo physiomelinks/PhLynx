@@ -74,6 +74,33 @@
         Load file…
       </button>
     </div>
+
+    <!-- The templates written as the five fundamental pieces, while they are being built -->
+    <template v-if="showPieces">
+      <h5 class="bio-palette__heading">Templates from pieces (preview)</h5>
+      <div class="bio-palette__templates">
+        <button
+          v-for="template in BUILT_IN_PIECE_TEMPLATES"
+          :key="template.id"
+          type="button"
+          :class="[
+            'bio-palette__tile',
+            { 'bio-palette__tile--armed': isSame(viewMode.armedTile, { kind: 'pieces', template: template.id }) },
+          ]"
+          draggable="true"
+          :title="template.description ?? `${template.name}: drag onto the view`"
+          :aria-pressed="isSame(viewMode.armedTile, { kind: 'pieces', template: template.id })"
+          data-testid="bio-palette-pieces-template"
+          :data-template="template.id"
+          @dragstart="onDragStart($event, { kind: 'pieces', template: template.id })"
+          @dragend="viewMode.draggedTile = null"
+          @click="toggle({ kind: 'pieces', template: template.id })"
+        >
+          <i class="pi pi-th-large" aria-hidden="true"></i>
+          {{ template.name }}
+        </button>
+      </div>
+    </template>
   </div>
 </template>
 
@@ -87,7 +114,8 @@ import { computed, onBeforeUnmount } from 'vue'
 
 import useDragAndDrop from '../../composables/useDnD'
 
-import { PALETTE_TILES, TILE_DRAG_TYPE } from '../../services/bioView/palette'
+import { PALETTE_TILES, TILE_DRAG_TYPE, isPiecesPreview } from '../../services/bioView/palette'
+import { BUILT_IN_PIECE_TEMPLATES } from '../../services/bioView/pieces/builtInTemplates'
 import { useBioTemplateStore } from '../../stores/bioTemplateStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
@@ -100,6 +128,9 @@ const libraryDrag = useDragAndDrop()
 
 /** The blank module the New Module tile adds: the one the library's own New Module adds. */
 const newModule = computed(() => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null)
+
+/** Whether the templates written as pieces are offered (see isPiecesPreview). */
+const showPieces = isPiecesPreview()
 
 const isSame = (a, b) => !!a && !!b && a.kind === b.kind && a.template === b.template
 

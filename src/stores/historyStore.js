@@ -37,6 +37,7 @@ export const STEP_LABELS = {
   'bio-reset': 'Reset to annotations',
   'bio-relayout': 'Re-layout physiology',
   'bio-template-add': 'Add template',
+  'bio-pieces-add': 'Add template',
   'bio-template-move': 'Move template',
   'bio-template-rename': 'Rename template',
   'bio-template-add-piece': 'Add to template',

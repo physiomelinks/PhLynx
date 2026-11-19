@@ -48,8 +48,15 @@ const zoneStyle = computed(() => {
   return { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` }
 })
 
-/** Its way, from one space through its module's room (where that is beside the way) to the other. */
-const points = computed(() => (props.data.joint ? [] : [props.data.from, ...(props.data.via ? [props.data.via] : []), props.data.to]))
+/**
+ * Its way, from one space through its module's room (where that is beside the way) to the other; a tube's, the
+ * right-angle path it is given.
+ */
+const points = computed(() => {
+  if (props.data.joint) return []
+  if (props.data.points) return props.data.points
+  return [props.data.from, ...(props.data.via ? [props.data.via] : []), props.data.to]
+})
 
 /** Its way moved sideways by `by`, each stretch square to itself, as SVG points. */
 function offsetPoints(by) {

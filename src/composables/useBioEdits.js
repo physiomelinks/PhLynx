@@ -2,6 +2,8 @@ import { useVueFlow } from '@vue-flow/core'
 import { useNodeDataHistory } from './useNodeDataHistory'
 import { whole } from '../services/bioView/drop'
 import { instanceTemplate, parseSiteRef, sitesOf } from '../services/bioView/templates'
+import { stampTemplate } from '../services/bioView/pieces/stamp'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { FLOW_IDS } from '../utils/constants'
@@ -18,6 +20,7 @@ export function useBioEdits(roles = null) {
   const main = useVueFlow(FLOW_IDS.MAIN)
   const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
   const templates = useBioTemplateStore()
+  const pieces = useBioPiecesStore()
   const history = useFlowHistoryStore()
   /** Template actions are the user's own, never part of an undo or redo. */
   const busy = () => history.isUndoRedoing
@@ -70,6 +73,23 @@ export function useBioEdits(roles = null) {
   function placeTemplate(templateId, at) {
     if (busy() || !templates.getDefinition(templateId)) return Promise.resolve(false)
     return applyPlan(new Map(), 'bio-template-add', templates.edit(() => templates.addInstance(templateId, whole(at))))
+  }
+
+  /**
+   * Adds copies of a template written as pieces (schema 4), its corner at a point, as one step.
+   *
+   * @param {{ pieces: ReadonlyArray<Object> }} template - Validated.
+   * @param {{x: number, y: number}} at - In flow coordinates.
+   * @returns {Promise<string[]>} Why it couldn't be added, if it couldn't.
+   */
+  async function placePiecesTemplate(template, at) {
+    if (busy()) return []
+    const options = { shapes: templates.shapes }
+    // Tried first, so a template that doesn't fit leaves no step behind.
+    const { errors } = stampTemplate(pieces.pieces, template, whole(at), options)
+    if (errors.length) return errors
+    await applyPlan(new Map(), 'bio-pieces-add', pieces.edit(() => pieces.addTemplate(template, whole(at), options)))
+    return []
   }
 
   /**
@@ -225,6 +245,7 @@ export function useBioEdits(roles = null) {
     applyPlan,
     templateMoves,
     placeTemplate,
+    placePiecesTemplate,
     moveTemplate,
     renameTemplate,
     nameError,

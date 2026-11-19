@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 4,
+  "id": "chemical-synapse",
+  "name": "Chemical synapse",
+  "description": "A presynaptic terminal above a postsynaptic cell, with the synaptic cleft between them.",
+  "pieces": [
+    {
+      "id": "pre",
+      "kind": "compartment",
+      "label": "Presynaptic terminal"
+    },
+    {
+      "id": "pre-membrane",
+      "kind": "membrane",
+      "label": "Presynaptic membrane",
+      "encloses": [
+        "pre"
+      ],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 260
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "perisynaptic",
+            "label": "Perisynaptic membrane"
+          }
+        ],
+        "bottom": [
+          {
+            "id": "active-zone",
+            "label": "Active zone"
+          }
+        ],
+        "left": [
+          {
+            "id": "left",
+            "label": "Presynaptic membrane (left)",
+            "site": false
+          }
+        ],
+        "right": [
+          {
+            "id": "right",
+            "label": "Presynaptic membrane (right)",
+            "site": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "vesicle-cycle",
+      "kind": "zone",
+      "label": "Vesicle cycle",
+      "compartment": "pre"
+    },
+    {
+      "id": "post",
+      "kind": "compartment",
+      "label": "Postsynaptic cell"
+    },
+    {
+      "id": "post-membrane",
+      "kind": "membrane",
+      "label": "Postsynaptic membrane",
+      "encloses": [
+        "post"
+      ],
+      "frame": {
+        "x": 0,
+        "y": 340,
+        "width": 360,
+        "height": 260
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "psd",
+            "label": "Postsynaptic density"
+          }
+        ],
+        "right": [
+          {
+            "id": "right",
+            "label": "Postsynaptic membrane (right)",
+            "site": false
+          }
+        ],
+        "bottom": [
+          {
+            "id": "bottom",
+            "label": "Postsynaptic membrane (bottom)",
+            "site": false
+          }
+        ],
+        "left": [
+          {
+            "id": "left",
+            "label": "Postsynaptic membrane (left)",
+            "site": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "ca-signalling",
+      "kind": "zone",
+      "label": "Ca²⁺ signalling",
+      "compartment": "post"
+    },
+    {
+      "id": "cleft",
+      "kind": "compartment",
+      "label": "Synaptic cleft",
+      "tone": "amber",
+      "docks": [
+        {
+          "on": "pre-membrane",
+          "side": "bottom",
+          "face": "outside"
+        },
+        {
+          "on": "post-membrane",
+          "side": "top",
+          "face": "outside"
+        }
+      ]
+    },
+    {
+      "id": "ecs",
+      "kind": "compartment",
+      "label": "Extracellular space",
+      "tone": "sky",
+      "docks": [
+        {
+          "on": "pre-membrane",
+          "side": "top",
+          "face": "outside"
+        }
+      ]
+    }
+  ],
+  "author": "PhLynx",
+  "license": "CC0-1.0"
+}

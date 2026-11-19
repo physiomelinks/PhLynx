@@ -6,6 +6,24 @@
 /** The media type a dragged tile travels under. */
 export const TILE_DRAG_TYPE = 'application/x-phlynx-bio-tile'
 
+/** The device setting that shows the templates written as pieces while they are being built (see isPiecesPreview). */
+export const PIECES_PREVIEW_KEY = 'phlynx-bio-pieces-preview'
+
+/**
+ * Whether the palette offers the templates written as pieces (schema 4): always while developing, and elsewhere
+ * where the device setting is '1'. They replace the templates and pieces above once the refactor is done.
+ *
+ * @returns {boolean}
+ */
+export function isPiecesPreview() {
+  if (import.meta.env.DEV) return true
+  try {
+    return globalThis.localStorage?.getItem(PIECES_PREVIEW_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 /** The built-in template the Cell tile places: a plain cell to build on. */
 export const BLANK_CELL_TEMPLATE = 'cell'
 

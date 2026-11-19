@@ -155,7 +155,10 @@ export function foldPocket(rect, facet) {
   const along = EDGES[facet.fold].axis === 'x' ? rect.width : rect.height
   const across = EDGES[facet.fold].axis === 'x' ? rect.height : rect.width
   const depth = Math.min(facet.depth ?? FOLD.depth, Math.max(FOLD.width, across - CELL_RADIUS))
-  return { edge: facet.fold, at: along - CELL_RADIUS - FOLD.margin - half, half, depth }
+  // Where its piece puts it along the side (`at`, 0 to 1), kept clear of the corners; else near the far end.
+  const end = along - CELL_RADIUS - FOLD.margin - half
+  const at = Number.isFinite(facet.at) ? Math.min(end, Math.max(CELL_RADIUS + FOLD.margin + half, facet.at * along)) : end
+  return { edge: facet.fold, at, half, depth }
 }
 
 /**
@@ -252,6 +255,9 @@ export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, width
   // Facets that share a side take a stretch of it each, in the order the shape lists them.
   const sharing = shape.facets.filter((facet) => facet.edge === edge.name && !facet.path)
   const share = (from, to) => {
+    // A span of a piece's membrane says which stretch of the side it takes (0 to 1).
+    const own = facetById(shape, part)
+    if (Number.isFinite(own?.from) && Number.isFinite(own?.to)) return [from + own.from * (to - from), from + own.to * (to - from)]
     const each = (to - from) / Math.max(1, sharing.length)
     const index = Math.max(0, sharing.findIndex((facet) => facet.id === part))
     return [from + index * each, from + (index + 1) * each]
@@ -386,8 +392,11 @@ export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {},
     const proteins = pitches.reduce((total, pitch) => total + pitch, 0)
     return proteins + spare + Math.max(SLOT_PITCH / 2 + GLYPH_WIDTH, spare)
   }
+  // A span that takes only a stretch of its side needs the whole side long enough for its row to fit that stretch.
+  const share = (facet) => (Number.isFinite(facet.from) && Number.isFinite(facet.to) ? Math.max(0.05, facet.to - facet.from) : 1)
   const length = (axis) =>
-    Math.max(0, ...along(axis).map((facet) => row(facet, axis) + foldReserve(shape, facet.edge))) + 2 * FACET_INSET
+    Math.max(0, ...along(axis).map((facet) => row(facet, axis) / share(facet) + foldReserve(shape, facet.edge))) +
+    2 * FACET_INSET
   // A fold needs its side long enough to come in from, and the cell deep enough to hold it and its proteins.
   const folds = (axis) => shape.facets.filter((facet) => facet.fold && EDGES[facet.fold].axis === axis)
   const mouth = (axis) => (folds(axis).length ? 2 * CELL_RADIUS + 2 * FOLD.margin + FOLD.width : 0)

@@ -18,6 +18,7 @@ import { notify } from '../utils/notify'
  * @param {Object} sources.omex - omexStore.
  * @param {Object} sources.parameters - defaultParametersStore.
  * @param {Object} [sources.bioTemplates] - bioTemplateStore.
+ * @param {Object} [sources.bioPieces] - bioPiecesStore.
  * @param {Object} [sources.bioGlyphs] - glyphLibraryStore.
  * @param {Object} [sources.nodeTheme] - nodeThemeStore.
  * @returns {Object} The workspace, at PHLYNX_PROJECT_VERSION.
@@ -30,11 +31,14 @@ export function buildWorkspaceFile({
   omex,
   parameters,
   bioTemplates,
+  bioPieces,
   bioGlyphs,
   nodeTheme,
 }) {
   // Older builds ignore the key, and nodes bound to a template's sites fall back to their role.
   const templateState = bioTemplates?.getState() ?? null
+  // And the pieces the physiology view is built from, likewise ignored by older builds.
+  const piecesState = bioPieces?.getState() ?? null
   // Likewise the user's own cartoons the nodes are drawn as: a copy of each, so the workspace looks the same
   // elsewhere.
   const glyphState = bioGlyphs?.getState((flow?.nodes ?? []).map((node) => node.data?.bioView?.glyph)) ?? null
@@ -50,6 +54,7 @@ export function buildWorkspaceFile({
     workspace: omex.getState(),
     parameters: parameters.getState(),
     ...(templateState ? { bioTemplates: templateState } : {}),
+    ...(piecesState ? { bioPieces: piecesState } : {}),
     ...(glyphState ? { bioGlyphs: glyphState } : {}),
     ...(themeState ? { nodeTheme: themeState } : {}),
   }

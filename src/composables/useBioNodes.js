@@ -1,5 +1,7 @@
 import { computed, ref, unref, watch } from 'vue'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
 import { useBioTemplateStore } from '../stores/bioTemplateStore'
+import { PIECES_INSTANCE, layoutPieces } from '../services/bioView/pieces/layout'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { readNodeSeries } from '../services/simulation/variableMapping'
@@ -17,7 +19,7 @@ import { locationSource } from '../services/annotations/locationSources'
 
 /** Stacking: regions under cells under everything drawn on them. */
 // A microdomain is drawn over its cell, and an organelle over both.
-const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8, link: -7, joint: -6 }
+const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8, link: -7, joint: -6, zone: -5 }
 
 /**
  * What a template piece's node shows of its template: which instance and site it is, and how it is drawn.
@@ -27,6 +29,7 @@ const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8, link: -7, jo
  * @returns {Object} Nothing for a piece that is not a template's.
  */
 function templateData(place) {
+  if (place.piece) return pieceData(place)
   // A cell that is a node of its own still shows the area its processes take up.
   if (!place.instance) return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
   const { instance, site = null, tone = null, edge = null } = place
@@ -37,6 +40,39 @@ function templateData(place) {
     ...data,
     facetLabels: place.facetLabels ?? [],
     zones: zonesIn(place),
+    ...(place.hintAt && { hintAt: { ...place.hintAt } }),
+    ...(place.folds && { folds: place.folds }),
+    ...(place.outline && { outline: place.outline }),
+  }
+}
+
+/**
+ * What a piece's node shows of it (see layoutPieces): which piece and site it is, and how it is drawn, as a
+ * template's piece is. Its process zones are nodes of their own.
+ *
+ * @param {Object} place - A piece's cell or region.
+ * @returns {Object}
+ */
+function pieceData(place) {
+  const { piece, site = null, tone = null, edge = null } = place
+  const data = {
+    instance: PIECES_INSTANCE,
+    piece,
+    site,
+    tone,
+    edge,
+    ...(place.skin && { skin: place.skin }),
+    ...(place.shape && place.kind === 'region' && { shape: place.shape }),
+  }
+  if (place.kind === 'region') {
+    return place.form === 'inner'
+      ? { ...data, form: 'inner', ...(place.cutout && { cutout: place.cutout }), ...(place.clip && { clip: place.clip }) }
+      : data
+  }
+  return {
+    ...data,
+    facetLabels: place.facetLabels ?? [],
+    zones: [],
     ...(place.hintAt && { hintAt: { ...place.hintAt } }),
     ...(place.folds && { folds: place.folds }),
     ...(place.outline && { outline: place.outline }),
@@ -99,7 +135,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
     if (!node) {
       const place = layout.get(id)
       const data = { name: place.label ?? id, domainType: null, empty: true }
-      return { ...UNSET, id, selectable: false, draggable: true, data }
+      // A piece stays where its frame puts it, for now.
+      return { ...UNSET, id, selectable: false, draggable: !place.piece, data }
     }
     return {
       ...UNSET,
@@ -112,8 +149,22 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
   const children = []
 
   for (const [id, place] of layout) {
-    if (!byId.has(id) && !isEmptyPiece(place) && !isLink(place)) continue
+    if (!byId.has(id) && !isEmptyPiece(place) && !isLink(place) && !place.piece) continue
     switch (place.kind) {
+      case 'zone': {
+        // A process zone of the pieces, over the compartment it is within.
+        const { x, y, width, height } = place.rect
+        parents.push({
+          ...base(id),
+          type: 'bioZone',
+          position: { x, y },
+          width,
+          height,
+          zIndex: Z.zone,
+          data: { ...base(id).data, piece: place.piece, site: place.site, width, height },
+        })
+        break
+      }
       case 'link': {
         // Its line between its two spaces, and the room for its module; the module on it is drawn as a card.
         const { x, y, width, height } = place.rect
@@ -137,7 +188,9 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             site: place.site,
             ...(place.joint
               ? { joint: place.joint, tone: place.tone }
-              : { from: shift(place.line.from), to: shift(place.line.to), ...(place.line.via && { via: shift(place.line.via) }) }),
+              : place.points
+                ? { points: place.points.map(shift) }
+                : { from: shift(place.line.from), to: shift(place.line.to), ...(place.line.via && { via: shift(place.line.via) }) }),
             zone: { ...place.zone, ...shift(place.zone) },
             width,
             height,
@@ -148,6 +201,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
       case 'cell': {
         const { x, y, width, height } = place.rect
         const own = base(id)
+        // A membrane of the pieces filled by docked compartments alone has no inside of its own to name.
+        if (place.piece && !place.bulk) own.data = { ...own.data, name: '' }
         const named = !own.data.empty && cellNameBox(id, layout, labelOf)
         // An empty template cell's name and hint keep clear of its proteins' names.
         const hint = own.data.empty && cellHintAt(id, layout, labelOf)
@@ -557,6 +612,7 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
 export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), voiCursor = ref(null), flowScale = ref(null) } = {}) {
   const libraryStore = useLibraryStore()
   const templateStore = useBioTemplateStore()
+  const piecesStore = useBioPiecesStore()
   const simulationResults = useSimulationResultsStore()
 
   const roles = computed(() => {
@@ -578,12 +634,16 @@ export function useBioNodes(nodes, edges = ref([]), { speciesMode = ref(null), v
         .map(({ label }) => label)
         .join(' · ')
     }
-    return layoutPhysiology(nodes.value, roles.value, {
+    const physiology = layoutPhysiology(nodes.value, roles.value, {
       instances: templateStore.instances,
       definitions: templateStore.definitions,
       detailOf,
       shapes: templateStore.shapes,
     })
+    if (!piecesStore.pieces.length) return physiology
+    // The pieces the view is built from (schema 4), drawn alongside, each keyed by pieceKey.
+    const pieces = layoutPieces(piecesStore.pieces, { shapes: templateStore.shapes })
+    return { ...physiology, places: new Map([...physiology.places, ...pieces.places]) }
   })
   const layout = computed(() => physiology.value.places)
 

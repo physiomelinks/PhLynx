@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 4,
+  "id": "cell",
+  "name": "Cell",
+  "description": "A plain cell with a protein site on each side, to build on: add compartments beside it and process zones inside it.",
+  "pieces": [
+    {
+      "id": "cell",
+      "kind": "compartment",
+      "label": "Cell"
+    },
+    {
+      "id": "plasma-membrane",
+      "kind": "membrane",
+      "label": "Plasma membrane",
+      "encloses": [
+        "cell"
+      ],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 240
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "top",
+            "label": "Membrane (top)"
+          }
+        ],
+        "right": [
+          {
+            "id": "right",
+            "label": "Membrane (right)"
+          }
+        ],
+        "bottom": [
+          {
+            "id": "bottom",
+            "label": "Membrane (bottom)"
+          }
+        ],
+        "left": [
+          {
+            "id": "left",
+            "label": "Membrane (left)"
+          }
+        ]
+      }
+    }
+  ],
+  "author": "PhLynx",
+  "license": "CC0-1.0"
+}
