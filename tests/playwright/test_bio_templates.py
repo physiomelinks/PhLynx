@@ -181,6 +181,14 @@ class TestBioTemplates(unittest.TestCase):
         field.press("Enter")
         expect(piece(page, "compartment-2")).to_contain_text("Lumen")
 
+    def expect_in_diagram(self, count):
+        """Looks in the diagram view for how many instances there are, and comes back."""
+        page = self.page
+        page.locator("[data-testid=view-mode]").get_by_text("Diagram").click()
+        expect(page.locator(".vue-flow:not(.bio-flow) .vue-flow__node")).to_have_count(count)
+        page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
+        expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
+
     def delete_at(self, point):
         """Select what is drawn at a screen point and press Delete."""
         expect(self.page.locator(".p-dialog-mask")).to_have_count(0)
@@ -204,19 +212,25 @@ class TestBioTemplates(unittest.TestCase):
         self.delete_at(corner)
         expect(regions).to_have_count(0)
 
-        # A cell: its cytoplasm's module, then its membrane's, then the cell.
+        # A cell's inside: its compartment's module, then the compartment with everything attached to it, its
+        # membrane and the membrane's module, once that is confirmed, leaving nothing behind.
         cell = self.drop_cell(self.pane_point(0.5, 0.45), "compartment")
         expect(bound(page, "bioMembrane")).to_have_count(1)
+        self.expect_in_diagram(2)
         box = cell.bounding_box()
         inside = (box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.3)
         self.delete_at(inside)
         expect(bound(page, "bioCell")).to_have_count(0)
         expect(bound(page, "bioMembrane")).to_have_count(1)
         self.delete_at(inside)
-        expect(bound(page, "bioMembrane")).to_have_count(0)
+        page.locator(".p-dialog").get_by_role("button", name="Remove", exact=True).click()
+        expect(page.locator(f"{BIO} .vue-flow__node")).to_have_count(0)
+        self.expect_in_diagram(0)
+        # One step, undone as one: back to the empty compartment in its membrane, the membrane's module on it.
+        undo(page)
+        expect(bound(page, "bioMembrane")).to_have_count(1)
+        expect(empty_piece(page, "compartment")).to_have_count(1)
         expect(page.locator(f"{BIO} .vue-flow__node-bioCell")).to_have_count(1)
-        self.delete_at(inside)
-        expect(page.locator(f"{BIO} .vue-flow__node-bioCell")).to_have_count(0)
 
     def test_delete_on_a_cells_membrane_takes_its_module_then_the_membrane_alone(self):
         page = self.page

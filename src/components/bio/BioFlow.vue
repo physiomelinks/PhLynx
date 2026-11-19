@@ -1841,14 +1841,18 @@ const pieceName = (id) => {
  * goes. They stay in the diagram: proteins go to the tray, the rest where their roles put them.
  *
  * @param {string[]} ids
+ * @param {Object} [options]
+ * @param {boolean} [options.withModules=false] - Delete the modules on what goes from the diagram instead, as Delete
+ *   does for a compartment and everything attached to it.
  * @returns {Promise<void>}
  */
-async function removeThesePieces(ids) {
+async function removeThesePieces(ids, { withModules = false } = {}) {
   const { pieces: raw, removed } = removePieces(piecesStore.pieces, ids)
   const { pieces: next, errors } = validatePieces(raw)
   const label = ids.map(pieceName).join(', ')
   if (!next) return notify.error({ title: `Could not remove ${label}`, message: summariseProblems(errors) })
   const stranded = strandedBy(next)
+  if (withModules) return removeWithModules(next, stranded, label)
   const alongWith = [...removed].filter((id) => !ids.includes(id)).map(pieceName)
   if (stranded.length || alongWith.length) {
     const names = stranded.map((node) => nameOf(node.id)).join(', ')
@@ -1882,6 +1886,41 @@ async function removeThesePieces(ids) {
   } finally {
     history.endBatch('bio-pieces-remove')
   }
+}
+
+/**
+ * Removes pieces with the modules on them, which are deleted from the diagram, as one step, asking first when
+ * modules go.
+ *
+ * @param {ReadonlyArray<Object>} next - The pieces as the removal leaves them, validated.
+ * @param {Array<Object>} stranded - The diagram nodes on what goes (see strandedBy).
+ * @param {string} label - What was asked to go.
+ * @returns {Promise<void>}
+ */
+async function removeWithModules(next, stranded, label) {
+  if (!stranded.length) {
+    await editPieces(next, 'bio-pieces-remove')
+    return
+  }
+  const names = stranded.map((node) => nameOf(node.id)).join(', ')
+  isConfirming.value = true
+  let answer
+  try {
+    answer = await choose({
+      header: 'Remove piece?',
+      message: `Everything attached to ${label} goes with it, and these modules are deleted from the diagram: ${names}.`,
+      severity: 'warning',
+      acceptLabel: 'Remove',
+      rejectLabel: 'Cancel',
+    })
+  } finally {
+    isConfirming.value = false
+  }
+  if (answer !== 'accept') return
+  await deleteInstances(
+    stranded.map((node) => node.id),
+    { removeNodes: main.removeNodes, history, after: () => editPieces(next, 'bio-pieces-remove') },
+  )
 }
 
 // ── The build palette ──────────────────────────────────────────────────
@@ -2630,15 +2669,18 @@ function moduleApartFrom(id, place) {
 
 /**
  * What Delete takes of the selection, a layer at a time: a module before the piece it is on. A selected node that
- * is a module (a piece holding one is drawn as its module's node) loses only its module, leaving the piece empty; a
- * selected empty piece loses its own module if it holds one apart, else goes itself, as its Remove would take it: a
- * cell whole, with what it encloses. Grips are handles on a piece, not the piece, so they are left out.
+ * is a module (a piece holding one is drawn as its module's node) loses only its module, leaving the piece empty. A
+ * cell's inside, once empty, is its compartment, which goes with everything attached to it: its membrane, and what
+ * is docked to that, the modules on them deleted. Any other selected empty piece loses its own module if it holds
+ * one apart, else goes itself, as its Remove would take it; an empty membrane's band takes the membrane alone. Grips
+ * are handles on a piece, not the piece, so they are left out.
  *
- * @returns {{instances: string[], pieces: string[]}}
+ * @returns {{instances: string[], pieces: string[], compartments: string[]}} compartments: the cells' insides to go.
  */
 function deletionLayers() {
   const instances = new Set(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
   const pieces = new Set()
+  const compartments = new Set()
   for (const node of getSelectedNodes.value) {
     if (main.findNode(node.id)) {
       instances.add(node.id)
@@ -2647,6 +2689,10 @@ function deletionLayers() {
     const place = layout.value.get(node.id)
     const piece = place?.piece && place.kind !== 'grip' && piecesStore.pieces.find((each) => each.id === place.piece)
     if (!piece) continue
+    if (place.kind === 'cell' && place.bulk) {
+      compartments.add(place.bulk)
+      continue
+    }
     const held = moduleApartFrom(node.id, place)
     if (held && main.findNode(held)) {
       instances.add(held)
@@ -2655,7 +2701,7 @@ function deletionLayers() {
     pieces.add(piece.id)
     if (place.kind === 'cell') for (const id of piece.encloses ?? []) pieces.add(id)
   }
-  return { instances: [...instances], pieces: [...pieces] }
+  return { instances: [...instances], pieces: [...pieces], compartments: [...compartments] }
 }
 
 /**
@@ -2663,9 +2709,10 @@ function deletionLayers() {
  * modules first, then the empty pieces.
  */
 async function deleteSelection() {
-  const { instances, pieces } = deletionLayers()
+  const { instances, pieces, compartments } = deletionLayers()
   if (instances.length && !(await deleteNodes(instances))) return
-  if (pieces.length) await removeThesePieces(pieces)
+  if (compartments.length) await removeThesePieces([...compartments, ...pieces], { withModules: true })
+  else if (pieces.length) await removeThesePieces(pieces)
 }
 
 /** A shown connection's menu: delete it, as the diagram would. */

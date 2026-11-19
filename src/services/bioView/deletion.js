@@ -103,15 +103,17 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
  * @param {Function} options.removeNodes - The diagram flow's removeNodes.
  * @param {Object} options.history - The history store.
  * @param {() => Promise<*>} [options.before] - Edits to make first, in the same step.
+ * @param {() => Promise<*>} [options.after] - Edits to make once they have gone, in the same step.
  * @returns {Promise<boolean>} Whether anything was asked to go.
  */
-export async function deleteInstances(ids, { removeNodes, history, before }) {
+export async function deleteInstances(ids, { removeNodes, history, before, after }) {
   if (!ids.length) return false
   history.startBatch()
   try {
     await before?.()
     removeNodes(ids, true)
     await settle()
+    await after?.()
   } finally {
     history.endBatch('remove')
   }
