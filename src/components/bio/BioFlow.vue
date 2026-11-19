@@ -153,7 +153,9 @@
             @pointerdown="onChipPointerDown($event, token)"
           >
             <title>
-              {{ `${token.label} in ${nameOf(token.nodeId)}: click to plot it and the flows into it, drag to reorder` }}
+              {{
+                `${token.label} in ${nameOf(token.nodeId)}${concentrationText(token)}: click to plot it and the flows into it, drag to reorder`
+              }}
             </title>
             <rect
               :x="token.x - token.width / 2"
@@ -556,12 +558,24 @@ const speciesMode = computed(() => {
 const cursor = useVoiCursorStore()
 /** The point of the latest run species mode shows, once its cursor has been moved off the run's end. */
 const voiCursor = computed(() => (cursor.isActive ? { index: cursor.index, range: cursor.range } : null))
-const { bioNodes, couplingEdges, layout, roles, sites, hasSpecies, species, speciesOrderPreview, loadSidecars } =
-  useBioNodes(
-  main.nodes,
-  main.edges,
-  { speciesMode, voiCursor, flowScale: computed(() => cursor.flowScale) }
-)
+const {
+  bioNodes,
+  couplingEdges,
+  layout,
+  roles,
+  sites,
+  hasSpecies,
+  species,
+  concentrationTint,
+  speciesOrderPreview,
+  loadSidecars,
+} = useBioNodes(main.nodes, main.edges, {
+  speciesMode,
+  voiCursor,
+  flowScale: computed(() => cursor.flowScale),
+  focusedSpecies: computed(() => viewMode.focusedSpecies),
+  tintMode: computed(() => cursor.concentrationScale),
+})
 const {
   applyPlan,
   templateMoves,
@@ -1358,6 +1372,18 @@ const scopedSpecies = computed(() => species.value?.network.species ?? [])
 const colourIndex = (curie) =>
   Math.max(0, scopedSpecies.value.findIndex((entry) => entry.species === curie)) % SPECIES_COLOURS.length
 const colourOf = (curie) => SPECIES_COLOURS[colourIndex(curie)]
+/** What colour the focused species' concentration tints its compartments (see BioCell and BioRegion). */
+provide(
+  'bioTintColour',
+  computed(() => (concentrationTint.value ? colourOf(concentrationTint.value.species) : null))
+)
+/** A tinted compartment's concentration of the focused species at the cursor, for its token's tooltip. */
+function concentrationText(token) {
+  const tinted = concentrationTint.value
+  if (tinted?.species !== token.species) return ''
+  const value = tinted.tints.find((tint) => tint.nodeId === token.nodeId)?.value
+  return Number.isFinite(value) ? ` (${Number(value.toPrecision(4))}${tinted.unit ? ` ${tinted.unit}` : ''})` : ''
+}
 /** The species menu's rows. */
 const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
 const speciesMenuRef = ref(null)
