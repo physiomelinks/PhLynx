@@ -66,6 +66,7 @@
       </router-view>
     </div>
     <ConfirmDialog />
+    <WhatsNewCard />
   </div>
 </template>
 
@@ -81,6 +82,7 @@ import { useSessionMetadataStore } from './stores/sessionMetadataStore'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import BugIcon from './components/icons/BugIcon.vue'
 import ThemeToggle from './components/ThemeToggle.vue'
+import WhatsNewCard from './components/WhatsNewCard.vue'
 
 const appVersion = __APP_VERSION__ + __BUILD_STATE_MARKER__
 const route = useRoute()

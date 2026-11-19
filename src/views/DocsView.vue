@@ -89,6 +89,7 @@ const menuGroups = [
     items: [
       { label: 'Introduction', path: '/docs/getting-started/introduction' },
       { label: 'Quick Start Guide', path: '/docs/getting-started/quick-start-guide' },
+      { label: "What's New in 0.7", path: '/docs/getting-started/whats-new' },
     ],
   },
   {

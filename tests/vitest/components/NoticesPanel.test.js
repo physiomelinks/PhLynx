@@ -71,7 +71,22 @@ describe('NoticesPanel', () => {
     expect(second.find('.notice-footer').exists()).toBe(false)
   })
 
-  it('shows markup in a description as text', async () => {
+  it('renders a description as Markdown', async () => {
+    respondWith(
+      feedOf(entry('a', { description: 'Big **changes**:\n\n- one\n- [two](https://phlynx.com/docs/)' }))
+    )
+    const { wrapper } = await mountPanel({ active: true })
+    const description = wrapper.find('.notice-description')
+    expect(description.find('strong').text()).toBe('changes')
+    expect(description.findAll('li').map((li) => li.text())).toEqual(['one', 'two'])
+    expect(description.find('a').attributes()).toMatchObject({
+      href: 'https://phlynx.com/docs/',
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    })
+  })
+
+  it('shows HTML in a description as text', async () => {
     respondWith(feedOf(entry('a', { description: '<img src=x onerror=alert(1)>' })))
     const { wrapper } = await mountPanel({ active: true })
     expect(wrapper.find('.notice-description').text()).toBe('<img src=x onerror=alert(1)>')
