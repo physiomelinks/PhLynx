@@ -11,6 +11,7 @@ import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/sp
 import {
   cellHintAt,
   cellNameBox,
+  regionNameAt,
   facetLabelBoxes,
   placeSpeciesTokens,
   flowScales,
@@ -295,6 +296,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
       case 'region': {
         const { x, y, width, height } = place.rect
         const own = base(id)
+        // Its name kept clear of the compartments nested in it.
+        const named = regionNameAt(id, layout, labelOf)
         parents.push({
           ...own,
           ...(place.piece && { draggable: !!place.drag }),
@@ -309,6 +312,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             ...placeData(place),
             side: place.side,
             at: place.adjacent?.[0]?.at ?? null,
+            ...(named && { nameAt: { x: named.x - x, y: named.y - y } }),
             ...(place.skin && { width, height }),
           },
         })

@@ -21,11 +21,13 @@ import {
   obstaclesOf,
   placeSpeciesTokens,
   placeTokens,
+  regionNameAt,
   spreadAlong,
   tokenWidth,
 } from '../../../../src/services/bioView/speciesLayout.js'
 import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
-import { boundToPieces, layoutPieces } from '../../../../src/services/bioView/pieces/layout.js'
+import { boundToPieces, layoutPieces, pieceKey } from '../../../../src/services/bioView/pieces/layout.js'
+import { validatePieces } from '../../../../src/services/bioView/pieces/model.js'
 
 /** Lays out an epithelial cell's pieces with the nodes bound to them, and the rest beside them, as useBioNodes does. */
 function epithelialPieces(nodes, roles) {
@@ -389,6 +391,43 @@ describe('placing a cell’s name', () => {
     const name = cellNameBox('cell', cell, labelOf)
     expect(name.y + name.height).toBeGreaterThan(240 * 0.7)
     expect(name.x).toBeLessThan(600 * 0.3)
+  })
+})
+
+describe('placing a name clear of what is nested in its cell or compartment', () => {
+  const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  /** Pieces laid out, an inner compartment moved up into its parent's corner. */
+  const laidOut = (raw) => {
+    const { pieces, errors } = validatePieces(raw)
+    expect(errors).toEqual([])
+    return layoutPieces(pieces).places
+  }
+  const labelOf = (id) => ({ name: id === pieceKey('outer') ? 'Outer compartment' : 'Inner' })
+  const inCorner = { x: 12, y: 12, width: 200, height: 120 }
+
+  it('moves a compartment’s name out of the way of one in its corner', () => {
+    const places = laidOut([
+      { id: 'outer', kind: 'compartment', label: 'Outer', frame: { x: 0, y: 0, width: 320, height: 200 } },
+      { id: 'inner', kind: 'compartment', label: 'Inner', parent: 'outer', frame: inCorner },
+    ])
+    const name = regionNameAt(pieceKey('outer'), places, labelOf)
+    expect(name).not.toBeNull()
+    expect(overlaps(name, places.get(pieceKey('inner')).rect)).toBe(false)
+  })
+
+  it('leaves a compartment with nothing in it to put its name as it always does', () => {
+    const places = laidOut([{ id: 'outer', kind: 'compartment', label: 'Outer' }])
+    expect(regionNameAt(pieceKey('outer'), places, labelOf)).toBeNull()
+  })
+
+  it('moves a cell’s name out of the way of a compartment in its corner', () => {
+    const places = laidOut([
+      { id: 'outer', kind: 'compartment', label: 'Outer' },
+      { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['outer'], frame: { x: 0, y: 0, width: 400, height: 260 } },
+      { id: 'inner', kind: 'compartment', label: 'Inner', parent: 'outer', frame: { ...inCorner, x: 20, y: 20 } },
+    ])
+    const name = cellNameBox(pieceKey('pm'), places, () => ({ name: 'Outer compartment' }))
+    expect(overlaps(name, places.get(pieceKey('inner')).rect)).toBe(false)
   })
 })
 

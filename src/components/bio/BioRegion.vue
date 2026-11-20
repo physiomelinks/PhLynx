@@ -32,7 +32,7 @@
     <BioHandles :handles="data.handles ?? []" />
     <!-- A piece of the pieces is resized from its handle -->
     <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
-    <span class="bio-region__label">
+    <span class="bio-region__label" :style="labelStyle">
       <BioPieceName :id="id" :name="data.name" />
       <small v-if="data.empty" class="bio-region__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
@@ -82,6 +82,12 @@ const cutoutStyle = computed(() => {
   const r = Math.min(radius, width / 2, height / 2)
   const cut = `M ${x + r} ${y} H ${x + width - r} A ${r} ${r} 0 0 1 ${x + width} ${y + r} V ${y + height - r} A ${r} ${r} 0 0 1 ${x + width - r} ${y + height} H ${x + r} A ${r} ${r} 0 0 1 ${x} ${y + height - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`
   return { clipPath: `path(evenodd, "M -4 -4 H 100000 V 100000 H -4 Z ${cut}")` }
+})
+
+/** Where the layout found room for its name, clear of the compartments nested in it (see regionNameAt). */
+const labelStyle = computed(() => {
+  const at = props.data.nameAt
+  return at ? { position: 'absolute', left: `${at.x}px`, top: `${at.y}px`, whiteSpace: 'nowrap' } : undefined
 })
 
 const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)

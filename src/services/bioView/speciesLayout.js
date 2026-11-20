@@ -73,7 +73,9 @@ export function flowScales(flows, [first, last], { group = 'species', spikes = f
     const sorted = Float64Array.from(own).sort()
     const most = sorted[sorted.length - 1] ?? 0
     // The size at the quantile, or the largest where so few points flow that it is none.
-    const at = spikes ? most : (sorted[Math.min(sorted.length - 1, Math.floor(FLOW_SCALE_QUANTILE * sorted.length))] ?? 0)
+    const at = spikes
+      ? most
+      : (sorted[Math.min(sorted.length - 1, Math.floor(FLOW_SCALE_QUANTILE * sorted.length))] ?? 0)
     scales.set(name, at > 0 ? at : most)
   }
   return (flow) => scales.get(groupOf(flow)) ?? 0
@@ -216,12 +218,13 @@ export function proteinBoxes(place, { name = '', detail = '' } = {}) {
   const { height, detailHeight, gap } = TEXT.protein
   const width = proteinLabelWidth(name, detail)
   const tall = height + (detail ? detailHeight : 0)
-  const label = {
-    top: box(place.x - width / 2, glyph.y + h + gap, width, tall),
-    bottom: box(place.x - width / 2, glyph.y - gap - tall, width, tall),
-    left: box(glyph.x + w + gap, place.y - tall / 2, width, tall),
-    right: box(glyph.x - gap - width, place.y - tall / 2, width, tall),
-  }[place.outward] ?? box(place.x - width / 2, glyph.y + h + gap, width, tall)
+  const label =
+    {
+      top: box(place.x - width / 2, glyph.y + h + gap, width, tall),
+      bottom: box(place.x - width / 2, glyph.y - gap - tall, width, tall),
+      left: box(glyph.x + w + gap, place.y - tall / 2, width, tall),
+      right: box(glyph.x - gap - width, place.y - tall / 2, width, tall),
+    }[place.outward] ?? box(place.x - width / 2, glyph.y + h + gap, width, tall)
   return [glyph, label]
 }
 
@@ -249,27 +252,77 @@ export function cellNameBox(cellId, layout, labelOf = () => undefined) {
   const { rect } = place
   const width = [...name].length * TEXT.cell.char + 8
   const height = TEXT.cell.height
-  const others = [...(place.zones ?? []).map((zone) => zone.rect)]
+  const others = [...(place.zones ?? []).map((zone) => zone.rect), ...nestedIn(cellId, layout)]
   for (const [id, other] of layout) {
     if (other.cell !== cellId) continue
     if (other.kind === 'protein') others.push(...proteinBoxes(other, labelOf(id)))
     if (other.kind === 'cytosolic') others.push(box(other.x, other.y, CARD.width, CARD.height))
   }
-  const [left, top] = [rect.x + CELL_INSET, rect.y + CELL_INSET]
-  const bottom = rect.y + rect.height - CELL_INSET - height
+  return nameInCorners(rect, { width, height }, others, { inset: CELL_INSET, reachY: NAME_DROP })
+}
+
+/**
+ * The boxes of what is drawn within a cell or compartment: the compartments and organelles nested in it, with room
+ * for an organelle's bilayer.
+ *
+ * @param {string} id
+ * @param {Map<string, Object>} layout
+ * @returns {Array<Object>}
+ */
+function nestedIn(id, layout) {
+  return [...layout.values()]
+    .filter((other) => other.parent === id && other.rect)
+    .map((other) => (other.kind === 'cell' ? grow(other.rect, HEAD_OFFSET + 4) : other.rect))
+}
+
+/**
+ * Where a name goes in a cell or compartment: in its upper-left corner, moved in from it until clear of what else is
+ * drawn there; failing that, likewise in its lower-left, and failing both, right in the lower-left.
+ *
+ * @param {Object} rect - The cell or compartment.
+ * @param {{width: number, height: number}} size - The name's.
+ * @param {Array<Object>} others - What to keep clear of.
+ * @param {{inset: number, reachY: number}} options - How far in from the edge it goes, and how far further down (or
+ *   up) it may move.
+ * @returns {Object} Its box.
+ */
+function nameInCorners(rect, { width, height }, others, { inset, reachY }) {
+  const [left, top] = [rect.x + inset, rect.y + inset]
+  const bottom = rect.y + rect.height - inset - height
   // The name stays in a corner or tries the next.
-  const [reachX, reachY] = [rect.width * CORNER - CELL_INSET, NAME_DROP]
+  const reachX = rect.width * CORNER - inset
   const clear = (candidate) => others.every((other) => !overlap(grow(candidate, CLEARANCE / 2), other))
   const steps = (reach) => Array.from({ length: Math.max(0, Math.floor(reach / NAME_STEP)) + 1 }, (_, i) => i)
   // Nearest the corner first, moving in from it down (or up) and across.
   const inCorner = (y0, way) => {
     const spots = steps(reachY).flatMap((i) => steps(reachX).map((j) => ({ i, j })))
     spots.sort((a, b) => a.i + a.j - (b.i + b.j) || a.i - b.i)
-    return spots
-      .map(({ i, j }) => box(left + j * NAME_STEP, y0 + way * i * NAME_STEP, width, height))
-      .find(clear)
+    return spots.map(({ i, j }) => box(left + j * NAME_STEP, y0 + way * i * NAME_STEP, width, height)).find(clear)
   }
   return inCorner(top, 1) ?? inCorner(bottom, -1) ?? box(left, bottom, width, height)
+}
+
+/**
+ * Where a compartment standing freely draws its name (and, while empty, its hint), when compartments are nested in
+ * it: in a corner clear of them (see nameInCorners). Otherwise, and for a compartment along a cell, BioRegion puts
+ * it by its own rules.
+ *
+ * @param {string} regionId
+ * @param {Map<string, Object>} layout
+ * @param {(id: string) => {name?: string}|undefined} [labelOf]
+ * @returns {Object|null} The label's box, its padding included, or nothing where BioRegion places it.
+ */
+export function regionNameAt(regionId, layout, labelOf = () => undefined) {
+  const place = layout.get(regionId)
+  if (place?.kind !== 'region' || place.form !== 'free' || place.edge) return null
+  const nested = nestedIn(regionId, layout)
+  if (!nested.length) return null
+  const { char, height, padding } = TEXT.region
+  const name = labelOf(regionId)?.name ?? place.label ?? ''
+  const width = Math.max([...name].length * char, place.empty ? TEXT.hint.width : 0) + 2 * padding.x
+  const tall = height + (place.empty ? TEXT.hint.height : 0) + 2 * padding.y
+  // The label's own padding keeps the name in from the edge.
+  return nameInCorners(place.rect, { width, height: tall }, nested, { inset: 0, reachY: tall })
 }
 
 /** How far an empty cell's name and hint are moved at a time when looking for somewhere clear. */
@@ -293,7 +346,7 @@ export function cellHintAt(cellId, layout, labelOf = () => undefined) {
   const name = labelOf(cellId)?.name ?? ''
   const width = Math.max([...name].length * TEXT.cell.char, TEXT.hint.width) + 8
   const height = TEXT.cell.height + TEXT.hint.height
-  const others = []
+  const others = nestedIn(cellId, layout)
   for (const [id, other] of layout) {
     if (other.cell === cellId && other.kind === 'protein') others.push(...proteinBoxes(other, labelOf(id)))
   }
@@ -343,7 +396,7 @@ export function facetLabelBoxes(cellId, layout, labelOf = () => undefined) {
     if (other.kind === 'protein') (other.cell === cellId ? own : others).push(proteinBoxes(other, labelOf(id))[0])
     if (other.kind === 'cell' && id !== cellId) others.push(grow(other.rect, HEAD_OFFSET + 4))
     const name = other.kind === 'region' && labelOf(id)?.name
-    if (name) others.push(regionNameBox(other, name))
+    if (name) others.push(regionNameBox(other, name, regionNameAt(id, layout, labelOf)))
   }
   const { char, height, padding } = TEXT.facet
   return place.facetLabels.map((facet) => {
@@ -390,9 +443,11 @@ export function facetLabelBoxes(cellId, layout, labelOf = () => undefined) {
  *
  * @param {Object} place - The region's.
  * @param {string} name
+ * @param {Object|null} [at] - Where regionNameAt put it, if it did.
  * @returns {Object}
  */
-function regionNameBox(place, name) {
+function regionNameBox(place, name, at = null) {
+  if (at) return at
   const { rect } = place
   const { char, height, padding } = TEXT.region
   const length = [...name].length * char
@@ -444,7 +499,9 @@ export function obstaclesOf(nodeId, layout, labelOf = () => undefined) {
     }
     return boxes
   }
-  if (name) boxes.push(regionNameBox(place, name))
+  if (name) boxes.push(regionNameBox(place, name, regionNameAt(nodeId, layout, labelOf)))
+  // What is nested in it.
+  boxes.push(...nestedIn(nodeId, layout))
   for (const [id, other] of layout) {
     // A microdomain lies within its cell, which is no obstacle to it; the cell's organelles are.
     if (other.kind === 'cell' && id !== place.parent) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
@@ -617,7 +674,7 @@ export function placeTokens(items, { inner, across, line, obstacles = [], ordere
     centresAt(middle).map(([item, along, cross]) =>
       across
         ? box(along - item.size / 2, cross - item.cross / 2, item.size, item.cross)
-        : box(cross - item.cross / 2, along - item.size / 2, item.cross, item.size)
+        : box(cross - item.cross / 2, along - item.size / 2, item.cross, item.size),
     )
   const hits = obstacles.map((obstacle) => grow(obstacle, CLEARANCE))
   const cost = (middle) => sum(boxesAt(middle).flatMap((token) => hits.map((hit) => overlap(token, hit))))
@@ -710,7 +767,7 @@ export function layoutSpecies(
     flowOf = () => null,
     labelOf = () => undefined,
     orderOf = () => undefined,
-  } = {}
+  } = {},
 ) {
   const tokens = placeSpeciesTokens(network, layout, { labelOf, orderOf })
   return { tokens, ...routeSpecies(network, layout, tokens, { facesOf, arrowsOf, flowOf }) }
@@ -736,9 +793,21 @@ function foldWay(place, layout) {
   const fold = cell?.folds?.find((each) => each.facetId === place.part)
   if (!fold) return {}
   const { rect } = cell
-  const inward = { top: place.y - rect.y, bottom: rect.y + rect.height - place.y, left: place.x - rect.x, right: rect.x + rect.width - place.x }[fold.edge]
-  const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[fold.edge]
-  return { through: { mouth: { point: foldPoint(rect, fold.edge, fold.at, 0), direction }, lumen: foldPoint(rect, fold.edge, fold.at, inward) } }
+  const inward = {
+    top: place.y - rect.y,
+    bottom: rect.y + rect.height - place.y,
+    left: place.x - rect.x,
+    right: rect.x + rect.width - place.x,
+  }[fold.edge]
+  const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[
+    fold.edge
+  ]
+  return {
+    through: {
+      mouth: { point: foldPoint(rect, fold.edge, fold.at, 0), direction },
+      lumen: foldPoint(rect, fold.edge, fold.at, inward),
+    },
+  }
 }
 
 /** A process card's place in the layout: in a cell or free. Its x and y are its top-left corner. */
@@ -782,7 +851,9 @@ export function cardFaces(legs) {
     for (const [index, entry] of group.entries()) {
       const offset = (index - (group.length - 1) / 2) * gap
       const centre = { x: place.x + CARD.width / 2, y: place.y + CARD.height / 2 }
-      const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[side]
+      const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[
+        side
+      ]
       faces.set(entry.id, {
         point: {
           x: centre.x + (direction.x * CARD.width) / 2 + (isFlat ? offset : 0),
@@ -811,7 +882,7 @@ export function cardFaces(legs) {
 export function placeSpeciesTokens(
   network,
   layout,
-  { labelOf = () => undefined, orderOf = () => undefined, only = null } = {}
+  { labelOf = () => undefined, orderOf = () => undefined, only = null } = {},
 ) {
   const proteinPlace = proteinPlaceIn(layout)
   const cells = [...layout.values()].filter((place) => place.kind === 'cell').map((place) => place.rect)
@@ -829,7 +900,7 @@ export function placeSpeciesTokens(
         network.paths
           .filter((path) => path.species === species && (path.outside === nodeId || path.inside === nodeId))
           .map((path) => proteinPlace(path.protein))
-          .filter(Boolean)
+          .filter(Boolean),
       ),
     ]
     const others = cells.filter((cell) => cell !== rect)
@@ -928,7 +999,7 @@ export function routeSpecies(
   network,
   layout,
   tokens,
-  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null, largest: largestGiven = null } = {}
+  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null, largest: largestGiven = null } = {},
 ) {
   const proteinPlace = proteinPlaceIn(layout)
   const tokenAt = new Map(tokens.map((token) => [token.key, token]))
@@ -955,8 +1026,7 @@ export function routeSpecies(
   const cardFace = cardFaces([...exchanges, ...read])
   // Asked of the network's own exchange, as a path's flow is of its own path: a caller may know them by identity.
   const exchangeFlows = exchanges.map((exchange) => flowOf(exchange.source))
-  const largest =
-    largestGiven ?? Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
+  const largest = largestGiven ?? Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
   // In WIDTH_STEPS steps, so a flow followed through a run redraws its arrowheads only as it changes visibly.
   const widthOf = (flow, source) => {
     const most = typeof largest === 'function' ? largest(source) : largest
@@ -1115,7 +1185,9 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
       ? {
           ...ends.face,
           point: move(ends.face.point),
-          ...(through && { through: { mouth: { ...through.mouth, point: move(through.mouth.point) }, lumen: move(through.lumen) } }),
+          ...(through && {
+            through: { mouth: { ...through.mouth, point: move(through.mouth.point) }, lumen: move(through.lumen) },
+          }),
         }
       : ends.face
     return leg(at, face, ends.toToken, ends.head)
@@ -1132,7 +1204,9 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
     const shift = faceShift(dependence.protein)
     const d = redraw(dependence.ends, dependence.d, shift)
     if (d === dependence.d) return dependence
-    const end = shift ? { ...dependence.end, x: dependence.end.x + shift.x, y: dependence.end.y + shift.y } : dependence.end
+    const end = shift
+      ? { ...dependence.end, x: dependence.end.x + shift.x, y: dependence.end.y + shift.y }
+      : dependence.end
     return { ...dependence, d, end }
   })
   return { ...species, tokens, paths, dependences }
@@ -1169,7 +1243,9 @@ function leg(token, face, toToken, head = 0) {
   const nearEdge = { x: edge.x + toward.x * reach, y: edge.y + toward.y * reach }
   const nearFace = { x: face.point.x + face.direction.x * reach, y: face.point.y + face.direction.y * reach }
   const round = (point) => `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`
-  const [start, c1, bend, tip] = toToken ? [face.point, nearFace, nearEdge, edge] : [edge, nearEdge, nearFace, face.point]
+  const [start, c1, bend, tip] = toToken
+    ? [face.point, nearFace, nearEdge, edge]
+    : [edge, nearEdge, nearFace, face.point]
   // Its last stretch moves back along itself, so it still meets the arrowhead's base head on.
   const along = Math.hypot(tip.x - bend.x, tip.y - bend.y)
   const back = along > 0 ? Math.min(head, Math.hypot(tip.x - start.x, tip.y - start.y) / 2) : 0

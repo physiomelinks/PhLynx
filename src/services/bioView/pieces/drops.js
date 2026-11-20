@@ -129,12 +129,15 @@ function membraneSideAt(scene, point, band) {
   return best
 }
 
-/** A frame centred on a point, from a rect's corner, kept inside it where it fits. */
+/** How far down a compartment dropped into another starts at least: below the other's name, in its corner. */
+const NAME_ROOM = 56
+
+/** A frame centred on a point, from a rect's corner, kept inside it where it fits, and below its name. */
 function frameAt(point, size, within = null) {
   const at = { x: point.x - size.width / 2, y: point.y - size.height / 2 }
   if (!within) return { ...at, ...size }
   const x = Math.max(within.x + 12, Math.min(at.x, within.x + within.width - size.width - 12))
-  const y = Math.max(within.y + 12, Math.min(at.y, within.y + within.height - size.height - 12))
+  const y = Math.max(within.y + NAME_ROOM, Math.min(at.y, within.y + within.height - size.height - 12))
   return { x: x - within.x, y: y - within.y, ...size }
 }
 

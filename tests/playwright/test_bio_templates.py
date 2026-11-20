@@ -266,6 +266,13 @@ class TestBioTemplates(unittest.TestCase):
         )
         return top == node.get_attribute("data-id")
 
+    def name_clear_of(self, outer, inner):
+        """Whether a node's name is drawn clear of a node nested in it."""
+        a = outer.locator("[data-testid=bio-piece-name]").first.bounding_box()
+        b = inner.bounding_box()
+        return not (a["x"] < b["x"] + b["width"] and b["x"] < a["x"] + a["width"]
+                    and a["y"] < b["y"] + b["height"] and b["y"] < a["y"] + a["height"])
+
     def test_a_compartment_in_a_compartment_shows_with_or_without_a_membrane_round_them(self):
         page = self.page
         self.open_physiology()
@@ -277,6 +284,7 @@ class TestBioTemplates(unittest.TestCase):
         inner = piece(page, "compartment-2")
         expect(inner).to_be_visible()
         assert self.on_top_at_its_centre(inner)
+        assert self.name_clear_of(cell, inner)
 
         # In a bare compartment, then a membrane put round that: the inner one still shows.
         self.drop_piece("compartment", self.pane_point(0.75, 0.45))
@@ -286,11 +294,13 @@ class TestBioTemplates(unittest.TestCase):
         inner = piece(page, "compartment-4")
         expect(inner).to_be_visible()
         assert self.on_top_at_its_centre(inner)
+        assert self.name_clear_of(outer, inner)
         box = outer.bounding_box()
         self.drop_piece("membrane", (box["x"] + 30, box["y"] + 30))
         expect(page.locator(f'{BIO} .vue-flow__node-bioCell:has([data-site="pieces/compartment-3"])')).to_be_visible()
         page.wait_for_timeout(300)
         assert self.on_top_at_its_centre(inner)
+        assert self.name_clear_of(piece(page, "compartment-3"), inner)
 
     def test_delete_takes_a_tube_and_a_process_zone_a_layer_at_a_time(self):
         page = self.page
