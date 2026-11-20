@@ -2940,7 +2940,7 @@ async function placeModuleAt(module, point) {
     const { site } = target
     if (site && !(await confirmReplace(site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
     const id = await addModuleAt(module, target)
-    if (isNew) openEditor(id)
+    // if (isNew) openEditor(id)
     return
   }
   const position = whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 })
@@ -3084,7 +3084,7 @@ async function onPlaceConfirm(choice) {
       // Put on a node-owned cell, it joins its neighbours there in the same step.
       if (choice.cell || choice.placement) await connectToCellNeighbours(id)
     })
-    if (isNew) openEditor(id)
+    // if (isNew) openEditor(id)
     return
   }
   const { moduleRef, membraneRef, placement } = choice
