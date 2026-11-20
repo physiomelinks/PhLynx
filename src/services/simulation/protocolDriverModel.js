@@ -5,6 +5,9 @@
 import { writeDriverMathML } from '../protocol/libopencorEngine/protocolDrivers'
 import { PHLYNX_ENVIRONMENT_COMPONENT_ID } from '../../utils/constants'
 
+// What PhLynx called its environment before it gave it an id.
+const LEGACY_ENVIRONMENT_COMPONENT_NAME = 'environment'
+
 export const DRIVER_COMPONENT = 'protocol_drivers'
 
 // The clock a protocol's export plots against: experiment_time is the model's time less time_offset, which each run
@@ -51,7 +54,8 @@ function findEquivalenceSet(variable, handles) {
 export const NO_CLOCK = 'The model has no variable of integration for a protocol to follow.'
 
 /**
- * Finds the model's variable of integration (VoI): the one variable of the environment PhLynx added (found by its id), named and in units as the model's
+ * Finds the model's variable of integration (VoI): the one variable of the environment PhLynx added (found by its id,
+ * or by its old name in an older export), named and in units as the model's
  * first ODE has it (see the flattening in utils/cellml.js).
  *
  * @param {Object} model - A libcellml Model.
@@ -59,13 +63,17 @@ export const NO_CLOCK = 'The model has no variable of integration for a protocol
  * @returns {Object|null} The variable, or null for a model without one.
  */
 function findClock(model, keep) {
-  for (let i = 0; i < model.componentCount(); i++) {
+  let environment = null
+  for (let i = 0; i < model.componentCount() && !environment; i++) {
     const component = keep(model.componentByIndex(i))
-    if (component.id() === PHLYNX_ENVIRONMENT_COMPONENT_ID) {
-      return component.variableCount() ? keep(component.variableByIndex(0)) : null
-    }
+    if (component.id() === PHLYNX_ENVIRONMENT_COMPONENT_ID) environment = component
   }
-  return null
+  // A module called environment has an id, its instance's name, so only an older export's environment matches.
+  if (!environment) {
+    const legacy = keep(model.componentByName(LEGACY_ENVIRONMENT_COMPONENT_NAME, true))
+    if (legacy && !legacy.id()) environment = legacy
+  }
+  return environment?.variableCount() ? keep(environment.variableByIndex(0)) : null
 }
 
 /**

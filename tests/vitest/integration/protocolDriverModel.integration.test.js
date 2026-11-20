@@ -128,4 +128,19 @@ describe('addProtocolClock', () => {
     const { cellml } = addProtocolClock({ libcellml, cellml: FLATTENED })
     expect(addProtocolClock({ libcellml, cellml }).errors).toEqual(['The model already has a protocol_clock component.'])
   })
+
+  it('follows the environment of a model exported before the environment had an id, but not a module called environment', () => {
+    const legacy = FLATTENED.replace('<component name="phlynx_environment" id="phlynx_autogen_environment_0001">', '<component name="environment">').replace(
+      'component_1="phlynx_environment"',
+      'component_1="environment"'
+    )
+    const driven = addProtocolDrivers({ libcellml, cellml: legacy, drivers: [DRIVER] })
+    expect(driven.errors).toEqual([])
+    const { cellml, errors } = addProtocolClock({ libcellml, cellml: driven.cellml })
+    expect(errors).toEqual([])
+    expect(check(libcellml, cellml).issues).toEqual([])
+
+    const module = legacy.replace('<component name="environment">', '<component name="environment" id="environment">')
+    expect(addProtocolClock({ libcellml, cellml: module }).errors).toEqual(['The model has no variable of integration for a protocol to follow.'])
+  })
 })
