@@ -505,6 +505,33 @@ class TestBioTemplates(unittest.TestCase):
         expect(name).not_to_have_text("Compartment_2")
         expect(cell.locator("[data-testid=bio-piece-name]").first).to_have_text("Compartment")
 
+    def test_a_process_zone_in_a_cell_runs_along_the_wider_side_of_its_fold(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        cell = self.drop_cell(self.pane_point(0.5, 0.4), "compartment")
+        outer = cell.bounding_box()
+
+        # A fold down from the cell's top, a little past its middle.
+        self.drop_piece("fold", (outer["x"] + outer["width"] * 0.6, outer["y"] + 10))
+        fold = page.locator("[data-testid=bio-fold]")
+        expect(fold).to_have_count(1)
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer = cell.bounding_box()
+
+        # A process zone dropped in the cell stays in its row at the top, but stops short of the fold, on the wider
+        # side of it, rather than running across it and out of the cell.
+        self.drop_piece("zone", (outer["x"] + outer["width"] * 0.2, outer["y"] + outer["height"] * 0.7))
+        zone = page.locator(f"{BIO} .vue-flow__node-bioZone")
+        expect(zone).to_have_count(1)
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+        outer, dip, band = cell.bounding_box(), fold.bounding_box(), zone.bounding_box()
+        assert band["y"] < dip["y"] + dip["height"], (dip, band)
+        assert band["x"] + band["width"] < dip["x"], (dip, band)
+        assert band["x"] > outer["x"] and band["width"] > (dip["x"] - outer["x"]) * 0.6, (outer, dip, band)
+
     def test_a_compartments_far_edge_dragged_onto_a_fold_docks_it_there_too(self):
         page = self.page
         self.open_physiology()

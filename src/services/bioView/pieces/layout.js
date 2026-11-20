@@ -17,6 +17,8 @@ import {
   CELL_RADIUS,
   FOLD,
   GLYPH_HEIGHT,
+  GLYPH_WIDTH,
+  MEMBRANE_BAND_HALF,
   MIN_CELL,
   fitCellRect,
   foldDepthFor,
@@ -29,7 +31,7 @@ import { byName, inSlotOrder } from '../scaffold.js'
 import { parseSiteRef } from '../siteRefs.js'
 import { withFolds, withOutline } from '../shape.js'
 import { pathOf } from '../shapeGeometry.js'
-import { INNER_INSET } from './constants.js'
+import { INNER_INSET, LIMITS } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
 
@@ -58,6 +60,15 @@ const ROOM = GLYPH_HEIGHT / 2 + 36
 const HINT_ROOM = 100
 /** How far a compartment docked inside a membrane reaches unless it says (it starts INNER_INSET in). */
 const INNER_DEPTH = 84
+/**
+ * How far clear of a fold's walls and end what stands in its cell keeps: the membrane's band and the proteins on the
+ * walls, which stand half out into the cell.
+ */
+const FOLD_CLEARANCE = GLYPH_WIDTH / 2 + MEMBRANE_BAND_HALF
+/** How many times a cell is laid out again to fit what stands in it round its folds, which move as it grows. */
+const FIT_PASSES = 8
+/** How far in from its container's corner a piece moved clear of a fold is kept. */
+const FOLD_INSET = 8
 /** How far round a fold a compartment docked to its walls reaches. */
 const FOLD_REACH = 46
 /** How far a band out from one side of a membrane runs on past its ends. */
@@ -98,6 +109,87 @@ const between = (a, b) => ({
   width: Math.abs(a.x - b.x),
   height: Math.abs(a.y - b.y),
 })
+
+/**
+ * Gives the widest stretch of a band across a cell that no fold cuts into: a process zone runs along the wider side
+ * of a fold it would cross, where it is, rather than moving.
+ *
+ * @param {Object} band - The zone, as it would span its cell.
+ * @param {Array<{box: Object}>} folds - What each fold keeps clear (see foldsIn).
+ * @returns {Object} The band itself where no fold reaches it.
+ */
+export function widestClear(band, folds) {
+  let stretches = [[band.x, rightOf(band)]]
+  for (const { box } of folds) {
+    if (box.y >= bottomOf(band) || bottomOf(box) <= band.y) continue
+    stretches = stretches
+      .flatMap(([from, to]) => [
+        [from, Math.min(to, box.x)],
+        [Math.max(from, rightOf(box)), to],
+      ])
+      .filter(([from, to]) => to > from)
+  }
+  if (stretches.length === 1 && stretches[0][0] === band.x && stretches[0][1] === rightOf(band)) return band
+  const [from, to] = stretches.reduce(
+    (best, each) => (each[1] - each[0] > best[1] - best[0] ? each : best),
+    [band.x, band.x],
+  )
+  return { ...band, x: from, width: to - from }
+}
+
+/**
+ * Moves a rect standing in a cell clear of the cell's folds, the least way it can: along the fold's side to either
+ * of its walls while it stays in the cell, or in past its end. A fold up from the bottom or in from the right has
+ * its end where the cell does, so the rect may instead stay and the cell grow until the fold is past it.
+ *
+ * @param {Object} rect - From the cell's corner.
+ * @param {Array<{edge: string, box: Object}>} folds - What each fold keeps clear (see foldsIn).
+ * @param {{width: number, height: number}} size - The cell as it is laid out now.
+ * @param {{x: number, y: number}} [least] - How far left and up it may go: a piece in a row stays in its place in it.
+ * @returns {{rect: Object, need: {width: number, height: number}}} need: how big the cell must be for it.
+ */
+export function clearOfFolds(rect, folds, size, least = { x: FOLD_INSET, y: FOLD_INSET }) {
+  const need = { width: 0, height: 0 }
+  let placed = rect
+  // Moving clear of one fold can put it on another, so go round them again.
+  for (let round = 0; round <= folds.length; round++) {
+    const fold = folds.find(({ box }) => overlap(placed, box))
+    if (!fold) break
+    const { edge, box } = fold
+    const across = edge === 'top' || edge === 'bottom'
+    const [at, length, limit] = across ? ['x', 'width', size.width] : ['y', 'height', size.height]
+    const [inward, depth] = across ? ['y', 'height'] : ['x', 'width']
+    const start = across ? box.x : box.y
+    const end = across ? rightOf(box) : bottomOf(box)
+    const moves = [
+      // Along the side, to before its near wall or past its far one, inside the cell.
+      { [at]: start - placed[length] },
+      { [at]: end },
+    ].filter((move) => move[at] >= least[at] && move[at] + placed[length] <= limit - FOLD_INSET)
+    if (edge === 'top' || edge === 'left') moves.push({ [inward]: across ? bottomOf(box) : rightOf(box) })
+    else {
+      const before = (across ? box.y : box.x) - placed[depth]
+      if (before >= least[inward]) moves.push({ [inward]: before })
+    }
+    const cost = (move) => Math.hypot((move.x ?? placed.x) - placed.x, (move.y ?? placed.y) - placed.y)
+    // Staying, the cell grows on that side by as far as the fold reaches past it.
+    const grow = edge === 'bottom' ? bottomOf(placed) - box.y : edge === 'right' ? rightOf(placed) - box.x : Infinity
+    const best = moves.reduce((cheapest, move) => (cost(move) < cost(cheapest) ? move : cheapest), moves[0])
+    if (!best || cost(best) > grow) break
+    placed = { ...placed, ...best }
+  }
+  // Level with a fold up from the bottom or in from the right, it needs the cell to reach past it by as far as the
+  // fold reaches in: however big the cell is now, so the cell doesn't shrink back on to it once grown clear.
+  for (const { edge, box } of folds) {
+    if (edge === 'bottom' && placed.x < rightOf(box) && box.x < rightOf(placed)) {
+      need.height = Math.max(need.height, bottomOf(placed) + size.height - box.y)
+    }
+    if (edge === 'right' && placed.y < bottomOf(box) && box.y < bottomOf(placed)) {
+      need.width = Math.max(need.width, rightOf(placed) + size.width - box.x)
+    }
+  }
+  return { rect: placed, need }
+}
 
 /**
  * The stretch of a membrane's side from `from` to `to` (0 to 1), as a line, pushed `out` from the side (in, when
@@ -375,25 +467,71 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
   /** Where what stands in a compartment goes, from its corner, and how far it reaches. */
   const arrangements = new Map()
 
-  /** Lays out what stands in a container whose inside is `width` wide, from its corner. */
-  function arrange(containerId, width) {
+  /**
+   * What each fold of a membrane keeps clear of what stands in its cell, its walls and end and the proteins on them,
+   * from the cell's corner, as big as `size`.
+   */
+  const foldsIn = (membraneId, size) => {
+    const rect = { x: 0, y: 0, width: size.width, height: size.height }
+    return shapeOf
+      .get(membraneId)
+      .facets.filter((facet) => facet.fold)
+      .map((facet) => {
+        const { edge, at, half, depth } = foldPocket(rect, facet)
+        const reach = half + FOLD_CLEARANCE
+        return {
+          edge,
+          box: between(foldPoint(rect, edge, at - reach, 0), foldPoint(rect, edge, at + reach, depth + FOLD_CLEARANCE)),
+        }
+      })
+  }
+
+  /**
+   * Lays out what stands in a container whose inside is `width` wide (and `height` high, as it is laid out now),
+   * from its corner. In a cell, all of it is kept clear of the cell's folds.
+   */
+  function arrange(containerId, width, height = 0) {
     const rel = new Map()
     const list = standing.get(containerId ?? '') ?? []
     const zones = list.filter((piece) => piece.kind === 'zone')
     const others = list.filter((piece) => piece.kind !== 'zone')
     others.forEach(measure)
+    const membraneId = containerId && bulks.get(containerId)
+    const folds = membraneId ? foldsIn(membraneId, { width, height }) : []
+    // How big the container must be for what is moved clear of its folds, past what they reach.
+    const need = { width: 0, height: 0 }
+    const clear = (rect, least) => {
+      if (!folds.length) return rect
+      const cleared = clearOfFolds(rect, folds, { width, height }, least)
+      need.width = Math.max(need.width, cleared.need.width)
+      need.height = Math.max(need.height, cleared.need.height)
+      return cleared.rect
+    }
     // Process zones without a frame in rows from the top, below the proteins on its top side, as wide as it is.
     let row = 0
     // What the zones that span the container need of its width: room for their cards and a spare place past them,
     // not the width they take from it, which would grow it again and again.
     let zonesNeed = 0
     for (const zone of zones) {
-      if (zone.frame) rel.set(zone.id, { ...zone.frame })
+      if (zone.frame) rel.set(zone.id, clear({ ...zone.frame }))
       else {
         const area = processZone({ x: 0, y: 0, width }, row++)
         const cards = CELL_RADIUS / 2 + ((occupants.get(zone.id) ?? []).length + 1) * (CARD.width + 16)
         zonesNeed = Math.max(zonesNeed, area.x + cards + CELL_RADIUS / 2)
-        rel.set(zone.id, { ...area, width: Math.max(area.width, cards) })
+        // A fold it would cross leaves it the wider side, and the cell grows until its cards fit there. The folds
+        // move as it does, so step out from the width it needs with none by what is still short, to find the least
+        // width they fit at whatever width it is laid out at now.
+        if (folds.length) {
+          let wide = zonesNeed
+          for (let short = 1; short > 0 && wide < LIMITS.size.max; wide += Math.max(1, Math.ceil(short))) {
+            const band = processZone({ x: 0, y: 0, width: wide }, row - 1)
+            short = cards - widestClear(band, foldsIn(membraneId, { width: wide, height })).width
+            if (short <= 0) break
+          }
+          zonesNeed = Math.max(zonesNeed, wide)
+        }
+        const along = widestClear(area, folds)
+        rel.set(zone.id, along !== area ? along : { ...area, width: Math.max(area.width, cards) })
       }
     }
     const spanning = new Set(zones.filter((zone) => !zone.frame).map((zone) => zone.id))
@@ -402,10 +540,11 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     let x = containerId ? CELL_RADIUS + ROOM : 0
     for (const piece of others) {
       const size = sizes.get(piece.id)
-      if (piece.frame) rel.set(piece.id, { x: piece.frame.x, y: piece.frame.y, ...size })
+      if (piece.frame) rel.set(piece.id, clear({ x: piece.frame.x, y: piece.frame.y, ...size }))
       else {
-        rel.set(piece.id, { x, y: below, ...size })
-        x += size.width + (containerId ? 2 * ROOM : 2 * GAP)
+        const placed = clear({ x, y: below, ...size }, { x, y: below })
+        rel.set(piece.id, placed)
+        x = Math.max(x + size.width, placed.y === below ? rightOf(placed) : 0) + (containerId ? 2 * ROOM : 2 * GAP)
       }
     }
     const fixed = [...rel].filter(([id]) => !spanning.has(id)).map(([, rect]) => rect)
@@ -417,6 +556,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       zonesNeed,
       height: tall.y + tall.height,
       zones: zones.length,
+      need,
     }
   }
 
@@ -431,14 +571,43 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         : fitCellRect({ x: 0, y: 0, ...base }, countsOf(piece.id), shapeOf.get(piece.id), widthsOf(piece.id), least)
       const bulk = topology.bulkOf(piece.id)
       if (bulk && !skin) {
-        const inside = arrange(bulk, size.width)
-        size = {
-          width: Math.max(size.width, inside.width ? inside.width + CELL_RADIUS + ROOM : 0, inside.zonesNeed),
-          height: Math.max(size.height, inside.height + (inside.zones || standing.has(bulk) ? HINT_ROOM : 0)),
+        // Grown for what stands in it; and again while that moves round its folds, which move as it grows. Its size is
+        // found afresh each time, as a fold that reached what stands in a cell not yet as big as it will be may not.
+        // Where it comes back to a size it was, what stands in it goes one way round a fold at one size and the
+        // other at the next: it takes the biggest of those.
+        const least = size
+        const tried = [size]
+        for (let pass = 0; pass < FIT_PASSES; pass++) {
+          const inside = arrange(bulk, size.width, size.height)
+          const grown = {
+            width: Math.max(
+              least.width,
+              inside.width ? inside.width + CELL_RADIUS + ROOM : 0,
+              inside.zonesNeed,
+              inside.need.width,
+            ),
+            height: Math.max(
+              least.height,
+              inside.height + (inside.zones || standing.has(bulk) ? HINT_ROOM : 0),
+              inside.need.height,
+            ),
+          }
+          if (grown.width === size.width && grown.height === size.height) break
+          const back = tried.findIndex((each) => each.width === grown.width && each.height === grown.height)
+          if (back >= 0) {
+            const cycle = tried.slice(back)
+            size = {
+              width: Math.max(...cycle.map((each) => each.width)),
+              height: Math.max(...cycle.map((each) => each.height)),
+            }
+            break
+          }
+          tried.push(grown)
+          size = grown
         }
         // The zones span the cell as it finally is.
-        arrange(bulk, size.width)
-      } else if (bulk) arrange(bulk, size.width)
+        arrange(bulk, size.width, size.height)
+      } else if (bulk) arrange(bulk, size.width, size.height)
       sizes.set(piece.id, { width: size.width, height: size.height })
       return sizes.get(piece.id)
     }

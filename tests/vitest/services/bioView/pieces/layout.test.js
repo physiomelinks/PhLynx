@@ -322,3 +322,99 @@ describe('a process zone spanning its cell', () => {
     expect(contains(cell, zone)).toBe(true)
   })
 })
+
+describe('what stands in a cell with a fold', () => {
+  /** A cell with a fold in from one side, and what stands in it. */
+  const folded = (side, at, ...inside) => [
+    { id: 'cell', kind: 'compartment', label: 'Cell' },
+    { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'] },
+    { id: 'f', kind: 'fold', label: 'Fold', membrane: 'pm', side, at },
+    ...inside,
+  ]
+  const apart = (a, b) => right(a) <= b.x || right(b) <= a.x || bottom(a) <= b.y || bottom(b) <= a.y
+  const zone = (id) => ({ id, kind: 'zone', label: id, compartment: 'cell' })
+  /** Nodes bound to a zone, as its process cards. */
+  const cards = (id, count) =>
+    Array.from({ length: count }, (_, n) => ({ id: `${id}-${n}`, data: { bioView: { site: `pieces/${id}` } } }))
+
+  it('runs a process zone along the wider side of a fold it would cross, in the row it is in', () => {
+    const plain = laidOut(folded('bottom', 0.75, zone('z')))
+    const layout = laidOut(folded('top', 0.75, zone('z')))
+    const cell = rectOf(layout, 'pm')
+    const pocket = pocketOf(layout)
+    const z = rectOf(layout, 'z')
+    expect(z.y).toBe(rectOf(plain, 'z').y)
+    expect(apart(z, pocket)).toBe(true)
+    // The side before the fold, the wider one, and none of the other.
+    expect(z.x).toBeLessThan(pocket.x)
+    expect(right(z)).toBeGreaterThan(cell.x + cell.width / 2)
+    expect(contains(cell, z)).toBe(true)
+  })
+
+  it('takes the side past a fold when that is the wider', () => {
+    const layout = laidOut(folded('top', 0.2, zone('z')))
+    expect(rectOf(layout, 'z').x).toBeGreaterThan(right(pocketOf(layout)))
+  })
+
+  it('stops a zone short of a fold in from the cell’s side across its row', () => {
+    for (const side of ['left', 'right']) {
+      const layout = laidOut(folded(side, 0.15, zone('z')))
+      const pocket = pocketOf(layout)
+      expect(apart(rectOf(layout, 'z'), pocket), side).toBe(true)
+      expect(contains(rectOf(layout, 'pm'), rectOf(layout, 'z')), side).toBe(true)
+    }
+  })
+
+  it('grows the cell until a zone’s cards fit beside the fold', () => {
+    for (const side of ['top', 'left', 'right']) {
+      for (const at of [0.15, 0.5, 0.75]) {
+        const layout = laidOut(folded(side, at, zone('z')), { nodes: cards('z', 3) })
+        const z = rectOf(layout, 'z')
+        expect(apart(z, pocketOf(layout)), `${side} ${at}`).toBe(true)
+        // Room for each card and a spare place past them.
+        expect(z.width, `${side} ${at}`).toBeGreaterThanOrEqual(4 * 196)
+      }
+    }
+  })
+
+  it('moves what stands in the cell clear of a fold, whether placed in a row or by its frame', () => {
+    const organelle = (frame) => [
+      { id: 'org', kind: 'compartment', label: 'Org', parent: 'cell' },
+      { id: 'om', kind: 'membrane', label: 'OM', parent: 'cell', encloses: ['org'], ...(frame && { frame }) },
+    ]
+    for (const side of ['top', 'bottom', 'left', 'right']) {
+      for (const at of [0.2, 0.5]) {
+        for (const frame of [
+          null,
+          { x: 0, y: 0, width: 220, height: 150 },
+          { x: 300, y: 200, width: 220, height: 150 },
+        ]) {
+          const layout = laidOut(folded(side, at, zone('z'), ...organelle(frame)))
+          const om = rectOf(layout, 'om')
+          const where = `${side} ${at} ${JSON.stringify(frame)}`
+          expect(apart(om, pocketOf(layout)), where).toBe(true)
+          expect(contains(rectOf(layout, 'pm'), om), where).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('leaves an organelle beside a fold where it is, with the cleft between them', () => {
+    const layout = laidOut(getBuiltInPieceTemplate('cardiomyocyte').pieces)
+    const cell = rectOf(layout, 'sarcolemma')
+    expect(rectOf(layout, 'sr-membrane')).toMatchObject({ x: cell.x + 80, y: cell.y + 310 })
+    for (const id of ['myofilaments', 'mitochondria'])
+      expect(apart(rectOf(layout, id), pocketOf(layout, 'sarcolemma'))).toBe(true)
+  })
+})
+
+/** The pocket of a membrane's fold, its lumen between its walls, in the view's coordinates. */
+function pocketOf(layout, membrane = 'pm') {
+  const cell = layout.places.get(pieceKey(membrane))
+  const { edge, at, half, depth } = cell.folds[0]
+  const { x, y, width, height } = cell.rect
+  if (edge === 'top') return { x: x + at - half, y, width: 2 * half, height: depth }
+  if (edge === 'bottom') return { x: x + at - half, y: y + height - depth, width: 2 * half, height: depth }
+  if (edge === 'left') return { x, y: y + at - half, width: depth, height: 2 * half }
+  return { x: x + width - depth, y: y + at - half, width: depth, height: 2 * half }
+}

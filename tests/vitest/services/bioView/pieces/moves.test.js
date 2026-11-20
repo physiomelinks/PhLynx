@@ -86,6 +86,21 @@ describe('moveFrame', () => {
     expect(cell.x + cell.width).toBeGreaterThan(sr.x + sr.width)
   })
 
+  it('moves an organelle drawn clear of a fold from where it is drawn, not the frame that put it on the fold', () => {
+    // Its frame puts the SR on the T-tubule; it is drawn beside it.
+    const onFold = valid(
+      cardiomyocyte.map((piece) =>
+        piece.id === 'sr-membrane' ? { ...piece, frame: { ...piece.frame, x: 420, y: 100 } } : piece,
+      ),
+    )
+    const rects = rectsOf(onFold)
+    const cell = rects.get('sarcolemma')
+    const drawn = rects.get('sr-membrane')
+    expect(drawn.x - cell.x).not.toBe(420)
+    const moved = valid(moveFrame(onFold, 'sr-membrane', { x: 0, y: 10 }, rects))
+    expect(byId(moved, 'sr-membrane').frame).toMatchObject({ x: drawn.x - cell.x, y: drawn.y - cell.y + 10 })
+  })
+
   it('gives a zone placed in a row a frame of its own where it is dropped', () => {
     const rects = rectsOf(cardiomyocyte)
     const moved = valid(moveFrame(cardiomyocyte, 'mitochondria', { x: 0, y: 200 }, rects))

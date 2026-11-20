@@ -45,12 +45,16 @@ function cornerOf(piece, rects) {
   return (parent && rects.get(parent)) || { x: 0, y: 0 }
 }
 
-/** A piece's frame, or where it is drawn now as one, from the corner of what it stands in. */
+/**
+ * A piece's frame, or where it is drawn now as one, from the corner of what it stands in. A frame is taken from where
+ * the piece is drawn, which is elsewhere where it was moved clear of a fold, so a drag starts from what is seen.
+ */
 function frameOf(piece, rects) {
-  if (piece.frame) return { ...piece.frame }
   const rect = rects.get(piece.id)
   const corner = cornerOf(piece, rects)
-  return rect ? { x: rect.x - corner.x, y: rect.y - corner.y, width: rect.width, height: rect.height } : null
+  const drawn = rect && { x: rect.x - corner.x, y: rect.y - corner.y }
+  if (piece.frame) return { ...piece.frame, ...drawn }
+  return rect ? { ...drawn, width: rect.width, height: rect.height } : null
 }
 
 /**
