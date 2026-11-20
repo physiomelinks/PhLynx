@@ -194,6 +194,8 @@ CARRY_WORKSPACE_STATES = """async () => {
   const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
   const { useLibraryStore } = await importAppModule('/src/stores/libraryStore.js')
   const scope = resolveScope(null, nodes.value, edges.value, [])
+  // buildScopedModel runs libCellML on this thread, which loads it only on demand.
+  await (await importAppModule('/src/utils/cellml.js')).loadLibCellML()
   const cellml = await buildScopedModel(scope, useLibraryStore()).text()
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-carry-' + Math.round(performance.now())
@@ -262,7 +264,7 @@ RUN_SHORT_PULSE = """async () => {
 # A ramp of k from 0 to 1 over 2 s, written into the model as a driver: x = exp(-t^2 / 4).
 RUN_RAMP = """async () => {
   const { whenLibOpenCORReady } = await importAppModule('/src/services/simulation/libopencorLoader.js')
-  const { whenLibCellMLReady } = await importAppModule('/src/utils/cellml.js')
+  const { loadLibCellML } = await importAppModule('/src/utils/cellml.js')
   const { readProtocolInfo, validateProtocolInfo } = await import('/node_modules/@physiomelinks/protocol-kit/dist/index.js')
   const { compileProtocolPlan } = await importAppModule('/src/services/protocol/libopencorEngine/protocolPlan.js')
   const { planDrivers, findShortestFeature } = await importAppModule('/src/services/protocol/libopencorEngine/protocolDrivers.js')
@@ -273,7 +275,7 @@ RUN_RAMP = """async () => {
   })
   const view = readProtocolInfo(protocolInfo)
   const drivers = planDrivers(view)
-  const { cellml, errors } = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml: __CELLML__, drivers })
+  const { cellml, errors } = addProtocolDrivers({ libcellml: await loadLibCellML(), cellml: __CELLML__, drivers })
   const simulator = await whenLibOpenCORReady()
   const key = 'protocol-ramp-' + Math.round(performance.now())
   const described = await simulator.describeModel({ cellml, key })

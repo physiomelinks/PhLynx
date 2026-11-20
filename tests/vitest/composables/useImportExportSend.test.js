@@ -13,12 +13,15 @@ vi.mock('../../../src/services/compress', async (importActual) => ({
   generateOmexArchive: vi.fn(async () => new Blob(['omex'])),
   createOmexDataFragment: vi.fn(async () => 'data:application/zip;base64,UEsF'),
 }))
+vi.mock('../../../src/services/libcellml/libcellmlClient', () => import('../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../src/utils/cellml', () => ({
   extractVoiAndParametersFromModel: vi.fn(() => ({ voi: null, mappedParameters: {} })),
 }))
 vi.mock('../../../src/services/export/modularCellml', () => ({
-  buildModularModel: vi.fn(async () => ({ main: '<model/>', flat: '<model/>', files: [], sidecars: [], warnings: [] })),
   zipModularModel: vi.fn(async () => new Blob(['zip'])),
+}))
+vi.mock('../../../src/services/libcellml/modelBuilding', () => ({
+  buildModularModelInBackground: vi.fn(async () => ({ main: '<model/>', flat: '<model/>', files: [], sidecars: [], warnings: [] })),
 }))
 const { getModuleFormat } = vi.hoisted(() => ({ getModuleFormat: vi.fn() }))
 const caExportBlocker = vi.hoisted(() => vi.fn(() => null))
@@ -34,7 +37,7 @@ vi.mock('../../../src/services/moduleFormats', async (importActual) => {
 
 const { useImportExportSend } = await import('../../../src/composables/useImportExportSend.js')
 const { createOmexDataFragment, generateOmexArchive, OPENCOR_URL_LIMIT } = await import('../../../src/services/compress')
-const { buildModularModel } = await import('../../../src/services/export/modularCellml')
+const { buildModularModelInBackground: buildModularModel } = await import('../../../src/services/libcellml/modelBuilding')
 const { notify } = await import('../../../src/utils/notify')
 const { getFileHandle } = await import('../../../src/utils/save')
 const { useLibraryStore } = await import('../../../src/stores/libraryStore.js')
@@ -101,12 +104,10 @@ describe('useImportExportSend selection exports', () => {
   /**
    * Sets up the composable over the test's workspace.
    *
-   * @param {string} [libcellmlStatus]
    * @returns {ReturnType<typeof useImportExportSend>}
    */
-  function setup(libcellmlStatus = 'ready') {
+  function setup() {
     return useImportExportSend({
-      libcellml: { status: libcellmlStatus },
       nodes,
       edges,
       importDialogVisible: ref(false),
@@ -134,8 +135,7 @@ describe('useImportExportSend selection exports', () => {
     expect(menuItem(sendMenuItems, 'OpenCOR (selection)').disabled).toBe(false)
   })
 
-  it('offers the Circulatory Autogen export once libCellML is ready, as it writes CellML', () => {
-    expect(menuItem(setup('loading').exportMenuItems, 'Circulatory Autogen').disabled).toBe(true)
+  it('offers the Circulatory Autogen export without waiting for libCellML, which loads in its worker on first use', () => {
     expect(menuItem(setup().exportMenuItems, 'Circulatory Autogen').disabled).toBe(false)
   })
 
@@ -222,9 +222,7 @@ describe('useImportExportSend selection exports', () => {
     expect(open).not.toHaveBeenCalled()
 
     nodes.value[0].data.variables[2].value = '1'
-    buildModularModel.mockImplementationOnce(() => {
-      throw new Error('Analyser error count: 1')
-    })
+    buildModularModel.mockRejectedValueOnce(new Error('Analyser error count: 1'))
     await menuItem(sendMenuItems, 'OpenCOR (selection)').command()
     expect(notify.error).toHaveBeenLastCalledWith({ title: 'Send failed', message: 'Analyser error count: 1' })
     expect(open).not.toHaveBeenCalled()
@@ -325,10 +323,9 @@ describe('useImportExportSend selection exports', () => {
 describe('useImportExportSend import options', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  /** The import menu's labels, with libCellML ready. */
+  /** The import menu's labels. */
   const importLabels = () =>
     useImportExportSend({
-      libcellml: { status: 'ready' },
       nodes: ref([]),
       edges: ref([]),
       importDialogVisible: ref(false),

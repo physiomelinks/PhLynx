@@ -152,7 +152,7 @@ def open_menu(page, index, label):
     """Open the toolbar's index-th split button menu (0 Import, 1 Export) and pick an item."""
     page.locator(".file-io-buttons .p-splitbutton").nth(index).locator(".p-splitbutton-dropdown").click()
     item = page.get_by_role("menuitem", name=label, exact=True)
-    # The CellML items enable once libcellml is ready.
+    # The menu fills once the app has mounted.
     expect(item).to_be_enabled(timeout=APP_MOUNT_TIMEOUT)
     item.click()
 

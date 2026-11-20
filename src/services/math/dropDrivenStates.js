@@ -5,6 +5,7 @@
  * no value.
  */
 import { CELLML_NS, MATHML_NS } from '../../utils/constants'
+import { parseXml } from '../../utils/xmlDom'
 
 const childElements = (element) => [...element.childNodes].filter((node) => node.nodeType === 1)
 
@@ -39,8 +40,8 @@ export function dropDrivenStates(xmlString, stateNames) {
   const names = new Set(stateNames)
   if (!names.size) return xmlString
 
-  const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
-  if (doc.getElementsByTagName('parsererror').length) return xmlString
+  const doc = parseXml(xmlString)
+  if (!doc) return xmlString
   const component = doc.getElementsByTagNameNS(CELLML_NS, 'component')[0]
   if (!component) return xmlString
 

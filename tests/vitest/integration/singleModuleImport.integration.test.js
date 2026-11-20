@@ -69,7 +69,7 @@ describe('one-module CellML import', () => {
   })
 
   it('places the module as a single node instead of leaving the load waiting', async () => {
-    const cellml = prepareCellmlImport(ONE_MODULE_EXPORT, FILE)
+    const cellml = await prepareCellmlImport(ONE_MODULE_EXPORT, FILE)
     const processed = processCellMLData(cellml)
     expect(processed.type).toBe('success')
     const store = useLibraryStore()

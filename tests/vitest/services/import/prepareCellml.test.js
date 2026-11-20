@@ -5,6 +5,7 @@ import { hoistEncapsulatedComponents } from '../../../../src/utils/cellml'
 import { notify } from '../../../../src/utils/notify'
 
 vi.mock('../../../../src/utils/notify', () => ({ notify: { info: vi.fn(), warning: vi.fn() } }))
+vi.mock('../../../../src/services/libcellml/libcellmlClient', () => import('../../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../../src/utils/cellml', () => ({ hoistEncapsulatedComponents: vi.fn() }))
 
 /**
@@ -22,29 +23,29 @@ describe('prepareCellml', () => {
     hoistEncapsulatedComponents.mockImplementation((content) => hoistResult(content))
   })
 
-  it('returns the hoisted CellML of one file, without a notice when nothing was ignored or kept', () => {
-    expect(prepareCellmlImport('<a/>', 'a.cellml')).toBe('<a/>+hoisted')
+  it('returns the hoisted CellML of one file, without a notice when nothing was ignored or kept', async () => {
+    expect(await prepareCellmlImport('<a/>', 'a.cellml')).toBe('<a/>+hoisted')
     expect(notify.info).not.toHaveBeenCalled()
     expect(notify.warning).not.toHaveBeenCalled()
   })
 
-  it('names one file in the containment notice', () => {
+  it('names one file in the containment notice', async () => {
     hoistEncapsulatedComponents.mockImplementation((content) => hoistResult(content, { ignoredContainment: true }))
 
-    prepareCellmlImport('<a/>', 'a.cellml')
+    await prepareCellmlImport('<a/>', 'a.cellml')
 
     expect(notify.info).toHaveBeenCalledTimes(1)
     expect(notify.info.mock.calls[0][0]).toMatchObject({ title: 'Containment Groups Ignored', message: expect.stringMatching(/^a\.cellml groups /) })
   })
 
-  it('gives a batch one notice of each kind, naming the files it applies to', () => {
+  it('gives a batch one notice of each kind, naming the files it applies to', async () => {
     hoistEncapsulatedComponents
       .mockImplementationOnce((content) => hoistResult(content, { ignoredContainment: true }))
       .mockImplementationOnce((content) => hoistResult(content, { ignoredContainment: true, hoistFailed: true }))
       .mockImplementationOnce((content) => hoistResult(content, { hoistFailed: true }))
 
     const files = ['a', 'b', 'c'].map((name) => ({ name: `${name}.cellml`, content: `<${name}/>` }))
-    expect(prepareCellmlImports(files)).toEqual(['<a/>+hoisted', '<b/>+hoisted', '<c/>+hoisted'])
+    expect(await prepareCellmlImports(files)).toEqual(['<a/>+hoisted', '<b/>+hoisted', '<c/>+hoisted'])
 
     expect(notify.info).toHaveBeenCalledTimes(1)
     expect(notify.info.mock.calls[0][0].message).toMatch(/^a\.cellml, b\.cellml group /)

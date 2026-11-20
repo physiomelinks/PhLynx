@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { processCellMLData } from '../../utils/cellml'
+import { processCellMLDataInBackground } from '../libcellml/cellmlImport'
 import { isModuleConfigFile, isPhlynxFlowSnapshotFile, isSimulationJsonFile } from './omexClassifiers'
 import { classifyAnnotationEntry, isAnnotationCandidate } from './omexAnnotations'
 
@@ -101,7 +101,7 @@ export async function registerArchiveUnits(archive, locations, libraryStore) {
     const file = archive.file(location)
     if (!file) continue
 
-    const result = processCellMLData(await file.async('string'))
+    const result = await processCellMLDataInBackground(await file.async('string'))
     if (result.type !== 'success' || !result.units.count) continue
 
     const componentFile = location.split('/').pop()

@@ -7,7 +7,7 @@ import { fileKeyFromPath } from '../utils/namespaces'
 import { importOmexFile } from '../services/import/omex'
 import { prepareCellmlImport, prepareCellmlImports, resolveCellmlImports } from '../services/import/prepareCellml'
 import { parseCellMLConnections } from '../services/import/parseCellmlConnections'
-import { loadParametersFromCellML } from '../utils/cellml'
+import { loadParametersFromCellMLInBackground } from '../services/libcellml/modelQueries'
 import { FLOW_IDS } from '../utils/constants'
 import { offsetEdgeData } from '../utils/edgeRoute'
 import { readFileAsText } from '../utils/misc'
@@ -25,10 +25,11 @@ const RESTORE_OFFSET_X = 1500
  * @param {Function} options.loadFromCellML - Builds the connection graph from parsed CellML.
  * @param {Function} options.rebuildNodeEdgeIndex - Rebuilds the node to edge index after a load.
  * @param {Function} options.confirm - Confirm dialog; resolves true to overwrite the workspace.
- * @param {Object} options.libcellml - Injected libCellML state; drops wait for `status === 'ready'`.
  * @param {Function} options.processImportedOmexArchive - Applies an imported OMEX archive.
  * @param {Function} options.onDragOverModule - Internal module-drag dragover handler (from useDnD).
  * @param {Function} options.onDropModule - Internal module-drag drop handler (from useDnD).
+ * @param {Promise} [options.libraryReady] - Settles once the built-in library has loaded, which loads wait for, so
+ *   their modules land after it and convert against its units.
  * @param {(files: Array<{ key: string, cellml: string }>) => Promise<Object>} [options.planImport] - Asks
  *   which namespace files from a folder or zip go in, and what to do about clashes there (see planNamespaceImport).
  * @param {string} [options.flowId=FLOW_IDS.MAIN]
@@ -40,10 +41,10 @@ export function useCellmlDrop({
   loadFromCellML,
   rebuildNodeEdgeIndex,
   confirm,
-  libcellml,
   processImportedOmexArchive,
   onDragOverModule,
   onDropModule,
+  libraryReady = Promise.resolve(),
   planImport = async () => AS_IS,
   flowId = FLOW_IDS.MAIN,
 }) {
@@ -115,12 +116,13 @@ export function useCellmlDrop({
    * Shows per-file notifications for a single file; a combined summary for multiple.
    */
   const loadCellMLFiles = async (entries) => {
+    await libraryReady
     // Single-file fast path: check for connections and load as a graph if present
     if (entries.length === 1) {
       const entry = entries[0]
       const text = await readEntry(entry)
       const [resolved] = await resolveCellmlImports([{ name: entry.name, path: entry.path, content: text }])
-      const content = prepareCellmlImport(resolved, entry.name)
+      const content = await prepareCellmlImport(resolved, entry.name)
       const plan = await planImport([{ key: keyOf(entry), cellml: content }])
       if (plan.isSkipped(keyOf(entry))) return []
       const key = plan.mapKey(keyOf(entry))
@@ -142,7 +144,7 @@ export function useCellmlDrop({
 
             // Load new graph into clean workspace using the normal path
             const result = await loadCellMLData(content, key, { notify: false })
-            const parameters = loadParametersFromCellML(content)
+            const parameters = await loadParametersFromCellMLInBackground(content)
             // Nothing placed means nothing was cleared, so there is nothing to restore.
             if (!(await loadFromCellML(parsedCellmlPayload, key, parameters))) return [result]
 
@@ -185,7 +187,7 @@ export function useCellmlDrop({
 
         // Register modules/units in the store first, then build the graph.
         const result = await loadCellMLData(content, key, { notify: false })
-        const parameters = loadParametersFromCellML(content)
+        const parameters = await loadParametersFromCellMLInBackground(content)
         await loadFromCellML(parsedCellmlPayload, key, parameters)
 
         rebuildNodeEdgeIndex()
@@ -219,7 +221,7 @@ export function useCellmlDrop({
     const resolved = await resolveCellmlImports(
       entries.map((entry, index) => ({ name: entry.name, path: entry.path, content: texts[index] }))
     )
-    const contents = prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
+    const contents = await prepareCellmlImports(entries.map((entry, index) => ({ name: entry.name, content: resolved[index] })))
     // A namespace holds one file of a name: a later one, from another folder of the same import, is left out.
     const firstOfKey = new Map()
     const duplicates = []
@@ -356,14 +358,6 @@ export function useCellmlDrop({
         notify.warning({
           title: 'Unsupported File Type',
           message: 'Only .cellml and .omex files, or folders and zips holding them, can be dropped onto the workspace.',
-        })
-        return
-      }
-
-      if (libcellml.status !== 'ready') {
-        notify.warning({
-          title: 'CellML Library Not Ready',
-          message: 'Please wait for the CellML library to finish loading and try again.',
         })
         return
       }

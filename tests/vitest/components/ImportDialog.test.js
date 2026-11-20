@@ -39,6 +39,7 @@ vi.mock('../../../src/composables/useFolderImport', async () => {
 })
 
 // CellML parsing needs libcellml; any file whose text starts with "<model" counts as CellML here.
+vi.mock('../../../src/services/libcellml/libcellmlClient', () => import('../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../src/utils/cellml', async (importActual) => ({
   ...(await importActual()),
   isCellML: (content) => content.startsWith('<model'),

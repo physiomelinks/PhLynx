@@ -55,7 +55,7 @@ function findReportedMember(variable, reportedNames, known, handles) {
  * Maps each variable row of the scope's instances to the name its values are reported under.
  *
  * @param {Object} options
- * @param {Object} options.libcellml - The libcellml module (see whenLibCellMLReady).
+ * @param {Object} options.libcellml - The libcellml module (see loadLibCellML).
  * @param {string} options.cellml - The flattened CellML model that was run.
  * @param {Array<Object>} options.nodes - The scope's nodes, named as they were when the model was built.
  * @param {{voi: {name: string}, variables: Map<string, Object>}} options.results - The engine's results.

@@ -5,6 +5,7 @@
  */
 import { CELLML_NS } from '../../utils/constants'
 import { getLibCellML } from '../../utils/cellml'
+import { parseXml } from '../../utils/xmlDom'
 
 const MAX_ATTEMPTS = 1000
 
@@ -16,8 +17,7 @@ const MAX_ATTEMPTS = 1000
  */
 function parseMath(math) {
   if (!math?.trim()) return null
-  const doc = new DOMParser().parseFromString(math, 'application/xml')
-  return doc.getElementsByTagName('parsererror').length ? null : doc
+  return parseXml(math)
 }
 
 const elementsOf = (doc, tagName) => Array.from(doc.getElementsByTagNameNS(CELLML_NS, tagName))

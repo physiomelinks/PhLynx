@@ -4,7 +4,6 @@ import PrimeVue from 'primevue/config'
 import Ripple from 'primevue/ripple'
 import ConfirmationService from 'primevue/confirmationservice'
 import ToastService from 'primevue/toastservice'
-import libcellmlPlugin from 'vue3-libcellml.js'
 import GlossaryLink from './components/GlossaryLink.vue'
 import { vHint, vTooltip } from './directives/tooltip'
 
@@ -63,7 +62,6 @@ waitForIsolationReload().then(() => {
   app.directive('tooltip', vTooltip)
   app.directive('hint', vHint)
   app.directive('ripple', Ripple)
-  app.use(libcellmlPlugin)
   app.component('GlossaryLink', GlossaryLink)
   app.provide('$libopencor', libopencor)
   app.mount('#app')

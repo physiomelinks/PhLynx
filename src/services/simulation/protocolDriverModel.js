@@ -85,7 +85,7 @@ function addVariable(libcellml, component, { name, units, initialValue }) {
  * value, and every value equivalent to it, gives way to the driver, whose number starts as that value.
  *
  * @param {Object} options
- * @param {Object} options.libcellml - The libcellml module (see whenLibCellMLReady).
+ * @param {Object} options.libcellml - The libcellml module (see loadLibCellML).
  * @param {string} options.cellml - The flattened model.
  * @param {Array<Object>} options.drivers - From planDrivers.
  * @returns {{cellml: string, errors: string[]}} The model with its drivers, and why any couldn't be added.
@@ -148,7 +148,7 @@ export function addProtocolDrivers({ libcellml, cellml, drivers }) {
  * starts at 0.
  *
  * @param {Object} options
- * @param {Object} options.libcellml - The libcellml module (see whenLibCellMLReady).
+ * @param {Object} options.libcellml - The libcellml module (see loadLibCellML).
  * @param {string} options.cellml - The flattened model, with any drivers.
  * @returns {{cellml: string, errors: string[]}} The model with its clock, and why it couldn't be added.
  */

@@ -24,7 +24,7 @@ import { classifyRows, findConnectionSupplied } from '../services/math/variableK
 import { separateParameters } from '../services/math/separateParameters'
 import { stripIds } from '../services/math/variableIds'
 import { buildVariableDeclarations } from '../utils/variables'
-import { areModelsEquivalent } from '../utils/cellml'
+import { areModelsEquivalentInBackground } from '../services/libcellml/modelQueries'
 import { cleanName } from '../utils/identifiers'
 import { restorePortVariables, setPortVariables } from '../utils/multiport'
 
@@ -196,16 +196,41 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
    */
   const isMissingUnits = (row) => (isManaged.value ? !cleanName(row.units) : unresolvedInText.value.has(row.name))
 
+  // libCellML's last answer to whether the loaded and current math are the same, for the pair it compared.
+  const equivalence = shallowRef({ original: null, current: null, isEquivalent: false })
+
   /**
    * Checks whether the math differs from what was loaded, ignoring ids (a save keeps those, see
-   * carryVariableIds). The libcellml comparison only runs when the XML text differs.
+   * carryVariableIds). When the XML text differs, libCellML compares them in its worker (checkDirty), so until it
+   * answers, the math counts as changed.
    *
    * @returns {boolean}
    */
   function isDirty() {
     if (currentModel.value === originalModel.value) return false
-    return !areModelsEquivalent(stripIds(originalModel.value), stripIds(currentModel.value))
+    const { original, current, isEquivalent } = equivalence.value
+    return !(isEquivalent && original === originalModel.value && current === currentModel.value)
   }
+
+  /**
+   * Checks whether the math differs from what was loaded, as isDirty does, waiting for libCellML's comparison.
+   *
+   * @returns {Promise<boolean>}
+   */
+  async function checkDirty() {
+    const original = originalModel.value
+    const current = currentModel.value
+    if (current === original) return false
+    const cached = equivalence.value
+    if (cached.original === original && cached.current === current) return !cached.isEquivalent
+    const isEquivalent = await areModelsEquivalentInBackground(stripIds(original), stripIds(current))
+    if (originalModel.value === original && currentModel.value === current) equivalence.value = { original, current, isEquivalent }
+    return !isEquivalent
+  }
+
+  watch([originalModel, currentModel], () =>
+    checkDirty().catch((error) => console.error('Could not compare the math with what was loaded:', error))
+  )
 
   /**
    * Checks whether the text layout differs from what was loaded, e.g. after editing only comments.
@@ -343,7 +368,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     if (source === 'edit') return handleValidEdit(xml, textState, nextAnalysis)
 
     // 'init' (first editor mounted) or 'external' (mode, definitions, component name or editor changed).
-    const rebaseline = source === 'init' || (isEditorSwitch && !isDirty())
+    const rebaseline = source === 'init' || (isEditorSwitch && !(await checkDirty()))
     const rebaselineLayout = source === 'init' || (isEditorSwitch && !isLayoutDirty())
     currentText.value = textState
     currentModel.value = xml
@@ -610,6 +635,7 @@ export function useMathSession({ history, editorRef, ports, plotVariables = null
     // queries
     isMissingUnits,
     isDirty,
+    checkDirty,
     isLayoutDirty,
     hasUnsavedInvalidEdit,
     // actions

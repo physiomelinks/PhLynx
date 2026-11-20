@@ -39,6 +39,7 @@ vi.mock('../../../src/services/import/prepareCellml', () => ({
   prepareCellmlImports: vi.fn((files) => files.map((file) => file.content)),
   resolveCellmlImports: vi.fn(async (files) => files.map((file) => file.content)),
 }))
+vi.mock('../../../src/services/libcellml/libcellmlClient', () => import('../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../src/utils/cellml', () => ({ loadParametersFromCellML: vi.fn(() => ({ params: true })) }))
 vi.mock('../../../src/utils/misc', () => ({ readFileAsText: vi.fn() }))
 
@@ -70,12 +71,23 @@ describe('useCellmlDrop', () => {
       }),
       rebuildNodeEdgeIndex: vi.fn(),
       confirm: vi.fn(),
-      libcellml: { status: 'ready' },
       processImportedOmexArchive: vi.fn(),
       onDragOverModule: vi.fn(),
       onDropModule: vi.fn(),
     }
     drop = useCellmlDrop(deps)
+  })
+
+  it('waits for the built-in library before loading, so its modules and units land first', async () => {
+    let markReady
+    const loading = useCellmlDrop({ ...deps, libraryReady: new Promise((resolve) => (markReady = resolve)) })
+      .loadCellMLFiles([{ name: 'm.cellml', content: '<model/>' }])
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(deps.loadCellMLData).not.toHaveBeenCalled()
+
+    markReady()
+    await loading
+    expect(deps.loadCellMLData).toHaveBeenCalledTimes(1)
   })
 
   describe('loadCellMLFiles, single file with connections', () => {
@@ -482,28 +494,6 @@ describe('useCellmlDrop', () => {
       })
       expect(deps.loadCellMLData).not.toHaveBeenCalled()
       expect(deps.onDropModule).not.toHaveBeenCalled()
-    })
-
-    it('warns and loads nothing while libCellML is not ready', async () => {
-      deps.libcellml.status = 'loading'
-
-      await drop.onDrop(makeEvent({ files: [file('m.cellml')] }))
-
-      expect(notify.warning).toHaveBeenCalledWith({
-        title: 'CellML Library Not Ready',
-        message: 'Please wait for the CellML library to finish loading and try again.',
-      })
-      expect(deps.loadCellMLData).not.toHaveBeenCalled()
-      expect(importOmexFile).not.toHaveBeenCalled()
-    })
-
-    it('checks the file type before libCellML readiness', async () => {
-      deps.libcellml.status = 'loading'
-
-      await drop.onDrop(makeEvent({ files: [file('notes.txt')] }))
-
-      expect(notify.warning).toHaveBeenCalledTimes(1)
-      expect(notify.warning).toHaveBeenCalledWith(expect.objectContaining({ title: 'Unsupported File Type' }))
     })
 
     it('walks a dropped folder and resolves imports by the paths inside it', async () => {

@@ -1,10 +1,12 @@
 import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { Parser as HtmlParser } from 'htmlparser2'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues.js'
 import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import { couplingUnitConflicts } from './couplingUnits.js'
 import { portDisplayName } from './portIdentity.js'
+import { appendChildren, childElements, elementsWithId, parseXml, removeNode, tryParseXml } from './xmlDom.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
@@ -17,39 +19,38 @@ import {
 } from './constants.js'
 
 let _libcellml = null
-let resolveLibCellMLReady
-let rejectLibCellMLReady
-const libcellmlReady = new Promise((resolve, reject) => {
-  resolveLibCellMLReady = resolve
-  rejectLibCellMLReady = reject
-})
-// Avoid an unhandled rejection when nothing is waiting on readiness.
-libcellmlReady.catch(() => {})
+let libcellmlLoading = null
 
+/**
+ * Binds the libCellML instance the synchronous functions here use.
+ *
+ * @param {Object} instance - A loaded libCellML module.
+ */
 export function initLibCellML(instance) {
   _libcellml = instance
-  resolveLibCellMLReady(instance)
+  libcellmlLoading = Promise.resolve(instance)
 }
 
 /**
- * Initialises libCellML once the plugin's promise resolves, or fails whenLibCellMLReady() if it rejects.
+ * Loads libCellML on first call and binds it with initLibCellML; later calls share that load, and a failed load is
+ * tried again. Resolves at once with an instance already bound (tests bind one directly).
  *
- * @param {Promise} ready - The plugin's libCellML promise.
- * @returns {Promise} Settles with ready.
+ * @returns {Promise<Object>} The libCellML module.
  */
-export function bindLibCellML(ready) {
-  return ready.then(initLibCellML, (error) => {
-    rejectLibCellMLReady(error)
-    throw error
-  })
-}
-
-/**
- * Resolves once initLibCellML has been called and CellML parsing is available; rejects if libCellML
- * fails to load.
- */
-export function whenLibCellMLReady() {
-  return libcellmlReady
+export function loadLibCellML() {
+  libcellmlLoading ??= Promise.all([import('libcellml.js/libcellml.js'), import('libcellml.js/libcellml.wasm?url')])
+    .then(([{ default: createLibCellML }, { default: wasmUrl }]) => createLibCellML({ locateFile: () => wasmUrl }))
+    .then(
+      (instance) => {
+        initLibCellML(instance)
+        return instance
+      },
+      (error) => {
+        libcellmlLoading = null
+        throw error
+      }
+    )
+  return libcellmlLoading
 }
 
 /**
@@ -66,13 +67,11 @@ export function getLibCellML() {
 export { loggerMessages } from './libcellmlLogger.js'
 
 export function extractParametersFromCellML(cellmlString, filename) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
-  const model = doc.getElementsByTagName('model')[0]
+  const model = parseXml(cellmlString)?.getElementsByTagName('model')[0]
   if (!model) return []
 
   const params = []
-  for (const node of model.childNodes) {
-    if (node.nodeType !== Node.ELEMENT_NODE || node.localName !== 'component') continue
+  for (const node of childElements(model, 'component')) {
     for (const variable of node.getElementsByTagName('variable')) {
       const initialValue = variable.getAttribute('initial_value')
       if (!initialValue || isNaN(parseFloat(initialValue))) continue
@@ -88,19 +87,15 @@ export function extractParametersFromCellML(cellmlString, filename) {
 }
 
 export function inferPrimaryComponentName(cellmlString) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
-  const model = doc.getElementsByTagName('model')[0]
+  const model = parseXml(cellmlString)?.getElementsByTagName('model')[0]
   if (!model) return null
-  for (const node of model.childNodes) {
-    if (node.nodeType === Node.ELEMENT_NODE && node.localName === 'component') {
-      return node.getAttribute('name')
-    }
-  }
-  return null
+  const [component] = childElements(model, 'component')
+  return component ? component.getAttribute('name') : null
 }
 
 export function inferComponentNameFromConnections(cellmlString, paramsComponentName) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
+  const doc = parseXml(cellmlString)
+  if (!doc) return null
 
   // CellML 2.0: component names on <map_components> child of <connection>
   for (const mapComponents of doc.getElementsByTagName('map_components')) {
@@ -746,14 +741,12 @@ function extractUnitsFromMath(multiBlockMathString) {
   const wrappedString = `<root>${multiBlockMathString}</root>`
 
   // Parse the XML String
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(wrappedString, 'application/xml')
+  const { doc, error } = tryParseXml(wrappedString)
 
   // Check for parsing errors (optional safety)
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
-    console.error('XML Parse Error:', parserError.textContent)
-    throw new Error('XML Parse Error:', parserError.textContent)
+  if (!doc) {
+    console.error('XML Parse Error:', error)
+    throw new Error('XML Parse Error:', error)
   }
 
   // Find all <cn> elements
@@ -870,34 +863,35 @@ export function splitWideMath(math) {
   // Too few elements to exceed either limit.
   if (!math || (math.match(/<[A-Za-z]/g)?.length ?? 0) <= Math.min(MAX_MATH_EQUATIONS, MAX_MATH_OPERANDS)) return math
 
-  const doc = new DOMParser().parseFromString(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`, 'application/xml')
-  if (doc.querySelector('parsererror')) return math
+  const doc = parseXml(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`)
+  if (!doc) return math
   let isChanged = false
 
   for (const apply of Array.from(doc.getElementsByTagNameNS(MATHML_NS, 'apply'))) {
-    const [operator, ...operands] = Array.from(apply.children)
+    const [operator, ...operands] = childElements(apply)
     if (operands.length <= MAX_MATH_OPERANDS || !GROUPABLE_OPERATORS.has(operator.localName)) continue
     let groups = operands
     while (groups.length > MAX_MATH_OPERANDS) {
       const grouped = []
       for (let i = 0; i < groups.length; i += MAX_MATH_OPERANDS) {
         const group = doc.createElementNS(MATHML_NS, 'apply')
-        group.append(doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS))
+        appendChildren(group, [doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS)])
         grouped.push(group)
       }
       groups = grouped
     }
-    apply.replaceChildren(operator, ...groups)
+    while (apply.firstChild) apply.removeChild(apply.firstChild)
+    appendChildren(apply, [operator, ...groups])
     isChanged = true
   }
 
-  for (const mathElement of Array.from(doc.documentElement.children)) {
-    const equations = Array.from(mathElement.children)
+  for (const mathElement of childElements(doc.documentElement)) {
+    const equations = childElements(mathElement)
     let last = mathElement
     for (let i = MAX_MATH_EQUATIONS; i < equations.length; i += MAX_MATH_EQUATIONS) {
       const next = mathElement.cloneNode(false)
-      next.append(...equations.slice(i, i + MAX_MATH_EQUATIONS))
-      last.after(next)
+      appendChildren(next, equations.slice(i, i + MAX_MATH_EQUATIONS))
+      last.parentNode.insertBefore(next, last.nextSibling)
       last = next
       isChanged = true
     }
@@ -905,7 +899,7 @@ export function splitWideMath(math) {
 
   if (!isChanged) return math
   const serializer = new XMLSerializer()
-  return Array.from(doc.documentElement.children, (element) => serializer.serializeToString(element)).join('\n')
+  return childElements(doc.documentElement).map((element) => serializer.serializeToString(element)).join('\n')
 }
 
 /**
@@ -926,13 +920,11 @@ function splitWideComponentMath(parent) {
 }
 
 function prioritizeEnvironmentComponent(xmlString) {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(xmlString, 'application/xml')
+  const { doc, error } = tryParseXml(xmlString)
 
   // Check for parse errors.
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
-    console.error('XML Parse Error during reordering:', parserError.textContent)
+  if (!doc) {
+    console.error('XML Parse Error during reordering:', error)
     return xmlString // Return original if parsing fails
   }
 
@@ -1040,11 +1032,11 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
   const unchanged = { xml: xmlString, idMap: new Map(), variableIds: new Map() }
   if (!wanted.size && !/\sid\s*=/.test(xmlString)) return unchanged
 
-  const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
-  if (doc.querySelector('parsererror')) return unchanged
+  const doc = parseXml(xmlString)
+  if (!doc) return unchanged
 
-  const component = [...doc.documentElement.children].find((el) => el.localName === 'component') ?? null
-  const elements = [...doc.querySelectorAll('[id]')]
+  const component = childElements(doc.documentElement, 'component')[0] ?? null
+  const elements = elementsWithId(doc)
   const componentName = component?.getAttribute('name')
   // The instance's name is the component's id, so no other element may take it.
   const renamed = (id) => {
@@ -1071,7 +1063,7 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
   if (component && !component.hasAttribute('id')) component.setAttribute('id', instanceName)
 
   const variableIds = new Map()
-  for (const variable of component ? [...component.children].filter((el) => el.localName === 'variable') : []) {
+  for (const variable of component ? childElements(component, 'variable') : []) {
     const name = variable.getAttribute('name')
     if (!name) continue
     if (!variable.hasAttribute('id') && wanted.has(name)) {
@@ -1103,11 +1095,8 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
 export function stripCelsiusToArbitraryUnit(xmlString) {
   const CELSIUS_UNIT_NAME = 'celsius'
 
-  const domParser = new DOMParser()
-  const doc = domParser.parseFromString(xmlString, 'application/xml')
-
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
+  const doc = parseXml(xmlString)
+  if (!doc) {
     console.warn('stripCelsiusToArbitraryUnit: XML parse error — returning original string unchanged.')
     return xmlString
   }
@@ -1122,7 +1111,7 @@ export function stripCelsiusToArbitraryUnit(xmlString) {
   // Remove the <units name="celsius"> definition.
   for (const el of unitsElements) {
     if (el.getAttribute('name') === CELSIUS_UNIT_NAME) {
-      el.parentNode.removeChild(el)
+      removeNode(el)
     }
   }
 
@@ -1663,65 +1652,92 @@ export function generateFlattenedModel(
   }
 }
 
+/**
+ * Reads a model's name and top-level components from its text, as libCellML's Model.componentCount counts them:
+ * imported components count, encapsulated ones (CellML 2.0 `<encapsulation>`, 1.x encapsulation groups) don't, and
+ * comments are skipped. A streaming pass, which costs far less than a DOM or libCellML parse of every module.
+ *
+ * @param {string} xml
+ * @returns {{ modelName: string, componentCount: number }}
+ */
+function countTopLevelComponents(xml) {
+  const names = []
+  const encapsulated = new Set()
+  const stack = []
+  let modelName = ''
+  let group = null // the open 1.x group: whether it's an encapsulation, and its child components
+  const parser = new HtmlParser(
+    {
+      onopentag(rawName, attributes) {
+        const name = rawName.slice(rawName.indexOf(':') + 1)
+        if (name === 'model') modelName = attributes.name ?? ''
+        else if (name === 'component') names.push(attributes.name)
+        else if (name === 'group') group = { isEncapsulation: false, children: [] }
+        else if (name === 'relationship_ref' && group && attributes.relationship === 'encapsulation') {
+          group.isEncapsulation = true
+        } else if (name === 'component_ref' && stack.at(-1) === 'component_ref') {
+          if (stack.includes('encapsulation')) encapsulated.add(attributes.component)
+          else group?.children.push(attributes.component)
+        }
+        stack.push(name)
+      },
+      onclosetag() {
+        if (stack.pop() !== 'group') return
+        if (group?.isEncapsulation) group.children.forEach((child) => encapsulated.add(child))
+        group = null
+      },
+    },
+    { xmlMode: true }
+  )
+  parser.write(xml)
+  parser.end()
+  return { modelName, componentCount: names.filter((name) => !encapsulated.has(name)).length }
+}
+
 function isPossibleParameter(variable, voiNames, includeInitialised = false) {
-  if (voiNames.has(variable.name())) return false
-  if (!includeInitialised && variable.initialValue() !== '') return false
+  if (voiNames.has(variable.name)) return false
+  if (!includeInitialised && variable.initialValue !== '') return false
   return true
 }
 
 /**
  * Extracts unique variable names from a CellML model/component. A variable the math computes, or a
  * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
+ * Reads the math's analysis, not libCellML, so the library store can call it on the main thread.
  *
- * @param {string} math
+ * @param {string} math - A model holding one top-level component, which may encapsulate others.
  * @param {boolean} [includeInitialisedVariables]
  * @param {Map<string, string>} [defaults] - The math's values, for stored math, which holds none (libraryStore.getMathDefaults).
+ * @throws {Error} When the model holds no top-level component, or more than one.
  */
 export function extractVariablesFromMath(math, includeInitialisedVariables = true, defaults = new Map()) {
-  const garbageCollector = new Set() // To track created objects for cleanup.
-  try {
-    const variables = []
-    if (math) {
-      const analysis = analyzeMathXml(math)
-      const roles = {
-        states: new Set(analysis?.stateVariables),
-        assigned: new Set(analysis?.assigned),
-        voi: findVoiNames(analysis),
-      }
-      const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
-      const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
-      roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
-      const parser = new _libcellml.Parser(false)
-      garbageCollector.add(parser)
-      const model = parser.parseModel(math)
-      garbageCollector.add(model)
-      if (model.componentCount() > 1) throw new Error(`More than one component detected in ${model.modelName()}.`)
-      const comp = model.componentByIndex(0)
-      garbageCollector.add(comp)
-      if (!comp) throw new Error(`No component found in file.`)
-      for (let v = 0; v < comp.variableCount(); v++) {
-        const variable = comp.variableByIndex(v)
-        garbageCollector.add(variable)
-        const units = variable.units()
-        garbageCollector.add(units)
-        if (isPossibleParameter(variable, roles.voi, includeInitialisedVariables)) {
-          const initialValue = variable.initialValue()
-          variables.push({
-            name: variable.name(),
-            units: units.name(),
-            value: isNumericLiteral(initialValue) ? initialValue : '',
-            type: inferType(variable.name(), roles),
-            access: 'access',
-            data_reference: 'unknown',
-          })
-        }
-      }
-    }
+  const variables = []
+  if (!math) return variables
+  const { modelName, componentCount } = countTopLevelComponents(math)
+  if (componentCount > 1) throw new Error(`More than one component detected in ${modelName || 'the model'}.`)
+  if (!componentCount) throw new Error(`No component found in file.`)
 
-    return variables
-  } finally {
-    garbageCollector.forEach((obj) => obj?.delete())
+  const analysis = analyzeMathXml(math)
+  const roles = {
+    states: new Set(analysis?.stateVariables),
+    assigned: new Set(analysis?.assigned),
+    voi: findVoiNames(analysis),
   }
+  const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
+  const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
+  roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
+  for (const variable of analysis?.declared ?? []) {
+    if (!isPossibleParameter(variable, roles.voi, includeInitialisedVariables)) continue
+    variables.push({
+      name: variable.name,
+      units: variable.units,
+      value: isNumericLiteral(variable.initialValue) ? variable.initialValue : '',
+      type: inferType(variable.name, roles),
+      access: 'access',
+      data_reference: 'unknown',
+    })
+  }
+  return variables
 }
 
 function removeComments(node) {
@@ -1736,18 +1752,6 @@ function removeComments(node) {
       removeComments(child)
     }
   }
-}
-
-function hasParserError(parsedDocument) {
-  var parser = new DOMParser(),
-    errorneousParse = parser.parseFromString('<', 'application/xml'),
-    parsererrorNS = errorneousParse.getElementsByTagName('parsererror')[0].namespaceURI
-
-  if (parsererrorNS === 'http://www.w3.org/1999/xhtml') {
-    return parsedDocument.getElementsByTagName('parsererror').length > 0
-  }
-
-  return parsedDocument.getElementsByTagNameNS(parsererrorNS, 'parsererror').length > 0
 }
 
 export function extractComponentsFromCellmlString(cellmlString) {
@@ -1834,11 +1838,9 @@ export function uniqueComponentIds(componentModels) {
   const idMaps = []
   for (const xml of componentModels) {
     const idMap = new Map()
-    const doc = /\sid\s*=/.test(xml) ? new DOMParser().parseFromString(xml, 'application/xml') : null
-    const component = doc?.querySelector('parsererror')
-      ? null
-      : ([...(doc?.documentElement.children ?? [])].find((el) => el.localName === 'component') ?? null)
-    const tree = component ? [component, ...component.querySelectorAll('[id]')] : []
+    const doc = /\sid\s*=/.test(xml) ? parseXml(xml) : null
+    const component = doc ? (childElements(doc.documentElement, 'component')[0] ?? null) : null
+    const tree = component ? [component, ...elementsWithId(component)] : []
     const elements = tree.filter((el) => el.hasAttribute('id'))
     const own = new Set(elements.map((el) => el.getAttribute('id')))
     for (const el of elements) {
@@ -1887,61 +1889,6 @@ export function combineComponentModels(modelName, componentModels, names = []) {
     printer.delete()
     parser.delete()
   }
-}
-
-export function mergeModelComponents(targetModelString, sourceModelString, newComponentName, oldComponentName) {
-  const parser = new _libcellml.Parser(false)
-
-  let targetModel = null
-  if (targetModelString && targetModelString.trim().length > 0) {
-    try {
-      targetModel = parser.parseModel(targetModelString)
-    } catch (error) {
-      parser.delete()
-      return ''
-      // Handle parsing error if needed
-    }
-  }
-
-  if (!targetModel) {
-    targetModel = new _libcellml.Model()
-    targetModel.setName('User_Modules')
-  }
-
-  let sourceModel = null
-  try {
-    sourceModel = parser.parseModel(sourceModelString)
-  } catch (error) {
-    targetModel.delete()
-    parser.delete()
-    return ''
-  }
-
-  if (sourceModel.componentCount() > 0) {
-    const component = sourceModel.componentByIndex(0)
-    const existingComponent = targetModel.componentByName(oldComponentName || newComponentName, true)
-
-    if (existingComponent) {
-      targetModel.removeComponentByName(oldComponentName || newComponentName, true)
-      existingComponent.delete()
-    }
-
-    const clonedComponent = component.clone()
-    clonedComponent.setName(newComponentName)
-    targetModel.addComponent(clonedComponent)
-    clonedComponent.delete()
-    component.delete()
-  }
-
-  const printer = new _libcellml.Printer()
-  const mergedModelString = printer.printModel(targetModel, false)
-
-  targetModel.delete()
-  sourceModel.delete()
-  parser.delete()
-  printer.delete()
-
-  return mergedModelString
 }
 
 /**
@@ -2008,7 +1955,8 @@ export function getModelComponentNames(modelString) {
  * @returns {string} The renamed model's XML.
  */
 export function renameModelComponent(modelString, fromName, toName) {
-  const doc = new DOMParser().parseFromString(modelString, 'application/xml')
+  const doc = parseXml(modelString)
+  if (!doc) return modelString
   const renameAttribute = (tagName, attribute) => {
     Array.from(doc.getElementsByTagNameNS(CELLML_NS, tagName)).forEach((el) => {
       if (el.getAttribute(attribute) === fromName) el.setAttribute(attribute, toName)

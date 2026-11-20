@@ -1,7 +1,7 @@
 import Papa from 'papaparse'
 
 import { IMPORT_KEYS, IMPORT_LABELS, RELEVANT_EXTENSIONS, TTL_FILE_TYPES } from './constants'
-import { isCellML, doesComponentExistInModel } from './cellml'
+import { isCellMLInBackground } from '../services/libcellml/cellmlImport'
 import { csvToParameterFile, parseParametersJson } from './parameters/parse'
 import { readSidecarComponent } from '../services/annotations/sidecarFiles'
 import { findModule } from './namespaces'
@@ -138,71 +138,6 @@ export const checkResourcesAreLoaded = (requestedModules, store, { preferredName
     resourcesAreLoaded: warnings.length === 0,
     missingResources,
   }
-}
-
-/**
- * Validates that a config's component_file field correctly points to a file
- * that contains the specified component_type.
- * 
- * This ensures that components come from the CellML file specified in the config.
- * 
- * @param {Object} config - The configuration object with module_type, module_subtype, component_file, component_type
- * @param {Object} libraryStore - The store containing availableCollections
- * @returns {Object|null} - Issue object if there's a problem, null if validation passes
- */
-function validateCollectionFileAssociation(config, libraryStore) {
-  const { component_file, component_type, module_type, module_subtype } = config
-  
-  // Config doesn't specify a component file
-  if (!component_file) {
-    return {
-      config: `${module_type}:${module_subtype}`,
-      expectedFile: 'unknown',
-      componentType: component_type,
-      issue: 'no_file_specified',
-      message: `Config for ${module_type}:${module_subtype} doesn't specify a component_file`,
-    }
-  }
-  
-  // Find the collection in the library
-  const collection = libraryStore.availableCollections.find(
-    f => f.componentFile === component_file
-  )
-  
-  // Expected file is missing (or provided one is empty)
-  if (!collection || !collection.model) {
-    return {
-      config: `${module_type}:${module_subtype}`,
-      expectedFile: component_file,
-      componentType: component_type,
-      issue: 'missing_file',
-      message: `Component file "${component_file}" not found (needed for ${module_type}:${module_subtype})`,
-    }
-  }
-  
-  // Only config provided and still need component 
-  if (collection.isStub) {
-    return {
-      config: `${module_type}:${module_subtype}`,
-      expectedFile: component_file,
-      componentType: component_type,
-      issue: 'stub_file',
-      message: `Component file "${component_file}" needs to be uploaded (needed for ${module_type}:${module_subtype})`,
-    }
-  }
-  
-  if (!doesComponentExistInModel(collection.model, component_type)) {
-    return {
-      config: `${module_type}:${module_subtype}`,
-      expectedFile: component_file,
-      componentType: component_type,
-      issue: 'component_not_in_file',
-      message: `Component "${component_type}" not found in "${component_file}"`,
-    }
-  }
-
-  // All checks passed
-  return null
 }
 
 /**
@@ -490,24 +425,13 @@ export const parseParameters = async (input, fileName) => {
     : csvToParameterFile(await parseParametersFile(input), name)
 }
 
-const parseCellML = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const content = e.target.result
-        if (!isCellML(content)) {
-          // Files without the CellML namespace are some other XML, not broken CellML.
-          reject(Object.assign(new Error('Invalid CellML file.'), { unrelated: !/cellml\.org\/cellml/.test(content) }))
-          return
-        }
-        resolve(content)
-      } catch (err) {
-        reject(err)
-      }
-    }
-    reader.readAsText(file)
-  })
+const parseCellML = async (file) => {
+  const content = await readText(file)
+  if (!(await isCellMLInBackground(content))) {
+    // Files without the CellML namespace are some other XML, not broken CellML.
+    throw Object.assign(new Error('Invalid CellML file.'), { unrelated: !/cellml\.org\/cellml/.test(content) })
+  }
+  return content
 }
 
 /** The metadata element a CellDL document keeps its BG-RDF Turtle in. */
