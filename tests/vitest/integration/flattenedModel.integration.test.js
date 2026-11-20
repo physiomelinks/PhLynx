@@ -448,7 +448,7 @@ describe('generateFlattenedModel multiport couplings', () => {
   const flatten = async (nodes, edges) => (await generateFlattenedModel(nodes, edges, store)).text()
 
   /** The MathML of a generated component. */
-  const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
+  const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}"[^>]*>[\\s\\S]*?</component>`))?.[0] ?? ''
 
   /** The MathML of the generated summation component. */
   const summationMath = async (nodes, edges) => componentOf(await flatten(nodes, edges), 'generated_summations')
@@ -657,7 +657,7 @@ describe('scoped models', () => {
     return { nodes: [hub, ...leaves], edges }
   }
 
-  const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}">[\\s\\S]*?</component>`))?.[0] ?? ''
+  const componentOf = (text, name) => text.match(new RegExp(`<component name="${name}"[^>]*>[\\s\\S]*?</component>`))?.[0] ?? ''
 
   it('builds a selection with nothing to integrate as an algebraic system, with no clock', async () => {
     const { nodes, edges } = buildNetwork()
@@ -668,7 +668,7 @@ describe('scoped models', () => {
     expect(report.zeroedBoundaries).toEqual([{ nodeId: 'leaf_1', nodeName: 'leaf_1', variableName: 'u' }])
     expect(report.canBuild).toBe(true)
     const text = await buildScopedModel(scope, store).text()
-    expect(text).not.toMatch(/<component name="environment"/)
+    expect(text).not.toMatch(/phlynx_environment/)
   })
 
   it('sets a boundary condition the cut leaves without a value to 0', async () => {
@@ -816,7 +816,7 @@ describe('mapping a scoped run’s results back to instances', () => {
 
   /** Results reporting values under the given names, as the engine returns them, over the hub's VoI t. */
   const resultsFor = (names) => ({
-    voi: { name: 'environment/t', unit: 'second', values: new Float64Array([0, 1]) },
+    voi: { name: 'phlynx_environment/t', unit: 'second', values: new Float64Array([0, 1]) },
     variables: new Map(names.map((name, i) => [name, { kind: 'algebraic', unit: '', values: new Float64Array([i, i]) }])),
   })
 
@@ -826,14 +826,14 @@ describe('mapping a scoped run’s results back to instances', () => {
 
     const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
 
-    expect(mapping.get(mappingKey('hub', 't'))).toBe('environment/t')
+    expect(mapping.get(mappingKey('hub', 't'))).toBe('phlynx_environment/t')
     expect(mapping.get(mappingKey('hub', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_1', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_2', 'u'))).toBe('hub/u')
     expect(mapping.get(mappingKey('leaf_1', 'v'))).toBe('leaf_1/v')
     expect(mapping.get(mappingKey('leaf_2', 'k'))).toBe('instance_parameters/leaf_2_k')
     expect(readNodeSeries(results, mapping, 'leaf_2', 'u')).toMatchObject({ name: 'hub/u', kind: 'algebraic' })
-    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'environment/t', kind: 'voi' })
+    expect(readNodeSeries(results, mapping, 'hub', 't')).toMatchObject({ name: 'phlynx_environment/t', kind: 'voi' })
   })
 
   it('plots a boundary condition as the series of the instance that supplies it', async () => {
@@ -871,7 +871,7 @@ describe('mapping a scoped run’s results back to instances', () => {
     const modules = [sumOfLeaves('total flow'), sumOfLeaves('op_v')]
     const scoped = resolveScope(null, scope.nodes, scope.internalEdges, modules)
     const text = await buildScopedModel(scoped, store).text()
-    const inspection = text.match(/<component name="inspection_modules">[\s\S]*?<\/component>/)[0]
+    const inspection = text.match(/<component name="inspection_modules"[^>]*>[\s\S]*?<\/component>/)[0]
     const declared = [...inspection.matchAll(/<variable name="([^"]+)"/g)].map(([, name]) => `inspection_modules/${name}`)
     const results = resultsFor(declared)
 

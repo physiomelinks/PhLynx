@@ -7,7 +7,15 @@
  *   - The components as normalized library modules ready for the store
  */
 
-import { EXCLUDED_COMPONENTS, MAIN_NODE_TYPE, TIME_NAMES, TIME_UNITS } from '../../utils/constants'
+import {
+  MAIN_NODE_TYPE,
+  PARAMETER_COMPONENT_NAMES,
+  PHLYNX_ENVIRONMENT_COMPONENT_ID,
+  PHLYNX_GENERATED_COMPONENTS,
+  PHLYNX_GENERATED_COMPONENT_IDS,
+  TIME_NAMES,
+  TIME_UNITS,
+} from '../../utils/constants'
 import { isNumericLiteral } from '../../utils/variables'
 
 /**
@@ -133,17 +141,26 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
   const cellmlModuleSubtype = `cellml_import_${randomStr}`
 
   // --- 1. Detect time variable names from the environment component ---
+  // A PhLynx export marks the environment it adds by id, which leaves a module called environment a module.
+  const components = Array.from(doc.querySelectorAll('component'))
+  const phlynxEnvironment = components.find((comp) => comp.getAttribute('id') === PHLYNX_ENVIRONMENT_COMPONENT_ID)
+  const environment =
+    phlynxEnvironment ?? components.find((comp) => ['environment', 'Environment'].includes(comp.getAttribute('name')))
+  const excludedComponents = new Set([phlynxEnvironment ? phlynxEnvironment.getAttribute('name') : 'environment'])
+  // Likewise its parameter components. A model exported before PhLynx gave them ids is read by their names.
+  const isPhlynxExport = components.some((comp) => PHLYNX_GENERATED_COMPONENT_IDS.has(comp.getAttribute('id')))
+  const parameterIds = new Set([PHLYNX_GENERATED_COMPONENTS.globalParameters.id, PHLYNX_GENERATED_COMPONENTS.instanceParameters.id])
+  const parameterComponents = components
+    .filter((comp) =>
+      isPhlynxExport ? parameterIds.has(comp.getAttribute('id')) : PARAMETER_COMPONENT_NAMES.has(comp.getAttribute('name'))
+    )
+    .map((comp) => comp.getAttribute('name'))
   const excludedVarNames = new Set()
-  for (const comp of doc.querySelectorAll('component')) {
-    if (comp.getAttribute('name') === 'environment' || comp.getAttribute('name') === 'Environment') {
-      for (const variable of comp.querySelectorAll('variable')) {
-        const varName = variable.getAttribute('name')
-        const varUnits = variable.getAttribute('units') ?? ''
-        if (varName && (TIME_NAMES.has(varName) || TIME_UNITS.has(varUnits))) {
-          excludedVarNames.add(varName)
-        }
-      }
-      break
+  for (const variable of environment?.querySelectorAll('variable') ?? []) {
+    const varName = variable.getAttribute('name')
+    const varUnits = variable.getAttribute('units') ?? ''
+    if (varName && (TIME_NAMES.has(varName) || TIME_UNITS.has(varUnits))) {
+      excludedVarNames.add(varName)
     }
   }
 
@@ -191,7 +208,7 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
     }
 
     if (!comp1 || !comp2) continue
-    if (EXCLUDED_COMPONENTS.has(comp1) || EXCLUDED_COMPONENTS.has(comp2)) continue
+    if (excludedComponents.has(comp1) || excludedComponents.has(comp2)) continue
 
     const pairKey = [comp1, comp2].sort().join('|||')
 
@@ -240,7 +257,7 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
   // --- 4. Build Component Roster ---
   const validComponentNames = [...componentVariableInfo.keys()].filter(
     (name) =>
-      !EXCLUDED_COMPONENTS.has(name) &&
+      !excludedComponents.has(name) &&
       [...edgeSet.values()].some(({ source, target }) => source === name || target === name)
   )
 
@@ -338,5 +355,5 @@ export function parseCellMLConnections(cellmlContent, componentFile) {
     }
   })
 
-  return { components: validComponentNames, nodes, modules, edges, cellmlModuleSubtype }
+  return { components: validComponentNames, parameterComponents, nodes, modules, edges, cellmlModuleSubtype }
 }
