@@ -1,10 +1,11 @@
 /**
  * Maps the variables of a scope's instances to the names libOpenCOR reports their values under. It reports
  * each set of equivalent variables once, under one member: a coupled port variable can appear under the
- * module that computes it, a constant under instance_parameters, and the variable of integration under environment.
+ * module that computes it, a constant under instance_parameters, and the variable of integration under phlynx_environment.
  */
 
-import { sanitiseCellMLIdentifier } from '../../utils/cellml'
+import { generatedComponentName, sanitiseCellMLIdentifier } from '../../utils/cellml'
+import { PHLYNX_GENERATED_COMPONENTS } from '../../utils/constants'
 
 /**
  * Builds the key of a node's variable in a mapping.
@@ -109,7 +110,8 @@ export function readNodeSeries(results, mapping, nodeId, variableName) {
 /**
  * Finds the output of each inspection module in a run. createInspectionModuleComponent names a module's
  * output after the module and each of its terms `op_<variable>`, adding a suffix to a name already taken,
- * so the names are worked out in the same order.
+ * so the names are worked out in the same order. Their component is `inspection_modules`, with a suffix when an
+ * instance has that name.
  *
  * @param {Array<Object>} modules - The scope's inspection modules, as flattened.
  * @param {Array<Object>} nodes - The scope's nodes.
@@ -126,6 +128,10 @@ export function mapInspectionModules(modules, nodes, results) {
     return name
   }
   const nodesById = new Map(nodes.map((node) => [node.id, node]))
+  const component = generatedComponentName(
+    PHLYNX_GENERATED_COMPONENTS.inspectionModules.name,
+    nodes.map((node) => node.data?.name)
+  )
   const outputs = []
   for (const module of modules ?? []) {
     const name = takeName(sanitiseCellMLIdentifier(module.name))
@@ -133,7 +139,7 @@ export function mapInspectionModules(modules, nodes, results) {
       const node = nodesById.get(entry.nodeId)
       if (node?.data?.variables?.some((row) => row.name === entry.variableName)) takeName(`op_${entry.variableName}`)
     }
-    const reportedName = `inspection_modules/${name}`
+    const reportedName = `${component}/${name}`
     if (results.variables.has(reportedName)) {
       outputs.push({ id: module.id, name: module.name, units: module.units || 'dimensionless', reportedName })
     }

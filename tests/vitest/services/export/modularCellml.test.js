@@ -259,7 +259,7 @@ describe('buildModularModel', () => {
       buildNode(id, 'source.cellml:source', { values: { k_v: `${i + 1}` }, ports: [port('flow', 'v')] })
     )
     const modular = await expectEquivalent([tank, ...sources], sources.map((source) => connect(source, tank)))
-    expect(modular.main).toMatch(/<component name="generated_summations">/)
+    expect(modular.main).toMatch(/<component name="generated_summations" id="phlynx_autogen_summations_0001">/)
     expect(modular.files.map(({ location }) => location)).toEqual(['tank.cellml', 'source.cellml'])
   })
 

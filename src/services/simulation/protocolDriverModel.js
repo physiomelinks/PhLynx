@@ -3,6 +3,7 @@
  * the parameter it drives, which loses its own value.
  */
 import { writeDriverMathML } from '../protocol/libopencorEngine/protocolDrivers'
+import { PHLYNX_ENVIRONMENT_COMPONENT_ID } from '../../utils/constants'
 
 export const DRIVER_COMPONENT = 'protocol_drivers'
 
@@ -50,7 +51,7 @@ function findEquivalenceSet(variable, handles) {
 export const NO_CLOCK = 'The model has no variable of integration for a protocol to follow.'
 
 /**
- * Finds the model's variable of integration (VoI): the environment's one variable, named and in units as the model's
+ * Finds the model's variable of integration (VoI): the one variable of the environment PhLynx added (found by its id), named and in units as the model's
  * first ODE has it (see the flattening in utils/cellml.js).
  *
  * @param {Object} model - A libcellml Model.
@@ -58,8 +59,13 @@ export const NO_CLOCK = 'The model has no variable of integration for a protocol
  * @returns {Object|null} The variable, or null for a model without one.
  */
 function findClock(model, keep) {
-  const environment = keep(model.componentByName('environment', true))
-  return environment?.variableCount() ? keep(environment.variableByIndex(0)) : null
+  for (let i = 0; i < model.componentCount(); i++) {
+    const component = keep(model.componentByIndex(i))
+    if (component.id() === PHLYNX_ENVIRONMENT_COMPONENT_ID) {
+      return component.variableCount() ? keep(component.variableByIndex(0)) : null
+    }
+  }
+  return null
 }
 
 /**

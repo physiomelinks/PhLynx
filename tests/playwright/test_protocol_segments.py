@@ -55,11 +55,11 @@ DECAY_MODELS = {
     <map_variables variable_1="k" variable_2="k"/>
   </connection>
 </model>""",
-    # As PhLynx flattens it: time in environment, constants in instance_parameters.
+    # As PhLynx flattens it: time in phlynx_environment, constants in instance_parameters.
     "flattened": """<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
   <units name="per_second"><unit units="second" exponent="-1"/></units>
-  <component name="environment"><variable name="time" units="second" interface="public"/></component>
+  <component name="phlynx_environment" id="phlynx_autogen_environment_0001"><variable name="time" units="second" interface="public"/></component>
   <component name="decay">
     <variable name="t" units="second" interface="public"/>
     <variable name="x" units="dimensionless" initial_value="1"/>
@@ -69,7 +69,7 @@ DECAY_MODELS = {
     </math>
   </component>
   <component name="instance_parameters"><variable name="k" units="per_second" initial_value="0.5" interface="public"/></component>
-  <connection component_1="environment" component_2="decay"><map_variables variable_1="time" variable_2="t"/></connection>
+  <connection component_1="phlynx_environment" component_2="decay"><map_variables variable_1="time" variable_2="t"/></connection>
   <connection component_1="decay" component_2="instance_parameters"><map_variables variable_1="k" variable_2="k"/></connection>
 </model>""",
 }
