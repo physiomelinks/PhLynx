@@ -1,5 +1,6 @@
 <template>
-  <!-- A grip on a piece that is no node of its own: a fold's far end, a tube's end or its bend -->
+  <!-- A grip on a piece that is no node of its own: a fold's far end, a tube's end or its bend, or the far edge of a
+       compartment docked along one side -->
   <div
     :class="['bio-grip', `bio-grip--${data.grip}`]"
     :title="TITLES[data.grip]"
@@ -19,6 +20,7 @@ const TITLES = {
   bend: 'Drag to bend the tube through here',
   start: 'Drag onto another compartment to join this end of the tube to it',
   end: 'Drag onto another compartment to join this end of the tube to it',
+  reach: 'Drag to set how far the compartment reaches, or onto another membrane or fold to dock it there too',
 }
 </script>
 
@@ -36,6 +38,11 @@ const TITLES = {
 
 .bio-grip:hover {
   opacity: 1;
+}
+
+/* A compartment's far edge: a bar along it. */
+.bio-grip--reach {
+  border-radius: 4px;
 }
 
 /* A tube's ends are joined to compartments: square, to tell them from its bend. */

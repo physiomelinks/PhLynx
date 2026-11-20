@@ -4,7 +4,7 @@
  * pieces does (see drops.js).
  */
 
-import { SIDES } from './constants.js'
+import { LIMITS, SIDES } from './constants.js'
 import { writtenPieces } from './model.js'
 import { freeId } from './stamp.js'
 import { topologyOf } from './topology.js'
@@ -140,13 +140,29 @@ export function dockCompartment(pieces, { membrane: membraneId, side, face, from
     docks: [{ on: membraneId, side, face, ...(from > 0 && { from }), ...(to < 1 && { to }) }],
   }
   if (face === 'inside' && !bulk) membrane.encloses.push(id)
-  // The stretch is a protein site of its own.
+  cutStretch(membrane, validated, side, from, to, id, name)
+  return { pieces: [...raw, piece], id }
+}
+
+/**
+ * Makes the stretch of a membrane's side a compartment is docked to a span of its own: the protein site between that
+ * compartment and what lies across the membrane.
+ *
+ * @param {Object} membrane - The copy, to change.
+ * @param {Object} validated - The same membrane, validated, whose spans know where each starts.
+ * @param {string} side
+ * @param {number} from
+ * @param {number} to
+ * @param {string} compartmentId - What the span's id is made from.
+ * @param {string} name - The compartment's name, in the span's.
+ */
+function cutStretch(membrane, validated, side, from, to, compartmentId, name) {
   const ids = new Set(
     Object.values(membrane.sides)
       .flat()
       .map((span) => span.id),
   )
-  const stretch = { id: freeId(id, ids), label: `${membrane.label} (${name})` }
+  const stretch = { id: freeId(compartmentId, ids), label: `${membrane.label} (${name})` }
   membrane.sides = Object.fromEntries(
     SIDES.map((each) => [
       each,
@@ -154,7 +170,69 @@ export function dockCompartment(pieces, { membrane: membraneId, side, face, from
       each === side ? written(splitSpans(validated.sides[each], from, to, stretch, ids)) : membrane.sides[each],
     ]),
   )
-  return { pieces: [...raw, piece], id }
+}
+
+/** Whether a dock is to the same membrane side, or fold, as another. */
+const sameTarget = (a, b) => a.on === b.on && (a.side ?? null) === (b.side ?? null)
+
+/**
+ * Docks a compartment already docked somewhere to one more membrane side, or fold, as one lying between the two
+ * does: a dyadic cleft between a T-tubule and the junctional SR, say. A stretch of a side becomes a protein site of its
+ * own, as a first dock's does; a fold's walls are its site already.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @param {string} compartmentId
+ * @param {{on: string, side?: string, face: 'inside'|'outside', from?: number, to?: number}} dock
+ * @returns {{pieces: Array<Object>|null, id: string|null, error?: string}} Raw, for validatePieces.
+ */
+export function addDock(pieces, compartmentId, dock) {
+  const compartment = pieces.find((piece) => piece.id === compartmentId)
+  if (compartment?.kind !== 'compartment' || !compartment.docks?.length) {
+    return { pieces: null, id: null, error: 'Only a compartment against a membrane can be docked to another.' }
+  }
+  if (compartment.docks.length >= LIMITS.docks) {
+    return { pieces: null, id: null, error: `A compartment can be against at most ${LIMITS.docks} membranes or folds.` }
+  }
+  if (compartment.docks.some((each) => sameTarget(each, dock))) {
+    return { pieces: null, id: null, error: `${compartment.label} is against that already.` }
+  }
+  const raw = copy(pieces)
+  const target = raw.find((piece) => piece.id === dock.on)
+  if (target?.kind !== 'membrane' && target?.kind !== 'fold') {
+    return { pieces: null, id: null, error: 'It can only be docked to a membrane’s side or a fold.' }
+  }
+  const from = dock.from ?? 0
+  const to = dock.to ?? 1
+  const added = {
+    on: dock.on,
+    ...(target.kind === 'membrane' && { side: dock.side }),
+    face: dock.face,
+    ...(target.kind === 'membrane' && from > 0 && { from }),
+    ...(target.kind === 'membrane' && to < 1 && { to }),
+  }
+  raw.find((piece) => piece.id === compartmentId).docks.push(added)
+  if (target.kind === 'membrane') {
+    const validated = pieces.find((piece) => piece.id === dock.on)
+    cutStretch(target, validated, dock.side, from, to, compartmentId, compartment.label)
+  }
+  return { pieces: raw, id: compartmentId }
+}
+
+/**
+ * Takes one of a compartment's docks away, leaving it against the rest. The span its stretch was cut into stays, a
+ * protein site still.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {string} compartmentId
+ * @param {number} index - Which of its docks.
+ * @returns {Array<Object>|null} Null for its only dock, or one it hasn't.
+ */
+export function removeDock(pieces, compartmentId, index) {
+  const raw = copy(pieces)
+  const compartment = raw.find((piece) => piece.id === compartmentId)
+  if (!compartment?.docks || compartment.docks.length < 2 || !compartment.docks[index]) return null
+  compartment.docks.splice(index, 1)
+  return raw
 }
 
 /**

@@ -505,6 +505,95 @@ class TestBioTemplates(unittest.TestCase):
         expect(name).not_to_have_text("Compartment_2")
         expect(cell.locator("[data-testid=bio-piece-name]").first).to_have_text("Compartment")
 
+    def test_a_compartments_far_edge_dragged_onto_a_fold_docks_it_there_too(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        cell = self.drop_cell(self.pane_point(0.5, 0.4), "compartment")
+        organelle = self.drop_cell(centre(cell.bounding_box()), "compartment-2")
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+
+        # The cell made wider, from its corner, for room right of the organelle.
+        outer = cell.bounding_box()
+        page.mouse.move(outer["x"] + 30, outer["y"] + outer["height"] - 30)
+        corner = centre(cell.locator("[data-testid=bio-piece-resize]").first.bounding_box())
+        page.mouse.move(*corner)
+        page.mouse.down()
+        page.mouse.move(corner[0] + 320, corner[1], steps=8)
+        page.mouse.up()
+        page.locator(f"{BIO} .vue-flow__controls-fitview").click()
+        page.wait_for_timeout(400)
+
+        # A fold down from the cell's top, to the right of the organelle and as deep as it.
+        outer, inner = cell.bounding_box(), organelle.bounding_box()
+        fold_x = (inner["x"] + inner["width"] + outer["x"] + outer["width"]) / 2
+        self.drop_piece("fold", (fold_x, outer["y"] + 10))
+        fold = page.locator("[data-testid=bio-fold]")
+        expect(fold).to_have_count(1)
+        grip = page.locator('[data-testid=bio-grip][data-grip="fold"]')
+        start = centre(grip.bounding_box())
+        page.mouse.move(*start)
+        page.mouse.down()
+        page.mouse.move(start[0], inner["y"] + inner["height"] * 0.9, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+
+        # A compartment against the organelle's right side, outside it.
+        inner = organelle.bounding_box()
+        self.drop_piece("compartment", (inner["x"] + inner["width"] + 10, inner["y"] + inner["height"] / 2))
+        cleft = page.locator(f'{BIO} .vue-flow__node:has([data-site="pieces/compartment-3"])').first
+        expect(cleft).to_be_visible()
+
+        # Its far edge's grip, dragged onto the fold's near wall, outlines the fold and says so; let go, it docks
+        # there too. The grip is above the membranes, so it can be taken where the compartment runs under the fold.
+        reach = page.locator('[data-testid=bio-grip][data-grip="reach"][data-piece="compartment-3"]')
+        expect(reach).to_have_count(1)
+        start = centre(reach.bounding_box())
+        wall = fold.bounding_box()
+        page.mouse.move(*start)
+        page.mouse.down()
+        page.mouse.move(wall["x"] - 4, start[1], steps=10)
+        expect(page.locator(".bio-drop-label")).to_have_text(re.compile(r"Also against Fold, round its walls"))
+        expect(page.locator("[data-testid=bio-piece-preview] .bio-piece-preview__target")).to_have_count(1)
+        page.mouse.up()
+        expect(page.locator(".bio-drop-label")).to_have_count(0)
+
+        # Drawn between the two: from the organelle's side to the fold's wall, with no reach grip of its own now.
+        expect(reach).to_have_count(0)
+        page.wait_for_timeout(300)
+        inner, gap, wall = organelle.bounding_box(), cleft.bounding_box(), fold.bounding_box()
+        assert abs(gap["x"] + gap["width"] - wall["x"]) < 12, (gap, wall)
+        assert gap["x"] < inner["x"] + inner["width"], (gap, inner)
+
+        # Detach From takes the fold dock away again, as one undo step.
+        cleft.click(button="right")
+        page.get_by_role("menuitem", name="Detach From").hover()
+        page.get_by_role("menuitem", name="Fold", exact=True).click()
+        expect(reach).to_have_count(1)
+
+        # Its far edge dragged to where there is nothing to dock to, midway to the fold, only sets how far it reaches.
+        page.wait_for_timeout(300)
+        before = cleft.bounding_box()
+        start = centre(reach.bounding_box())
+        inner, wall = organelle.bounding_box(), fold.bounding_box()
+        to = (inner["x"] + inner["width"] + wall["x"]) / 2
+        page.mouse.move(*start)
+        page.mouse.down()
+        page.mouse.move(to, start[1], steps=6)
+        expect(page.locator(".bio-drop-label")).to_have_count(0)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        after = cleft.bounding_box()
+        assert abs(after["x"] + after["width"] - to) < 6, (to, after)
+
+        # Undone a step at a time: the reach, then the detach.
+        undo(page)
+        page.wait_for_timeout(300)
+        assert abs(cleft.bounding_box()["width"] - before["width"]) < 6, (before, cleft.bounding_box())
+        undo(page)
+        expect(reach).to_have_count(0)
+
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
         page = self.page
         self.open_physiology()

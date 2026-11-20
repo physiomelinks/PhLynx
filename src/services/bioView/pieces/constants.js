@@ -39,6 +39,9 @@ export const SITE_PATH = /^[a-z][a-z0-9-]{0,31}(?:\.[a-z][a-z0-9-]{0,31})?$/
 /** Where along its side a fold dips in when it doesn't say: towards the right or bottom end, as folds always have. */
 export const DEFAULT_FOLD_AT = 0.75
 
+/** How far in from a membrane a compartment docked inside it starts, in pixels. */
+export const INNER_INSET = 10
+
 export const DEFAULT_TONE = 'sky'
 export const DEFAULT_FLUX = 'flow'
 

@@ -72,7 +72,8 @@ Right-click an instance on a site to **Unbind** it: a protein goes to the tray.
 
 - Drag a cell, organelle, free compartment or process zone to move it. What is in it, docked to it or joined to it by a tube follows as you drag. A piece stays inside the one it stands in: dragged past its parent's right or bottom, the parent grows.
 - Drag a compartment docked along part of one side to slide it along that side; the protein sites beside it make room.
-- Hover over a piece for its resize handle: at its bottom-right corner, or, on a docked compartment, its far edge, which sets how far it reaches.
+- Hover over a cell, organelle, free compartment or process zone for the resize handle at its bottom-right corner.
+- A compartment docked along one side has a grip on its far edge. Drag it across the side to set how far the compartment reaches. Drag it onto another membrane's side or a fold to dock the compartment there too, so that it lies between the two: the green outline and the label by the pointer show what it would dock to. A dyadic cleft between an organelle and a T-tubule is built this way: dock a compartment beside the organelle, then drag its far edge onto the T-tubule's wall. Between a fold and a side, or two sides that face each other, it is drawn as the gap between them.
 - Drag a fold by the grip at its end, along its side and deeper or shallower; a tube by the grip above its module, to bend it; and a tube's end grip onto another compartment, to join it there.
 
 ### Editing Pieces {#editing-pieces}
@@ -83,6 +84,7 @@ Right-click a piece for:
 - **Skin**: draws a cell or compartment with artwork: a built-in skin, or **Load SVG…** for your own. **Fill** and **Strength** set how it is drawn.
 - **Fit to Contents**: shrinks a cell or compartment back to what its contents need. A piece never shrinks on its own.
 - **Straighten Tube**: takes a tube's bend away.
+- **Detach From**: on a compartment docked to more than one membrane side or fold, takes it off one of them, leaving it against the rest.
 - **Remove**: a piece, with what can't stand without it, such as the fluids docked to a membrane. On a cell, choose the whole cell or its membrane alone, which leaves its inside where it was; folds, process zones and tubes on it are listed too. When other pieces go along, or modules are placed on what goes, PhLynx says so and asks first; the modules stay in the diagram, and proteins go to the tray.
 
 To build without pieces, right-click the canvas and choose **Add Cell…** or **Add Compartment…**, picking the module for each. A hand-added cell takes drops as a cell built from pieces does: on its membrane, while it has none, on its inside, and on its facets' slots.

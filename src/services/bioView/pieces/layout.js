@@ -29,6 +29,7 @@ import { byName, inSlotOrder } from '../scaffold.js'
 import { parseSiteRef } from '../siteRefs.js'
 import { withFolds, withOutline } from '../shape.js'
 import { pathOf } from '../shapeGeometry.js'
+import { INNER_INSET } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
 
@@ -55,8 +56,7 @@ const FREE_COMPARTMENT = Object.freeze({ width: 320, height: REGION_HEIGHT })
 const ROOM = GLYPH_HEIGHT / 2 + 36
 /** Room below what stands in a cell, for its name and hint. */
 const HINT_ROOM = 100
-/** How far in from a membrane a compartment docked inside it starts, and how far it reaches unless it says. */
-const INNER_INSET = 10
+/** How far a compartment docked inside a membrane reaches unless it says (it starts INNER_INSET in). */
 const INNER_DEPTH = 84
 /** How far round a fold a compartment docked to its walls reaches. */
 const FOLD_REACH = 46
@@ -538,6 +538,45 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     return null
   }
 
+  /**
+   * The gap between two membrane sides a compartment is docked to that face each other across it, as a cleft between
+   * two organelles, or between an organelle and its cell's membrane, is: from one side to the other, over the stretch
+   * both reach.
+   *
+   * @returns {Object|null} Null for any other compartment, or where the two don't face each other.
+   */
+  function sideGap(compartment) {
+    if (compartment.docks.length !== 2) return null
+    const [a, b] = compartment.docks
+    if (!a.side || !b.side || isHorizontal(a.side) !== isHorizontal(b.side)) return null
+    const across = isHorizontal(a.side)
+    const ends = []
+    for (const dock of [a, b]) {
+      const rect = byId.get(dock.on)?.kind === 'membrane' && rects.get(dock.on)
+      if (!rect) return null
+      const outside = dock.face === 'outside'
+      // Outside, in under the rounded corners; inside, in from the membrane as one docked there alone is.
+      const [p, q] = sideLine(rect, dock.side, dock.from, dock.to, outside ? -CELL_RADIUS / 2 : -INNER_INSET)
+      const trim = outside ? CELL_RADIUS / 2 : 0
+      const outward = dock.side === 'bottom' || dock.side === 'right' ? 1 : -1
+      ends.push({
+        at: across ? p.y : p.x,
+        low: Math.min(across ? p.x : p.y, across ? q.x : q.y) + trim,
+        high: Math.max(across ? p.x : p.y, across ? q.x : q.y) - trim,
+        // Which way the compartment lies from it.
+        toward: outside ? outward : -outward,
+      })
+    }
+    const [one, two] = ends
+    const low = Math.max(one.low, two.low)
+    const high = Math.min(one.high, two.high)
+    const isFacing = one.toward === -two.toward && (two.at - one.at) * one.toward > 0
+    if (!isFacing || high <= low) return null
+    return across
+      ? between({ x: low, y: one.at }, { x: high, y: two.at })
+      : between({ x: one.at, y: low }, { x: two.at, y: high })
+  }
+
   /** Places a docked compartment, once what it is docked to has a place; false while it hasn't. */
   function placeDocked(compartment) {
     const parts = []
@@ -608,8 +647,9 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       parts.push(between(p, { x: isHorizontal(dock.side) ? q.x : r.x, y: isHorizontal(dock.side) ? r.y : q.y }))
     }
     if (parts.length < compartment.docks.length) return false
-    // Between a fold's wall and the side of an organelle facing it, as a dyadic cleft is: just the gap between them.
-    let rect = foldGap(compartment) ?? boxOf(parts)
+    // Between a fold's wall and the side of an organelle facing it, as a dyadic cleft is, or two membrane sides that
+    // face each other: just the gap between them.
+    let rect = foldGap(compartment) ?? sideGap(compartment) ?? boxOf(parts)
     // A band out along whole top or bottom sides runs on past their ends, as a fluid over cells does.
     const isBand =
       face === 'outside' &&
@@ -640,16 +680,21 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     const drag = dragModeOf(pieces, id)
     return { ...(drag && { drag }), ...(resize && { resize }) }
   }
-  /** A compartment docked along one side is resized across it, from its far edge: its depth. */
-  const depthResize = (compartment) => {
+  /**
+   * The middle of the far edge of a compartment docked along one side, where its reach grip is: dragged across the
+   * side, it sets how far the compartment reaches; dropped on another membrane's side or a fold, it docks it there
+   * too (see resolveExtraDock).
+   */
+  const farEdge = (compartment) => {
     const [dock] = compartment.docks
-    if (compartment.docks.length !== 1 || !dock.side) return null
-    return {
-      mode: 'depth',
-      side: dock.side,
-      face: dock.face,
-      position: dock.face === 'outside' ? dock.side : OPPOSITE[dock.side],
-    }
+    const rect = rects.get(compartment.id)
+    if (compartment.docks.length !== 1 || !dock.side || !rect) return null
+    const edge = dock.face === 'outside' ? dock.side : OPPOSITE[dock.side]
+    const { x, y } = middleOf(rect)
+    if (edge === 'top') return { x, y: rect.y }
+    if (edge === 'bottom') return { x, y: bottomOf(rect) }
+    if (edge === 'left') return { x: rect.x, y }
+    return { x: rightOf(rect), y }
   }
   // A piece that takes one module is drawn as that module's node once one is on it, as a template's piece is; a
   // membrane as its cell, keyed by what is on its bulk.
@@ -807,7 +852,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     places.set(key, {
       kind: 'region',
       ...own,
-      ...handling(compartment.id, isDocked(compartment) ? depthResize(compartment) : FRAME_RESIZE),
+      ...handling(compartment.id, isDocked(compartment) ? null : FRAME_RESIZE),
       piece: compartment.id,
       path: compartment.id,
       side: null,
@@ -947,6 +992,19 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     const pocket = foldPocket(rect, facet)
     const end = foldPoint(rect, pocket.edge, pocket.at, pocket.depth)
     places.set(`grip:fold:${fold.id}`, { kind: 'grip', grip: 'fold', piece: fold.id, ...own, ...end })
+  }
+
+  // A grip on the far edge of each compartment docked along one side, to set its reach or dock it somewhere else too.
+  for (const compartment of ofKind('compartment').filter(isDocked)) {
+    const edge = !bulks.has(compartment.id) && farEdge(compartment)
+    if (edge)
+      places.set(`grip:reach:${compartment.id}`, {
+        kind: 'grip',
+        grip: 'reach',
+        piece: compartment.id,
+        ...own,
+        ...edge,
+      })
   }
 
   return { places, rects, sites }

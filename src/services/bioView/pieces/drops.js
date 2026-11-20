@@ -6,7 +6,16 @@
  */
 
 import { SIDES } from './constants.js'
-import { addCompartment, addFold, addTube, addZone, dockCompartment, encloseCompartment, freeStretch } from './edits.js'
+import {
+  addCompartment,
+  addDock,
+  addFold,
+  addTube,
+  addZone,
+  dockCompartment,
+  encloseCompartment,
+  freeStretch,
+} from './edits.js'
 import { layoutPieces } from './layout.js'
 import { validatePieces } from './model.js'
 import { topologyOf } from './topology.js'
@@ -77,8 +86,21 @@ const snap = ({ x, y }) => `${Math.round(x / 8) * 8},${Math.round(y / 8) * 8}`
  * @returns {{pieces: ReadonlyArray<Object>, rects: Map<string, Object>, byId: Map<string, Object>, shapes: Map}}
  */
 export function dropScene(pieces, { shapes = new Map() } = {}) {
-  const { rects } = layoutPieces(pieces, { shapes })
-  return { pieces, rects, byId: new Map(pieces.map((piece) => [piece.id, piece])), shapes }
+  const { rects, places } = layoutPieces(pieces, { shapes })
+  // Each fold's lumen, where it is drawn.
+  const folds = new Map()
+  for (const place of places.values()) {
+    for (const fold of place.folds ?? []) folds.set(fold.facetId, foldRect(place.rect, fold))
+  }
+  return { pieces, rects, folds, byId: new Map(pieces.map((piece) => [piece.id, piece])), shapes }
+}
+
+/** A fold's lumen as a rect, from its membrane's rect and where the fold is in it (see foldPocket). */
+function foldRect(rect, fold) {
+  const across = fold.edge === 'top' || fold.edge === 'bottom'
+  const x = across ? rect.x + fold.at - fold.half : fold.edge === 'left' ? rect.x : rect.x + rect.width - fold.depth
+  const y = across ? (fold.edge === 'top' ? rect.y : rect.y + rect.height - fold.depth) : rect.y + fold.at - fold.half
+  return { x, y, width: across ? 2 * fold.half : fold.depth, height: across ? fold.depth : 2 * fold.half }
 }
 
 /**
@@ -105,9 +127,10 @@ function compartmentAt(scene, point) {
 
 /**
  * The side of a membrane a point is by, within a band either side of it: the nearest, the innermost membrane's on a
- * tie; with the face of it the point is on and how far along it (0 to 1).
+ * tie; with the face of it the point is on and how far along it (0 to 1). `allows` passes over the sides it says no
+ * to.
  */
-function membraneSideAt(scene, point, band) {
+function membraneSideAt(scene, point, band, allows = () => true) {
   let best = null
   for (const piece of scene.pieces) {
     if (piece.kind !== 'membrane') continue
@@ -115,6 +138,7 @@ function membraneSideAt(scene, point, band) {
     if (!rect) continue
     const inside = contains(rect, point)
     for (const side of SIDES) {
+      if (!allows(piece, side)) continue
       const across = side === 'top' || side === 'bottom'
       const line = { top: rect.y, bottom: rect.y + rect.height, left: rect.x, right: rect.x + rect.width }[side]
       const distance = Math.abs((across ? point.y : point.x) - line)
@@ -275,6 +299,75 @@ function resolveZone(scene, point) {
   }
 }
 
+/**
+ * Where a docked compartment's far edge, dragged to a point, would dock it as well: the wall of a fold, or the side
+ * of a membrane, nearest the point, within a band of it. Against a side, it takes the stretch of it that the
+ * compartment spans, where that is free, else the free stretch round the point.
+ *
+ * @param {Object} scene - From dropScene.
+ * @param {string} compartmentId - Docked already.
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @returns {Object|null} As resolveDrop's, its apply adding the dock; null where the point is by nothing to dock to.
+ */
+export function resolveExtraDock(scene, compartmentId, point) {
+  const compartment = scene.byId.get(compartmentId)
+  if (!compartment?.docks?.length) return null
+  const has = (on, side) => compartment.docks.some((dock) => dock.on === on && (dock.side ?? null) === (side ?? null))
+  // The nearest fold wall: in its lumen, its outer face; beside it, in the cell, its inner face.
+  let fold = null
+  for (const [id, rect] of scene.folds ?? []) {
+    if (has(id)) continue
+    const distance = edgeDistance(rect, point)
+    const inLumen = contains(rect, point)
+    // Beside its walls means in its cell, not out past its mouth.
+    const cell = scene.rects.get(scene.byId.get(id)?.membrane)
+    if (distance > DOCK_BAND || (!inLumen && !(cell && contains(cell, point)))) continue
+    if (!fold || distance < fold.distance) fold = { id, rect, distance, face: inLumen ? 'outside' : 'inside' }
+  }
+  const by = membraneSideAt(scene, point, DOCK_BAND, (membrane, side) => !has(membrane.id, side))
+  if (fold && (!by || fold.distance <= by.score)) {
+    const target = scene.byId.get(fold.id)
+    return {
+      key: `dock|${compartmentId}|${fold.id}|${fold.face}`,
+      label:
+        fold.face === 'inside'
+          ? `Also against ${target.label}, round its walls`
+          : `Also against ${target.label}, in its lumen`,
+      highlights: [{ type: 'rect', rect: fold.rect }],
+      apply: (pieces) => addDock(pieces, compartmentId, { on: fold.id, face: fold.face }),
+    }
+  }
+  if (!by) return null
+  const { membrane, side, face, at, rect } = by
+  const free = freeStretch(scene.pieces, membrane.id, side, face, at)
+  if (!free) {
+    return {
+      key: `dock|${compartmentId}|full|${membrane.id}|${side}|${face}`,
+      invalid: `A compartment is already against that stretch of ${membrane.label}, on that face.`,
+    }
+  }
+  // The stretch the compartment spans, as far as it is free: it lies across from it.
+  const own = scene.rects.get(compartmentId)
+  const across = side === 'top' || side === 'bottom'
+  const along = (value, start, length) => Math.round(((value - start) / length) * 1000) / 1000
+  const spans = own && {
+    from: across ? along(own.x, rect.x, rect.width) : along(own.y, rect.y, rect.height),
+    to: across ? along(own.x + own.width, rect.x, rect.width) : along(own.y + own.height, rect.y, rect.height),
+  }
+  const from = spans ? Math.max(free.from, spans.from) : free.from
+  const to = spans ? Math.min(free.to, spans.to) : free.to
+  const stretch = to - from > 0.05 && from <= at && at <= to ? { from, to } : free
+  return {
+    key: `dock|${compartmentId}|${membrane.id}|${side}|${face}|${stretch.from}|${stretch.to}`,
+    label:
+      face === 'inside'
+        ? `Also inside ${membrane.label}, along its ${SIDE_NAMES[side]}`
+        : `Also against ${membrane.label}’s ${SIDE_NAMES[side]}, outside`,
+    highlights: [sideHighlight(rect, side, stretch.from, stretch.to)],
+    apply: (pieces) => addDock(pieces, compartmentId, { on: membrane.id, side, face, ...stretch }),
+  }
+}
+
 const RESOLVERS = {
   compartment: resolveCompartment,
   membrane: resolveMembrane,
@@ -321,24 +414,7 @@ export function previewDrop(scene, drop) {
     if (before.has(place.piece)) {
       // A membrane already there with a fold added.
       for (const fold of place.folds ?? []) {
-        if (before.has(fold.facetId)) continue
-        const { rect } = place
-        const across = fold.edge === 'top' || fold.edge === 'bottom'
-        const x = across
-          ? rect.x + fold.at - fold.half
-          : fold.edge === 'left'
-            ? rect.x
-            : rect.x + rect.width - fold.depth
-        const y = across
-          ? fold.edge === 'top'
-            ? rect.y
-            : rect.y + rect.height - fold.depth
-          : rect.y + fold.at - fold.half
-        ghosts.push({
-          type: 'rect',
-          kind: 'fold',
-          rect: { x, y, width: across ? 2 * fold.half : fold.depth, height: across ? fold.depth : 2 * fold.half },
-        })
+        if (!before.has(fold.facetId)) ghosts.push({ type: 'rect', kind: 'fold', rect: foldRect(place.rect, fold) })
       }
       continue
     }

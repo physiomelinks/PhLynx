@@ -483,8 +483,14 @@ import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/b
 import { PIECES_INSTANCE, layoutPieces, pieceSiteRef } from '../../services/bioView/pieces/layout'
 import { topologyOf } from '../../services/bioView/pieces/topology'
 import { stampTemplate } from '../../services/bioView/pieces/stamp'
-import { compartmentAtPoint, dropScene, previewDrop, resolveDrop } from '../../services/bioView/pieces/drops'
-import { relabelPiece, removePieces, skinPiece } from '../../services/bioView/pieces/edits'
+import {
+  compartmentAtPoint,
+  dropScene,
+  previewDrop,
+  resolveDrop,
+  resolveExtraDock,
+} from '../../services/bioView/pieces/drops'
+import { relabelPiece, removeDock, removePieces, skinPiece } from '../../services/bioView/pieces/edits'
 import {
   bendTube,
   fitToContents,
@@ -492,7 +498,7 @@ import {
   moveFrame,
   reattachTube,
   resizeFrame,
-  setDepth,
+  reachTo,
   slideDock,
 } from '../../services/bioView/pieces/moves'
 import { PIECES_SCHEMA_VERSION } from '../../services/bioView/pieces/constants'
@@ -1981,6 +1987,9 @@ function startPieceMove(node, event) {
     rects: pieceRects(),
     end: place.end,
     below: place.below ?? 0,
+    // A compartment's far edge can be dropped on another membrane's side or a fold: what it could go on, read once.
+    scene: mode === 'grip:reach' ? dropScene(piecesStore.pieces, { shapes: piecesStore.shapes }) : null,
+    dock: null,
   }
   return true
 }
@@ -1998,7 +2007,11 @@ function takesPieceChange(change) {
   )
 }
 
-/** The pieces as a move with the pointer here leaves them, validated; null where it can't go there. */
+/**
+ * The pieces as a move with the pointer here leaves them, validated; null where it can't go there. A grip goes as far
+ * as the pointer has, but a compartment's far edge goes to the pointer itself, where what it would dock to is looked
+ * for (see dockDraft).
+ */
 function moveDraft(pointer) {
   const { mode, piece, base, rects, below } = pieceMove
   const delta = { x: pointer.x - pieceMove.pointer.x, y: pointer.y - pieceMove.pointer.y }
@@ -2012,7 +2025,9 @@ function moveDraft(pointer) {
           ? moveFold(base, piece, grip, rects)
           : mode === 'grip:bend'
             ? bendTube(base, piece, { x: grip.x, y: grip.y + below })
-            : null
+            : mode === 'grip:reach'
+              ? reachTo(base, piece, pointer, rects)
+              : null
   return raw && validatePieces(raw).pieces
 }
 
@@ -2023,18 +2038,41 @@ function followPiece(pointer) {
   moveFrameRequest = requestAnimationFrame(() => {
     moveFrameRequest = 0
     if (!pieceMove || !pendingPosition) return
+    // It reaches as far as it is dragged, and what it would dock to there is outlined.
+    if (pieceMove.scene) dockDraft(pieceMove, pendingPosition)
     const draft = moveDraft(pendingPosition)
     if (draft) piecesStore.draft = draft
   })
 }
 
-/** Ends a drag of a piece: keeps where it went, as one step, or joins a tube's end to the compartment it is on. */
+/**
+ * Ends a drag of a piece: keeps where it went, as one step, joins a tube's end to the compartment it is on, or docks
+ * a compartment whose far edge is on another membrane's side or a fold there too.
+ */
 async function endPieceMove({ event, node }) {
+  // Where the pointer was let go, which the frame still to come would have laid it out for.
+  const last = moveFrameRequest && pendingPosition
+  if (last) {
+    const draft = moveDraft(last)
+    if (draft) piecesStore.draft = draft
+  }
   const move = pieceMove
   pieceMove = null
   cancelAnimationFrame(moveFrameRequest)
   moveFrameRequest = 0
   pendingPosition = null
+  if (move.scene) {
+    const docked = dockDraft(move, pointerAt(event))
+    clearPiecePreview()
+    if (docked) {
+      try {
+        await editPieces(docked, 'bio-pieces-dock')
+      } finally {
+        piecesStore.draft = null
+      }
+      return
+    }
+  }
   if (move.mode === 'grip:start' || move.mode === 'grip:end') {
     const point = pointerAt(event)
     const target = point && compartmentAtPoint(dropScene(piecesStore.pieces, { shapes: piecesStore.shapes }), point)
@@ -2053,7 +2091,40 @@ async function endPieceMove({ event, node }) {
   }
 }
 
-/** Resizes a piece from its handle (see BioPieceResize): its frame, or a docked compartment's depth. */
+/**
+ * The pieces as a compartment's far edge dropped at a point would leave them, docked there too, with the target
+ * outlined and the label by the pointer saying so; null where it is by nothing to dock to, or can't dock there (the
+ * label says why).
+ *
+ * @param {Object} move - The drag of its reach grip (see startPieceMove), which keeps the last target's result.
+ * @param {{x: number, y: number}|null} point
+ * @returns {ReadonlyArray<Object>|null}
+ */
+function dockDraft(move, point) {
+  if (!point) return null
+  const drop = resolveExtraDock(move.scene, move.piece, point)
+  piecePointer.value = drop ? point : null
+  if (!drop) {
+    piecePreview.value = null
+    move.dock = null
+    return null
+  }
+  if (drop.key !== piecePreview.value?.key) {
+    if (drop.invalid) {
+      piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
+      move.dock = null
+    } else {
+      const { pieces, errors } = previewDrop(move.scene, drop)
+      piecePreview.value = pieces
+        ? { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts: [] }
+        : { key: drop.key, invalid: summariseProblems(errors), highlights: drop.highlights, ghosts: [] }
+      move.dock = pieces
+    }
+  }
+  return move.dock
+}
+
+/** Resizes a piece from its handle (see BioPieceResize): its frame. */
 function onPieceResize(nodeId, phase, params) {
   if (phase === 'start') {
     const place = layout.value.get(nodeId)
@@ -2066,7 +2137,6 @@ function onPieceResize(nodeId, phase, params) {
       resize: place.resize,
       base,
       rects: pieceRects(),
-      startRect: { ...place.rect },
     }
     return
   }
@@ -2086,16 +2156,8 @@ provide('bioPieceResize', onPieceResize)
 
 /** The pieces as a resize to these bounds leaves them, validated. */
 function resizeDraft(params) {
-  const { piece, resize, base, rects, startRect } = pieceResize
-  let raw
-  if (resize.mode === 'frame') raw = resizeFrame(base, piece, params, rects)
-  else {
-    // Across its side, by how much it grew; outside a membrane it reaches in under its rounded corners too.
-    const across = resize.side === 'top' || resize.side === 'bottom'
-    const before = across ? startRect.height : startRect.width
-    const after = across ? params.height : params.width
-    raw = setDepth(base, piece, before - (resize.face === 'outside' ? CELL_RADIUS : 0) + (after - before))
-  }
+  const { piece, base, rects } = pieceResize
+  const raw = resizeFrame(base, piece, params, rects)
   return raw && validatePieces(raw).pieces
 }
 
@@ -2133,6 +2195,7 @@ function pieceMenu(place) {
       command: () => keepEdit(bendTube(piecesStore.pieces, piece.id, null), 'bio-pieces-move'),
     })
   }
+  if (piece.kind === 'compartment' && piece.docks?.length > 1) items.push(detachMenu(piece))
   items.push(...removeMenu(place, piece))
   return [{ separator: true }, ...items]
 }
@@ -2162,6 +2225,24 @@ function removeMenu(place, piece) {
       : [remove([piece.id], piece.label)]
   if (whole.length === 1 && !parts.length) return [{ ...item, command: whole[0].command }]
   return [{ ...item, items: [...whole, ...(parts.length ? [{ separator: true }, ...parts] : [])] }]
+}
+
+/** Takes one of the docks of a compartment docked to several membranes or folds away: one item for each. */
+function detachMenu(piece) {
+  const SIDE_WORDS = { top: 'top', bottom: 'bottom', left: 'left side', right: 'right side' }
+  return {
+    label: 'Detach From',
+    icon: 'pi pi-link',
+    items: piece.docks.map((dock, index) => {
+      const target = piecesStore.pieces.find((each) => each.id === dock.on)
+      const name = target?.label ?? dock.on
+      return {
+        label: dock.side ? `${name} (${SIDE_WORDS[dock.side]})` : name,
+        command: () =>
+          keepEdit(removeDock(piecesStore.pieces, piece.id, index), 'bio-pieces-undock', 'Could not detach it'),
+      }
+    }),
+  }
 }
 
 /** Renaming a piece from its menu: { id, label, placeholder }. */

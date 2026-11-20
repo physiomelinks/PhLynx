@@ -4,7 +4,7 @@
  * coordinates; frames are written from the corner of what a piece stands in.
  */
 
-import { LIMITS } from './constants.js'
+import { INNER_INSET, LIMITS } from './constants.js'
 import { topologyOf } from './topology.js'
 
 /** How short a span another's slide may leave it, as a share of its side. */
@@ -188,6 +188,30 @@ export function setDepth(pieces, id, depth) {
   if (!piece?.docks?.length) return null
   piece.depth = round(clamp(depth, LIMITS.depth.min, LIMITS.depth.max))
   return raw
+}
+
+/**
+ * Sets how far a compartment docked along one side reaches, as its far edge's grip, dragged to a point, leaves it:
+ * out from the side for one docked outside, in from it for one docked inside.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {string} id
+ * @param {{x: number, y: number}} point - Where the grip is.
+ * @param {Map<string, Object>} rects
+ * @returns {Array<Object>|null}
+ */
+export function reachTo(pieces, id, point, rects) {
+  const piece = pieces.find((each) => each.id === id)
+  const dock = piece?.docks?.length === 1 && piece.docks[0]
+  const rect = dock?.side && rects.get(dock.on)
+  if (!rect) return null
+  const out = {
+    top: rect.y - point.y,
+    bottom: point.y - rect.y - rect.height,
+    left: rect.x - point.x,
+    right: point.x - rect.x - rect.width,
+  }[dock.side]
+  return setDepth(pieces, id, dock.face === 'outside' ? out : -out - INNER_INSET)
 }
 
 /**
