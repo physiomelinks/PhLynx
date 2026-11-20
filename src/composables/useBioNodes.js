@@ -23,9 +23,34 @@ import { CARD, PROCESS_INSET, layoutPhysiology } from '../services/bioView/layou
 import { resolveBioRole } from '../services/bioView/roles'
 import { locationSource } from '../services/annotations/locationSources'
 
-/** Stacking: regions under cells under everything drawn on them. */
-// A microdomain is drawn over its cell, and an organelle over both.
-const Z = { region: -20, cell: -10, microdomain: -9, organelle: -8, link: -7, joint: -6, zone: -5, grip: 5 }
+// Stacking: the cells and compartments (see structureZ) under everything drawn on them.
+// A membrane is its cell's child, which vue-flow draws one above max(its own, its parent's): -8, over every cell and
+// compartment, so none docked inside it covers its band.
+const Z = { membrane: -9, link: -7, joint: -6, zone: -5, grip: 5 }
+
+/**
+ * How far below the rest the cells and compartments are drawn, each nesting a layer above what it is in, and a
+ * compartment under a cell at the same depth (one docked against it).
+ */
+const STRUCTURE_Z = -1000
+const STRUCTURE_LAYER = 10
+
+/**
+ * The z-index of a cell or compartment: a layer above what it is drawn within, so what is inside is never hidden.
+ *
+ * @param {Map<string, Object>} layout
+ * @param {string} id
+ * @returns {number}
+ */
+function structureZ(layout, id) {
+  let depth = 0
+  const seen = new Set([id])
+  for (let place = layout.get(id); place?.parent && !seen.has(place.parent); place = layout.get(place.parent)) {
+    seen.add(place.parent)
+    depth++
+  }
+  return STRUCTURE_Z + depth * STRUCTURE_LAYER + (layout.get(id)?.kind === 'cell' ? 1 : 0)
+}
 
 /** How big a grip is drawn. */
 const GRIP = 14
@@ -251,7 +276,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x, y },
           width,
           height,
-          zIndex: place.parent ? Z.organelle : Z.cell,
+          zIndex: structureZ(layout, id),
           data: {
             ...own.data,
             ...placeData(place),
@@ -277,7 +302,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x, y },
           width,
           height,
-          zIndex: place.form === 'inner' ? Z.microdomain : Z.region,
+          zIndex: structureZ(layout, id),
           // Its size too, where it has a skin: an image is drawn to a size, in the view and in an exported picture.
           data: {
             ...own.data,
@@ -395,7 +420,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           position: { x: 0, y: 0 },
           width: cell.width,
           height: cell.height,
-          zIndex: Z.cell,
+          zIndex: Z.membrane,
           // Dragging its outline moves its cell (see BioFlow).
           style: { pointerEvents: 'none' },
           data: {
@@ -540,7 +565,7 @@ export function focusCouplings(nodes, edges, layout, selected, sidecarOf, facesO
       selectable: false,
       focusable: false,
       updatable: false,
-      // Over the cells and regions (-10, -20), under the proteins and cards drawn on them.
+      // Over the cells and compartments (see STRUCTURE_Z), under the proteins and cards drawn on them.
       zIndex: -5,
       // An edge nothing couples is drawn dashed, so a placed but uncoupled neighbour stands out.
       data: { names: couplingNames(edge, byId), uncoupled: !edge.data?.couplings?.length },

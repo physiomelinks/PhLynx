@@ -817,7 +817,10 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       empty: !occupantOf(compartment.id),
       tone: compartment.tone,
       form: inner ? 'inner' : isDocked(compartment) ? 'band' : 'free',
-      ...(inner && { parent: cellKeyOf(hostMembrane) }),
+      // What it is drawn within: the cell it is docked inside, else the compartment it stands in.
+      ...(inner
+        ? { parent: cellKeyOf(hostMembrane) }
+        : compartment.parent && { parent: keyOfCompartment(compartment.parent) }),
       // Named along the side it lies against; one round a membrane, or on more than two sides, in its own corner.
       ...(isDocked(compartment) &&
         new Set(compartment.docks.map((dock) => dock.side)).size <= 2 && {

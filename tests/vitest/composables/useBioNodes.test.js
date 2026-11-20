@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { bioFlowNodes, bioViewForMove, shareEqual } from '../../../src/composables/useBioNodes.js'
 import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../../../src/services/bioView/geometry.js'
 import { layoutBioView } from '../../../src/services/bioView/layout.js'
+import { layoutPieces, membraneKey, pieceKey } from '../../../src/services/bioView/pieces/layout.js'
+import { validatePieces } from '../../../src/services/bioView/pieces/model.js'
 
 const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
 
@@ -52,7 +54,10 @@ describe('physiological view nodes', () => {
     const { nodes, roles } = workspace()
     roles.set('gly', role('cytosolic', { glyph: 'mitochondrion' }))
     const bio = bioFlowNodes(nodes, roles, layoutBioView(nodes, roles))
-    expect(bio.find((n) => n.id === 'gly')).toMatchObject({ type: 'bioCard', data: { name: 'gly', glyph: 'mitochondrion' } })
+    expect(bio.find((n) => n.id === 'gly')).toMatchObject({
+      type: 'bioCard',
+      data: { name: 'gly', glyph: 'mitochondrion' },
+    })
   })
 
   it('draws each instance with the id it has in the diagram, a membrane over its cell’s outline', () => {
@@ -84,8 +89,9 @@ describe('physiological view nodes', () => {
       style: { pointerEvents: 'none' },
       data: { width, height },
     })
-    // vue-flow puts a child one above max(its zIndex, its parent's): over the cell, under proteins and cards.
-    expect(byId.wall.zIndex).toBe(byId.cell.zIndex)
+    // vue-flow puts a child one above max(its zIndex, its parent's): over every cell and compartment, under
+    // proteins and cards.
+    expect(byId.wall.zIndex).toBeGreaterThan(byId.cell.zIndex)
     expect(byId.p.zIndex ?? 0).toBeGreaterThan(byId.wall.zIndex)
     expect(bio.findIndex((n) => n.id === 'cell')).toBeLessThan(bio.findIndex((n) => n.id === 'wall'))
     // Dragging its outline moves its cell (see BioFlow), so it is draggable.
@@ -97,9 +103,15 @@ describe('physiological view nodes', () => {
     const bio = bioFlowNodes(nodes, roles, layout)
     const index = (id) => bio.findIndex((n) => n.id === id)
     const p = bio[index('p')]
-    expect(p).toMatchObject({ parentNode: 'cell', data: { glyph: 'pump', facet: 'apical', rotation: 0, droppable: true } })
+    expect(p).toMatchObject({
+      parentNode: 'cell',
+      data: { glyph: 'pump', facet: 'apical', rotation: 0, droppable: true },
+    })
     expect(p.draggable).toBeUndefined()
-    expect(bio[index('gly')]).toMatchObject({ parentNode: 'cell', extent: { range: 'parent', padding: [28, 16, 16, 16] } })
+    expect(bio[index('gly')]).toMatchObject({
+      parentNode: 'cell',
+      extent: { range: 'parent', padding: [28, 16, 16, 16] },
+    })
     expect(bio[index('gly')].data.glyph).toBeUndefined()
     expect(index('cell')).toBeLessThan(index('p'))
     // Relative to the cell, centred on its slot on the outline.
@@ -120,6 +132,36 @@ describe('physiological view nodes', () => {
     expect(byId.loose.parentNode).toBeUndefined()
   })
 
+  it('draws what is nested over what it is in, however deep, under the membranes', () => {
+    const { pieces, errors } = validatePieces([
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'], frame: { x: 0, y: 0, width: 600, height: 400 } },
+      {
+        id: 'inner',
+        kind: 'compartment',
+        label: 'Inner',
+        parent: 'cell',
+        frame: { x: 40, y: 40, width: 300, height: 200 },
+      },
+      {
+        id: 'deeper',
+        kind: 'compartment',
+        label: 'Deeper',
+        parent: 'inner',
+        frame: { x: 20, y: 20, width: 120, height: 80 },
+      },
+    ])
+    expect(errors).toEqual([])
+    const { places } = layoutPieces(pieces)
+    const z = Object.fromEntries(bioFlowNodes([], new Map(), places).map((n) => [n.id, n.zIndex]))
+    const [cell, inner, deeper, band] = [pieceKey('pm'), pieceKey('inner'), pieceKey('deeper'), membraneKey('pm')]
+    expect(places.get(inner).parent).toBe(cell)
+    expect(places.get(deeper).parent).toBe(inner)
+    expect(z[inner]).toBeGreaterThan(z[cell])
+    expect(z[deeper]).toBeGreaterThan(z[inner])
+    expect(z[band]).toBeGreaterThan(z[deeper])
+  })
+
   it('gives each protein what its cartoon’s arrows show', () => {
     const { nodes, roles, layout } = workspace()
     const transport = new Map([['p', [{ label: 'Na⁺', direction: 'out' }]]])
@@ -129,8 +171,12 @@ describe('physiological view nodes', () => {
   })
 
   it('keeps a moved cell or region as its rect, and anything else as its position', () => {
-    expect(bioViewForMove({ type: 'bioCell', width: 400, height: 300 }, { x: 10, y: 20 })).toEqual({ rect: { x: 10, y: 20, width: 400, height: 300 } })
-    expect(bioViewForMove({ type: 'bioCard', width: 180, height: 72 }, { x: 5, y: 6 })).toEqual({ position: { x: 5, y: 6 } })
+    expect(bioViewForMove({ type: 'bioCell', width: 400, height: 300 }, { x: 10, y: 20 })).toEqual({
+      rect: { x: 10, y: 20, width: 400, height: 300 },
+    })
+    expect(bioViewForMove({ type: 'bioCard', width: 180, height: 72 }, { x: 5, y: 6 })).toEqual({
+      position: { x: 5, y: 6 },
+    })
     // In whole flow units, as a drag on a zoomed view gives fractions.
     expect(bioViewForMove({ type: 'bioRegion', width: 600, height: 180 }, { x: 50.67, y: 37.33 })).toEqual({
       rect: { x: 51, y: 37, width: 600, height: 180 },
@@ -139,7 +185,11 @@ describe('physiological view nodes', () => {
 
   it('lays out again from what a move stored, putting the node where it was dropped', () => {
     const { nodes, roles } = workspace()
-    const moved = nodes.map((n) => (n.id === 'plain' ? { ...n, data: { ...n.data, bioView: bioViewForMove({ type: 'bioCard' }, { x: 900, y: 50 }) } } : n))
+    const moved = nodes.map((n) =>
+      n.id === 'plain'
+        ? { ...n, data: { ...n.data, bioView: bioViewForMove({ type: 'bioCard' }, { x: 900, y: 50 }) } }
+        : n,
+    )
     const bio = bioFlowNodes(moved, roles, layoutBioView(moved, roles))
     expect(bio.find((n) => n.id === 'plain').position).toEqual({ x: 900, y: 50 })
   })

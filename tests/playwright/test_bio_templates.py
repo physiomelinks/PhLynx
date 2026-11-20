@@ -258,6 +258,40 @@ class TestBioTemplates(unittest.TestCase):
         self.delete_at(inside)
         expect(page.locator(f"{BIO} .vue-flow__node-bioRegion")).to_have_count(0)
 
+    def on_top_at_its_centre(self, node):
+        """Whether a node is the one drawn on top at its own centre, so not hidden by what it is in."""
+        x, y = centre(node.bounding_box())
+        top = self.page.evaluate(
+            "([x, y]) => document.elementFromPoint(x, y)?.closest('.vue-flow__node')?.dataset.id", [x, y]
+        )
+        return top == node.get_attribute("data-id")
+
+    def test_a_compartment_in_a_compartment_shows_with_or_without_a_membrane_round_them(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+
+        # In a cell's compartment, the new compartment is drawn over it.
+        cell = self.drop_cell(self.pane_point(0.3, 0.45), "compartment")
+        self.drop_piece("compartment", centre(cell.bounding_box()))
+        inner = piece(page, "compartment-2")
+        expect(inner).to_be_visible()
+        assert self.on_top_at_its_centre(inner)
+
+        # In a bare compartment, then a membrane put round that: the inner one still shows.
+        self.drop_piece("compartment", self.pane_point(0.75, 0.45))
+        outer = piece(page, "compartment-3")
+        expect(outer).to_be_visible()
+        self.drop_piece("compartment", centre(outer.bounding_box()))
+        inner = piece(page, "compartment-4")
+        expect(inner).to_be_visible()
+        assert self.on_top_at_its_centre(inner)
+        box = outer.bounding_box()
+        self.drop_piece("membrane", (box["x"] + 30, box["y"] + 30))
+        expect(page.locator(f'{BIO} .vue-flow__node-bioCell:has([data-site="pieces/compartment-3"])')).to_be_visible()
+        page.wait_for_timeout(300)
+        assert self.on_top_at_its_centre(inner)
+
     def test_delete_takes_a_tube_and_a_process_zone_a_layer_at_a_time(self):
         page = self.page
         self.open_physiology()
