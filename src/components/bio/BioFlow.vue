@@ -952,8 +952,11 @@ const sitePrompts = computed(() => {
   }
   const piece = active?.site ? groupOf(active.site) : null
   if (!piece) return { ...empty, slots, areas: sortAreas(areas) }
-  const isActive = ({ ref, type, order }) =>
-    active.site.ref === ref && active.site.type === type && active.site.order === order
+  // A process area's row is prompted by its slots alone: a drop on the row goes last, so its spare slot is marked.
+  const toRow = active.site.type === 'area' && active.site.area === 'process'
+  const isActive = ({ ref, type, order, spare }) =>
+    active.site.ref === ref &&
+    (toRow ? type === 'slot' && spare : active.site.type === type && active.site.order === order)
   for (const target of siteTargets.value) {
     if (groupOf(target) !== piece) continue
     if (target.type === 'slot') {
@@ -962,6 +965,7 @@ const sitePrompts = computed(() => {
       slots.push({ key: `${ref}#${order}`, ref, x, y, spare, ...size, active: isActive(target) })
       continue
     }
+    if (target.area === 'process') continue
     areas.push({
       key: target.ref,
       ref: target.ref,

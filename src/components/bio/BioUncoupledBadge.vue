@@ -1,7 +1,7 @@
 <template>
   <!-- Placed, but no coupling joins it to anything: drawn as the dashed amber line of an uncoupled edge is -->
   <span
-    class="bio-uncoupled-badge"
+    :class="['bio-uncoupled-badge', { 'bio-uncoupled-badge--inset': inset }]"
     :title="`${name}: nothing couples it yet. Give its math ports its neighbours can couple to.`"
     data-testid="bio-uncoupled"
   >
@@ -12,6 +12,8 @@
 <script setup>
 defineProps({
   name: { type: String, default: 'This module' },
+  /** Kept within what it is on, its top-left corner, not over the edge of it. */
+  inset: { type: Boolean, default: false },
 })
 </script>
 
@@ -32,5 +34,10 @@ defineProps({
   color: var(--p-amber-500);
   font-size: 9px;
   cursor: help;
+}
+
+.bio-uncoupled-badge--inset {
+  top: 0;
+  left: 0;
 }
 </style>

@@ -162,6 +162,27 @@ describe('physiological view nodes', () => {
     expect(z[band]).toBeGreaterThan(z[deeper])
   })
 
+  it('draws a process zone’s modules as cartoons, and the zone as empty only until one is in it', () => {
+    const { pieces, errors } = validatePieces([
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'z', kind: 'zone', label: 'Process zone', compartment: 'cell' },
+    ])
+    expect(errors).toEqual([])
+    const zoneOf = (bio) => bio.find((n) => n.id === pieceKey('z'))
+    expect(zoneOf(bioFlowNodes([], new Map(), layoutPieces(pieces).places)).data.empty).toBe(true)
+    const nodes = [{ id: 'm', data: { name: 'm', bioView: { site: 'pieces/z' } } }]
+    const roles = new Map([['m', role('cytosolic')]])
+    const bio = bioFlowNodes(nodes, roles, layoutPieces(pieces, { nodes }).places)
+    expect(zoneOf(bio).data.empty).toBe(false)
+    const m = bio.find((n) => n.id === 'm')
+    expect(m).toMatchObject({ type: 'bioProtein', width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
+    expect(m.data.glyph).toBe('generic')
+    expect(zoneOf(bio).data.named).toBe(false)
+    // Its row starts below the zone's name, so no cartoon covers it.
+    const z = layoutPieces(pieces, { nodes }).places.get(pieceKey('z')).rect
+    expect(layoutPieces(pieces, { nodes }).places.get('m').y).toBeGreaterThanOrEqual(z.y + 16)
+  })
+
   it('gives each protein what its cartoon’s arrows show', () => {
     const { nodes, roles, layout } = workspace()
     const transport = new Map([['p', [{ label: 'Na⁺', direction: 'out' }]]])

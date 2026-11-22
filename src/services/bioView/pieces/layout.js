@@ -32,7 +32,7 @@ import { byName, inSlotOrder } from '../scaffold.js'
 import { parseSiteRef } from '../siteRefs.js'
 import { withFolds, withOutline } from '../shape.js'
 import { pathOf } from '../shapeGeometry.js'
-import { INNER_INSET, LIMITS } from './constants.js'
+import { INNER_INSET, LIMITS, isDefaultZoneLabel } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
 
@@ -395,6 +395,9 @@ function contact(a, b) {
   return null
 }
 
+/** How far down a process zone its row starts: below its name, in its top-left corner, as a compartment's contents are. */
+const ZONE_ROW_TOP = 18
+
 /** Room along a process zone's row for a cartoon with its name under it, a spare place's as a short name's. */
 const zoneRoom = (width) => Math.max(GLYPH_WIDTH, width) + LABEL_GAP
 
@@ -413,7 +416,7 @@ function zoneSlots(zone, widths) {
   let x = zone.x + CELL_RADIUS / 2
   return [...widths, 0].map((width) => {
     const room = zoneRoom(width)
-    const slot = { x: x + (room - GLYPH_WIDTH) / 2, y: zone.y + 8 }
+    const slot = { x: x + (room - GLYPH_WIDTH) / 2, y: zone.y + ZONE_ROW_TOP }
     x += room
     return slot
   })
@@ -1136,6 +1139,8 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       rect,
       site: sitePath(zone),
       empty: !members.length,
+      // Named by someone, so its name says what its processes share, not just what it is.
+      named: !isDefaultZoneLabel(zone.label),
       label: zone.label,
     })
     // Its processes in a row along its top, each drawn as its cartoon with its name under it, as a protein is.

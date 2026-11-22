@@ -21,6 +21,12 @@ export const FACES = Object.freeze(['inside', 'outside'])
  */
 export const FLUXES = Object.freeze(['flow', 'junction', 'bridge', 'diffusion'])
 
+/** What a new process zone is called, numbered past the first (see addZone). */
+export const ZONE_LABEL = 'Process zone'
+
+/** Whether a process zone still has the name it was given when added, as no one has named it. */
+export const isDefaultZoneLabel = (label) => new RegExp(`^${ZONE_LABEL}( \\d+)?$`).test(String(label ?? ''))
+
 /** The colours a compartment can be drawn in. */
 export const TONES = Object.freeze(['sky', 'rose', 'teal', 'amber', 'violet', 'lime', 'slate'])
 

@@ -4,7 +4,7 @@
  * pieces does (see drops.js).
  */
 
-import { LIMITS, SIDES } from './constants.js'
+import { LIMITS, SIDES, ZONE_LABEL } from './constants.js'
 import { writtenPieces } from './model.js'
 import { freeId } from './stamp.js'
 import { topologyOf } from './topology.js'
@@ -425,7 +425,7 @@ export function addFold(pieces, { membrane, side, at }) {
  */
 export function addZone(pieces, compartment) {
   const id = freeId('zone', taken(pieces))
-  const label = numbered(pieces, 'zone', 'Process zone')
+  const label = numbered(pieces, 'zone', ZONE_LABEL)
   return { pieces: [...copy(pieces), { id, kind: 'zone', label, compartment }], id }
 }
 

@@ -192,6 +192,9 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           draggable: !!place.drag,
           data: {
             ...base(id).data,
+            // Whether any module is in it yet, which base says of every piece with no node of its own.
+            empty: place.empty,
+            named: place.named,
             piece: place.piece,
             site: place.site,
             width,
@@ -378,7 +381,15 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             position: { x: place.x - cell.x, y: place.y - cell.y },
             width: GLYPH_WIDTH,
             height: GLYPH_HEIGHT,
-            data: { ...base(id).data, glyph: glyph ?? 'generic', annotatedFacet: null, rotation: 0, droppable: true },
+            data: {
+              ...base(id).data,
+              glyph: glyph ?? 'generic',
+              annotatedFacet: null,
+              rotation: 0,
+              droppable: true,
+              // Its badge kept on its cartoon, off the zone's name above it.
+              inset: true,
+            },
           })
           break
         }

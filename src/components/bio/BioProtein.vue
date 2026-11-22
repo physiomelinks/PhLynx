@@ -22,7 +22,7 @@
       {{ data.name }}
       <span v-if="species" class="bio-protein__species" data-testid="bio-protein-species">{{ species }}</span>
     </span>
-    <BioUncoupledBadge v-if="data.uncoupled" :name="data.name" />
+    <BioUncoupledBadge v-if="data.uncoupled" :name="data.name" :inset="!!data.inset" />
     <!-- Moved from where its annotations put it -->
     <span
       v-if="movedFrom"
