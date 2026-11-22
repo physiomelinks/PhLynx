@@ -107,6 +107,35 @@ describe('moveFrame', () => {
     const cell = rects.get('sarcolemma')
     expect(byId(moved, 'mitochondria').frame).toMatchObject({ y: rects.get('mitochondria').y - cell.y + 200 })
   })
+
+  it('leaves the other zones in its compartment where they are when a zone moves onto them', () => {
+    const raw = [
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'], frame: { x: 0, y: 0, width: 600, height: 500 } },
+      { id: 'a', kind: 'zone', label: 'A', compartment: 'cell' },
+      { id: 'b', kind: 'zone', label: 'B', compartment: 'cell' },
+      { id: 'c', kind: 'zone', label: 'C', compartment: 'cell' },
+    ]
+    const pieces = valid(raw)
+    const rects = rectsOf(pieces)
+    const delta = { x: 0, y: rects.get('b').y - rects.get('a').y }
+    const after = rectsOf(valid(moveFrame(pieces, 'a', delta, rects)))
+    expect(after.get('a').y).toBe(rects.get('b').y)
+    for (const id of ['b', 'c']) expect(after.get(id)).toMatchObject({ x: rects.get(id).x, y: rects.get(id).y })
+  })
+
+  it('puts a zone added among placed ones in a spare row, touching none of them', () => {
+    const pieces = valid([
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'], frame: { x: 0, y: 0, width: 600, height: 500 } },
+      { id: 'a', kind: 'zone', label: 'A', compartment: 'cell', frame: { x: 24, y: 30, width: 300, height: 100 } },
+      { id: 'b', kind: 'zone', label: 'B', compartment: 'cell' },
+    ])
+    const rects = rectsOf(pieces)
+    const [a, b] = [rects.get('a'), rects.get('b')]
+    const apart = b.y >= a.y + a.height + 8 || a.y >= b.y + b.height + 8
+    expect(apart).toBe(true)
+  })
 })
 
 describe('resizeFrame and fitToContents', () => {

@@ -84,6 +84,8 @@ const BAND_OVERRUN = GAP
 const TUBE_ZONE = Object.freeze({ width: CARD.width + 16, height: CARD.height + 16 })
 /** The least height a process zone is drawn: a row of cartoons with their names, as one spanning its cell is. */
 const ZONE_HEIGHT = processZone({ x: 0, y: 0, width: 0 }, 0).height
+/** How far a zone laid out in a row keeps from anything standing by its frame. */
+const ZONE_GAP = 8
 /** A piece with a frame is resized from its bottom-right corner. */
 const FRAME_RESIZE = Object.freeze({ mode: 'frame', position: 'bottom-right' })
 const OPPOSITE = Object.freeze({ top: 'bottom', bottom: 'top', left: 'right', right: 'left' })
@@ -642,9 +644,22 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     makeRoom(framed, rel)
     const framedZones = framed.filter((piece) => piece.kind === 'zone').map((zone) => rel.get(zone.id))
     // Process zones without a frame in rows from the top, below the proteins on its top side, as wide as it is,
-    // passing over a row a zone with a frame stands in.
+    // passing over a row anything with a frame stands in or comes within a gap of, so a zone dropped in is drawn in
+    // a spare place touching nothing, for the user to move where they want it.
     let row = 0
-    const isTaken = (band) => framedZones.some((rect) => overlapping(rect, band))
+    const placed = framed.map((piece) => rel.get(piece.id))
+    const isTaken = (band) =>
+      placed.some((rect) =>
+        overlapping(
+          {
+            x: rect.x - ZONE_GAP,
+            y: rect.y - ZONE_GAP,
+            width: rect.width + 2 * ZONE_GAP,
+            height: rect.height + 2 * ZONE_GAP,
+          },
+          band,
+        ),
+      )
     // What the zones need of its width: those that span it, room for their cards and a spare place past them, not
     // the width they take from it, which would grow it again and again; those with frames, their reach. Either keeps
     // the same margin past it, so a zone given a frame where it was drawn leaves the container as it was.

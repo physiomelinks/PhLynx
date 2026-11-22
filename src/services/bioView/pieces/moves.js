@@ -58,6 +58,21 @@ function frameOf(piece, rects) {
 }
 
 /**
+ * Gives the other zones in a zone's compartment that are laid out in rows a frame where they are drawn, so moving or
+ * resizing the one leaves them where they are, for the user to place, rather than making way for it. A fold moving
+ * still moves them clear of it, as it does any piece standing by its frame.
+ */
+function pinSiblingZones(raw, piece, rects) {
+  if (piece.kind !== 'zone') return
+  for (const other of raw) {
+    if (other === piece || other.kind !== 'zone' || other.compartment !== piece.compartment || other.frame) continue
+    const drawn = frameOf(other, rects)
+    if (!drawn) continue
+    other.frame = { x: round(drawn.x), y: round(drawn.y), width: round(drawn.width), height: round(drawn.height) }
+  }
+}
+
+/**
  * Moves a piece with a frame by how far it was dragged. One standing in a compartment is kept from going out of its
  * top or left; past its right or bottom, the compartment grows to hold it.
  *
@@ -80,6 +95,7 @@ export function moveFrame(pieces, id, delta, rects) {
     x: round(clamp(start.x + delta.x, low, LIMITS.at.max)),
     y: round(clamp(start.y + delta.y, low, LIMITS.at.max)),
   }
+  pinSiblingZones(raw, piece, rects)
   return raw
 }
 
@@ -105,6 +121,7 @@ export function resizeFrame(pieces, id, rect, rects) {
     width: size(rect.width),
     height: size(rect.height),
   }
+  pinSiblingZones(raw, piece, rects)
   return raw
 }
 
