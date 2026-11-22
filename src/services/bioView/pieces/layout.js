@@ -82,6 +82,8 @@ const FOLD_REACH = 46
 const BAND_OVERRUN = GAP
 /** The room a tube leaves for its module, and a joint between two compartments that touch. */
 const TUBE_ZONE = Object.freeze({ width: CARD.width + 16, height: CARD.height + 16 })
+/** The least height a process zone is drawn: a row of cartoons with their names, as one spanning its cell is. */
+const ZONE_HEIGHT = processZone({ x: 0, y: 0, width: 0 }, 0).height
 /** A piece with a frame is resized from its bottom-right corner. */
 const FRAME_RESIZE = Object.freeze({ mode: 'frame', position: 'bottom-right' })
 const OPPOSITE = Object.freeze({ top: 'bottom', bottom: 'top', left: 'right', right: 'left' })
@@ -624,16 +626,35 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       need.height = Math.max(need.height, cleared.need.height)
       return cleared.rect
     }
-    // Process zones without a frame in rows from the top, below the proteins on its top side, as wide as it is.
+    /** How long a zone's row of cards is, with a spare place past them. */
+    const cardsOf = (zone) => CELL_RADIUS / 2 + zoneLength((occupants.get(zone.id) ?? []).map(widthOf))
+    // What stands by its frame first: a zone as big as its frame says, at least as big as its cards need, as a
+    // compartment is for what stands in it; then the rest, each sized for what it holds. Any grown bigger than its
+    // frame pushes the others out of its way.
+    const framed = list.filter((piece) => piece.frame)
+    for (const zone of framed.filter((piece) => piece.kind === 'zone')) {
+      const { x, y, width: wide, height: high } = zone.frame
+      rel.set(zone.id, clear({ x, y, width: Math.max(wide, cardsOf(zone)), height: Math.max(high, ZONE_HEIGHT) }))
+    }
+    for (const piece of framed.filter((piece) => piece.kind !== 'zone')) {
+      rel.set(piece.id, clear({ x: piece.frame.x, y: piece.frame.y, ...sizes.get(piece.id) }))
+    }
+    makeRoom(framed, rel)
+    const framedZones = framed.filter((piece) => piece.kind === 'zone').map((zone) => rel.get(zone.id))
+    // Process zones without a frame in rows from the top, below the proteins on its top side, as wide as it is,
+    // passing over a row a zone with a frame stands in.
     let row = 0
-    // What the zones that span the container need of its width: room for their cards and a spare place past them,
-    // not the width they take from it, which would grow it again and again.
-    let zonesNeed = 0
+    const isTaken = (band) => framedZones.some((rect) => overlapping(rect, band))
+    // What the zones need of its width: those that span it, room for their cards and a spare place past them, not
+    // the width they take from it, which would grow it again and again; those with frames, their reach. Either keeps
+    // the same margin past it, so a zone given a frame where it was drawn leaves the container as it was.
+    let zonesNeed = Math.max(0, ...framedZones.map((rect) => rightOf(rect) + CELL_RADIUS / 2))
     for (const zone of zones) {
-      if (zone.frame) rel.set(zone.id, clear({ ...zone.frame }))
-      else {
-        const area = processZone({ x: 0, y: 0, width }, row++)
-        const cards = CELL_RADIUS / 2 + zoneLength((occupants.get(zone.id) ?? []).map(widthOf))
+      if (!zone.frame) {
+        // Rows go down, so one is past every zone with a frame in the end.
+        let area = processZone({ x: 0, y: 0, width }, row++)
+        while (isTaken(area)) area = processZone({ x: 0, y: 0, width }, row++)
+        const cards = cardsOf(zone)
         zonesNeed = Math.max(zonesNeed, area.x + cards + CELL_RADIUS / 2)
         // A fold it would cross leaves it the wider side, and the cell grows until its cards fit there. The folds
         // move as it does, so step out from the width it needs with none by what is still short, to find the least
@@ -651,24 +672,18 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         rel.set(zone.id, along !== area ? along : { ...area, width: Math.max(area.width, cards) })
       }
     }
-    const spanning = new Set(zones.filter((zone) => !zone.frame).map((zone) => zone.id))
-    const below = containerId ? Math.max(GLYPH_HEIGHT + 40, ...[...rel.values()].map(bottomOf)) + ROOM : 0
-    // The rest by their frames, or in a row below the zones; on the canvas, side by side from its corner.
+    const zoneBottoms = zones.map((zone) => bottomOf(rel.get(zone.id)))
+    const below = containerId ? Math.max(GLYPH_HEIGHT + 40, ...zoneBottoms) + ROOM : 0
+    // The rest without a frame in a row below the zones; on the canvas, side by side from its corner.
     let x = containerId ? CELL_RADIUS + ROOM : 0
-    for (const piece of others) {
+    for (const piece of others.filter((piece) => !piece.frame)) {
       const size = sizes.get(piece.id)
-      if (piece.frame) rel.set(piece.id, clear({ x: piece.frame.x, y: piece.frame.y, ...size }))
-      else {
-        const placed = clear({ x, y: below, ...size }, { x, y: below })
-        rel.set(piece.id, placed)
-        x = Math.max(x + size.width, placed.y === below ? rightOf(placed) : 0) + (containerId ? 2 * ROOM : 2 * GAP)
-      }
+      const placed = clear({ x, y: below, ...size }, { x, y: below })
+      rel.set(piece.id, placed)
+      x = Math.max(x + size.width, placed.y === below ? rightOf(placed) : 0) + (containerId ? 2 * ROOM : 2 * GAP)
     }
-    makeRoom(
-      others.filter((piece) => piece.frame),
-      rel,
-    )
-    const fixed = [...rel].filter(([id]) => !spanning.has(id)).map(([, rect]) => rect)
+    // What else stands in it keeps more room past it, for the names of the proteins on it.
+    const fixed = others.map((piece) => rel.get(piece.id))
     const reach = boxOf([...fixed, { x: 0, y: 0, width: 0, height: 0 }])
     const tall = boxOf([...rel.values(), { x: 0, y: 0, width: 0, height: 0 }])
     arrangements.set(containerId ?? '', rel)

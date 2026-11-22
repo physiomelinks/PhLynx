@@ -8,6 +8,7 @@ import { layoutPieces, membraneKey, pieceKey, routeTube } from '../../../../../s
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
 import { CELL_RADIUS, GLYPH_WIDTH, MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
 import { encloseCompartment } from '../../../../../src/services/bioView/pieces/edits.js'
+import { fitToContents, moveFrame, resizeFrame } from '../../../../../src/services/bioView/pieces/moves.js'
 import { LABEL_GAP } from '../../../../../src/services/bioView/metrics.js'
 
 const laidOut = (raw, options) => {
@@ -363,6 +364,83 @@ describe('a process zone spanning its cell', () => {
     const zone = rectOf(layout, 'zone')
     expect(cell.width).toBe(320)
     expect(contains(cell, zone)).toBe(true)
+  })
+})
+
+describe('process zones with frames', () => {
+  const cell = [
+    { id: 'cell', kind: 'compartment', label: 'Cell' },
+    { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'] },
+  ]
+  const zone = (id) => ({ id, kind: 'zone', label: id, compartment: 'cell' })
+  const cards = (id, count) =>
+    Array.from({ length: count }, (_, n) => ({ id: `${id}-${n}`, data: { bioView: { site: `pieces/${id}` } } }))
+  const overlap = (a, b) => a.x < right(b) && b.x < right(a) && a.y < bottom(b) && b.y < bottom(a)
+  /** The pieces as resizing one to a rect leaves them, as the view does. */
+  const resized = (pieces, id, rect, options) => {
+    const { pieces: valid } = validatePieces(pieces)
+    const raw = resizeFrame(valid, id, rect, layoutPieces(valid, options).rects)
+    expect(validatePieces(raw).errors).toEqual([])
+    return raw
+  }
+
+  it('keeps a zone at least as big as its processes need, however small it is made', () => {
+    const pieces = [...cell, zone('z')]
+    const nodes = cards('z', 3)
+    const before = rectOf(laidOut(pieces, { nodes }), 'z')
+    const tiny = resized(pieces, 'z', { x: before.x, y: before.y, width: 20, height: 20 }, { nodes })
+    const after = rectOf(laidOut(tiny, { nodes }), 'z')
+    expect(after.width).toBeGreaterThanOrEqual(3 * (GLYPH_WIDTH + LABEL_GAP))
+    expect(after.height).toBe(before.height)
+    expect(contains(rectOf(laidOut(tiny, { nodes }), 'pm'), after)).toBe(true)
+  })
+
+  it('gives a zone fitted to its contents the least size they need', () => {
+    const pieces = [...cell, zone('z')]
+    const nodes = cards('z', 2)
+    const before = rectOf(laidOut(pieces, { nodes }), 'z')
+    const big = resized(pieces, 'z', { ...before, width: before.width + 300, height: before.height + 200 }, { nodes })
+    const fitted = rectOf(laidOut(fitToContents(big, 'z'), { nodes }), 'z')
+    expect(fitted.height).toBe(before.height)
+    expect(fitted.width).toBeLessThan(before.width)
+  })
+
+  it('leaves its container as it was when a zone is first moved, and grows it with a band’s margin past one', () => {
+    for (const host of [{ id: 'cell', kind: 'compartment', label: 'Cell' }, ...cell.slice(1)]) {
+      const pieces = host.kind === 'membrane' ? [...cell, zone('z')] : [host, zone('z')]
+      const outer = host.kind === 'membrane' ? 'pm' : 'cell'
+      const { pieces: valid } = validatePieces(pieces)
+      const before = layoutPieces(valid)
+      const nudged = laidOut(moveFrame(valid, 'z', { x: 0, y: 1 }, before.rects))
+      expect(rectOf(nudged, outer).width, outer).toBe(rectOf(before, outer).width)
+      const z = rectOf(before, 'z')
+      const pushed = laidOut(moveFrame(valid, 'z', { x: 100, y: 0 }, before.rects))
+      expect(right(rectOf(pushed, outer)) - right(rectOf(pushed, 'z')), outer).toBe(z.x - rectOf(before, outer).x)
+    }
+  })
+
+  it('moves a zone with no frame past the row a resized one stands in', () => {
+    const pieces = [...cell, zone('a'), zone('b')]
+    const a = rectOf(laidOut(pieces), 'a')
+    const after = laidOut(resized(pieces, 'a', { ...a, width: a.width - 40 }))
+    expect(overlap(rectOf(after, 'a'), rectOf(after, 'b'))).toBe(false)
+    expect(contains(rectOf(after, 'pm'), rectOf(after, 'b'))).toBe(true)
+  })
+
+  it('pushes a resized zone out of the way of another grown for its processes', () => {
+    const pieces = [...cell, zone('a'), zone('b')]
+    const first = laidOut(pieces)
+    const a = rectOf(first, 'a')
+    const b = rectOf(first, 'b')
+    const both = resized(resized(pieces, 'a', { ...a, width: 120 }), 'b', { ...b, x: a.x + 140, y: a.y, width: 120 })
+    const apart = laidOut(both)
+    expect(overlap(rectOf(apart, 'a'), rectOf(apart, 'b'))).toBe(false)
+    // Its processes grow a past where b stood, so b moves on to keep the gap it had.
+    const nodes = cards('a', 4)
+    const pushed = laidOut(both, { nodes })
+    expect(rectOf(pushed, 'a').width).toBeGreaterThan(140)
+    expect(overlap(rectOf(pushed, 'a'), rectOf(pushed, 'b'))).toBe(false)
+    expect(rectOf(pushed, 'b').x - right(rectOf(pushed, 'a'))).toBe(20)
   })
 })
 

@@ -307,7 +307,7 @@ class TestBioTemplates(unittest.TestCase):
         self.open_physiology()
         page.locator("[data-testid=library-tab-build]").click()
         self.drop_piece("compartment", self.pane_point(0.3, 0.4))
-        self.drop_piece("compartment", self.pane_point(0.85, 0.3))
+        self.drop_piece("compartment", self.pane_point(0.6, 0.3))
         expect(piece(page, "compartment-2")).to_be_visible()
         page.wait_for_timeout(300)
 
@@ -331,6 +331,71 @@ class TestBioTemplates(unittest.TestCase):
         self.delete_at((box["x"] + box["width"] - 12, box["y"] + box["height"] - 8))
         expect(zone).to_have_count(0)
 
+    def test_a_compartment_lands_where_its_preview_showed(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        target = self.pane_point(0.4, 0.4)
+        tile = centre(palette_piece(page, "compartment").bounding_box())
+        page.mouse.move(*tile)
+        page.mouse.down()
+        page.mouse.move(*target, steps=20)
+        ghost = page.locator(".bio-piece-preview__ghost").first
+        expect(ghost).to_be_visible()
+        shown = ghost.bounding_box()
+        page.mouse.up()
+        # Not fitted to it afterwards: it stays where it was shown.
+        compartment = piece(page, "compartment")
+        expect(compartment).to_be_visible()
+        page.wait_for_timeout(300)
+        placed = compartment.bounding_box()
+        for key in ("x", "y", "width", "height"):
+            self.assertAlmostEqual(placed[key], shown[key], delta=3, msg=key)
+
+    def test_process_zones_in_a_compartment_keep_their_size_and_clear_of_each_other(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        self.drop_piece("compartment", self.pane_point(0.4, 0.4))
+        compartment = piece(page, "compartment")
+        expect(compartment).to_be_visible()
+        zones = page.locator(f"{BIO} .vue-flow__node-bioZone")
+        self.drop_piece("zone", centre(compartment.bounding_box()))
+        expect(zones).to_have_count(1)
+        self.drop_piece("zone", centre(compartment.bounding_box()))
+        expect(zones).to_have_count(2)
+        page.wait_for_timeout(300)
+
+        def apart(a, b):
+            return (
+                a["x"] + a["width"] <= b["x"] + 1
+                or b["x"] + b["width"] <= a["x"] + 1
+                or a["y"] + a["height"] <= b["y"] + 1
+                or b["y"] + b["height"] <= a["y"] + 1
+            )
+
+        first, second = zones.nth(0), zones.nth(1)
+        self.assertTrue(apart(first.bounding_box(), second.bounding_box()))
+
+        # The first made as small as it goes from its corner: it keeps the room its row needs, and the second keeps
+        # clear of it.
+        before = first.bounding_box()
+        first.hover()
+        corner = centre(first.locator("[data-testid=bio-piece-resize]").first.bounding_box())
+        page.mouse.move(*corner)
+        page.mouse.down()
+        page.mouse.move(before["x"] + 4, before["y"] + 4, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        after = first.bounding_box()
+        self.assertAlmostEqual(after["height"], before["height"], delta=2)
+        self.assertGreater(after["width"], 60)
+        self.assertTrue(apart(after, second.bounding_box()))
+        outer = compartment.bounding_box()
+        for zone in (after, second.bounding_box()):
+            self.assertGreaterEqual(zone["y"] + zone["height"], outer["y"])
+            self.assertLessEqual(zone["y"] + zone["height"], outer["y"] + outer["height"] + 1)
+
     def test_the_build_palette_joins_two_compartments_with_a_tube(self):
         page = self.page
         self.open_physiology()
@@ -340,7 +405,7 @@ class TestBioTemplates(unittest.TestCase):
         self.drop_piece("compartment", self.pane_point(0.3, 0.4))
         first = piece(page, "compartment")
         expect(first).to_be_visible()
-        self.drop_piece("compartment", self.pane_point(0.85, 0.3))
+        self.drop_piece("compartment", self.pane_point(0.6, 0.3))
         second = piece(page, "compartment-2")
         expect(second).to_be_visible()
         page.wait_for_timeout(300)

@@ -2533,6 +2533,8 @@ function applyTile(tile, point) {
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 async function placeTile(tile, point) {
+  // Put where the user chose, as its preview showed: the view stays where it is, not fitted to what is added.
+  isViewSet = isViewChosen = true
   // A new module adds no sites, and keeps its own step: a drop asking what it is holds that step open past here.
   if (tile.kind === 'module') return applyTile(tile, point)
   const before = new Set(siteTargets.value.map((target) => target.ref))
