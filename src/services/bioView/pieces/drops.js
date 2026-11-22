@@ -80,20 +80,23 @@ const edgeDistance = (rect, point) => {
 const snap = ({ x, y }) => `${Math.round(x / 8) * 8},${Math.round(y / 8) * 8}`
 
 /**
- * The scene a drag reads: the pieces and where each is drawn. Worked out once per drag.
+ * The scene a drag reads: the pieces and where each is drawn. Worked out once per drag. Given the nodes on the pieces,
+ * as the view lays them out, where each is drawn is where the view draws it, and a preview lays them out the same.
  *
  * @param {ReadonlyArray<Object>} pieces - Validated.
- * @param {{ shapes?: Map<string, Object> }} [options]
- * @returns {{pieces: ReadonlyArray<Object>, rects: Map<string, Object>, byId: Map<string, Object>, shapes: Map}}
+ * @param {{ shapes?: Map<string, Object>, nodes?: Array<Object>, widthOf?: (id: string) => number }} [options] - As
+ *   for layoutPieces.
+ * @returns {{pieces: ReadonlyArray<Object>, rects: Map<string, Object>, byId: Map<string, Object>, shapes: Map,
+ *   nodes: Array<Object>, widthOf: Function|undefined}}
  */
-export function dropScene(pieces, { shapes = new Map() } = {}) {
-  const { rects, places } = layoutPieces(pieces, { shapes })
+export function dropScene(pieces, { shapes = new Map(), nodes = [], widthOf } = {}) {
+  const { rects, places } = layoutPieces(pieces, { shapes, nodes, widthOf })
   // Each fold's lumen, where it is drawn.
   const folds = new Map()
   for (const place of places.values()) {
     for (const fold of place.folds ?? []) folds.set(fold.facetId, foldRect(place.rect, fold))
   }
-  return { pieces, rects, folds, byId: new Map(pieces.map((piece) => [piece.id, piece])), shapes }
+  return { pieces, rects, folds, byId: new Map(pieces.map((piece) => [piece.id, piece])), shapes, nodes, widthOf }
 }
 
 /** A fold's lumen as a rect, from its membrane's rect and where the fold is in it (see foldPocket). */
@@ -395,6 +398,35 @@ export function resolveDrop(kind, point, scene) {
   return resolve ? resolve(scene, point) : { key: `${kind}|unknown`, invalid: 'That is not a piece.' }
 }
 
+/** The box round the compartments already there that a new membrane encloses, or null where it encloses none. */
+function enclosedBox(scene, pieces, membraneId) {
+  const rects = (pieces.find((piece) => piece.id === membraneId)?.encloses ?? [])
+    .map((id) => scene.rects.get(id))
+    .filter(Boolean)
+  if (!rects.length) return null
+  const x = Math.min(...rects.map((rect) => rect.x))
+  const y = Math.min(...rects.map((rect) => rect.y))
+  const width = Math.max(...rects.map((rect) => rect.x + rect.width)) - x
+  const height = Math.max(...rects.map((rect) => rect.y + rect.height)) - y
+  return { x, y, width, height }
+}
+
+/** The places of pieces already there whose growing a preview shows: a compartment standing freely, and a cell. */
+const GROWING_KINDS = new Set(['region', 'cell'])
+
+/** Whether a rect is wider or taller than another, by more than rounding: moved alone, it has not grown. */
+const isLarger = (rect, than) => rect.width > than.width + 0.5 || rect.height > than.height + 0.5
+
+/** Whether a rect is somewhere else than another, by more than rounding. */
+const isMoved = (rect, than) => Math.abs(rect.x - than.x) > 0.5 || Math.abs(rect.y - than.y) > 0.5
+
+/** Whether a rect reaches past another on any side, by more than rounding. */
+const isBigger = (rect, than) =>
+  rect.x < than.x - 0.5 ||
+  rect.y < than.y - 0.5 ||
+  rect.x + rect.width > than.x + than.width + 0.5 ||
+  rect.y + rect.height > than.y + than.height + 0.5
+
 /**
  * The pieces a drop would leave, validated, and what it adds drawn as ghosts.
  *
@@ -403,7 +435,10 @@ export function resolveDrop(kind, point, scene) {
  * @param {Object} [choice] - What the user chose for it, passed to its apply: a tube's flux, between two cells.
  * @returns {{pieces: ReadonlyArray<Object>|null, id: string|null, ghosts: Array<Object>, errors: string[]}} ghosts:
  *   {type: 'rect', rect, kind} for each piece added, {type: 'path', points} for a tube's way, {type: 'fold', ...} for
- *   a fold (its lumen's rect).
+ *   a fold (its lumen's rect). A membrane round compartments already there says what they took (`was`, the box round
+ *   them) and whether the cell it makes is bigger than that (`grows`). A compartment or cell already there that the
+ *   drop makes bigger is {type: 'grows', kind, label, rect, was}, and one it pushes out of the way {type: 'moves', ...},
+ *   first, so what is added is drawn over them.
  */
 export function previewDrop(scene, drop, choice) {
   const result = drop.apply(scene.pieces, choice)
@@ -411,12 +446,20 @@ export function previewDrop(scene, drop, choice) {
   const { pieces, errors } = validatePieces(result.pieces)
   if (!pieces) return { pieces: null, id: null, ghosts: [], errors }
   const before = new Set(scene.pieces.map((piece) => piece.id))
-  const { places } = layoutPieces(pieces, { shapes: scene.shapes })
+  const { places } = layoutPieces(pieces, { shapes: scene.shapes, nodes: scene.nodes, widthOf: scene.widthOf })
   const ghosts = []
+  const grown = []
   for (const place of places.values()) {
     // A grip is a handle on a piece, not part of it, and a membrane's band is drawn by its cell.
     if (place.kind === 'grip' || place.kind === 'membrane') continue
     if (before.has(place.piece)) {
+      // A compartment or cell made bigger to fit what the drop adds, or pushed out of the way of one that is.
+      const was = GROWING_KINDS.has(place.kind) && scene.rects.get(place.piece)
+      if (was && place.rect && isMoved(place.rect, was)) {
+        grown.push({ type: 'moves', kind: place.kind, label: place.label, rect: place.rect, was })
+      } else if (was && place.rect && isLarger(place.rect, was)) {
+        grown.push({ type: 'grows', kind: place.kind, label: place.label, rect: place.rect, was })
+      }
       // A membrane already there with a fold added.
       for (const fold of place.folds ?? []) {
         if (!before.has(fold.facetId)) ghosts.push({ type: 'rect', kind: 'fold', rect: foldRect(place.rect, fold) })
@@ -424,7 +467,9 @@ export function previewDrop(scene, drop, choice) {
       continue
     }
     if (place.points) ghosts.push({ type: 'path', points: place.points })
-    ghosts.push({ type: 'rect', kind: place.kind, rect: place.zone ?? place.rect })
+    const rect = place.zone ?? place.rect
+    const was = place.kind === 'cell' ? enclosedBox(scene, pieces, place.piece) : null
+    ghosts.push({ type: 'rect', kind: place.kind, rect, ...(was && { was, grows: isBigger(rect, was) }) })
   }
-  return { pieces, id: result.id, ghosts, errors: [] }
+  return { pieces, id: result.id, ghosts: [...grown, ...ghosts], errors: [] }
 }

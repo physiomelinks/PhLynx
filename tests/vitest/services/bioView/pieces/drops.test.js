@@ -225,7 +225,11 @@ describe('dropping a tube, fold or zone', () => {
     const rect = cellRect(cell())
     const { pieces, id, ghosts } = dropped(cell(), 'fold', { x: rect.x + rect.width / 2, y: rect.y + 20 })
     expect(pieces.find((piece) => piece.id === id)).toMatchObject({ membrane: 'plasma-membrane', side: 'top', at: 0.5 })
-    expect(ghosts).toEqual([expect.objectContaining({ kind: 'fold' })])
+    // The cell grows deep enough to hold it, from the size it was, under the fold's own ghost.
+    expect(ghosts).toEqual([
+      expect.objectContaining({ type: 'grows', kind: 'cell', was: rect }),
+      expect.objectContaining({ kind: 'fold' }),
+    ])
     expect(resolveDrop('fold', { x: -500, y: -500 }, dropScene(cell())).invalid).toMatch(/side of a membrane/)
   })
 
@@ -247,5 +251,76 @@ describe('dropping a tube, fold or zone', () => {
     const a = resolveDrop('zone', { x: rect.x + 100, y: rect.y + 100 }, scene)
     const b = resolveDrop('zone', { x: rect.x + 140, y: rect.y + 120 }, scene)
     expect(a.key).toBe(b.key)
+  })
+})
+
+describe('previewing a membrane round a compartment', () => {
+  const free = (frame) => valid([{ id: 'c', kind: 'compartment', label: 'C', frame }])
+  const ghostOf = (frame) => {
+    const { ghosts } = dropped(free(frame), 'membrane', { x: frame.x + 20, y: frame.y + 20 })
+    return ghosts.find((ghost) => ghost.kind === 'cell')
+  }
+
+  it('says what the compartment took, and that the cell is no bigger where it fits one', () => {
+    const frame = { x: 100, y: 100, width: 320, height: 160 }
+    expect(ghostOf(frame)).toEqual({ type: 'rect', kind: 'cell', rect: frame, was: frame, grows: false })
+  })
+
+  it('says the cell grows where the compartment is too small for one', () => {
+    const frame = { x: 100, y: 100, width: 320, height: 100 }
+    const ghost = ghostOf(frame)
+    expect(ghost.was).toEqual(frame)
+    expect(ghost.rect.height).toBeGreaterThan(frame.height)
+    expect(ghost.grows).toBe(true)
+  })
+})
+
+describe('previewing what a drop grows', () => {
+  const free = (height) =>
+    valid([{ id: 'c', kind: 'compartment', label: 'C', frame: { x: 100, y: 100, width: 320, height } }])
+  const grownBy = (pieces, kind, point, options) => {
+    const scene = dropScene(pieces, options)
+    const preview = previewDrop(scene, resolveDrop(kind, point, scene))
+    expect(preview.errors).toEqual([])
+    return preview.ghosts.filter((ghost) => ghost.type === 'grows')
+  }
+
+  it('shows a compartment grown to fit a zone dropped in it, from the size it was, before what is added', () => {
+    const scene = dropScene(free(140))
+    const preview = previewDrop(scene, resolveDrop('zone', { x: 260, y: 170 }, scene))
+    const [grown] = preview.ghosts
+    expect(grown).toMatchObject({ type: 'grows', kind: 'region', label: 'C', was: scene.rects.get('c') })
+    expect(grown.rect.height).toBeGreaterThan(140)
+    expect(preview.ghosts.at(-1).kind).toBe('zone')
+  })
+
+  it('shows nothing grown where what is dropped fits', () => {
+    expect(grownBy(free(400), 'zone', { x: 260, y: 170 })).toEqual([])
+  })
+
+  it('lays out the scene and the preview with the modules on the pieces, as the view does', () => {
+    const cell = valid([
+      { id: 'c', kind: 'compartment', label: 'C' },
+      { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['c'], frame: { x: 100, y: 100, width: 320, height: 144 } },
+    ])
+    const nodes = [{ id: 'm', data: { name: 'm', bioView: { site: 'pieces/c' } } }]
+    const [empty] = grownBy(cell, 'zone', { x: 260, y: 170 })
+    const [filled] = grownBy(cell, 'zone', { x: 260, y: 170 }, { nodes })
+    // A cell with no module keeps room below for its name and hint; with one, it doesn't.
+    expect(filled.rect.height).toBeLessThan(empty.rect.height)
+  })
+})
+
+describe('previewing what a drop pushes', () => {
+  it('shows a compartment pushed out of the way of one that grows', () => {
+    const pieces = valid([
+      { id: 'c', kind: 'compartment', label: 'C', frame: { x: 100, y: 100, width: 320, height: 140 } },
+      { id: 'd', kind: 'compartment', label: 'D', frame: { x: 100, y: 260, width: 320, height: 140 } },
+    ])
+    const scene = dropScene(pieces)
+    const { ghosts } = previewDrop(scene, resolveDrop('zone', { x: 260, y: 170 }, scene))
+    const moved = ghosts.find((ghost) => ghost.type === 'moves')
+    expect(moved).toMatchObject({ kind: 'region', label: 'D', was: scene.rects.get('d') })
+    expect(moved.rect.y).toBeGreaterThan(260)
   })
 })

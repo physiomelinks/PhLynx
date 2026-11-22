@@ -706,7 +706,8 @@ export function useBioNodes(
       }),
     )
   })
-  const physiology = computed(() => {
+  /** How the pieces are laid out with the nodes on them: the shapes, the nodes and their names' widths. */
+  const pieceLayoutOptions = computed(() => {
     const byId = new Map(nodes.value.map((node) => [node.id, node]))
     // What a protein carries shows under its name, so it spaces neighbours too.
     const detailOf = (id) => {
@@ -716,12 +717,16 @@ export function useBioNodes(
         .map(({ label }) => label)
         .join(' · ')
     }
+    const widthOf = (id) => proteinLabelWidth(byId.get(id)?.data?.name ?? id, detailOf(id))
+    return { shapes: piecesStore.shapes, nodes: nodes.value, widthOf, detailOf }
+  })
+  const physiology = computed(() => {
+    const { detailOf, ...options } = pieceLayoutOptions.value
     // A drag of a piece lays it out as the drag would leave it (the draft), so all that goes with it follows.
     const pieces = piecesStore.draft ?? piecesStore.pieces
     if (!pieces.length) return { places: layoutPhysiology(nodes.value, roles.value, { detailOf }).places, sites: [] }
     // The pieces the view is built from, with the nodes bound to their sites; the rest beside them.
-    const widthOf = (id) => proteinLabelWidth(byId.get(id)?.data?.name ?? id, detailOf(id))
-    const laidOut = layoutPieces(pieces, { shapes: piecesStore.shapes, nodes: nodes.value, widthOf })
+    const laidOut = layoutPieces(pieces, options)
     const { bound } = boundToPieces(pieces, nodes.value)
     const { places } = layoutPhysiology(nodes.value, roles.value, {
       detailOf,
@@ -924,6 +929,7 @@ export function useBioNodes(
     roles,
     layout,
     sites: computed(() => physiology.value.sites),
+    pieceLayoutOptions,
     bioNodes,
     couplingEdges,
     hasSpecies,

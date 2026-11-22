@@ -461,3 +461,50 @@ function pocketOf(layout, membrane = 'pm') {
   if (edge === 'left') return { x, y: y + at - half, width: depth, height: 2 * half }
   return { x: x + width - depth, y: y + at - half, width: depth, height: 2 * half }
 }
+
+describe('making room for what grows', () => {
+  /** A cell grown past its frame by proteins on its top side, and compartments standing by it. */
+  const proteins = (count) =>
+    Array.from({ length: count }, (_, n) => ({
+      id: `p${n}`,
+      data: { name: `p${n}`, bioView: { site: 'pieces/pm.top' } },
+    }))
+  const cell = { id: 'cell', kind: 'compartment', label: 'Cell' }
+  const pm = {
+    id: 'pm',
+    kind: 'membrane',
+    label: 'PM',
+    encloses: ['cell'],
+    frame: { x: 0, y: 0, width: 320, height: 240 },
+    sides: { top: [{ id: 'top', label: 'Top' }] },
+  }
+  const beside = (id, x, y) => ({ id, kind: 'compartment', label: id, frame: { x, y, width: 200, height: 120 } })
+
+  it('pushes what it now covers right, keeping the gap it had', () => {
+    const raw = [cell, pm, beside('r', 360, 0)]
+    const grown = laidOut(raw, { nodes: proteins(6) })
+    const cellRect = rectOf(grown, 'pm')
+    expect(cellRect.width).toBeGreaterThan(360)
+    expect(rectOf(grown, 'r')).toMatchObject({ x: right(cellRect) + 40, y: 0 })
+    // With nothing on it, it is where its frame puts it.
+    expect(rectOf(laidOut(raw), 'r')).toMatchObject({ x: 360, y: 0 })
+  })
+
+  it('pushes what lies below it down, and on to what that then covers', () => {
+    const tall = { ...pm, sides: { left: [{ id: 'left', label: 'Left' }] } }
+    const nodes = Array.from({ length: 5 }, (_, n) => ({
+      id: `p${n}`,
+      data: { name: `p${n}`, bioView: { site: 'pieces/pm.left' } },
+    }))
+    const layout = laidOut([cell, tall, beside('b', 0, 280), beside('bb', 0, 420)], { nodes })
+    const cellRect = rectOf(layout, 'pm')
+    expect(cellRect.height).toBeGreaterThan(280)
+    expect(rectOf(layout, 'b').y).toBe(bottom(cellRect) + 40)
+    expect(rectOf(layout, 'bb').y).toBe(bottom(rectOf(layout, 'b')) + 20)
+  })
+
+  it('leaves alone what overlapped it at their frames, as it was put so', () => {
+    const layout = laidOut([cell, pm, beside('o', 200, 100)], { nodes: proteins(6) })
+    expect(rectOf(layout, 'o')).toMatchObject({ x: 200, y: 100 })
+  })
+})

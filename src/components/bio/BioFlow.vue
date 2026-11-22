@@ -253,6 +253,61 @@
               class="bio-piece-preview__way"
               :points="ghost.points.map((point) => `${point.x},${point.y}`).join(' ')"
             />
+            <!-- A compartment or cell already there, grown to fit what is added: the room it gains, its new outline -->
+            <g
+              v-else-if="ghost.type === 'grows'"
+              data-testid="bio-piece-ghost-grown"
+              :data-kind="ghost.kind"
+            >
+              <mask :id="`bio-ghost-grown-${index}`" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
+                <path :d="roundedRectPath(ghost.rect, cornerOf(ghost))" fill="white" />
+                <path :d="roundedRectPath(ghost.was, cornerOf(ghost))" fill="black" />
+              </mask>
+              <rect
+                class="bio-piece-preview__grows"
+                v-bind="ghost.rect"
+                :mask="`url(#bio-ghost-grown-${index})`"
+              />
+              <path class="bio-piece-preview__outline" :d="roundedRectPath(ghost.rect, cornerOf(ghost))" />
+            </g>
+            <!-- A compartment or cell pushed out of the way of one that grows: where it goes -->
+            <path
+              v-else-if="ghost.type === 'moves'"
+              class="bio-piece-preview__moved"
+              :d="roundedRectPath(ghost.rect, cornerOf(ghost))"
+              data-testid="bio-piece-ghost-moved"
+              :data-kind="ghost.kind"
+            />
+            <!-- A membrane round what is there: the room the cell adds, the corners it rounds off, and its band -->
+            <g v-else-if="ghost.was" data-testid="bio-piece-ghost" :data-kind="ghost.kind" :data-grows="ghost.grows">
+              <mask :id="`bio-ghost-grows-${index}`" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
+                <path :d="roundedRectPath(ghost.rect, CELL_RADIUS)" fill="white" />
+                <rect v-bind="ghost.was" rx="12" fill="black" />
+              </mask>
+              <mask :id="`bio-ghost-trims-${index}`" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
+                <rect v-bind="ghost.was" rx="12" fill="white" />
+                <path :d="roundedRectPath(ghost.rect, CELL_RADIUS)" fill="black" />
+              </mask>
+              <rect
+                class="bio-piece-preview__grows"
+                v-bind="ghost.rect"
+                :mask="`url(#bio-ghost-grows-${index})`"
+                data-testid="bio-piece-ghost-grows"
+              />
+              <rect
+                class="bio-piece-preview__trims"
+                v-bind="ghost.was"
+                rx="12"
+                :mask="`url(#bio-ghost-trims-${index})`"
+                data-testid="bio-piece-ghost-trims"
+              />
+              <path
+                class="bio-piece-preview__band"
+                :d="roundedRectPath(ghost.rect, CELL_RADIUS)"
+                :style="{ strokeWidth: 2 * MEMBRANE_BAND_HALF }"
+              />
+              <path class="bio-piece-preview__outline" :d="roundedRectPath(ghost.rect, CELL_RADIUS)" />
+            </g>
             <rect
               v-else
               :class="['bio-piece-preview__ghost', `bio-piece-preview__ghost--${ghost.kind}`]"
@@ -318,7 +373,10 @@
       data-testid="bio-piece-drop-label"
       :style="{ left: `${pieceLabel.left}px`, top: `${pieceLabel.top}px` }"
     >
-      {{ pieceLabel.text }}
+      <div>{{ pieceLabel.text }}</div>
+      <div v-if="pieceLabel.note" class="bio-drop-label__replace" data-testid="bio-piece-drop-note">
+        {{ pieceLabel.note }}
+      </div>
     </div>
     <ContextMenu ref="contextMenu" :model="menuItems" @show="isMenuOpen = true" @hide="isMenuOpen = false">
       <template #item="{ item, props: menu, hasSubmenu, label }">
@@ -602,8 +660,18 @@ const speciesMode = computed(() => {
 const cursor = useVoiCursorStore()
 /** The point of the latest run species mode shows, once its cursor has been moved off the run's end. */
 const voiCursor = computed(() => (cursor.isActive ? { index: cursor.index, range: cursor.range } : null))
-const { bioNodes, couplingEdges, layout, roles, sites, hasSpecies, species, speciesOrderPreview, loadSidecars } =
-  useBioNodes(main.nodes, main.edges, { speciesMode, voiCursor, flowScale: computed(() => cursor.flowScale) })
+const {
+  bioNodes,
+  couplingEdges,
+  layout,
+  roles,
+  sites,
+  pieceLayoutOptions,
+  hasSpecies,
+  species,
+  speciesOrderPreview,
+  loadSidecars,
+} = useBioNodes(main.nodes, main.edges, { speciesMode, voiCursor, flowScale: computed(() => cursor.flowScale) })
 const { applyPlan, placePiecesTemplate, editPieces, strandedBy, nameError, renameInstance } = useBioEdits(roles)
 
 onMounted(() => loadSidecars())
@@ -1992,7 +2060,7 @@ function startPieceMove(node, event) {
     end: place.end,
     below: place.below ?? 0,
     // A compartment's far edge can be dropped on another membrane's side or a fold: what it could go on, read once.
-    scene: mode === 'grip:reach' ? dropScene(piecesStore.pieces, { shapes: piecesStore.shapes }) : null,
+    scene: mode === 'grip:reach' ? dropScene(piecesStore.pieces, sceneOptions()) : null,
     dock: null,
   }
   return true
@@ -2079,7 +2147,7 @@ async function endPieceMove({ event, node }) {
   }
   if (move.mode === 'grip:start' || move.mode === 'grip:end') {
     const point = pointerAt(event)
-    const target = point && compartmentAtPoint(dropScene(piecesStore.pieces, { shapes: piecesStore.shapes }), point)
+    const target = point && compartmentAtPoint(dropScene(piecesStore.pieces, sceneOptions()), point)
     const raw = target && reattachTube(move.base, move.piece, move.end, target.id)
     const next = raw && validatePieces(raw).pieces
     if (next) await editPieces(next, 'bio-pieces-tube-end')
@@ -2267,8 +2335,14 @@ const isTemplateTile = (tile) => tile?.kind === 'template'
 const isPreviewedTile = (tile) => isPieceTile(tile) || isTemplateTile(tile)
 const carriedTile = computed(() => [draggedTile.value, armedTile.value].find(isPreviewedTile) ?? null)
 /** The pieces and where each is drawn, read once while a piece is carried. */
+/** The pieces are found and previewed laid out as the view draws them, with the modules on them. */
+const sceneOptions = () => {
+  const { shapes, nodes, widthOf } = pieceLayoutOptions.value
+  return { shapes, nodes, widthOf }
+}
+
 const pieceScene = computed(() =>
-  carriedTile.value ? dropScene(piecesStore.pieces, { shapes: piecesStore.shapes }) : null,
+  carriedTile.value ? dropScene(piecesStore.pieces, sceneOptions()) : null,
 )
 /** What the carried piece would do where the pointer is: { key, label | invalid, highlights, ghosts }. */
 const piecePreview = shallowRef(null)
@@ -2325,15 +2399,36 @@ watch(carriedTile, (tile) => {
   if (!tile) clearPiecePreview()
 })
 
+/** How round a ghost's corners are drawn: a cell's as a cell's, a compartment's as its target outline's. */
+const cornerOf = (ghost) => (ghost.kind === 'cell' ? CELL_RADIUS : 12)
+
+/**
+ * What a drop does to what is there, under its label: a membrane round it makes it a cell, its corners rounded and
+ * grown where a cell needs more room; anything else may grow a compartment or cell to fit it.
+ */
+function growthNote(ghosts) {
+  const cell = ghosts.find((ghost) => ghost.was && ghost.type === 'rect')
+  if (cell) return cell.grows ? 'Rounds its corners, and grows to fit a cell' : 'Rounds its corners as a cell'
+  const said = (type, one, many) => {
+    const names = ghosts.filter((ghost) => ghost.type === type).map((ghost) => ghost.label)
+    if (!names.length) return null
+    const listed = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
+    return `${listed} ${names.length > 1 ? many : one}`
+  }
+  const notes = [said('grows', 'grows to fit it', 'grow to fit it'), said('moves', 'moves out of the way', 'move out of the way')]
+  return notes.filter(Boolean).join('; ') || null
+}
+
 /** The label that follows a carried piece: what it would do there, or why it can't go there. */
 const pieceLabel = computed(() => {
   if (!piecePreview.value || !piecePointer.value) return null
   const { x, y, zoom } = viewport.value
-  const { invalid, label } = piecePreview.value
+  const { invalid, label, ghosts = [] } = piecePreview.value
   return {
     left: piecePointer.value.x * zoom + x + 18,
     top: piecePointer.value.y * zoom + y + 18,
     text: invalid ?? label,
+    ...(!invalid && { note: growthNote(ghosts) }),
     invalid: !!invalid,
   }
 })
@@ -2358,7 +2453,7 @@ function onArmedMove(event) {
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 async function placePieceAt(kind, point) {
-  const scene = dropScene(piecesStore.pieces, { shapes: piecesStore.shapes })
+  const scene = dropScene(piecesStore.pieces, sceneOptions())
   const drop = resolveDrop(kind, point, scene)
   if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
   let choice
@@ -3497,6 +3592,34 @@ function assignRole(id, at, { role, cell, placement }) {
 
 .bio-piece-preview__ghost {
   fill: color-mix(in srgb, var(--bio-drop-active) 12%, transparent);
+  stroke: var(--bio-drop-active);
+  stroke-width: 2;
+  stroke-dasharray: 8 5;
+}
+
+/* A membrane round what is there: the room it adds, shaded; the corners it rounds off, hatched out; its band. */
+.bio-piece-preview__grows {
+  fill: color-mix(in srgb, var(--bio-drop-active) 22%, transparent);
+}
+
+.bio-piece-preview__trims {
+  fill: color-mix(in srgb, var(--p-text-muted-color) 30%, transparent);
+}
+
+.bio-piece-preview__moved {
+  fill: color-mix(in srgb, var(--p-text-muted-color) 10%, transparent);
+  stroke: var(--p-text-muted-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.bio-piece-preview__band {
+  fill: none;
+  stroke: color-mix(in srgb, var(--bio-drop-active) 25%, transparent);
+}
+
+.bio-piece-preview__outline {
+  fill: none;
   stroke: var(--bio-drop-active);
   stroke-width: 2;
   stroke-dasharray: 8 5;

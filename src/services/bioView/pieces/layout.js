@@ -63,7 +63,7 @@ const FRAMED_MIN = Object.freeze({ width: 3 * CELL_RADIUS, height: 3 * CELL_RADI
 const FREE_COMPARTMENT = Object.freeze({ width: 320, height: REGION_HEIGHT })
 /** Room round what stands inside a compartment, for its proteins' names, and between two in a row. */
 const ROOM = GLYPH_HEIGHT / 2 + 36
-/** Room below what stands in a cell, for its name and hint. */
+/** Room below what stands in a cell with no module of its own yet, for its name and hint, centred there. */
 const HINT_ROOM = 100
 /** How far a compartment docked inside a membrane reaches unless it says (it starts INNER_INSET in). */
 const INNER_DEPTH = 84
@@ -404,6 +404,46 @@ function contact(a, b) {
 /** How far down a process zone its row starts: below its name, in its top-left corner, as a compartment's contents are. */
 const ZONE_ROW_TOP = 18
 
+/** Whether two rects overlap, not just touch. */
+const overlapping = (a, b) => a.x < rightOf(b) && b.x < rightOf(a) && a.y < bottomOf(b) && b.y < bottomOf(a)
+
+/**
+ * Pushes what stands by its frame in a container out of the way of a piece drawn bigger than its frame, as a cell
+ * grows for what is on it, or pushed itself: right or down, whichever way it lay from the other's frame, the lesser
+ * where both, keeping the gap it had from it. On, from what is pushed, to what it then covers. Pieces that overlap
+ * at their frames are left as they are, as they were put so.
+ *
+ * @param {Array<Object>} framed - The pieces standing by their frames in one container.
+ * @param {Map<string, Object>} rel - Where each is, from the container's corner, as big as it is drawn: updated.
+ */
+function makeRoom(framed, rel) {
+  const frameOf = (piece) => ({ ...rel.get(piece.id), width: piece.frame.width, height: piece.frame.height })
+  const frames = new Map(framed.map((piece) => [piece.id, frameOf(piece)]))
+  const isGrown = (piece) => {
+    const rect = rel.get(piece.id)
+    return rect.width > piece.frame.width || rect.height > piece.frame.height
+  }
+  const moved = new Set()
+  for (let pass = 0; pass < framed.length; pass++) {
+    let changed = false
+    for (const a of framed) {
+      if (!isGrown(a) && !moved.has(a.id)) continue
+      const [ra, fa] = [rel.get(a.id), frames.get(a.id)]
+      for (const b of framed) {
+        const [rb, fb] = [rel.get(b.id), frames.get(b.id)]
+        if (b === a || !overlapping(ra, rb) || overlapping(fa, fb)) continue
+        const right = fb.x >= rightOf(fa) ? rightOf(ra) + (fb.x - rightOf(fa)) - rb.x : Infinity
+        const down = fb.y >= bottomOf(fa) ? bottomOf(ra) + (fb.y - bottomOf(fa)) - rb.y : Infinity
+        if (right === Infinity && down === Infinity) continue
+        rel.set(b.id, right <= down ? { ...rb, x: rb.x + right } : { ...rb, y: rb.y + down })
+        moved.add(b.id)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+}
+
 /** Room along a process zone's row for a cartoon with its name under it, a spare place's as a short name's. */
 const zoneRoom = (width) => Math.max(GLYPH_WIDTH, width) + LABEL_GAP
 
@@ -624,6 +664,10 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         x = Math.max(x + size.width, placed.y === below ? rightOf(placed) : 0) + (containerId ? 2 * ROOM : 2 * GAP)
       }
     }
+    makeRoom(
+      others.filter((piece) => piece.frame),
+      rel,
+    )
     const fixed = [...rel].filter(([id]) => !spanning.has(id)).map(([, rect]) => rect)
     const reach = boxOf([...fixed, { x: 0, y: 0, width: 0, height: 0 }])
     const tall = boxOf([...rel.values(), { x: 0, y: 0, width: 0, height: 0 }])
@@ -654,6 +698,10 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         // other at the next: it takes the biggest of those.
         const least = size
         const tried = [size]
+        // Below what stands in it: room for its name and hint while it has no module, which are centred there; once it
+        // has one, its name goes in a corner and the hint goes, so only the room its bottom side's proteins take.
+        const below = (inside) =>
+          !inside.zones && !standing.has(bulk) ? 0 : occupants.get(bulk)?.length ? ROOM : HINT_ROOM
         for (let pass = 0; pass < FIT_PASSES; pass++) {
           const inside = arrange(bulk, size.width, size.height)
           const grown = {
@@ -663,11 +711,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
               inside.zonesNeed,
               inside.need.width,
             ),
-            height: Math.max(
-              least.height,
-              inside.height + (inside.zones || standing.has(bulk) ? HINT_ROOM : 0),
-              inside.need.height,
-            ),
+            height: Math.max(least.height, inside.height + below(inside), inside.need.height),
           }
           if (grown.width === size.width && grown.height === size.height) break
           const back = tried.findIndex((each) => each.width === grown.width && each.height === grown.height)
