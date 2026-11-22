@@ -458,10 +458,11 @@
           }
         },
         "flux": {
-          "description": "What it carries: a flow (the default), a junction, or diffusion.",
+          "description": "What it carries: a flow (the default), a gap junction between two cells, a bridge (an open channel of cytoplasm walled by membrane), or diffusion.",
           "enum": [
             "flow",
             "junction",
+            "bridge",
             "diffusion"
           ]
         },

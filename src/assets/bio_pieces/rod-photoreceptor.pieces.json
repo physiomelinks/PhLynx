@@ -3,7 +3,7 @@
   "schemaVersion": 4,
   "id": "rod-photoreceptor",
   "name": "Rod photoreceptor",
-  "description": "A rod on its side: its outer and inner segments, two spaces inside one membrane joined by the connecting cilium, which carries the circulating current between them, with the space round the cell on every side.",
+  "description": "A rod on its side: its outer and inner segments, two spaces inside one membrane joined by the connecting cilium, an open channel that carries the circulating current between them, with the space round the cell on every side.",
   "pieces": [
     {
       "id": "outer-segment",
@@ -11,6 +11,10 @@
       "label": "Outer segment",
       "term": "GO:0001750",
       "tone": "violet",
+      "skin": {
+        "ref": "rod-outer-segment",
+        "mode": "stretch"
+      },
       "docks": [
         {
           "on": "plasma-membrane",
@@ -37,6 +41,9 @@
       "label": "Inner segment",
       "term": "GO:0001917",
       "tone": "teal",
+      "skin": {
+        "ref": "rod-inner-segment"
+      },
       "docks": [
         {
           "on": "plasma-membrane",
@@ -70,9 +77,6 @@
         "y": 0,
         "width": 900,
         "height": 260
-      },
-      "skin": {
-        "ref": "rod-photoreceptor"
       },
       "sides": {
         "top": [
@@ -119,7 +123,7 @@
         "outer-segment",
         "inner-segment"
       ],
-      "flux": "junction"
+      "flux": "bridge"
     },
     {
       "id": "extracellular",

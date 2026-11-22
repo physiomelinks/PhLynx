@@ -6,7 +6,8 @@ import {
 } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
 import { layoutPieces, membraneKey, pieceKey, routeTube } from '../../../../../src/services/bioView/pieces/layout.js'
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
-import { MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
+import { GLYPH_WIDTH, MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
+import { LABEL_GAP } from '../../../../../src/services/bioView/metrics.js'
 
 const laidOut = (raw, options) => {
   const { pieces, errors } = validatePieces(raw)
@@ -190,6 +191,21 @@ describe('layoutPieces', () => {
     expect(layout.places.get(pieceKey('m')).site).toBeNull()
   })
 
+  it('draws a bridge between two cells apart as a channel across the gap between their membranes', () => {
+    const cells = getBuiltInPieceTemplate('two-cell-epithelium').pieces
+    const tube = (flux) => ({ id: 'link', kind: 'tube', label: 'Link', ends: ['a', 'b'], flux })
+    const layout = laidOut([...cells, tube('bridge')])
+    const [a, b] = ['a-membrane', 'b-membrane'].map((id) => layout.rects.get(id))
+    const place = layout.places.get(pieceKey('link'))
+    expect(place).toMatchObject({ kind: 'link', joint: 'bridge', channel: { vertical: false } })
+    expect(place.channel.from.x).toBeCloseTo(right(a))
+    expect(place.channel.to.x).toBeCloseTo(b.x)
+    // Its module goes in the middle of the gap.
+    expect(place.zone.x + place.zone.width / 2).toBeCloseTo((right(a) + b.x) / 2)
+    // A gap junction between the same two is no channel: a line, there being no touching.
+    expect(laidOut([...cells, tube('junction')]).places.get(pieceKey('link')).channel).toBeUndefined()
+  })
+
   it('puts a compartment docked to a fold round the fold, and the fold in the colour of its lumen', () => {
     const layout = laidOut(getBuiltInPieceTemplate('cardiomyocyte').pieces)
     const cell = layout.places.get(pieceKey('sarcolemma'))
@@ -333,7 +349,7 @@ describe('what stands in a cell with a fold', () => {
   ]
   const apart = (a, b) => right(a) <= b.x || right(b) <= a.x || bottom(a) <= b.y || bottom(b) <= a.y
   const zone = (id) => ({ id, kind: 'zone', label: id, compartment: 'cell' })
-  /** Nodes bound to a zone, as its process cards. */
+  /** Nodes bound to a zone, as its processes. */
   const cards = (id, count) =>
     Array.from({ length: count }, (_, n) => ({ id: `${id}-${n}`, data: { bioView: { site: `pieces/${id}` } } }))
 
@@ -347,7 +363,7 @@ describe('what stands in a cell with a fold', () => {
     expect(apart(z, pocket)).toBe(true)
     // The side before the fold, the wider one, and none of the other.
     expect(z.x).toBeLessThan(pocket.x)
-    expect(right(z)).toBeGreaterThan(cell.x + cell.width / 2)
+    expect(z.width).toBeGreaterThan(right(cell) - right(pocket))
     expect(contains(cell, z)).toBe(true)
   })
 
@@ -365,14 +381,14 @@ describe('what stands in a cell with a fold', () => {
     }
   })
 
-  it('grows the cell until a zone’s cards fit beside the fold', () => {
+  it('grows the cell until a zone’s processes fit beside the fold', () => {
     for (const side of ['top', 'left', 'right']) {
       for (const at of [0.15, 0.5, 0.75]) {
         const layout = laidOut(folded(side, at, zone('z')), { nodes: cards('z', 3) })
         const z = rectOf(layout, 'z')
         expect(apart(z, pocketOf(layout)), `${side} ${at}`).toBe(true)
-        // Room for each card and a spare place past them.
-        expect(z.width, `${side} ${at}`).toBeGreaterThanOrEqual(4 * 196)
+        // Room for each cartoon and its name, and a spare place past them.
+        expect(z.width, `${side} ${at}`).toBeGreaterThanOrEqual(4 * (GLYPH_WIDTH + LABEL_GAP))
       }
     }
   })

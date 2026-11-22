@@ -20,7 +20,7 @@ import {
 import { getHandleId } from '../utils/handles'
 import { GLYPH_HEIGHT, GLYPH_WIDTH, proteinLabelWidth } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
-import { CARD, PROCESS_INSET, layoutPhysiology } from '../services/bioView/layout'
+import { CARD, PROCESS_INSET, layoutPhysiology, processSize } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
 import { locationSource } from '../services/annotations/locationSources'
 
@@ -246,7 +246,13 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             instance: place.instance,
             site: place.site,
             ...(place.joint
-              ? { joint: place.joint, tone: place.tone }
+              ? {
+                  joint: place.joint,
+                  tone: place.tone,
+                  ...(place.channel && {
+                    channel: { ...place.channel, from: shift(place.channel.from), to: shift(place.channel.to) },
+                  }),
+                }
               : place.points
                 ? { points: place.points.map(shift) }
                 : {
@@ -363,6 +369,19 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         // One bound to a zone of the pieces can be dragged out of it, to another site or none.
         const bound = !!place.instance
         const glyph = roles.get(id)?.glyph ?? null
+        // In a process zone of the pieces: its cartoon, named under it, as a protein on a membrane is.
+        if (place.glyph) {
+          children.push({
+            ...base(id),
+            type: 'bioProtein',
+            parentNode: place.cell,
+            position: { x: place.x - cell.x, y: place.y - cell.y },
+            width: GLYPH_WIDTH,
+            height: GLYPH_HEIGHT,
+            data: { ...base(id).data, glyph: glyph ?? 'generic', annotatedFacet: null, rotation: 0, droppable: true },
+          })
+          break
+        }
         children.push({
           ...base(id),
           type: 'bioCard',
@@ -394,6 +413,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
               ...base(id).data,
               joint: place.joint,
               tone: layout.get(place.link).tone,
+              vertical: !!layout.get(place.link).channel?.vertical,
               width: zone.width,
               height: zone.height,
               droppable: true,
@@ -463,6 +483,7 @@ function boxOf(place) {
     case 'tray':
       return { x: place.x, y: place.y, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
     case 'cytosolic':
+      return { x: place.x, y: place.y, ...processSize(place) }
     case 'card':
       return { x: place.x, y: place.y, ...CARD }
     default:

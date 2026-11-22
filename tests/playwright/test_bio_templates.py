@@ -384,20 +384,57 @@ class TestBioTemplates(unittest.TestCase):
         one, two = first.bounding_box(), second.bounding_box()
         assert two["x"] > one["x"] + one["width"], (one, two)
 
-        # A tube between two cells is a junction, with a new module on it named for it.
+        # A tube between two cells asks how it joins them; as a gap junction, it has a new module on it named for it.
         self.drop_piece("tube", centre(one))
+        dialog = page.locator(".p-dialog").filter(has_text="Join two cells")
+        expect(dialog).to_be_visible()
+        dialog.get_by_role("button", name="Gap junction", exact=True).click()
         link = page.locator("[data-testid=bio-link]")
         expect(link).to_have_count(1)
-        expect(page.locator(BIO).get_by_text("Junction", exact=True)).to_be_visible()
+        expect(page.locator(BIO).get_by_text("Gap_junction", exact=True)).to_be_visible()
+        expect(page.locator("[data-testid=bio-bridge]")).to_have_count(0)
 
         # The cell's menu takes it away again, asking first, as a module is in it; the module stays in the diagram.
         count = page.locator(f'{BIO_NODE}:not([data-id^="pc:"]):not([data-id^="grip:"])').count()
-        self.piece_menu("compartment", "Remove", "Junction")
+        self.piece_menu("compartment", "Remove", "Gap junction")
         expect(page.locator(".p-dialog")).to_be_visible()
         page.locator(".p-dialog").get_by_role("button", name="Remove", exact=True).click()
         expect(link).to_have_count(0)
         expect(page.locator(f'{BIO_NODE}:not([data-id^="pc:"]):not([data-id^="grip:"])')).to_have_count(count)
 
+
+    def test_a_bridge_between_two_cells_is_an_open_channel_and_the_choice_is_remembered(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+
+        first = self.drop_cell(self.pane_point(0.25, 0.4), "compartment")
+        one = first.bounding_box()
+        second = self.drop_cell((one["x"] + one["width"] * 1.9, one["y"] + one["height"] / 2), "compartment-2")
+        page.wait_for_timeout(300)
+        one = first.bounding_box()
+
+        # Chosen as a bridge, remembered: an open channel walled by membrane across the gap between the cells.
+        self.drop_piece("tube", centre(one))
+        dialog = page.locator(".p-dialog").filter(has_text="Join two cells")
+        expect(dialog).to_be_visible()
+        dialog.get_by_text("Remember this choice").click()
+        dialog.get_by_role("button", name="Bridge", exact=True).click()
+        expect(dialog).to_be_hidden()
+        bridge = page.locator("[data-testid=bio-bridge]")
+        expect(bridge).to_have_count(1)
+        expect(page.locator(BIO).get_by_text("Bridge", exact=True)).to_be_visible()
+        channel, two = bridge.bounding_box(), second.bounding_box()
+        assert channel["x"] < one["x"] + one["width"] and channel["x"] + channel["width"] > two["x"], (channel, one, two)
+
+        # The next is a bridge too, without asking: the choice is now the setting's.
+        undo(page)
+        expect(bridge).to_have_count(0)
+        self.drop_piece("tube", centre(first.bounding_box()))
+        expect(bridge).to_have_count(1)
+        expect(page.locator(".p-dialog").filter(has_text="Join two cells")).to_have_count(0)
+        stored = page.evaluate("() => JSON.parse(localStorage.getItem('phlynx-settings')).bioCellTube")
+        self.assertEqual(stored, "bridge")
     def test_the_build_palette_places_a_template_with_new_modules_to_replace(self):
         page = self.page
         self.open_physiology()
@@ -1170,16 +1207,18 @@ class TestBioTemplates(unittest.TestCase):
         menu.get_by_text(labels[-1], exact=True).click()
         expect(menu).to_be_hidden()
 
-    def test_a_rod_is_drawn_to_its_own_outline_with_proteins_along_it(self):
+    def test_a_rod_is_a_cell_with_its_segments_drawn_in_and_proteins_along_it(self):
         page = self.page
         self.open_physiology_with_template("Rod photoreceptor")
         fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
         fit.click()
         page.wait_for_timeout(400)
         rod = page.locator(f'{BIO_NODE}[data-id="pc:plasma-membrane"]')
-        # Its skin draws it: artwork inside an outline that is no rounded box, lying on its side.
-        expect(rod.locator("[data-testid=bio-skin]")).to_have_count(1)
+        # A cell like any other, lying on its side, with each segment's own artwork in it.
+        expect(rod.locator("[data-testid=bio-skin]")).to_have_count(0)
         expect(rod.locator("[data-testid=bio-bilayer]")).to_have_count(1)
+        for segment in ("outer-segment", "inner-segment"):
+            expect(piece(page, segment).locator("[data-testid=bio-skin]")).to_have_count(1)
         expect(rod.locator("[data-testid=bio-empty-hint]")).to_have_count(0)
         box = rod.bounding_box()
         assert box["width"] > 2 * box["height"], box

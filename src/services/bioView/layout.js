@@ -24,6 +24,12 @@ import { EPITHELIAL_SHAPE, facetById, facetOfAnnotation, facetsInGroup } from '.
 /** Size of a card for an instance with no physiological shape. */
 export const CARD = { width: 180, height: 72 }
 
+/** Size of a process drawn as its cartoon, named under it, as one in a process zone of the pieces is. */
+export const PROCESS_GLYPH = Object.freeze({ width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
+
+/** How big a process's place is drawn: as its cartoon where it says so (`glyph`), otherwise as a card. */
+export const processSize = (place) => (place?.glyph ? PROCESS_GLYPH : CARD)
+
 /** Height of a region's band. */
 export const REGION_HEIGHT = 140
 

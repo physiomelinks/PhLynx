@@ -15,6 +15,7 @@ import {
   dockCompartment,
   encloseCompartment,
   freeStretch,
+  joinsTwoCells,
 } from './edits.js'
 import { layoutPieces } from './layout.js'
 import { validatePieces } from './model.js'
@@ -271,7 +272,9 @@ function resolveTube(scene, point) {
     key: `tube|${ends.join('|')}`,
     label: `Joins ${first.label} to ${second.piece.label}`,
     highlights: ends.map((id) => ({ type: 'rect', rect: scene.rects.get(id) })),
-    apply: (pieces) => addTube(pieces, ends),
+    // Between two cells, whether it is a gap junction or a bridge is the user's to say (see placePieceAt).
+    ...(joinsTwoCells(scene.pieces, ends) && { cells: [first.label, second.piece.label] }),
+    apply: (pieces, { flux } = {}) => addTube(pieces, ends, flux),
   }
 }
 
@@ -382,9 +385,10 @@ const RESOLVERS = {
  * @param {'compartment'|'membrane'|'tube'|'fold'|'zone'} kind
  * @param {{x: number, y: number}} point - In flow coordinates.
  * @param {Object} scene - From dropScene.
- * @returns {{key: string, label: string, highlights: Array<Object>, apply: Function}|{key: string, invalid: string}}
- *   apply(pieces) gives { pieces, id } (raw, for validatePieces) or { pieces: null, error }; highlights are lines
- *   ({type: 'line', from, to}) or rects ({type: 'rect', rect}) to draw over the target.
+ * @returns {{key: string, label: string, highlights: Array<Object>, apply: Function, cells?: [string, string]}|
+ *   {key: string, invalid: string}} apply(pieces, choice) gives { pieces, id } (raw, for validatePieces) or
+ *   { pieces: null, error }; highlights are lines ({type: 'line', from, to}) or rects ({type: 'rect', rect}) to draw
+ *   over the target; cells, a tube's, names the two cells it would join, as a gap junction or a bridge.
  */
 export function resolveDrop(kind, point, scene) {
   const resolve = RESOLVERS[kind]
@@ -396,12 +400,13 @@ export function resolveDrop(kind, point, scene) {
  *
  * @param {Object} scene - From dropScene.
  * @param {Object} drop - From resolveDrop, not invalid.
+ * @param {Object} [choice] - What the user chose for it, passed to its apply: a tube's flux, between two cells.
  * @returns {{pieces: ReadonlyArray<Object>|null, id: string|null, ghosts: Array<Object>, errors: string[]}} ghosts:
  *   {type: 'rect', rect, kind} for each piece added, {type: 'path', points} for a tube's way, {type: 'fold', ...} for
  *   a fold (its lumen's rect).
  */
-export function previewDrop(scene, drop) {
-  const result = drop.apply(scene.pieces)
+export function previewDrop(scene, drop, choice) {
+  const result = drop.apply(scene.pieces, choice)
   if (!result.pieces) return { pieces: null, id: null, ghosts: [], errors: [result.error ?? 'It can’t go there.'] }
   const { pieces, errors } = validatePieces(result.pieces)
   if (!pieces) return { pieces: null, id: null, ghosts: [], errors }

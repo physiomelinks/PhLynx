@@ -27,6 +27,7 @@ import {
   foldPoint,
   proteinPlacement,
 } from '../geometry.js'
+import { LABEL_GAP } from '../metrics.js'
 import { byName, inSlotOrder } from '../scaffold.js'
 import { parseSiteRef } from '../siteRefs.js'
 import { withFolds, withOutline } from '../shape.js'
@@ -323,6 +324,52 @@ function clearOfEnds(zone, points, ends) {
 
 const zoneAt = (centre, size = TUBE_ZONE) => ({ x: centre.x - size.width / 2, y: centre.y - size.height / 2, ...size })
 
+/** Half a bridge's width, between the middles of its two walls. */
+const BRIDGE_HALF = 28
+
+/**
+ * The open channel a bridge makes between two cells that face each other across a gap, side by side or one above the
+ * other, clear of their rounded corners: straight across the gap, from one membrane's middle to the other's.
+ *
+ * @param {{x: number, y: number, width: number, height: number}} a - One cell's outline.
+ * @param {{x: number, y: number, width: number, height: number}} b - The other's.
+ * @returns {{from: {x: number, y: number}, to: {x: number, y: number}, half: number, vertical: boolean}|null} null
+ *   when they overlap, or don't face each other along enough of their sides.
+ */
+function bridgeChannel(a, b) {
+  const room = 2 * (BRIDGE_HALF + MEMBRANE_BAND_HALF + CELL_RADIUS)
+  const across = (low, high) => (high - low >= room ? (low + high) / 2 : null)
+  const [left, right] = a.x <= b.x ? [a, b] : [b, a]
+  const y = across(Math.max(a.y, b.y), Math.min(bottomOf(a), bottomOf(b)))
+  if (right.x > rightOf(left) && y !== null) {
+    return { from: { x: rightOf(left), y }, to: { x: right.x, y }, half: BRIDGE_HALF, vertical: false }
+  }
+  const [upper, lower] = a.y <= b.y ? [a, b] : [b, a]
+  const x = across(Math.max(a.x, b.x), Math.min(rightOf(a), rightOf(b)))
+  if (lower.y > bottomOf(upper) && x !== null) {
+    return { from: { x, y: bottomOf(upper) }, to: { x, y: lower.y }, half: BRIDGE_HALF, vertical: true }
+  }
+  return null
+}
+
+/** The box a bridge's channel takes: its walls, and on into each cell over its membrane. */
+function channelBox({ from, to, half, vertical }) {
+  const reach = half + MEMBRANE_BAND_HALF
+  return vertical
+    ? {
+        x: from.x - reach,
+        y: from.y - MEMBRANE_BAND_HALF,
+        width: 2 * reach,
+        height: to.y - from.y + 2 * MEMBRANE_BAND_HALF,
+      }
+    : {
+        x: from.x - MEMBRANE_BAND_HALF,
+        y: from.y - reach,
+        width: to.x - from.x + 2 * MEMBRANE_BAND_HALF,
+        height: 2 * reach,
+      }
+}
+
 /**
  * Where two rects touch, if they do: the middle of the stretch of edge they share; or, with one inside the other, the
  * middle of the inner one's right side.
@@ -348,8 +395,29 @@ function contact(a, b) {
   return null
 }
 
-/** Where the card at a place in a process zone's row goes: in from the zone's corner. */
-const zoneSlot = (zone, order) => ({ x: zone.x + CELL_RADIUS / 2 + order * (CARD.width + 16), y: zone.y + 8 })
+/** Room along a process zone's row for a cartoon with its name under it, a spare place's as a short name's. */
+const zoneRoom = (width) => Math.max(GLYPH_WIDTH, width) + LABEL_GAP
+
+/** How long a process zone's row is, for the names of its processes and a spare place past them. */
+const zoneLength = (widths) => [...widths, 0].reduce((sum, width) => sum + zoneRoom(width), 0)
+
+/**
+ * Where the cartoons in a process zone's row go, with a spare place past them: their top-lefts, in from the zone's
+ * corner, each centred in the room its name takes under it.
+ *
+ * @param {{x: number, y: number}} zone
+ * @param {Array<number>} widths - How wide each process's name is drawn (see widthOf).
+ * @returns {Array<{x: number, y: number}>}
+ */
+function zoneSlots(zone, widths) {
+  let x = zone.x + CELL_RADIUS / 2
+  return [...widths, 0].map((width) => {
+    const room = zoneRoom(width)
+    const slot = { x: x + (room - GLYPH_WIDTH) / 2, y: zone.y + 8 }
+    x += room
+    return slot
+  })
+}
 
 /**
  * Finds the nodes bound to the pieces' sites through their bioView.site ('pieces/<path>'). A site the pieces don't
@@ -516,7 +584,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       if (zone.frame) rel.set(zone.id, clear({ ...zone.frame }))
       else {
         const area = processZone({ x: 0, y: 0, width }, row++)
-        const cards = CELL_RADIUS / 2 + ((occupants.get(zone.id) ?? []).length + 1) * (CARD.width + 16)
+        const cards = CELL_RADIUS / 2 + zoneLength((occupants.get(zone.id) ?? []).map(widthOf))
         zonesNeed = Math.max(zonesNeed, area.x + cards + CELL_RADIUS / 2)
         // A fold it would cross leaves it the wider side, and the cell grows until its cards fit there. The folds
         // move as it does, so step out from the width it needs with none by what is still short, to find the least
@@ -1070,23 +1138,22 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       empty: !members.length,
       label: zone.label,
     })
-    // Its processes in a row along its top, as a template's process area's are.
+    // Its processes in a row along its top, each drawn as its cartoon with its name under it, as a protein is.
+    const row = zoneSlots(rect, members.map(widthOf))
     members.forEach((id, order) => {
       places.set(id, {
         kind: 'cytosolic',
+        glyph: true,
         cell: host,
         order,
-        ...zoneSlot(rect, order),
+        ...row[order],
         ...own,
         site: pieceSiteRef(zone.id),
       })
     })
     if (zone.site === false) continue
-    const slots = Array.from({ length: members.length + 1 }, (_, order) => ({
-      ...zoneSlot(rect, order),
-      spare: order === members.length,
-    }))
-    offer(zone.id, 'cytosolic', 'slots', zone.label, host, { cell: host, process: zone.id, slots, rect })
+    const slots = row.map((slot, order) => ({ ...slot, spare: order === members.length }))
+    offer(zone.id, 'cytosolic', 'slots', zone.label, host, { cell: host, process: zone.id, glyph: true, slots, rect })
   }
 
   // ── 3. Tubes ──────────────────────────────────────────────────────────
@@ -1111,7 +1178,32 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     }
     let zone
     let joint = null
-    if (touch || anchor) {
+    // A bridge between two cells apart is an open channel across the gap between their membranes.
+    const cells = [...new Set(tube.ends.map((id) => topology.enclosureOf(id)))]
+    const channel =
+      tube.flux === 'bridge' &&
+      !touch &&
+      !anchor &&
+      cells.length === 2 &&
+      cells.every((id) => id && rects.get(id)) &&
+      bridgeChannel(rects.get(cells[0]), rects.get(cells[1]))
+    if (channel) {
+      const { from, to, vertical } = channel
+      const length = vertical ? to.y - from.y : to.x - from.x
+      // Its module is drawn on it, reaching a little into each cell at most, as the lumen does.
+      const reach = length + 2 * MEMBRANE_BAND_HALF
+      const size = {
+        width: Math.max(2 * MEMBRANE_BAND_HALF, Math.min(TUBE_ZONE.width, reach)),
+        height: TUBE_ZONE.height,
+      }
+      zone = zoneAt(
+        { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 },
+        vertical ? { width: size.height, height: size.width } : size,
+      )
+      joint = tube.flux
+      const rect = boxOf([zone, channelBox(channel)])
+      places.set(key, { ...base, rect, joint, tone: byId.get(tube.ends[0]).tone, zone, channel })
+    } else if (touch || anchor) {
       const hostRect = host && rects.get(host.id)
       zone = anchor
         ? zoneAt({ x: hostRect.x + anchor.x + anchor.width / 2, y: hostRect.y + anchor.y + anchor.height / 2 })

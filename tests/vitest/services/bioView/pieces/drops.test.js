@@ -191,6 +191,32 @@ describe('dropping a tube, fold or zone', () => {
     expect(ghosts.some((ghost) => ghost.type === 'path')).toBe(true)
   })
 
+  it('between two cells, names them, as a gap junction unless the user makes it a bridge', () => {
+    // The two cells alone, without the fluids round them, which are nearer.
+    const cells = valid(getBuiltInPieceTemplate('two-cell-epithelium').pieces.filter((piece) => !piece.docks))
+    const scene = dropScene(cells)
+    const a = scene.rects.get('a')
+    const drop = resolveDrop('tube', { x: a.x + a.width / 2, y: a.y + a.height / 2 }, scene)
+    expect(drop.cells).toEqual(['Epithelial cell A', 'Epithelial cell B'])
+    const tubeOf = (choice) => previewDrop(scene, drop, choice).pieces.find((piece) => piece.kind === 'tube')
+    expect(tubeOf()).toMatchObject({ ends: ['a', 'b'], flux: 'junction', label: 'Gap junction' })
+    expect(tubeOf({ flux: 'bridge' })).toMatchObject({ ends: ['a', 'b'], flux: 'bridge', label: 'Bridge' })
+  })
+
+  it('between two spaces of one cell, is an open channel, asking nothing', () => {
+    const rod = valid(
+      getBuiltInPieceTemplate('rod-photoreceptor').pieces.filter(
+        (piece) => piece.kind !== 'tube' && piece.id !== 'extracellular',
+      ),
+    )
+    const scene = dropScene(rod)
+    const outer = scene.rects.get('outer-segment')
+    const drop = resolveDrop('tube', { x: outer.x + outer.width / 2, y: outer.y + outer.height / 2 }, scene)
+    expect(drop.cells).toBeUndefined()
+    const tube = previewDrop(scene, drop).pieces.find((piece) => piece.kind === 'tube')
+    expect(tube).toMatchObject({ ends: ['outer-segment', 'inner-segment'], flux: 'bridge', label: 'Bridge' })
+  })
+
   it('needs two compartments for a tube', () => {
     expect(resolveDrop('tube', { x: 0, y: 0 }, dropScene([])).invalid).toMatch(/two compartments/)
   })

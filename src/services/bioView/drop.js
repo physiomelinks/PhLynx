@@ -15,7 +15,7 @@ import {
   leafletDistance,
   partOf,
 } from './geometry.js'
-import { CARD } from './layout.js'
+import { processSize } from './layout.js'
 import { FACET_BAND } from './metrics.js'
 import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetsInGroup } from './shape.js'
 
@@ -282,12 +282,13 @@ function closeUp(layout, ref, id, write) {
  * cell's.
  *
  * @param {Array<{x: number, y: number}>} slots - The cards' top-lefts.
+ * @param {{width: number, height: number}} size - How big each is drawn (see processSize).
  * @returns {{x: number, y: number, width: number, height: number}}
  */
-function cardsRect(slots) {
+function cardsRect(slots, size) {
   const [first] = slots
-  const right = Math.max(...slots.map((slot) => slot.x)) + CARD.width
-  return { x: first.x - 8, y: first.y - 8, width: right - first.x + 16, height: CARD.height + 16 }
+  const right = Math.max(...slots.map((slot) => slot.x)) + size.width
+  return { x: first.x - 8, y: first.y - 8, width: right - first.x + 16, height: size.height + 16 }
 }
 
 /**
@@ -312,7 +313,8 @@ export function dropSites(sites, dragged = null) {
     const base = { ref, role, kind, label, key, occupants, occupant: site.occupant ?? null, ...(site.group && { group: site.group }) }
     if (kind === 'slots') {
       // A process area's slots are where its cards' corners go; a facet's are its proteins' centres.
-      const centre = site.process ? ({ x, y }) => ({ x: x + CARD.width / 2, y: y + CARD.height / 2 }) : (slot) => slot
+      const size = processSize(site)
+      const centre = site.process ? ({ x, y }) => ({ x: x + size.width / 2, y: y + size.height / 2 }) : (slot) => slot
       // Without the dragged node a facet's row is spread out again; a process area's keeps its places.
       const slots = !isInRow
         ? site.slots
@@ -323,7 +325,9 @@ export function dropSites(sites, dragged = null) {
               widths: site.widths,
             })
       const own = site.process ? null : facetById(site.shape, site.facet)
-      const facet = site.process ? {} : { edge: own?.edge, cellRect: site.cellRect, ...(own?.fold && { foldRect: foldReach(site.cellRect, own) }) }
+      const facet = site.process
+        ? { ...(site.glyph && { glyph: true }) }
+        : { edge: own?.edge, cellRect: site.cellRect, ...(own?.fold && { foldRect: foldReach(site.cellRect, own) }) }
       slots.forEach((slot, order) =>
         targets.push({
           ...base,
@@ -335,7 +339,7 @@ export function dropSites(sites, dragged = null) {
           occupant: occupants[order] ?? null,
         })
       )
-      if (site.process) targets.push({ ...base, type: 'area', area: 'process', rect: cardsRect(site.slots) })
+      if (site.process) targets.push({ ...base, type: 'area', area: 'process', rect: cardsRect(site.slots, size) })
       continue
     }
     if (role === 'membrane') {
@@ -389,7 +393,11 @@ function holds(target, point) {
 function onSlot(target, { x, y }) {
   const isUpright = target.edge !== 'left' && target.edge !== 'right'
   const [width, height] =
-    target.role === 'cytosolic' ? [CARD.width, CARD.height] : isUpright ? [GLYPH_WIDTH, GLYPH_HEIGHT] : [GLYPH_HEIGHT, GLYPH_WIDTH]
+    target.role === 'cytosolic'
+      ? [processSize(target).width, processSize(target).height]
+      : isUpright
+        ? [GLYPH_WIDTH, GLYPH_HEIGHT]
+        : [GLYPH_HEIGHT, GLYPH_WIDTH]
   return Math.abs(x - target.x) <= width / 2 && Math.abs(y - target.y) <= height / 2
 }
 

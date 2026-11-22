@@ -145,10 +145,10 @@ describe('a tube’s module', () => {
   it('is drawn in its joint, where the two ends touch', () => {
     const { places } = layoutPieces(rod, { nodes: [node('cng', 'pieces/cilium', { role: 'cytosolic' })] })
     const tube = places.get(pieceKey('cilium'))
-    expect(tube).toMatchObject({ kind: 'link', joint: 'junction', empty: false })
+    expect(tube).toMatchObject({ kind: 'link', joint: 'bridge', empty: false })
     expect(places.get('cng')).toMatchObject({
       kind: 'card',
-      joint: 'junction',
+      joint: 'bridge',
       link: pieceKey('cilium'),
       site: 'pieces/cilium',
     })

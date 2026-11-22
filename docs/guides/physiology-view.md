@@ -41,7 +41,7 @@ The view is built from five **pieces**, each with **sites** to drop modules on. 
 | :--- | :--- | :--- |
 | **Compartment** | By a membrane's side, docked against it inside or outside; in a compartment; or on its own | Its inside |
 | **Membrane** | By a compartment's edge, round it and what tubes join it to (a new cell); in a compartment (an organelle); or on its own (a new cell) | The membrane, and each stretch of it a protein site |
-| **Tube** | On a compartment, joined to the nearest other one: a flow, or a junction between two spaces of one kind, such as two cells | One module, for the flux |
+| **Tube** | On a compartment, joined to the nearest other one: a flow between free compartments; an open channel between two spaces of one cell; between two cells, a **Gap junction** (connexons where their membranes meet) or a **Bridge** (an open channel of cytoplasm across the gap, walled by membrane). Which of the two is asked each time, unless **Remember this choice** is ticked or **Settings ▸ Physiological view ▸ A tube between two cells** says | One module, for the flux |
 | **Fold** | By a membrane's side: an invagination such as a T-tubule | Protein slots down its walls |
 | **Process zone** | In a compartment | Process slots |
 
@@ -58,7 +58,7 @@ A template is a shortcut: placing one adds a copy of its pieces, which are then 
 | **Two-cell epithelium** | Two neighbouring epithelial cells sharing the fluids, with the paracellular space between them |
 | **Chemical synapse** | A presynaptic terminal above a postsynaptic cell, with the synaptic cleft between them |
 | **Cardiomyocyte** | A muscle cell with a T-tubule, the sarcoplasmic reticulum and the dyadic cleft between them |
-| **Rod photoreceptor** | An outer and an inner segment joined by the connecting cilium |
+| **Rod photoreceptor** | An outer and an inner segment, each with its own artwork, joined by the connecting cilium, an open channel |
 
 ### Placing Modules {#placing}
 

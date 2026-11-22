@@ -522,7 +522,7 @@ import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shap
 import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { isPlaceholder, placeholderName, takesPlaceholder } from '../../services/bioView/placeholders'
-import { CARD, GAP, REGION_HEIGHT } from '../../services/bioView/layout'
+import { CARD, GAP, REGION_HEIGHT, processSize } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
 import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
@@ -957,7 +957,7 @@ const sitePrompts = computed(() => {
   for (const target of siteTargets.value) {
     if (groupOf(target) !== piece) continue
     if (target.type === 'slot') {
-      const size = target.role === 'cytosolic' ? CARD : glyph
+      const size = target.role === 'cytosolic' ? processSize(target) : glyph
       const { ref, x, y, order, spare } = target
       slots.push({ key: `${ref}#${order}`, ref, x, y, spare, ...size, active: isActive(target) })
       continue
@@ -2357,9 +2357,49 @@ async function placePieceAt(kind, point) {
   const scene = dropScene(piecesStore.pieces, { shapes: piecesStore.shapes })
   const drop = resolveDrop(kind, point, scene)
   if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
-  const { pieces, errors } = previewDrop(scene, drop)
+  let choice
+  if (drop.cells) {
+    const flux = await cellTubeFlux(drop.cells)
+    if (!flux) return
+    choice = { flux }
+  }
+  const { pieces, errors } = previewDrop(scene, drop, choice)
   if (!pieces) return notify.error({ title: 'It can’t go there', message: summariseProblems(errors) })
   await editPieces(pieces, `bio-pieces-${kind}`)
+}
+
+/** The flux each answer to "A tube between two cells" gives. */
+const CELL_TUBE_FLUX = Object.freeze({ gap: 'junction', bridge: 'bridge' })
+
+/**
+ * What a tube between two cells joins them by: the setting's choice, else the user's, asked with a box to remember
+ * it as the setting.
+ *
+ * @param {[string, string]} cells - Their names.
+ * @returns {Promise<'junction'|'bridge'|null>} null when cancelled.
+ */
+async function cellTubeFlux([first, second]) {
+  const set = CELL_TUBE_FLUX[settings.bioCellTube]
+  if (set) return set
+  isConfirming.value = true
+  try {
+    const { action, remember } = await choose({
+      header: 'Join two cells',
+      message:
+        `How does the tube join ${first} to ${second}? A gap junction is where their two membranes meet, with a ` +
+        'connexon in each; a bridge is an open channel of cytoplasm between them, walled by membrane.',
+      extraLabel: 'Gap junction',
+      acceptLabel: 'Bridge',
+      rejectLabel: 'Cancel',
+      remember: 'Remember this choice',
+    })
+    const answer = { extra: 'gap', accept: 'bridge' }[action]
+    if (!answer) return null
+    if (remember) saveAppSettings({ bioCellTube: answer })
+    return CELL_TUBE_FLUX[answer]
+  } finally {
+    isConfirming.value = false
+  }
 }
 
 const isTileDrag = (event) => [...(event.dataTransfer?.types ?? [])].includes(TILE_DRAG_TYPE)

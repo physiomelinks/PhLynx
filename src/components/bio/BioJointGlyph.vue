@@ -1,8 +1,8 @@
 <template>
   <!--
     The joint a link draws between the pieces it joins: between two tubes, the vessel's walls going on and narrowing
-    to the resistance or valve its module is, with the flow through it; between two cells, a channel across both
-    membranes, as a gap junction's two connexons.
+    to the resistance or valve its module is, with the flow through it; a gap junction, a channel across both cells'
+    membranes, as its two connexons; a bridge, the open way through it, walled by what it runs through.
   -->
   <svg
     :class="['bio-joint-glyph', { 'bio-joint-glyph--empty': empty, 'bio-joint-glyph--selected': selected }]"
@@ -23,6 +23,15 @@
       <path :d="wall(height - WALL / 2, height - neck)" class="bio-joint-glyph__wall" />
       <line :x1="4" :y1="height / 2" :x2="width - 4" :y2="height / 2" class="bio-joint-glyph__flow" :marker-end="`url(#${markerId})`" />
     </template>
+    <line
+      v-else-if="kind !== 'junction'"
+      v-bind="openWay"
+      :class="[
+        'bio-joint-glyph__flow',
+        'bio-joint-glyph__open',
+        { 'bio-joint-glyph__open--diffusion': kind === 'diffusion' },
+      ]"
+    />
     <template v-else>
       <line :x1="0" :y1="height / 2" :x2="width" :y2="height / 2" class="bio-joint-glyph__flow" />
       <rect
@@ -44,8 +53,10 @@
 import { computed, useId } from 'vue'
 
 const props = defineProps({
-  /** 'flow' between tubes, 'junction' between cells. */
+  /** 'flow' between tubes; 'junction', a gap junction between cells; 'bridge' or 'diffusion', an open way. */
   kind: { type: String, required: true },
+  /** An open way's direction: down, across a bridge between a cell and one below it. */
+  vertical: { type: Boolean, default: false },
   width: { type: Number, required: true },
   height: { type: Number, required: true },
   /** With no module in it yet: drawn faint, as a place to drop one. */
@@ -82,6 +93,13 @@ const lumen = computed(() => {
   )
 })
 
+/** An open way's line: along the middle, across or down. */
+const openWay = computed(() =>
+  props.vertical
+    ? { x1: props.width / 2, y1: 0, x2: props.width / 2, y2: props.height }
+    : { x1: 0, y1: props.height / 2, x2: props.width, y2: props.height / 2 },
+)
+
 /** The two connexons, either side of the middle, where the cells' membranes are. */
 const barrels = computed(() => [props.width / 2 - BARREL.width - 1, props.width / 2 + 1])
 </script>
@@ -105,6 +123,10 @@ const barrels = computed(() => [props.width / 2 - BARREL.width - 1, props.width 
 .bio-joint-glyph__flow {
   stroke: var(--p-text-color);
   stroke-width: 2;
+}
+
+.bio-joint-glyph__open--diffusion {
+  stroke-dasharray: 8 6;
 }
 
 .bio-joint-glyph__head {
@@ -138,7 +160,8 @@ const barrels = computed(() => [props.width / 2 - BARREL.width - 1, props.width 
 }
 
 .bio-joint-glyph--selected .bio-joint-glyph__wall,
-.bio-joint-glyph--selected .bio-joint-glyph__barrel {
+.bio-joint-glyph--selected .bio-joint-glyph__barrel,
+.bio-joint-glyph--selected .bio-joint-glyph__open {
   stroke: var(--p-primary-color);
 }
 </style>

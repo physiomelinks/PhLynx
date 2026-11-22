@@ -109,7 +109,6 @@ export const ROD = [
     kind: 'membrane',
     label: 'Plasma membrane',
     encloses: ['outer-segment', 'inner-segment'],
-    skin: { ref: 'rod-photoreceptor' },
     sides: {
       top: [
         { id: 'os-upper', label: 'Outer segment membrane', to: 0.5 },
@@ -128,7 +127,7 @@ export const ROD = [
     kind: 'tube',
     label: 'Connecting cilium',
     ends: ['outer-segment', 'inner-segment'],
-    flux: 'junction',
+    flux: 'bridge',
   },
   {
     id: 'extracellular',

@@ -15,8 +15,11 @@ export const SIDES = Object.freeze(['top', 'right', 'bottom', 'left'])
 /** Which face of a membrane a compartment docks against: the one towards what it encloses, or the one away. */
 export const FACES = Object.freeze(['inside', 'outside'])
 
-/** What a tube carries, kept for the connection rules: a flow along a conduit, a junction, or diffusion. */
-export const FLUXES = Object.freeze(['flow', 'junction', 'diffusion'])
+/**
+ * What a tube carries, kept for the connection rules: a flow along a conduit, a gap junction between two cells, a
+ * bridge (an open channel of cytoplasm, its walls membrane, as a connecting cilium), or diffusion.
+ */
+export const FLUXES = Object.freeze(['flow', 'junction', 'bridge', 'diffusion'])
 
 /** The colours a compartment can be drawn in. */
 export const TONES = Object.freeze(['sky', 'rose', 'teal', 'amber', 'violet', 'lime', 'slate'])

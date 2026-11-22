@@ -227,18 +227,18 @@ describe('neighbour context', () => {
       {
         path: 'outer-segment',
         relation: 'upstream',
-        context: { kind: 'compartment', flux: 'junction', end: 0 },
+        context: { kind: 'compartment', flux: 'bridge', end: 0 },
       },
       {
         path: 'inner-segment',
         relation: 'downstream',
-        context: { kind: 'compartment', flux: 'junction', end: 1 },
+        context: { kind: 'compartment', flux: 'bridge', end: 1 },
       },
     ])
     expect(t.neighbours('inner-segment')).toContainEqual({
       path: 'cilium',
       relation: 'upstream',
-      context: { kind: 'tube', flux: 'junction', end: 1 },
+      context: { kind: 'tube', flux: 'bridge', end: 1 },
     })
   })
 

@@ -13,7 +13,7 @@
 import { facePoint } from './faces.js'
 import { GLYPH_HEIGHT, GLYPH_WIDTH, HEAD_OFFSET, foldPoint, partOf, proteinLabelWidth } from './geometry.js'
 import { DEFAULT_ARROW_ROOM } from './glyphLibrary.js'
-import { CARD } from './layout.js'
+import { processSize } from './layout.js'
 import { CELL_RADIUS, FACET_BAND } from './metrics.js'
 import { EPITHELIAL_SHAPE, facetById } from './shape.js'
 
@@ -228,6 +228,19 @@ export function proteinBoxes(place, { name = '', detail = '' } = {}) {
   return [glyph, label]
 }
 
+/**
+ * The boxes a process in a cell takes: its card, or its cartoon with its name under it, as an upright protein's.
+ *
+ * @param {Object} place - The process's: its x and y are its top-left corner.
+ * @param {{name?: string, detail?: string}} [label]
+ * @returns {Array<Object>}
+ */
+function processBoxes(place, label) {
+  const { width, height } = processSize(place)
+  if (!place.glyph) return [box(place.x, place.y, width, height)]
+  return proteinBoxes({ x: place.x + width / 2, y: place.y + height / 2 }, label)
+}
+
 /** How far a cell's name is moved at a time when looking for a clear corner. */
 const NAME_STEP = 4
 /** How far along a cell, as a share of its width, its name may move from a corner to keep clear. */
@@ -256,7 +269,7 @@ export function cellNameBox(cellId, layout, labelOf = () => undefined) {
   for (const [id, other] of layout) {
     if (other.cell !== cellId) continue
     if (other.kind === 'protein') others.push(...proteinBoxes(other, labelOf(id)))
-    if (other.kind === 'cytosolic') others.push(box(other.x, other.y, CARD.width, CARD.height))
+    if (other.kind === 'cytosolic') others.push(...processBoxes(other, labelOf(id)))
   }
   return nameInCorners(rect, { width, height }, others, { inset: CELL_INSET, reachY: NAME_DROP })
 }
@@ -495,7 +508,7 @@ export function obstaclesOf(nodeId, layout, labelOf = () => undefined) {
       if (other.parent === nodeId && other.rect) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
       if (other.cell !== nodeId) continue
       if (other.kind === 'protein') boxes.push(...proteinBoxes(other, labelOf(id)))
-      if (other.kind === 'cytosolic') boxes.push(box(other.x, other.y, CARD.width, CARD.height))
+      if (other.kind === 'cytosolic') boxes.push(...processBoxes(other, labelOf(id)))
     }
     return boxes
   }
@@ -829,9 +842,10 @@ const CARD_LEG_GAP = 20
  */
 export function cardFaces(legs) {
   const sideOf = ({ place, token }) => {
-    const dx = token.x - (place.x + CARD.width / 2)
-    const dy = token.y - (place.y + CARD.height / 2)
-    if (Math.abs(dy) * CARD.width >= Math.abs(dx) * CARD.height) return dy < 0 ? 'top' : 'bottom'
+    const { width, height } = processSize(place)
+    const dx = token.x - (place.x + width / 2)
+    const dy = token.y - (place.y + height / 2)
+    if (Math.abs(dy) * width >= Math.abs(dx) * height) return dy < 0 ? 'top' : 'bottom'
     return dx < 0 ? 'left' : 'right'
   }
   const groups = new Map()
@@ -844,20 +858,21 @@ export function cardFaces(legs) {
   for (const group of groups.values()) {
     const { side, place } = group[0]
     const isFlat = side === 'top' || side === 'bottom'
-    const length = isFlat ? CARD.width : CARD.height
+    const { width, height } = processSize(place)
+    const length = isFlat ? width : height
     const gap = Math.min(CARD_LEG_GAP, (length - CARD_LEG_GAP) / group.length)
     const along = (entry) => (isFlat ? entry.token.x : entry.token.y)
     group.sort((a, b) => along(a) - along(b) || byLabel(a, b))
     for (const [index, entry] of group.entries()) {
       const offset = (index - (group.length - 1) / 2) * gap
-      const centre = { x: place.x + CARD.width / 2, y: place.y + CARD.height / 2 }
+      const centre = { x: place.x + width / 2, y: place.y + height / 2 }
       const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[
         side
       ]
       faces.set(entry.id, {
         point: {
-          x: centre.x + (direction.x * CARD.width) / 2 + (isFlat ? offset : 0),
-          y: centre.y + (direction.y * CARD.height) / 2 + (isFlat ? 0 : offset),
+          x: centre.x + (direction.x * width) / 2 + (isFlat ? offset : 0),
+          y: centre.y + (direction.y * height) / 2 + (isFlat ? 0 : offset),
         },
         direction,
       })

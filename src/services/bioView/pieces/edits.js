@@ -359,19 +359,41 @@ export function encloseCompartment(pieces, compartmentId, rects) {
 }
 
 /**
- * Adds a tube between two compartments: a junction between two spaces within one membrane, else a flow.
+ * Whether a tube between two compartments would join two cells: each within a membrane of its own, as deep as the
+ * other. Such a tube is a gap junction or a bridge, which only the user can say.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {[string, string]} ends
+ * @returns {boolean}
+ */
+export function joinsTwoCells(pieces, ends) {
+  const topology = topologyOf(pieces)
+  const [a, b] = ends.map((end) => topology.enclosureOf(end))
+  return !!a && !!b && a !== b && topology.depthOf(ends[0]) === topology.depthOf(ends[1])
+}
+
+/** What a tube carries, by what it joins: two spaces of one cell, an open channel; two cells, a gap junction. */
+function fluxBetween(pieces, ends) {
+  const topology = topologyOf(pieces)
+  const [a, b] = ends.map((end) => topology.enclosureOf(end))
+  if (a && a === b) return 'bridge'
+  return joinsTwoCells(pieces, ends) ? 'junction' : 'flow'
+}
+
+const TUBE_NAMES = Object.freeze({ junction: 'Gap junction', bridge: 'Bridge' })
+
+/**
+ * Adds a tube between two compartments: an open channel between two spaces within one membrane, a gap junction
+ * between two cells unless `flux` makes it a bridge, else a flow.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {[string, string]} ends - Upstream first.
+ * @param {string} [flux] - What it carries, where the user chose; else worked out from what it joins.
  * @returns {{pieces: Array<Object>, id: string}}
  */
-export function addTube(pieces, ends) {
-  const topology = topologyOf(pieces)
+export function addTube(pieces, ends, flux = fluxBetween(pieces, ends)) {
   const id = freeId('tube', taken(pieces))
-  const within = (end) => topology.depthOf(end) > 0
-  const sameEnclosure = ends.every(within) && topology.depthOf(ends[0]) === topology.depthOf(ends[1])
-  const flux = sameEnclosure ? 'junction' : 'flow'
-  const label = numbered(pieces, 'tube', flux === 'junction' ? 'Junction' : 'Tube')
+  const label = numbered(pieces, 'tube', TUBE_NAMES[flux] ?? 'Tube')
   return { pieces: [...copy(pieces), { id, kind: 'tube', label, ends: [...ends], flux }], id }
 }
 

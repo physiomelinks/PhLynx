@@ -506,6 +506,12 @@ export function leafletPath(width, height, offset = 0, folds = []) {
 /** How far apart a bilayer's lipids are, along its leaflets. */
 export const LIPID_PITCH = 5
 
+/** A lipid's head group's radius; its tails reach TAIL_HALF either side of the membrane's middle, between the heads. */
+export const HEAD_RADIUS = 2.25
+export const TAIL_HALF = 4.5
+/** Half the width of a straight strip of bilayer: room for both rows of heads. */
+export const STRIP_HALF = HEAD_OFFSET + HEAD_RADIUS + 1
+
 /**
  * Gives the straight sides of a cell's outline, each as the transform that lays a strip along it: x runs along the
  * side, from 0 to `length`, and y across it. Each length is a whole number of lipids, stretched or squeezed a

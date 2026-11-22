@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 200">
+  <title>Rod outer segment</title>
+  <!-- The outer segment's stack of membrane discs, side on: drawn stretched to the compartment it is the skin of. -->
+  <g fill="none" stroke="#a78bfa" stroke-width="5" stroke-linecap="round" opacity="0.55">
+    <path d="M30 30 V170"/><path d="M55 30 V170"/><path d="M80 30 V170"/><path d="M105 30 V170"/>
+    <path d="M130 30 V170"/><path d="M155 30 V170"/><path d="M180 30 V170"/><path d="M205 30 V170"/>
+    <path d="M230 30 V170"/><path d="M255 30 V170"/>
+  </g>
+</svg>

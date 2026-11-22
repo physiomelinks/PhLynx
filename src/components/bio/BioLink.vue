@@ -6,19 +6,54 @@
   >
     <!-- One that joins its pieces is the joint between them; with a module in it, the module draws it (BioJoint) -->
     <template v-if="data.joint">
-      <div v-if="data.empty" class="bio-link__joint">
-        <BioJointGlyph :kind="data.joint" :width="data.width" :height="data.height" :tone="data.tone" empty />
-        <span class="bio-link__joint-name">{{ data.name }} <small data-testid="bio-empty-hint">· Drop a module</small></span>
+      <!-- A bridge between two cells apart: an open channel of cytoplasm across the gap, walled by membrane, its
+           lumen running on over each cell's own membrane, so it opens into both -->
+      <svg
+        v-if="channel"
+        class="bio-link__line"
+        :width="data.width"
+        :height="data.height"
+        overflow="visible"
+        data-testid="bio-bridge"
+      >
+        <rect class="bio-link__lumen" v-bind="channel.lumen" />
+        <line v-for="(wall, index) in channel.walls" :key="index" class="bio-link__core" v-bind="wall.line" />
+        <BioBilayerStrips :strips="channel.walls" />
+      </svg>
+      <div
+        v-if="data.empty"
+        :class="['bio-link__joint', { 'bio-link__joint--placed': channel }]"
+        :style="channel ? zoneStyle : undefined"
+      >
+        <BioJointGlyph
+          :kind="data.joint"
+          :width="channel ? data.zone.width : data.width"
+          :height="channel ? data.zone.height : data.height"
+          :tone="data.tone"
+          :vertical="!!channel?.vertical"
+          empty
+        />
+        <span class="bio-link__joint-name"
+          >{{ data.name }} <small data-testid="bio-empty-hint">· Drop a module</small></span
+        >
       </div>
     </template>
     <svg v-else class="bio-link__line" :width="data.width" :height="data.height" overflow="visible">
       <defs>
-        <marker :id="markerId" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <marker
+          :id="markerId"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
           <path d="M 0 0 L 10 5 L 0 10 z" class="bio-link__head" />
         </marker>
       </defs>
-      <!-- A junction is drawn doubled, as the paired membranes of the two cells it joins -->
-      <template v-if="data.flow === 'junction'">
+      <!-- A junction or bridge is drawn doubled, as the paired membranes of the two cells it joins -->
+      <template v-if="data.flow === 'junction' || data.flow === 'bridge'">
         <polyline v-for="side in [-3, 3]" :key="side" :points="offsetPoints(side)" class="bio-link__stroke" />
       </template>
       <polyline
@@ -38,7 +73,9 @@
 
 <script setup>
 import { computed, useId } from 'vue'
+import BioBilayerStrips from './BioBilayerStrips.vue'
 import BioJointGlyph from './BioJointGlyph.vue'
+import { MEMBRANE_BAND_HALF } from '../../services/bioView/geometry'
 
 const props = defineProps({
   data: { type: Object, required: true },
@@ -50,6 +87,31 @@ const markerId = `bio-link-head-${useId()}`
 const zoneStyle = computed(() => {
   const { x, y, width, height } = props.data.zone
   return { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` }
+})
+
+/**
+ * A bridge's channel, where it has one: its lumen, from one cell's membrane to the other's and on over each, and its
+ * two walls, each a strip of bilayer (see BioBilayerStrips) with the membrane's core under it.
+ */
+const channel = computed(() => {
+  const bridge = props.data.channel
+  if (!bridge) return null
+  const { from, to, half, vertical } = bridge
+  const over = MEMBRANE_BAND_HALF
+  const length = vertical ? to.y - from.y : to.x - from.x
+  const lumen = vertical
+    ? { x: from.x - half, y: from.y - over, width: 2 * half, height: length + 2 * over }
+    : { x: from.x - over, y: from.y - half, width: length + 2 * over, height: 2 * half }
+  const walls = [-half, half].map((side) => {
+    const start = vertical ? { x: from.x + side, y: from.y } : { x: from.x, y: from.y + side }
+    const end = vertical ? { x: start.x, y: to.y } : { x: to.x, y: start.y }
+    return {
+      transform: `translate(${start.x} ${start.y})${vertical ? ' rotate(90)' : ''}`,
+      length,
+      line: { x1: start.x, y1: start.y, x2: end.x, y2: end.y },
+    }
+  })
+  return { lumen, walls, vertical }
 })
 
 /**
@@ -80,6 +142,24 @@ function offsetPoints(by) {
   position: relative;
   width: 100%;
   height: 100%;
+  /* A bridge's walls, as a cell's membrane is drawn (see BioCell) */
+  --bilayer-head: var(--p-amber-700);
+  --bilayer-tail: var(--p-amber-600);
+  --bilayer-core: color-mix(in srgb, var(--p-amber-200) 70%, var(--p-content-background));
+}
+
+/* A bridge's lumen: the cells' cytoplasm, opaque, so it opens the membrane of each where it meets it */
+.bio-link__lumen {
+  fill: color-mix(in srgb, var(--p-amber-200) 45%, var(--p-content-background));
+}
+
+.bio-link__core {
+  stroke: var(--bilayer-core);
+  stroke-width: 14;
+}
+
+.bio-link__joint.bio-link__joint--placed {
+  position: absolute;
 }
 
 .bio-link__line {
