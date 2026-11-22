@@ -394,9 +394,14 @@ export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {},
   }
   // A span that takes only a stretch of its side needs the whole side long enough for its row to fit that stretch.
   const share = (facet) => (Number.isFinite(facet.from) && Number.isFinite(facet.to) ? Math.max(0.05, facet.to - facet.from) : 1)
-  const length = (axis) =>
-    Math.max(0, ...along(axis).map((facet) => row(facet, axis) / share(facet) + foldReserve(shape, facet.edge))) +
-    2 * FACET_INSET
+  // An empty one with no fold in from its side has its spare in its middle, so it needs only its cartoon's room
+  // clear of the rounded corners.
+  const empty = GLYPH_WIDTH + 2 * CELL_RADIUS
+  const need = (facet, axis) =>
+    counts[facet.id] || facet.fold || foldReserve(shape, facet.edge)
+      ? row(facet, axis) / share(facet) + foldReserve(shape, facet.edge) + 2 * FACET_INSET
+      : empty / share(facet)
+  const length = (axis) => Math.max(0, ...along(axis).map((facet) => need(facet, axis)))
   // A fold needs its side long enough to come in from, and the cell deep enough to hold it and its proteins.
   const folds = (axis) => shape.facets.filter((facet) => facet.fold && EDGES[facet.fold].axis === axis)
   const mouth = (axis) => (folds(axis).length ? 2 * CELL_RADIUS + 2 * FOLD.margin + FOLD.width : 0)

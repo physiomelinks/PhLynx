@@ -6,7 +6,8 @@ import {
 } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
 import { layoutPieces, membraneKey, pieceKey, routeTube } from '../../../../../src/services/bioView/pieces/layout.js'
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
-import { GLYPH_WIDTH, MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
+import { CELL_RADIUS, GLYPH_WIDTH, MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
+import { encloseCompartment } from '../../../../../src/services/bioView/pieces/edits.js'
 import { LABEL_GAP } from '../../../../../src/services/bioView/metrics.js'
 
 const laidOut = (raw, options) => {
@@ -47,7 +48,28 @@ describe('the built-in templates written as pieces', () => {
 })
 
 describe('layoutPieces', () => {
-  it('draws a membrane as a cell, its bulk filling it, at its frame and at least the least size', () => {
+  it('draws a membrane with no frame at the least size of a cell', () => {
+    const layout = laidOut([
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      { id: 'pm', kind: 'membrane', label: 'Plasma membrane', encloses: ['cell'] },
+    ])
+    const { rect } = layout.places.get(pieceKey('pm'))
+    expect(rect.width).toBeGreaterThanOrEqual(MIN_CELL.width)
+    expect(rect.height).toBeGreaterThanOrEqual(MIN_CELL.height)
+  })
+
+  it('takes the size of the compartment a membrane is dropped on', () => {
+    const compartment = { x: 100, y: 100, width: 320, height: 160 }
+    const enclosed = encloseCompartment(
+      [{ id: 'c', kind: 'compartment', label: 'C', frame: compartment }],
+      'c',
+      new Map([['c', compartment]]),
+    )
+    const layout = laidOut(enclosed.pieces)
+    expect(layout.places.get(pieceKey(enclosed.id)).rect).toEqual(compartment)
+  })
+
+  it('draws a membrane as a cell, its bulk filling it, at its frame, grown only for its sides’ spare places', () => {
     const layout = laidOut([
       { id: 'cell', kind: 'compartment', label: 'Cell' },
       {
@@ -67,8 +89,13 @@ describe('layoutPieces', () => {
       membraneSite: 'pieces/pm',
       label: 'Cell',
     })
-    expect(place.rect).toMatchObject({ x: 40, y: 60 })
-    expect(place.rect.width).toBeGreaterThanOrEqual(MIN_CELL.width)
+    // A cartoon's room between the rounded corners of each empty side, not the size a cell with no frame is drawn at.
+    expect(place.rect).toEqual({
+      x: 40,
+      y: 60,
+      width: GLYPH_WIDTH + 2 * CELL_RADIUS,
+      height: GLYPH_WIDTH + 2 * CELL_RADIUS,
+    })
     expect(layout.rects.get('cell')).toEqual(place.rect)
     expect(layout.places.has(pieceKey('cell'))).toBe(false)
   })

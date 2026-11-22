@@ -53,6 +53,12 @@ export const pieceSiteRef = (path) => `${PIECES_INSTANCE}/${path}`
 
 /** The smallest an organelle's membrane is drawn. */
 const ORGANELLE_MIN = Object.freeze({ width: 200, height: 140 })
+/**
+ * The smallest a membrane with a frame is drawn: room for its rounded corners and its band, no more. A membrane
+ * dropped on a compartment is framed as the compartment was, so it takes that size, and grows only for what it
+ * holds, not to the size a cell with no frame is drawn at.
+ */
+const FRAMED_MIN = Object.freeze({ width: 3 * CELL_RADIUS, height: 3 * CELL_RADIUS })
 /** How big a compartment standing freely is drawn unless its frame says. */
 const FREE_COMPARTMENT = Object.freeze({ width: 320, height: REGION_HEIGHT })
 /** Room round what stands inside a compartment, for its proteins' names, and between two in a row. */
@@ -634,7 +640,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
   function measure(piece) {
     if (sizes.has(piece.id)) return sizes.get(piece.id)
     if (piece.kind === 'membrane') {
-      const least = piece.parent ? ORGANELLE_MIN : MIN_CELL
+      const least = piece.frame ? FRAMED_MIN : piece.parent ? ORGANELLE_MIN : MIN_CELL
       const skin = piece.skin && shapes.get(piece.skin.ref)
       const base = piece.frame ? { width: piece.frame.width, height: piece.frame.height } : { ...least }
       let size = skin
