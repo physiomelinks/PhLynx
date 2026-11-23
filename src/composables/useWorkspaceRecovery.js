@@ -2,7 +2,7 @@ import { onScopeDispose, ref, shallowRef, watch } from 'vue'
 
 import { packDraft, unpackDraft } from '../services/recovery/draftFile'
 import { createDraftStore } from '../services/recovery/draftStore'
-import { liveTabIds, pageTabId } from '../services/recovery/tabSession'
+import { liveTabIds, pageTabId, reloadedTabId } from '../services/recovery/tabSession'
 import { notify } from '../utils/notify'
 
 /** How long the workspace must go without a change before its draft is written. */
@@ -20,6 +20,9 @@ export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  * has no unsaved changes again: saved, loaded, cleared, or undone back to its save. While turned off, no draft is
  * written and this tab's is deleted, but the drafts other tabs left are still offered.
  *
+ * A tab that reloads takes back the draft it left without asking, when autoRestore allows and its workspace is still
+ * empty; the other drafts are offered as usual.
+ *
  * @param {Object} options
  * @param {import('vue').Ref<boolean>} options.hasUnsavedChanges - Whether there is unsaved work to keep.
  * @param {() => boolean} [options.enabled] - Whether drafts are kept, the user's setting.
@@ -28,8 +31,10 @@ export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  * @param {() => Object} options.buildState - The workspace, as a save writes it.
  * @param {() => { name?: string|null, nodeCount?: number }} [options.describe] - What the draft is, for its listing.
  * @param {(state: Object, draft: Object) => Promise<void>} options.applyState - Puts a draft's workspace in place.
+ * @param {() => boolean} [options.autoRestore] - Whether a reload takes back its draft without asking.
  * @param {Object} [options.store] - Where drafts are kept (createDraftStore's interface).
  * @param {string} [options.tabId] - This tab's id.
+ * @param {string|null} [options.reloadedFrom] - The id the tab had before it reloaded, if it did.
  * @param {LockManager} [options.locks] - For telling which tabs are open.
  * @param {() => number} [options.now]
  * @param {EventTarget} [options.target=document] - Fires visibilitychange; its window fires pagehide.
@@ -37,7 +42,7 @@ export const DRAFT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  *   drafts: import('vue').Ref<Array<{ id: string, savedAt: number, name: string|null, nodeCount: number }>>,
  *   restoring: import('vue').Ref<string|null>,
  *   restore: (id: string) => Promise<boolean>,
- *   discard: (id: string) => Promise<void>,
+ *   discard: (id: string) => Promise<(() => Promise<void>)|null>,
  *   refresh: () => Promise<void>,
  *   flush: () => Promise<void>,
  * }}
@@ -50,8 +55,10 @@ export function useWorkspaceRecovery({
   buildState,
   describe = () => ({}),
   applyState,
+  autoRestore = () => true,
   store = createDraftStore(),
   tabId = pageTabId(),
+  reloadedFrom = reloadedTabId(),
   locks = globalThis.navigator?.locks,
   now = () => Date.now(),
   target = globalThis.document,
@@ -66,6 +73,8 @@ export function useWorkspaceRecovery({
   // Writes and deletes run one after another, so an older write never lands after a newer one.
   let queue = Promise.resolve()
   let warned = false
+  // The draft this tab left before it reloaded, until the first look at the drafts has had the chance to take it back.
+  let reclaim = reloadedFrom
 
   /** Whether there is unsaved work, and drafts of it are wanted. */
   const keeping = () => hasUnsavedChanges.value && enabled()
@@ -139,13 +148,33 @@ export function useWorkspaceRecovery({
       const closed = all.filter((draft) => draft.id !== tabId && !live?.has(draft.id))
       const cutoff = now() - DRAFT_MAX_AGE_MS
       await Promise.all(closed.filter((draft) => draft.savedAt < cutoff).map((draft) => store.delete(draft.id)))
-      drafts.value = closed
+      const offered = closed
         .filter((draft) => draft.savedAt >= cutoff)
         .sort((a, b) => b.savedAt - a.savedAt)
         .map(({ id, savedAt, name, nodeCount }) => ({ id, savedAt, name: name ?? null, nodeCount: nodeCount ?? 0 }))
+      const claim = reclaim
+      reclaim = null
+      if (claim && autoRestore() && isEmpty() && offered.some((draft) => draft.id === claim)) {
+        // Not offered while it is taken back, so the panel does not flash up for it.
+        drafts.value = offered.filter((draft) => draft.id !== claim)
+        await takeBack(claim)
+        return
+      }
+      drafts.value = offered
     } catch (error) {
       console.warn('Recovery drafts unavailable:', error)
       drafts.value = []
+    }
+  }
+
+  /** Restores the draft this tab left before it reloaded, offering it as usual if that fails. applyState says so. */
+  async function takeBack(id) {
+    try {
+      await restore(id)
+    } catch (error) {
+      console.warn('Recovery draft not restored after reload:', error)
+      notify.error({ title: 'Failed to restore unsaved work', message: `${error.message} It is still offered.` })
+      await refresh()
     }
   }
 
@@ -175,11 +204,26 @@ export function useWorkspaceRecovery({
     }
   }
 
+  /**
+   * Deletes a draft.
+   *
+   * @returns {Promise<(() => Promise<void>)|null>} Puts the draft back, as it was; null when it had already gone.
+   */
   async function discard(id) {
+    let draft = null
     try {
+      draft = await store.get(id)
       await store.delete(id)
     } finally {
       await refresh()
+    }
+    if (!draft) return null
+    return async () => {
+      try {
+        await store.put(draft)
+      } finally {
+        await refresh()
+      }
     }
   }
 
@@ -188,7 +232,8 @@ export function useWorkspaceRecovery({
     ([keep]) => (keep ? schedule() : letGo()),
     { immediate: true }
   )
-  const stopWatchingEmpty = watch(isEmpty, (empty) => empty && refresh(), { immediate: true })
+  // A workspace that fills before the drafts are looked at, as from a link, is not replaced by the reload's draft.
+  const stopWatchingEmpty = watch(isEmpty, (empty) => (empty ? refresh() : (reclaim = null)), { immediate: true })
 
   const onVisibilityChange = () => (target.visibilityState === 'hidden' ? flush() : refresh())
   const onPageHide = () => flush()

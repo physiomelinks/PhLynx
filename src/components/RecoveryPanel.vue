@@ -1,8 +1,12 @@
 <script setup>
 import Button from 'primevue/button'
+import { onMounted, useTemplateRef } from 'vue'
 
 /**
  * Offers back the unsaved work of tabs that closed without saving it. Shown on the empty canvas.
+ *
+ * Opens with the newest draft's Restore focused, unless something else already has the focus, so Enter restores it.
+ * Escape, or the close button, hides the panel.
  */
 defineProps({
   /** The drafts on offer, newest first: { id, savedAt, name, nodeCount }. */
@@ -11,18 +15,45 @@ defineProps({
   restoring: { type: String, default: null },
 })
 
-const emit = defineEmits(['restore', 'discard'])
+const emit = defineEmits(['restore', 'discard', 'dismiss'])
+
+const restoreButtons = useTemplateRef('restoreButtons')
+
+onMounted(() => {
+  const active = document.activeElement
+  if (active && active !== document.body) return
+  restoreButtons.value?.[0]?.$el?.focus?.()
+})
 
 const savedAt = (time) => new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const modules = (count) => `${count} module${count === 1 ? '' : 's'}`
 </script>
 
 <template>
-  <section class="recovery-panel" data-testid="recovery-panel" aria-labelledby="recovery-panel-title">
-    <h2 id="recovery-panel-title" class="recovery-title">
-      <i class="pi pi-history" aria-hidden="true"></i>
-      Unsaved work found
-    </h2>
+  <section
+    class="recovery-panel"
+    data-testid="recovery-panel"
+    aria-labelledby="recovery-panel-title"
+    @keydown.esc.stop="emit('dismiss')"
+  >
+    <div class="recovery-header">
+      <h2 id="recovery-panel-title" class="recovery-title">
+        <i class="pi pi-history" aria-hidden="true"></i>
+        Unsaved work found
+      </h2>
+      <Button
+        icon="pi pi-times"
+        size="small"
+        severity="secondary"
+        text
+        rounded
+        :disabled="!!restoring"
+        aria-label="Hide until the page is next loaded"
+        v-hint.left="'Hide until the page is next loaded (Esc)'"
+        data-testid="recovery-dismiss"
+        @click="emit('dismiss')"
+      />
+    </div>
     <p class="recovery-note">
       {{ drafts.length === 1 ? 'A workspace was' : 'Workspaces were' }} closed without saving. Restoring one does not
       bring back its undo history.
@@ -43,6 +74,7 @@ const modules = (count) => `${count} module${count === 1 ? '' : 's'}`
           @click="emit('discard', draft.id)"
         />
         <Button
+          ref="restoreButtons"
           label="Restore"
           size="small"
           :loading="restoring === draft.id"
@@ -68,11 +100,19 @@ const modules = (count) => `${count} module${count === 1 ? '' : 's'}`
   box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
 }
 
+.recovery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+}
+
 .recovery-title {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 0.25rem;
+  margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
 }

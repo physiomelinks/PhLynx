@@ -556,6 +556,7 @@
               :restoring="recovery.restoring.value"
               @restore="onRestoreDraft"
               @discard="onDiscardDraft"
+              @dismiss="recoveryDismissed = true"
             />
           </div>
         </div>
@@ -648,7 +649,7 @@ export default {
 </script>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, markRaw, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useVueFlow, VueFlow } from '@vue-flow/core'
 import { useRoute } from 'vue-router'
 
@@ -2810,6 +2811,8 @@ const unregisterSaver = registerWorkspaceSaver({
 const recovery = useWorkspaceRecovery({
   hasUnsavedChanges,
   enabled: () => appSettings.workspaceRecovery,
+  // Not over a model a link is opening.
+  autoRestore: () => appSettings.restoreAfterReload && !window.location.hash,
   changeSignal: () => historyStore.pointerIndex,
   isEmpty: () => !hasWorkspaceContent.value,
   buildState: buildSaveState,
@@ -2826,7 +2829,12 @@ const recovery = useWorkspaceRecovery({
     if (draft.name) sessionMetadataStore.setLastSaveName(draft.name)
   },
 })
-const showRecovery = computed(() => !hasWorkspaceContent.value && !isDragOver.value && recovery.drafts.value.length > 0)
+// Hidden, once dismissed, until the page is next loaded.
+const recoveryDismissed = ref(false)
+const showRecovery = computed(
+  () =>
+    !recoveryDismissed.value && !hasWorkspaceContent.value && !isDragOver.value && recovery.drafts.value.length > 0
+)
 // The release card waits while unsaved work is on offer: getting that back comes first.
 const { holdWhatsNew } = useWhatsNew()
 watch(showRecovery, (shown) => holdWhatsNew('recovery', shown), { immediate: true })
@@ -2840,16 +2848,42 @@ async function onRestoreDraft(id) {
   }
 }
 
+/** How long a discarded draft can be brought back. */
+const DISCARD_UNDO_MS = 8000
+
+/** Discards a draft at once, offering for a while to bring it back rather than asking first. */
 async function onDiscardDraft(id) {
-  const discard = await confirm({
-    header: 'Discard unsaved work?',
-    message: 'Once discarded, this work cannot be recovered.',
-    severity: 'warning',
-    acceptLabel: 'Discard',
-    rejectLabel: 'Cancel',
-    isRejectDefault: true,
+  let undo
+  try {
+    undo = await recovery.discard(id)
+  } catch (error) {
+    notify.error({ title: 'Failed to discard unsaved work', message: error.message })
+    return
+  }
+  if (!undo) return
+  let toast = null
+  let undone = false
+  const onUndo = async () => {
+    if (undone) return
+    undone = true
+    toast?.close()
+    try {
+      await undo()
+    } catch (error) {
+      notify.error({ title: 'Failed to bring back unsaved work', message: error.message })
+    }
+  }
+  toast = notify.info({
+    title: 'Unsaved work discarded',
+    message: markRaw({
+      render: () =>
+        h('div', { style: 'display: flex; align-items: center; justify-content: space-between; gap: 0.5rem' }, [
+          h('span', 'It can be brought back for a few seconds.'),
+          h(Button, { label: 'Undo', size: 'small', text: true, 'data-testid': 'recovery-undo', onClick: onUndo }),
+        ]),
+    }),
+    duration: DISCARD_UNDO_MS,
   })
-  if (discard) await recovery.discard(id)
 }
 
 onUnmounted(() => {

@@ -237,7 +237,10 @@
         <TabPanel value="props">
           <section class="context-section context-section--global">
             <BioPropertiesPanel v-if="bioProperties" :properties="bioProperties" />
-            <NodeColourPanel v-else />
+            <div v-else class="properties-panels">
+              <NodeColourPanel />
+              <EdgeAppearancePanel />
+            </div>
           </section>
         </TabPanel>
 
@@ -275,6 +278,7 @@ import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useVirtualScrollerOptions } from '../composables/useVirtualScrollerOptions'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import EdgeAppearancePanel from './EdgeAppearancePanel.vue'
 import NodeColourPanel from './NodeColourPanel.vue'
 import BioPropertiesPanel from './bio/BioPropertiesPanel.vue'
 
@@ -641,6 +645,18 @@ function handleParameterTypeChange(row) {
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.properties-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.properties-panels > * {
+  flex-shrink: 0;
 }
 
 .new-system-module-btn {
