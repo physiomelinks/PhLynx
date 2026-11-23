@@ -1082,12 +1082,6 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.assertIn("outside.c_A - porter_in.c_A_o", coupling_pairs(flow))
 
 
-def pick(page, testid, pattern):
-    """Choose the first option matching a pattern in one of the placing dialog's dropdowns."""
-    page.locator(f"[data-testid={testid}]").click()
-    page.get_by_role("option").filter(has_text=re.compile(pattern)).first.click()
-
-
 def edge_pairs(flow):
     """Each edge's two ends by name, in name order, with its couplings as 'a.x - b.y' in name order."""
     pairs = {}
@@ -1100,15 +1094,17 @@ def edge_pairs(flow):
 
 
 class TestAddedCellMembrane(unittest.TestCase):
-    """A membrane and the proteins on a cell added by hand join up, whichever comes first."""
+    """A membrane and the proteins on a plain cell join up, whichever comes first."""
 
     setUp = TestAnnotationCoupling.setUp
     tearDown = TestAnnotationCoupling.tearDown
     flow = TestAnnotationCoupling.flow
     drop_module = TestAnnotationCoupling.drop_module
+    place_cell_pool = TestAnnotationCoupling.place_cell_pool
 
     def add_cell(self, sidecars, membrane):
-        """Import the toys (and their side-cars), then add a pool cell, with the wall as its membrane if asked."""
+        """Import the toys (and their side-cars), place the plain Cell template with a pool inside it, and the wall
+        on its membrane if asked."""
         page = self.page
         open_app(page)
         import_files(page, "CellML File", [toy(name) for name in [*TOY_MATHS, "wall.cellml"]])
@@ -1116,24 +1112,35 @@ class TestAddedCellMembrane(unittest.TestCase):
             import_files(page, "Module Annotations", [toy(name) for name in ["pool.ttl", "porter.ttl", "wall.ttl"]])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(600, 400, button="right")
-        page.locator(".p-contextmenu").get_by_text("Add Cell…").click()
-        dialog = page.locator("[data-testid=bio-place-dialog]")
-        expect(dialog).to_be_visible()
-        pick(page, "bio-place-module", r"^pool")
+        page.mouse.click(450, 200, button="right")
+        menu = page.locator(".p-contextmenu")
+        menu.get_by_text("Add Template", exact=True).hover()
+        menu.get_by_text("Cell", exact=True).click()
+        expect(piece(page, "cell")).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(menu).to_be_hidden()
+        page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
+        self.place_cell_pool()
         if membrane:
-            pick(page, "bio-place-membrane", r"^wall")
-        page.locator("[data-testid=bio-place-confirm]").click()
-        expect(dialog).to_be_hidden()
+            self.drop_wall()
+
+    def drop_wall(self):
+        """Drop the wall just inside the cell's outline, clear of its slots: the cell's membrane."""
+        page = self.page
+        count = page.locator(PLACED).count()
+        box = piece(page, "cell").bounding_box()
+        self.drop_module("wall", (box["x"] + box["width"] * 0.15, box["y"] + 4))
+        expect(page.locator(PLACED)).to_have_count(count + 1)
+        expect(page.locator(f'{BIO} .vue-flow__node-bioMembrane:not([data-id^="pc:"])')).to_have_count(1)
 
     def drop_porters(self):
         """Drop a porter on the cell's top facet and one on its bottom facet."""
         page = self.page
-        cell = page.locator(f"{BIO} .vue-flow__node-bioCell").first.bounding_box()
+        cell = piece(page, "cell").bounding_box()
         middle = cell["x"] + cell["width"] / 2
         for count, y in enumerate([cell["y"], cell["y"] + cell["height"]], start=1):
             self.drop_module("porter", (middle, y))
-            expect(page.locator(f"{BIO} .vue-flow__node-bioProtein")).to_have_count(count)
+            expect(page.locator(f'{BIO} .vue-flow__node-bioProtein:not([data-id^="pc:"])')).to_have_count(count)
 
     def wait_for_edges(self, count):
         self.page.wait_for_function(f"() => ({READ_FLOW})().edges.length === {count}", timeout=10000)
@@ -1158,13 +1165,7 @@ class TestAddedCellMembrane(unittest.TestCase):
         page = self.page
         self.add_cell(sidecars=True, membrane=False)
         self.drop_porters()
-        self.drop_module("wall", (1400, 850))
-        dialog = page.locator("[data-testid=bio-place-dialog]")
-        expect(dialog).to_be_visible()
-        pick(page, "bio-place-role", r"^A cell.s membrane")
-        pick(page, "bio-place-cell", r"^pool")
-        page.locator("[data-testid=bio-place-confirm]").click()
-        expect(dialog).to_be_hidden()
+        self.drop_wall()
         pairs = self.wait_for_edges(5)
         # Coupled through the side-cars' annotations.
         self.assertEqual(pairs[("porter", "wall")], ["porter.j_A - wall.i_tot", "porter.u - wall.u"])
