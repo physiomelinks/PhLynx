@@ -55,6 +55,60 @@ describe('stampTemplate', () => {
   })
 })
 
+describe('stampTemplate into a compartment', () => {
+  const HOST = Object.freeze([
+    {
+      id: 'interstitium',
+      kind: 'compartment',
+      label: 'Interstitium',
+      frame: { x: 100, y: 50, width: 1200, height: 900 },
+    },
+  ])
+  const into = (pieces) => {
+    const rect = layoutPieces(pieces).rects.get('interstitium')
+    return { id: 'interstitium', corner: { x: rect.x, y: rect.y } }
+  }
+
+  it('stands what stood on the canvas in the compartment, its corner where it was dropped', () => {
+    const template = getBuiltInPieceTemplate('cell')
+    const { pieces, errors } = stampTemplate(HOST, template, { x: 300, y: 250 }, { into: into(HOST) })
+    expect(errors).toEqual([])
+    const roots = template.pieces.filter((piece) => !piece.parent && ['compartment', 'membrane'].includes(piece.kind))
+    expect(roots.length).toBeGreaterThan(0)
+    for (const root of roots) expect(pieces.find((piece) => piece.id === root.id).parent).toBe('interstitium')
+    // Laid out, the template's corner is where it was dropped, inside the compartment.
+    const { rects } = layoutPieces(pieces)
+    const added = template.pieces.map((piece) => rects.get(piece.id)).filter(Boolean)
+    expect(Math.min(...added.map((rect) => rect.x))).toBe(300)
+    expect(Math.min(...added.map((rect) => rect.y))).toBe(250)
+    const host = rects.get('interstitium')
+    for (const rect of added) {
+      expect(rect.x + rect.width).toBeLessThanOrEqual(host.x + host.width)
+      expect(rect.y + rect.height).toBeLessThanOrEqual(host.y + host.height)
+    }
+  })
+
+  it.each(['epithelial-cell', 'two-cell-epithelium', 'cardiomyocyte', 'chemical-synapse', 'rod-photoreceptor'])(
+    'puts the %s template in a compartment',
+    (id) => {
+      const template = getBuiltInPieceTemplate(id)
+      const { pieces, errors } = stampTemplate(HOST, template, { x: 150, y: 100 }, { into: into(HOST) })
+      expect(errors).toEqual([])
+      // Nothing it adds is left on the canvas.
+      const added = pieces.filter((piece) => piece.id !== 'interstitium')
+      expect(added.filter((piece) => ['compartment', 'membrane'].includes(piece.kind) && !piece.parent)).toEqual([])
+    },
+  )
+
+  it('still puts a template on the canvas where it is dropped in none', () => {
+    const template = getBuiltInPieceTemplate('cell')
+    const { pieces } = stampTemplate(HOST, template, { x: 2000, y: 0 })
+    for (const piece of template.pieces) {
+      expect(pieces.find((each) => each.id === piece.id).parent).toBe(piece.parent)
+    }
+  })
+})
+
 describe('freeId', () => {
   it('numbers an id taken already, within 32 characters', () => {
     expect(freeId('cell', new Set())).toBe('cell')

@@ -372,6 +372,12 @@ export function nearestSlot(cells, point, maxDistance = 60) {
 }
 
 /**
+ * How long a stretch of a side an empty span needs, its spare's cartoon clear of the rounded corners: shorter, and
+ * the cell grows until it is that long (see fitCellRect).
+ */
+export const EMPTY_SPAN = GLYPH_WIDTH + 2 * CELL_RADIUS
+
+/**
  * Grows a cell so every part of its membrane has room for its proteins and the spare slot past them, whose
  * centre stays clear of the corner insets. Along a top or bottom edge, wide names take more room.
  *
@@ -396,11 +402,10 @@ export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {},
   const share = (facet) => (Number.isFinite(facet.from) && Number.isFinite(facet.to) ? Math.max(0.05, facet.to - facet.from) : 1)
   // An empty one with no fold in from its side has its spare in its middle, so it needs only its cartoon's room
   // clear of the rounded corners.
-  const empty = GLYPH_WIDTH + 2 * CELL_RADIUS
   const need = (facet, axis) =>
     counts[facet.id] || facet.fold || foldReserve(shape, facet.edge)
       ? row(facet, axis) / share(facet) + foldReserve(shape, facet.edge) + 2 * FACET_INSET
-      : empty / share(facet)
+      : EMPTY_SPAN / share(facet)
   const length = (axis) => Math.max(0, ...along(axis).map((facet) => need(facet, axis)))
   // A fold needs its side long enough to come in from, and the cell deep enough to hold it and its proteins.
   const folds = (axis) => shape.facets.filter((facet) => facet.fold && EDGES[facet.fold].axis === axis)

@@ -5,6 +5,7 @@
  * changes (by its key).
  */
 
+import { EMPTY_SPAN } from '../geometry.js'
 import { SIDES } from './constants.js'
 import {
   addCompartment,
@@ -363,8 +364,13 @@ export function resolveExtraDock(scene, compartmentId, point) {
     from: across ? along(own.x, rect.x, rect.width) : along(own.y, rect.y, rect.height),
     to: across ? along(own.x + own.width, rect.x, rect.width) : along(own.y + own.height, rect.y, rect.height),
   }
-  const from = spans ? Math.max(free.from, spans.from) : free.from
-  const to = spans ? Math.min(free.to, spans.to) : free.to
+  let from = spans ? Math.max(free.from, spans.from) : free.from
+  let to = spans ? Math.min(free.to, spans.to) : free.to
+  // What it would leave of the free stretch either side, too short for an empty span to be drawn in, it takes too:
+  // left, the cell would grow until that sliver was long enough.
+  const least = EMPTY_SPAN / (across ? rect.width : rect.height)
+  if (from - free.from < least) from = free.from
+  if (free.to - to < least) to = free.to
   const stretch = to - from > 0.05 && from <= at && at <= to ? { from, to } : free
   return {
     key: `dock|${compartmentId}|${membrane.id}|${side}|${face}|${stretch.from}|${stretch.to}`,

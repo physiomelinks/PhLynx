@@ -558,6 +558,41 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-template][data-template=cell]").click()
         expect(page.locator("[data-testid=bio-piece-preview]")).to_have_count(0)
 
+    def test_a_template_dropped_on_a_compartment_goes_in_it(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        self.drop_piece("compartment", self.pane_point(0.4, 0.4))
+        host = piece(page, "compartment")
+        expect(host).to_be_visible()
+        box = host.bounding_box()
+        point = (box["x"] + 30, box["y"] + 30)
+
+        # Carried over the compartment, it is the target, outlined, and the label says the template goes in it.
+        page.locator("[data-testid=bio-palette-template][data-template=cell]").click()
+        page.mouse.move(*point)
+        label = page.locator("[data-testid=bio-piece-drop-label]")
+        expect(label).to_contain_text("Add Cell in Compartment")
+        expect(label).to_contain_text("Compartment grows to fit it")
+        expect(page.locator("[data-testid=bio-piece-preview] .bio-piece-preview__target")).to_have_count(1)
+
+        # Dropped, the cell is drawn inside the compartment, which grows round it.
+        page.mouse.click(*point)
+        cell = bound(page, "bioCell")
+        expect(cell).to_have_count(1)
+        page.wait_for_timeout(300)
+        outer, inner = host.bounding_box(), cell.bounding_box()
+        self.assertGreaterEqual(inner["x"], outer["x"])
+        self.assertGreaterEqual(inner["y"], outer["y"])
+        self.assertLessEqual(inner["x"] + inner["width"], outer["x"] + outer["width"])
+        self.assertLessEqual(inner["y"] + inner["height"], outer["y"] + outer["height"])
+
+        # Off any compartment, a template still goes on the canvas.
+        page.locator("[data-testid=bio-palette-template][data-template=cell]").click()
+        page.mouse.move(*self.pane_point(0.85, 0.2))
+        expect(page.locator("[data-testid=bio-piece-drop-label]")).to_have_text("Add Cell")
+        expect(page.locator("[data-testid=bio-piece-preview] .bio-piece-preview__target")).to_have_count(0)
+
     def test_the_build_palette_puts_an_organelle_inside_a_cell(self):
         page = self.page
         self.open_physiology()

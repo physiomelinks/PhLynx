@@ -58,17 +58,19 @@ export function useBioEdits(roles = null) {
    *
    * @param {{ pieces: ReadonlyArray<Object> }} template - Validated.
    * @param {{x: number, y: number}} at - In flow coordinates.
+   * @param {{ into?: {id: string, corner: {x: number, y: number}}|null }} [options] - The compartment it is dropped
+   *   in (see stampTemplate); none, the canvas.
    * @returns {Promise<string[]>} Why it couldn't be added, if it couldn't.
    */
-  async function placePiecesTemplate(template, at) {
+  async function placePiecesTemplate(template, at, { into = null } = {}) {
     if (busy()) return []
     // Tried first, so a template that doesn't fit leaves no step behind.
-    const { errors } = stampTemplate(pieces.pieces, template, whole(at), { shapes: pieces.shapes })
+    const { errors } = stampTemplate(pieces.pieces, template, whole(at), { shapes: pieces.shapes, into })
     if (errors.length) return errors
     await applyPlan(
       new Map(),
       'bio-pieces-add',
-      pieces.edit(() => pieces.addTemplate(template, whole(at))),
+      pieces.edit(() => pieces.addTemplate(template, whole(at), { into })),
     )
     return []
   }

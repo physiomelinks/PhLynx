@@ -111,10 +111,12 @@ export const useBioPiecesStore = defineStore('bioPieces', () => {
    *
    * @param {{ pieces: ReadonlyArray<Object> }} template - Validated.
    * @param {{x: number, y: number}} at - In flow coordinates.
+   * @param {{ into?: {id: string, corner: {x: number, y: number}}|null }} [options] - The compartment it is dropped
+   *   in (see stampTemplate); none, the canvas.
    * @returns {{ ids: Map<string, string>, errors: string[] }} ids: each template piece's id -> its copy's.
    */
-  function addTemplate(template, at) {
-    const { pieces: all, ids, errors } = stampTemplate(pieces.value, template, at, { shapes: shapes.value })
+  function addTemplate(template, at, { into = null } = {}) {
+    const { pieces: all, ids, errors } = stampTemplate(pieces.value, template, at, { shapes: shapes.value, into })
     if (all) pieces.value = all
     return { ids, errors }
   }

@@ -38,11 +38,13 @@ export function freeId(id, taken) {
  * @param {ReadonlyArray<Object>} pieces - The view's, validated.
  * @param {{ pieces: ReadonlyArray<Object> }} template - Validated (see validatePiecesTemplate).
  * @param {{x: number, y: number}} at - Where its corner goes, in flow coordinates.
- * @param {{ shapes?: Map<string, Object> }} [options] - The skins' geometry, which sizes what they draw.
+ * @param {{ shapes?: Map<string, Object>, into?: {id: string, corner: {x: number, y: number}}|null }} [options] -
+ *   shapes: the skins' geometry, which sizes what they draw. into: the compartment it is dropped in, and where its
+ *   corner is drawn; what stands on the canvas in the template stands in it instead. None: the canvas.
  * @returns {{ pieces: ReadonlyArray<Object>|null, ids: Map<string, string>, errors: string[] }} pieces: all of them,
  *   validated; ids: each of the template's ids -> the id its copy has.
  */
-export function stampTemplate(pieces, template, at, { shapes = new Map() } = {}) {
+export function stampTemplate(pieces, template, at, { shapes = new Map(), into = null } = {}) {
   const taken = new Set(pieces.map((piece) => piece.id))
   const ids = new Map()
   for (const piece of template.pieces) {
@@ -62,8 +64,13 @@ export function stampTemplate(pieces, template, at, { shapes = new Map() } = {})
       : { x: 0, y: 0 }
   })()
   const idOf = (id) => ids.get(id) ?? id
+  // Frames are from the corner of what they stand in: dropped in a compartment, its corner.
+  const origin = into ? into.corner : { x: 0, y: 0 }
   const added = template.pieces.map((piece) => {
     const copy = renamed(piece, idOf)
+    // What stands on the canvas in the template, standing freely, docked or enclosed, stands in the compartment, so
+    // what a membrane encloses still stands where it does.
+    if (into && !piece.parent && (piece.kind === 'compartment' || piece.kind === 'membrane')) copy.parent = into.id
     const standsAlone = !piece.parent && (piece.kind === 'membrane' || (piece.kind === 'compartment' && !piece.docks))
     const rect = rects.get(piece.id)
     // A compartment a membrane fills is drawn by it, and needs no frame of its own.
@@ -71,8 +78,8 @@ export function stampTemplate(pieces, template, at, { shapes = new Map() } = {})
       piece.kind === 'compartment' && template.pieces.some((other) => other.encloses?.includes(piece.id))
     if (standsAlone && rect && !isFilling) {
       copy.frame = {
-        x: Math.round(at.x + rect.x - corner.x),
-        y: Math.round(at.y + rect.y - corner.y),
+        x: Math.round(at.x - origin.x + rect.x - corner.x),
+        y: Math.round(at.y - origin.y + rect.y - corner.y),
         width: Math.round(piece.frame?.width ?? rect.width),
         height: Math.round(piece.frame?.height ?? rect.height),
       }

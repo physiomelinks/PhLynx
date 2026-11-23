@@ -77,17 +77,102 @@ describe('docking a compartment to a second membrane side or fold', () => {
     expect(errors).toEqual([])
     const dock = byId(next, id).docks[1]
     expect(dock).toMatchObject({ on: 'sarcolemma', side: 'right', face: 'inside' })
-    // The stretch it spans, not the whole side: a protein site of its own.
+    // The stretch it spans, not the whole side: a protein site of its own. Below it, what is left is too short to
+    // draw, so it runs on to the side's end, and the cell keeps its size.
     expect(dock.from).toBeGreaterThan(0)
-    expect(dock.to).toBeLessThan(1)
+    expect(dock.to).toBe(1)
     expect(byId(next, 'sarcolemma').sides.right.some((span) => span.from === dock.from && span.to === dock.to)).toBe(
       true,
     )
     const { rects } = layoutPieces(next)
     const gap = rects.get(id)
     const after = rects.get('sarcolemma')
+    expect(after).toEqual(cell)
     expect(gap.x).toBe(rects.get('sr-membrane').x + rects.get('sr-membrane').width - CELL_RADIUS / 2)
     expect(gap.x + gap.width).toBe(after.x + after.width - 10)
+  })
+
+  it('takes in what it would leave of a cell’s side too short to draw, so the cell keeps its size', () => {
+    // A paracellular space: against one cell's right side, reaching to the next cell's left, which stands a little
+    // higher and is a little taller, so the space meets its side just below its top and well above its bottom.
+    const pieces = valid([
+      { id: 'a-in', kind: 'compartment', label: 'A' },
+      {
+        id: 'a',
+        kind: 'membrane',
+        label: 'Cell A',
+        encloses: ['a-in'],
+        frame: { x: 100, y: 100, width: 320, height: 240 },
+      },
+      { id: 'b-in', kind: 'compartment', label: 'B' },
+      {
+        id: 'b',
+        kind: 'membrane',
+        label: 'Cell B',
+        encloses: ['b-in'],
+        frame: { x: 600, y: 80, width: 320, height: 300 },
+      },
+      {
+        id: 'gap',
+        kind: 'compartment',
+        label: 'Gap',
+        docks: [{ on: 'a', side: 'right', face: 'outside' }],
+        depth: 180,
+      },
+    ])
+    const scene = dropScene(pieces)
+    const before = scene.rects.get('b')
+    const space = scene.rects.get('gap')
+    const drop = resolveExtraDock(scene, 'gap', { x: before.x - 4, y: space.y + space.height / 2 })
+    expect(drop.label).toBe('Also against Cell B’s left side, outside')
+    const { pieces: next, errors } = previewDrop(scene, drop)
+    expect(errors).toEqual([])
+    // The slivers above and below the space are too short for a span of their own: the dock takes the whole side.
+    expect(byId(next, 'gap').docks[1]).toEqual({ on: 'b', side: 'left', face: 'outside', from: 0, to: 1 })
+    expect(layoutPieces(next).rects.get('b')).toEqual(before)
+    // Left as slivers, they would have made the cell grow many times as tall to fit them.
+    const along = (y) => Math.round(((y - before.y) / before.height) * 1000) / 1000
+    const exact = { on: 'b', side: 'left', face: 'outside', from: along(space.y), to: along(space.y + space.height) }
+    const slivered = valid(addDock(pieces, 'gap', exact).pieces)
+    expect(layoutPieces(slivered).rects.get('b').height).toBeGreaterThan(3 * before.height)
+  })
+
+  it('keeps what it would leave of a side where there is room to draw it', () => {
+    const pieces = valid([
+      { id: 'a-in', kind: 'compartment', label: 'A' },
+      {
+        id: 'a',
+        kind: 'membrane',
+        label: 'Cell A',
+        encloses: ['a-in'],
+        frame: { x: 100, y: 100, width: 320, height: 240 },
+      },
+      { id: 'b-in', kind: 'compartment', label: 'B' },
+      {
+        id: 'b',
+        kind: 'membrane',
+        label: 'Cell B',
+        encloses: ['b-in'],
+        frame: { x: 600, y: 100, width: 320, height: 600 },
+      },
+      {
+        id: 'gap',
+        kind: 'compartment',
+        label: 'Gap',
+        docks: [{ on: 'a', side: 'right', face: 'outside' }],
+        depth: 180,
+      },
+    ])
+    const scene = dropScene(pieces)
+    const before = scene.rects.get('b')
+    const space = scene.rects.get('gap')
+    const drop = resolveExtraDock(scene, 'gap', { x: before.x - 4, y: space.y + space.height / 2 })
+    const { pieces: next } = previewDrop(scene, drop)
+    const dock = byId(next, 'gap').docks[1]
+    // Level with its top, so nothing above; the long stretch below stays a span of its own.
+    expect(dock.from).toBe(0)
+    expect(dock.to).toBeLessThan(1)
+    expect(layoutPieces(next).rects.get('b')).toEqual(before)
   })
 
   it('offers nothing by the side it is docked to already, nor far from any membrane', () => {

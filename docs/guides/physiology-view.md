@@ -49,7 +49,7 @@ Each stretch of a membrane that a compartment is docked to is a protein site of 
 
 ### Templates {#templates}
 
-A template is a shortcut: placing one adds a copy of its pieces, which are then edited like any others. Pick one from the Build tab, or right-click the canvas and choose **Add Template**:
+A template is a shortcut: placing one adds a copy of its pieces, which are then edited like any others. Pick one from the Build tab, or right-click the canvas and choose **Add Template**. A template from the Build tab that is dropped on a compartment goes inside that compartment, which grows to fit it. Dropped anywhere else, it goes on the canvas:
 
 | Template | Holds |
 | :--- | :--- |

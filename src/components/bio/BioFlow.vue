@@ -2016,11 +2016,14 @@ watch(
  *
  * @param {string} templateId - One of the template library's.
  * @param {{x: number, y: number}} point - Its corner, in flow coordinates.
+ * @param {{ inCompartment?: boolean }} [options] - Whether it goes in the compartment the point is in, if any, as a
+ *   template dropped from the palette does; else on the canvas.
  */
-async function placePiecesAt(templateId, point) {
+async function placePiecesAt(templateId, point, { inCompartment = false } = {}) {
   const template = templateLibrary.getTemplate(templateId)
   if (!template) return
-  const errors = await placePiecesTemplate(template, point)
+  const into = inCompartment ? templateHost(dropScene(piecesStore.pieces, sceneOptions()), point) : null
+  const errors = await placePiecesTemplate(template, point, { into })
   if (errors.length) notify.error({ title: 'Could not add the template', message: summariseProblems(errors) })
 }
 
@@ -2368,8 +2371,22 @@ function trackPiece(point) {
 }
 
 /**
+ * The compartment a template dropped at a point goes in: the innermost drawn round it, with where it is drawn; null on
+ * the canvas.
+ *
+ * @param {Object} scene - From dropScene.
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @returns {{id: string, label: string, rect: Object, corner: {x: number, y: number}}|null}
+ */
+function templateHost(scene, point) {
+  const host = compartmentAtPoint(scene, point)
+  const rect = host && scene.rects.get(host.id)
+  return rect ? { id: host.id, label: host.label, rect, corner: { x: rect.x, y: rect.y } } : null
+}
+
+/**
  * A template carried to a point, as a drop previewDrop can show: its pieces stamped there, as placePiecesTemplate
- * would add them, with no target of its own to highlight.
+ * would add them: in the compartment the point is in, highlighted, else on the canvas.
  *
  * @param {string} templateId
  * @param {{x: number, y: number}} point - In flow coordinates.
@@ -2380,12 +2397,13 @@ function templateDrop(templateId, point, scene) {
   const template = templateLibrary.getTemplate(templateId)
   if (!template) return null
   const at = whole(point)
+  const into = templateHost(scene, point)
   return {
-    key: `template ${templateId} ${at.x} ${at.y}`,
-    label: `Add ${template.name}`,
-    highlights: [],
+    key: `template ${templateId} ${into?.id ?? ''} ${at.x} ${at.y}`,
+    label: into ? `Add ${template.name} in ${into.label}` : `Add ${template.name}`,
+    highlights: into ? [{ type: 'rect', rect: into.rect }] : [],
     apply: (pieces) => {
-      const { pieces: next, errors } = stampTemplate(pieces, template, at, { shapes: scene.shapes })
+      const { pieces: next, errors } = stampTemplate(pieces, template, at, { shapes: scene.shapes, into })
       return errors.length ? { pieces: null, error: errors[0] } : { pieces: next, id: null }
     },
   }
@@ -2518,7 +2536,7 @@ function viewCentre() {
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 function applyTile(tile, point) {
-  if (tile.kind === 'template') return placePiecesAt(tile.template, point)
+  if (tile.kind === 'template') return placePiecesAt(tile.template, point, { inCompartment: true })
   if (isPieceTile(tile)) return placePieceAt(tile.piece, point)
   if (tile.kind === 'module') {
     const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
