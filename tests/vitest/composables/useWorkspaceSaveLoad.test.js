@@ -22,6 +22,7 @@ import { useLibraryStore } from '../../../src/stores/libraryStore'
 import { useOmexStore } from '../../../src/stores/omexStore'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore'
+import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore'
 import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../../../src/utils/constants'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 import { TOY_PLACEMENTS, loadToyNodes } from '../services/annotations/toyNodes.js'
@@ -318,6 +319,36 @@ describe('applyWorkspaceState', () => {
     useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 })
     await view.applyWorkspaceState(saved)
     expect(useBioTemplateStore().getState()).toBeNull()
+  })
+
+  it('saves and restores the default for new connections and the edge appearances', async () => {
+    const styledEdge = { id: 'e1', source: 'n1', target: 'n1', data: { couplings: [], appearance: { path: 'step', width: 'thick' } } }
+    flow.toObject.mockReturnValue({ ...FLOW, edges: [styledEdge] })
+    useWorkspaceAppearanceStore().setConnectionDefaults({ arrow: 'large' })
+    await view.onSaveConfirm('styled')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved.appearance).toEqual({ connections: { arrow: 'large' } })
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved)
+
+    expect(useWorkspaceAppearanceStore().connectionDefaults).toEqual({ arrow: 'large' })
+    expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ edges: [styledEdge] }))
+  })
+
+  it('leaves the appearance block out while it is the default, and loads a file without one', async () => {
+    await view.onSaveConfirm('plain')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    expect(saved).not.toHaveProperty('appearance')
+
+    useWorkspaceAppearanceStore().setConnectionDefaults({ width: 'thin' })
+    await view.applyWorkspaceState(saved)
+
+    expect(useWorkspaceAppearanceStore().isDefault).toBe(true)
+    save.legacyDownload.mockClear()
+    await view.onSaveConfirm('plain-again')
+    expect(await readBlob(save.legacyDownload.mock.calls[0][1])).toEqual(saved)
   })
 
   it('clears the workspace before it restores the flow', async () => {

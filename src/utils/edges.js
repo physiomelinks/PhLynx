@@ -3,7 +3,8 @@
  * edges.js
  *
  * Utilities for resolving which port labels are coupled across a conduit edge,
- * and for enforcing the non-multiport single-connection constraint.
+ * for enforcing the non-multiport single-connection constraint, and for reading a
+ * connection's appearance (`edge.data.appearance`).
  *
  * Core concepts
  * -------------
@@ -37,6 +38,7 @@
  * value for multiport means the port is unrestricted.
  */
 
+import { ARROW_SIZES, BUILT_IN_EDGE_APPEARANCE, EDGE_PATHS, EDGE_WIDTHS } from './constants'
 import { activePorts, findPort, isAnnotatedPort, isHiddenPort, portDisplayName, portIdentity } from './portIdentity'
 import { canKeepCoupling } from './ports'
 
@@ -491,4 +493,43 @@ function groupByTypeAndLabel(portLabels, allowedTypes) {
 function portKey(nodeId, port) {
   const key = `${nodeId}:${port.portType}:${portIdentity(port)}`
   return isAnnotatedPort(port) ? key : `${key}:${JSON.stringify(port.variables ?? [])}`
+}
+
+/**
+ * Fills a connection's appearance with the built-in values, which also replace any it doesn't know.
+ *
+ * @param {Object} [appearance] - An `edge.data.appearance`.
+ * @returns {{ path: string, arrow: string, width: string }}
+ */
+export function resolveEdgeAppearance(appearance) {
+  const { path, arrow, width } = appearance ?? {}
+  return {
+    path: EDGE_PATHS.includes(path) ? path : BUILT_IN_EDGE_APPEARANCE.path,
+    arrow: arrow === 'none' || Object.hasOwn(ARROW_SIZES, arrow ?? '') ? arrow : BUILT_IN_EDGE_APPEARANCE.arrow,
+    width: Object.hasOwn(EDGE_WIDTHS, width ?? '') ? width : BUILT_IN_EDGE_APPEARANCE.width,
+  }
+}
+
+/**
+ * Keeps only the appearance values that differ from the built-in ones.
+ *
+ * @param {Object} [appearance]
+ * @returns {Object} Empty when the appearance is the built-in one.
+ */
+export function pruneAppearance(appearance) {
+  const resolved = resolveEdgeAppearance(appearance)
+  return Object.fromEntries(Object.entries(resolved).filter(([key, value]) => value !== BUILT_IN_EDGE_APPEARANCE[key]))
+}
+
+/**
+ * Gives edge data an appearance, leaving the key out when it is the built-in one.
+ *
+ * @param {Object} [data] - An edge's data, not changed.
+ * @param {Object} [appearance]
+ * @returns {Object} New edge data.
+ */
+export function withEdgeAppearance(data, appearance) {
+  const { appearance: _previous, ...rest } = data ?? {}
+  const pruned = pruneAppearance(appearance)
+  return Object.keys(pruned).length ? { ...rest, appearance: pruned } : rest
 }

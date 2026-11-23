@@ -287,8 +287,9 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
           id: newEdgeId,
           source: newSource,
           target: newTarget,
-          // Both ends moved by the paste offset, so the route moves with them.
-          data: offsetEdgeData(edge.data, dx, dy),
+          // Its own copy, as pasting twice mustn't share data. Both ends moved by the paste offset, so the route
+          // moves with them.
+          data: offsetEdgeData(edge.data && detachReactivity(edge.data), dx, dy),
           selected: true,
         })
       }
