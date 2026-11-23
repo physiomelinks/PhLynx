@@ -179,6 +179,15 @@ export const SETTING_SECTIONS = [
           'Copies already kept are still offered.',
         default: true,
       },
+      {
+        key: 'restoreAfterReload',
+        type: 'toggle',
+        label: 'Restore unsaved work after reloading',
+        description:
+          'When a tab reloads with unsaved work, put that work back without asking. Off, it is offered alongside ' +
+          'the work of closed tabs.',
+        default: true,
+      },
     ],
   },
   {

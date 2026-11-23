@@ -10,7 +10,12 @@ const drafts = [
   { id: 'b', savedAt: Date.UTC(2026, 10, 15, 2, 30), name: null, nodeCount: 1 },
 ]
 
-const mountPanel = (props) => mount(RecoveryPanel, { props: { drafts, ...props }, global: { plugins: [PrimeVue] } })
+const mountPanel = (props, options = {}) =>
+  mount(RecoveryPanel, {
+    props: { drafts, ...props },
+    global: { plugins: [PrimeVue], directives: { hint: {} } },
+    ...options,
+  })
 
 describe('RecoveryPanel', () => {
   it('lists each draft by name, or as untitled, with its module count', () => {
@@ -35,5 +40,28 @@ describe('RecoveryPanel', () => {
   it('holds every button while a draft is restoring', () => {
     const wrapper = mountPanel({ restoring: 'a' })
     for (const button of wrapper.findAll('button')) expect(button.attributes('disabled')).toBeDefined()
+  })
+
+  it('asks to be hidden from its close button or Escape', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('[data-testid="recovery-dismiss"]').trigger('click')
+    await wrapper.find('[data-testid="recovery-panel"]').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.emitted('dismiss')).toHaveLength(2)
+  })
+
+  it('focuses the newest draft’s Restore, so Enter restores it', () => {
+    const wrapper = mountPanel({}, { attachTo: document.body })
+    expect(document.activeElement).toBe(wrapper.findAll('[data-testid="recovery-restore"]')[0].element)
+    wrapper.unmount()
+  })
+
+  it('leaves the focus where it is when something already has it', () => {
+    const input = document.createElement('input')
+    document.body.append(input)
+    input.focus()
+    const wrapper = mountPanel({}, { attachTo: document.body })
+    expect(document.activeElement).toBe(input)
+    wrapper.unmount()
+    input.remove()
   })
 })
