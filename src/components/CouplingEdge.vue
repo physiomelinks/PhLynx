@@ -1,19 +1,22 @@
 <template>
-  <!-- vue-flow's closed arrow, in the line's colour when it is selected or warns -->
-  <defs v-if="ownMarker">
+  <!-- vue-flow's closed arrow, sized in flow units so selecting or widening the line keeps its size -->
+  <defs v-if="arrowSize">
     <marker
       :id="markerId"
       class="vue-flow__arrowhead"
       viewBox="-10 -10 20 20"
       refX="0"
       refY="0"
-      markerWidth="12.5"
-      markerHeight="12.5"
-      markerUnits="strokeWidth"
+      :markerWidth="arrowSize"
+      :markerHeight="arrowSize"
+      markerUnits="userSpaceOnUse"
       orient="auto-start-reverse"
     >
       <polyline
-        :class="['coupling-edge-arrow', { 'coupling-edge-arrow--conflict': conflicts.length }]"
+        :class="[
+          'coupling-edge-arrow',
+          { 'coupling-edge-arrow--selected': selected, 'coupling-edge-arrow--conflict': conflicts.length },
+        ]"
         stroke-linecap="round"
         stroke-linejoin="round"
         points="-5,-4 0,0 -5,4 -5,-4"
@@ -23,8 +26,8 @@
   <BaseEdge
     :id="id"
     :path="path[0]"
-    :marker-end="ownMarker ? `url(#${markerId})` : markerEnd"
-    :style="style"
+    :marker-end="arrowSize ? `url(#${markerId})` : undefined"
+    :style="lineStyle"
     :class="{ 'coupling-edge--conflict': conflicts.length, 'coupling-edge--uncoupled': !data?.couplings?.length }"
   />
   <!-- Like an instance's missing-parameter warning: these couplings can't be exported, as their ports or units don't pair -->
@@ -54,9 +57,11 @@
 import { computed } from 'vue'
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, useVueFlow } from '@vue-flow/core'
 import { useLibraryStore } from '../stores/libraryStore'
+import { ARROW_SIZES, EDGE_WIDTHS } from '../utils/constants'
+import { resolveEdgeAppearance } from '../utils/edges'
 import { couplingConflicts } from '../utils/multiport'
 import { couplingUnitConflicts } from '../utils/couplingUnits'
-import { fullPolyline, getEdgeWaypoints, midpointAlong, roundedPath, translateWaypoints } from '../utils/edgeRoute'
+import { CORNER_RADIUS, fullPolyline, getEdgeWaypoints, midpointAlong, roundedPath, translateWaypoints } from '../utils/edgeRoute'
 import { useEdgeDragOffsets } from '../composables/useEdgeDragOffsets'
 import { useEdgeRouteEditing } from '../composables/useEdgeRouteEditing'
 
@@ -73,14 +78,18 @@ const props = defineProps({
   sourcePosition: { type: String, required: true },
   targetPosition: { type: String, required: true },
   data: { type: Object, default: () => ({}) },
-  markerEnd: { type: String, default: undefined },
   style: { type: Object, default: undefined },
   selected: { type: Boolean, default: false },
 })
 
+const SELECTED_EXTRA_WIDTH = 2
+
 const { findNode, viewport } = useVueFlow()
 const { route: draftRoute, handles, startDrag } = useEdgeRouteEditing(props)
 const { edgeDragOffsets } = useEdgeDragOffsets()
+
+const appearance = computed(() => resolveEdgeAppearance(props.data?.appearance))
+const cornerRadius = computed(() => (appearance.value.path === 'step' ? 0 : CORNER_RADIUS))
 
 // [path, labelX, labelY]: the route being dragged, else through the user's waypoints (carried along
 // while both nodes are dragged together), else drawn as the default smoothstep edge is.
@@ -88,12 +97,12 @@ const path = computed(() => {
   let points = draftRoute.value
   if (!points) {
     const waypoints = getEdgeWaypoints(props)
-    if (!waypoints) return getSmoothStepPath(props)
+    if (!waypoints) return getSmoothStepPath({ ...props, borderRadius: cornerRadius.value })
     const offset = edgeDragOffsets.value.get(props.id)
     points = fullPolyline(props, offset ? translateWaypoints(waypoints, offset.x, offset.y) : waypoints)
   }
   const label = midpointAlong(points)
-  return [roundedPath(points), label.x, label.y]
+  return [roundedPath(points, cornerRadius.value), label.x, label.y]
 })
 const libraryStore = useLibraryStore()
 
@@ -112,7 +121,12 @@ const conflicts = computed(() => {
   })
 })
 
-const ownMarker = computed(() => props.selected || conflicts.value.length > 0)
+const lineStyle = computed(() => ({
+  ...props.style,
+  strokeWidth: EDGE_WIDTHS[appearance.value.width] + (props.selected ? SELECTED_EXTRA_WIDTH : 0),
+}))
+
+const arrowSize = computed(() => ARROW_SIZES[appearance.value.arrow])
 const markerId = `coupling-edge-arrow-${props.id}`
 </script>
 
@@ -129,11 +143,17 @@ const markerId = `coupling-edge-arrow-${props.id}`
   stroke-dasharray: 6 4;
 }
 
-/* Matches the selected line (WorkspaceView.vue) */
+/* Matches vue-flow's line */
 .coupling-edge-arrow {
+  stroke: #b1b1b7;
+  fill: #b1b1b7;
+  stroke-width: 1;
+}
+
+/* Matches the selected line (WorkspaceView.vue) */
+.coupling-edge-arrow--selected {
   stroke: var(--p-primary-color);
   fill: var(--p-primary-color);
-  stroke-width: 1;
 }
 
 .coupling-edge-arrow--conflict {

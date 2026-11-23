@@ -5,6 +5,7 @@ import { notify } from '../utils/notify'
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { buildWorkflowGraph } from '../services/import/buildWorkflow'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 import { useWorkflowLayout } from './useWorkflowLayout'
 import { PARAMETER_COMPONENT_NAMES } from '../utils/constants'
 
@@ -45,6 +46,7 @@ function applyParameterTypes(mod, parameterData) {
 export function useLoadFromCellML({ fitViewParams } = {}) {
   const { nodes: currentNodes, addNodes } = useVueFlow()
   const store = useLibraryStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
@@ -120,7 +122,11 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
         store.getMathDefaults
       )
 
-      const layoutPromise = prepareLayout(result.pendingEdges, null, result.pendingInstances.length)
+      const layoutPromise = prepareLayout(
+        appearanceStore.withConnectionDefaults(result.pendingEdges),
+        null,
+        result.pendingInstances.length
+      )
       const history = useFlowHistoryStore()
       history.startBatch()
       try {

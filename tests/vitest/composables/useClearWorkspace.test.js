@@ -8,6 +8,7 @@ import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
+import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore.js'
 import { DEFAULT_PROJECT_NAME } from '../../../src/utils/constants.js'
 
 vi.mock('@vue-flow/core', async (importOriginal) => {
@@ -113,5 +114,20 @@ describe('useClearWorkspace', () => {
     await historyStore.undo()
 
     expect(add.isAt('after')).toBe(true)
+  })
+
+  it('resets the default for new connections, and undo brings it back', async () => {
+    const appearance = useWorkspaceAppearanceStore()
+    const history = useFlowHistoryStore()
+    appearance.setConnectionDefaults({ width: 'thick' })
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    history.startBatch()
+    history.endBatch()
+    expect(appearance.isDefault).toBe(true)
+
+    await history.undo()
+    expect(appearance.connectionDefaults).toEqual({ width: 'thick' })
   })
 })

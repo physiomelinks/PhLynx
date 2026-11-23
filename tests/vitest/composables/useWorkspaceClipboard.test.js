@@ -377,6 +377,22 @@ describe('useWorkspaceClipboard', () => {
       expect(new Set([...names, 'A', 'B', 'C']).size).toBe(5)
     })
 
+    it('gives each pasted edge its own data, keeping its appearance', async () => {
+      edges.value[0].data = { couplings: [], appearance: { path: 'step' } }
+      select(['dndnode_0', 'dndnode_1'], ['edge_0'])
+      await clipboard.copySelection()
+      navigator.clipboard.readText.mockRejectedValue(new Error('denied'))
+
+      await clipboard.pasteSelection()
+      await clipboard.pasteSelection()
+
+      const [first, second] = edges.value.slice(2)
+      expect(first.data.appearance).toEqual({ path: 'step' })
+      expect(second.data.appearance).toEqual({ path: 'step' })
+      expect(first.data).not.toBe(second.data)
+      expect(first.data.appearance).not.toBe(second.data.appearance)
+    })
+
     it('recreates edges between pasted nodes and drops edges to nodes that were not copied', async () => {
       select(['dndnode_0', 'dndnode_1'], ['edge_0', 'edge_1'])
       await clipboard.copySelection()

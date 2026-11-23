@@ -3,12 +3,13 @@ import { useVueFlow } from '@vue-flow/core'
 import { confirmDrivenStores } from '../services/export/drivenStores'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useLibraryStore } from '../stores/libraryStore'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 import { annotatedCouplingsBetween, placesOf } from '../services/annotations/couple'
 import { linkCouplings } from '../services/bioView/links'
 import { useCouplingContext } from './useCouplingContext'
 import { FLOW_IDS } from '../utils/constants'
 import { facingSides, nodeRect } from '../utils/edgeGeometry'
-import { resolvePortCouplings } from '../utils/edges'
+import { resolvePortCouplings, withEdgeAppearance } from '../utils/edges'
 import { freeHandle, getHandleId, getHandleUidFromHandleId } from '../utils/handles'
 import { detachReactivity } from '../utils/reactivity'
 import { notify } from '../utils/notify'
@@ -19,7 +20,8 @@ import { notify } from '../utils/notify'
  * with its resolved port couplings, after asking about each CellDL store they would set from
  * elsewhere (see confirmDrivenStores). Between two placed nodes with annotated math, the matcher's couplings are
  * added too, with any ports they need, in the same undo step. Gives connectNodes, which joins two nodes the same
- * way without a handle drag.
+ * way without a handle drag. A new edge takes the appearance of the one it replaces, or else the workspace's
+ * default for new connections.
  *
  * @param {Object} options
  * @param {Set<string>} options.suppressedEdgeIds - Edge ids whose add/remove changes are not recorded.
@@ -47,6 +49,7 @@ export function useConnect({
 }) {
   const { addEdges, edges, nodes, findNode, onConnect, removeEdges } = useVueFlow(flowId)
   const historyStore = useFlowHistoryStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
   const libraryStore = useLibraryStore()
   const { getContext, ensureContext } = useCouplingContext()
 
@@ -165,7 +168,10 @@ export function useConnect({
       source: from.id,
       target: to.id,
       // A placement edge says so, so a later move can take it away again (see isPlacementEdge).
-      data: { couplings: chosen.couplings, ...(link ? { placement: link } : {}) },
+      data: withEdgeAppearance(
+        { couplings: chosen.couplings, ...(link ? { placement: link } : {}) },
+        appearanceStore.newConnectionAppearance()
+      ),
     }
     const marked = await confirmDrivenStores({
       nodes: nodes.value,
@@ -278,10 +284,10 @@ export function useConnect({
       ...edgeLineOptions,
       id: `${connection.source}--${connection.target}`,
       // Drawn by hand, so a physiology view move never takes it away (see isPlacementEdge).
-      data: {
-        couplings,
-        placement: false,
-      },
+      data: withEdgeAppearance(
+        { couplings, placement: false },
+        duplicateSnapshot ? duplicateSnapshot.data?.appearance : appearanceStore.newConnectionAppearance()
+      ),
     }
 
     // Declining to drive a store leaves the connection unmade, so the edge and its couplings are added as one step.

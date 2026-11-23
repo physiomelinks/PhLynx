@@ -1,7 +1,7 @@
 /**
  * Builds and reads the saved workspace file. buildWorkspaceFile is the one definition of what a
  * save writes, so any change to its shape needs a new format version and a migration step in
- * workspaceMigrator.js.
+ * workspaceMigrator.js. An optional field, whose absence loads as before, only needs noting there.
  */
 import { PHLYNX_PROJECT_IDENTIFIER, PHLYNX_PROJECT_VERSION } from '../utils/constants'
 import { readFileAsText } from '../utils/misc'
@@ -20,6 +20,7 @@ import { notify } from '../utils/notify'
  * @param {Object} [sources.bioTemplates] - bioTemplateStore.
  * @param {Object} [sources.bioGlyphs] - glyphLibraryStore.
  * @param {Object} [sources.nodeTheme] - nodeThemeStore.
+ * @param {Object} [sources.appearance] - workspaceAppearanceStore; its block is left out while it is the default.
  * @returns {Object} The workspace, at PHLYNX_PROJECT_VERSION.
  */
 export function buildWorkspaceFile({
@@ -32,6 +33,7 @@ export function buildWorkspaceFile({
   bioTemplates,
   bioGlyphs,
   nodeTheme,
+  appearance,
 }) {
   // Older builds ignore the key, and nodes bound to a template's sites fall back to their role.
   const templateState = bioTemplates?.getState() ?? null
@@ -52,6 +54,7 @@ export function buildWorkspaceFile({
     ...(templateState ? { bioTemplates: templateState } : {}),
     ...(glyphState ? { bioGlyphs: glyphState } : {}),
     ...(themeState ? { nodeTheme: themeState } : {}),
+    ...(appearance && !appearance.isDefault ? { appearance: appearance.getState() } : {}),
   }
 }
 
