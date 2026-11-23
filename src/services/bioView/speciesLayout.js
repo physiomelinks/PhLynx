@@ -11,11 +11,10 @@
  */
 
 import { facePoint } from './faces.js'
-import { SYMBOL_HEIGHT, SYMBOL_WIDTH, HEAD_OFFSET, foldPoint, partOf, proteinLabelWidth } from './geometry.js'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH, HEAD_OFFSET, foldPoint, proteinLabelWidth } from './geometry.js'
 import { DEFAULT_ARROW_ROOM } from './skinLibrary.js'
 import { processSize } from './layout.js'
 import { CELL_RADIUS, FACET_BAND } from './metrics.js'
-import { EPITHELIAL_SHAPE, facetById } from './shape.js'
 
 /** A token's height, and the space between two in a row. */
 export const TOKEN = { height: 22, gap: 8 }
@@ -601,18 +600,14 @@ function regionNameBox(place, name, at = null) {
   const { rect } = place
   const { char, height, padding } = TEXT.region
   const length = [...name].length * char
-  const edge = place.instance
-    ? place.edge
-    : place.side && facetById(EPITHELIAL_SHAPE, partOf(place.side, place.adjacent?.[0]?.at ?? undefined))?.edge
+  const { edge } = place
   if (edge === 'left' || edge === 'right') {
     const middle = centreOf(rect)
-    if (place.instance) return box(middle.x - height / 2, middle.y - length / 2, height, length)
-    const width = height + 2 * padding.y
-    return box(edge === 'right' ? rect.x + rect.width - width : rect.x, rect.y, width, length + 2 * padding.x)
+    return box(middle.x - height / 2, middle.y - length / 2, height, length)
   }
   const [width, tall] = [length + 2 * padding.x, height + 2 * padding.y]
-  if (place.instance && edge) return box(rect.x, rect.y + rect.height / 2 - tall / 2, width, tall)
-  return box(rect.x, edge === 'bottom' ? rect.y + rect.height - tall : rect.y, width, tall)
+  if (edge) return box(rect.x, rect.y + rect.height / 2 - tall / 2, width, tall)
+  return box(rect.x, rect.y, width, tall)
 }
 
 /**

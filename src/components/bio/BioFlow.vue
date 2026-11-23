@@ -490,38 +490,23 @@ import BioGrip from './BioGrip.vue'
 import SpeciesMenu from './SpeciesMenu.vue'
 import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
-import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
+import { useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
 import {
   STRUCTURE_TYPES,
-  cellSites,
-  dragCompanions,
   dropSites,
-  dropTargets,
   nearestSite,
   neighbourNodes,
-  ownedNeighbours,
   replacedOccupant,
   patchBioView,
-  planCellArea,
-  planCellMove,
   planRelayout,
   planSiteBind,
-  planSlotDrop,
   planUnbind,
-  planUnplace,
   whole,
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
 import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
-import {
-  cellContents,
-  deleteConnection,
-  deleteInstances,
-  deletionLabel,
-  deletionScope,
-  releaseFromCell,
-} from '../../services/bioView/deletion'
+import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
@@ -555,14 +540,7 @@ import { parseSiteRef } from '../../services/bioView/siteRefs'
 import { contextOfPiece } from '../../services/bioView/skinContext'
 import { NO_SKIN, allSkins, allowsNoSkin, resolveSkin, skinsFor } from '../../services/bioView/skinRegistry'
 import { skinLibraryFile } from '../../services/bioView/skinLibrary'
-import {
-  SYMBOL_HEIGHT,
-  SYMBOL_WIDTH,
-  MEMBRANE_BAND_HALF,
-  partOf,
-  roundedRectPath,
-} from '../../services/bioView/geometry'
-import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shape'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH, MEMBRANE_BAND_HALF, roundedRectPath } from '../../services/bioView/geometry'
 import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { isPlaceholder, placeholderName, takesPlaceholder } from '../../services/bioView/placeholders'
@@ -745,31 +723,19 @@ watch(
 const draggingId = ref(null)
 // A selection's coupling lines end where things were laid out, so they wait for a drag to end.
 const shownCouplings = computed(() => (draggingId.value ? [] : couplingEdges.value))
-/**
- * Where the drag would go: { slot } in a node-owned cell's membrane, { area } of a node-owned cell (its membrane
- * or inside), or { site } of the pieces.
- */
+/** Where the drag would go: { site } of the pieces. */
 const activeTarget = ref(null)
-const targets = computed(() => dropTargets(layout.value, draggingId.value))
-const ownedTargets = computed(() => cellSites(targets.value))
 const siteTargets = computed(() => dropSites(sites.value, draggingId.value))
 
 /**
- * Finds where a point drops: the nearer of a node-owned cell's slot and a slot of the pieces, else a node-owned
- * cell's membrane or inside, found as on a cell of the pieces, else the area of the pieces holding it.
+ * Finds where a point drops on the pieces: a slot, else the area holding it (see nearestSite).
  *
  * @param {{x: number, y: number}} point
  * @param {{ membrane?: boolean }} [options] - For nearestSite.
- * @returns {{slot: Object}|{area: Object}|{site: Object}|null}
+ * @returns {{site: Object}|null}
  */
 function targetAt(point, options) {
-  const owned = nearestSite(ownedTargets.value, point, SNAP_DISTANCE, options)
   const site = nearestSite(siteTargets.value, point, SNAP_DISTANCE, options)
-  const slotDistance = owned?.type === 'slot' ? owned.distance : Infinity
-  if (site?.type === 'slot' && site.distance < slotDistance) return { site }
-  if (owned?.type === 'slot') return { slot: owned.slot }
-  // A hand-added cell lies over any compartment of the pieces under it.
-  if (owned && (!site || site.area === 'compartment')) return { area: owned }
   return site ? { site } : null
 }
 
@@ -782,8 +748,6 @@ const pointer = ref(null)
 /** Says which drop target a target is, so the same one found again on the next frame is known as the same. */
 function targetKey(target) {
   if (!target) return ''
-  if (target.slot) return `slot ${target.slot.cellId} ${target.slot.part} ${target.slot.order}`
-  if (target.area) return `area ${target.area.cellId} ${target.area.area}`
   const { ref, type, order, area } = target.site
   return `site ${ref} ${type} ${order ?? ''} ${area ?? ''}`
 }
@@ -800,16 +764,6 @@ function trackDrag(point, target) {
   if (point.x !== pointer.value?.x || point.y !== pointer.value?.y) pointer.value = point
   if (targetKey(target) !== targetKey(activeTarget.value)) activeTarget.value = target
 }
-
-/** The node-owned cells near the pointer, as their ids: unchanged while the pointer moves within reach of them. */
-const nearCells = computed(() => {
-  const at = pointer.value
-  if (!at) return ''
-  return targets.value
-    .filter((cell) => isNear(cell.rect, at, SNAP_DISTANCE))
-    .map((cell) => cell.id)
-    .join('\n')
-})
 
 /**
  * The sites of the pieces next to a site, which a module dropped there connects to: the topology's neighbours.
@@ -844,36 +798,16 @@ async function connectToNeighbours(id, site) {
 }
 
 /**
- * Joins a node just placed on a node-owned cell (not one of the pieces) to its neighbours there, in the current
- * step, as connectToNeighbours does on the pieces: a membrane and the cell's proteins, a protein and its cell, membrane
- * and the compartments against it, in whichever order they came (see ownedNeighbours).
- *
- * @param {string} id
- * @returns {Promise<void>}
- */
-async function connectToCellNeighbours(id) {
-  if (!props.connectInstances || !id) return
-  // The layout as the plan just applied leaves it.
-  await nextTick()
-  const { role, neighbours } = ownedNeighbours(layout.value, id, { edges: main.edges.value })
-  const links = role ? siteLinks(id, role, neighbours) : []
-  if (links.length) await props.connectInstances(links)
-}
-
-/**
  * Every node a node lies next to where it is placed now, joined to it or not: those on the sites next to its
- * site of the pieces, or its neighbours on a node-owned cell (see ownedNeighbours).
+ * site of the pieces.
  *
  * @param {string} id
  * @returns {Array<string>}
  */
 function placedNeighbours(id) {
   const place = layout.value.get(id)
-  if (place?.instance) {
-    if (!place.site) return []
-    return neighbourNodes(siteTargets.value, neighbourSites({ ref: place.site }), { id }).map((n) => n.id)
-  }
-  return ownedNeighbours(layout.value, id).neighbours.map((n) => n.id)
+  if (!place?.instance || !place.site) return []
+  return neighbourNodes(siteTargets.value, neighbourSites({ ref: place.site }), { id }).map((n) => n.id)
 }
 
 /**
@@ -957,12 +891,6 @@ function pieceOfRef(ref) {
 /** The piece a drop target's site is drawn on: a site of the pieces names its group, the place drawing it. */
 const groupOf = (target) => (target.group ? `group ${target.group}` : pieceOfRef(target.ref))
 
-const isNear = (rect, { x, y }, margin) =>
-  x >= rect.x - margin &&
-  x <= rect.x + rect.width + margin &&
-  y >= rect.y - margin &&
-  y <= rect.y + rect.height + margin
-
 /**
  * The outline a cell's membrane or inside is prompted with: the membrane along the cell's outline, drawn as wide
  * as the band a drop takes, and the inside within that band. Other areas are their rects.
@@ -990,27 +918,10 @@ const sitePrompts = computed(() => {
   if (!draggingId.value) return empty
   const active = activeTarget.value
   const symbol = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
-  // A node-owned cell's slots, membrane and inside, while the pointer is over or near that cell.
-  const near = new Set(nearCells.value ? nearCells.value.split('\n') : [])
-  const activeCell = (active?.slot ?? active?.area)?.cellId
-  if (activeCell !== undefined && targets.value.some((cell) => cell.id === activeCell)) near.add(activeCell)
+  const piece = active?.site ? groupOf(active.site) : null
+  if (!piece) return empty
   const slots = []
   const areas = []
-  for (const target of ownedTargets.value) {
-    if (!near.has(target.cellId)) continue
-    if (target.type === 'slot') {
-      const { cellId, part, order } = target.slot
-      const isActive = active?.slot?.cellId === cellId && active.slot.part === part && active.slot.order === order
-      const { x, y, spare } = target
-      slots.push({ key: `${cellId}/${part}/${order}`, x, y, spare, ...symbol, active: isActive })
-      continue
-    }
-    const { cellId, area, rect } = target
-    const isActive = active?.area?.cellId === cellId && active.area.area === area
-    areas.push({ key: `${cellId}#${area}`, ref: cellId, area, rect, path: areaPath(target), active: isActive })
-  }
-  const piece = active?.site ? groupOf(active.site) : null
-  if (!piece) return { ...empty, slots, areas: sortAreas(areas) }
   // A process area's row is prompted by its slots alone: a drop on the row goes last, so its spare slot is marked.
   const toRow = active.site.type === 'area' && active.site.area === 'process'
   const isActive = ({ ref, type, order, spare }) =>
@@ -1046,9 +957,7 @@ const sortAreas = (areas) =>
  * The label that follows the pointer: where the drop goes and what it connects to, and what it would replace.
  */
 const dropText = computed(() => {
-  const owned = activeTarget.value?.area
-  // A node-owned cell's area is said by the cell's name.
-  const site = owned ? { ...owned, label: nameOf(owned.cellId) } : activeTarget.value?.site
+  const site = activeTarget.value?.site
   if (!draggingId.value || !site) return null
   const id = draggingId.value === 'library' ? null : draggingId.value
   const labels = new Map(siteTargets.value.map((target) => [target.ref, target.label]))
@@ -1059,13 +968,13 @@ const dropText = computed(() => {
   const text = dropLabel(
     siteLabel(site, nameOf),
     { name: id ? nameOf(id) : dragged?.moduleRef?.split(':')[0] ?? 'the module', hasPorts: isPorted(dragged) },
-    (owned ? [] : neighboursAt(site, id)).map(({ id: other, ref }) => ({
+    neighboursAt(site, id).map(({ id: other, ref }) => ({
       label: labels.get(ref) ?? ref,
       name: nameOf(other),
       hasPorts: hasPorts(main.findNode(other)?.data),
     }))
   )
-  const replaced = owned ? null : replacedOccupant(site, id)
+  const replaced = replacedOccupant(site, id)
   return { text, replace: replaced ? `Replaces ${nameOf(replaced)}` : null }
 })
 /** The label that follows the pointer, where it is: only its place changes as the pointer moves. */
@@ -1082,8 +991,8 @@ function parentOffset(node) {
 }
 
 /**
- * Snaps a dragged node's position to the nearest slot, and remembers where it would go for the drop: a slot,
- * or an area of the pieces, which it doesn't snap to.
+ * Snaps a dragged node's position to the nearest slot of the pieces, and remembers where it would go for the drop:
+ * a slot, or an area, which it doesn't snap to.
  */
 function snapToSlot(change) {
   const node = findNode(change.id)
@@ -1098,7 +1007,7 @@ function snapToSlot(change) {
   // A protein moved along its membrane keeps finding slots, not the membrane between them.
   const target = targetAt(centre, { membrane: roles.value.get(change.id)?.role !== 'membraneProtein' })
   trackDrag(centre, target)
-  const slot = target?.slot ?? (target?.site?.type === 'slot' ? target.site : null)
+  const slot = target?.site?.type === 'slot' ? target.site : null
   if (slot)
     change.position = {
       x: slot.x - width / 2 - offset.x,
@@ -1109,13 +1018,8 @@ function snapToSlot(change) {
 function onNodesChange(changes) {
   // A piece being moved or resized is laid out from its draft, not where the drag or resizer would put its node.
   changes = changes.filter((change) => !takesPieceChange(change))
-  // A membrane is dragged only to move its cell (see onNodeDrag), so it stays on the cell's outline, and a
-  // structure grabbed on its own leaves whatever else was selected where it is.
-  changes = changes.filter(
-    (change) =>
-      change.type !== 'position' ||
-      (findNode(change.id)?.type !== 'bioMembrane' && (!structureDrag?.alone || structureDrag.alone.has(change.id)))
-  )
+  // A membrane is drawn on its cell's outline and never dragged.
+  changes = changes.filter((change) => change.type !== 'position' || findNode(change.id)?.type !== 'bioMembrane')
   for (const change of changes) {
     if (change.type === 'select') {
       const node = main.findNode(change.id)
@@ -1136,11 +1040,6 @@ const planContext = () => ({ layout: layout.value, roles: roles.value, bioViews:
 
 /** Where each dragged node started, so a drop the user cancels puts it back. */
 const dragStarts = new Map()
-/**
- * The structure being dragged, if any: the node that leads it (a membrane's cell), where the pointer started,
- * and where each of its top-level pieces started. Grabbed unselected, it moves `alone`: only these pieces.
- */
-let structureDrag = null
 
 /** Where a drag's pointer is, in flow coordinates. */
 function pointerAt(event) {
@@ -1151,70 +1050,15 @@ function pointerAt(event) {
 function onNodeDragStart({ event, node, nodes }) {
   dragStarts.clear()
   for (const moved of nodes) dragStarts.set(moved.id, { ...moved.position })
-  structureDrag = null
-  // A piece, or a grip on one, moves as its own drag says.
-  if (startPieceMove(node, event)) return
-  // A structure's handle takes its other pieces along; a part, such as a protein or card, moves alone.
-  const lead = node.type === 'bioMembrane' ? findNode(node.parentNode) : node
-  const companions = dragCompanions(layout.value, node)
-  if (!lead || (lead === node && !companions.length)) return
-  const pieces = [lead, ...companions.map((id) => findNode(id))].filter(Boolean)
-  const starts = new Map(pieces.map((piece) => [piece.id, { ...piece.position }]))
-  structureDrag = {
-    lead: lead.id,
-    from: pointerAt(event),
-    starts,
-    alone: node.selected ? null : new Set([node.id, ...starts.keys()]),
-  }
+  // A piece, or a grip on one, moves as its own drag says; a module moves alone.
+  startPieceMove(node, event)
 }
 
-/** Moves the rest of a dragged structure with it, as the drag goes, and the species drawn over what moved. */
-function onNodeDrag({ event, node, nodes }) {
-  if (pieceMove) {
-    const pointer = pointerAt(event)
-    if (pointer) followPiece(pointer)
-    return
-  }
-  moveStructure(event, node)
-  driftWithDrag(nodes ?? [node])
-}
-
-/** Moves the rest of a dragged structure with the node dragged. */
-function moveStructure(event, node) {
-  if (!structureDrag) return
-  const { lead, from, starts } = structureDrag
-  let delta
-  if (node.id === lead) {
-    const start = starts.get(lead)
-    delta = { x: node.position.x - start.x, y: node.position.y - start.y }
-  } else {
-    // A membrane's drag moves its cell by how far the pointer went.
-    const at = pointerAt(event)
-    if (!at || !from) return
-    delta = { x: at.x - from.x, y: at.y - from.y }
-  }
-  applyNodeChanges(
-    [...starts]
-      .filter(([id]) => id !== node.id)
-      .map(([id, start]) => ({ id, type: 'position', position: { x: start.x + delta.x, y: start.y + delta.y } }))
-  )
-}
-
-/**
- * Shifts the species of the cells and regions a drag has moved by as far as each has gone, redrawing only the legs
- * to what moved, so they keep with their compartments and proteins without laying the species out again.
- */
-function driftWithDrag(nodes) {
-  if (!species.value) return
-  const moved = new Map()
-  for (const id of new Set([...(structureDrag?.starts.keys() ?? []), ...nodes.map((moving) => moving.id)])) {
-    const place = layout.value.get(id)
-    const position = findNode(id)?.position
-    if ((place?.kind !== 'cell' && place?.kind !== 'region') || !position) continue
-    const shift = { x: position.x - place.rect.x, y: position.y - place.rect.y }
-    if (shift.x || shift.y) moved.set(id, shift)
-  }
-  speciesDrift.value = moved.size ? { moved } : null
+/** Follows a piece's drag as it goes. */
+function onNodeDrag({ event }) {
+  if (!pieceMove) return
+  const pointer = pointerAt(event)
+  if (pointer) followPiece(pointer)
 }
 
 /** Puts dragged nodes back where their drag started. */
@@ -1226,8 +1070,7 @@ function putBack(nodes) {
 }
 
 /**
- * Keeps dragged nodes where they were put: in a membrane slot or on a site of the pieces, out of one, or just
- * moved. A node bound to a site is joined to the nodes on the sites next to it in that step too, once the user
+ * Keeps dragged nodes where they were put: on a site of the pieces, out of one, or just moved. A node bound to a site is joined to the nodes on the sites next to it in that step too, once the user
  * agrees to any replace. The pieces themselves move through their own drags (see startPieceMove).
  */
 async function onNodeDragStop(event) {
@@ -1241,13 +1084,7 @@ async function onNodeDragStop(event) {
   }
 }
 
-async function settleNodeDrag({ nodes: dragged }) {
-  // A membrane dragged moved its cell; a structure grabbed on its own left the rest of the selection alone.
-  const alone = structureDrag?.alone
-  const nodes = dragged
-    .filter((moved) => !alone || alone.has(moved.id))
-    .map((moved) => (moved.type === 'bioMembrane' ? findNode(moved.parentNode) ?? moved : moved))
-  structureDrag = null
+async function settleNodeDrag({ nodes }) {
   const target = activeTarget.value
   const dropped = draggingId.value
   draggingId.value = null
@@ -1269,56 +1106,28 @@ async function settleNodeDrag({ nodes: dragged }) {
   const placeholder = replaced && isPlaceholder(main.findNode(replaced), main.edges.value) ? replaced : null
 
   for (const moved of nodes) {
-    const node = findNode(moved.id) ?? moved
     const at = positionOf(moved)
     const place = layout.value.get(moved.id)
-    const isPlaced = moved.id === dropped && !!(target?.site || target?.slot || target?.area)
-    if (isPlaced || place?.instance || place?.kind === 'protein') relocated.push(moved.id)
+    if ((moved.id === dropped && target?.site) || place?.instance) relocated.push(moved.id)
     if (moved.id === dropped && target?.site) {
       add(planSiteBind({ id: moved.id, site: target.site, ...planContext() }))
-    } else if (moved.id === dropped && target?.slot) {
-      add(planSlotDrop({ id: moved.id, slot: target.slot, ...planContext() }))
-    } else if (moved.id === dropped && target?.area) {
-      add(planCellArea({ id: moved.id, area: target.area, layout: layout.value, bioViews: bioViews() }))
     } else if (place?.instance) {
       // Out of its site, to where it was dropped.
       add(planUnbind({ id: moved.id, position: { x: at.x, y: at.y }, ...planContext() }))
-    } else if (place?.kind === 'protein') {
-      add(
-        planUnplace({
-          id: moved.id,
-          position: { x: at.x, y: at.y },
-          layout: layout.value,
-          bioViews: bioViews(),
-        })
-      )
-    } else if (place?.kind === 'region' && place.anchored) {
-      // A compartment lying against cells is placed by them: it goes back, and moves when they do.
-      putBack([moved])
-    } else {
-      plan.set(moved.id, {
-        ...main.findNode(moved.id)?.data?.bioView,
-        ...bioViewForMove(node, at),
-      })
-      // A cell's cards and the regions against it that keep places of their own go with it.
-      if (place?.kind === 'cell') {
-        const delta = { x: at.x - place.rect.x, y: at.y - place.rect.y }
-        add(planCellMove({ id: moved.id, delta, layout: layout.value, bioViews: bioViews() }))
-      }
+    } else if (!place?.piece) {
+      // A loose module stays where it was put; a piece moves only by its own drag (see startPieceMove).
+      plan.set(moved.id, patchBioView(main.findNode(moved.id)?.data?.bioView, { position: whole(at) }))
     }
   }
-  const owned = !binds && !!(target?.slot || target?.area) && nodes.some((moved) => moved.id === dropped)
   const before = neighboursOf(relocated)
-  if (!binds && !owned && !before.size) return applyPlan(plan, 'bio-layout')
-  // Out of the places they left, and onto a site of the pieces or a node-owned cell joined to the neighbours there,
-  // in the same step.
+  if (!binds && !before.size) return applyPlan(plan, 'bio-layout')
+  // Out of the places they left, and onto a site of the pieces joined to the neighbours there, in the same step.
   history.startBatch()
   try {
     if (placeholder) main.removeNodes([placeholder], true)
     if (await applyPlan(plan, 'bio-layout')) {
       await dropStaleLinks(before)
       if (binds) await connectToNeighbours(dropped, target.site)
-      else if (owned) await connectToCellNeighbours(dropped)
     }
   } finally {
     history.endBatch(binds ? 'bio-bind' : 'bio-layout')
@@ -1696,7 +1505,7 @@ function chooseSkin(ids, skin) {
   return setChoices(modules, { skin }, 'bio-skin')
 }
 
-/** Somewhere left of the cells, below any proteins already there, for one taken out of its membrane. */
+/** Somewhere left of the cells, below any proteins already there, for a module taken off its site. */
 function trayPosition() {
   const cells = [...layout.value.values()].filter((place) => place.kind === 'cell').map((place) => place.rect)
   const left = cells.length ? Math.min(...cells.map((rect) => rect.x)) : 0
@@ -1712,7 +1521,7 @@ function trayPosition() {
  * Takes a node out of its place by a plan, without the placement edges to the neighbours it leaves, as one step.
  *
  * @param {string} id
- * @param {Map<string, Object>} plan - From planUnbind or planUnplace.
+ * @param {Map<string, Object>} plan - From planUnbind.
  * @param {string} type - The command type.
  * @returns {Promise<void>}
  */
@@ -1723,44 +1532,6 @@ async function takeOut(id, plan, type) {
     if (await applyPlan(plan, type)) await dropStaleLinks(before)
   } finally {
     history.endBatch(type)
-  }
-}
-
-/** Menu wording for the epithelial cell's facets; any other facet uses its own label. */
-const AGAINST_LABELS = {
-  apical: 'Apical side',
-  basolateral: 'Basolateral side',
-  'lateral-left': 'Left side (paracellular)',
-  'lateral-right': 'Right side (paracellular)',
-}
-
-/** Where a region can lie: against each annotated facet of a cell, such as its top, bottom or either side. */
-const AGAINST = EPITHELIAL_SHAPE.facets
-  .filter((facet) => facet.annotation)
-  .map((facet) => ({
-    ...annotationOfFacet(EPITHELIAL_SHAPE, facet.id),
-    label: AGAINST_LABELS[facet.id] ?? facet.label,
-  }))
-
-/** The menu choosing what a region lies against, one part of one cell at a time. */
-function liesAgainstMenu(id, role) {
-  const current = role.adjacent?.[0]
-  const cells = targets.value.map((cell) => cell.id)
-  const name = (cellId) => main.findNode(cellId)?.data?.name ?? cellId
-  const isCurrent = (cellId, choice) =>
-    current?.cell === cellId && current.facet === choice.facet && (current.at ?? undefined) === choice.at
-  return {
-    label: 'Lies Against',
-    icon: 'pi pi-arrows-h',
-    disabled: !cells.length,
-    items: cells.flatMap((cellId) =>
-      AGAINST.map(({ label, ...against }) => ({
-        label: cells.length > 1 ? `${name(cellId)}: ${label}` : label,
-        icon: isCurrent(cellId, against) ? 'pi pi-check' : undefined,
-        // A new place for the region clears where it was dragged to.
-        command: () => setChoice(id, { adjacent: [{ cell: cellId, ...against }], rect: undefined }, 'bio-adjacent'),
-      }))
-    ),
   }
 }
 
@@ -2890,25 +2661,17 @@ function onNodeContextMenu({ event, node }) {
   if (jointItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: jointItems })
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
-  if (role?.role === 'region' && !role.site) items.push(liesAgainstMenu(node.id, role))
   // On a piece of the pieces: what can be done to the piece itself.
   if (place?.piece) items.push(...pieceMenu(place))
-  // Bound to a site of the pieces that is there: unbinding goes where its role puts it, a protein to the tray.
+  // Bound to a site of the pieces that is there: unbound, it is drawn as its annotations say, beside the pieces.
   const site = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
-  const unbind = (type) =>
-    takeOut(node.id, planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), type)
-  if (place?.kind === 'protein') {
-    items.push({
-      label: 'Take Out of Membrane',
-      icon: 'pi pi-sign-out',
-      command: () =>
-        site
-          ? unbind('bio-unbind')
-          : takeOut(node.id, planUnplace({ id: node.id, position: trayPosition(), ...planContext() }), 'bio-take-out'),
-    })
+  const unbind = () =>
+    takeOut(node.id, planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), 'bio-unbind')
+  if (site && place?.kind === 'protein') {
+    items.push({ label: 'Take Out of Membrane', icon: 'pi pi-sign-out', command: unbind })
   }
   if (site) {
-    items.push({ label: `Unbind from "${site.label}"`, icon: 'pi pi-link', command: () => unbind('bio-unbind') })
+    items.push({ label: `Unbind from "${site.label}"`, icon: 'pi pi-link', command: unbind })
   }
   if (main.findNode(node.id)?.data?.bioView?.speciesOrder) {
     items.push({
@@ -2916,16 +2679,6 @@ function onNodeContextMenu({ event, node }) {
       icon: 'pi pi-sort-alt',
       command: () => setChoice(node.id, { speciesOrder: undefined }, 'bio-species-order'),
     })
-  }
-  if (main.findNode(node.id)?.data?.bioView && !role?.site) {
-    items.push(
-      { separator: true },
-      {
-        label: 'Reset to Annotations',
-        icon: 'pi pi-replay',
-        command: () => applyPlan(new Map([[node.id, undefined]]), 'bio-reset'),
-      }
-    )
   }
   items.push(
     { separator: true },
@@ -2946,43 +2699,8 @@ function onNodeContextMenu({ event, node }) {
  * @returns {Promise<boolean>} Whether anything was asked to go.
  */
 async function deleteNodes(ids) {
-  let going = ids.filter((id) => main.findNode(id))
-  // A cell's contents are asked about: left behind they have no cell, which looked as if they had gone too.
-  const contents = cellContents(going, layout.value)
-  let before
-  if (contents.length) {
-    const cells = going.filter((id) => layout.value.get(id)?.kind === 'cell')
-    const subject = cells.length === 1 ? nameOf(cells[0]) : `These ${cells.length} cells`
-    const holds = cells.length === 1 ? 'holds' : 'hold'
-    const listed =
-      contents.slice(0, 6).map(nameOf).join(', ') + (contents.length > 6 ? `, and ${contents.length - 6} more` : '')
-    isConfirming.value = true
-    let answer
-    try {
-      answer = await choose({
-        header: cells.length === 1 ? 'Delete cell?' : 'Delete cells?',
-        message:
-          `${subject} ${holds} ${listed}. Delete only the cell, leaving them where they are and in the diagram ` +
-          'without a cell, or delete them with it, from the diagram too?',
-        severity: 'warning',
-        acceptLabel: 'Delete Cell Only',
-        extraLabel: 'Delete Cell and Contents',
-        rejectLabel: 'Cancel',
-      })
-    } finally {
-      isConfirming.value = false
-    }
-    if (answer === 'reject') return false
-    if (answer === 'extra') going = [...going, ...contents]
-    else {
-      const patches = releaseFromCell(contents, layout.value, { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT })
-      before = () =>
-        applyPlan(
-          new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)]))
-        )
-    }
-  }
-  return deleteInstances(going, { removeNodes: main.removeNodes, history, before })
+  const going = ids.filter((id) => main.findNode(id))
+  return deleteInstances(going, { removeNodes: main.removeNodes, history })
 }
 
 /**
@@ -3085,20 +2803,6 @@ function onPaneContextMenu(event) {
 
 // ── Adding instances ───────────────────────────────────────────────────
 
-/** Puts a new protein in a slot, moving the proteins after it along, as part of the current step. */
-function slotPlan(id, slot) {
-  return planSlotDrop({ id, slot, layout: layout.value, roles: roles.value, bioViews: bioViews() })
-}
-
-/** The slot at the end of a part of a cell's membrane. */
-function endSlot({ cell, facet, at }) {
-  const part = partOf(facet, at)
-  const count = targets.value.find((target) => target.id === cell)?.counts[part] ?? 0
-  // Only a facet with a side keeps one; a lateral protein given no side stays sideless.
-  const sided = annotationOfFacet(EPITHELIAL_SHAPE, part)?.at !== undefined
-  return { cellId: cell, part, facet, at: sided ? at : undefined, order: count }
-}
-
 /**
  * Whether a drag is a module from the library: its data says so and it carries no files. The library's
  * drag state alone can be left over from a drag that was cancelled.
@@ -3168,8 +2872,7 @@ const newModule = () => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_RE
 async function placeModuleAt(module, point) {
   const target = targetAt(point)
   if (target) {
-    const { site } = target
-    if (site && !(await confirmReplace(site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
+    if (!(await confirmReplace(target.site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
     await addModuleAt(module, target)
     return
   }
@@ -3177,18 +2880,17 @@ async function placeModuleAt(module, point) {
 }
 
 /**
- * Adds an instance of a library module on a template site, or in a node-owned cell's slot, membrane or inside,
- * joined to its neighbours there, as one step.
+ * Adds an instance of a library module on a site of the pieces, joined to its neighbours there, as one step.
  *
  * @param {Object} module - A library module.
- * @param {{site: Object}|{slot: Object}|{area: Object}} target - From targetAt.
+ * @param {{site: Object}} target - From targetAt.
  * @returns {Promise<string>} The instance's id.
  */
 async function addModuleAt(module, target) {
   history.startBatch()
   try {
     // A placeholder there goes, for the module to take its place.
-    const replaced = target.site && replacedOccupant(target.site, null)
+    const replaced = replacedOccupant(target.site, null)
     if (replaced && isPlaceholder(main.findNode(replaced), main.edges.value)) main.removeNodes([replaced], true)
     return await addModuleIn(module, target)
   } finally {
@@ -3201,25 +2903,12 @@ async function addModuleAt(module, target) {
  *
  * @returns {Promise<string>} The new instance's id.
  */
-async function addModuleIn(module, { site, slot, area }) {
-  if (area) {
-    // A node-owned cell's membrane, or a process in it.
-    const id = props.createInstance(module, { role: area.role, cell: area.cellId })
-    await connectToCellNeighbours(id)
-    return id
-  } else if (site) {
-    // An instance of the module, bound to the site; planned against the sites as they were drawn.
-    const id = props.createInstance(module, {})
-    await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
-    await connectToNeighbours(id, site)
-    return id
-  } else {
-    // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
-    const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
-    await applyPlan(slotPlan(id, slot), 'bio-add')
-    await connectToCellNeighbours(id)
-    return id
-  }
+async function addModuleIn(module, { site }) {
+  // An instance of the module, bound to the site; planned against the sites as they were drawn.
+  const id = props.createInstance(module, {})
+  await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
+  await connectToNeighbours(id, site)
+  return id
 }
 
 /**
@@ -3233,7 +2922,7 @@ function newModuleItem(event) {
   const module = newModule()
   if (!module || !props.createInstance) return []
   const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
-  if (!target || (target.site && replacedOccupant(target.site, null))) return []
+  if (!target || replacedOccupant(target.site, null)) return []
   return [
     {
       label: 'New Module Here',

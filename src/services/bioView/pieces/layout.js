@@ -28,7 +28,7 @@ import {
   proteinPlacement,
 } from '../geometry.js'
 import { LABEL_GAP } from '../metrics.js'
-import { byName, inSlotOrder } from '../scaffold.js'
+import { byName, inSlotOrder } from '../slotOrder.js'
 import { parseSiteRef } from '../siteRefs.js'
 import { withFolds } from '../shape.js'
 import { contextOfPiece } from '../skinContext.js'

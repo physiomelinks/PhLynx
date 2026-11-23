@@ -21,7 +21,7 @@ import {
 import { getHandleId } from '../utils/handles'
 import { SYMBOL_HEIGHT, SYMBOL_WIDTH, proteinLabelWidth } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
-import { CARD, PROCESS_INSET, layoutPhysiology, processSize } from '../services/bioView/layout'
+import { CARD, layoutPhysiology, processSize } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
 import { locationSource } from '../services/annotations/locationSources'
 import { OPB } from '../services/annotations/iris'
@@ -59,18 +59,6 @@ function structureZ(layout, id) {
 const GRIP = 14
 
 /**
- * What a cell's or region's node shows besides its node's data: a piece's what piece and site it is and how it is
- * drawn (see pieceData), and a node-owned cell's the area its processes take up.
- *
- * @param {Object} place - A cell's or region's place.
- * @returns {Object}
- */
-function placeData(place) {
-  if (place.piece) return pieceData(place)
-  return place.kind === 'cell' && place.zones ? { zones: zonesIn(place) } : {}
-}
-
-/**
  * What a piece's node shows of it (see layoutPieces): which piece and site it is, and how it is drawn. Its process
  * zones are nodes of their own.
  *
@@ -102,16 +90,9 @@ function pieceData(place) {
   return {
     ...data,
     facetLabels: place.facetLabels ?? [],
-    zones: [],
     ...(place.hintAt && { hintAt: { ...place.hintAt } }),
     ...(place.folds && { folds: place.folds }),
   }
-}
-
-/** A cell's process zones, relative to the cell. */
-function zonesIn(place) {
-  const { x, y } = place.rect
-  return (place.zones ?? []).map(({ rect, ...zone }) => ({ ...zone, rect: { ...rect, x: rect.x - x, y: rect.y - y } }))
 }
 
 /**
@@ -295,7 +276,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           zIndex: structureZ(layout, id),
           data: {
             ...own.data,
-            ...placeData(place),
+            ...pieceData(place),
             membrane: place.membrane,
             ...(place.membraneEmpty && { membraneEmpty: true }),
             width,
@@ -324,9 +305,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           // Its size too, where it has a skin: an image is drawn to a size, in the view and in an exported picture.
           data: {
             ...own.data,
-            ...placeData(place),
-            side: place.side,
-            at: place.adjacent?.[0]?.at ?? null,
+            ...pieceData(place),
             ...(named && { nameAt: { x: named.x - x, y: named.y - y } }),
             ...(place.skin && { width, height }),
           },
@@ -347,7 +326,6 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             skin: roles.get(id)?.skin ?? 'generic',
             arrows: transport.get(id) ?? [],
             facet: place.facet,
-            annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
             rotation: place.rotation,
             outward: place.outward,
             droppable: true,
@@ -366,7 +344,6 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             ...base(id).data,
             skin: roles.get(id)?.skin ?? 'generic',
             arrows: transport.get(id) ?? [],
-            annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
             rotation: 0,
             unplaced: true,
             droppable: true,
@@ -374,45 +351,25 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         })
         break
       case 'cytosolic': {
+        // In a process zone of the pieces: its symbol, named under it, as a protein on a membrane is. It can be
+        // dragged out of the zone, to another site or none.
         const cell = layout.get(place.cell).rect
-        // One bound to a zone of the pieces can be dragged out of it, to another site or none.
-        const bound = !!place.instance
-        const skin = roles.get(id)?.skin ?? null
-        // In a process zone of the pieces: its symbol, named under it, as a protein on a membrane is.
-        if (place.symbol) {
-          children.push({
-            ...base(id),
-            type: 'bioProtein',
-            parentNode: place.cell,
-            position: { x: place.x - cell.x, y: place.y - cell.y },
-            width: SYMBOL_WIDTH,
-            height: SYMBOL_HEIGHT,
-            data: {
-              ...base(id).data,
-              // A zone has no plain card: a process chosen to have no skin is drawn as a process there.
-              skin: skin ?? 'process',
-              annotatedFacet: null,
-              rotation: 0,
-              droppable: true,
-              // Its badge kept on its symbol, off the zone's name above it.
-              inset: true,
-            },
-          })
-          break
-        }
         children.push({
           ...base(id),
-          type: 'bioCard',
+          type: 'bioProtein',
           parentNode: place.cell,
-          // Held inside its cell, clear of the membrane.
-          ...(!bound && {
-            extent: { range: 'parent', padding: [PROCESS_INSET + 12, PROCESS_INSET, PROCESS_INSET, PROCESS_INSET] },
-          }),
           position: { x: place.x - cell.x, y: place.y - cell.y },
-          width: CARD.width,
-          height: CARD.height,
-          // Drawn as part of its cell, not as a card left on it.
-          data: { ...base(id).data, inside: true, ...(skin && { skin }), ...(bound && { droppable: true }) },
+          width: SYMBOL_WIDTH,
+          height: SYMBOL_HEIGHT,
+          data: {
+            ...base(id).data,
+            // A zone has no plain card: a process chosen to have no skin is drawn as a process there.
+            skin: roles.get(id)?.skin ?? 'process',
+            rotation: 0,
+            droppable: true,
+            // Its badge kept on its symbol, off the zone's name above it.
+            inset: true,
+          },
         })
         break
       }
@@ -448,15 +405,18 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           })
           break
         }
-        // Something with no physiological role can be dropped into a membrane to make it a protein.
-        parents.push({
-          ...base(id),
-          type: 'bioCard',
-          position: { x: place.x, y: place.y },
-          width: CARD.width,
-          height: CARD.height,
-          data: { ...base(id).data, droppable: true },
-        })
+        {
+          // A module on no piece, which can be dropped on a site; a process shows its symbol beside its name.
+          const { role, skin } = roles.get(id) ?? {}
+          parents.push({
+            ...base(id),
+            type: 'bioCard',
+            position: { x: place.x, y: place.y },
+            width: CARD.width,
+            height: CARD.height,
+            data: { ...base(id).data, droppable: true, ...(role === 'cytosolic' && skin && { skin }) },
+          })
+        }
         break
       case 'membrane': {
         // Over its cell's outline, as big as the cell, but hit only on its bilayer (see BioMembrane).
@@ -495,7 +455,7 @@ const REACH = 56
 /**
  * Gives a drawn node's box in flow coordinates.
  *
- * @param {Object} place - From layoutBioView.
+ * @param {Object} place - From layoutPhysiology.
  * @returns {{x: number, y: number, width: number, height: number}|null}
  */
 function boxOf(place) {
@@ -549,7 +509,7 @@ function couplingNames(edge, byId) {
  *
  * @param {Array<Object>} nodes - The diagram's nodes.
  * @param {Array<Object>} edges - The diagram's edges.
- * @param {Map<string, Object>} layout - From layoutBioView.
+ * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {Set<string>} selected - The selected nodes' ids.
  * @param {Function} sidecarOf - Node -> its module's parsed sidecar, or null.
  * @param {Function} [facesOf] - Node id -> its symbol's face anchors, if it has any.
@@ -629,21 +589,6 @@ export function focusCouplings(nodes, edges, layout, selected, sidecarOf, facesO
     })
   }
   return { edges: drawnEdges, handles, partners }
-}
-
-/**
- * Works out the bioView fields that keep a node of the physiological view where it was dragged to.
- *
- * @param {Object} bioNode - The bio flow node: type, width, height and data.
- * @param {{x: number, y: number}} at - Its new top-left, in flow coordinates (not relative to a parent).
- * @returns {Object} The bioView fields to set, in whole flow units.
- */
-export function bioViewForMove(bioNode, at) {
-  const { x, y } = whole(at)
-  if (bioNode.type === 'bioCell' || bioNode.type === 'bioRegion') {
-    return { rect: { x, y, width: bioNode.width, height: bioNode.height } }
-  }
-  return { position: { x, y } }
 }
 
 /**
@@ -745,18 +690,17 @@ export function useBioNodes(
         .join(' · ')
     }
     const widthOf = (id) => proteinLabelWidth(byId.get(id)?.data?.name ?? id, detailOf(id))
-    return { nodes: nodes.value, widthOf, detailOf }
+    return { nodes: nodes.value, widthOf }
   })
   const physiology = computed(() => {
-    const { detailOf, ...options } = pieceLayoutOptions.value
+    const options = pieceLayoutOptions.value
     // A drag of a piece lays it out as the drag would leave it (the draft), so all that goes with it follows.
     const pieces = piecesStore.draft ?? piecesStore.pieces
-    if (!pieces.length) return { places: layoutPhysiology(nodes.value, roles.value, { detailOf }).places, sites: [] }
+    if (!pieces.length) return { places: layoutPhysiology(nodes.value, roles.value).places, sites: [] }
     // The pieces the view is built from, with the nodes bound to their sites; the rest beside them.
     const laidOut = layoutPieces(pieces, options)
     const { bound } = boundToPieces(pieces, nodes.value)
     const { places } = layoutPhysiology(nodes.value, roles.value, {
-      detailOf,
       placedElsewhere: new Set(bound.keys()),
       around: [...laidOut.rects.values()],
     })

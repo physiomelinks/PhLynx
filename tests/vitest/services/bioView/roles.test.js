@@ -16,28 +16,35 @@ const readToy = (name) => readFileSync(resolve(TOY, name), 'utf8')
 const toySidecar = (name) => parseSidecar(readToy(`${name}.ttl`), { mathRef: `${name}.cellml:${name}`, cellml: readToy(`${name}.cellml`) })
 
 describe('physiological roles', () => {
-  it('takes a role the location source worked out over the sidecar’s, ignoring a stored one', async () => {
+  it('takes its site’s role on a piece, else a role the location source worked out, else the sidecar’s', async () => {
     const sidecar = await toySidecar('porter')
-    const worked = { role: 'membraneProtein', facet: 'basolateral', cell: 'c1' }
-    expect(resolveBioRole({ name: 'p' }, { sidecar, worked })).toMatchObject({
-      role: 'membraneProtein',
-      facet: 'basolateral',
-      cell: 'c1',
-      annotatedFacet: 'basolateral',
-      source: 'location',
+    expect(resolveBioRole({ name: 'p' }, { sidecar, worked: 'cytosolic', siteRole: 'region' })).toMatchObject({
+      role: 'region',
+      source: 'site',
     })
-    expect(resolveBioRole({ bioView: { role: 'region' } }, { sidecar, worked })).toMatchObject({
-      role: 'membraneProtein',
+    expect(resolveBioRole({ name: 'p' }, { sidecar, worked: 'cytosolic' })).toMatchObject({
+      role: 'cytosolic',
       source: 'location',
     })
     expect(resolveBioRole({}, { sidecar, worked: null }).source).toBe('sidecar')
   })
 
+  it('ignores a stored role and where a retired field put it', async () => {
+    const data = { name: 'porter', bioView: { role: 'region', facet: 'lateral', cell: 'c', adjacent: [] } }
+    expect(resolveBioRole(data, { sidecar: await toySidecar('porter') })).toEqual({
+      role: 'membraneProtein',
+      skin: 'symporter',
+      skinContext: expect.any(Object),
+      source: 'sidecar',
+    })
+    expect(resolveBioRole({ bioView: { role: 'region' } })).toMatchObject({ role: 'none', source: 'none' })
+  })
+
   it('reads the role from the module’s sidecar', async () => {
     const roleOf = async (name) => resolveBioRole({ name }, { sidecar: await toySidecar(name) })
-    expect(await roleOf('porter')).toMatchObject({ role: 'membraneProtein', facet: null, cell: null, skin: 'symporter', source: 'sidecar' })
+    expect(await roleOf('porter')).toMatchObject({ role: 'membraneProtein', skin: 'symporter', source: 'sidecar' })
     expect(await roleOf('wall')).toMatchObject({ role: 'membrane', source: 'sidecar' })
-    expect(await roleOf('pool')).toMatchObject({ role: 'region', side: null, source: 'sidecar' })
+    expect(await roleOf('pool')).toMatchObject({ role: 'region', source: 'sidecar' })
   })
 
   it('reads where an unkinded module’s variables are', () => {
@@ -48,54 +55,14 @@ describe('physiological roles', () => {
     expect(goLocationsOf(sidecar('self', `self+${GO.plasmaMembrane}`, GO.cytoplasm))).toEqual(new Set([GO.plasmaMembrane, GO.cytoplasm]))
   })
 
-  it('lets the user’s choices win', async () => {
-    const data = { name: 'porter', bioView: { facet: 'lateral', skin: 'pump', cell: 'other' } }
-    expect(resolveBioRole(data, { sidecar: await toySidecar('porter') })).toMatchObject({
-      role: 'membraneProtein',
-      facet: 'lateral',
-      skin: 'pump',
-      cell: 'other',
-      source: 'sidecar',
-    })
-    // Taken out of the membrane, it has no facet.
-    const unplaced = { ...data, bioView: { facet: null } }
-    expect(resolveBioRole(unplaced, { sidecar: await toySidecar('porter') })).toMatchObject({ facet: null, annotatedFacet: null })
-    expect(resolveBioRole({ bioView: { role: 'region' } })).toMatchObject({ role: 'none', source: 'none' })
-    // Choices that don't fit are ignored.
-    expect(resolveBioRole({ bioView: { role: 'mitochondrion', facet: 'top', skin: 'blob' } })).toMatchObject({ role: 'none', facet: null, skin: null })
-  })
-
-  it('keeps a lateral protein’s side and a region’s adjacency, dropping what doesn’t fit', () => {
-    const as = (role) => ({ worked: { role } })
-    const lateral = { bioView: { facet: 'lateral', at: 'right' } }
-    expect(resolveBioRole(lateral, as('membraneProtein'))).toMatchObject({ facet: 'lateral', at: 'right' })
-    expect(resolveBioRole({ bioView: { facet: 'apical', at: 'right' } }, as('membraneProtein')).at).toBeNull()
-    const region = {
-      bioView: {
-        adjacent: [{ cell: 'c', facet: 'lateral', at: 'up' }, { cell: 'c', facet: 'roof' }, { facet: 'apical' }, { cell: 'd', facet: 'apical', at: 'left' }],
-      },
-    }
-    expect(resolveBioRole(region, as('region')).adjacent).toEqual([
-      { cell: 'c', facet: 'lateral', at: 'left' },
-      { cell: 'd', facet: 'apical' },
-    ])
-    expect(resolveBioRole({ bioView: { adjacent: [] } }, as('region')).adjacent).toBeNull()
-    expect(resolveBioRole({ bioView: { adjacent: [{ cell: 'c', facet: 'apical' }] } }, as('cytosol')).adjacent).toBeNull()
+  it('draws a module with the skin chosen for it, ignoring one that doesn’t fit', async () => {
+    const sidecar = await toySidecar('porter')
+    expect(resolveBioRole({ bioView: { skin: 'pump' } }, { sidecar }).skin).toBe('pump')
+    expect(resolveBioRole({ bioView: { skin: 'blob' } }, { sidecar }).skin).toBe('symporter')
   })
 
   it('is nothing physiological without annotations', () => {
-    expect(resolveBioRole({ name: 'plain' })).toEqual({
-      role: 'none',
-      facet: null,
-      at: null,
-      annotatedFacet: null,
-      cell: null,
-      side: null,
-      adjacent: null,
-      skin: null,
-      skinContext: null,
-      source: 'none',
-    })
+    expect(resolveBioRole({ name: 'plain' })).toEqual({ role: 'none', skin: null, skinContext: null, source: 'none' })
   })
 
   it('draws each annotated protein function as its skin, and others as generic', () => {

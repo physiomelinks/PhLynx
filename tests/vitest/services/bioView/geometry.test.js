@@ -5,7 +5,6 @@ import {
   FACET_INSET,
   MIN_CELL,
   SLOT_PITCH,
-  cellSlots,
   facetOfPart,
   facetSlots,
   fitCellRect,
@@ -14,7 +13,6 @@ import {
   leafletDistance,
   leafletPath,
   leafletSides,
-  nearestSlot,
   partOf,
   pitchBetween,
   proteinLabelWidth,
@@ -66,22 +64,6 @@ describe('physiological view geometry', () => {
     expect(facetSlots(cell, 'apical', 2, undefined, { spare: false }).map((slot) => slot.spare)).toEqual([false, false])
   })
 
-  it('keeps a dragged protein’s row where it is drawn, without a spare', () => {
-    const held = { rect: cell, counts: { apical: 1 }, held: 'apical' }
-    expect(cellSlots(held, 'apical')).toEqual(facetSlots(cell, 'apical', 2, undefined, { spare: false }))
-    expect(cellSlots(held, 'basolateral')).toEqual(facetSlots(cell, 'basolateral', 0))
-  })
-
-  it('snaps to the nearest slot, including a facet’s spare one, within reach', () => {
-    const cells = [{ id: 'c', rect: cell, counts: { apical: 1, basolateral: 0, 'lateral-left': 0, 'lateral-right': 0 } }]
-    // Apical has its protein's slot and a spare one beside it; a drop on the protein is its slot, not a tie.
-    expect(nearestSlot(cells, { x: 200, y: 10 })).toMatchObject({ part: 'apical', order: 0, spare: false, x: 200 })
-    expect(nearestSlot(cells, { x: 200 + SLOT_PITCH - 5, y: 10 })).toMatchObject({ cellId: 'c', part: 'apical', facet: 'apical', order: 1, spare: true })
-    expect(nearestSlot(cells, { x: 200, y: 290 })).toMatchObject({ part: 'basolateral', order: 0, x: 200, y: 300 })
-    expect(nearestSlot(cells, { x: 395, y: 150 })).toMatchObject({ part: 'lateral-right', facet: 'lateral', at: 'right', order: 0 })
-    expect(nearestSlot(cells, { x: 200, y: 150 })).toBeNull()
-  })
-
   it('grows a cell to fit its proteins and a spare slot, never shrinking it', () => {
     expect(fitCellRect({ x: 5, y: 6, width: 0, height: 0 }, {})).toEqual({ x: 5, y: 6, ...MIN_CELL })
     const wide = fitCellRect({ x: 0, y: 0, width: 0, height: 0 }, { apical: 5 })
@@ -114,14 +96,12 @@ describe('physiological view geometry', () => {
     // A side's rows run down it, where names don't meet: no change there.
     expect(slotPositions(cell, 'lateral-left', 2, undefined, widths)).toEqual(slotPositions(cell, 'lateral-left', 2))
 
-    // The cell grows to fit them, and a dragged protein's row stays where it is drawn.
+    // The cell grows to fit them.
     const fitted = fitCellRect({ x: 0, y: 0, width: 0, height: 0 }, { apical: 3 }, undefined, { apical: widths })
     expect(fitted.width).toBeGreaterThan(fitCellRect({ x: 0, y: 0, width: 0, height: 0 }, { apical: 3 }).width)
     const row = facetSlots(fitted, 'apical', 3, undefined, { widths })
     expect(row[0].x).toBeGreaterThanOrEqual(FACET_INSET)
     expect(row.at(-1).x).toBeLessThanOrEqual(fitted.width - FACET_INSET)
-    const held = { rect: fitted, counts: { apical: 2 }, held: 'apical', widths: { apical: widths } }
-    expect(cellSlots(held, 'apical').map(({ x }) => x)).toEqual(row.slice(0, 3).map(({ x }) => x))
   })
 
   it('measures how far a point is from a cell’s rounded outline, negative inside', () => {

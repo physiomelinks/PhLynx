@@ -45,8 +45,6 @@ import { computed, inject } from 'vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
 import BioPieceResize from './BioPieceResize.vue'
-import { partOf } from '../../services/bioView/geometry'
-import { EPITHELIAL_SHAPE, facetById } from '../../services/bioView/shape'
 import { tintColour } from '../../services/bioView/speciesLayout'
 
 const props = defineProps({
@@ -56,19 +54,11 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 })
 
-/** The colour of a region against each of the epithelial cell's facets, or of a region against none. */
-const TONES = { apical: 'sky', basolateral: 'rose', lateral: 'teal' }
+/** The colour of a compartment with none of its own. */
 const DEFAULT_TONE = 'sky'
 
-/**
- * The edge of the cell the region lies against: a template's own, else the epithelial facet it faces, a left
- * one with no side given, as layout puts it.
- */
-const edge = computed(() => {
-  if (props.data.instance) return props.data.edge ?? null
-  if (!props.data.side) return null
-  return facetById(EPITHELIAL_SHAPE, partOf(props.data.side, props.data.at ?? undefined))?.edge ?? null
-})
+/** The edge of the membrane the compartment lies against, as the pieces' layout gives it. */
+const edge = computed(() => props.data.edge ?? null)
 /** The view's `(skin) => { href, aspect, opacity } | null`: the artwork a piece's skin names, if the workspace has it. */
 const skinOf = inject('bioSkinOf', () => null)
 const skin = computed(() => skinOf(props.data.skin))
@@ -98,7 +88,7 @@ const tintStyle = computed(() => {
   return { backgroundImage: `linear-gradient(${colour}, ${colour})` }
 })
 
-const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)
+const tone = computed(() => props.data.tone || DEFAULT_TONE)
 </script>
 
 <style scoped>

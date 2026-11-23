@@ -5,7 +5,7 @@ import { focusCouplings } from '../../../../src/composables/useBioNodes.js'
 import { GO } from '../../../../src/services/annotations/iris.js'
 import { facePoint, handleFace } from '../../../../src/services/bioView/faces.js'
 import { SYMBOL_HEIGHT, SYMBOL_WIDTH } from '../../../../src/services/bioView/geometry.js'
-import { layoutBioView, layoutPhysiology } from '../../../../src/services/bioView/layout.js'
+import { layoutPhysiology } from '../../../../src/services/bioView/layout.js'
 import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
 import { boundToPieces, layoutPieces } from '../../../../src/services/bioView/pieces/layout.js'
 import { bioFlowNodes } from '../../../../src/composables/useBioNodes.js'
@@ -124,20 +124,15 @@ describe('which face of a protein a handle belongs on', () => {
 })
 
 describe('the couplings of what is selected', () => {
-  const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, skin: null, ...extra })
+  // An epithelial cell, its membrane, a protein on its apical membrane and the apical fluid outside it.
+  const on = (id, site, extra = {}) => ({ id, data: { name: id, bioView: { site: `pieces/${site}` }, ...extra } })
   const nodes = [
-    { id: 'cell', data: { name: 'cell' } },
-    { id: 'wall', data: { name: 'wall' } },
-    { id: 'p', data: { name: 'p', handles: [{ uid: 'po' }, { uid: 'shared' }] } },
-    { id: 'lumen', data: { name: 'lumen' } },
+    on('cell', 'cell'),
+    on('wall', 'plasma-membrane'),
+    on('p', 'plasma-membrane.apical', { handles: [{ uid: 'po' }, { uid: 'shared' }] }),
+    on('lumen', 'apical-fluid'),
   ]
-  const roles = new Map([
-    ['cell', role('cytosol')],
-    ['wall', role('membrane', { cell: 'cell' })],
-    ['p', role('membraneProtein', { cell: 'cell', facet: 'apical' })],
-    ['lumen', role('region', { side: 'apical' })],
-  ])
-  const layout = layoutBioView(nodes, roles)
+  const layout = layoutPieces(getBuiltInPieceTemplate('epithelial-cell').pieces, { nodes }).places
   // One diagram handle on p carries a coupling to each side of the membrane.
   const edges = [
     edge('out', 'lumen', 'handle_l', 'p', 'handle_shared', [
@@ -231,7 +226,7 @@ describe('the couplings of a protein on a stretch of membrane with no annotation
     bound('vgcc', 'pieces/pre-membrane.active-zone', { handles: [{ uid: 'h' }] }),
     bound('ampa', 'pieces/post-membrane.psd'),
   ]
-  const protein = (site) => ({ role: 'membraneProtein', facet: null, skin: 'channel', annotatedFacet: null, site })
+  const protein = (site) => ({ role: 'membraneProtein', skin: 'channel', site })
   const roles = new Map([
     ['pre', { role: 'cytosol', site: 'pieces/pre' }],
     ['cleft', { role: 'region', site: 'pieces/cleft' }],
@@ -245,13 +240,12 @@ describe('the couplings of a protein on a stretch of membrane with no annotation
     ...layoutPieces(pieces, { nodes }).places,
   ])
 
-  it('turns each protein by its facet’s edge, with no moved badge', () => {
+  it('turns each protein by its facet’s edge', () => {
     const bio = bioFlowNodes(nodes, roles, places)
     expect(bio.find((n) => n.id === 'vgcc').data).toMatchObject({
       facet: 'active-zone',
       rotation: 180,
       outward: Position.Bottom,
-      annotatedFacet: null,
     })
     expect(bio.find((n) => n.id === 'ampa').data).toMatchObject({ facet: 'psd', rotation: 0, outward: Position.Top })
   })

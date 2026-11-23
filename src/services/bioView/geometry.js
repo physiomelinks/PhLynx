@@ -293,52 +293,6 @@ export function proteinPlacement(rect, part, order, count, shape = EPITHELIAL_SH
 }
 
 /**
- * Gives where a node-owned cell's part takes a drop. While a protein on that part is dragged, the slots are where
- * the row is drawn now, the dragged one's own included, and there is no spare.
- *
- * @param {{rect: Object, counts?: Object, held?: string, shape?: Object, widths?: Object}} cell - From dropTargets;
- *   widths: the names' widths per part, as the row is drawn.
- * @param {string} part - One of the shape's facet ids.
- * @returns {ReturnType<typeof facetSlots>}
- */
-export function cellSlots(cell, part) {
-  const count = cell.counts?.[part] ?? 0
-  const shape = cell.shape ?? EPITHELIAL_SHAPE
-  const widths = cell.widths?.[part] ?? []
-  return cell.held === part
-    ? facetSlots(cell.rect, part, count + 1, shape, { spare: false, widths })
-    : facetSlots(cell.rect, part, count, shape, { widths })
-}
-
-/**
- * Finds the slot nearest a point, among every cell's cellSlots.
- *
- * @param {Array<{id: string, rect: Object, counts: Object, held?: string, shape?: Object}>} cells - From
- *   dropTargets: counts has proteins per part; shape defaults to EPITHELIAL_SHAPE.
- * @param {{x: number, y: number}} point
- * @param {number} [maxDistance=60]
- * @returns {{cellId: string, part: string, facet: string, at: string|undefined, order: number, spare: boolean,
- *   x: number, y: number}|null}
- */
-export function nearestSlot(cells, point, maxDistance = 60) {
-  let best = null
-  let bestDistance = maxDistance
-  for (const cell of cells) {
-    const shape = cell.shape ?? EPITHELIAL_SHAPE
-    for (const { id: part } of shape.facets) {
-      cellSlots(cell, part).forEach(({ x, y, order, spare }) => {
-        const distance = Math.hypot(x - point.x, y - point.y)
-        if (distance <= bestDistance) {
-          best = { cellId: cell.id, part, ...facetOfPart(part, shape), order, spare, x, y }
-          bestDistance = distance
-        }
-      })
-    }
-  }
-  return best
-}
-
-/**
  * How long a stretch of a side an empty span needs, its spare's symbol clear of the rounded corners: shorter, and
  * the cell grows until it is that long (see fitCellRect).
  */

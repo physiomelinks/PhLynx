@@ -27,15 +27,12 @@ describe('physiological roles bound to a template site', () => {
     }
   })
 
-  it('keeps the sidecar’s role once bound, with no annotated facet, as the template places it', async () => {
+  it('keeps the sidecar’s role on a site no piece offers', async () => {
     const sidecar = await toySidecar('porter')
-    expect(resolveBioRole({ name: 'porter' }, { sidecar })).toMatchObject({ role: 'membraneProtein', annotatedFacet: null })
-
     const bound = { name: 'porter', bioView: { site: 'bt-x1/cell.basolateral' } }
     expect(resolveBioRole(bound, { sidecar })).toMatchObject({
       role: 'membraneProtein',
       source: 'sidecar',
-      annotatedFacet: null,
       site: 'bt-x1/cell.basolateral',
     })
   })

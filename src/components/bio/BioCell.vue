@@ -61,17 +61,6 @@
         :d="leaflet(-HEAD_OFFSET - SELECTION_INSET)"
         data-testid="bio-cell-selection"
       />
-      <!-- Its process areas, where cards for what goes on in the cell are put -->
-      <g
-        v-for="zone in data.zones ?? []"
-        :key="zone.processId ?? 'process'"
-        class="bio-cell__zone"
-        data-testid="bio-process-zone"
-      >
-        <!-- Outlined only while empty, to say where a process goes: one in it is drawn as itself, as a protein is -->
-        <rect v-if="!zone.filled" :x="zone.rect.x" :y="zone.rect.y" :width="zone.rect.width" :height="zone.rect.height" rx="8" />
-        <text v-if="zone.label" :x="zone.rect.x + 8" :y="zone.rect.y + 12">{{ zone.label }}</text>
-      </g>
     </svg>
     <!-- The names of its membrane's stretches, just inside each edge, clear of its proteins -->
     <span
@@ -332,19 +321,6 @@ function foldNameStyle({ edge, at, depth }) {
   display: block;
   font-weight: 400;
   font-size: 0.75rem;
-}
-
-.bio-cell__zone rect {
-  fill: none;
-  stroke: var(--p-amber-500);
-  stroke-width: 1;
-  stroke-dasharray: 4 4;
-  opacity: 0.6;
-}
-
-.bio-cell__zone text {
-  font-size: 10px;
-  fill: var(--p-text-muted-color);
 }
 
 .bio-cell__facet {

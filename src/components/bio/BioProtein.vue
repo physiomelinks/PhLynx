@@ -23,15 +23,6 @@
       <span v-if="species" class="bio-protein__species" data-testid="bio-protein-species">{{ species }}</span>
     </span>
     <BioUncoupledBadge v-if="data.uncoupled" :name="data.name" :inset="!!data.inset" />
-    <!-- Moved from where its annotations put it -->
-    <span
-      v-if="movedFrom"
-      class="bio-protein__moved"
-      :title="`The annotations put it on the ${movedFrom} membrane`"
-      data-testid="bio-protein-moved"
-    >
-      <i class="pi pi-arrow-right-arrow-left"></i>
-    </span>
   </div>
 </template>
 
@@ -55,11 +46,6 @@ const labelSide = computed(() => INWARD[props.data.outward] ?? 'bottom')
 const species = computed(() => {
   const labels = (props.data.arrows ?? []).map((arrow) => arrow.label)
   return ([180, -90, 270].includes(props.data.rotation) ? labels.reverse() : labels).join(' · ')
-})
-
-const movedFrom = computed(() => {
-  const { annotatedFacet, facet, unplaced } = props.data
-  return annotatedFacet && (unplaced || facet !== annotatedFacet) ? annotatedFacet : null
 })
 </script>
 
@@ -103,26 +89,6 @@ const movedFrom = computed(() => {
   font-weight: 500;
   color: var(--p-text-muted-color);
   text-align: center;
-}
-
-.bio-protein__moved {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid var(--p-orange-500);
-  background: var(--p-content-background);
-  color: var(--p-orange-500);
-  cursor: help;
-}
-
-.bio-protein__moved .pi {
-  font-size: 9px;
 }
 
 .bio-protein--label-bottom .bio-protein__label {

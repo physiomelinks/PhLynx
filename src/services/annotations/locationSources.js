@@ -8,7 +8,8 @@
  * - placeOf(node, prepared): the node's places, its own first, as locate and rank read them; none when unplaced;
  * - locate(places, location): a side-car location resolved against a node's places (see locateAll);
  * - rank(place): orders a node's own place for an edge's direction, lowest first;
- * - workedRole(node, { sidecar }): a physiology role the source works out (see resolveBioRole), or null;
+ * - workedRole(node, { sidecar }): the physiology role the source works out for a node on no piece (see
+ *   resolveBioRole), or null;
  * - nodeKeys: the node data keys it reads, kept when a node is rebuilt from a snapshot and, but for bioView, left
  *   off a pasted copy;
  * - read() and ensure(), optional: the data it reads now, and a promise that loads it.

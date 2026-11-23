@@ -8,7 +8,6 @@ import {
   MIN_CELL,
   SLOT_PITCH,
   fitCellRect,
-  nearestSlot,
   proteinPlacement,
   slotPositions,
 } from '../../../../src/services/bioView/geometry.js'
@@ -89,21 +88,6 @@ describe('geometry of another shape', () => {
       outward: Position.Bottom,
     })
     expect(() => slotPositions(rect, 'lateral-left', 1, SLAB)).toThrow()
-  })
-
-  it('snaps only to slots on its facets', () => {
-    const cells = [{ id: 's', rect, counts: { outer: 1 }, shape: SLAB }]
-    expect(nearestSlot(cells, { x: 200 + SLOT_PITCH, y: 5 })).toMatchObject({
-      cellId: 's',
-      part: 'outer',
-      facet: 'outer',
-      at: undefined,
-      order: 1,
-    })
-    expect(nearestSlot(cells, { x: 200, y: 295 })).toMatchObject({ part: 'inner', order: 0 })
-    // Where an epithelial cell would have its lateral slots, this one has none.
-    expect(nearestSlot(cells, { x: 0, y: 150 })).toBeNull()
-    expect(nearestSlot(cells, { x: 400, y: 150 })).toBeNull()
   })
 
   it('grows only across for facets along its top and bottom', () => {
