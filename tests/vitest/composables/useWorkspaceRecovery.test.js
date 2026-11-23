@@ -57,6 +57,7 @@ function setup({ held = [], ...overrides } = {}) {
       applyState,
       store,
       tabId: 'me',
+      reloadedFrom: null,
       locks: { query: async () => ({ held: held.map(LOCK) }) },
       now: () => clock,
       target,
@@ -85,6 +86,8 @@ describe('useWorkspaceRecovery', () => {
     clock = 1_000_000
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     vi.mocked(notify.warning).mockClear()
+    vi.mocked(notify.success).mockClear()
+    vi.mocked(notify.error).mockClear()
   })
   afterEach(() => {
     scope?.stop()
@@ -290,5 +293,88 @@ describe('useWorkspaceRecovery', () => {
     await recovery.discard('gone')
     expect(store.drafts.size).toBe(0)
     expect(recovery.drafts.value).toEqual([])
+  })
+
+  it('brings a discarded draft back, as it was, when the discard is undone', async () => {
+    const store = memoryStore()
+    const draft = { id: 'gone', savedAt: clock, name: 'heart', nodeCount: 2, data: null }
+    store.drafts.set('gone', draft)
+    const { recovery } = setup({ store })
+    await settle()
+    const undo = await recovery.discard('gone')
+    expect(store.drafts.size).toBe(0)
+    await undo()
+    expect(store.drafts.get('gone')).toEqual(draft)
+    expect(recovery.drafts.value.map((offered) => offered.id)).toEqual(['gone'])
+  })
+
+  it('has nothing to undo for a draft already gone', async () => {
+    const { recovery } = setup()
+    await settle()
+    expect(await recovery.discard('never')).toBeNull()
+  })
+
+  describe('after a reload', () => {
+    async function withDrafts(...ids) {
+      const store = memoryStore()
+      for (const [index, id] of ids.entries())
+        store.drafts.set(id, { id, savedAt: clock - index, data: await packDraft({ flow: { id } }) })
+      return store
+    }
+
+    it('takes back the draft the tab left, without offering it', async () => {
+      const store = await withDrafts('before', 'other')
+      const { recovery, applyState } = setup({ store, reloadedFrom: 'before' })
+      await settle()
+      expect(applyState).toHaveBeenCalledTimes(1)
+      expect(applyState.mock.calls[0][0]).toEqual({ flow: { id: 'before' } })
+      expect(store.drafts.has('before')).toBe(false)
+      expect(recovery.drafts.value.map((draft) => draft.id)).toEqual(['other'])
+    })
+
+    it('offers it instead when taking it back is turned off', async () => {
+      const store = await withDrafts('before')
+      const { recovery, applyState } = setup({ store, reloadedFrom: 'before', autoRestore: () => false })
+      await settle()
+      expect(applyState).not.toHaveBeenCalled()
+      expect(recovery.drafts.value.map((draft) => draft.id)).toEqual(['before'])
+    })
+
+    it('leaves a draft whose tab still holds its lock, as a duplicated tab’s original does', async () => {
+      const store = await withDrafts('before')
+      const { recovery, applyState } = setup({ store, reloadedFrom: 'before', held: ['before'] })
+      await settle()
+      expect(applyState).not.toHaveBeenCalled()
+      expect(recovery.drafts.value).toEqual([])
+    })
+
+    it('does not take it back over a workspace that is not empty', async () => {
+      const store = await withDrafts('before')
+      const empty = ref(false)
+      const { recovery, applyState } = setup({ store, reloadedFrom: 'before', isEmpty: () => empty.value })
+      await settle()
+      expect(applyState).not.toHaveBeenCalled()
+      empty.value = true
+      await nextTick()
+      await settle()
+      // Only the first look takes a draft back: later it is offered.
+      expect(applyState).not.toHaveBeenCalled()
+      expect(recovery.drafts.value.map((draft) => draft.id)).toEqual(['before'])
+    })
+
+    it('offers the draft when taking it back fails', async () => {
+      const store = await withDrafts('before')
+      const { recovery } = setup({
+        store,
+        reloadedFrom: 'before',
+        applyState: vi.fn(async () => {
+          throw new Error('Broken.')
+        }),
+      })
+      await settle()
+      expect(notify.error).toHaveBeenCalledTimes(1)
+      expect(recovery.drafts.value.map((draft) => draft.id)).toEqual(['before'])
+      expect(store.drafts.has('before')).toBe(true)
+    })
   })
 })
