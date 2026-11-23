@@ -4,7 +4,7 @@ import { cellFinder, epithelialTone, scaffoldFromNodes } from '../../../../src/s
 import { EPITHELIAL_SHAPE } from '../../../../src/services/bioView/shape.js'
 
 const node = (id, bioView) => ({ id, data: { name: id, ...(bioView && { bioView }) } })
-const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
+const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, skin: null, ...extra })
 
 describe('scaffold from nodes', () => {
   it('makes a cell of each cytosol, by name, with the epithelial shape and one implicit process area', () => {

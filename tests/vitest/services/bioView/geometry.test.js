@@ -223,34 +223,3 @@ describe('a fold', () => {
     expect(end.lipids).toBe(Math.round((Math.PI * 38) / 5))
   })
 })
-
-describe('a stretch of membrane a skin draws', () => {
-  const rect = { x: 100, y: 50, width: 200, height: 300 }
-  // A box of an outline, with a facet down its right side and one along its bottom.
-  const outline = [{ x: 20, y: 20 }, { x: 180, y: 20 }, { x: 180, y: 280 }, { x: 20, y: 280 }]
-  const shape = {
-    outline,
-    facets: [
-      { id: 'side', label: 'Side', edge: 'top', path: [{ x: 180, y: 40 }, { x: 180, y: 260 }] },
-      { id: 'base', label: 'Base', edge: 'bottom', path: [{ x: 40, y: 280 }, { x: 160, y: 280 }] },
-    ],
-    processes: [],
-  }
-
-  it('has its proteins spaced about its middle, each facing out of the outline', async () => {
-    const { proteinPlacement, slotPositions, facetSlots } = await import('../../../../src/services/bioView/geometry.js')
-    expect(slotPositions(rect, 'side', 1, shape)).toEqual([{ x: 280, y: 200 }])
-    const [upper, lower] = [0, 1].map((order) => proteinPlacement(rect, 'side', order, 2, shape))
-    expect(upper).toMatchObject({ x: 280, y: 200 - 44, rotation: 90 })
-    expect(lower).toMatchObject({ x: 280, y: 200 + 44, rotation: 90 })
-    expect(proteinPlacement(rect, 'base', 0, 1, shape)).toMatchObject({ x: 200, y: 330, rotation: 180 })
-    // The spare slot is the next along.
-    expect(facetSlots(rect, 'side', 1, shape).at(-1)).toMatchObject({ order: 1, spare: true, x: 280 })
-  })
-
-  it('packs them closer on a short stretch, down to a glyph’s width', async () => {
-    const { slotPositions } = await import('../../../../src/services/bioView/geometry.js')
-    const ys = slotPositions(rect, 'base', 2, shape).map((slot) => slot.x)
-    expect(ys[1] - ys[0]).toBe(64)
-  })
-})

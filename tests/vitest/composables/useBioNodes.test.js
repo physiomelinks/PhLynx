@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { bioFlowNodes, bioViewForMove, shareEqual } from '../../../src/composables/useBioNodes.js'
-import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../../../src/services/bioView/geometry.js'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH } from '../../../src/services/bioView/geometry.js'
 import { layoutBioView } from '../../../src/services/bioView/layout.js'
 import { layoutPieces, membraneKey, pieceKey } from '../../../src/services/bioView/pieces/layout.js'
 import { validatePieces } from '../../../src/services/bioView/pieces/model.js'
 
-const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
+const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, skin: null, ...extra })
 
 function workspace() {
   const nodes = [
@@ -21,10 +21,10 @@ function workspace() {
   const roles = new Map([
     ['cell', role('cytosol')],
     ['wall', role('membrane', { cell: 'cell' })],
-    ['p', role('membraneProtein', { cell: 'cell', facet: 'apical', glyph: 'pump' })],
+    ['p', role('membraneProtein', { cell: 'cell', facet: 'apical', skin: 'pump' })],
     ['gly', role('cytosolic')],
     ['lumen', role('region', { side: 'apical' })],
-    ['loose', role('membraneProtein', { glyph: 'channel' })],
+    ['loose', role('membraneProtein', { skin: 'channel' })],
     ['plain', role('none')],
   ])
   return { nodes, roles, layout: layoutBioView(nodes, roles) }
@@ -52,11 +52,11 @@ describe('physiological view nodes', () => {
 
   it('draws a process’s cartoon on its card when it has one', () => {
     const { nodes, roles } = workspace()
-    roles.set('gly', role('cytosolic', { glyph: 'mitochondrion' }))
+    roles.set('gly', role('cytosolic', { skin: 'mitochondrion' }))
     const bio = bioFlowNodes(nodes, roles, layoutBioView(nodes, roles))
     expect(bio.find((n) => n.id === 'gly')).toMatchObject({
       type: 'bioCard',
-      data: { name: 'gly', glyph: 'mitochondrion' },
+      data: { name: 'gly', skin: 'mitochondrion' },
     })
   })
 
@@ -105,19 +105,19 @@ describe('physiological view nodes', () => {
     const p = bio[index('p')]
     expect(p).toMatchObject({
       parentNode: 'cell',
-      data: { glyph: 'pump', facet: 'apical', rotation: 0, droppable: true },
+      data: { skin: 'pump', facet: 'apical', rotation: 0, droppable: true },
     })
     expect(p.draggable).toBeUndefined()
     expect(bio[index('gly')]).toMatchObject({
       parentNode: 'cell',
       extent: { range: 'parent', padding: [28, 16, 16, 16] },
     })
-    expect(bio[index('gly')].data.glyph).toBeUndefined()
+    expect(bio[index('gly')].data.skin).toBeUndefined()
     expect(index('cell')).toBeLessThan(index('p'))
     // Relative to the cell, centred on its slot on the outline.
     const slot = layout.get('p')
     const cell = layout.get('cell').rect
-    expect(p.position).toEqual({ x: slot.x - GLYPH_WIDTH / 2 - cell.x, y: slot.y - GLYPH_HEIGHT / 2 - cell.y })
+    expect(p.position).toEqual({ x: slot.x - SYMBOL_WIDTH / 2 - cell.x, y: slot.y - SYMBOL_HEIGHT / 2 - cell.y })
   })
 
   it('follows the diagram’s selection and colours, and puts regions and cells under the rest', () => {
@@ -128,7 +128,7 @@ describe('physiological view nodes', () => {
     expect(byId.cell.selected).toBe(false)
     expect(byId.p.data.domainType).toBe('highlight')
     expect(byId.lumen.zIndex).toBeLessThan(byId.cell.zIndex)
-    expect(byId.loose).toMatchObject({ data: { unplaced: true, glyph: 'channel' } })
+    expect(byId.loose).toMatchObject({ data: { unplaced: true, skin: 'channel' } })
     expect(byId.loose.parentNode).toBeUndefined()
   })
 
@@ -175,8 +175,9 @@ describe('physiological view nodes', () => {
     const bio = bioFlowNodes(nodes, roles, layoutPieces(pieces, { nodes }).places)
     expect(zoneOf(bio).data.empty).toBe(false)
     const m = bio.find((n) => n.id === 'm')
-    expect(m).toMatchObject({ type: 'bioProtein', width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
-    expect(m.data.glyph).toBe('generic')
+    expect(m).toMatchObject({ type: 'bioProtein', width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT })
+    // With no skin, as a process chosen to have none: a zone has no plain card, so the generic process.
+    expect(m.data.skin).toBe('process')
     expect(zoneOf(bio).data.named).toBe(false)
     // Its row starts below the zone's name, so no cartoon covers it.
     const z = layoutPieces(pieces, { nodes }).places.get(pieceKey('z')).rect

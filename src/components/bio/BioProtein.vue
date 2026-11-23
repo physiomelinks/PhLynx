@@ -9,9 +9,9 @@
     data-testid="bio-protein"
   >
     <!-- Turned with its facet, so its outside faces out of the cell -->
-    <div class="bio-protein__glyph" :style="{ transform: `rotate(${data.rotation ?? 0}deg)` }">
-      <ProteinGlyph
-        :glyph="data.glyph"
+    <div class="bio-protein__symbol" :style="{ transform: `rotate(${data.rotation ?? 0}deg)` }">
+      <BioSymbol
+        :skin="data.skin"
         :rotation="data.rotation ?? 0"
         :arrows="data.arrows ?? []"
         :halo="selected ? 'selected' : data.coupled ? 'coupled' : null"
@@ -38,7 +38,7 @@
 <script setup>
 import BioHandles from './BioHandles.vue'
 import { computed } from 'vue'
-import ProteinGlyph from './ProteinGlyph.vue'
+import BioSymbol from './BioSymbol.vue'
 import BioUncoupledBadge from './BioUncoupledBadge.vue'
 
 const props = defineProps({
@@ -70,12 +70,12 @@ const movedFrom = computed(() => {
   height: 100%;
 }
 
-.bio-protein__glyph {
+.bio-protein__symbol {
   position: absolute;
   inset: 0;
 }
 
-.bio-protein--unplaced .bio-protein__glyph {
+.bio-protein--unplaced .bio-protein__symbol {
   opacity: 0.55;
 }
 

@@ -65,7 +65,7 @@ export function useBioEdits(roles = null) {
   async function placePiecesTemplate(template, at, { into = null } = {}) {
     if (busy()) return []
     // Tried first, so a template that doesn't fit leaves no step behind.
-    const { errors } = stampTemplate(pieces.pieces, template, whole(at), { shapes: pieces.shapes, into })
+    const { errors } = stampTemplate(pieces.pieces, template, whole(at), { into })
     if (errors.length) return errors
     await applyPlan(
       new Map(),

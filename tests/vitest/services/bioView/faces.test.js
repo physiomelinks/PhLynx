@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { focusCouplings } from '../../../../src/composables/useBioNodes.js'
 import { GO } from '../../../../src/services/annotations/iris.js'
 import { facePoint, handleFace } from '../../../../src/services/bioView/faces.js'
-import { GLYPH_HEIGHT, GLYPH_WIDTH } from '../../../../src/services/bioView/geometry.js'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH } from '../../../../src/services/bioView/geometry.js'
 import { layoutBioView, layoutPhysiology } from '../../../../src/services/bioView/layout.js'
 import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
 import { boundToPieces, layoutPieces } from '../../../../src/services/bioView/pieces/layout.js'
@@ -73,7 +73,7 @@ describe('which face of a protein a handle belongs on', () => {
   })
 
   it('starts a face’s couplings on the cartoon’s edge, however it is turned', () => {
-    const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    const size = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
     // Apical: outside up. Its outer and inner edges are half its height from its centre.
     expect(facePoint({ x: 100, y: 0, outward: Position.Top }, 'outside', size)).toEqual({
       point: { x: 100, y: -24 },
@@ -88,7 +88,7 @@ describe('which face of a protein a handle belongs on', () => {
 
   it('starts a face at the glyph’s own anchor, turned with the protein', () => {
     // A receptor's cleft, 15 down from its outside edge, in the middle.
-    const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    const size = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
     const anchors = { outside: { x: 32, y: 15 } }
     const at = (outward) => facePoint({ x: 100, y: 100, outward }, 'outside', size, anchors)
     expect(at(Position.Top)).toEqual({ point: { x: 100, y: 91 }, direction: { x: 0, y: -1 } })
@@ -103,7 +103,7 @@ describe('which face of a protein a handle belongs on', () => {
   })
 
   it('moves a face’s point along it as the cartoon’s own x runs, however it is turned', () => {
-    const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    const size = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
     const at = (outward, face) => facePoint({ x: 100, y: 100, outward }, face, size, undefined, -10).point
     // Upright, left of the middle on both faces; upside down, to the right; on a side, along the cell's edge.
     expect(at(Position.Top, 'outside')).toEqual({ x: 90, y: 76 })
@@ -124,7 +124,7 @@ describe('which face of a protein a handle belongs on', () => {
 })
 
 describe('the couplings of what is selected', () => {
-  const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
+  const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, skin: null, ...extra })
   const nodes = [
     { id: 'cell', data: { name: 'cell' } },
     { id: 'wall', data: { name: 'wall' } },
@@ -162,17 +162,17 @@ describe('the couplings of what is selected', () => {
     const p = layout.get('p')
     const at = (nodeId, id) => {
       const handle = handles.get(nodeId).find((h) => h.id === id)
-      const box = nodeId === 'p' ? { x: p.x - GLYPH_WIDTH / 2, y: p.y - GLYPH_HEIGHT / 2 } : layout.get(nodeId).rect
+      const box = nodeId === 'p' ? { x: p.x - SYMBOL_WIDTH / 2, y: p.y - SYMBOL_HEIGHT / 2 } : layout.get(nodeId).rect
       return { x: box.x + handle.x, y: box.y + handle.y }
     }
     // The shared diagram handle is drawn from both faces.
-    expect(at('p', 'out:t')).toEqual({ x: p.x, y: p.y - GLYPH_HEIGHT / 2 })
-    expect(at('p', 'in:s')).toEqual({ x: p.x, y: p.y + GLYPH_HEIGHT / 2 })
+    expect(at('p', 'out:t')).toEqual({ x: p.x, y: p.y - SYMBOL_HEIGHT / 2 })
+    expect(at('p', 'in:s')).toEqual({ x: p.x, y: p.y + SYMBOL_HEIGHT / 2 })
     // Each space's end lies straight on from the face, not in the space's middle.
     expect(at('lumen', 'out:s').x).toBe(p.x)
-    expect(at('lumen', 'out:s').y).toBeLessThan(p.y - GLYPH_HEIGHT / 2)
+    expect(at('lumen', 'out:s').y).toBeLessThan(p.y - SYMBOL_HEIGHT / 2)
     expect(at('cell', 'in:t').x).toBe(p.x)
-    expect(at('cell', 'in:t').y).toBeGreaterThan(p.y + GLYPH_HEIGHT / 2)
+    expect(at('cell', 'in:t').y).toBeGreaterThan(p.y + SYMBOL_HEIGHT / 2)
     expect(drawn.every((e) => e.zIndex === -5 && e.selectable === false)).toBe(true)
   })
 
@@ -185,7 +185,7 @@ describe('the couplings of what is selected', () => {
       const face = handles.get('p').find((h) => h.id === 'mem:s')
       const end = handles.get('wall').find((h) => h.id === 'mem:t')
       // From the protein's side, along the membrane, to a point on the cell's outline box beside it.
-      expect(face.y).toBe(GLYPH_HEIGHT / 2)
+      expect(face.y).toBe(SYMBOL_HEIGHT / 2)
       expect(cell.y + end.y).toBeCloseTo(p.y, 0)
       expect(cell.x + end.x).not.toBe(p.x)
     }
@@ -196,7 +196,7 @@ describe('the couplings of what is selected', () => {
     const { edges: drawn, handles } = focusCouplings(nodes, uncoupled, layout, new Set(['p']), () => null)
     expect(drawn.map((e) => [e.id, e.data.uncoupled])).toEqual([['none', true]])
     const lumen = layout.get('lumen').rect
-    expect(handles.get('p')).toEqual([{ id: 'none:s', x: GLYPH_WIDTH / 2, y: GLYPH_HEIGHT / 2 }])
+    expect(handles.get('p')).toEqual([{ id: 'none:s', x: SYMBOL_WIDTH / 2, y: SYMBOL_HEIGHT / 2 }])
     expect(handles.get('lumen')).toEqual([{ id: 'none:t', x: lumen.width / 2, y: lumen.height / 2 }])
   })
 
@@ -231,7 +231,7 @@ describe('the couplings of a protein on a stretch of membrane with no annotation
     bound('vgcc', 'pieces/pre-membrane.active-zone', { handles: [{ uid: 'h' }] }),
     bound('ampa', 'pieces/post-membrane.psd'),
   ]
-  const protein = (site) => ({ role: 'membraneProtein', facet: null, glyph: 'channel', annotatedFacet: null, site })
+  const protein = (site) => ({ role: 'membraneProtein', facet: null, skin: 'channel', annotatedFacet: null, site })
   const roles = new Map([
     ['pre', { role: 'cytosol', site: 'pieces/pre' }],
     ['cleft', { role: 'region', site: 'pieces/cleft' }],
@@ -266,7 +266,7 @@ describe('the couplings of a protein on a stretch of membrane with no annotation
     expect(drawn.map((e) => e.id)).toEqual(['out'])
     const p = places.get('vgcc')
     const face = handles.get('vgcc').find((h) => h.id === 'out:t')
-    expect(face).toMatchObject({ x: GLYPH_WIDTH / 2, y: GLYPH_HEIGHT })
+    expect(face).toMatchObject({ x: SYMBOL_WIDTH / 2, y: SYMBOL_HEIGHT })
     const cleft = places.get('cleft').rect
     const end = handles.get('cleft').find((h) => h.id === 'out:s')
     expect(cleft.y + end.y).toBeGreaterThan(p.y)

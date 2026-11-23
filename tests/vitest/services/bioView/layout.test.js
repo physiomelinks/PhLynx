@@ -5,7 +5,7 @@ import { proteinBoxes } from '../../../../src/services/bioView/speciesLayout.js'
 import { resolveBioRole } from '../../../../src/services/bioView/roles.js'
 
 const node = (id, bioView) => ({ id, data: { name: id, ...(bioView && { bioView }) } })
-const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
+const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, skin: null, ...extra })
 
 /** A cell with a membrane, three apical proteins and one basolateral, the regions either side, and a loose card. */
 function epithelium(bioViews = {}) {

@@ -144,10 +144,10 @@ describe('naming and rolling back steps', () => {
     expect(history.undoLabel).toBe('Add module')
 
     history.startBatch()
-    await history.executeAndAddCommand(loggedCommand('bio-glyph', log))
+    await history.executeAndAddCommand(loggedCommand('bio-skin', log))
     await history.executeAndAddCommand(loggedCommand('select', log))
     history.endBatch()
-    expect(history.undoLabel).toBe('Cartoon')
+    expect(history.undoLabel).toBe('Skin')
     expect(stepLabel({ type: 'bio-pieces-move' })).toBe('Move piece')
     expect(stepLabel({ type: 'add-annotated-ports' })).toBe('Add annotated ports')
   })

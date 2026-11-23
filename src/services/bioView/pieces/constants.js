@@ -79,7 +79,7 @@ export const PIECE_KEYS = Object.freeze({
   assembly: ['$schema', 'schemaVersion', 'id', 'name', 'description', 'author', 'license', 'pieces'],
   compartment: ['id', 'kind', 'label', 'parent', 'frame', 'docks', 'depth', 'tone', 'term', 'style', 'skin', 'site'],
   membrane: ['id', 'kind', 'label', 'parent', 'encloses', 'sides', 'frame', 'skin', 'site'],
-  tube: ['id', 'kind', 'label', 'ends', 'flux', 'bends', 'site'],
+  tube: ['id', 'kind', 'label', 'ends', 'flux', 'bends', 'skin', 'site'],
   fold: ['id', 'kind', 'label', 'membrane', 'side', 'at', 'depth', 'site'],
   zone: ['id', 'kind', 'label', 'compartment', 'frame', 'site'],
   dock: ['on', 'side', 'face', 'from', 'to'],

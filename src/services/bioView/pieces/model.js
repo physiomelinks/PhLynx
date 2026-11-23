@@ -319,6 +319,9 @@ function readTube(raw, piece, where, errors, warnings) {
         .filter(Boolean)
     }
   }
+  // How its joint is drawn, where its two ends touch.
+  const skin = readSkin(raw.skin, where, errors, warnings)
+  if (skin) piece.skin = skin
 }
 
 function readFold(raw, piece, where, errors) {

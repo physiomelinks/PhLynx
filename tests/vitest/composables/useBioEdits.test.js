@@ -51,7 +51,7 @@ describe('physiological view edits', () => {
   async function placeAndBind() {
     await edits.placePiecesTemplate(epithelial(), { x: 10, y: 20 })
     nodes.value = [
-      node('p', { role: 'membraneProtein', site: 'pieces/plasma-membrane.apical', order: 0, glyph: 'pump' }),
+      node('p', { role: 'membraneProtein', site: 'pieces/plasma-membrane.apical', order: 0, skin: 'pump' }),
       node('card', { role: 'cytosolic', site: 'pieces/metabolism', order: 1, position: { x: 1, y: 2 } }),
       node('other', { role: 'region' }),
     ]
@@ -113,7 +113,7 @@ describe('physiological view edits', () => {
     const next = valid(raw)
     expect(edits.strandedBy(next).map((n) => n.id)).toEqual(['p'])
     expect(await edits.editPieces(next, 'bio-pieces-remove')).toBe(true)
-    expect(bioView('p')).toEqual({ role: 'membraneProtein', glyph: 'pump', facet: null })
+    expect(bioView('p')).toEqual({ role: 'membraneProtein', skin: 'pump', facet: null })
     expect(bioView('card').site).toBe('pieces/metabolism')
     expect(history.undoLabel).toBe('Remove piece')
     await history.undo()
@@ -122,7 +122,7 @@ describe('physiological view edits', () => {
       role: 'membraneProtein',
       site: 'pieces/plasma-membrane.apical',
       order: 0,
-      glyph: 'pump',
+      skin: 'pump',
     })
   })
 

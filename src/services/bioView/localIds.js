@@ -1,11 +1,11 @@
 /**
- * The ids of what the user keeps of their own on this device, templates and glyph libraries: their own id with a
+ * The ids of what the user keeps of their own on this device, templates and skin libraries: their own id with a
  * 'local:' prefix, so it never collides with a built-in one.
  */
 
 import { TEMPLATE_ID } from './pieces/constants.js'
 
-/** Prefixes the id of a template or glyph library from the user's own library. */
+/** Prefixes the id of a template or skin library from the user's own library. */
 export const LOCAL_TEMPLATE_PREFIX = 'local:'
 
 /**

@@ -306,7 +306,7 @@ describe('useWorkspaceClipboard', () => {
 
     it('keeps the reservoir state and role of pasted nodes, not their place', async () => {
       const overlay = { heldConstant: true }
-      const bioView = { role: 'membraneProtein', glyph: 'pump', site: 'bt-1/cell.apical', order: 0 }
+      const bioView = { role: 'membraneProtein', skin: 'pump', site: 'bt-1/cell.apical', order: 0 }
       findNode('dndnode_0').data = { ...findNode('dndnode_0').data, annotationOverlay: overlay, bioView }
       select(['dndnode_0'])
       await clipboard.copySelection()
@@ -315,7 +315,7 @@ describe('useWorkspaceClipboard', () => {
 
       const pasted = nodes.value.at(-1)
       expect(pasted.data.annotationOverlay).toEqual({ heldConstant: true })
-      expect(pasted.data.bioView).toEqual({ role: 'membraneProtein', glyph: 'pump' })
+      expect(pasted.data.bioView).toEqual({ role: 'membraneProtein', skin: 'pump' })
       expect(findNode('dndnode_0').data.bioView).toEqual(bioView)
     })
 

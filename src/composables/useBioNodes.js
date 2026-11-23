@@ -6,7 +6,7 @@ import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { readNodeSeries } from '../services/simulation/variableMapping'
 import { flowDirection, transportedSpecies } from '../services/bioView/transport'
 import { facePoint, handleFace } from '../services/bioView/faces'
-import { getGlyph } from '../services/bioView/glyphs'
+import { getSkin } from '../services/bioView/skinRegistry'
 import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/species'
 import {
   cellHintAt,
@@ -19,7 +19,7 @@ import {
   routeSpecies,
 } from '../services/bioView/speciesLayout'
 import { getHandleId } from '../utils/handles'
-import { GLYPH_HEIGHT, GLYPH_WIDTH, proteinLabelWidth } from '../services/bioView/geometry'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH, proteinLabelWidth } from '../services/bioView/geometry'
 import { whole } from '../services/bioView/drop'
 import { CARD, PROCESS_INSET, layoutPhysiology, processSize } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
@@ -87,6 +87,7 @@ function pieceData(place) {
     edge,
     ...(place.resize && { resize: place.resize }),
     ...(place.skin && { skin: place.skin }),
+    ...(place.membraneSkin && { membraneSkin: place.membraneSkin }),
     ...(place.shape && place.kind === 'region' && { shape: place.shape }),
   }
   if (place.kind === 'region') {
@@ -95,7 +96,6 @@ function pieceData(place) {
           ...data,
           form: 'inner',
           ...(place.cutout && { cutout: place.cutout }),
-          ...(place.clip && { clip: place.clip }),
         }
       : data
   }
@@ -105,7 +105,6 @@ function pieceData(place) {
     zones: [],
     ...(place.hintAt && { hintAt: { ...place.hintAt } }),
     ...(place.folds && { folds: place.folds }),
-    ...(place.outline && { outline: place.outline }),
   }
 }
 
@@ -121,7 +120,7 @@ function zonesIn(place) {
  *
  * @param {Map<string, Object>} byId - The diagram's nodes by id.
  * @param {Map<string, Object>} layout - From layoutPhysiology.
- * @param {Map<string, Array<Object>>} transport - Node id -> its cartoon's arrows.
+ * @param {Map<string, Array<Object>>} transport - Node id -> its symbol's arrows.
  * @returns {(id: string) => {name: string, detail: string}}
  */
 const viewLabels = (byId, layout, transport) => (id) => ({
@@ -138,7 +137,7 @@ const viewLabels = (byId, layout, transport) => (id) => ({
  * @param {Array<Object>} nodes - The diagram's nodes.
  * @param {Map<string, Object>} roles - Node id -> resolveBioRole's result.
  * @param {Map<string, Object>} layout - From layoutPhysiology.
- * @param {Map<string, Array<Object>>} [transport] - Node id -> what its cartoon's arrows show (see useBioNodes).
+ * @param {Map<string, Array<Object>>} [transport] - Node id -> what its symbol's arrows show (see useBioNodes).
  * @param {Object} [options]
  * @param {boolean} [options.selection=true] - Whether each node says if it is selected; useBioNodes adds that
  *   itself, so a selection doesn't lay the nodes out again.
@@ -254,6 +253,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             ...(place.joint
               ? {
                   joint: place.joint,
+                  jointSkin: place.jointSkin,
                   tone: place.tone,
                   ...(place.channel && {
                     channel: { ...place.channel, from: shift(place.channel.from), to: shift(place.channel.to) },
@@ -339,12 +339,12 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           ...base(id),
           type: 'bioProtein',
           parentNode: place.cell,
-          position: { x: place.x - GLYPH_WIDTH / 2 - cell.x, y: place.y - GLYPH_HEIGHT / 2 - cell.y },
-          width: GLYPH_WIDTH,
-          height: GLYPH_HEIGHT,
+          position: { x: place.x - SYMBOL_WIDTH / 2 - cell.x, y: place.y - SYMBOL_HEIGHT / 2 - cell.y },
+          width: SYMBOL_WIDTH,
+          height: SYMBOL_HEIGHT,
           data: {
             ...base(id).data,
-            glyph: roles.get(id)?.glyph ?? 'generic',
+            skin: roles.get(id)?.skin ?? 'generic',
             arrows: transport.get(id) ?? [],
             facet: place.facet,
             annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
@@ -360,11 +360,11 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           ...base(id),
           type: 'bioProtein',
           position: { x: place.x, y: place.y },
-          width: GLYPH_WIDTH,
-          height: GLYPH_HEIGHT,
+          width: SYMBOL_WIDTH,
+          height: SYMBOL_HEIGHT,
           data: {
             ...base(id).data,
-            glyph: roles.get(id)?.glyph ?? 'generic',
+            skin: roles.get(id)?.skin ?? 'generic',
             arrows: transport.get(id) ?? [],
             annotatedFacet: roles.get(id)?.annotatedFacet ?? null,
             rotation: 0,
@@ -377,23 +377,24 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const cell = layout.get(place.cell).rect
         // One bound to a zone of the pieces can be dragged out of it, to another site or none.
         const bound = !!place.instance
-        const glyph = roles.get(id)?.glyph ?? null
-        // In a process zone of the pieces: its cartoon, named under it, as a protein on a membrane is.
-        if (place.glyph) {
+        const skin = roles.get(id)?.skin ?? null
+        // In a process zone of the pieces: its symbol, named under it, as a protein on a membrane is.
+        if (place.symbol) {
           children.push({
             ...base(id),
             type: 'bioProtein',
             parentNode: place.cell,
             position: { x: place.x - cell.x, y: place.y - cell.y },
-            width: GLYPH_WIDTH,
-            height: GLYPH_HEIGHT,
+            width: SYMBOL_WIDTH,
+            height: SYMBOL_HEIGHT,
             data: {
               ...base(id).data,
-              glyph: glyph ?? 'generic',
+              // A zone has no plain card: a process chosen to have no skin is drawn as a process there.
+              skin: skin ?? 'process',
               annotatedFacet: null,
               rotation: 0,
               droppable: true,
-              // Its badge kept on its cartoon, off the zone's name above it.
+              // Its badge kept on its symbol, off the zone's name above it.
               inset: true,
             },
           })
@@ -411,7 +412,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           width: CARD.width,
           height: CARD.height,
           // Drawn as part of its cell, not as a card left on it.
-          data: { ...base(id).data, inside: true, ...(glyph && { glyph }), ...(bound && { droppable: true }) },
+          data: { ...base(id).data, inside: true, ...(skin && { skin }), ...(bound && { droppable: true }) },
         })
         break
       }
@@ -429,6 +430,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             data: {
               ...base(id).data,
               joint: place.joint,
+              jointSkin: place.jointSkin,
               tone: layout.get(place.link).tone,
               vertical: !!layout.get(place.link).channel?.vertical,
               // A conduit's vessel runs along its tube's whole way, drawn from the joint's own corner.
@@ -477,7 +479,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             width: cell.width,
             height: cell.height,
             ...(layout.get(place.cell).folds && { folds: layout.get(place.cell).folds }),
-            ...(layout.get(place.cell).outline && { outline: layout.get(place.cell).outline }),
+            ...(layout.get(place.cell).membraneSkin && { membraneSkin: layout.get(place.cell).membraneSkin }),
           },
         })
         break
@@ -504,9 +506,9 @@ function boxOf(place) {
     case 'link':
       return place.rect
     case 'protein':
-      return { x: place.x - GLYPH_WIDTH / 2, y: place.y - GLYPH_HEIGHT / 2, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+      return { x: place.x - SYMBOL_WIDTH / 2, y: place.y - SYMBOL_HEIGHT / 2, width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
     case 'tray':
-      return { x: place.x, y: place.y, width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+      return { x: place.x, y: place.y, width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
     case 'cytosolic':
       return { x: place.x, y: place.y, ...processSize(place) }
     case 'card':
@@ -550,7 +552,7 @@ function couplingNames(edge, byId) {
  * @param {Map<string, Object>} layout - From layoutBioView.
  * @param {Set<string>} selected - The selected nodes' ids.
  * @param {Function} sidecarOf - Node -> its module's parsed sidecar, or null.
- * @param {Function} [facesOf] - Node id -> its glyph's face anchors, if it has any.
+ * @param {Function} [facesOf] - Node id -> its symbol's face anchors, if it has any.
  * @returns {{edges: Array<Object>, handles: Map<string, Array<{id: string, x: number, y: number}>>}} vue-flow
  *   edges, and each node's handles in its own coordinates.
  */
@@ -586,7 +588,7 @@ export function focusCouplings(nodes, edges, layout, selected, sidecarOf, facesO
         const node = byId.get(end.nodeId)
         const handle = node?.data?.handles?.find((h) => getHandleId(h) === end.handleId)
         const face = handle ? handleFace(end.nodeId, handle, [edge], sidecarOf(node)) : null
-        const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+        const size = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
         // No face to leave from (nothing couples it, or the faces tie): from its centre
         if (face) Object.assign(end, facePoint(end.place, face, size, facesOf(end.nodeId)))
         else end.point = { x: end.place.x, y: end.place.y }
@@ -728,7 +730,7 @@ export function useBioNodes(
       }),
     )
   })
-  /** How the pieces are laid out with the nodes on them: the shapes, the nodes and their names' widths. */
+  /** How the pieces are laid out with the nodes on them: the nodes and their names' widths. */
   const pieceLayoutOptions = computed(() => {
     const byId = new Map(nodes.value.map((node) => [node.id, node]))
     // What a protein carries shows under its name, so it spaces neighbours too.
@@ -740,7 +742,7 @@ export function useBioNodes(
         .join(' · ')
     }
     const widthOf = (id) => proteinLabelWidth(byId.get(id)?.data?.name ?? id, detailOf(id))
-    return { shapes: piecesStore.shapes, nodes: nodes.value, widthOf, detailOf }
+    return { nodes: nodes.value, widthOf, detailOf }
   })
   const physiology = computed(() => {
     const { detailOf, ...options } = pieceLayoutOptions.value
@@ -789,11 +791,11 @@ export function useBioNodes(
     )
   })
   const sidecarOf = (node) => (node?.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null)
-  const facesOf = (id) => getGlyph(roles.value.get(id)?.glyph)?.faces
-  // What a protein's cartoon's arrows carry, in order, and where it spreads them.
+  const facesOf = (id) => getSkin(roles.value.get(id)?.skin)?.faces
+  // What a protein's symbol's arrows carry, in order, and where it spreads them.
   const arrowsOf = (id) => ({
     species: (carriedArrows.value.get(id) ?? []).map((arrow) => arrow.species),
-    room: (getGlyph(roles.value.get(id)?.glyph) ?? getGlyph('generic'))?.arrowRoom,
+    room: (getSkin(roles.value.get(id)?.skin) ?? getSkin('generic'))?.arrowRoom,
   })
 
   // Whether any compartment annotates species of its own, so species mode has something to show.

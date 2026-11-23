@@ -5,7 +5,7 @@ import { layoutBioView } from '../../../../src/services/bioView/layout.js'
 import { siteLinks } from '../../../../src/services/bioView/links.js'
 
 const node = (id) => ({ id, data: { name: id } })
-const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
+const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, skin: null, ...extra })
 
 /** The roles of a node-owned cell with a membrane, two apical proteins, one basolateral, a process and a lumen. */
 const ALL = {

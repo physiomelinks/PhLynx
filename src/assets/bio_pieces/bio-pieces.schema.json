@@ -178,7 +178,7 @@
           ]
         },
         "skin": {
-          "description": "Artwork the piece is drawn with: an SVG skin of the workspace's, by its id.",
+          "description": "The skin the piece is drawn with, by its id: an area skin for a compartment, a line skin for a membrane; \"none\" for none on a compartment.",
           "type": "object",
           "required": [
             "ref"
@@ -186,7 +186,7 @@
           "properties": {
             "ref": {
               "type": "string",
-              "pattern": "^[a-z][a-z0-9-]{0,47}$"
+              "pattern": "^(?:local:)?[a-z][a-z0-9-]{0,47}$"
             },
             "mode": {
               "enum": [
@@ -335,7 +335,7 @@
           }
         },
         "skin": {
-          "description": "Artwork the piece is drawn with: an SVG skin of the workspace's, by its id.",
+          "description": "The skin the piece is drawn with, by its id: an area skin for a compartment, a line skin for a membrane; \"none\" for none on a compartment.",
           "type": "object",
           "required": [
             "ref"
@@ -343,7 +343,7 @@
           "properties": {
             "ref": {
               "type": "string",
-              "pattern": "^[a-z][a-z0-9-]{0,47}$"
+              "pattern": "^(?:local:)?[a-z][a-z0-9-]{0,47}$"
             },
             "mode": {
               "enum": [
@@ -483,6 +483,31 @@
               "y": {
                 "type": "number"
               }
+            }
+          }
+        },
+        "skin": {
+          "description": "The skin its joint is drawn with where its two ends touch, by its id.",
+          "type": "object",
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^(?:local:)?[a-z][a-z0-9-]{0,47}$"
+            },
+            "mode": {
+              "enum": [
+                "contain",
+                "cover",
+                "stretch"
+              ]
+            },
+            "opacity": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
             }
           }
         },

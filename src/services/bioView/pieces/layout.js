@@ -16,8 +16,8 @@ import { cellHint, CARD, GAP, processZone, REGION_HEIGHT, SIDE_REGION_WIDTH, SUR
 import {
   CELL_RADIUS,
   FOLD,
-  GLYPH_HEIGHT,
-  GLYPH_WIDTH,
+  SYMBOL_HEIGHT,
+  SYMBOL_WIDTH,
   MEMBRANE_BAND_HALF,
   MIN_CELL,
   fitCellRect,
@@ -30,8 +30,9 @@ import {
 import { LABEL_GAP } from '../metrics.js'
 import { byName, inSlotOrder } from '../scaffold.js'
 import { parseSiteRef } from '../siteRefs.js'
-import { withFolds, withOutline } from '../shape.js'
-import { pathOf } from '../shapeGeometry.js'
+import { withFolds } from '../shape.js'
+import { contextOfPiece } from '../skinContext.js'
+import { resolveSkin } from '../skinRegistry.js'
 import { INNER_INSET, LIMITS, isDefaultZoneLabel } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
@@ -63,14 +64,14 @@ const FRAMED_MIN = Object.freeze({ width: 3 * CELL_RADIUS, height: 3 * CELL_RADI
 /** How big a compartment standing freely is drawn unless its frame says. */
 const FREE_COMPARTMENT = Object.freeze({ width: 320, height: REGION_HEIGHT })
 /** Room round what stands inside a compartment, for its proteins' names, and between two in a row. */
-const ROOM = GLYPH_HEIGHT / 2 + 36
+const ROOM = SYMBOL_HEIGHT / 2 + 36
 /** How far a compartment docked inside a membrane reaches unless it says (it starts INNER_INSET in). */
 const INNER_DEPTH = 84
 /**
  * How far clear of a fold's walls and end what stands in its cell keeps: the membrane's band and the proteins on the
  * walls, which stand half out into the cell.
  */
-const FOLD_CLEARANCE = GLYPH_WIDTH / 2 + MEMBRANE_BAND_HALF
+const FOLD_CLEARANCE = SYMBOL_WIDTH / 2 + MEMBRANE_BAND_HALF
 /** How many times a cell is laid out again to fit what stands in it round its folds, which move as it grows. */
 const FIT_PASSES = 8
 /** How far in from its container's corner a piece moved clear of a fold is kept. */
@@ -81,7 +82,7 @@ const FOLD_REACH = 46
 const BAND_OVERRUN = GAP
 /** The room a tube leaves for its module, and a joint between two compartments that touch. */
 const TUBE_ZONE = Object.freeze({ width: CARD.width + 16, height: CARD.height + 16 })
-/** The least height a process zone is drawn: a row of cartoons with their names, as one spanning its cell is. */
+/** The least height a process zone is drawn: a row of symbols with their names, as one spanning its cell is. */
 const ZONE_HEIGHT = processZone({ x: 0, y: 0, width: 0 }, 0).height
 /**
  * How far a process zone keeps from the edge of its compartment (past a membrane's band and the proteins on it) and
@@ -523,14 +524,14 @@ function makeRoom(framed, rel) {
   }
 }
 
-/** Room along a process zone's row for a cartoon with its name under it, a spare place's as a short name's. */
-const zoneRoom = (width) => Math.max(GLYPH_WIDTH, width) + LABEL_GAP
+/** Room along a process zone's row for a symbol with its name under it, a spare place's as a short name's. */
+const zoneRoom = (width) => Math.max(SYMBOL_WIDTH, width) + LABEL_GAP
 
 /** How long a process zone's row is, for the names of its processes and a spare place past them. */
 const zoneLength = (widths) => [...widths, 0].reduce((sum, width) => sum + zoneRoom(width), 0)
 
 /**
- * Where the cartoons in a process zone's row go, with a spare place past them: their top-lefts, in from the zone's
+ * Where the symbols in a process zone's row go, with a spare place past them: their top-lefts, in from the zone's
  * corner, each centred in the room its name takes under it.
  *
  * @param {{x: number, y: number}} zone
@@ -541,7 +542,7 @@ function zoneSlots(zone, widths) {
   let x = zone.x + CELL_RADIUS / 2
   return [...widths, 0].map((width) => {
     const room = zoneRoom(width)
-    const slot = { x: x + (room - GLYPH_WIDTH) / 2, y: zone.y + ZONE_ROW_TOP }
+    const slot = { x: x + (room - SYMBOL_WIDTH) / 2, y: zone.y + ZONE_ROW_TOP }
     x += room
     return slot
   })
@@ -583,16 +584,15 @@ export function boundToPieces(pieces, nodes) {
  *
  * @param {ReadonlyArray<Object>} pieces - Validated (see validatePieces).
  * @param {Object} [options]
- * @param {Map<string, Object>} [options.shapes] - Skin id -> the geometry it gives (see the template store's shapes).
  * @param {Array<{id: string, data?: Object}>} [options.nodes] - The diagram's nodes: those bound to a site of the
  *   pieces are drawn on it (see boundToPieces).
- * @param {(id: string) => number} [options.widthOf] - How wide a node's name is drawn under its cartoon.
+ * @param {(id: string) => number} [options.widthOf] - How wide a node's name is drawn under its symbol.
  * @returns {{places: Map<string, Object>, rects: Map<string, Object>, sites: Array<Object>}} places: by pieceKey, or
  *   by the node on a piece that takes one module, and the nodes bound to sites (a protein, a process card, a tube's
  *   module, a membrane's); rects: piece id -> where it is drawn (a bulk has its membrane's); sites: every site, as
  *   layoutPhysiology gives a template's, for the drop prompts.
  */
-export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf = () => 0 } = {}) {
+export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
   const topology = topologyOf(pieces)
   const { occupants } = boundToPieces(pieces, nodes)
   const byId = new Map(pieces.map((piece) => [piece.id, piece]))
@@ -605,6 +605,14 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
   /** A compartment that stands by its own frame: neither docked nor filling a membrane. */
   const isFree = (piece) => piece.kind === 'compartment' && !isDocked(piece) && !isEnclosed(piece)
   const sitePath = (piece) => (piece.site === false ? null : pieceSiteRef(piece.id))
+  /** The line skin a membrane is drawn with (see resolveSkin): a lipid bilayer unless chosen otherwise. */
+  const membraneSkinOf = (membrane) => resolveSkin(contextOfPiece(topology, membrane.id), membrane.skin)?.id ?? 'bilayer'
+  /** The area skin a compartment is drawn with (see resolveSkin), as a piece's skin is kept; null for none. */
+  const areaSkinOf = (compartment) => {
+    const skin = compartment && resolveSkin(contextOfPiece(topology, compartment.id), compartment.skin)
+    if (skin?.renderer !== 'area') return null
+    return compartment.skin?.ref === skin.id ? compartment.skin : { ref: skin.id }
+  }
 
   // What stands in each compartment, or on the canvas (''), by its own frame or in a row: membranes, free
   // compartments and process zones.
@@ -640,8 +648,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     shape = withFolds(shape, (facet) => ({
       depth: Math.max(facet.depth ?? FOLD.depth, foldDepthFor((occupants.get(facet.id) ?? []).length)),
     }))
-    const drawn = membrane.skin && shapes.get(membrane.skin.ref)
-    shapeOf.set(membrane.id, drawn ? withOutline(shape, drawn) : shape)
+    shapeOf.set(membrane.id, shape)
   }
   /** Proteins per facet of a membrane's shape, and their names' widths. */
   const facetPath = (membraneId, facet) => (facet.fold ? facet.id : spanPath(membraneId, facet.id))
@@ -821,7 +828,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       }
     }
     const zoneBottoms = zones.map((zone) => bottomOf(rel.get(zone.id)))
-    const below = containerId ? Math.max(GLYPH_HEIGHT + 40, ...zoneBottoms) + ROOM : 0
+    const below = containerId ? Math.max(SYMBOL_HEIGHT + 40, ...zoneBottoms) + ROOM : 0
     // The rest without a frame in a row below the zones; on the canvas, side by side from its corner.
     let x = containerId ? CELL_RADIUS + ROOM : 0
     for (const piece of others.filter((piece) => !piece.frame)) {
@@ -848,13 +855,10 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     if (sizes.has(piece.id)) return sizes.get(piece.id)
     if (piece.kind === 'membrane') {
       const least = piece.frame ? FRAMED_MIN : piece.parent ? ORGANELLE_MIN : MIN_CELL
-      const skin = piece.skin && shapes.get(piece.skin.ref)
       const base = piece.frame ? { width: piece.frame.width, height: piece.frame.height } : { ...least }
-      let size = skin
-        ? { width: skin.width, height: skin.height }
-        : fitCellRect({ x: 0, y: 0, ...base }, countsOf(piece.id), shapeOf.get(piece.id), widthsOf(piece.id), least)
+      let size = fitCellRect({ x: 0, y: 0, ...base }, countsOf(piece.id), shapeOf.get(piece.id), widthsOf(piece.id), least)
       const bulk = topology.bulkOf(piece.id)
-      if (bulk && !skin) {
+      if (bulk) {
         // Grown for what stands in it; and again while that moves round its folds, which move as it grows. Its size is
         // found afresh each time, as a fold that reached what stands in a cell not yet as big as it will be may not.
         // Where it comes back to a size it was, what stands in it goes one way round a fold at one size and the
@@ -952,7 +956,6 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
   // Docked compartments, drawn from their docks: inside ones in from the stretches they are docked to, outside ones
   // out from them.
   const cutouts = new Map()
-  const clips = new Map()
   /**
    * The gap between the wall of a fold a compartment is docked into and the side of a membrane it is docked out from,
    * where the two face each other across it: from the side to the wall, over the stretch both reach.
@@ -1078,21 +1081,6 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       const rect = rects.get(target.id)
       if (!rect) continue
       if (dock.face === 'inside') {
-        // A skin may draw the area itself.
-        const area = target.skin && shapes.get(target.skin.ref)?.regions?.[compartment.id]
-        if (area) {
-          parts.push({
-            x: rect.x + area.bounds.x,
-            y: rect.y + area.bounds.y,
-            width: area.bounds.width,
-            height: area.bounds.height,
-          })
-          clips.set(
-            compartment.id,
-            area.points.map((point) => ({ x: point.x - area.bounds.x, y: point.y - area.bounds.y })),
-          )
-          continue
-        }
         const depth = compartment.depth ?? INNER_DEPTH
         const [p, q] = sideLine(rect, dock.side, dock.from, dock.to, -INNER_INSET)
         const [r] = sideLine(rect, dock.side, dock.from, dock.from, -INNER_INSET - depth)
@@ -1194,7 +1182,6 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     const bulkId = topology.bulkOf(membrane.id)
     const bulk = bulkId && byId.get(bulkId)
     const shape = shapeOf.get(membrane.id)
-    const drawn = membrane.skin && shapes.get(membrane.skin.ref)
     const key = cellKeyOf(membrane.id)
     // Each fold in the membrane's own coordinates, in the colour of what fills it.
     const folds = ofKind('fold')
@@ -1207,12 +1194,11 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     const within = (standing.get(bulkId) ?? [])
       .filter((piece) => piece.kind !== 'zone')
       .map((piece) => ({ rect: rects.get(piece.id) }))
-    const anchor = drawn?.anchors?.name
     const membraneNode = membrane.site === false ? null : occupantOf(membrane.id)
     places.set(key, {
       kind: 'cell',
       ...own,
-      ...handling(membrane.id, drawn ? null : FRAME_RESIZE),
+      ...handling(membrane.id, FRAME_RESIZE),
       piece: membrane.id,
       path: membrane.id,
       bulk: bulkId ?? null,
@@ -1227,20 +1213,18 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       label: bulk?.label ?? membrane.label,
       tone: null,
       ...(membrane.parent && { parent: keyOfCompartment(membrane.parent) }),
-      ...(bulk?.skin || membrane.skin ? { skin: membrane.skin ?? bulk.skin } : {}),
-      ...(drawn && { outline: pathOf(drawn.outline) }),
-      hintAt: anchor
-        ? { x: anchor.x + anchor.width / 2, y: anchor.y + anchor.height / 2 }
-        : membrane.parent
-          ? { x: rect.width / 2, y: rect.height / 2 + 10 }
-          : cellHint(rect, [...zonesIn(bulkId), ...within]),
-      // A span along part of its side, or along a stretch a skin draws, is named out from its own middle.
+      membraneSkin: membraneSkinOf(membrane),
+      // Its inside's skin: a cell with no bulk, its inside all docked compartments, has none of its own.
+      ...(areaSkinOf(bulk) && { skin: areaSkinOf(bulk) }),
+      hintAt: membrane.parent
+        ? { x: rect.width / 2, y: rect.height / 2 + 10 }
+        : cellHint(rect, [...zonesIn(bulkId), ...within]),
+      // A span along part of its side is named out from its own middle.
       facetLabels: topology
         .spansOf(membrane.id)
         .filter((span) => span.site !== false)
         .map((span) => {
-          const facet = shape.facets.find((each) => each.id === span.id)
-          if (!facet.path && span.from === 0 && span.to === 1)
+          if (span.from === 0 && span.to === 1)
             return { facetId: span.id, label: span.label, edge: span.side }
           const middle = proteinPlacement(rect, span.id, 0, 1, shape)
           return {
@@ -1333,8 +1317,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
           edge: compartment.docks.find((dock) => dock.side)?.side ?? 'top',
         }),
       ...(cutouts.has(compartment.id) && { cutout: cutouts.get(compartment.id) }),
-      ...(clips.has(compartment.id) && { clip: clips.get(compartment.id) }),
-      ...(compartment.skin && { skin: compartment.skin }),
+      ...(areaSkinOf(compartment) && { skin: areaSkinOf(compartment) }),
       ...(compartment.style === 'vessel' && { shape: 'tube' }),
       label: compartment.label,
     })
@@ -1364,12 +1347,12 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       named: !isDefaultZoneLabel(zone.label),
       label: zone.label,
     })
-    // Its processes in a row along its top, each drawn as its cartoon with its name under it, as a protein is.
+    // Its processes in a row along its top, each drawn as its symbol with its name under it, as a protein is.
     const row = zoneSlots(rect, members.map(widthOf))
     members.forEach((id, order) => {
       places.set(id, {
         kind: 'cytosolic',
-        glyph: true,
+        symbol: true,
         cell: host,
         order,
         ...row[order],
@@ -1379,7 +1362,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     })
     if (zone.site === false) continue
     const slots = row.map((slot, order) => ({ ...slot, spare: order === members.length }))
-    offer(zone.id, 'cytosolic', 'slots', zone.label, host, { cell: host, process: zone.id, glyph: true, slots, rect })
+    offer(zone.id, 'cytosolic', 'slots', zone.label, host, { cell: host, process: zone.id, symbol: true, slots, rect })
   }
 
   // ── 3. Tubes ──────────────────────────────────────────────────────────
@@ -1389,9 +1372,6 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     // A joint stays on the straight of both sides it is on, clear of their rounded corners: a cell's, its membrane's.
     const radii = tube.ends.map((id) => (bulks.has(id) ? CELL_RADIUS : REGION_RADIUS))
     const touch = contact(a, b, { radii, size: TUBE_ZONE, least: 2 * BRIDGE_HALF })
-    // A skin may anchor it, as the rod's cilium.
-    const host = [tube.ends[0], tube.ends[1]].map((id) => byId.get(topology.enclosureOf(id))).find(Boolean)
-    const anchor = host?.skin && shapes.get(host.skin.ref)?.anchors?.[tube.id]
     const key = pieceKey(tube.id)
     const node = occupantOf(tube.id)
     const base = {
@@ -1403,6 +1383,8 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       empty: !node,
       flow: tube.flux,
       label: tube.label,
+      // The skin its joint is drawn with, where it has one (see BioJointSymbol).
+      jointSkin: resolveSkin(contextOfPiece(topology, tube.id), tube.skin)?.id ?? null,
     }
     let zone
     let joint = null
@@ -1415,7 +1397,6 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     const channel =
       tube.flux === 'bridge' &&
       !touch &&
-      !anchor &&
       cells.length === 2 &&
       cells.every((id) => id && rects.get(id)) &&
       bridgeChannel(rects.get(cells[0]), rects.get(cells[1]))
@@ -1435,18 +1416,15 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       joint = tube.flux
       const rect = boxOf([zone, channelBox(channel)])
       places.set(key, { ...base, rect, joint, tone: byId.get(tube.ends[0]).tone, zone, channel })
-    } else if (touch || anchor) {
-      const hostRect = host && rects.get(host.id)
-      zone = anchor
-        ? zoneAt({ x: hostRect.x + anchor.x + anchor.width / 2, y: hostRect.y + anchor.y + anchor.height / 2 })
-        : zoneAt(touch, touch.size)
+    } else if (touch) {
+      zone = zoneAt(touch, touch.size)
       joint = tube.flux
       places.set(key, { ...base, rect: zone, joint, tone: byId.get(tube.ends[0]).tone, zone })
     } else {
       const points = routeTube(a, b, tube.bends ?? [])
       // Bent by the user, its room is at its bend; else midway along its way, clear of its ends.
       const centre = tube.bends?.length === 1 ? tube.bends[0] : pathMiddle(points)
-      // A flow runs along a conduit, drawn as a stretch of vessel along its way (see BioJointGlyph): its room turned
+      // A flow runs along a conduit, drawn as a stretch of vessel along its way (see BioJointSymbol): its room turned
       // to run down a way that runs down.
       conduit = tube.flux === 'flow' ? runAt(points, centre) : null
       const size = conduit?.vertical ? { width: TUBE_ZONE.height, height: TUBE_ZONE.width } : TUBE_ZONE
@@ -1476,6 +1454,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         ...(joint && { joint }),
         ...(broken && { joint: tube.flux, broken: true }),
         ...(conduit && { joint: 'conduit', conduit }),
+        jointSkin: base.jointSkin,
         x: zone.x + (zone.width - CARD.width) / 2,
         y: zone.y + (zone.height - CARD.height) / 2,
         ...own,

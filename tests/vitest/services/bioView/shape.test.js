@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   FACET_INSET,
   FACET_PARTS,
-  GLYPH_WIDTH,
+  SYMBOL_WIDTH,
   MIN_CELL,
   SLOT_PITCH,
   fitCellRect,
@@ -109,7 +109,7 @@ describe('geometry of another shape', () => {
   it('grows only across for facets along its top and bottom', () => {
     expect(fitCellRect({ x: 1, y: 2, width: 0, height: 0 }, {}, SLAB)).toEqual({ x: 1, y: 2, ...MIN_CELL })
     const wide = fitCellRect({ x: 0, y: 0, width: 0, height: 0 }, { outer: 2, inner: 6 }, SLAB)
-    expect(wide.width).toBe(6.5 * SLOT_PITCH + GLYPH_WIDTH + 2 * FACET_INSET)
+    expect(wide.width).toBe(6.5 * SLOT_PITCH + SYMBOL_WIDTH + 2 * FACET_INSET)
     expect(wide.height).toBe(MIN_CELL.height)
     // Counts for facets it doesn't have are ignored.
     expect(fitCellRect({ x: 0, y: 0, width: 0, height: 0 }, { 'lateral-left': 9 }, SLAB)).toMatchObject(MIN_CELL)

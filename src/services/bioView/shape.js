@@ -48,22 +48,6 @@ export function withFolds(shape, drawnAs) {
 }
 
 /**
- * Gives a shape drawn to a skin's geometry: its outline, and each facet the skin has a stretch of membrane for
- * running along that stretch in place of a side of the cell's box.
- *
- * @param {Object} shape
- * @param {{outline: Array<Object>, facets: Object<string, Array<Object>>}} geometry - From readShape, in the cell's
- *   own coordinates.
- * @returns {Object}
- */
-export function withOutline(shape, geometry) {
-  const facets = shape.facets.map((facet) =>
-    geometry.facets[facet.id] ? Object.freeze({ ...facet, path: geometry.facets[facet.id] }) : facet,
-  )
-  return Object.freeze({ ...shape, facets: Object.freeze(facets), outline: geometry.outline })
-}
-
-/**
  * The shape of an epithelial cell: the geometry the cells a module owns (not built from pieces) are drawn with, and
  * that annotations name the sides of.
  */

@@ -9,8 +9,8 @@
 
 import {
   CELL_RADIUS,
-  GLYPH_HEIGHT,
-  GLYPH_WIDTH,
+  SYMBOL_HEIGHT,
+  SYMBOL_WIDTH,
   MIN_CELL,
   fitCellRect,
   partOf,
@@ -24,11 +24,11 @@ import { EPITHELIAL_SHAPE, facetById, facetOfAnnotation, facetsInGroup } from '.
 /** Size of a card for an instance with no physiological shape. */
 export const CARD = { width: 180, height: 72 }
 
-/** Size of a process drawn as its cartoon, named under it, as one in a process zone of the pieces is. */
-export const PROCESS_GLYPH = Object.freeze({ width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
+/** Size of a process drawn as its symbol, named under it, as one in a process zone of the pieces is. */
+export const PROCESS_SYMBOL = Object.freeze({ width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT })
 
-/** How big a process's place is drawn: as its cartoon where it says so (`glyph`), otherwise as a card. */
-export const processSize = (place) => (place?.glyph ? PROCESS_GLYPH : CARD)
+/** How big a process's place is drawn: as its symbol where it says so (`symbol`), otherwise as a card. */
+export const processSize = (place) => (place?.symbol ? PROCESS_SYMBOL : CARD)
 
 /** Height of a region's band. */
 export const REGION_HEIGHT = 140
@@ -189,7 +189,7 @@ export function compartmentRect(form, against, index, rects, depth = null, offse
 export function processSlot(rect, area, order) {
   return {
     x: rect.x + CELL_RADIUS + order * (CARD.width + 16),
-    y: rect.y + GLYPH_HEIGHT + 24 + area * (CARD.height + 16),
+    y: rect.y + SYMBOL_HEIGHT + 24 + area * (CARD.height + 16),
   }
 }
 
@@ -421,7 +421,7 @@ export function layoutPhysiology(
         kind: 'tray',
         ...(isPoint(stored)
           ? stored
-          : { x: anchor.left - GAP - GLYPH_WIDTH - GAP, y: anchor.top + i * (GLYPH_HEIGHT + 32) }),
+          : { x: anchor.left - GAP - SYMBOL_WIDTH - GAP, y: anchor.top + i * (SYMBOL_HEIGHT + 32) }),
       })
     })
 
@@ -448,7 +448,7 @@ export function layoutPhysiology(
  *   - { kind: 'cell', rect, membrane: nodeId|null, widths } (widths: its proteins' name widths per part)
  *   - { kind: 'membrane', cell } (drawn as the cell's outline)
  *   - { kind: 'protein', cell, facet, part, order, x, y, rotation, outward } (part: the facet id of the cell's
- *     shape; order: its slot in that part; x, y: the cartoon's centre)
+ *     shape; order: its slot in that part; x, y: the symbol's centre)
  *   - { kind: 'tray', x, y } (a protein in no membrane; x, y: its top-left)
  *   - { kind: 'cytosolic', cell, x, y }
  *   - { kind: 'region', side, adjacent, rect } (side: the facet it lies against)

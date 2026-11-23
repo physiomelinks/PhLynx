@@ -401,12 +401,12 @@
       @change="onSkinFile"
     />
     <input
-      ref="glyphFileInput"
+      ref="skinLibraryInput"
       type="file"
       accept=".json,application/json"
       hidden
-      data-testid="bio-glyph-file-input"
-      @change="onGlyphFile"
+      data-testid="bio-skin-library-input"
+      @change="onSkinLibraryFile"
     />
     <Dialog
       v-if="renaming"
@@ -562,11 +562,12 @@ import { TILE_DRAG_TYPE } from '../../services/bioView/palette'
 import { isLocalTemplateId } from '../../services/bioView/localIds'
 import { parseSiteRef } from '../../services/bioView/siteRefs'
 import { ROLE_LABELS } from '../../services/bioView/roles'
-import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
-import { glyphLibraryFile } from '../../services/bioView/glyphLibrary'
+import { contextOfPiece } from '../../services/bioView/skinContext'
+import { NO_SKIN, allSkins, allowsNoSkin, resolveSkin, skinsFor } from '../../services/bioView/skinRegistry'
+import { skinLibraryFile } from '../../services/bioView/skinLibrary'
 import {
-  GLYPH_HEIGHT,
-  GLYPH_WIDTH,
+  SYMBOL_HEIGHT,
+  SYMBOL_WIDTH,
   MEMBRANE_BAND_HALF,
   MIN_CELL,
   partOf,
@@ -583,7 +584,7 @@ import useDragAndDrop from '../../composables/useDnD'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { useAppSettings } from '../../composables/useAppSettings'
 import { useBioTemplateLibraryStore } from '../../stores/bioTemplateLibraryStore'
-import { useGlyphLibraryStore } from '../../stores/glyphLibraryStore'
+import { useSkinLibraryStore } from '../../stores/skinLibraryStore'
 import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
@@ -620,7 +621,7 @@ const history = useFlowHistoryStore()
 const libraryStore = useLibraryStore()
 const templateLibrary = useBioTemplateLibraryStore()
 const piecesStore = useBioPiecesStore()
-const glyphStore = useGlyphLibraryStore()
+const skinStore = useSkinLibraryStore()
 const { choose } = useConfirmDialog()
 const {
   applyNodeChanges,
@@ -1000,7 +1001,7 @@ const sitePrompts = computed(() => {
   const empty = { slots: [], areas: [], cells: [] }
   if (!draggingId.value) return empty
   const active = activeTarget.value
-  const glyph = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+  const symbol = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
   // A node-owned cell's slots, membrane and inside, while the pointer is over or near that cell.
   const near = new Set(nearCells.value ? nearCells.value.split('\n') : [])
   const activeCell = (active?.slot ?? active?.area)?.cellId
@@ -1013,7 +1014,7 @@ const sitePrompts = computed(() => {
       const { cellId, part, order } = target.slot
       const isActive = active?.slot?.cellId === cellId && active.slot.part === part && active.slot.order === order
       const { x, y, spare } = target
-      slots.push({ key: `${cellId}/${part}/${order}`, x, y, spare, ...glyph, active: isActive })
+      slots.push({ key: `${cellId}/${part}/${order}`, x, y, spare, ...symbol, active: isActive })
       continue
     }
     const { cellId, area, rect } = target
@@ -1030,7 +1031,7 @@ const sitePrompts = computed(() => {
   for (const target of siteTargets.value) {
     if (groupOf(target) !== piece) continue
     if (target.type === 'slot') {
-      const size = target.role === 'cytosolic' ? processSize(target) : glyph
+      const size = target.role === 'cytosolic' ? processSize(target) : symbol
       const { ref, x, y, order, spare } = target
       slots.push({ key: `${ref}#${order}`, ref, x, y, spare, ...size, active: isActive(target) })
       continue
@@ -1689,10 +1690,25 @@ function setChoices(ids, patch, type) {
 /** Shows nodes as a role. */
 const chooseRole = (ids, role) => setChoices(ids, { role }, 'bio-role')
 
-/** Draws nodes with a glyph, NO_GLYPH taking a process's away; a glyph from a loaded library joins the workspace. */
-function chooseGlyph(ids, glyph) {
-  glyphStore.adoptGlyph(glyph)
-  return setChoices(ids, { glyph }, 'bio-glyph')
+/**
+ * Draws nodes with a skin, NO_SKIN for none, as one step: a protein or process by its own choice, any other node by
+ * its piece's (see skinnedPieceOfNode). A skin from a loaded library joins the workspace.
+ *
+ * @param {string[]} ids - Nodes of the view; all one thing, as the properties panel and menus choose for.
+ * @param {string} skin - A skin's id, or NO_SKIN.
+ */
+function chooseSkin(ids, skin) {
+  const modules = ids.filter((id) => main.findNode(id) && !isJointNode(id) && roles.value.get(id)?.skinContext)
+  if (!modules.length) {
+    let pieces = piecesStore.pieces
+    for (const id of new Set(ids.map(skinnedPieceOfNode).filter(Boolean))) {
+      const piece = pieces?.find((each) => each.id === id)
+      pieces = piece ? skinPiece(pieces, id, pieceSkinFor(piece, skin)) : pieces
+    }
+    return keepEdit(pieces === piecesStore.pieces ? null : pieces, 'bio-pieces-skin', 'Could not change its skin')
+  }
+  skinStore.adoptSkin(skin)
+  return setChoices(modules, { skin }, 'bio-skin')
 }
 
 /** Somewhere left of the cells, below any proteins already there, for one taken out of its membrane. */
@@ -1702,8 +1718,8 @@ function trayPosition() {
   const top = cells.length ? Math.min(...cells.map((rect) => rect.y)) : 0
   const loose = [...layout.value.values()].filter((place) => place.kind === 'tray').length
   return {
-    x: left - 2 * GAP - GLYPH_WIDTH,
-    y: top + loose * (GLYPH_HEIGHT + 32),
+    x: left - 2 * GAP - SYMBOL_WIDTH,
+    y: top + loose * (SYMBOL_HEIGHT + 32),
   }
 }
 
@@ -1785,8 +1801,11 @@ async function keepEdit(raw, type, failed = 'Could not change it') {
 /** The piece a cell's or region's name is: a cell's inside, else its membrane; a region's compartment. */
 const namedPieceOf = (place) => (place.kind === 'cell' ? place.bulk ?? place.piece : place.piece)
 
-/** The piece a cell's or region's skin is on: a cell's membrane, a region's compartment. */
-const skinnedPieceOf = (place) => place.piece
+/**
+ * The compartment a cell's or region's area skin is on: a cell's inside, a region's compartment. A cell with no
+ * inside of its own (all of it docked compartments) has none.
+ */
+const skinnedPieceOf = (place) => (place.kind === 'cell' ? place.bulk : place.piece)
 
 /**
  * Names a cell or compartment from the field its name becomes on a click: the module on it, as the diagram renames
@@ -1810,19 +1829,12 @@ provide('bioRenamePiece', renamePiece)
 // ── Skins ──────────────────────────────────────────────────────────────
 /** The artwork a piece's skin names, as its node draws it: nothing where the workspace has no such skin. */
 const skinArt = computed(
-  () =>
-    new Map(
-      [...piecesStore.allSkins]
-        .filter(([, skin]) => skin.art)
-        .map(([id, skin]) => [id, { href: skinHref(skin.art), isShape: !!skin.shape }])
-    )
+  () => new Map(allSkins().filter((skin) => skin.renderer === 'area').map((skin) => [skin.id, skinHref(skin.svg)]))
 )
 provide('bioSkinOf', (skin) => {
-  const art = skin && skinArt.value.get(skin.ref)
-  if (!art) return null
-  // A skin that gives the cell its shape is drawn exactly where its geometry is: stretched to the cell's own box.
-  const aspect = art.isShape ? SKIN_ASPECT.stretch : SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain
-  return { href: art.href, aspect, opacity: skin.opacity ?? 1 }
+  const href = skin && skinArt.value.get(skin.ref)
+  if (!href) return null
+  return { href, aspect: SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain, opacity: skin.opacity ?? 1 }
 })
 
 /**
@@ -1834,6 +1846,62 @@ provide('bioSkinOf', (skin) => {
 function setSkin(id, skin) {
   return keepEdit(skinPiece(piecesStore.pieces, id, skin), 'bio-pieces-skin', 'Could not change its skin')
 }
+
+/**
+ * A piece that has a skin of its own (a compartment, a membrane or a tube), what it is for its skin, and the skin it is drawn
+ * with; null for any other.
+ *
+ * @param {string|null} id - The piece's.
+ * @returns {{piece: Object, context: Object, drawn: Object|null}|null}
+ */
+function pieceSkinChoice(id) {
+  const piece = id && piecesStore.pieces.find((each) => each.id === id)
+  const context = piece && contextOfPiece(topologyOf(piecesStore.pieces), id)
+  if (!context || !['area', 'membrane', 'tube'].includes(context.family)) return null
+  return { piece, context, drawn: resolveSkin(context, piece.skin) }
+}
+
+/** The skin a piece keeps for a choice: NO_SKIN for none, else the skin, filling as it did while it is the same one. */
+const pieceSkinFor = (piece, skinId) =>
+  skinId === NO_SKIN ? { ref: NO_SKIN } : { ...(piece.skin?.ref === skinId ? piece.skin : {}), ref: skinId }
+
+/**
+ * The piece whose skin a node of the view chooses: a cell's inside, a region's compartment, a membrane's band's
+ * membrane, a tube's (by its room, or the module drawn as its joint); null for any other node.
+ */
+function skinnedPieceOfNode(nodeId) {
+  const place = layout.value.get(nodeId)
+  if (place?.kind === 'cell' || place?.kind === 'region') return skinnedPieceOf(place)
+  if (place?.kind === 'membrane') return place.piece ?? layout.value.get(place.cell)?.piece ?? null
+  if (place?.kind === 'link') return (place.joint && place.piece) || null
+  if (place?.kind === 'card' && place.joint && place.joint !== 'conduit') return layout.value.get(place.link)?.piece ?? null
+  return null
+}
+
+/** Whether a node is a module drawn as its tube's joint, whose skin is the tube's. */
+const isJointNode = (nodeId) => {
+  const place = layout.value.get(nodeId)
+  return place?.kind === 'card' && !!place.joint
+}
+
+/**
+ * What a node of the view is, for its skin, and the skin it is drawn with: a protein's or process's, else the piece's
+ * it draws (see skinnedPieceOfNode).
+ *
+ * @param {string} nodeId
+ * @returns {{context: Object, skin: string|null}|null} skin: null for none; null for a node with no skin.
+ */
+function skinOf(nodeId) {
+  const role = main.findNode(nodeId) && !isJointNode(nodeId) && roles.value.get(nodeId)
+  if (role?.skinContext) return { context: role.skinContext, skin: role.skin }
+  const choice = pieceSkinChoice(skinnedPieceOfNode(nodeId))
+  return choice && { context: choice.context, skin: choice.drawn?.id ?? null }
+}
+
+/** The nodes selected in the view that are pieces with no module on them, which the diagram's selection leaves out. */
+const selectedPieceNodes = computed(() =>
+  getSelectedNodes.value.filter((node) => !main.findNode(node.id) && skinnedPieceOfNode(node.id)).map((node) => node.id)
+)
 
 const skinFileInput = ref(null)
 /** The piece a loaded skin is for. */
@@ -1852,25 +1920,36 @@ async function onSkinFile(event) {
       message: `A skin must be at most ${SKIN_LIMITS.bytes / 1024} KB.`,
     })
   }
-  const { skin, errors } = piecesStore.addSkin(file.name, await file.text())
+  // It is offered for what the piece it was loaded for is.
+  const context = target && contextOfPiece(topologyOf(piecesStore.pieces), target)
+  const { skin, errors, warnings } = skinStore.addSvg(file.name, await file.text(), { appliesTo: [context?.target] })
   if (!skin) return notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
+  if (warnings.length) notify.warning({ title: `Loaded ${file.name}`, message: summariseProblems(warnings) })
   if (target) setSkin(target, { ref: skin.id })
 }
 
-/** The Skin submenu of a membrane or compartment: none, each skin there is, how it fills, a file. */
+/**
+ * The Skin submenu of a compartment or membrane: none where it can have none, the skins for what it is (those its
+ * term matches first), and for an area how the one it is drawn with fills it, and a file.
+ */
 function skinMenu(id) {
-  const piece = piecesStore.pieces.find((each) => each.id === id)
-  if (!piece) return []
-  const current = piece.skin ?? null
+  const choice = pieceSkinChoice(id)
+  if (!choice) return []
+  const { piece, context, drawn } = choice
+  const isArea = context.family === 'area'
+  // How it fills, kept while the skin it is drawn with is the one chosen.
+  const current = isArea && drawn ? pieceSkinFor(piece, drawn.id) : null
   const mark = (isOn) => (isOn ? 'pi pi-check' : 'pi')
   return [
-    { label: 'None', icon: mark(!current), command: () => setSkin(id, null) },
-    ...[...piecesStore.allSkins.values()].map((skin) => ({
+    ...(allowsNoSkin(context.target)
+      ? [{ label: 'None', icon: mark(!drawn), command: () => setSkin(id, { ref: NO_SKIN }) }]
+      : []),
+    ...skinsFor(context).map((skin) => ({
       label: skin.name,
-      icon: mark(current?.ref === skin.id),
-      command: () => setSkin(id, { ...current, ref: skin.id }),
+      icon: mark(drawn?.id === skin.id),
+      command: () => setSkin(id, pieceSkinFor(piece, skin.id)),
     })),
-    { separator: true },
+    ...(isArea ? [{ separator: true }] : []),
     ...(current
       ? [
           {
@@ -1893,14 +1972,18 @@ function skinMenu(id) {
           },
         ]
       : []),
-    {
-      label: 'Load SVG…',
-      icon: 'pi pi-upload',
-      command: () => {
-        skinFileFor = id
-        skinFileInput.value?.click()
-      },
-    },
+    ...(isArea
+      ? [
+          {
+            label: 'Load SVG…',
+            icon: 'pi pi-upload',
+            command: () => {
+              skinFileFor = id
+              skinFileInput.value?.click()
+            },
+          },
+        ]
+      : []),
   ]
 }
 
@@ -2052,7 +2135,7 @@ let moveFrameRequest = 0
 let pendingPosition = null
 
 /** Where each piece is drawn, from the pieces as they are (not as a draft has them). */
-const pieceRects = () => layoutPieces(piecesStore.pieces, { shapes: piecesStore.shapes }).rects
+const pieceRects = () => layoutPieces(piecesStore.pieces).rects
 
 /**
  * Begins a drag of a piece, or of a grip on one, if the node is one that moves so. The piece follows the pointer, by
@@ -2251,7 +2334,7 @@ function resizeDraft(params) {
   // A cell's junction partners stay against it, as far as it is drawn resized.
   const rectsOf = (resized) => {
     const valid = validatePieces(resized).pieces
-    return valid && layoutPieces(valid, { shapes: piecesStore.shapes }).rects
+    return valid && layoutPieces(valid).rects
   }
   const raw = resizeFrame(base, piece, params, rects, { rectsOf })
   return raw && validatePieces(raw).pieces
@@ -2276,7 +2359,16 @@ function pieceMenu(place) {
       command: () => (renaming.value = { id: named, label: pieceName(named), placeholder: pieceName(named) }),
     },
   ]
-  if (isStructure) items.push({ label: 'Skin', icon: 'pi pi-image', items: skinMenu(skinnedPieceOf(place)) })
+  // A cell's inside and its membrane each have their own; an empty membrane's band, its membrane's.
+  const areaItems = isStructure && skinnedPieceOf(place) ? skinMenu(skinnedPieceOf(place)) : []
+  if (areaItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: areaItems })
+  const membraneItems = place.kind === 'cell' || place.kind === 'membrane' ? skinMenu(place.piece) : []
+  if (membraneItems.length) {
+    items.push({ label: place.kind === 'cell' ? 'Membrane Skin' : 'Skin', icon: 'pi pi-circle', items: membraneItems })
+  }
+  // A tube's joint, where its ends touch; the vessel along a conduit between compartments apart is the view's.
+  const jointItems = piece.kind === 'tube' && place.joint && place.joint !== 'conduit' ? skinMenu(piece.id) : []
+  if (jointItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: jointItems })
   if (piece.frame && piece.kind !== 'zone') {
     items.push({
       label: 'Fit to Contents',
@@ -2361,8 +2453,8 @@ const carriedTile = computed(() => [draggedTile.value, armedTile.value].find(isP
 /** The pieces and where each is drawn, read once while a piece is carried. */
 /** The pieces are found and previewed laid out as the view draws them, with the modules on them. */
 const sceneOptions = () => {
-  const { shapes, nodes, widthOf } = pieceLayoutOptions.value
-  return { shapes, nodes, widthOf }
+  const { nodes, widthOf } = pieceLayoutOptions.value
+  return { nodes, widthOf }
 }
 
 const pieceScene = computed(() => (carriedTile.value ? dropScene(piecesStore.pieces, sceneOptions()) : null))
@@ -2422,7 +2514,7 @@ function templateDrop(templateId, point, scene) {
     label: into ? `Add ${template.name} in ${into.label}` : `Add ${template.name}`,
     highlights: into ? [{ type: 'rect', rect: into.rect }] : [],
     apply: (pieces) => {
-      const { pieces: next, errors } = stampTemplate(pieces, template, at, { shapes: scene.shapes, into })
+      const { pieces: next, errors } = stampTemplate(pieces, template, at, { into })
       return errors.length ? { pieces: null, error: errors[0] } : { pieces: next, id: null }
     },
   }
@@ -2700,79 +2792,80 @@ function saveTemplate(template) {
   legacyDownload(filename, new Blob([text], { type: 'application/json' }))
 }
 
-// ── Glyph libraries ────────────────────────────────────────────────────
-const glyphFileInput = ref(null)
+// ── Skin libraries ─────────────────────────────────────────────────────
+const skinLibraryInput = ref(null)
 
-/** Adds the chosen glyph library file to the user's own, or says what is wrong with it. */
-async function onGlyphFile(event) {
+/** Adds the chosen skin library file to the user's own, or says what is wrong with it. */
+async function onSkinLibraryFile(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
-  const { raw, errors: parseErrors } = await readTemplateFile(file, { what: 'a glyph library' })
+  const { raw, errors: parseErrors } = await readTemplateFile(file, { what: 'a skin library' })
   const { library, errors, warnings } = parseErrors.length
     ? { library: null, errors: parseErrors, warnings: [] }
-    : glyphStore.addLocalLibrary(raw)
+    : skinStore.addLocalLibrary(raw)
   if (!library) {
     notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
     return
   }
-  const count = `${library.glyphs.length} cartoon${library.glyphs.length === 1 ? '' : 's'}`
+  const count = `${library.skins.length} skin${library.skins.length === 1 ? '' : 's'}`
   if (warnings.length) notify.warning({ title: `Loaded ${library.name}`, message: summariseProblems(warnings) })
-  else notify.success({ title: `Loaded ${library.name}`, message: `${count} added to the Cartoon menu.` })
+  else notify.success({ title: `Loaded ${library.name}`, message: `${count} added to the Skin menus.` })
 }
 
-/** Downloads a glyph library as a file anyone can load. */
-function saveGlyphFile(library) {
-  const { filename, text } = glyphLibraryFile(library)
+/** Downloads a skin library as a file anyone can load. */
+function saveSkinLibraryFile(library) {
+  const { filename, text } = skinLibraryFile(library)
   legacyDownload(filename, new Blob([text], { type: 'application/json' }))
 }
 
-/** Loading, saving and removing the user's own glyph libraries. */
-function glyphLibraryMenu() {
-  const own = glyphStore.localLibraries
+/** Loading, saving and removing the user's own skin libraries. */
+function skinLibraryMenu() {
+  const own = skinStore.localLibraries
   const each = (icon, label, act) => ({
     label,
     icon,
     items: own.map((library) => ({ label: library.name, command: () => act(library) })),
   })
   return [
-    { label: 'Load Glyph Library…', icon: 'pi pi-upload', command: () => glyphFileInput.value?.click() },
+    { label: 'Load Skin Library…', icon: 'pi pi-upload', command: () => skinLibraryInput.value?.click() },
     ...(own.length
       ? [
-          each('pi pi-download', 'Save Glyph Library As File…', saveGlyphFile),
-          each('pi pi-trash', 'Remove Glyph Library', (library) => glyphStore.removeLocalLibrary(library.id)),
+          each('pi pi-download', 'Save Skin Library As File…', saveSkinLibraryFile),
+          each('pi pi-trash', 'Remove Skin Library', (library) => skinStore.removeLocalLibrary(library.id)),
         ]
       : []),
   ]
 }
 
 /**
- * The Cartoon submenu for a protein or process: the built-ins, then the loaded glyphs, then the libraries. A
- * process's starts with None, since a plain card is its default.
+ * The Skin submenu for a protein or process: None for a process, then the skins for what it is, those its
+ * annotations match first, then the libraries.
+ *
+ * @param {string} nodeId
+ * @param {Object} role - From resolveBioRole: its skinContext and the skin it is drawn with.
  */
-function cartoonMenu(nodeId, chosen, { none = false } = {}) {
-  const item = (glyph) => ({
-    label: glyph.name,
-    icon: chosen === glyph.id ? 'pi pi-check' : undefined,
-    command: () => chooseGlyph([nodeId], glyph.id),
+function moduleSkinMenu(nodeId, role) {
+  const context = role.skinContext
+  const item = (skin) => ({
+    label: skin.name,
+    icon: role.skin === skin.id ? 'pi pi-check' : undefined,
+    command: () => chooseSkin([nodeId], skin.id),
   })
-  const loaded = loadedGlyphs()
   return [
-    ...(none
+    ...(allowsNoSkin(context.target)
       ? [
           {
             label: 'None',
-            icon: chosen ? undefined : 'pi pi-check',
-            command: () => chooseGlyph([nodeId], NO_GLYPH),
+            icon: role.skin ? undefined : 'pi pi-check',
+            command: () => chooseSkin([nodeId], NO_SKIN),
           },
           { separator: true },
         ]
       : []),
-    ...BUILT_IN_GLYPHS.map(item),
+    ...skinsFor(context).map(item),
     { separator: true },
-    ...loaded.map(item),
-    ...(loaded.length ? [{ separator: true }] : []),
-    ...glyphLibraryMenu(),
+    ...skinLibraryMenu(),
   ]
 }
 
@@ -2808,19 +2901,17 @@ function onNodeContextMenu({ event, node }) {
       })),
     },
   ]
-  if (role?.role === 'membraneProtein') {
+  if (role?.skinContext && !isJointNode(node.id)) {
     items.push({
-      label: 'Cartoon',
+      label: 'Skin',
       icon: 'pi pi-palette',
-      items: cartoonMenu(node.id, role.glyph),
-    })
-  } else if (role?.role === 'cytosolic') {
-    items.push({
-      label: 'Cartoon',
-      icon: 'pi pi-palette',
-      items: cartoonMenu(node.id, role.glyph, { none: true }),
+      items: moduleSkinMenu(node.id, role),
     })
   }
+  // A module drawn as its tube's joint is drawn by the tube's skin.
+  const jointTube = isJointNode(node.id) ? skinnedPieceOfNode(node.id) : null
+  const jointItems = jointTube ? skinMenu(jointTube) : []
+  if (jointItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: jointItems })
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
   if (role?.role === 'region' && !role.site) items.push(liesAgainstMenu(node.id, role))
@@ -2908,7 +2999,7 @@ async function deleteNodes(ids) {
     if (answer === 'reject') return false
     if (answer === 'extra') going = [...going, ...contents]
     else {
-      const patches = releaseFromCell(contents, layout.value, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
+      const patches = releaseFromCell(contents, layout.value, { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT })
       before = () =>
         applyPlan(
           new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)]))
@@ -3015,7 +3106,7 @@ function onPaneContextMenu(event) {
     ...(piecesStore.pieces.length
       ? [{ label: 'Save Pieces As Template File…', icon: 'pi pi-download', command: savePiecesAsTemplate }]
       : []),
-    { label: 'Glyph Libraries', icon: 'pi pi-palette', items: glyphLibraryMenu() },
+    { label: 'Skin Libraries', icon: 'pi pi-palette', items: skinLibraryMenu() },
     ...(hasSpecies.value ? [{ label: 'Species Mode', icon: 'pi pi-share-alt', items: speciesMenu() }] : []),
     { separator: true },
     {
@@ -3245,8 +3336,11 @@ onBeforeUnmount(() => {
 
 /** Whether one of the view's dialogs is open, so the workspace's shortcuts wait. */
 const isDialogOpen = computed(() => !!placing.value || !!renaming.value || !!renamingNode.value || isConfirming.value)
-/** What the properties panel reads and sets while this view is open: the roles, and the choices the menus make. */
-const properties = { roles, chooseRole, chooseGlyph }
+/**
+ * What the properties panel reads and sets while this view is open: the roles, the skins, the pieces selected that
+ * are no module's, and the choices the menus make.
+ */
+const properties = { roles, chooseRole, chooseSkin, skinOf, selectedPieceNodes }
 
 defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
 

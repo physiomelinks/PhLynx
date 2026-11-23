@@ -138,7 +138,7 @@ export const cases = {
     const lumen = separatedDecayNode('lumen')
     pump.flow.nodes[0].data.bioView = {
       role: 'membraneProtein',
-      glyph: 'pump',
+      skin: 'pump',
       order: 0,
       site: 'pieces/membrane.apical',
     }
@@ -157,7 +157,7 @@ export const cases = {
         label: 'Plasma membrane',
         encloses: ['cell'],
         frame: { x: 0, y: 0, width: 360, height: 300 },
-        skin: { ref: 'villus', mode: 'cover', opacity: 0.5 },
+        skin: { ref: 'local:villus', mode: 'cover', opacity: 0.5 },
         sides: {
           top: [
             { id: 'apical', label: 'Apical membrane', to: 0.5, annotation: { facet: 'apical' } },
@@ -202,12 +202,15 @@ export const cases = {
       { id: 'fold', kind: 'fold', label: 'Fold', membrane: 'membrane', side: 'left', at: 0.75, depth: 120 },
     ]
     const skins = {
-      villus: {
+      'local:villus': {
+        id: 'local:villus',
         name: 'Villus',
+        appliesTo: ['cytosol'],
+        terms: ['GO:0005902'],
         svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
       },
     }
-    return mergeParts(pump, lumen, { bioPieces: { pieces, skins } })
+    return mergeParts(pump, lumen, { bioPieces: { pieces }, bioSkins: { skins } })
   },
 
   /** Node `cytosol` was dropped next to `carrier` in the physiological view, which joined them across its membrane. */
@@ -218,17 +221,18 @@ export const cases = {
     return mergeParts(carrier, cytosol, { flow: { edges: [placed] } })
   },
 
-  /** Node `cup_carrier` is drawn as the user's own cartoon `local:cup`, which the workspace keeps a copy of. */
+  /** Node `cup_carrier` is drawn as the user's own skin `local:cup`, which the workspace keeps a copy of. */
   userGlyph: () => {
     const part = separatedDecayNode('cup_carrier')
-    part.flow.nodes[0].data.bioView = { role: 'membraneProtein', glyph: 'local:cup' }
-    part.bioGlyphs = {
-      glyphs: {
+    part.flow.nodes[0].data.bioView = { role: 'membraneProtein', skin: 'local:cup' }
+    part.bioSkins = {
+      skins: {
         'local:cup': {
           id: 'local:cup',
           name: 'Cup',
           sbo: 'SBO:0000284',
-          goFunctions: ['GO:0099999'],
+          appliesTo: ['protein'],
+          terms: ['GO:0099999'],
           viewBox: '0 0 64 48',
           elements: [{ type: 'path', d: 'M 8 3 L 32 20 L 56 3 L 56 45 L 8 45 Z', fill: 'body', stroke: 'outline' }],
           palette: { light: { body: '#3366cc' } },

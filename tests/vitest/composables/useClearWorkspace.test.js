@@ -7,6 +7,7 @@ import { useDefaultParametersStore } from '../../../src/stores/defaultParameters
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { getBuiltInPieceTemplate } from '../../../src/services/bioView/pieces/builtInTemplates.js'
 import { useBioPiecesStore } from '../../../src/stores/bioPiecesStore.js'
+import { useSkinLibraryStore } from '../../../src/stores/skinLibraryStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
 import { DEFAULT_PROJECT_NAME } from '../../../src/utils/constants.js'
@@ -89,16 +90,21 @@ describe('useClearWorkspace', () => {
     const bioPiecesStore = useBioPiecesStore()
     const historyStore = useFlowHistoryStore()
     bioPiecesStore.addTemplate(getBuiltInPieceTemplate('epithelial-cell'), { x: 10, y: 20 })
+    const skinStore = useSkinLibraryStore()
+    skinStore.addSvg('art.svg', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect/></svg>', {
+      appliesTo: ['cytosol'],
+    })
     const before = bioPiecesStore.getState()
-    const skins = bioPiecesStore.skins
+    const skins = skinStore.snapshot()
 
     const { clearWorkspace } = useClearWorkspace()
     await clearWorkspace()
     expect(bioPiecesStore.getState()).toBeNull()
+    expect(skinStore.definitions.size).toBe(0)
 
     await historyStore.undo()
     expect(bioPiecesStore.getState()).toEqual(before)
-    expect(bioPiecesStore.skins).toBe(skins)
+    expect(skinStore.snapshot()).toEqual(skins)
 
     await historyStore.redo()
     expect(bioPiecesStore.getState()).toBeNull()

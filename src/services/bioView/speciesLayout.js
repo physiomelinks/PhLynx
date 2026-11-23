@@ -4,15 +4,15 @@
  * tokens go towards its edge away from the cells, a cell's in a row across its middle; each sits under or over the
  * proteins its paths run to (midway between them), nudged along so none overlap, and the rest are split between
  * the two ends of the row so it sits evenly in the compartment. Tokens keep inside the membrane and clear of
- * names, cartoons and process zones, wrapping onto more rows where one is too long. A compartment whose tokens the
+ * names, symbols and process zones, wrapping onto more rows where one is too long. A compartment whose tokens the
  * user put in order keeps those places, filled in that order. Paths run from a token to the
- * protein's face on that side and stop there, as the cartoon shows what crosses; so does a dependence, ending in an
+ * protein's face on that side and stop there, as the symbol shows what crosses; so does a dependence, ending in an
  * open circle.
  */
 
 import { facePoint } from './faces.js'
-import { GLYPH_HEIGHT, GLYPH_WIDTH, HEAD_OFFSET, foldPoint, partOf, proteinLabelWidth } from './geometry.js'
-import { DEFAULT_ARROW_ROOM } from './glyphLibrary.js'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH, HEAD_OFFSET, foldPoint, partOf, proteinLabelWidth } from './geometry.js'
+import { DEFAULT_ARROW_ROOM } from './skinLibrary.js'
 import { processSize } from './layout.js'
 import { CELL_RADIUS, FACET_BAND } from './metrics.js'
 import { EPITHELIAL_SHAPE, facetById } from './shape.js'
@@ -278,31 +278,31 @@ const sum = (values) => values.reduce((total, value) => total + value, 0)
 const mean = (values) => (values.length ? sum(values) / values.length : null)
 
 /**
- * The boxes a membrane protein takes: its cartoon, and its name (and what it carries) on the cell's side of it.
+ * The boxes a membrane protein takes: its symbol, and its name (and what it carries) on the cell's side of it.
  *
  * @param {Object} place - The protein's, from layoutPhysiology.
  * @param {{name?: string, detail?: string}} [label]
- * @returns {[Object, Object]} The cartoon's box and the name's.
+ * @returns {[Object, Object]} The symbol's box and the name's.
  */
 export function proteinBoxes(place, { name = '', detail = '' } = {}) {
   const sideways = place.outward === 'left' || place.outward === 'right'
-  const [w, h] = sideways ? [GLYPH_HEIGHT, GLYPH_WIDTH] : [GLYPH_WIDTH, GLYPH_HEIGHT]
-  const glyph = box(place.x - w / 2, place.y - h / 2, w, h)
+  const [w, h] = sideways ? [SYMBOL_HEIGHT, SYMBOL_WIDTH] : [SYMBOL_WIDTH, SYMBOL_HEIGHT]
+  const symbol = box(place.x - w / 2, place.y - h / 2, w, h)
   const { height, detailHeight, gap } = TEXT.protein
   const width = proteinLabelWidth(name, detail)
   const tall = height + (detail ? detailHeight : 0)
   const label =
     {
-      top: box(place.x - width / 2, glyph.y + h + gap, width, tall),
-      bottom: box(place.x - width / 2, glyph.y - gap - tall, width, tall),
-      left: box(glyph.x + w + gap, place.y - tall / 2, width, tall),
-      right: box(glyph.x - gap - width, place.y - tall / 2, width, tall),
-    }[place.outward] ?? box(place.x - width / 2, glyph.y + h + gap, width, tall)
-  return [glyph, label]
+      top: box(place.x - width / 2, symbol.y + h + gap, width, tall),
+      bottom: box(place.x - width / 2, symbol.y - gap - tall, width, tall),
+      left: box(symbol.x + w + gap, place.y - tall / 2, width, tall),
+      right: box(symbol.x - gap - width, place.y - tall / 2, width, tall),
+    }[place.outward] ?? box(place.x - width / 2, symbol.y + h + gap, width, tall)
+  return [symbol, label]
 }
 
 /**
- * The boxes a process in a cell takes: its card, or its cartoon with its name under it, as an upright protein's.
+ * The boxes a process in a cell takes: its card, or its symbol with its name under it, as an upright protein's.
  *
  * @param {Object} place - The process's: its x and y are its top-left corner.
  * @param {{name?: string, detail?: string}} [label]
@@ -310,13 +310,13 @@ export function proteinBoxes(place, { name = '', detail = '' } = {}) {
  */
 function processBoxes(place, label) {
   const { width, height } = processSize(place)
-  if (!place.glyph) return [box(place.x, place.y, width, height)]
+  if (!place.symbol) return [box(place.x, place.y, width, height)]
   return proteinBoxes({ x: place.x + width / 2, y: place.y + height / 2 }, label)
 }
 
 /**
  * How far a membrane protein on one side of a cell reaches into it, from the middle of the membrane: half its
- * cartoon, and its name (with what it carries) on the cell's side of it, as proteinBoxes draws them.
+ * symbol, and its name (with what it carries) on the cell's side of it, as proteinBoxes draws them.
  *
  * @param {'top'|'right'|'bottom'|'left'} side
  * @param {number} labelWidth - How wide its name is drawn (see proteinLabelWidth).
@@ -324,7 +324,7 @@ function processBoxes(place, label) {
  */
 export function proteinReach(side, labelWidth) {
   const { height, detailHeight, gap } = TEXT.protein
-  return GLYPH_HEIGHT / 2 + gap + (side === 'left' || side === 'right' ? labelWidth : height + detailHeight)
+  return SYMBOL_HEIGHT / 2 + gap + (side === 'left' || side === 'right' ? labelWidth : height + detailHeight)
 }
 
 /** How far a cell's name is moved at a time when looking for a clear corner. */
@@ -518,7 +518,7 @@ export function cellHintAt(cellId, layout, labelOf = () => undefined) {
 
 /**
  * How far out from a cell's outline a facet's name sits: past the bilayer's outer head groups, on the outside,
- * where only the outer half of a protein's cartoon reaches and its name never does.
+ * where only the outer half of a protein's symbol reaches and its name never does.
  */
 export const FACET_LABEL_OFFSET = 14
 /** How far a facet's name is moved along its edge at a time when looking for somewhere clear. */
@@ -527,7 +527,7 @@ const FACET_LABEL_STEP = 4
 /**
  * Where a template cell's facets are named: each just outside its edge, beside the membrane. A name starts in the
  * middle of its edge and moves along it, either way and past its corners if need be, to the nearest spot clear of
- * the proteins' cartoons (any cell's), the facets named before it, the other cells and the regions' names; failing
+ * the proteins' symbols (any cell's), the facets named before it, the other cells and the regions' names; failing
  * that, clear of this cell's proteins and facet names only; failing both, in the middle.
  *
  * @param {string} cellId
@@ -555,7 +555,7 @@ export function facetLabelBoxes(cellId, layout, labelOf = () => undefined) {
     const [w, h] = sideways ? [height, length] : [length, height]
     // By the stretch of membrane a skin draws for it: out from the stretch's middle, clear of a protein there.
     if (facet.at) {
-      const out = GLYPH_HEIGHT / 2 + FACET_LABEL_OFFSET
+      const out = SYMBOL_HEIGHT / 2 + FACET_LABEL_OFFSET
       const corner = {
         top: { x: facet.at.x - w / 2, y: facet.at.y - out - h },
         bottom: { x: facet.at.x - w / 2, y: facet.at.y + out },
@@ -617,7 +617,7 @@ function regionNameBox(place, name, at = null) {
 
 /**
  * What else is drawn in a compartment, for its tokens to keep clear of: a cell's name, process zones and cards,
- * and its proteins with their names; a region's name, the cells over it with their facets' names, and the cartoons
+ * and its proteins with their names; a region's name, the cells over it with their facets' names, and the symbols
  * that stick into it.
  *
  * @param {string} nodeId - The compartment's.
@@ -868,11 +868,11 @@ function farEdge(rect, cells) {
 }
 
 /**
- * How far along a protein's faces a species' paths attach: under its arrow on the cartoon, which spreads them
- * evenly across its arrow room in the order they are carried (one alone down the middle). A species the cartoon
+ * How far along a protein's faces a species' paths attach: under its arrow on the symbol, which spreads them
+ * evenly across its arrow room in the order they are carried (one alone down the middle). A species the symbol
  * shows no arrow for attaches at the middle of the face.
  *
- * @param {{species: string[], room?: {left: number, right: number}}|undefined} arrows - What the cartoon's arrows
+ * @param {{species: string[], room?: {left: number, right: number}}|undefined} arrows - What the symbol's arrows
  *   carry, in order, and where it spreads them, in its unturned box.
  * @param {string} species
  * @returns {number} The offset from the face's middle, as the unturned box's x runs.
@@ -882,10 +882,10 @@ export function arrowOffset(arrows, species) {
   return index < 0 ? 0 : spreadOffset(index, arrows.species.length, arrows.room)
 }
 
-/** The offset from a face's middle of the index-th of count points spread evenly across a cartoon's arrow room. */
+/** The offset from a face's middle of the index-th of count points spread evenly across a symbol's arrow room. */
 function spreadOffset(index, count, { left, right } = DEFAULT_ARROW_ROOM) {
   const x = count > 1 ? left + ((right - left) * index) / (count - 1) : (left + right) / 2
-  return x - GLYPH_WIDTH / 2
+  return x - SYMBOL_WIDTH / 2
 }
 
 /**
@@ -894,8 +894,8 @@ function spreadOffset(index, count, { left, right } = DEFAULT_ARROW_ROOM) {
  * @param {Object} network - From speciesNetwork.
  * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {Object} [options]
- * @param {(id: string) => Object|undefined} [options.facesOf] - A protein's glyph's face anchors.
- * @param {(id: string) => Object|undefined} [options.arrowsOf] - What a protein's cartoon's arrows carry, and
+ * @param {(id: string) => Object|undefined} [options.facesOf] - A protein's symbol's face anchors.
+ * @param {(id: string) => Object|undefined} [options.arrowsOf] - What a protein's symbol's arrows carry, and
  *   where (see arrowOffset), so each species' path attaches under its own arrow.
  * @param {(path: Object) => {direction: 'in'|'out'|null, size: number}|null} [options.flowOf] - Which way a path's
  *   species went in the last run, and how much.
@@ -1191,7 +1191,7 @@ export function routeSpecies(
     const outer = tokenAt.get(`${path.outside}::${path.species}`)
     const inner = tokenAt.get(`${path.inside}::${path.species}`)
     if (!place || !outer || !inner) continue
-    const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    const size = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
     const anchors = facesOf(path.protein)
     const offset = arrowOffset(arrowsOf(path.protein), path.species)
     const out = { ...facePoint(place, 'outside', size, anchors, offset), ...foldWay(place, layout) }
@@ -1239,7 +1239,7 @@ export function routeSpecies(
     })
   }
 
-  // A dependence goes to the face on its compartment's side: under the species' arrow if the cartoon has one, else
+  // A dependence goes to the face on its compartment's side: under the species' arrow if the symbol has one, else
   // spread with the protein's other such dependences on that face, in the order of their tokens along it.
   const placedDependences = []
   for (const dependence of network.dependences ?? []) {
@@ -1269,7 +1269,7 @@ export function routeSpecies(
     const { protein, compartment, species, place, token, face } = dependence
     const arrows = arrowsOf(protein)
     const hasArrow = (entry) => !!arrows?.species?.includes(entry.species)
-    // Along the face as the cartoon's x runs: on screen, reversed where it is turned upside down or onto the left.
+    // Along the face as the symbol's x runs: on screen, reversed where it is turned upside down or onto the left.
     const along = (entry) =>
       ({ top: entry.token.x, bottom: -entry.token.x, left: -entry.token.y, right: entry.token.y })[place.outward] ??
       entry.token.x
@@ -1281,7 +1281,7 @@ export function routeSpecies(
       : shared.length > 1
         ? spreadOffset(shared.indexOf(dependence), shared.length, arrows?.room)
         : 0
-    const at = facePoint(place, face, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }, facesOf(protein), offset)
+    const at = facePoint(place, face, { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }, facesOf(protein), offset)
     dependences.push({
       key: `${protein}::${species}::${compartment}`,
       protein,

@@ -73,10 +73,6 @@ A Macro Builder placeholder for an instance in the next copy, used to chain copi
 <!-- aliases: global, global constants, global parameter, global parameters -->
 A parameter with one value shared by name across every instance (**global** in the Type column). Edit it in the Context Sidebar's **Global parameters** tab.
 
-### Glyph {#glyph}
-<!-- aliases: glyphs, cartoon, cartoons, glyph library -->
-The cartoon a membrane protein is drawn with in the physiology view. Glyphs come from glyph libraries; see [Cartoons](../guides/physiology-view.md#glyphs).
-
 ### Handle {#port-node}
 <!-- aliases: port-node, port-nodes, handle, handles -->
 A dot on an instance's edge where connection arrows attach. Handles carry no variables; which variables an arrow shares is set by its [ports](#port).
@@ -150,6 +146,10 @@ An XML format describing how to run and plot a simulation, exportable with the C
 ### Sidecar {#sidecar}
 <!-- aliases: sidecars, module sidecar, module annotations -->
 A Turtle file annotating one module math's variables. See [Annotate in the Instance Editor](../guides/annotation-coupling.md#annotations-tab).
+
+### Skin {#skin}
+<!-- aliases: skins, skin library, skin libraries -->
+How a protein, process, compartment or membrane is drawn in the physiology view. Each is offered only the skins that suit it; see [Skins](../guides/physiology-view.md#skins).
 
 ### Species Mode {#species-mode}
 <!-- aliases: species overlay -->

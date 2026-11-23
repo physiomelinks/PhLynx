@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CELL_RADIUS, GLYPH_HEIGHT } from '../../../../src/services/bioView/geometry.js'
+import { CELL_RADIUS, SYMBOL_HEIGHT } from '../../../../src/services/bioView/geometry.js'
 import {
   CARD,
   GAP,
@@ -77,9 +77,9 @@ describe('compartment rects', () => {
 describe('process areas', () => {
   it('puts the implicit area in the row today’s cytosolic processes use', () => {
     const rect = { x: 10, y: 20, width: 320, height: 240 }
-    expect(processSlot(rect, 0, 0)).toEqual({ x: 10 + CELL_RADIUS, y: 20 + GLYPH_HEIGHT + 24 })
-    expect(processSlot(rect, 0, 2)).toEqual({ x: 10 + CELL_RADIUS + 2 * (CARD.width + 16), y: 20 + GLYPH_HEIGHT + 24 })
-    expect(processSlot(rect, 1, 0).y).toBe(20 + GLYPH_HEIGHT + 24 + CARD.height + 16)
+    expect(processSlot(rect, 0, 0)).toEqual({ x: 10 + CELL_RADIUS, y: 20 + SYMBOL_HEIGHT + 24 })
+    expect(processSlot(rect, 0, 2)).toEqual({ x: 10 + CELL_RADIUS + 2 * (CARD.width + 16), y: 20 + SYMBOL_HEIGHT + 24 })
+    expect(processSlot(rect, 1, 0).y).toBe(20 + SYMBOL_HEIGHT + 24 + CARD.height + 16)
   })
 })
 

@@ -29,8 +29,9 @@
         :class="['bio-link__joint', { 'bio-link__joint--placed': channel }]"
         :style="channel ? zoneStyle : undefined"
       >
-        <BioJointGlyph
+        <BioJointSymbol
           :kind="data.joint"
+          :skin="data.jointSkin"
           :width="channel ? data.zone.width : data.width"
           :height="channel ? data.zone.height : data.height"
           :tone="data.tone"
@@ -97,7 +98,7 @@ import { computed, useId } from 'vue'
 import BioBilayerStrips from './BioBilayerStrips.vue'
 import BioBrokenBadge from './BioBrokenBadge.vue'
 import BioConduit from './BioConduit.vue'
-import BioJointGlyph from './BioJointGlyph.vue'
+import BioJointSymbol from './BioJointSymbol.vue'
 import { MEMBRANE_BAND_HALF } from '../../services/bioView/geometry'
 
 const props = defineProps({

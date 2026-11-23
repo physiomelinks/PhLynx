@@ -38,13 +38,13 @@ export function freeId(id, taken) {
  * @param {ReadonlyArray<Object>} pieces - The view's, validated.
  * @param {{ pieces: ReadonlyArray<Object> }} template - Validated (see validatePiecesTemplate).
  * @param {{x: number, y: number}} at - Where its corner goes, in flow coordinates.
- * @param {{ shapes?: Map<string, Object>, into?: {id: string, corner: {x: number, y: number}}|null }} [options] -
- *   shapes: the skins' geometry, which sizes what they draw. into: the compartment it is dropped in, and where its
- *   corner is drawn; what stands on the canvas in the template stands in it instead. None: the canvas.
+ * @param {{ into?: {id: string, corner: {x: number, y: number}}|null }} [options] - into: the compartment it is
+ *   dropped in, and where its corner is drawn; what stands on the canvas in the template stands in it instead. None:
+ *   the canvas.
  * @returns {{ pieces: ReadonlyArray<Object>|null, ids: Map<string, string>, errors: string[] }} pieces: all of them,
  *   validated; ids: each of the template's ids -> the id its copy has.
  */
-export function stampTemplate(pieces, template, at, { shapes = new Map(), into = null } = {}) {
+export function stampTemplate(pieces, template, at, { into = null } = {}) {
   const taken = new Set(pieces.map((piece) => piece.id))
   const ids = new Map()
   for (const piece of template.pieces) {
@@ -54,7 +54,7 @@ export function stampTemplate(pieces, template, at, { shapes = new Map(), into =
   }
   // What stands on the canvas goes where it is drawn in the template, from where it was dropped, so the copy looks
   // as the template does wherever it goes; what stands inside them keeps its place in them.
-  const { rects } = layoutPieces(template.pieces, { shapes })
+  const { rects } = layoutPieces(template.pieces)
   const corner = (() => {
     const placed = template.pieces
       .filter((piece) => !piece.parent && rects.has(piece.id))

@@ -18,7 +18,7 @@ import { notify } from '../utils/notify'
  * @param {Object} sources.omex - omexStore.
  * @param {Object} sources.parameters - defaultParametersStore.
  * @param {Object} [sources.bioPieces] - bioPiecesStore.
- * @param {Object} [sources.bioGlyphs] - glyphLibraryStore.
+ * @param {Object} [sources.bioSkins] - skinLibraryStore.
  * @param {Object} [sources.nodeTheme] - nodeThemeStore.
  * @returns {Object} The workspace, at PHLYNX_PROJECT_VERSION.
  */
@@ -30,15 +30,19 @@ export function buildWorkspaceFile({
   omex,
   parameters,
   bioPieces,
-  bioGlyphs,
+  bioSkins,
   nodeTheme,
 }) {
-  // The pieces the physiology view is built from, and their skins; older builds ignore the key, and nodes bound to the
-  // pieces' sites fall back to their role there.
+  // The pieces the physiology view is built from; older builds ignore the key, and nodes bound to the pieces' sites
+  // fall back to their role there.
   const piecesState = bioPieces?.getState() ?? null
-  // Likewise the user's own cartoons the nodes are drawn as: a copy of each, so the workspace looks the same
+  // Likewise the user's own skins the nodes and pieces are drawn with: a copy of each, so the workspace looks the same
   // elsewhere.
-  const glyphState = bioGlyphs?.getState((flow?.nodes ?? []).map((node) => node.data?.bioView?.glyph)) ?? null
+  const used = [
+    ...(flow?.nodes ?? []).map((node) => node.data?.bioView?.skin),
+    ...(piecesState?.pieces ?? []).map((piece) => piece.skin?.ref),
+  ]
+  const skinState = bioSkins?.getState(used) ?? null
   // And the node colour theme: its id, with a copy unless it is built in, so categories keep their colours.
   const themeState = nodeTheme?.getState() ?? null
   return {
@@ -51,7 +55,7 @@ export function buildWorkspaceFile({
     workspace: omex.getState(),
     parameters: parameters.getState(),
     ...(piecesState ? { bioPieces: piecesState } : {}),
-    ...(glyphState ? { bioGlyphs: glyphState } : {}),
+    ...(skinState ? { bioSkins: skinState } : {}),
     ...(themeState ? { nodeTheme: themeState } : {}),
   }
 }

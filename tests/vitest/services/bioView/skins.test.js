@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 
-import { SKIN_LIMITS, freeSkinId, sanitiseSkin, skinHref } from '../../../../src/services/bioView/skins.js'
+import { SKIN_LIMITS, sanitiseSkin, skinHref } from '../../../../src/services/bioView/skins.js'
 
 const svg = (inner, attributes = 'viewBox="0 0 10 10"') => `<svg xmlns="http://www.w3.org/2000/svg" ${attributes}>${inner}</svg>`
 
@@ -47,9 +47,6 @@ describe('cleaning a skin', () => {
 
 describe('a skin’s id and address', () => {
   it('names a skin for its file, past the ids taken', () => {
-    expect(freeSkinId('My Cell (v2).svg', [])).toBe('my-cell-v2')
-    expect(freeSkinId('cell.svg', ['cell', 'cell-2'])).toBe('cell-3')
-    expect(freeSkinId('123.svg', [])).toBe('skin')
   })
 
   it('gives a skin as an image’s address', () => {

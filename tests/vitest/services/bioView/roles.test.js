@@ -4,8 +4,12 @@ import { describe, expect, it } from 'vitest'
 
 import { GO } from '../../../../src/services/annotations/iris.js'
 import { parseSidecar } from '../../../../src/services/annotations/sidecar.js'
-import { NO_GLYPH, glyphFor, processGlyphFor } from '../../../../src/services/bioView/glyphs.js'
 import { goLocationsOf, resolveBioRole } from '../../../../src/services/bioView/roles.js'
+import { contextOfModule } from '../../../../src/services/bioView/skinContext.js'
+import { NO_SKIN, resolveSkin } from '../../../../src/services/bioView/skinRegistry.js'
+
+/** The skin a module with a role and terms is drawn with, chosen or not. */
+const skinOf = (role, terms, chosen) => resolveSkin(contextOfModule(role, terms), chosen)?.id ?? null
 
 const TOY = resolve(__dirname, '../../fixtures/annotations/toy')
 const readToy = (name) => readFileSync(resolve(TOY, name), 'utf8')
@@ -28,7 +32,7 @@ describe('physiological roles', () => {
 
   it('reads the role from the module’s sidecar', async () => {
     const roleOf = async (name) => resolveBioRole({ name }, { sidecar: await toySidecar(name) })
-    expect(await roleOf('porter')).toMatchObject({ role: 'membraneProtein', facet: null, cell: null, glyph: 'symporter', source: 'sidecar' })
+    expect(await roleOf('porter')).toMatchObject({ role: 'membraneProtein', facet: null, cell: null, skin: 'symporter', source: 'sidecar' })
     expect(await roleOf('wall')).toMatchObject({ role: 'membrane', source: 'sidecar' })
     expect(await roleOf('pool')).toMatchObject({ role: 'region', side: null, source: 'sidecar' })
   })
@@ -42,11 +46,11 @@ describe('physiological roles', () => {
   })
 
   it('lets the user’s choices win', async () => {
-    const data = { name: 'porter', bioView: { facet: 'lateral', glyph: 'pump', cell: 'other' } }
+    const data = { name: 'porter', bioView: { facet: 'lateral', skin: 'pump', cell: 'other' } }
     expect(resolveBioRole(data, { sidecar: await toySidecar('porter') })).toMatchObject({
       role: 'membraneProtein',
       facet: 'lateral',
-      glyph: 'pump',
+      skin: 'pump',
       cell: 'other',
       source: 'sidecar',
     })
@@ -55,7 +59,7 @@ describe('physiological roles', () => {
     expect(resolveBioRole(unplaced, { sidecar: await toySidecar('porter') })).toMatchObject({ facet: null, annotatedFacet: null })
     expect(resolveBioRole({ bioView: { role: 'region' } }).source).toBe('override')
     // Choices that don't fit are ignored.
-    expect(resolveBioRole({ bioView: { role: 'mitochondrion', facet: 'top', glyph: 'blob' } })).toMatchObject({ role: 'none', facet: null, glyph: null })
+    expect(resolveBioRole({ bioView: { role: 'mitochondrion', facet: 'top', skin: 'blob' } })).toMatchObject({ role: 'none', facet: null, skin: null })
   })
 
   it('keeps a lateral protein’s side and a region’s adjacency, dropping what doesn’t fit', () => {
@@ -85,30 +89,38 @@ describe('physiological roles', () => {
       cell: null,
       side: null,
       adjacent: null,
-      glyph: null,
+      skin: null,
+      skinContext: null,
       source: 'none',
     })
   })
 
-  it('draws each annotated protein function as its cartoon, and others as generic', () => {
+  it('draws each annotated protein function as its skin, and others as generic', () => {
+    const glyphFor = (terms, chosen) => skinOf('membraneProtein', terms, chosen)
     expect(glyphFor([GO.glucoseSodiumSymporter])).toBe('symporter')
     expect(glyphFor([GO.glucoseTransporter])).toBe('uniporter')
     expect(glyphFor([GO.sodiumPotassiumAtpase])).toBe('pump')
     expect(glyphFor([GO.inwardRectifierPotassiumChannel])).toBe('channel')
     expect(glyphFor(['GO:0000000'])).toBe('generic')
     expect(glyphFor([GO.glucoseTransporter], 'antiporter')).toBe('antiporter')
+    // A process's skin, or none, is not a protein's.
+    expect(glyphFor(['GO:0005739'])).toBe('generic')
+    expect(glyphFor([], 'mitochondrion')).toBe('generic')
+    expect(glyphFor([], NO_SKIN)).toBe('generic')
   })
 
   it('draws a process as the generic process unless chosen or annotated with a cartoon, or none', () => {
     // SBGN's process node, where nothing says more.
-    expect(resolveBioRole({ bioView: { role: 'cytosolic' } }).glyph).toBe('process')
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'mitochondrion' } }).glyph).toBe('mitochondrion')
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'blob' } }).glyph).toBe('process')
+    expect(resolveBioRole({ bioView: { role: 'cytosolic' } }).skin).toBe('process')
+    expect(resolveBioRole({ bioView: { role: 'cytosolic', skin: 'mitochondrion' } }).skin).toBe('mitochondrion')
+    expect(resolveBioRole({ bioView: { role: 'cytosolic', skin: 'blob' } }).skin).toBe('process')
+    const processGlyphFor = (terms, chosen) => skinOf('cytosolic', terms, chosen)
     expect(processGlyphFor(['GO:0030016'])).toBe('myofilament')
     expect(processGlyphFor(['GO:0005739'])).toBe('mitochondrion')
     expect(processGlyphFor(['GO:0000000'])).toBe('process')
+    expect(processGlyphFor([], 'pump')).toBe('process')
     // A plain card only by choice.
-    expect(processGlyphFor(['GO:0005739'], NO_GLYPH)).toBeNull()
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: NO_GLYPH } }).glyph).toBeNull()
+    expect(processGlyphFor(['GO:0005739'], NO_SKIN)).toBeNull()
+    expect(resolveBioRole({ bioView: { role: 'cytosolic', skin: NO_SKIN } }).skin).toBeNull()
   })
 })

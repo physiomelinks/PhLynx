@@ -12,7 +12,7 @@ import {
   runAt,
 } from '../../../../../src/services/bioView/pieces/layout.js'
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
-import { CELL_RADIUS, GLYPH_WIDTH, MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
+import { CELL_RADIUS, SYMBOL_WIDTH, MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
 import { encloseCompartment } from '../../../../../src/services/bioView/pieces/edits.js'
 import { fitToContents, moveFrame, resizeFrame } from '../../../../../src/services/bioView/pieces/moves.js'
 import { LABEL_GAP } from '../../../../../src/services/bioView/metrics.js'
@@ -117,8 +117,8 @@ describe('layoutPieces', () => {
     expect(place.rect).toEqual({
       x: 40,
       y: 60,
-      width: GLYPH_WIDTH + 2 * CELL_RADIUS,
-      height: GLYPH_WIDTH + 2 * CELL_RADIUS,
+      width: SYMBOL_WIDTH + 2 * CELL_RADIUS,
+      height: SYMBOL_WIDTH + 2 * CELL_RADIUS,
     })
     expect(layout.rects.get('cell')).toEqual(place.rect)
     expect(layout.places.has(pieceKey('cell'))).toBe(false)
@@ -448,7 +448,7 @@ describe('process zones with frames', () => {
     const before = rectOf(laidOut(pieces, { nodes }), 'z')
     const tiny = resized(pieces, 'z', { x: before.x, y: before.y, width: 20, height: 20 }, { nodes })
     const after = rectOf(laidOut(tiny, { nodes }), 'z')
-    expect(after.width).toBeGreaterThanOrEqual(3 * (GLYPH_WIDTH + LABEL_GAP))
+    expect(after.width).toBeGreaterThanOrEqual(3 * (SYMBOL_WIDTH + LABEL_GAP))
     expect(after.height).toBe(before.height)
     expect(contains(rectOf(laidOut(tiny, { nodes }), 'pm'), after)).toBe(true)
   })
@@ -551,7 +551,7 @@ describe('what stands in a cell with a fold', () => {
         const z = rectOf(layout, 'z')
         expect(apart(z, pocketOf(layout)), `${side} ${at}`).toBe(true)
         // Room for each cartoon and its name, and a spare place past them.
-        expect(z.width, `${side} ${at}`).toBeGreaterThanOrEqual(4 * (GLYPH_WIDTH + LABEL_GAP))
+        expect(z.width, `${side} ${at}`).toBeGreaterThanOrEqual(4 * (SYMBOL_WIDTH + LABEL_GAP))
       }
     }
   })
@@ -714,5 +714,95 @@ describe('a joint between cells that touch', () => {
     const zone = joined(100)
     expect(zone.y).toBe(100 + CELL_RADIUS)
     expect(bottom(zone)).toBe(240 - CELL_RADIUS)
+  })
+})
+
+describe('the area skins the pieces are drawn with', () => {
+  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>'
+  const area = (id, appliesTo, terms) => ({ id, name: id, appliesTo, ...(terms && { terms }), svg: SVG })
+
+  it('gives a cell its inside’s skin, never its membrane’s, and a compartment its own', async () => {
+    const { setLoadedSkins } = await import('../../../../../src/services/bioView/skinRegistry.js')
+    setLoadedSkins([area('local:cyto', ['cytosol']), area('local:sea', ['extracellular'])])
+    try {
+      const cell = (skins) => [
+        { id: 'c', kind: 'compartment', label: 'C', ...(skins.bulk && { skin: skins.bulk }) },
+        { id: 'm', kind: 'membrane', label: 'M', encloses: ['c'], ...(skins.membrane && { skin: skins.membrane }) },
+        { id: 'out', kind: 'compartment', label: 'Out', docks: [{ on: 'm', side: 'top', face: 'outside' }], skin: { ref: 'local:sea' } },
+      ]
+      const skinOf = (layout, id) => layout.places.get(pieceKey(id))?.skin
+      const onBulk = laidOut(cell({ bulk: { ref: 'local:cyto', mode: 'cover' } }))
+      expect(skinOf(onBulk, 'm')).toMatchObject({ ref: 'local:cyto', mode: 'cover' })
+      expect(skinOf(onBulk, 'out')).toMatchObject({ ref: 'local:sea' })
+      // A skin on the membrane is no area skin of its cell's.
+      expect(skinOf(laidOut(cell({ membrane: { ref: 'local:cyto' } })), 'm')).toBeUndefined()
+      // One for something else is not drawn.
+      expect(skinOf(laidOut(cell({ bulk: { ref: 'local:sea' } })), 'm')).toBeUndefined()
+    } finally {
+      setLoadedSkins([])
+    }
+  })
+
+  it('draws an area its term matches unless none is chosen, and a cell with no inside of its own with none', async () => {
+    const { setLoadedSkins } = await import('../../../../../src/services/bioView/skinRegistry.js')
+    setLoadedSkins([area('local:outer', ['subcompartment'], ['GO:0099998'])])
+    try {
+      const raw = [
+        {
+          id: 'os',
+          kind: 'compartment',
+          label: 'OS',
+          term: 'GO:0099998',
+          docks: ['top', 'bottom', 'left'].map((side) => ({ on: 'm', side, face: 'inside', ...(side !== 'left' && { to: 0.5 }) })),
+        },
+        {
+          id: 'is',
+          kind: 'compartment',
+          label: 'IS',
+          docks: ['top', 'bottom', 'right'].map((side) => ({ on: 'm', side, face: 'inside', ...(side !== 'right' && { from: 0.5 }) })),
+        },
+        { id: 'm', kind: 'membrane', label: 'M', encloses: ['os', 'is'] },
+      ]
+      const layout = laidOut(raw)
+      expect(layout.places.get(pieceKey('os')).skin).toEqual({ ref: 'local:outer' })
+      expect(layout.places.get(pieceKey('is')).skin).toBeUndefined()
+      expect(layout.places.get(pieceKey('m')).skin).toBeUndefined()
+      const plain = laidOut(raw.map((piece) => (piece.id === 'os' ? { ...piece, skin: { ref: 'none' } } : piece)))
+      expect(plain.places.get(pieceKey('os')).skin).toBeUndefined()
+    } finally {
+      setLoadedSkins([])
+    }
+  })
+})
+
+describe('the line skins membranes are drawn with', () => {
+  it('draws a membrane as a bilayer unless one that applies is chosen', () => {
+    const raw = (skin) => [
+      { id: 'c', kind: 'compartment', label: 'C' },
+      { id: 'm', kind: 'membrane', label: 'M', encloses: ['c'], ...(skin && { skin: { ref: skin } }) },
+      { id: 'o', kind: 'compartment', label: 'O', parent: 'c' },
+      { id: 'om', kind: 'membrane', label: 'OM', parent: 'c', encloses: ['o'], ...(skin && { skin: { ref: skin } }) },
+    ]
+    const skinOf = (layout, id) => layout.places.get(pieceKey(id)).membraneSkin
+    expect(skinOf(laidOut(raw()), 'm')).toBe('bilayer')
+    expect(skinOf(laidOut(raw('wall')), 'm')).toBe('wall')
+    // A double membrane is an organelle's alone: a cell's chosen one is drawn as a bilayer, the choice kept.
+    const doubled = laidOut(raw('double-membrane'))
+    expect(skinOf(doubled, 'om')).toBe('double-membrane')
+    expect(skinOf(doubled, 'm')).toBe('bilayer')
+  })
+})
+
+describe('the skins tubes’ joints are drawn with', () => {
+  it('draws a joint by its flux unless one that suits it is chosen', () => {
+    const raw = (flux, skin) => [
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 100 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 200, y: 0, width: 200, height: 100 } },
+      { id: 't', kind: 'tube', label: 'T', ends: ['a', 'b'], flux, ...(skin && { skin: { ref: skin } }) },
+    ]
+    const skinOf = (layout) => layout.places.get(pieceKey('t')).jointSkin
+    expect(skinOf(laidOut(raw('bridge')))).toBe('open-way')
+    expect(skinOf(laidOut(raw('bridge', 'dashed-way')))).toBe('dashed-way')
+    expect(skinOf(laidOut(raw('junction', 'dashed-way')))).toBe('connexon-pair')
   })
 })

@@ -1,5 +1,5 @@
 /**
- * What a membrane protein carries across its membrane, for the arrows on its cartoon. The annotations
+ * What a membrane protein carries across its membrane, for the arrows on its symbol. The annotations
  * say which species cross, but not which way: that is the sign of the protein's flows, known once the
  * model has run.
  *

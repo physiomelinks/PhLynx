@@ -1,10 +1,10 @@
 <template>
   <!-- Drawn with the outside of the cell up; the membrane runs across the middle -->
   <svg
-    class="protein-glyph"
-    :class="`protein-glyph--${entry.id.replace(':', '-')}`"
+    class="bio-symbol"
+    :class="`bio-symbol--${entry.id.replace(':', '-')}`"
     :viewBox="entry.viewBox"
-    :data-glyph="entry.id"
+    :data-skin="entry.id"
     :style="paletteStyle"
   >
     <!-- A selected or coupled protein's glow: its shapes again, widened, under it. Drawn, not a CSS filter, which
@@ -12,9 +12,9 @@
     <g
       v-for="(layer, l) in haloLayers"
       :key="`halo-${l}`"
-      class="protein-glyph__halo"
+      class="bio-symbol__halo"
       :style="{ opacity: layer.opacity }"
-      data-testid="protein-glyph-halo"
+      data-testid="bio-symbol-halo"
     >
       <template v-for="(element, i) in entry.elements" :key="i">
         <component
@@ -55,12 +55,12 @@
         :style="paint(element)"
         :transform="upright(element)"
       />
-      <!-- Kept upright, however the cartoon is turned, when it says so -->
+      <!-- Kept upright, however the symbol is turned, when it says so -->
       <text
         v-else
         :x="element.x"
         :y="element.y"
-        class="protein-glyph__text"
+        class="bio-symbol__text"
         :style="textStyle(element)"
         :transform="upright(element)"
       >{{ element.text }}</text>
@@ -71,7 +71,7 @@
     <g
       v-for="arrow in placedArrows"
       :key="arrow.label"
-      class="protein-glyph__arrow"
+      class="bio-symbol__arrow"
       :style="arrowStyle"
       :data-species="arrow.label"
       :data-direction="arrow.direction ?? 'both'"
@@ -90,11 +90,12 @@
 
 <script setup>
 import { computed } from 'vue'
-import { getGlyph } from '../../services/bioView/glyphs'
+import { getSkin } from '../../services/bioView/skinRegistry'
 
 const props = defineProps({
-  glyph: { type: String, default: 'generic' },
-  /** How far the cartoon is turned, so its text can stay upright. */
+  /** The symbol skin's id; any other is drawn as the generic protein. */
+  skin: { type: String, default: 'generic' },
+  /** How far the symbol is turned, so its text can stay upright. */
   rotation: { type: Number, default: 0 },
   /** What it carries: [{ species, label, direction: 'in'|'out'|null }], null when the way isn't known. */
   arrows: { type: Array, default: () => [] },
@@ -102,20 +103,23 @@ const props = defineProps({
   halo: { type: String, default: null },
 })
 
-const entry = computed(() => getGlyph(props.glyph) ?? getGlyph('generic'))
+const entry = computed(() => {
+  const skin = getSkin(props.skin)
+  return skin?.renderer === 'symbol' ? skin : getSkin('generic')
+})
 
-/** A glyph's own palette, as per-slot variables for light and dark; the stylesheet picks the mode's. */
+/** A symbol's own palette, as per-slot variables for light and dark; the stylesheet picks the mode's. */
 const paletteStyle = computed(() => {
   const style = {}
   for (const mode of ['light', 'dark']) {
     for (const [slot, colour] of Object.entries(entry.value.palette?.[mode] ?? {})) {
-      style[`--glyph-${slot}-${mode}`] = colour
+      style[`--symbol-${slot}-${mode}`] = colour
     }
   }
   return style
 })
 
-const slotColour = (slot) => (slot === 'none' ? 'none' : `var(--glyph-${slot})`)
+const slotColour = (slot) => (slot === 'none' ? 'none' : `var(--symbol-${slot})`)
 
 /** A shape's fill and stroke, from its colour slots. */
 function paint(element) {
@@ -134,7 +138,7 @@ const textStyle = (element) => ({
 
 /** Named by fill slot, as a modifier, so a shape painted 'arrow' is never taken for one of the arrows. */
 const partClass = (element) =>
-  `protein-glyph__part protein-glyph__part--${element.fill === 'none' ? 'line' : element.fill}`
+  `bio-symbol__part bio-symbol__part--${element.fill === 'none' ? 'line' : element.fill}`
 
 /** How far each layer of a glow reaches past the shapes, and how strong it is: a wide faint one, a close one. */
 const HALOS = {
@@ -163,11 +167,11 @@ const haloPaint = (element, reach) => ({
   strokeLinejoin: 'round',
 })
 
-/** Turns a shape back by the cartoon's rotation, about its point, so it reads upright. */
+/** Turns a shape back by the symbol's rotation, about its point, so it reads upright. */
 const upright = (element) =>
   element.upright ? `rotate(${-props.rotation} ${element.upright.x} ${element.upright.y})` : undefined
 
-const arrowStyle = computed(() => ({ '--glyph-arrow-ink': slotColour(entry.value.arrowRoom.colour) }))
+const arrowStyle = computed(() => ({ '--symbol-arrow-ink': slotColour(entry.value.arrowRoom.colour) }))
 
 // Spread evenly across the room; one alone goes down its middle, as through a channel's pore.
 const placedArrows = computed(() => {
@@ -188,47 +192,47 @@ function head(x, y, dir) {
 </script>
 
 <style scoped>
-/* One cartoon palette, whatever the diagram's theme tints the node's card: those tints are pale card
-   backgrounds that the white arrows vanish on. A glyph's own palette overrides a slot per mode. */
-.protein-glyph {
-  --glyph-body: var(--glyph-body-light, var(--p-emerald-500));
-  --glyph-outline: var(--glyph-outline-light, color-mix(in srgb, var(--glyph-body) 60%, black));
-  --glyph-pore: var(--glyph-pore-light, color-mix(in srgb, var(--glyph-body) 25%, white));
-  --glyph-accent: var(--glyph-accent-light, var(--p-amber-400));
-  --glyph-accentText: var(--glyph-accentText-light, var(--p-amber-900));
-  --glyph-arrow: var(--glyph-arrow-light, white);
+/* One symbol palette, whatever the diagram's theme tints the node's card: those tints are pale card
+   backgrounds that the white arrows vanish on. A symbol's own palette overrides a slot per mode. */
+.bio-symbol {
+  --symbol-body: var(--symbol-body-light, var(--p-emerald-500));
+  --symbol-outline: var(--symbol-outline-light, color-mix(in srgb, var(--symbol-body) 60%, black));
+  --symbol-pore: var(--symbol-pore-light, color-mix(in srgb, var(--symbol-body) 25%, white));
+  --symbol-accent: var(--symbol-accent-light, var(--p-amber-400));
+  --symbol-accentText: var(--symbol-accentText-light, var(--p-amber-900));
+  --symbol-arrow: var(--symbol-arrow-light, white);
   display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
 }
 
-.protein-glyph__text {
+.bio-symbol__text {
   text-anchor: middle;
 }
 
-.protein-glyph__arrow line {
-  stroke: var(--glyph-arrow-ink);
+.bio-symbol__arrow line {
+  stroke: var(--symbol-arrow-ink);
   stroke-width: 2.5;
   stroke-linecap: round;
 }
 
-.protein-glyph__arrow polygon {
-  fill: var(--glyph-arrow-ink);
+.bio-symbol__arrow polygon {
+  fill: var(--symbol-arrow-ink);
 }
 </style>
 
 <style>
-/* Dark mode: a glyph's dark palette, else its light one, else the same cartoon colours */
-.p-dark .protein-glyph {
-  --glyph-body: var(--glyph-body-dark, var(--glyph-body-light, var(--p-emerald-500)));
-  --glyph-outline: var(
-    --glyph-outline-dark,
-    var(--glyph-outline-light, color-mix(in srgb, var(--glyph-body) 60%, black))
+/* Dark mode: a symbol's dark palette, else its light one, else the same symbol colours */
+.p-dark .bio-symbol {
+  --symbol-body: var(--symbol-body-dark, var(--symbol-body-light, var(--p-emerald-500)));
+  --symbol-outline: var(
+    --symbol-outline-dark,
+    var(--symbol-outline-light, color-mix(in srgb, var(--symbol-body) 60%, black))
   );
-  --glyph-pore: var(--glyph-pore-dark, var(--glyph-pore-light, color-mix(in srgb, var(--glyph-body) 25%, white)));
-  --glyph-accent: var(--glyph-accent-dark, var(--glyph-accent-light, var(--p-amber-400)));
-  --glyph-accentText: var(--glyph-accentText-dark, var(--glyph-accentText-light, var(--p-amber-900)));
-  --glyph-arrow: var(--glyph-arrow-dark, var(--glyph-arrow-light, white));
+  --symbol-pore: var(--symbol-pore-dark, var(--symbol-pore-light, color-mix(in srgb, var(--symbol-body) 25%, white)));
+  --symbol-accent: var(--symbol-accent-dark, var(--symbol-accent-light, var(--p-amber-400)));
+  --symbol-accentText: var(--symbol-accentText-dark, var(--symbol-accentText-light, var(--p-amber-900)));
+  --symbol-arrow: var(--symbol-arrow-dark, var(--symbol-arrow-light, white));
 }
 </style>

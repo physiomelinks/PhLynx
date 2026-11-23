@@ -37,8 +37,8 @@ describe('physiological roles bound to a template site', () => {
   })
 
   it('keeps the site when a node is rebuilt, and drops it from a pasted copy', () => {
-    const bioView = { role: 'membraneProtein', glyph: 'pump', site: 'bt-x1/cell.apical', order: 1 }
+    const bioView = { role: 'membraneProtein', skin: 'pump', site: 'bt-x1/cell.apical', order: 1 }
     expect(withAnnotationData({}, { name: 'p', bioView }).bioView).toEqual(bioView)
-    expect(nodeDataForCopy({ name: 'p', bioView }).bioView).toEqual({ role: 'membraneProtein', glyph: 'pump' })
+    expect(nodeDataForCopy({ name: 'p', bioView }).bioView).toEqual({ role: 'membraneProtein', skin: 'pump' })
   })
 })

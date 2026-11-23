@@ -30,7 +30,7 @@ export const STEP_LABELS = {
   'bio-add': 'Add module',
   'bio-bind': 'Place on piece',
   'bio-role': 'Show As',
-  'bio-glyph': 'Cartoon',
+  'bio-skin': 'Skin',
   'bio-adjacent': 'Lies Against',
   'bio-take-out': 'Take out of membrane',
   'bio-unbind': 'Unbind',

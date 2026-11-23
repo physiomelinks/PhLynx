@@ -4,8 +4,8 @@
  */
 
 import {
-  GLYPH_HEIGHT,
-  GLYPH_WIDTH,
+  SYMBOL_HEIGHT,
+  SYMBOL_WIDTH,
   MEMBRANE_BAND_HALF,
   cellSlots,
   facetOfPart,
@@ -326,7 +326,7 @@ export function dropSites(sites, dragged = null) {
             })
       const own = site.process ? null : facetById(site.shape, site.facet)
       const facet = site.process
-        ? { ...(site.glyph && { glyph: true }) }
+        ? { ...(site.symbol && { symbol: true }) }
         : { edge: own?.edge, cellRect: site.cellRect, ...(own?.fold && { foldRect: foldReach(site.cellRect, own) }) }
       slots.forEach((slot, order) =>
         targets.push({
@@ -389,15 +389,15 @@ function holds(target, point) {
   return target.area === 'cell' ? inCell(target.rect, point) : contains(target.rect, point)
 }
 
-/** Whether a point is on a slot's protein glyph (turned with its edge) or card. */
+/** Whether a point is on a slot's protein symbol (turned with its edge) or card. */
 function onSlot(target, { x, y }) {
   const isUpright = target.edge !== 'left' && target.edge !== 'right'
   const [width, height] =
     target.role === 'cytosolic'
       ? [processSize(target).width, processSize(target).height]
       : isUpright
-        ? [GLYPH_WIDTH, GLYPH_HEIGHT]
-        : [GLYPH_HEIGHT, GLYPH_WIDTH]
+        ? [SYMBOL_WIDTH, SYMBOL_HEIGHT]
+        : [SYMBOL_HEIGHT, SYMBOL_WIDTH]
   return Math.abs(x - target.x) <= width / 2 && Math.abs(y - target.y) <= height / 2
 }
 
@@ -423,7 +423,7 @@ function bandSlot(targets, point) {
 }
 
 /**
- * Finds where a point drops, most specific first: a slot whose glyph or card it is on, or within AREA_SNAP of;
+ * Finds where a point drops, most specific first: a slot whose symbol or card it is on, or within AREA_SNAP of;
  * a cell's membrane, within MEMBRANE_BAND_HALF of its outline; inside a cell within FACET_BAND of an edge with a
  * facet, that facet's nearest slot; else the areas holding it (a process area's cards, a cell's inside, a
  * compartment), the smallest of a kind. Out of every area, the nearest slot within snap.
@@ -560,7 +560,7 @@ export function planUnbind({ id, position, layout, roles, bioViews }) {
 
 /**
  * Plans laying the whole view out again: every node goes back to the place its annotations and the
- * layout give it, keeping the user's role and glyph.
+ * layout give it, keeping the user's role and skin.
  *
  * @param {Map<string, Object>} bioViews - Node id -> its data.bioView.
  * @returns {Map<string, Object>} Only the nodes that change.

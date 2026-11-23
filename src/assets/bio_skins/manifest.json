@@ -1,0 +1,4 @@
+{
+  "rod-outer-segment": { "name": "Rod outer segment", "appliesTo": ["subcompartment"], "terms": ["GO:0001750"] },
+  "rod-inner-segment": { "name": "Rod inner segment", "appliesTo": ["subcompartment"], "terms": ["GO:0001917"] }
+}

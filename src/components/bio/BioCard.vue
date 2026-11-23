@@ -1,8 +1,8 @@
 <template>
   <div :class="['bio-card', { 'bio-card--selected': selected, 'bio-card--inside': data.inside }]" :style="categoryStyle" data-testid="bio-card">
     <BioHandles :handles="data.handles ?? []" />
-    <!-- A process's cartoon, when it has one, beside its name -->
-    <ProteinGlyph v-if="data.glyph" class="bio-card__glyph" :glyph="data.glyph" data-testid="bio-card-glyph" />
+    <!-- A process's symbol, when it has one, beside its name -->
+    <BioSymbol v-if="data.skin" class="bio-card__symbol" :skin="data.skin" data-testid="bio-card-symbol" />
     <span class="bio-card__name">{{ data.name }}</span>
     <BioUncoupledBadge v-if="data.uncoupled" :name="data.name" />
   </div>
@@ -10,7 +10,7 @@
 
 <script setup>
 import BioHandles from './BioHandles.vue'
-import ProteinGlyph from './ProteinGlyph.vue'
+import BioSymbol from './BioSymbol.vue'
 import BioUncoupledBadge from './BioUncoupledBadge.vue'
 import { computed } from 'vue'
 import { useNodeThemeStore } from '../../stores/nodeThemeStore'
@@ -41,7 +41,7 @@ const categoryStyle = computed(() => themeCategoryStyle(nodeThemeStore.activeThe
   font-weight: 600;
 }
 
-.bio-card__glyph {
+.bio-card__symbol {
   flex: none;
   width: 64px;
   height: 48px;

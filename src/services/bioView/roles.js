@@ -2,7 +2,7 @@
  * What each instance is in the physiological view, worked out from its annotations unless the user has said.
  *
  * A node's data.bioView holds the user's choices and its place in that view, all optional:
- * - role, glyph, facet, cell: overrides of what is worked out here; a facet of null takes a protein out of
+ * - role, skin, facet, cell: overrides of what is worked out here; a facet of null takes a protein out of
  *   its membrane;
  * - at: 'left' or 'right', which side of the cell a lateral protein is on;
  * - adjacent: [{ cell, facet, at? }], what a region lies against, e.g. one cell's lateral side for a
@@ -16,7 +16,8 @@
 
 import { GO } from '../annotations/iris.js'
 import { FACETS, LATERAL_SIDES as SIDES } from './facets.js'
-import { glyphFor, processGlyphFor } from './glyphs.js'
+import { contextOfModule } from './skinContext.js'
+import { resolveSkin } from './skinRegistry.js'
 
 /**
  * What an instance can be:
@@ -38,9 +39,6 @@ export const ROLE_LABELS = Object.freeze({
   region: 'Region outside cells',
   none: 'Card',
 })
-
-/** The roles drawn with a cartoon: a protein in its membrane, and a process on its card. */
-export const GLYPH_ROLES = new Set(['membraneProtein', 'cytosolic'])
 
 /** Roles that belong to a cell. */
 const CELL_ROLES = new Set(['membraneProtein', 'membrane', 'cytosolic'])
@@ -106,9 +104,12 @@ function fromSidecar(sidecar) {
  * @param {Object|null} [context.worked] - A role the location source worked out (see locationSources.js), as
  *   { role, facet?, cell?, side? }.
  * @returns {{ role: string, facet: string|null, at: string|null, annotatedFacet: string|null, cell: string|null,
- *   side: string|null, adjacent: Array<Object>|null, glyph: string|null,
+ *   side: string|null, adjacent: Array<Object>|null, skin: string|null,
+ *   skinContext: {family: string, target: string, terms: string[]}|null,
  *   source: 'override'|'location'|'sidecar'|'none',
  *   site?: string }}
+ *   skin is the skin it is drawn with (see resolveSkin), null for a role drawn with none or a process chosen to have
+ *   none; skinContext, what it is for its skin (see contextOfModule), null for a role with no skin.
  *   annotatedFacet is the facet the annotations give, whatever the user chose, and null for a node bound to a
  *   template site, which the template places; side is the facet a region faces as the annotations give it, and
  *   adjacent what the user said it lies against; site, only there when set, the template site it is bound to.
@@ -125,6 +126,7 @@ export function resolveBioRole(data, { sidecar = null, worked: located = null } 
   const facet = role !== 'membraneProtein' || unplaced ? null : FACETS.includes(override.facet) ? override.facet : (worked?.facet ?? null)
   const cell = CELL_ROLES.has(role) ? (override.cell ?? worked?.cell ?? null) : null
   const site = typeof override.site === 'string' && override.site ? override.site : null
+  const skinContext = contextOfModule(role, sidecar?.component?.isVersionOf)
   return {
     role,
     facet,
@@ -133,12 +135,8 @@ export function resolveBioRole(data, { sidecar = null, worked: located = null } 
     cell,
     side: role === 'region' ? (worked?.side ?? null) : null,
     adjacent: role === 'region' ? validAdjacency(override.adjacent) : null,
-    glyph:
-      role === 'membraneProtein'
-        ? glyphFor(sidecar?.component?.isVersionOf, override.glyph)
-        : role === 'cytosolic'
-          ? processGlyphFor(sidecar?.component?.isVersionOf, override.glyph)
-          : null,
+    skin: resolveSkin(skinContext, override.skin)?.id ?? null,
+    skinContext,
     source: ROLES.includes(override.role) ? 'override' : source,
     ...(site && { site }),
   }

@@ -15,7 +15,7 @@ import {
 import { nearestSlot } from '../../../../src/services/bioView/geometry.js'
 import { layoutBioView } from '../../../../src/services/bioView/layout.js'
 
-const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, glyph: null, ...extra })
+const role = (role, extra = {}) => ({ role, facet: null, cell: null, side: null, skin: null, ...extra })
 
 /** A cell with a, b, c on its apical facet, d on its basolateral facet, and a loose card. */
 function epithelium() {
@@ -156,15 +156,15 @@ describe('dropping in the physiological view', () => {
     expect(plan.get('b').position).toEqual({ x: -300, y: 41 })
   })
 
-  it('lays out again, keeping only the user’s role and glyph', () => {
+  it('lays out again, keeping only the user’s role and skin', () => {
     const bioViews = new Map([
-      ['a', { role: 'membraneProtein', glyph: 'pump', facet: 'lateral', at: 'left', order: 2 }],
-      ['b', { glyph: 'channel' }],
+      ['a', { role: 'membraneProtein', skin: 'pump', facet: 'lateral', at: 'left', order: 2 }],
+      ['b', { skin: 'channel' }],
       ['c', undefined],
       ['cell', { rect: { x: 0, y: 0, width: 1, height: 1 } }],
     ])
     expect(Object.fromEntries(planRelayout(bioViews))).toEqual({
-      a: { role: 'membraneProtein', glyph: 'pump' },
+      a: { role: 'membraneProtein', skin: 'pump' },
       cell: {},
     })
   })

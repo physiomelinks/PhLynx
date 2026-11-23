@@ -2,38 +2,50 @@
   <!--
     The joint a link draws between the pieces it joins: between two tubes, the vessel's walls going on and narrowing
     to the resistance or valve its module is, with the flow through it; a gap junction, a channel across both cells'
-    membranes, as its two connexons; a bridge, the open way through it, walled by what it runs through.
+    membranes, as its two connexons; a bridge, the open way through it, walled by what it runs through. Its skin
+    may say otherwise: another of these, or a symbol, fitted into the joint and turned with it.
   -->
   <svg
-    :class="['bio-joint-glyph', { 'bio-joint-glyph--empty': empty, 'bio-joint-glyph--selected': selected }]"
+    :class="['bio-joint-symbol', { 'bio-joint-symbol--empty': empty, 'bio-joint-symbol--selected': selected }]"
     :width="width"
     :height="height"
     :viewBox="`0 0 ${width} ${height}`"
     overflow="visible"
-    data-testid="bio-joint-glyph"
+    data-testid="bio-joint-symbol"
   >
     <defs>
       <marker :id="markerId" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" class="bio-joint-glyph__head" />
+        <path d="M 0 0 L 10 5 L 0 10 z" class="bio-joint-symbol__head" />
       </marker>
     </defs>
-    <template v-if="kind === 'flow'">
-      <path :d="lumen" class="bio-joint-glyph__lumen" :style="tone && { fill: `color-mix(in srgb, var(--p-${tone}-200) 40%, transparent)` }" />
-      <path :d="wall(WALL / 2, neck)" class="bio-joint-glyph__wall" />
-      <path :d="wall(height - WALL / 2, height - neck)" class="bio-joint-glyph__wall" />
-      <line :x1="4" :y1="height / 2" :x2="width - 4" :y2="height / 2" class="bio-joint-glyph__flow" :marker-end="`url(#${markerId})`" />
+    <g v-if="symbol" :transform="vertical ? `rotate(90 ${width / 2} ${height / 2})` : undefined">
+      <BioSymbol
+        :skin="symbol.id"
+        :x="fit.x"
+        :y="fit.y"
+        :width="fit.width"
+        :height="fit.height"
+        preserveAspectRatio="xMidYMid meet"
+        data-testid="bio-joint-skin"
+      />
+    </g>
+    <template v-else-if="drawn === 'flow'">
+      <path :d="lumen" class="bio-joint-symbol__lumen" :style="tone && { fill: `color-mix(in srgb, var(--p-${tone}-200) 40%, transparent)` }" />
+      <path :d="wall(WALL / 2, neck)" class="bio-joint-symbol__wall" />
+      <path :d="wall(height - WALL / 2, height - neck)" class="bio-joint-symbol__wall" />
+      <line :x1="4" :y1="height / 2" :x2="width - 4" :y2="height / 2" class="bio-joint-symbol__flow" :marker-end="`url(#${markerId})`" />
     </template>
     <line
-      v-else-if="kind !== 'junction'"
+      v-else-if="drawn !== 'junction'"
       v-bind="openWay"
       :class="[
-        'bio-joint-glyph__flow',
-        'bio-joint-glyph__open',
-        { 'bio-joint-glyph__open--diffusion': kind === 'diffusion' },
+        'bio-joint-symbol__flow',
+        'bio-joint-symbol__open',
+        { 'bio-joint-symbol__open--diffusion': drawn === 'diffusion' },
       ]"
     />
     <template v-else>
-      <line :x1="0" :y1="height / 2" :x2="width" :y2="height / 2" class="bio-joint-glyph__flow" />
+      <line :x1="0" :y1="height / 2" :x2="width" :y2="height / 2" class="bio-joint-symbol__flow" />
       <rect
         v-for="x in barrels"
         :key="x"
@@ -42,19 +54,23 @@
         :width="BARREL.width"
         :height="BARREL.height"
         rx="5"
-        class="bio-joint-glyph__barrel"
+        class="bio-joint-symbol__barrel"
       />
-      <line :x1="width / 2 - BARREL.width - 2" :y1="height / 2" :x2="width / 2 + BARREL.width + 2" :y2="height / 2" class="bio-joint-glyph__pore" />
+      <line :x1="width / 2 - BARREL.width - 2" :y1="height / 2" :x2="width / 2 + BARREL.width + 2" :y2="height / 2" class="bio-joint-symbol__pore" />
     </template>
   </svg>
 </template>
 
 <script setup>
 import { computed, useId } from 'vue'
+import BioSymbol from './BioSymbol.vue'
+import { getSkin } from '../../services/bioView/skinRegistry'
 
 const props = defineProps({
   /** 'flow' between tubes; 'junction', a gap junction between cells; 'bridge' or 'diffusion', an open way. */
   kind: { type: String, required: true },
+  /** The skin it is drawn with (see resolveSkin): a built-in joint's id or a symbol's; none, as its kind is. */
+  skin: { type: String, default: null },
   /** An open way's direction: down, across a bridge between a cell and one below it. */
   vertical: { type: Boolean, default: false },
   width: { type: Number, required: true },
@@ -72,6 +88,25 @@ const WALL = 6
 const BARREL = { width: 20, height: 60 }
 
 const markerId = `bio-joint-head-${useId()}`
+
+/** The drawing each built-in joint skin is: one of the kinds. */
+const DRAWN = Object.freeze({ narrowing: 'flow', 'connexon-pair': 'junction', 'open-way': 'bridge', 'dashed-way': 'diffusion' })
+
+/** A symbol skin, drawn in place of a built-in joint. */
+const symbol = computed(() => {
+  const skin = getSkin(props.skin)
+  return skin?.renderer === 'symbol' ? skin : null
+})
+const drawn = computed(() => DRAWN[props.skin] ?? props.kind)
+
+/**
+ * Where a symbol goes: the whole joint, across its length, so it runs the way the joint does; turned a quarter where
+ * the joint runs down. It keeps its own proportions, as big as fits.
+ */
+const fit = computed(() => {
+  const [width, height] = props.vertical ? [props.height, props.width] : [props.width, props.height]
+  return { x: (props.width - width) / 2, y: (props.height - height) / 2, width, height }
+})
 
 /** How far in from the top (and up from the bottom) the walls come at the joint's narrowest. */
 const neck = computed(() => Math.max(WALL, props.height * 0.3))
@@ -105,63 +140,63 @@ const barrels = computed(() => [props.width / 2 - BARREL.width - 1, props.width 
 </script>
 
 <style scoped>
-.bio-joint-glyph {
+.bio-joint-symbol {
   display: block;
   overflow: visible;
 }
 
-.bio-joint-glyph__lumen {
+.bio-joint-symbol__lumen {
   fill: color-mix(in srgb, var(--p-sky-200) 40%, transparent);
 }
 
-.bio-joint-glyph__wall {
+.bio-joint-symbol__wall {
   fill: none;
   stroke: color-mix(in srgb, var(--p-text-muted-color) 55%, transparent);
   stroke-width: 6;
 }
 
-.bio-joint-glyph__flow {
+.bio-joint-symbol__flow {
   stroke: var(--p-text-color);
   stroke-width: 2;
 }
 
-.bio-joint-glyph__open--diffusion {
+.bio-joint-symbol__open--diffusion {
   stroke-dasharray: 8 6;
 }
 
-.bio-joint-glyph__head {
+.bio-joint-symbol__head {
   fill: var(--p-text-color);
 }
 
-.bio-joint-glyph__barrel {
+.bio-joint-symbol__barrel {
   fill: color-mix(in srgb, var(--p-amber-300) 70%, transparent);
   stroke: var(--p-amber-600);
   stroke-width: 1.5;
 }
 
-.bio-joint-glyph__pore {
+.bio-joint-symbol__pore {
   stroke: var(--p-content-background);
   stroke-width: 4;
 }
 
-.bio-joint-glyph--empty .bio-joint-glyph__barrel {
+.bio-joint-symbol--empty .bio-joint-symbol__barrel {
   fill: transparent;
   stroke: var(--p-text-muted-color);
   stroke-dasharray: 4 3;
 }
 
-.bio-joint-glyph--empty .bio-joint-glyph__flow {
+.bio-joint-symbol--empty .bio-joint-symbol__flow {
   stroke: var(--p-text-muted-color);
   stroke-dasharray: 4 4;
 }
 
-.bio-joint-glyph--empty .bio-joint-glyph__head {
+.bio-joint-symbol--empty .bio-joint-symbol__head {
   fill: var(--p-text-muted-color);
 }
 
-.bio-joint-glyph--selected .bio-joint-glyph__wall,
-.bio-joint-glyph--selected .bio-joint-glyph__barrel,
-.bio-joint-glyph--selected .bio-joint-glyph__open {
+.bio-joint-symbol--selected .bio-joint-symbol__wall,
+.bio-joint-symbol--selected .bio-joint-symbol__barrel,
+.bio-joint-symbol--selected .bio-joint-symbol__open {
   stroke: var(--p-primary-color);
 }
 </style>

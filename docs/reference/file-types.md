@@ -12,7 +12,7 @@
 | [COMBINE archive](#combine-archive) | `.omex` | Model and simulation |
 | [Module sidecar](#annotation-files) | `.ttl` | What a module's variables mean |
 | [Physiology template](#template-files) | `.pieces.json` | Pieces to build the physiology view from |
-| [Glyph library](#glyph-files) | `.glyphs.json` | Protein cartoons |
+| [Skin library](#skin-files) | `.skins.json` | How proteins, processes and compartments are drawn |
 | [CA export](../guides/use-with-circulatory-autogen.md#output) | `.zip` | A Circulatory Autogen model |
 
 ## CellML files {#cellml-files}
@@ -44,7 +44,7 @@ Loading never changes a variable's type. Rows starting with `#` are ignored; val
 
 ## Workspace file {#workspace-file}
 
-Written by **Save workspace** (floppy-disk icon, Ctrl/Cmd+S), opened by **Load workspace** (folder icon). Holds the whole session: graph, library (with module sidecars), parameter sets, simulation settings, plots, protocol, and the physiology templates and cartoons it uses. Older files are upgraded on load.
+Written by **Save workspace** (floppy-disk icon, Ctrl/Cmd+S), opened by **Load workspace** (folder icon). Holds the whole session: graph, library (with module sidecars), parameter sets, simulation settings, plots, protocol, and the physiology pieces and the skins it uses. Older files are upgraded on load.
 
 ## COMBINE archive {#combine-archive}
 
@@ -62,9 +62,14 @@ A module sidecar is a Turtle (`.ttl`) file saying what each variable of one modu
 
 A JSON file (format version 4) listing the pieces a part of the physiology view is built from: compartments, membranes, tubes, folds and process zones, each with sites modules are dropped on. Load one with **Load file…** in the Build tab or **Add Template ▸ Load Template File…** in the [physiology view](../guides/physiology-view.md#my-templates), and save the view's pieces with **Save Pieces As Template File…**. The format is described by `src/assets/bio_pieces/bio-pieces.schema.json` in the PhLynx repository. Files written for the earlier template format (`.template.json`) no longer load. Files over 1 MB are refused.
 
-### Glyph library files {#glyph-files}
+### Skin library files {#skin-files}
 
-A JSON file of protein cartoons, each a few SVG shapes drawn with the view's colours. Load one with **Glyph Libraries ▸ Load Glyph Library…** in the [physiology view](../guides/physiology-view.md#glyphs). The built-in library, `src/assets/bio_glyphs/builtin.glyphs.json`, is an example.
+A JSON file of skins for the [physiology view](../guides/physiology-view.md#skins). Each skin says what it suits in `appliesTo` (`protein`, `process`, `cytosol`, `organelle`, `subcompartment`, `extracellular`, or a tube's joint: `conduit`, `gapJunction`, `bridge`, `diffusion`) and may list the ontology terms it stands for in `terms`, which put it first for a thing annotated with one. A skin is either:
+
+- a symbol, for a protein, process or joint: a few shapes on a 64×48 canvas, painted with the view's colours, fitted into a joint as big as fits; or
+- SVG artwork, for a compartment, in `svg`. Anything but drawing (scripts, links, styles, images) is removed when it is read.
+
+Load one with **Skin Libraries ▸ Load Skin Library…** in the physiology view. The built-in library, `src/assets/bio_skins/builtin.skins.json`, is an example. Files over 1 MB are refused.
 
 ## Circulatory Autogen files
 

@@ -8,8 +8,7 @@
         'bio-region--selected': selected,
         'bio-region--empty': data.empty,
         'bio-region--template': data.instance,
-        'bio-region--inner': data.form === 'inner' && !data.clip,
-        'bio-region--drawn': !!data.clip,
+        'bio-region--inner': data.form === 'inner',
         'bio-region--tube': data.shape === 'tube',
         'bio-region--tinting': !!tintOf,
       },
@@ -76,9 +75,6 @@ const skin = computed(() => skinOf(props.data.skin))
 
 /** A microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it. */
 const cutoutStyle = computed(() => {
-  // An area a skin draws is drawn to its own outline, not its box.
-  const clip = props.data.clip
-  if (clip?.length) return { clipPath: `polygon(${clip.map((point) => `${point.x}px ${point.y}px`).join(', ')})` }
   const hole = props.data.cutout
   if (!hole) return undefined
   const { x, y, width, height, radius } = hole
@@ -215,12 +211,6 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
 .bio-region--tube.bio-region--selected {
   border-top-color: var(--p-primary-color);
   border-bottom-color: var(--p-primary-color);
-}
-
-/* An area a skin draws shows the skin's artwork through its tint, and is outlined by the skin, not by a box */
-.bio-region--drawn,
-.bio-region--drawn.bio-region--empty {
-  border-color: transparent;
 }
 
 .bio-region--empty {

@@ -3,7 +3,7 @@ import { useClearWorkspace } from './useClearWorkspace'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useCouplingContext } from './useCouplingContext'
 import { useBioPiecesStore } from '../stores/bioPiecesStore'
-import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
+import { useSkinLibraryStore } from '../stores/skinLibraryStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -56,7 +56,7 @@ export function useWorkspaceSaveLoad({
   const omexStore = useOmexStore()
   const defaultParametersStore = useDefaultParametersStore()
   const bioPiecesStore = useBioPiecesStore()
-  const glyphLibraryStore = useGlyphLibraryStore()
+  const skinLibraryStore = useSkinLibraryStore()
   const nodeThemeStore = useNodeThemeStore()
   const { trackEvent } = useGtm()
   const historyStore = useFlowHistoryStore()
@@ -115,7 +115,7 @@ export function useWorkspaceSaveLoad({
       omex: omexStore,
       parameters: defaultParametersStore,
       bioPieces: bioPiecesStore,
-      bioGlyphs: glyphLibraryStore,
+      bioSkins: skinLibraryStore,
       nodeTheme: nodeThemeStore,
     })
   }
@@ -221,7 +221,7 @@ export function useWorkspaceSaveLoad({
       omexStore.loadState(migratedState.workspace)
       defaultParametersStore.loadState(migratedState.parameters)
       bioPiecesStore.loadState(migratedState.bioPieces)
-      glyphLibraryStore.loadState(migratedState.bioGlyphs)
+      skinLibraryStore.loadState(migratedState.bioSkins)
       nodeThemeStore.loadState(migratedState.nodeTheme)
       // After the pieces, which place the nodes.
       const driven = await driveLoadedEdges()

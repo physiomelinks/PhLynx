@@ -66,17 +66,17 @@ export function cellContents(ids, layout) {
  *
  * @param {Array<string>} contents - From cellContents.
  * @param {Map<string, Object>} layout - From layoutPhysiology.
- * @param {{width: number, height: number}} glyph - A protein's drawn size; its place is its centre.
+ * @param {{width: number, height: number}} symbol - A protein's drawn size; its place is its centre.
  * @returns {Map<string, Object>} Node id -> the bioView fields to set (undefined removes one).
  */
-export function releaseFromCell(contents, layout, glyph) {
+export function releaseFromCell(contents, layout, symbol) {
   const patches = new Map()
   for (const id of contents) {
     const place = layout.get(id)
     const cell = layout.get(place.cell)?.rect ?? { x: 0, y: 0 }
     const at =
       place.kind === 'protein'
-        ? { x: place.x - glyph.width / 2, y: place.y - glyph.height / 2 }
+        ? { x: place.x - symbol.width / 2, y: place.y - symbol.height / 2 }
         : place.kind === 'cytosolic'
           ? { x: place.x, y: place.y }
           : { x: cell.x, y: cell.y }

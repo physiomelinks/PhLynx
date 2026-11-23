@@ -13,7 +13,7 @@ Each instance is drawn by its role:
 
 | Role | Drawn as |
 | :--- | :--- |
-| **Membrane protein** | A cartoon on one facet of a cell's membrane: apical, lateral or basolateral |
+| **Membrane protein** | A [skin](#skins) on one facet of a cell's membrane: apical, lateral or basolateral |
 | **Membrane** | The cell's outline, selectable apart from its inside |
 | **Cell** | The cell's inside (cytoplasm) |
 | **Process in a cell** | A box inside a cell, such as glycolysis |
@@ -81,7 +81,7 @@ Right-click an instance on a site to **Unbind** it: a protein goes to the tray.
 Right-click a piece for:
 
 - **Rename Piece…**. A click on an empty piece's name renames it too.
-- **Skin**: draws a cell or compartment with artwork: a built-in skin, or **Load SVG…** for your own. **Fill** and **Strength** set how it is drawn.
+- **Skin** and, on a cell, **Membrane Skin**: how the piece is drawn. See [Skins](#skins).
 - **Fit to Contents**: shrinks a cell or compartment back to what its contents need. A piece never shrinks on its own.
 - **Straighten Tube**: takes a tube's bend away.
 - **Detach From**: on a compartment docked to more than one membrane side or fold, takes it off one of them, leaving it against the rest.
@@ -93,18 +93,38 @@ To build without pieces, right-click the canvas and choose **Add Cell…** or **
 
 **Load file…** at the end of the Build tab's templates, or **Add Template ▸ Load Template File…**, adds a template file (`.pieces.json`) to **My Templates**, which this browser keeps, and places it. A file that is too large, isn't JSON or isn't a valid template is refused with the reasons. **Add Template ▸ Save My Template As File…** saves one of yours as a file, and **Remove from My Templates** removes one. **Save Pieces As Template File…** on the canvas right-click menu saves every piece of the view as a template file. The pieces a workspace is built from, and its skins, are saved with it, so it opens anywhere.
 
-## Cartoons {#glyphs}
+## Skins {#skins}
 
-Each membrane protein is drawn with a cartoon: symporter, antiporter, uniporter, pump, channel, receptor or generic. PhLynx picks one from the module's GO molecular function; right-click a protein and choose **Cartoon** to pick another.
+Proteins, processes, compartments and membranes are each drawn with a skin. Each is offered only the skins that suit what it is:
 
-Cartoons are data in a glyph library. **Glyph Libraries ▸ Load Glyph Library…** (canvas right-click) adds a library file (`.glyphs.json`), whose cartoons then appear under **Cartoon**. Loaded libraries can be saved again as files or removed. The cartoons a workspace uses are saved with it, and image export includes them.
+| What | Skins |
+| :--- | :--- |
+| Membrane protein | Symporter, antiporter, uniporter, pump, channel, receptor, generic |
+| Process | Myofilament, mitochondrion, process, or none (a plain card) |
+| A cell's inside, an organelle's inside, a compartment within a cell, a space outside cells | None, or SVG artwork, such as the rod's segments |
+| Cell membrane | Lipid bilayer, plain wall |
+| Organelle membrane | Lipid bilayer, double membrane, plain wall |
+| A tube's joint, where its two ends touch | Conduit: narrowing vessel. Gap junction: connexon pair. Bridge or diffusion: open way, dashed way |
+
+PhLynx picks a skin from the annotations: a module's GO terms (`bqbiol:isVersionOf`), or a compartment's term. A skin is chosen only for what it suits: a protein is never drawn as a mitochondrion. In the menus, the skins that match the annotations come first.
+
+To choose another:
+
+- Right-click a protein or process and choose **Skin**.
+- Right-click a cell and choose **Skin** for its inside, or **Membrane Skin** for its membrane. Right-click a compartment and choose **Skin**.
+- Right-click a tube's joint, or the module drawn as it, and choose **Skin**. A conduit between compartments apart is drawn as a vessel along its whole way, whatever its skin.
+- Or select things of one kind and pick a tile under **Skin** in the Properties panel.
+
+For artwork, **Fill** and **Strength** set how it is drawn, and **Load SVG…** adds a drawing of your own to the **My skins** library and uses it. A process in a process zone always has a skin: with none chosen, it is drawn as the generic process.
+
+**Skin Libraries ▸ Load Skin Library…** (canvas right-click) adds a [skin library file](../reference/file-types.md#skin-files) (`.skins.json`). Its skins then appear in the menus of what they suit. Loaded libraries, **My skins** among them, can be saved again as files or removed. The skins a workspace uses are saved with it, so it opens anywhere, and image export includes them.
 
 ## Species Mode {#species-mode}
 
 Species mode shows, in each compartment, a token for each annotated species, and the paths those species take through the proteins between compartments. Turn it on with the **Show species** button in the view's controls, or **Species Mode ▸ Show Species** on the canvas right-click menu. The view opens with species mode as you last left it.
 
 - Click a token to focus that species in that compartment: its paths are highlighted, other species are set back, and after a run its amount and the flows into it are plotted. Click the canvas to clear the focus.
-- Drag a token along its row to reorder the tokens in its compartment; a token cannot leave its compartment. The order is saved with the workspace and each reorder is one undo step. Dependence links meet their protein in the order of their tokens; paths stay under the cartoon's arrows. Right-click the compartment and choose **Reset Species Order** to go back to the automatic order.
+- Drag a token along its row to reorder the tokens in its compartment; a token cannot leave its compartment. The order is saved with the workspace and each reorder is one undo step. Dependence links meet their protein in the order of their tokens; paths stay under the arrows on the protein's skin. Right-click the compartment and choose **Reset Species Order** to go back to the automatic order.
 - A protein that only reads a compartment's amount of a species, with no flow of it coupled there, is linked to its token by a faint dashed line ending in an open circle, as SBGN draws modulation. Only coupled, annotated ports are drawn; nothing is guessed.
 - **Species Mode ▸ Coupled Species** shows only species whose quantities are coupled; **Species with Fluxes** shows only those with at least one path through a protein, so a held reservoir a protein only reads is hidden; **All Annotated Species** shows every species the annotations name. A focused species stays shown in **Species with Fluxes** until the focus is cleared.
 

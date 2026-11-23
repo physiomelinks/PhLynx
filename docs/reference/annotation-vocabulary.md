@@ -36,7 +36,7 @@ Variables are named by their CellML `id`, which PhLynx gives a variable when it 
 | Membrane | `GO:0005886` (plasma membrane) | `m:wall bqbiol:is go:0005886` |
 | Compartment | `SBO:0000290` (physical compartment) | `m:pool bqbiol:is sbo:0000290` |
 
-A component may also be `bqbiol:isVersionOf` a GO molecular function, such as `GO:0005412` (glucose:sodium symporter activity). The physiology view picks a protein's [cartoon](../guides/physiology-view.md#glyphs) from it.
+A component may also be `bqbiol:isVersionOf` a GO molecular function, such as `GO:0005412` (glucose:sodium symporter activity). The physiology view picks a protein's [skin](../guides/physiology-view.md#skins) from it.
 
 ## Variables {#variables}
 

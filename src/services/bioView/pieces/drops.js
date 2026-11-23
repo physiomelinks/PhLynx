@@ -86,19 +86,18 @@ const snap = ({ x, y }) => `${Math.round(x / 8) * 8},${Math.round(y / 8) * 8}`
  * as the view lays them out, where each is drawn is where the view draws it, and a preview lays them out the same.
  *
  * @param {ReadonlyArray<Object>} pieces - Validated.
- * @param {{ shapes?: Map<string, Object>, nodes?: Array<Object>, widthOf?: (id: string) => number }} [options] - As
- *   for layoutPieces.
- * @returns {{pieces: ReadonlyArray<Object>, rects: Map<string, Object>, byId: Map<string, Object>, shapes: Map,
+ * @param {{ nodes?: Array<Object>, widthOf?: (id: string) => number }} [options] - As for layoutPieces.
+ * @returns {{pieces: ReadonlyArray<Object>, rects: Map<string, Object>, byId: Map<string, Object>,
  *   nodes: Array<Object>, widthOf: Function|undefined}}
  */
-export function dropScene(pieces, { shapes = new Map(), nodes = [], widthOf } = {}) {
-  const { rects, places } = layoutPieces(pieces, { shapes, nodes, widthOf })
+export function dropScene(pieces, { nodes = [], widthOf } = {}) {
+  const { rects, places } = layoutPieces(pieces, { nodes, widthOf })
   // Each fold's lumen, where it is drawn.
   const folds = new Map()
   for (const place of places.values()) {
     for (const fold of place.folds ?? []) folds.set(fold.facetId, foldRect(place.rect, fold))
   }
-  return { pieces, rects, folds, byId: new Map(pieces.map((piece) => [piece.id, piece])), shapes, nodes, widthOf }
+  return { pieces, rects, folds, byId: new Map(pieces.map((piece) => [piece.id, piece])), nodes, widthOf }
 }
 
 /** A fold's lumen as a rect, from its membrane's rect and where the fold is in it (see foldPocket). */
@@ -511,7 +510,7 @@ export function previewDrop(scene, drop, choice) {
   const { pieces, errors } = validatePieces(result.pieces)
   if (!pieces) return { pieces: null, id: null, ghosts: [], errors }
   const before = new Set(scene.pieces.map((piece) => piece.id))
-  const { places } = layoutPieces(pieces, { shapes: scene.shapes, nodes: scene.nodes, widthOf: scene.widthOf })
+  const { places } = layoutPieces(pieces, { nodes: scene.nodes, widthOf: scene.widthOf })
   const ghosts = []
   const grown = []
   for (const place of places.values()) {

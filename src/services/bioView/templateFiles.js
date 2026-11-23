@@ -32,7 +32,7 @@ export function parseTemplateText(text) {
 }
 
 /**
- * Reads and parses a template file the user picked, refusing ones too big to be a template unread. Glyph
+ * Reads and parses a template file the user picked, refusing ones too big to be a template unread. Skin
  * library files are read the same way.
  *
  * @param {Blob} file

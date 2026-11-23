@@ -467,16 +467,16 @@ export function relabelPiece(pieces, path, label) {
 }
 
 /**
- * Draws a membrane or compartment with a skin, or plain.
+ * Draws a membrane, compartment or tube with a skin, or plain.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {string} id
  * @param {{ref: string, mode?: string, opacity?: number}|null} skin - Null for none.
- * @returns {Array<Object>|null} Null when there is no such membrane or compartment.
+ * @returns {Array<Object>|null} Null when there is no such membrane, compartment or tube.
  */
 export function skinPiece(pieces, id, skin) {
   const raw = copy(pieces)
-  const piece = raw.find((each) => each.id === id && (each.kind === 'membrane' || each.kind === 'compartment'))
+  const piece = raw.find((each) => each.id === id && ['membrane', 'compartment', 'tube'].includes(each.kind))
   if (!piece) return null
   if (skin) piece.skin = { ...skin }
   else delete piece.skin
