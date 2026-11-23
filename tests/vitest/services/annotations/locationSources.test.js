@@ -45,6 +45,6 @@ describe('location sources', () => {
     unregister = registerLocationSource({ id: 'stub', nodeKeys: ['stubPlace'] })
     const data = { name: 'a', stubPlace: 'p', bioView: { role: 'region', site: 'bt/x' } }
     expect(withAnnotationData({ name: 'a' }, data)).toEqual({ name: 'a', stubPlace: 'p', bioView: data.bioView })
-    expect(nodeDataForCopy(data)).toEqual({ name: 'a', bioView: { role: 'region' } })
+    expect(nodeDataForCopy(data)).toEqual({ name: 'a' })
   })
 })

@@ -24,7 +24,7 @@ let wrapper
 let properties
 
 function mountPanel(roles) {
-  properties = { roles: ref(new Map(Object.entries(roles))), chooseRole: vi.fn(), chooseSkin: vi.fn() }
+  properties = { roles: ref(new Map(Object.entries(roles))), chooseSkin: vi.fn() }
   wrapper = mount(BioPropertiesPanel, { props: { properties }, global: { plugins: [PrimeVue] } })
 }
 
@@ -42,7 +42,6 @@ describe('BioPropertiesPanel', () => {
     select()
     mountPanel({})
     expect(wrapper.text()).toContain('Select one or more instances')
-    expect(wrapper.find('[data-testid="bio-properties-role"]').exists()).toBe(false)
   })
 
   it('offers a protein only a protein’s cartoons, its own marked, with no None', () => {

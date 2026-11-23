@@ -25,9 +25,8 @@ export function variableNamesOf(data) {
 }
 
 /**
- * Copies node data for a pasted copy, keeping only the user's role and skin choices of its bioView, since its
- * place names nodes the copy is not part of. The location source's other node keys are left off too, so a copy
- * is unplaced.
+ * Copies node data for a pasted copy, keeping only the skin chosen in its bioView, since its place names nodes
+ * the copy is not part of. The location source's other node keys are left off too, so a copy is unplaced.
  *
  * @param {Object} data - Node data.
  * @returns {Object}
@@ -35,7 +34,7 @@ export function variableNamesOf(data) {
 export function nodeDataForCopy(data) {
   const { bioView, ...rest } = data ?? {}
   for (const key of locationSource().nodeKeys ?? []) if (key !== 'bioView') delete rest[key]
-  const kept = Object.fromEntries(Object.entries(bioView ?? {}).filter(([key]) => key === 'role' || key === 'skin'))
+  const kept = Object.fromEntries(Object.entries(bioView ?? {}).filter(([key]) => key === 'skin'))
   return Object.keys(kept).length ? { ...rest, bioView: kept } : rest
 }
 

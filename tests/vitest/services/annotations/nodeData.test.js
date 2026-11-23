@@ -27,9 +27,9 @@ describe('withAnnotationData', () => {
 })
 
 describe('nodeDataForCopy', () => {
-  it('keeps only the user’s role and skin of a copy’s bioView', () => {
+  it('keeps only the skin of a copy’s bioView', () => {
     const data = { name: 'p', bioView: { role: 'membraneProtein', skin: 'pump', cell: 'n2', facet: 'apical', order: 1 } }
-    expect(nodeDataForCopy(data)).toEqual({ name: 'p', bioView: { role: 'membraneProtein', skin: 'pump' } })
+    expect(nodeDataForCopy(data)).toEqual({ name: 'p', bioView: { skin: 'pump' } })
   })
 
   it('drops a bioView with nothing left in it', () => {

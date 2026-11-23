@@ -139,7 +139,7 @@ describe('naming and rolling back steps', () => {
     const history = reactive(createHistory())
     history.startBatch()
     await history.executeAndAddCommand(loggedCommand('add', log))
-    await history.executeAndAddCommand(loggedCommand('bio-role', log))
+    await history.executeAndAddCommand(loggedCommand('bio-bind', log))
     history.endBatch('bio-add')
     expect(history.undoLabel).toBe('Add module')
 

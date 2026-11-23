@@ -29,7 +29,6 @@ export const STEP_LABELS = {
   'bio-layout': 'Move',
   'bio-add': 'Add module',
   'bio-bind': 'Place on piece',
-  'bio-role': 'Show As',
   'bio-skin': 'Skin',
   'bio-adjacent': 'Lies Against',
   'bio-take-out': 'Take out of membrane',

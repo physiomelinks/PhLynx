@@ -32,7 +32,12 @@ vi.mock('../../../src/stores/libraryStore', () => ({
     ensureModuleAnnotations: vi.fn(),
   }),
 }))
-vi.mock('../../../src/stores/bioPiecesStore', () => ({ useBioPiecesStore: () => ({ pieces: [], shapes: new Map() }) }))
+// One epithelial cell, its apical fluid docked outside its apical membrane.
+vi.mock('../../../src/stores/bioPiecesStore', async () => {
+  const { getBuiltInPieceTemplate } = await import('../../../src/services/bioView/pieces/builtInTemplates.js')
+  const { pieces } = getBuiltInPieceTemplate('epithelial-cell')
+  return { useBioPiecesStore: () => ({ pieces, draft: null, shapes: new Map() }) }
+})
 vi.mock('../../../src/stores/simulationResultsStore', () => ({ useSimulationResultsStore: () => run }))
 
 const { useBioNodes } = await import('../../../src/composables/useBioNodes.js')
@@ -48,9 +53,9 @@ const couple = (source, target, pairs) => ({
 
 describe('species mode in the physiological view', () => {
   const nodes = ref([
-    node('cell', 'pool', { role: 'cytosol' }),
-    node('lumen', 'pool', { role: 'region', adjacent: [{ cell: 'cell', facet: 'apical' }] }),
-    node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
+    node('cell', 'pool', { site: 'pieces/cell' }),
+    node('lumen', 'pool', { site: 'pieces/apical-fluid' }),
+    node('porter', 'porter', { site: 'pieces/plasma-membrane.apical' }),
   ])
   const edges = ref([
     couple('lumen', 'porter', [
@@ -164,8 +169,8 @@ describe('species mode in the physiological view', () => {
   it('points a process’s exchange the way its flow goes: out while it gives the species away', () => {
     // A porter inside the cell is a process; its flow into the cytoplasm is what it gives the cell's pool.
     const inside = ref([
-      node('cell', 'pool', { role: 'cytosol' }),
-      node('works', 'porter', { role: 'cytosolic', cell: 'cell' }),
+      node('cell', 'pool', { site: 'pieces/cell' }),
+      node('works', 'porter', { site: 'pieces/metabolism' }),
     ])
     const coupled = ref([couple('works', 'cell', [['v_Na_i', 'v_Na']])])
     run.results = {
@@ -183,9 +188,9 @@ describe('species mode in the physiological view', () => {
 
 describe('a focused species’ concentration tint', () => {
   const nodes = ref([
-    node('cell', 'pool', { role: 'cytosol' }),
-    node('lumen', 'pool', { role: 'region', adjacent: [{ cell: 'cell', facet: 'apical' }] }),
-    node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
+    node('cell', 'pool', { site: 'pieces/cell' }),
+    node('lumen', 'pool', { site: 'pieces/apical-fluid' }),
+    node('porter', 'porter', { site: 'pieces/plasma-membrane.apical' }),
   ])
   const edges = ref([
     couple('lumen', 'porter', [['c_Na', 'c_Na_o']]),
@@ -249,10 +254,10 @@ describe('a focused species’ concentration tint', () => {
 describe('uncoupled modules in the physiological view', () => {
   it('marks a protein or process no edge couples, as a new module is until its math has ports', () => {
     const nodes = ref([
-      node('cell', 'pool', { role: 'cytosol' }),
-      node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
-      node('fresh', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
-      node('works', 'porter', { role: 'cytosolic', cell: 'cell' }),
+      node('cell', 'pool', { site: 'pieces/cell' }),
+      node('porter', 'porter', { site: 'pieces/plasma-membrane.apical' }),
+      node('fresh', 'porter', { site: 'pieces/plasma-membrane.apical' }),
+      node('works', 'porter', { site: 'pieces/metabolism' }),
     ])
     // Joined to the cell by its drop, but coupled through nothing.
     const edges = ref([

@@ -30,16 +30,6 @@ import { resolveSkin } from './skinRegistry.js'
  */
 export const ROLES = ['membraneProtein', 'membrane', 'cytosol', 'cytosolic', 'region', 'none']
 
-/** How the roles read where the user picks one: the Show As menu and the properties panel. */
-export const ROLE_LABELS = Object.freeze({
-  membraneProtein: 'Membrane protein',
-  membrane: 'Membrane',
-  cytosol: 'Cell',
-  cytosolic: 'Process in a cell',
-  region: 'Region outside cells',
-  none: 'Card',
-})
-
 /** Roles that belong to a cell. */
 const CELL_ROLES = new Set(['membraneProtein', 'membrane', 'cytosolic'])
 
@@ -108,7 +98,7 @@ function fromSidecar(sidecar) {
  * @returns {{ role: string, facet: string|null, at: string|null, annotatedFacet: string|null, cell: string|null,
  *   side: string|null, adjacent: Array<Object>|null, skin: string|null,
  *   skinContext: {family: string, target: string, terms: string[]}|null,
- *   source: 'site'|'override'|'location'|'sidecar'|'none',
+ *   source: 'site'|'location'|'sidecar'|'none',
  *   site?: string }}
  *   skin is the skin it is drawn with (see resolveSkin), null for a role drawn with none or a process chosen to have
  *   none; skinContext, what it is for its skin (see contextOfModule), null for a role with no skin.
@@ -124,7 +114,7 @@ export function resolveBioRole(data, { sidecar = null, worked: located = null, s
   // On a piece, the site says what it is, whatever is stored.
   const onSite = ROLES.includes(siteRole)
 
-  const role = onSite ? siteRole : ROLES.includes(override.role) ? override.role : (worked?.role ?? 'none')
+  const role = onSite ? siteRole : (worked?.role ?? 'none')
   // A facet of null, as opposed to none at all, takes the protein out of its membrane.
   const unplaced = override.facet === null
   const facet = role !== 'membraneProtein' || unplaced ? null : FACETS.includes(override.facet) ? override.facet : (worked?.facet ?? null)
@@ -141,7 +131,7 @@ export function resolveBioRole(data, { sidecar = null, worked: located = null, s
     adjacent: role === 'region' ? validAdjacency(override.adjacent) : null,
     skin: resolveSkin(skinContext, override.skin)?.id ?? null,
     skinContext,
-    source: onSite ? 'site' : ROLES.includes(override.role) ? 'override' : source,
+    source: onSite ? 'site' : source,
     ...(site && { site }),
   }
 }

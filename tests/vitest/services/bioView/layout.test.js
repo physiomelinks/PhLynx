@@ -102,26 +102,6 @@ describe('physiological view layout', () => {
   })
 })
 
-describe('physiological view layout of proteins the user placed', () => {
-  it('puts every protein in a slot of its cell, apical above basolateral, with no two in one slot', () => {
-    const facets = { a1: 'apical', a2: 'apical', a3: 'apical', b1: 'basolateral', b2: 'basolateral' }
-    const nodes = [
-      node('cell', { role: 'cytosol' }),
-      ...Object.entries(facets).map(([id, facet]) => node(id, { role: 'membraneProtein', cell: 'cell', facet })),
-    ]
-    const roles = new Map(nodes.map((n) => [n.id, resolveBioRole(n.data)]))
-    const layout = layoutBioView(nodes, roles)
-
-    const proteins = Object.keys(facets).map((id) => layout.get(id))
-    expect(proteins.every((p) => p.kind === 'protein')).toBe(true)
-    const slots = proteins.map((p) => `${p.cell}/${p.facet}/${p.order}`)
-    expect(new Set(slots).size).toBe(slots.length)
-    const apical = proteins.filter((p) => p.facet === 'apical').map((p) => p.y)
-    const basolateral = proteins.filter((p) => p.facet === 'basolateral').map((p) => p.y)
-    expect(Math.max(...apical)).toBeLessThan(Math.min(...basolateral))
-  })
-})
-
 describe('physiological view layout by adjacency', () => {
   /** Two cells, a paracellular space down a's right side, a lumen against b only, and lateral proteins. */
   function twoCells() {

@@ -462,15 +462,6 @@
         />
       </template>
     </Dialog>
-    <BioPlaceDialog
-      v-if="placing"
-      :mode="placing.mode"
-      :name="placing.name"
-      :initial-role="placing.initialRole"
-      :cells="cellChoices"
-      @confirm="onPlaceConfirm"
-      @cancel="onPlaceCancel"
-    />
   </div>
 </template>
 
@@ -561,7 +552,6 @@ import { useBioPiecesStore } from '../../stores/bioPiecesStore'
 import { TILE_DRAG_TYPE } from '../../services/bioView/palette'
 import { isLocalTemplateId } from '../../services/bioView/localIds'
 import { parseSiteRef } from '../../services/bioView/siteRefs'
-import { ROLE_LABELS } from '../../services/bioView/roles'
 import { contextOfPiece } from '../../services/bioView/skinContext'
 import { NO_SKIN, allSkins, allowsNoSkin, resolveSkin, skinsFor } from '../../services/bioView/skinRegistry'
 import { skinLibraryFile } from '../../services/bioView/skinLibrary'
@@ -569,7 +559,6 @@ import {
   SYMBOL_HEIGHT,
   SYMBOL_WIDTH,
   MEMBRANE_BAND_HALF,
-  MIN_CELL,
   partOf,
   roundedRectPath,
 } from '../../services/bioView/geometry'
@@ -577,9 +566,8 @@ import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shap
 import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { isPlaceholder, placeholderName, takesPlaceholder } from '../../services/bioView/placeholders'
-import { CARD, GAP, REGION_HEIGHT, processSize } from '../../services/bioView/layout'
+import { CARD, GAP, processSize } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
-import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { useAppSettings } from '../../composables/useAppSettings'
@@ -1686,9 +1674,6 @@ function setChoice(id, patch, type) {
 function setChoices(ids, patch, type) {
   return applyPlan(new Map(ids.map((id) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])), type)
 }
-
-/** Shows nodes as a role. */
-const chooseRole = (ids, role) => setChoices(ids, { role }, 'bio-role')
 
 /**
  * Draws nodes with a skin, NO_SKIN for none, as one step: a protein or process by its own choice, any other node by
@@ -2891,15 +2876,6 @@ function onNodeContextMenu({ event, node }) {
       icon: 'pi pi-pencil',
       command: () => (renamingNode.value = { id: node.id, name: nameOf(node.id) }),
     },
-    {
-      label: 'Show As',
-      icon: 'pi pi-sitemap',
-      items: Object.entries(ROLE_LABELS).map(([value, label]) => ({
-        label,
-        icon: role?.role === value ? 'pi pi-check' : undefined,
-        command: () => chooseRole([node.id], value),
-      })),
-    },
   ]
   if (role?.skinContext && !isJointNode(node.id)) {
     items.push({
@@ -3087,17 +3063,6 @@ function onPaneContextMenu(event) {
   event.preventDefault()
   const at = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   menuItems.value = [
-    ...(props.createInstance
-      ? [
-          { label: 'Add Cell…', icon: 'pi pi-circle', command: () => (placing.value = { mode: 'cell', at }) },
-          {
-            label: 'Add Compartment…',
-            icon: 'pi pi-stop',
-            command: () => (placing.value = { mode: 'compartment', at }),
-          },
-          { separator: true },
-        ]
-      : []),
     {
       label: 'Add Template',
       icon: 'pi pi-objects-column',
@@ -3119,11 +3084,6 @@ function onPaneContextMenu(event) {
 }
 
 // ── Adding instances ───────────────────────────────────────────────────
-/** The open placing dialog: { mode, at, id?, name?, initialRole? }. */
-const placing = ref(null)
-const cellChoices = computed(() =>
-  targets.value.map((cell) => ({ id: cell.id, name: main.findNode(cell.id)?.data?.name ?? cell.id }))
-)
 
 /** Puts a new protein in a slot, moving the proteins after it along, as part of the current step. */
 function slotPlan(id, slot) {
@@ -3199,44 +3159,21 @@ const newModule = () => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_RE
 
 /**
  * Adds a library module where it was dropped or the armed New Module tile put: into the membrane slot or onto the
- * template site there, as one step, or loose, asking what it is. A new module opens in the instance editor once
- * placed, its math being what is wanted of it.
+ * template site there, or loose where it was put, drawn as its annotations say; each as one step.
  *
  * @param {Object} module - A library module.
  * @param {{x: number, y: number}} point - In flow coordinates.
  * @returns {Promise<void>}
  */
 async function placeModuleAt(module, point) {
-  const isNew = module.moduleRef === NEW_INSTANCE_MODULE_REF
   const target = targetAt(point)
   if (target) {
     const { site } = target
     if (site && !(await confirmReplace(site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
-    const id = await addModuleAt(module, target)
-    // if (isNew) openEditor(id)
+    await addModuleAt(module, target)
     return
   }
-  const position = whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 })
-  // Adding it and saying what it is make one step, which Cancel takes back (see endAssign).
-  history.startBatch()
-  let id
-  try {
-    id = props.createInstance(module, { position })
-    // Its module's annotations say what it most likely is, once read.
-    await libraryStore.ensureModuleAnnotations(module.mathRef)
-    await nextTick()
-  } catch (error) {
-    await history.rollbackBatch()
-    throw error
-  }
-  placing.value = {
-    mode: 'assign',
-    id,
-    at: point,
-    name: main.findNode(id)?.data?.name ?? id,
-    initialRole: roles.value.get(id)?.role ?? 'none',
-    openEditor: isNew,
-  }
+  props.createInstance(module, { position: whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 }) })
 }
 
 /**
@@ -3272,7 +3209,7 @@ async function addModuleIn(module, { site, slot, area }) {
     return id
   } else if (site) {
     // An instance of the module, bound to the site; planned against the sites as they were drawn.
-    const id = props.createInstance(module, { role: site.role, facet: null })
+    const id = props.createInstance(module, {})
     await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
     await connectToNeighbours(id, site)
     return id
@@ -3306,118 +3243,15 @@ function newModuleItem(event) {
   ]
 }
 
-/**
- * Ends the step a dropped instance's dialog holds open: its choice applied, or, cancelled, the instance taken
- * away again so the drop leaves nothing.
- *
- * @param {Function|null} choose - Applies the choice; null cancels.
- * @returns {Promise<void>}
- */
-async function endAssign(choose) {
-  if (!choose) return history.rollbackBatch()
-  try {
-    await choose()
-  } finally {
-    history.endBatch('bio-add')
-  }
-}
-
-/** Closes the placing dialog with nothing chosen. */
-function onPlaceCancel() {
-  const { mode } = placing.value ?? {}
-  placing.value = null
-  if (mode === 'assign') endAssign(null)
-}
-
-// A drop's dialog left open as the view goes leaves no half-made step.
-onBeforeUnmount(() => {
-  if (placing.value?.mode === 'assign') onPlaceCancel()
-})
-
 /** Whether one of the view's dialogs is open, so the workspace's shortcuts wait. */
-const isDialogOpen = computed(() => !!placing.value || !!renaming.value || !!renamingNode.value || isConfirming.value)
+const isDialogOpen = computed(() => !!renaming.value || !!renamingNode.value || isConfirming.value)
 /**
  * What the properties panel reads and sets while this view is open: the roles, the skins, the pieces selected that
  * are no module's, and the choices the menus make.
  */
-const properties = { roles, chooseRole, chooseSkin, skinOf, selectedPieceNodes }
+const properties = { roles, chooseSkin, skinOf, selectedPieceNodes }
 
 defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
-
-/** A new cell's rect, centred where it was put. */
-const cellRectAt = (at) => ({ x: at.x - MIN_CELL.width / 2, y: at.y - MIN_CELL.height / 2, ...MIN_CELL })
-/** A new compartment's rect, centred where it was put. */
-const regionRectAt = (at) => ({ x: at.x - 160, y: at.y - REGION_HEIGHT / 2, width: 320, height: REGION_HEIGHT })
-
-/** Applies the placing dialog: what a dropped instance is, or a new cell or compartment. */
-async function onPlaceConfirm(choice) {
-  const { mode } = placing.value
-  if (mode === 'assign') {
-    const { id, at, openEditor: isNew } = placing.value
-    placing.value = null
-    await endAssign(async () => {
-      await assignRole(id, at, choice)
-      // Put on a node-owned cell, it joins its neighbours there in the same step.
-      if (choice.cell || choice.placement) await connectToCellNeighbours(id)
-    })
-    // if (isNew) openEditor(id)
-    return
-  }
-  const { moduleRef, membraneRef, placement } = choice
-  const { at } = placing.value
-  placing.value = null
-  if (mode === 'cell') {
-    history.startBatch()
-    try {
-      const cellId = props.createInstance(libraryStore.availableModules.get(moduleRef), {
-        role: 'cytosol',
-        rect: cellRectAt(at),
-        added: true,
-      })
-      if (membraneRef) {
-        const membraneId = props.createInstance(libraryStore.availableModules.get(membraneRef), {
-          role: 'membrane',
-          cell: cellId,
-        })
-        await connectToCellNeighbours(membraneId)
-      }
-    } finally {
-      history.endBatch()
-    }
-    return
-  }
-  if (mode === 'compartment') {
-    props.createInstance(
-      libraryStore.availableModules.get(moduleRef),
-      placement ? { role: 'region', adjacent: [placement] } : { role: 'region', rect: regionRectAt(at) }
-    )
-  }
-}
-
-/**
- * Applies what a dropped instance is, as chosen in the placing dialog.
- *
- * @param {string} id
- * @param {{x: number, y: number}} at - Where it was dropped.
- * @param {Object} choice - From the dialog: role, cell and placement.
- * @returns {Promise<boolean>}
- */
-function assignRole(id, at, { role, cell, placement }) {
-  const cellRect = cellRectAt(at)
-  const regionRect = regionRectAt(at)
-  if (role === 'membraneProtein' && placement) return applyPlan(slotPlan(id, endSlot(placement)), 'bio-role')
-  const patches = {
-    membraneProtein: { role, facet: null },
-    cytosol: { role, rect: cellRect, position: undefined, added: true },
-    membrane: { role, cell },
-    cytosolic: { role, cell, position: undefined },
-    region: placement
-      ? { role, adjacent: [placement], position: undefined }
-      : { role, rect: regionRect, position: undefined },
-    none: { role },
-  }
-  return setChoice(id, patches[role], 'bio-role')
-}
 </script>
 
 <style scoped>

@@ -2,25 +2,6 @@
   <div class="bio-properties-panel" data-testid="bio-properties-panel">
     <p v-if="!skinIds.length" class="hint">Select one or more instances to choose how they are shown here.</p>
 
-    <!-- ── What the selection is shown as ─────────────────────────── -->
-    <div v-if="selected.length" class="panel-block">
-      <span class="block-title">
-        Show as
-        <span v-if="selected.length > 1" class="context-count">({{ selected.length }} selected)</span>
-      </span>
-      <Select
-        :modelValue="commonRole"
-        :options="roleOptions"
-        optionLabel="label"
-        optionValue="value"
-        :placeholder="commonRole === null ? 'Mixed' : 'Choose a role'"
-        size="small"
-        class="w-full"
-        data-testid="bio-properties-role"
-        @update:modelValue="(role) => properties.chooseRole(ids, role)"
-      />
-    </div>
-
     <!-- ── The skin a protein, process, compartment or membrane is drawn with ─────────── -->
     <div v-if="skinContext" class="panel-block">
       <span class="block-title">Skin</span>
@@ -70,20 +51,18 @@
 <script setup>
 import { computed } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
-import Select from 'primevue/select'
 
 import BioJointSymbol from './BioJointSymbol.vue'
 import BioMembraneLine from './BioMembraneLine.vue'
 import BioSymbol from './BioSymbol.vue'
-import { ROLE_LABELS } from '../../services/bioView/roles'
 import { NO_SKIN, allowsNoSkin, skinsFor } from '../../services/bioView/skinRegistry'
 import { skinHref } from '../../services/bioView/skins'
 import { FLOW_IDS, GHOST_NODE_TYPE } from '../../utils/constants'
 
 const props = defineProps({
   /**
-   * From the open physiology view (BioFlow's exposed `properties`): { roles: Ref<Map>, chooseRole(ids, role),
-   * chooseSkin(ids, skin), skinOf(id), selectedPieceNodes: Ref<string[]> }. Without skinOf, a node's skin is its
+   * From the open physiology view (BioFlow's exposed `properties`): { roles: Ref<Map>, chooseSkin(ids, skin),
+   * skinOf(id), selectedPieceNodes: Ref<string[]> }. Without skinOf, a node's skin is its
    * role's.
    */
   properties: { type: Object, required: true },
@@ -95,20 +74,11 @@ const MIXED = Symbol('mixed')
 const { getSelectedNodes } = useVueFlow(FLOW_IDS.MAIN)
 const selected = computed(() => getSelectedNodes.value.filter((node) => node.type !== GHOST_NODE_TYPE))
 const ids = computed(() => selected.value.map((node) => node.id))
-const selectedRoles = computed(() => ids.value.map((id) => props.properties.roles.value.get(id)))
-
-const roleOptions = Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label }))
 
 /** The value every selected node shares, or MIXED. */
 function shared(values) {
   return values.every((value) => value === values[0]) ? values[0] : MIXED
 }
-
-/** The role the whole selection has, or null, which the select shows as Mixed. */
-const commonRole = computed(() => {
-  const role = shared(selectedRoles.value.map((entry) => entry?.role ?? 'none'))
-  return role === MIXED ? null : role
-})
 
 /** The selected nodes a skin is chosen for: the instances, and the pieces selected in the view with no module on them. */
 const skinIds = computed(() => [...ids.value, ...(props.properties.selectedPieceNodes?.value ?? [])])

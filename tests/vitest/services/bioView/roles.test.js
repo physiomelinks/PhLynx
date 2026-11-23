@@ -16,7 +16,7 @@ const readToy = (name) => readFileSync(resolve(TOY, name), 'utf8')
 const toySidecar = (name) => parseSidecar(readToy(`${name}.ttl`), { mathRef: `${name}.cellml:${name}`, cellml: readToy(`${name}.cellml`) })
 
 describe('physiological roles', () => {
-  it('takes a role the location source worked out over the sidecar’s, and the user’s over both', async () => {
+  it('takes a role the location source worked out over the sidecar’s, ignoring a stored one', async () => {
     const sidecar = await toySidecar('porter')
     const worked = { role: 'membraneProtein', facet: 'basolateral', cell: 'c1' }
     expect(resolveBioRole({ name: 'p' }, { sidecar, worked })).toMatchObject({
@@ -26,7 +26,10 @@ describe('physiological roles', () => {
       annotatedFacet: 'basolateral',
       source: 'location',
     })
-    expect(resolveBioRole({ bioView: { role: 'region' } }, { sidecar, worked })).toMatchObject({ role: 'region', source: 'override' })
+    expect(resolveBioRole({ bioView: { role: 'region' } }, { sidecar, worked })).toMatchObject({
+      role: 'membraneProtein',
+      source: 'location',
+    })
     expect(resolveBioRole({}, { sidecar, worked: null }).source).toBe('sidecar')
   })
 
@@ -57,27 +60,27 @@ describe('physiological roles', () => {
     // Taken out of the membrane, it has no facet.
     const unplaced = { ...data, bioView: { facet: null } }
     expect(resolveBioRole(unplaced, { sidecar: await toySidecar('porter') })).toMatchObject({ facet: null, annotatedFacet: null })
-    expect(resolveBioRole({ bioView: { role: 'region' } }).source).toBe('override')
+    expect(resolveBioRole({ bioView: { role: 'region' } })).toMatchObject({ role: 'none', source: 'none' })
     // Choices that don't fit are ignored.
     expect(resolveBioRole({ bioView: { role: 'mitochondrion', facet: 'top', skin: 'blob' } })).toMatchObject({ role: 'none', facet: null, skin: null })
   })
 
   it('keeps a lateral protein’s side and a region’s adjacency, dropping what doesn’t fit', () => {
-    const lateral = { bioView: { role: 'membraneProtein', facet: 'lateral', at: 'right' } }
-    expect(resolveBioRole(lateral)).toMatchObject({ facet: 'lateral', at: 'right' })
-    expect(resolveBioRole({ bioView: { role: 'membraneProtein', facet: 'apical', at: 'right' } }).at).toBeNull()
+    const as = (role) => ({ worked: { role } })
+    const lateral = { bioView: { facet: 'lateral', at: 'right' } }
+    expect(resolveBioRole(lateral, as('membraneProtein'))).toMatchObject({ facet: 'lateral', at: 'right' })
+    expect(resolveBioRole({ bioView: { facet: 'apical', at: 'right' } }, as('membraneProtein')).at).toBeNull()
     const region = {
       bioView: {
-        role: 'region',
         adjacent: [{ cell: 'c', facet: 'lateral', at: 'up' }, { cell: 'c', facet: 'roof' }, { facet: 'apical' }, { cell: 'd', facet: 'apical', at: 'left' }],
       },
     }
-    expect(resolveBioRole(region).adjacent).toEqual([
+    expect(resolveBioRole(region, as('region')).adjacent).toEqual([
       { cell: 'c', facet: 'lateral', at: 'left' },
       { cell: 'd', facet: 'apical' },
     ])
-    expect(resolveBioRole({ bioView: { role: 'region', adjacent: [] } }).adjacent).toBeNull()
-    expect(resolveBioRole({ bioView: { role: 'cytosol', adjacent: [{ cell: 'c', facet: 'apical' }] } }).adjacent).toBeNull()
+    expect(resolveBioRole({ bioView: { adjacent: [] } }, as('region')).adjacent).toBeNull()
+    expect(resolveBioRole({ bioView: { adjacent: [{ cell: 'c', facet: 'apical' }] } }, as('cytosol')).adjacent).toBeNull()
   })
 
   it('is nothing physiological without annotations', () => {
@@ -111,9 +114,10 @@ describe('physiological roles', () => {
 
   it('draws a process as the generic process unless chosen or annotated with a cartoon, or none', () => {
     // SBGN's process node, where nothing says more.
-    expect(resolveBioRole({ bioView: { role: 'cytosolic' } }).skin).toBe('process')
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', skin: 'mitochondrion' } }).skin).toBe('mitochondrion')
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', skin: 'blob' } }).skin).toBe('process')
+    const process = { siteRole: 'cytosolic' }
+    expect(resolveBioRole({}, process).skin).toBe('process')
+    expect(resolveBioRole({ bioView: { skin: 'mitochondrion' } }, process).skin).toBe('mitochondrion')
+    expect(resolveBioRole({ bioView: { skin: 'blob' } }, process).skin).toBe('process')
     const processGlyphFor = (terms, chosen) => skinOf('cytosolic', terms, chosen)
     expect(processGlyphFor(['GO:0030016'])).toBe('myofilament')
     expect(processGlyphFor(['GO:0005739'])).toBe('mitochondrion')
@@ -121,6 +125,6 @@ describe('physiological roles', () => {
     expect(processGlyphFor([], 'pump')).toBe('process')
     // A plain card only by choice.
     expect(processGlyphFor(['GO:0005739'], NO_SKIN)).toBeNull()
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', skin: NO_SKIN } }).skin).toBeNull()
+    expect(resolveBioRole({ bioView: { skin: NO_SKIN } }, process).skin).toBeNull()
   })
 })

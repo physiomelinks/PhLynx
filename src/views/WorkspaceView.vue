@@ -2229,7 +2229,7 @@ function createNewInstanceAtPosition(clientX, clientY) {
  * instances, out of their way; where it goes in the physiological view is its bioView.
  *
  * @param {Object} moduleData - A library module.
- * @param {Object} bioView
+ * @param {Object} bioView - { position } for one put loose; empty for one then bound to a site of the pieces.
  * @returns {string} The new node's id.
  */
 function createBioInstance(moduleData, bioView) {
