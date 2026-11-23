@@ -20,6 +20,7 @@ import {
 } from './edits.js'
 import { compartmentsTouch, layoutPieces } from './layout.js'
 import { validatePieces } from './model.js'
+import { reattachTube } from './moves.js'
 import { topologyOf } from './topology.js'
 
 /** The kinds of piece the palette offers, in its order. */
@@ -40,7 +41,7 @@ export const PIECE_TILES = Object.freeze([
     kind: 'tube',
     label: 'Tube',
     icon: 'pi pi-arrows-h',
-    hint: 'Joins two compartments, and carries a flux between them: the one it is dropped on and the nearest other',
+    hint: 'Joins two compartments, and carries a flux between them: the one it is dropped on and the nearest other, or the two it is dropped between',
   },
   {
     kind: 'fold',
@@ -257,31 +258,86 @@ function resolveMembrane(scene, point) {
   }
 }
 
-function resolveTube(scene, point) {
-  const compartments = scene.pieces.filter((piece) => piece.kind === 'compartment' && scene.rects.get(piece.id))
-  const nearest = (except = []) =>
-    compartments
-      .filter((piece) => !except.includes(piece.id))
-      .map((piece) => ({ piece, distance: distanceTo(scene.rects.get(piece.id), point) }))
-      .sort(
-        (a, b) => a.distance - b.distance || area(scene.rects.get(a.piece.id)) - area(scene.rects.get(b.piece.id)),
-      )[0]
-  const first = compartmentAt(scene, point) ?? nearest()?.piece
-  const second = first && nearest([first.id])
-  if (!first || !second || second.distance > TUBE_REACH) {
-    return { key: 'tube|none', invalid: 'Drop it on or between two compartments.' }
+/** The compartments a compartment stands in, innermost first. */
+function ancestorsOf(scene, id) {
+  const found = []
+  for (let at = scene.byId.get(id)?.parent; at && !found.includes(at) && at !== id; at = scene.byId.get(at)?.parent) {
+    found.push(at)
   }
-  const ends = [first.id, second.piece.id]
-  // Between two cells apart, only a bridge can join them, a gap junction needing their membranes to meet. Between two
-  // that touch, whether it is a gap junction or a bridge is the user's to say (see placePieceAt).
+  return found
+}
+
+/**
+ * How a tube between two compartments joins them, where both are cells. Between two cells apart, only a bridge can,
+ * a gap junction needing their membranes to meet. Between two that touch, whether it is a gap junction or a bridge is
+ * the user's to say (see placePieceAt): `cells` names them for asking.
+ */
+function cellJoin(scene, ends) {
   const cells = joinsTwoCells(scene.pieces, ends)
   const apart = cells && !compartmentsTouch(...ends.map((id) => scene.rects.get(id)))
+  return { apart, cells: cells && !apart ? ends.map((id) => scene.byId.get(id).label) : undefined }
+}
+
+/**
+ * A tube joins the compartment it is dropped on to the nearest other, never one it stands in where another is in
+ * reach: dropped on a cell among others in a compartment, it joins that cell to the nearest of them. Dropped between
+ * compartments standing in one, it joins the nearest two of them, not the one they stand in.
+ */
+function resolveTube(scene, point) {
+  const compartments = scene.pieces.filter((piece) => piece.kind === 'compartment' && scene.rects.get(piece.id))
+  const ranked = (candidates) =>
+    candidates
+      .map((piece) => ({ piece, distance: distanceTo(scene.rects.get(piece.id), point) }))
+      .sort((a, b) => a.distance - b.distance || area(scene.rects.get(a.piece.id)) - area(scene.rects.get(b.piece.id)))
+  const inReach = (candidates) => ranked(candidates).filter(({ distance }) => distance <= TUBE_REACH)
+  const host = compartmentAt(scene, point)
+  const inside = host ? inReach(compartments.filter((piece) => piece.parent === host.id)) : []
+  let first, second
+  if (inside.length >= 2) [first, second] = inside.map(({ piece }) => piece)
+  else {
+    first = host ?? ranked(compartments)[0]?.piece
+    const around = first ? ancestorsOf(scene, first.id) : []
+    const others = compartments.filter((piece) => piece.id !== first?.id)
+    second = (
+      inReach(others.filter((piece) => !around.includes(piece.id)))[0] ??
+      inReach(others.filter((piece) => around.includes(piece.id)))[0]
+    )?.piece
+  }
+  if (!first || !second) return { key: 'tube|none', invalid: 'Drop it on or between two compartments.' }
+  const ends = [first.id, second.id]
+  const { apart, cells } = cellJoin(scene, ends)
   return {
     key: `tube|${ends.join('|')}`,
-    label: apart ? `Bridges ${first.label} to ${second.piece.label}` : `Joins ${first.label} to ${second.piece.label}`,
+    label: apart ? `Bridges ${first.label} to ${second.label}` : `Joins ${first.label} to ${second.label}`,
     highlights: ends.map((id) => ({ type: 'rect', rect: scene.rects.get(id) })),
-    ...(cells && !apart && { cells: [first.label, second.piece.label] }),
+    ...(cells && { cells }),
     apply: (pieces, { flux = apart ? 'bridge' : undefined } = {}) => addTube(pieces, ends, flux),
+  }
+}
+
+/**
+ * What letting go of a tube's end at a point would do: join that end to the innermost compartment there, carrying
+ * what a tube dropped between the two would, as for resolveTube.
+ *
+ * @param {Object} scene - From dropScene.
+ * @param {string} tubeId
+ * @param {0|1} end - Upstream (0) or downstream (1).
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @returns {{cells?: [string, string], apply: Function}|null} Null where there is no other compartment there.
+ *   apply(pieces, choice) gives the raw pieces, or null; cells names the two touching cells it would join, to ask
+ *   whether by a gap junction or a bridge.
+ */
+export function resolveTubeEnd(scene, tubeId, end, point) {
+  const tube = scene.byId.get(tubeId)
+  const target = point && compartmentAt(scene, point)
+  if (tube?.kind !== 'tube' || !target) return null
+  const ends = [...tube.ends]
+  ends[end] = target.id
+  if (ends[0] === ends[1]) return null
+  const { apart, cells } = cellJoin(scene, ends)
+  return {
+    ...(cells && { cells }),
+    apply: (pieces, { flux = apart ? 'bridge' : undefined } = {}) => reattachTube(pieces, tubeId, end, target.id, flux),
   }
 }
 

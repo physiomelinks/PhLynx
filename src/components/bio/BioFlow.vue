@@ -547,6 +547,7 @@ import {
   previewDrop,
   resolveDrop,
   resolveExtraDock,
+  resolveTubeEnd,
 } from '../../services/bioView/pieces/drops'
 import { relabelPiece, removeDock, removePieces, skinPiece } from '../../services/bioView/pieces/edits'
 import {
@@ -554,7 +555,6 @@ import {
   fitToContents,
   moveFold,
   moveFrame,
-  reattachTube,
   resizeFrame,
   reachTo,
   slideDock,
@@ -2150,8 +2150,10 @@ async function endPieceMove({ event, node }) {
   }
   if (move.mode === 'grip:start' || move.mode === 'grip:end') {
     const point = pointerAt(event)
-    const target = point && compartmentAtPoint(dropScene(piecesStore.pieces, sceneOptions()), point)
-    const raw = target && reattachTube(move.base, move.piece, move.end, target.id)
+    const join = resolveTubeEnd(dropScene(piecesStore.pieces, sceneOptions()), move.piece, move.end, point)
+    // Between two touching cells, it carries what the user says, as a tube dropped between them does.
+    const flux = join?.cells ? await cellTubeFlux(join.cells) : undefined
+    const raw = join && (!join.cells || flux) && join.apply(move.base, { flux })
     const next = raw && validatePieces(raw).pieces
     if (next) await editPieces(next, 'bio-pieces-tube-end')
     // Back where its layout puts it: on the end it is joined to now.
@@ -2232,7 +2234,12 @@ provide('bioPieceResize', onPieceResize)
 /** The pieces as a resize to these bounds leaves them, validated. */
 function resizeDraft(params) {
   const { piece, base, rects } = pieceResize
-  const raw = resizeFrame(base, piece, params, rects)
+  // A cell's junction partners stay against it, as far as it is drawn resized.
+  const rectsOf = (resized) => {
+    const valid = validatePieces(resized).pieces
+    return valid && layoutPieces(valid, { shapes: piecesStore.shapes }).rects
+  }
+  const raw = resizeFrame(base, piece, params, rects, { rectsOf })
   return raw && validatePieces(raw).pieces
 }
 

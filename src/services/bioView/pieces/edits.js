@@ -373,7 +373,7 @@ export function joinsTwoCells(pieces, ends) {
 }
 
 /** What a tube carries, by what it joins: two spaces of one cell, an open channel; two cells, a gap junction. */
-function fluxBetween(pieces, ends) {
+export function fluxBetween(pieces, ends) {
   const topology = topologyOf(pieces)
   const [a, b] = ends.map((end) => topology.enclosureOf(end))
   if (a && a === b) return 'bridge'
@@ -381,6 +381,13 @@ function fluxBetween(pieces, ends) {
 }
 
 const TUBE_NAMES = Object.freeze({ junction: 'Gap junction', bridge: 'Bridge' })
+
+/** What a new tube carrying a flux is called, numbered past the first. */
+export const tubeName = (pieces, flux) => numbered(pieces, 'tube', TUBE_NAMES[flux] ?? 'Tube')
+
+/** Whether a tube still has the name it was given for what it carries, as no one has named it. */
+export const isDefaultTubeName = (label, flux) =>
+  new RegExp(`^${TUBE_NAMES[flux] ?? 'Tube'}( \\d+)?$`).test(String(label ?? ''))
 
 /**
  * Adds a tube between two compartments: an open channel between two spaces within one membrane, a gap junction
@@ -393,7 +400,7 @@ const TUBE_NAMES = Object.freeze({ junction: 'Gap junction', bridge: 'Bridge' })
  */
 export function addTube(pieces, ends, flux = fluxBetween(pieces, ends)) {
   const id = freeId('tube', taken(pieces))
-  const label = numbered(pieces, 'tube', TUBE_NAMES[flux] ?? 'Tube')
+  const label = tubeName(pieces, flux)
   return { pieces: [...copy(pieces), { id, kind: 'tube', label, ends: [...ends], flux }], id }
 }
 

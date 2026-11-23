@@ -374,3 +374,35 @@ describe('tubeGroupOf', () => {
     expect(t.tubeGroupOf('ab')).toEqual([])
   })
 })
+
+describe('junctionNeighbours and junctionGroupOf', () => {
+  const cell = (id, parent) => [
+    { id, kind: 'compartment', label: id.toUpperCase(), ...(parent && { parent }) },
+    { id: `${id}m`, kind: 'membrane', label: `${id.toUpperCase()}M`, encloses: [id], ...(parent && { parent }) },
+  ]
+  const pieces = [
+    ...cell('a'),
+    ...cell('b'),
+    ...cell('c'),
+    ...cell('d'),
+    ...cell('e'),
+    { id: 'ab', kind: 'tube', label: 'AB', ends: ['a', 'b'], flux: 'junction' },
+    { id: 'cb', kind: 'tube', label: 'CB', ends: ['c', 'b'], flux: 'junction' },
+    { id: 'cd', kind: 'tube', label: 'CD', ends: ['c', 'd'], flux: 'bridge' },
+    { id: 'de', kind: 'tube', label: 'DE', ends: ['d', 'e'], flux: 'junction' },
+  ]
+
+  it('follows gap junctions only, through other cells', () => {
+    const t = topology(pieces)
+    expect(t.junctionNeighbours('bm')).toEqual(['am', 'cm'])
+    expect(t.junctionGroupOf('am')).toEqual(['am', 'bm', 'cm'])
+    expect(t.junctionGroupOf('cm')).toEqual(['cm', 'bm', 'am'])
+    expect(t.junctionGroupOf('dm')).toEqual(['dm', 'em'])
+  })
+
+  it('is empty for what is not a membrane', () => {
+    const t = topology(pieces)
+    expect(t.junctionGroupOf('a')).toEqual([])
+    expect(t.junctionNeighbours('ab')).toEqual([])
+  })
+})

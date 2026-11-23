@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { getBuiltInPieceTemplate } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
-import { dropScene, previewDrop, resolveDrop } from '../../../../../src/services/bioView/pieces/drops.js'
+import {
+  dropScene,
+  previewDrop,
+  resolveDrop,
+  resolveTubeEnd,
+} from '../../../../../src/services/bioView/pieces/drops.js'
 import { encloseCompartment, splitSpans } from '../../../../../src/services/bioView/pieces/edits.js'
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
 import { topologyOf } from '../../../../../src/services/bioView/pieces/topology.js'
@@ -234,6 +239,88 @@ describe('dropping a tube, fold or zone', () => {
     expect(drop.cells).toBeUndefined()
     const tube = previewDrop(scene, drop).pieces.find((piece) => piece.kind === 'tube')
     expect(tube).toMatchObject({ ends: ['outer-segment', 'inner-segment'], flux: 'bridge', label: 'Bridge' })
+  })
+
+  // Two cells standing in a tissue compartment, B `gap` to the right of A, with a lone organelle in A when asked.
+  const cellsInTissue = (gap, { organelle = false } = {}) =>
+    valid([
+      { id: 'tissue', kind: 'compartment', label: 'Tissue', frame: { x: 0, y: 0, width: 1200, height: 600 } },
+      { id: 'a', kind: 'compartment', label: 'Cell A', parent: 'tissue' },
+      {
+        id: 'a-membrane',
+        kind: 'membrane',
+        label: 'Membrane A',
+        parent: 'tissue',
+        encloses: ['a'],
+        frame: { x: 40, y: 40, width: 320, height: 260 },
+      },
+      { id: 'b', kind: 'compartment', label: 'Cell B', parent: 'tissue' },
+      {
+        id: 'b-membrane',
+        kind: 'membrane',
+        label: 'Membrane B',
+        parent: 'tissue',
+        encloses: ['b'],
+        frame: { x: 360 + gap, y: 40, width: 320, height: 260 },
+      },
+      ...(organelle
+        ? [
+            {
+              id: 'o',
+              kind: 'compartment',
+              label: 'Organelle',
+              parent: 'a',
+              frame: { x: 40, y: 60, width: 120, height: 80 },
+            },
+          ]
+        : []),
+    ])
+  const tubeAt = (pieces, at) => {
+    const scene = dropScene(pieces)
+    const drop = resolveDrop('tube', at(scene.rects), scene)
+    expect(drop.invalid).toBeUndefined()
+    return drop
+  }
+  const middle = (rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 })
+
+  it('dropped on a cell in a compartment, joins it to the cell beside it, not the compartment it stands in', () => {
+    const drop = tubeAt(cellsInTissue(120), (rects) => middle(rects.get('a')))
+    expect(drop.key).toBe('tube|a|b')
+    expect(drop.label).toBe('Bridges Cell A to Cell B')
+  })
+
+  it('dropped between two cells in a compartment, joins the two, not the compartment', () => {
+    const drop = tubeAt(cellsInTissue(120), (rects) => {
+      const a = rects.get('a')
+      return { x: a.x + a.width + 40, y: a.y + a.height / 2 }
+    })
+    expect(drop.key).toBe('tube|a|b')
+    const touching = tubeAt(cellsInTissue(0), (rects) => middle(rects.get('b')))
+    expect(touching.key).toBe('tube|b|a')
+    expect(touching.cells).toEqual(['Cell B', 'Cell A'])
+  })
+
+  it('still joins a compartment to the one it stands in, where nothing else is in reach', () => {
+    const drop = tubeAt(cellsInTissue(1000, { organelle: true }), (rects) => middle(rects.get('o')))
+    expect(drop.key).toBe('tube|o|a')
+  })
+
+  it('moving a tube’s end onto another cell carries what a tube dropped between them would', () => {
+    const withTube = (gap) =>
+      valid([...cellsInTissue(gap), { id: 't', kind: 'tube', label: 'Tube', ends: ['a', 'tissue'], flux: 'flow' }])
+    const moved = (pieces, choice) => {
+      const scene = dropScene(pieces)
+      const end = resolveTubeEnd(scene, 't', 1, middle(scene.rects.get('b')))
+      return { end, tube: valid(end.apply(pieces, choice)).find((piece) => piece.id === 't') }
+    }
+    const touching = moved(withTube(0), { flux: 'junction' })
+    expect(touching.end.cells).toEqual(['Cell A', 'Cell B'])
+    expect(touching.tube).toMatchObject({ ends: ['a', 'b'], flux: 'junction', label: 'Gap junction' })
+    const apart = moved(withTube(120))
+    expect(apart.end.cells).toBeUndefined()
+    expect(apart.tube).toMatchObject({ ends: ['a', 'b'], flux: 'bridge', label: 'Bridge' })
+    const scene = dropScene(withTube(0))
+    expect(resolveTubeEnd(scene, 't', 1, middle(scene.rects.get('a')))).toBeNull()
   })
 
   it('needs two compartments for a tube', () => {

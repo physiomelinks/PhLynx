@@ -138,6 +138,73 @@ describe('moveFrame', () => {
   })
 })
 
+/** A cell with a gap junction to one on its right, which has one to a cell below it, and a fourth bridged apart. */
+const cellAt = (id, x, y) => [
+  { id, kind: 'compartment', label: id.toUpperCase() },
+  {
+    id: `${id}m`,
+    kind: 'membrane',
+    label: `${id.toUpperCase()}M`,
+    encloses: [id],
+    frame: { x, y, width: 200, height: 100 },
+  },
+]
+const junctioned = valid([
+  ...cellAt('a', 100, 100),
+  ...cellAt('b', 300, 100),
+  ...cellAt('c', 300, 200),
+  ...cellAt('d', 800, 100),
+  { id: 'ab', kind: 'tube', label: 'AB', ends: ['a', 'b'], flux: 'junction' },
+  { id: 'bc', kind: 'tube', label: 'BC', ends: ['b', 'c'], flux: 'junction' },
+  { id: 'bd', kind: 'tube', label: 'BD', ends: ['b', 'd'], flux: 'bridge' },
+])
+const junctionsBroken = (pieces) => ['ab', 'bc'].map((id) => !!layoutPieces(pieces).places.get(pieceKey(id)).broken)
+
+describe('gap junctions hold their cells together', () => {
+  it('moves a cell with every cell joined to it by gap junctions, but not one joined by a bridge', () => {
+    const rects = rectsOf(junctioned)
+    expect(junctionsBroken(junctioned)).toEqual([false, false])
+    const moved = valid(moveFrame(junctioned, 'am', { x: 150, y: 40 }, rects))
+    const after = rectsOf(moved)
+    for (const id of ['am', 'bm', 'cm']) {
+      expect(after.get(id), id).toMatchObject({ x: rects.get(id).x + 150, y: rects.get(id).y + 40 })
+    }
+    expect(after.get('dm')).toMatchObject({ x: rects.get('dm').x, y: rects.get('dm').y })
+    expect(junctionsBroken(moved)).toEqual([false, false])
+  })
+
+  it('stops the whole group where any of it would leave the view', () => {
+    const rects = rectsOf(junctioned)
+    const moved = valid(moveFrame(junctioned, 'cm', { x: -5000, y: 0 }, rects))
+    const after = rectsOf(moved)
+    const shift = after.get('am').x - rects.get('am').x
+    for (const id of ['bm', 'cm']) expect(after.get(id).x - rects.get(id).x, id).toBe(shift)
+    expect(junctionsBroken(moved)).toEqual([false, false])
+  })
+
+  it('keeps the cells against a resized cell, each as its side moves, those beyond going with them', () => {
+    const rects = rectsOf(junctioned)
+    const rectsOfRaw = (raw) => rectsOf(valid(raw))
+    // A widened leftwards: B and C stay; widened rightwards, they move along.
+    const a = rects.get('am')
+    const left = valid(
+      resizeFrame(junctioned, 'am', { ...a, x: a.x - 50, width: a.width + 50 }, rects, { rectsOf: rectsOfRaw }),
+    )
+    expect(rectsOf(left).get('bm')).toMatchObject({ x: rects.get('bm').x })
+    const right = valid(resizeFrame(junctioned, 'am', { ...a, width: a.width + 80 }, rects, { rectsOf: rectsOfRaw }))
+    for (const id of ['bm', 'cm']) expect(rectsOf(right).get(id).x, id).toBe(rects.get(id).x + 80)
+    expect(junctionsBroken(right)).toEqual([false, false])
+    // B made taller: C, below it, moves down; A, to its left, stays; D, bridged, stays.
+    const b = rects.get('bm')
+    const taller = valid(resizeFrame(junctioned, 'bm', { ...b, height: b.height + 60 }, rects, { rectsOf: rectsOfRaw }))
+    const after = rectsOf(taller)
+    expect(after.get('cm').y).toBe(rects.get('cm').y + 60)
+    expect(after.get('am')).toMatchObject({ x: rects.get('am').x, y: rects.get('am').y })
+    expect(after.get('dm')).toMatchObject({ x: rects.get('dm').x, y: rects.get('dm').y })
+    expect(junctionsBroken(taller)).toEqual([false, false])
+  })
+})
+
 describe('resizeFrame and fitToContents', () => {
   it('sizes a cell at least as big as it is resized, and back to what its contents need', () => {
     const rects = rectsOf(cardiomyocyte)
@@ -205,6 +272,32 @@ describe('setDepth, moveFold, bendTube and reattachTube', () => {
     expect(byId(moved, 't')).toMatchObject({ ends: ['a', 'c'] })
     expect(byId(moved, 't').bends).toBeUndefined()
     expect(reattachTube(bent, 't', 1, 'a')).toBeNull()
+  })
+
+  it('reattached, a tube carries what it joins now, renamed for it unless someone has named it', () => {
+    const start = valid([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 100 } },
+      { id: 'b', kind: 'compartment', label: 'B' },
+      { id: 'bm', kind: 'membrane', label: 'BM', encloses: ['b'], frame: { x: 300, y: 0, width: 200, height: 100 } },
+      { id: 'c', kind: 'compartment', label: 'C' },
+      { id: 'cm', kind: 'membrane', label: 'CM', encloses: ['c'], frame: { x: 600, y: 0, width: 200, height: 100 } },
+      { id: 't', kind: 'tube', label: 'Tube', ends: ['b', 'a'], flux: 'flow' },
+      { id: 'named', kind: 'tube', label: 'Leak', ends: ['b', 'a'], flux: 'flow' },
+      { id: 'd', kind: 'tube', label: 'D', ends: ['b', 'a'], flux: 'diffusion' },
+    ])
+    expect(byId(valid(reattachTube(start, 't', 1, 'c')), 't')).toMatchObject({
+      flux: 'junction',
+      label: 'Gap junction',
+    })
+    expect(byId(valid(reattachTube(start, 't', 1, 'c', 'bridge')), 't')).toMatchObject({
+      flux: 'bridge',
+      label: 'Bridge',
+    })
+    expect(byId(valid(reattachTube(start, 'named', 1, 'c')), 'named')).toMatchObject({
+      flux: 'junction',
+      label: 'Leak',
+    })
+    expect(byId(valid(reattachTube(start, 'd', 1, 'c')), 'd')).toMatchObject({ flux: 'diffusion' })
   })
 
   it('puts grips on a routed tube’s ends and above its room, and at a fold’s end', () => {

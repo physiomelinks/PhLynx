@@ -258,6 +258,41 @@ function buildTopology(pieces) {
     return compartments.filter((compartment) => group.has(compartment.id)).map((compartment) => compartment.id)
   }
 
+  /**
+   * The cells a cell is joined to by gap junctions: the membranes enclosing the other ends of its junction tubes,
+   * standing where it stands.
+   *
+   * @param {string} membraneId
+   * @returns {string[]} In the order the tubes list them.
+   */
+  function junctionNeighbours(membraneId) {
+    const membrane = byId.get(membraneId)
+    if (membrane?.kind !== 'membrane') return []
+    const found = new Set()
+    for (const { ends, flux } of ofKind('tube')) {
+      if (flux !== 'junction') continue
+      const [a, b] = ends.map((id) => enclosedBy.get(id))
+      const other = a === membraneId ? b : b === membraneId ? a : null
+      if (other && other !== membraneId && byId.get(other)?.parent === membrane.parent) found.add(other)
+    }
+    return [...found]
+  }
+
+  /**
+   * The cells held together with a cell by gap junctions, through others: what moves with it.
+   *
+   * @param {string} membraneId
+   * @returns {string[]} It first, then the rest as they are reached; empty for no membrane.
+   */
+  function junctionGroupOf(membraneId) {
+    if (byId.get(membraneId)?.kind !== 'membrane') return []
+    const group = [membraneId]
+    for (let i = 0; i < group.length; i++) {
+      for (const other of junctionNeighbours(group[i])) if (!group.includes(other)) group.push(other)
+    }
+    return group
+  }
+
   const bulkSet = new Set([...bulks.values()].filter(Boolean))
 
   /**
@@ -393,6 +428,8 @@ function buildTopology(pieces) {
     isWithin,
     depthOf,
     tubeGroupOf,
+    junctionNeighbours,
+    junctionGroupOf,
     neighbours,
   }
 }

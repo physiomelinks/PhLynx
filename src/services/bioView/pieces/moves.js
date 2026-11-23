@@ -5,6 +5,7 @@
  */
 
 import { INNER_INSET, LIMITS } from './constants.js'
+import { fluxBetween, isDefaultTubeName, tubeName } from './edits.js'
 import { topologyOf } from './topology.js'
 
 /** How short a span another's slide may leave it, as a share of its side. */
@@ -72,9 +73,13 @@ function pinSiblingZones(raw, piece, rects) {
   }
 }
 
+/** How near a piece standing in what `parent` names may come to its corner. */
+const lowOf = (parent) => (parent ? INSET : LIMITS.at.min)
+
 /**
  * Moves a piece with a frame by how far it was dragged. One standing in a compartment is kept from going out of its
- * top or left; past its right or bottom, the compartment grows to hold it.
+ * top or left; past its right or bottom, the compartment grows to hold it. A cell takes the cells joined to it by gap
+ * junctions with it, all as far, so their membranes stay together: a junction is never pulled apart by a drag.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {string} id
@@ -85,31 +90,104 @@ function pinSiblingZones(raw, piece, rects) {
 export function moveFrame(pieces, id, delta, rects) {
   const raw = copy(pieces)
   const piece = raw.find((each) => each.id === id)
-  const start = piece && frameOf(piece, rects)
-  if (!start) return null
-  // The size drawn now: a membrane's frame is only its least.
+  if (!piece || !frameOf(piece, rects)) return null
+  const group = piece.kind === 'membrane' ? topologyOf(pieces).junctionGroupOf(id) : [id]
+  const moving = group.map((each) => raw.find((other) => other.id === each))
+  const starts = moving.map((each) => frameOf(each, rects))
+  if (starts.some((start) => !start)) return null
+  // The size drawn now: a membrane's frame is only its least. All go as far, as far as each may.
   const parent = piece.kind === 'zone' ? piece.compartment : piece.parent
-  const low = parent ? INSET : LIMITS.at.min
-  piece.frame = {
-    ...start,
-    x: round(clamp(start.x + delta.x, low, LIMITS.at.max)),
-    y: round(clamp(start.y + delta.y, low, LIMITS.at.max)),
-  }
+  const low = lowOf(parent)
+  const along = (axis) =>
+    clamp(
+      delta[axis],
+      Math.max(...starts.map((start) => low - start[axis])),
+      Math.min(...starts.map((start) => LIMITS.at.max - start[axis])),
+    )
+  const shift = { x: along('x'), y: along('y') }
+  moving.forEach((each, index) => {
+    const start = starts[index]
+    each.frame = { ...start, x: round(start.x + shift.x), y: round(start.y + shift.y) }
+  })
   pinSiblingZones(raw, piece, rects)
   return raw
 }
 
+/** Which side of a rect another lies on: the axis they overlap least along, the way its middle is. */
+function sideOf(rect, other) {
+  const apartX = Math.max(other.x - (rect.x + rect.width), rect.x - (other.x + other.width))
+  const apartY = Math.max(other.y - (rect.y + rect.height), rect.y - (other.y + other.height))
+  if (apartX >= apartY) return other.x + other.width / 2 >= rect.x + rect.width / 2 ? 'right' : 'left'
+  return other.y + other.height / 2 >= rect.y + rect.height / 2 ? 'bottom' : 'top'
+}
+
+/**
+ * Keeps the cells joined to a resized cell by gap junctions against it: each goes as far as the side of the cell it
+ * lies against has, taking the cells joined on beyond it with it.
+ *
+ * @param {Array<Object>} raw - The pieces resized, changed in place.
+ * @param {ReadonlyArray<Object>} pieces - Before the resize.
+ * @param {string} id - The membrane resized.
+ * @param {Map<string, Object>} before - Where each was drawn before the resize.
+ * @param {Map<string, Object>|null} after - Where each is drawn after it.
+ */
+function keepJunctionsTouching(raw, pieces, id, before, after) {
+  const topology = topologyOf(pieces)
+  const was = before.get(id)
+  const now = after?.get(id)
+  if (!was || !now) return
+  const edges = {
+    left: { x: now.x - was.x, y: 0 },
+    right: { x: now.x + now.width - (was.x + was.width), y: 0 },
+    top: { x: 0, y: now.y - was.y },
+    bottom: { x: 0, y: now.y + now.height - (was.y + was.height) },
+  }
+  // Each cell against it goes as its side does; those joined on beyond go as the one they are reached through.
+  const shifts = new Map([[id, null]])
+  const queue = []
+  for (const other of topology.junctionNeighbours(id)) {
+    const rect = before.get(other)
+    if (!rect) continue
+    shifts.set(other, edges[sideOf(was, rect)])
+    queue.push(other)
+  }
+  while (queue.length) {
+    const at = queue.shift()
+    for (const other of topology.junctionNeighbours(at)) {
+      if (shifts.has(other)) continue
+      shifts.set(other, shifts.get(at))
+      queue.push(other)
+    }
+  }
+  for (const [other, shift] of shifts) {
+    if (!shift || (!shift.x && !shift.y)) continue
+    const piece = raw.find((each) => each.id === other)
+    const start = frameOf(piece, before)
+    if (!start) continue
+    const low = lowOf(piece.parent)
+    piece.frame = {
+      ...start,
+      x: round(clamp(start.x + shift.x, low, LIMITS.at.max)),
+      y: round(clamp(start.y + shift.y, low, LIMITS.at.max)),
+    }
+  }
+}
+
 /**
  * Sets the rect a piece with a frame is drawn at, as a resize leaves it. A membrane's is its least size: it still
- * grows for what is on and in it.
+ * grows for what is on and in it. Given `rectsOf`, a cell resized moves the cells joined to it by gap junctions so
+ * they stay against it, as far as the side each is against moves where it is then drawn.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {string} id
  * @param {{x: number, y: number, width: number, height: number}} rect - In the view's coordinates.
  * @param {Map<string, Object>} rects
+ * @param {Object} [options]
+ * @param {(raw: Array<Object>) => Map<string, Object>|null} [options.rectsOf] - Where pieces are drawn, as
+ *   layoutPieces' rects; null where they don't validate.
  * @returns {Array<Object>|null}
  */
-export function resizeFrame(pieces, id, rect, rects) {
+export function resizeFrame(pieces, id, rect, rects, { rectsOf } = {}) {
   const raw = copy(pieces)
   const piece = raw.find((each) => each.id === id)
   if (!piece) return null
@@ -122,6 +200,9 @@ export function resizeFrame(pieces, id, rect, rects) {
     height: size(rect.height),
   }
   pinSiblingZones(raw, piece, rects)
+  if (rectsOf && piece.kind === 'membrane' && topologyOf(pieces).junctionNeighbours(id).length) {
+    keepJunctionsTouching(raw, pieces, id, rects, rectsOf(raw))
+  }
   return raw
 }
 
@@ -280,19 +361,30 @@ export function bendTube(pieces, id, point) {
 }
 
 /**
- * Joins one end of a tube to another compartment.
+ * Joins one end of a tube to another compartment, carrying what a tube added between the two would: a gap junction
+ * between two cells unless `flux` makes it a bridge, an open channel within one cell, else a flow. A diffusion is
+ * kept, being no tube's by default. Its name follows what it carries, unless someone has named it.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {string} id
  * @param {0|1} end - Upstream (0) or downstream (1).
  * @param {string} compartment
+ * @param {string} [flux] - What it carries, where the user chose; else worked out from what it joins.
  * @returns {Array<Object>|null} Null where it would join a compartment to itself.
  */
-export function reattachTube(pieces, id, end, compartment) {
+export function reattachTube(pieces, id, end, compartment, flux) {
   const raw = copy(pieces)
   const tube = raw.find((each) => each.id === id)
   if (tube?.kind !== 'tube' || tube.ends[1 - end] === compartment) return null
   tube.ends[end] = compartment
   delete tube.bends
+  const was = tube.flux
+  if (was !== 'diffusion') tube.flux = flux ?? fluxBetween(raw, tube.ends)
+  if (tube.flux !== was && isDefaultTubeName(tube.label, was)) {
+    tube.label = tubeName(
+      raw.filter((each) => each.id !== id),
+      tube.flux,
+    )
+  }
   return raw
 }
