@@ -214,7 +214,7 @@ class TestSimulator(unittest.TestCase):
             self.assertGreater(result["underAnotherName"], 0)
             self.assertEqual(result["somaCurrentOut"], "axon_SN/I")
             # The environment's variable is named after the first ODE's variable of integration.
-            self.assertRegex(result["somaTime"], r"^environment/[^/]+$")
+            self.assertRegex(result["somaTime"], r"^phlynx_environment/[^/]+$")
             # ----------- END ------------
 
             context.close()

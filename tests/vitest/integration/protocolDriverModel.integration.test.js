@@ -4,11 +4,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { addProtocolClock, addProtocolDrivers, CLOCK_OFFSET, CLOCK_TIME } from '../../../src/services/simulation/protocolDriverModel.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
-// As PhLynx flattens a decay module: its constants in instance_parameters, its time in environment.
+// As PhLynx flattens a decay module: its constants in instance_parameters, its time in phlynx_environment.
 const FLATTENED = `<?xml version="1.0" encoding="UTF-8"?>
 <model xmlns="http://www.cellml.org/cellml/2.0#" name="flat">
   <units name="per_second"><unit units="second" exponent="-1"/></units>
-  <component name="environment"><variable name="time" units="second" interface="public"/></component>
+  <component name="phlynx_environment" id="phlynx_autogen_environment_0001"><variable name="time" units="second" interface="public"/></component>
   <component name="decay">
     <variable name="t" units="second" interface="public"/>
     <variable name="x" units="dimensionless" initial_value="1"/>
@@ -18,7 +18,7 @@ const FLATTENED = `<?xml version="1.0" encoding="UTF-8"?>
     </math>
   </component>
   <component name="instance_parameters"><variable name="k" units="per_second" initial_value="0.5" interface="public"/></component>
-  <connection component_1="environment" component_2="decay"><map_variables variable_1="time" variable_2="t"/></connection>
+  <connection component_1="phlynx_environment" component_2="decay"><map_variables variable_1="time" variable_2="t"/></connection>
   <connection component_1="decay" component_2="instance_parameters"><map_variables variable_1="k" variable_2="k"/></connection>
 </model>`
 
@@ -123,9 +123,24 @@ describe('addProtocolClock', () => {
   })
 
   it('says why a model without a variable of integration, or with a clock already, gets none', () => {
-    const timeless = FLATTENED.replace('<component name="environment">', '<component name="surroundings">')
+    const timeless = FLATTENED.replace(' id="phlynx_autogen_environment_0001"', '')
     expect(addProtocolClock({ libcellml, cellml: timeless })).toEqual({ cellml: timeless, errors: ['The model has no variable of integration for a protocol to follow.'] })
     const { cellml } = addProtocolClock({ libcellml, cellml: FLATTENED })
     expect(addProtocolClock({ libcellml, cellml }).errors).toEqual(['The model already has a protocol_clock component.'])
+  })
+
+  it('follows the environment of a model exported before the environment had an id, but not a module called environment', () => {
+    const legacy = FLATTENED.replace('<component name="phlynx_environment" id="phlynx_autogen_environment_0001">', '<component name="environment">').replace(
+      'component_1="phlynx_environment"',
+      'component_1="environment"'
+    )
+    const driven = addProtocolDrivers({ libcellml, cellml: legacy, drivers: [DRIVER] })
+    expect(driven.errors).toEqual([])
+    const { cellml, errors } = addProtocolClock({ libcellml, cellml: driven.cellml })
+    expect(errors).toEqual([])
+    expect(check(libcellml, cellml).issues).toEqual([])
+
+    const module = legacy.replace('<component name="environment">', '<component name="environment" id="environment">')
+    expect(addProtocolClock({ libcellml, cellml: module }).errors).toEqual(['The model has no variable of integration for a protocol to follow.'])
   })
 })

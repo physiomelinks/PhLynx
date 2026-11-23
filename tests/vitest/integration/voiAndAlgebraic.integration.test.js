@@ -6,6 +6,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { analyzeMathXml } from '../../../src/services/math/analyzeMath.js'
+import { parseCellMLConnections } from '../../../src/services/import/parseCellmlConnections.js'
 import { reconcileRows } from '../../../src/services/math/reconcileRows.js'
 import { createSimulationSession } from '../../../src/services/simulation/engine.js'
 import { createFamily, createSweep, familyValues, resolveSweepTarget, splitFamily, sweepValues } from '../../../src/services/simulation/sweep.js'
@@ -13,6 +14,7 @@ import { buildVariableMapping } from '../../../src/services/simulation/variableM
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { extractVoiAndParametersFromModel, generateFlattenedModel, processCellMLData } from '../../../src/utils/cellml.js'
 import { BASELINE_SIMULATION_SETTINGS } from '../../../src/utils/constants.js'
+import { patchUnderscoreTagSelectors } from '../helpers/happyDom.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 const UNITS = `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units">
@@ -115,12 +117,12 @@ const RLC_DAE_XML = fs.readFileSync(path.resolve(__dirname, '../fixtures/bg2cell
 
 /** A component's variables connected to the environment's in a flattened model, as `environment → component` names. */
 const connectedToVoi = (text, component) => {
-  const connection = text.match(new RegExp(`<connection component_1="environment" component_2="${component}">([\\s\\S]*?)</connection>`))?.[1] ?? ''
+  const connection = text.match(new RegExp(`<connection component_1="phlynx_environment" component_2="${component}">([\\s\\S]*?)</connection>`))?.[1] ?? ''
   return [...connection.matchAll(/<map_variables variable_1="([^"]+)" variable_2="([^"]+)"\/>/g)].map((match) => `${match[1]} → ${match[2]}`)
 }
 
 /** The environment's variable in a flattened model: its name and units. */
-const environmentVoi = (text) => text.match(/<component name="environment">\s*<variable name="([^"]+)" units="([^"]+)"/)?.slice(1, 3)
+const environmentVoi = (text) => text.match(/<component name="phlynx_environment" id="phlynx_autogen_environment_0001">\s*<variable name="([^"]+)" units="([^"]+)"/)?.slice(1, 3)
 
 describe('variables of integration and algebraic systems in the flattened model', () => {
   let store
@@ -164,7 +166,7 @@ describe('variables of integration and algebraic systems in the flattened model'
     const tau = await flatten([buildNode('decay', TAU_XML, { k: '1', q_init: '1' })])
     expect(environmentVoi(tau)).toEqual(['tau', 'second'])
     expect(connectedToVoi(tau, 'decay')).toEqual(['tau → tau'])
-    expect(extractVoiAndParametersFromModel(tau, {}).voi).toMatchObject({ name: 'tau', componentName: 'environment' })
+    expect(extractVoiAndParametersFromModel(tau, {}).voi).toMatchObject({ name: 'tau', componentName: 'phlynx_environment' })
 
     const t = await flatten([buildNode('fill', T_XML, { k: '1', q_init: '0' })])
     expect(environmentVoi(t)).toEqual(['t', 'second'])
@@ -180,7 +182,7 @@ describe('variables of integration and algebraic systems in the flattened model'
 
   it('names a module’s variable of integration whose units can’t join the environment’s, rather than leaving it out (#713)', async () => {
     const nodes = [buildNode('beam', DISTANCE_XML, { k: '2', y_init: '1' }), buildNode('fill', T_XML, { k: '1', q_init: '0' })]
-    const message = "Variables of integration in units that can't join environment/x (metre): fill.t (second)."
+    const message = "Variables of integration in units that can't join phlynx_environment/x (metre): fill.t (second)."
     await expect(flatten(nodes)).rejects.toThrow(message)
     // The simulator builds without checking, and still gets the reason.
     expect(() => generateFlattenedModel(nodes, [], store, [], { check: false })).toThrow(message)
@@ -195,7 +197,7 @@ describe('variables of integration and algebraic systems in the flattened model'
     try {
       const settings = { ...BASELINE_SIMULATION_SETTINGS, endingPoint: 1, pointInterval: 0.5 }
       const results = await session.run({ settings }).promise
-      expect(results.voi).toMatchObject({ name: 'environment/x', unit: 'metre' })
+      expect(results.voi).toMatchObject({ name: 'phlynx_environment/x', unit: 'metre' })
       expect([...results.voi.values]).toEqual([0, 0.5, 1])
       const y = [...results.variables.get('beam/y').values]
       expect(y[2]).toBeCloseTo(Math.exp(-2), 5)
@@ -204,13 +206,30 @@ describe('variables of integration and algebraic systems in the flattened model'
     }
   }, 60000)
 
+  it('names its environment apart from modules called environment or phlynx_environment, and imports them back as modules', async () => {
+    const text = await flatten([buildNode('environment', T_XML, { k: '1', q_init: '0' }), buildNode('phlynx_environment', TAU_XML, { k: '1', q_init: '1' })])
+    expect(text).toMatch(/<component name="environment"[ >]/)
+    expect(text).toMatch(/<component name="phlynx_environment"[ >]/)
+    expect(text).toMatch(/<component name="phlynx_environment_1" id="phlynx_autogen_environment_0001">\s*<variable name="t" units="second"/)
+    expect(extractVoiAndParametersFromModel(text, {}).voi).toMatchObject({ name: 't', componentName: 'phlynx_environment_1' })
+
+    const restoreSelectors = patchUnderscoreTagSelectors()
+    try {
+      const names = parseCellMLConnections(text, 'clash.cellml').nodes.map((node) => node.data.name)
+      expect(names).toEqual(expect.arrayContaining(['environment', 'phlynx_environment']))
+      expect(names).not.toContain('phlynx_environment_1')
+    } finally {
+      restoreSelectors()
+    }
+  })
+
   it('builds a model without ODEs as an algebraic system, with no environment', async () => {
     const node = buildNode('lever', ALGEBRAIC_XML, { a: '3', t: '2' })
     expect(node.data.variables.find((row) => row.name === 't').type).toBe('constant')
 
     // The build analyses the model, so it would throw were anything left unknown.
     const text = await flatten([node])
-    expect(text).not.toMatch(/<component name="environment"/)
+    expect(text).not.toMatch(/phlynx_environment/)
     expect(extractVoiAndParametersFromModel(text, {}).voi).toBeNull()
   })
 

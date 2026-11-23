@@ -57,12 +57,13 @@ export function useLoadFromCellML({ fitViewParams } = {}) {
   const loadFromCellML = async (parsedCellmlPayload, componentFile, parameterData = null) => {
     try {
       const { components = [], modules = [], edges = [], cellmlModuleSubtype } = parsedCellmlPayload
+      const parameterComponents = new Set(parsedCellmlPayload.parameterComponents ?? PARAMETER_COMPONENT_NAMES)
 
       // Keep modules wired only to parameter components (e.g. a one-module export), but only
       // build edges between modules.
       const namesWithEdges = new Set(edges.flatMap((e) => [e.source, e.target]))
       const liveComponents = new Set(
-        components.filter((name) => !PARAMETER_COMPONENT_NAMES.has(name) && namesWithEdges.has(name))
+        components.filter((name) => !parameterComponents.has(name) && namesWithEdges.has(name))
       )
       const prunedComponents = components.filter((name) => liveComponents.has(name))
       const prunedModules = modules.filter((mod) => liveComponents.has(mod.name))

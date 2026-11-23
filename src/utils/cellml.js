@@ -12,8 +12,8 @@ import {
   AFFINE_UNIT_CONVERSIONS,
   CELLML_NS,
   MATHML_NS,
-  PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME,
-  PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME,
+  PHLYNX_ENVIRONMENT_COMPONENT_ID,
+  PHLYNX_GENERATED_COMPONENTS,
   INSTANCE_PARAMETER_COMPONENT_NAMES,
   GLOBAL_PARAMETER_COMPONENT_NAMES,
 } from './constants.js'
@@ -302,17 +302,94 @@ function nextAvailableVarName(component, baseName) {
   return candidateName
 }
 
-function nextAvailableComponentName(model, baseName) {
+/**
+ * Names a component after a base name, with the first suffix (`_1`, `_2`, ...) that makes it unique.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {string} baseName
+ * @param {Set<string>} [reserved] - Names taken by components not yet in the model.
+ * @returns {string}
+ */
+function nextAvailableComponentName(model, baseName, reserved = new Set()) {
   let candidateName = baseName
-  let index = 1
-  let currentCandidate = model.componentByName(candidateName, true)
-  while (currentCandidate !== null) {
+  for (let index = 1; reserved.has(candidateName) || model.containsComponentByName(candidateName, true); index++) {
     candidateName = `${baseName}_${index}`
-    index++
-    currentCandidate.delete()
-    currentCandidate = model.componentByName(candidateName, true)
   }
   return candidateName
+}
+
+/**
+ * Names a component an export generates, as nextAvailableComponentName would with only these names taken. Code
+ * that reads a run's results by component, such as mapInspectionModules, finds the name this way.
+ *
+ * @param {string} baseName - Its name in PHLYNX_GENERATED_COMPONENTS.
+ * @param {Iterable<string>} takenNames - The names of the model's other components, such as its instances'.
+ * @returns {string}
+ */
+export function generatedComponentName(baseName, takenNames) {
+  const taken = new Set(takenNames)
+  let candidateName = baseName
+  for (let index = 1; taken.has(candidateName); index++) candidateName = `${baseName}_${index}`
+  return candidateName
+}
+
+/**
+ * Finds a component an export generated, by its id, among a model's top-level components.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @returns {Object|null} The component, for the caller to free.
+ */
+function findGeneratedComponent(model, { id }) {
+  for (let i = 0; i < model.componentCount(); i++) {
+    const component = model.componentByIndex(i)
+    if (component.id() === id) return component
+    component.delete()
+  }
+  return null
+}
+
+/**
+ * Creates a component an export generates, under the first free name (see nextAvailableComponentName) and with its
+ * id, and adds it to the model.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{name: string, id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @param {Set<string>} [reserved] - Names taken by components not yet in the model.
+ * @returns {Object} The component, for the caller to free.
+ */
+function addGeneratedComponent(model, generated, reserved) {
+  const component = new _libcellml.Component()
+  component.setName(nextAvailableComponentName(model, generated.name, reserved))
+  component.setId(generated.id)
+  model.addComponent(component)
+  return component
+}
+
+/**
+ * Finds a component an export generates, or adds it (see addGeneratedComponent).
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{name: string, id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @returns {Object} The component, for the caller to free.
+ */
+function findOrAddGeneratedComponent(model, generated) {
+  return findGeneratedComponent(model, generated) ?? addGeneratedComponent(model, generated)
+}
+
+/**
+ * Checks whether a component is one an export generated: by its id, or, in a model exported before PhLynx gave
+ * them ids, by its name.
+ *
+ * @param {Object} component - A libcellml Component.
+ * @param {{name: string, id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @param {Iterable<string>} [names] - The names it may have without an id; its base name by default.
+ * @returns {boolean}
+ */
+function isGeneratedComponent(component, generated, names = [generated.name]) {
+  const id = component?.id()
+  if (id) return id === generated.id
+  return !!component && [...names].includes(component.name())
 }
 
 export function sanitiseCellMLIdentifier(name) {
@@ -385,12 +462,7 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
     }
 
     // Get or create the single shared affine conversions component
-    let convComp = model.componentByName('affine_unit_conversions', true)
-    const isNew = convComp === null
-    if (isNew) {
-      convComp = new _libcellml.Component()
-      convComp.setName('affine_unit_conversions')
-    }
+    const convComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.affineUnitConversions)
     garbageCollector.add(convComp)
 
     // Create uniquely named local variables within the shared component
@@ -429,13 +501,8 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
 
     convComp.appendMath(mathML)
 
-    // Only add to model if newly created
-    if (isNew) {
-      model.addComponent(convComp)
-    }
-
     // Look up fresh references for equivalence wiring
-    const freshConvComp = model.componentByName('affine_unit_conversions', true)
+    const freshConvComp = findGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.affineUnitConversions)
     garbageCollector.add(freshConvComp)
     const freshInLocal = freshConvComp.variableByName(inNewName)
     garbageCollector.add(freshInLocal)
@@ -490,12 +557,7 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
 function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
   const sourceVar = requireVariable(sourceComp, sourceVarName)
   // Get or create the shared multiplications component
-  let mulComp = model.componentByName('generated_multiplications', true)
-  if (mulComp === null) {
-    mulComp = new _libcellml.Component()
-    mulComp.setName('generated_multiplications')
-    model.addComponent(mulComp)
-  }
+  const mulComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.multiplications)
 
   // Determine units from the source variable
   const sourceUnits = sourceVar.units()
@@ -557,12 +619,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   const { referenceVar, termVars } = lookup
 
   // Create the Component
-  let sumComp = model.componentByName('generated_summations', true)
-  if (sumComp === null) {
-    sumComp = new _libcellml.Component()
-    sumComp.setName('generated_summations')
-    model.addComponent(sumComp)
-  }
+  const sumComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.summations)
 
   // Setup Variables
   const referenceUnits = referenceVar.units()
@@ -635,12 +692,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
  * @param {Map<string, libcellml.Component>} nodeComponentMap - NodeID -> component
  */
 function createInspectionModuleComponent(model, module, nodeComponentMap) {
-  let inspectionComp = model.componentByName('inspection_modules', true)
-  if (inspectionComp === null) {
-    inspectionComp = new _libcellml.Component()
-    inspectionComp.setName('inspection_modules')
-    model.addComponent(inspectionComp)
-  }
+  const inspectionComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.inspectionModules)
 
   const unitsName = module.units || 'dimensionless'
   const sumVarName = nextAvailableVarName(inspectionComp, sanitiseCellMLIdentifier(module.name))
@@ -785,10 +837,11 @@ function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
 }
 
 /**
- * Adds the `environment` component, holding the model's variable of integration (VoI), and connects each
+ * Adds the `phlynx_environment` component, holding the model's variable of integration (VoI), and connects each
  * component's VoI to it. The environment's VoI takes the name and units of the first ODE's, so a model that
- * integrates over a distance in metres gets `environment/x` in metres. A model without ODEs is algebraic: it
- * has no VoI, and so no environment.
+ * integrates over a distance in metres gets `phlynx_environment/x` in metres. A model without ODEs is algebraic: it
+ * has no VoI, and so no environment. A module may already be called `phlynx_environment`, so the component takes the
+ * first free name, `phlynx_environment_1` and so on, and is identified by its id, PHLYNX_ENVIRONMENT_COMPONENT_ID.
  *
  * @param {Object} model - A libcellml Model.
  * @param {Array<{component: Object, voiNames: Set<string>, hasOde: boolean}>} voiVariables - Each component's
@@ -802,9 +855,8 @@ function addEnvironmentComponent(model, voiVariables) {
     .find(({ component, name }) => component.hasVariableByName(name))
   if (!odeVoi) return
 
-  const environmentComp = new _libcellml.Component()
-  environmentComp.setName('environment')
-  model.addComponent(environmentComp)
+  const environmentComp = addGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.environment)
+  const environmentName = environmentComp.name()
 
   const odeVoiVar = odeVoi.component.variableByName(odeVoi.name)
   const odeVoiUnits = odeVoiVar.units()
@@ -817,7 +869,7 @@ function addEnvironmentComponent(model, voiVariables) {
   odeVoiVar.delete()
 
   const voiUnits = voiVar.units()
-  const environmentVoi = `environment/${voiVar.name()} (${voiUnits.name()})`
+  const environmentVoi = `${environmentName}/${voiVar.name()} (${voiUnits.name()})`
   const incompatible = []
   for (const { component, voiNames } of voiVariables) {
     for (const name of voiNames) {
@@ -932,10 +984,10 @@ function prioritizeEnvironmentComponent(xmlString) {
   const model = doc.getElementsByTagNameNS(CELLML_NS, 'model')[0]
   if (!model) return xmlString
 
-  // Find the 'environment' component.
+  // Find the environment component PhLynx added.
   const components = Array.from(doc.getElementsByTagNameNS(CELLML_NS, 'component'))
 
-  const envComp = components.find((c) => c.getAttribute('name') === 'environment')
+  const envComp = components.find((c) => c.getAttribute('id') === PHLYNX_ENVIRONMENT_COMPONENT_ID)
 
   // Move it to be the first component child of model.
   if (envComp) {
@@ -1215,8 +1267,8 @@ export function generateFlattenedModel(
   const parser = new _libcellml.Parser(false)
   const importer = new _libcellml.Importer(true)
   const analyser = new _libcellml.Analyser()
-  const globalParameterComponent = new _libcellml.Component()
-  const parameterComponent = new _libcellml.Component()
+  let globalParameterComponent = null
+  let parameterComponent = null
 
   // --- Helper State ---
   const modelCache = new Map() // Key: mathRef,        Value: libcellml.Model
@@ -1304,11 +1356,10 @@ export function generateFlattenedModel(
   }
 
   try {
-    globalParameterComponent.setName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME)
-    model.addComponent(globalParameterComponent)
-
-    parameterComponent.setName(PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME)
-    model.addComponent(parameterComponent)
+    // Added before the instances, so it can't take a name one of them has.
+    const instanceNames = new Set(nodes.map((node) => node.data?.name))
+    globalParameterComponent = addGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.globalParameters, instanceNames)
+    parameterComponent = addGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.instanceParameters, instanceNames)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
     const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
@@ -1521,7 +1572,7 @@ export function generateFlattenedModel(
           if (scaled) {
             const factor = multiplyFactor(scaled.port, i)
             const { outputVarName } = createMultiplyComponent(model, scaled.component, scaled.varName, factor)
-            mulComp ??= model.componentByName('generated_multiplications', true)
+            mulComp ??= findGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.multiplications)
             term = { component: mulComp, varName: outputVarName }
           }
           if (summed) {
@@ -1574,11 +1625,11 @@ export function generateFlattenedModel(
     addEnvironmentComponent(model, voiVariables)
 
     if (globalParameterComponent.variableCount() === 0) {
-      model.removeComponentByName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME, true)
+      model.removeComponentByName(globalParameterComponent.name(), true)
     }
 
     if (parameterComponent.variableCount() === 0) {
-      model.removeComponentByName(PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME, true)
+      model.removeComponentByName(parameterComponent.name(), true)
     }
 
     // ------------------
@@ -1641,8 +1692,8 @@ export function generateFlattenedModel(
     for (const importSource of unitsImportSourceMap.values()) importSource.delete()
 
     // Delete Main Objects.
-    parameterComponent.delete()
-    globalParameterComponent.delete()
+    parameterComponent?.delete()
+    globalParameterComponent?.delete()
     analyser.delete()
     model.delete()
     printer.delete()
@@ -2027,13 +2078,13 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
             const mappedParent = eqVar.parent()
             garbageCollector.add(mappedParent)
             const mappedParentName = mappedParent?.name()
-            if (param.type === 'global_constant' && mappedParentName === PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME) {
+            if (param.type === 'global_constant' && isGeneratedComponent(mappedParent, PHLYNX_GENERATED_COMPONENTS.globalParameters)) {
               mappedParameters[`${param.nodeName}/${param.parameterName}`] = {
                 name: eqVar.name(),
                 componentName: mappedParentName,
               }
               break
-            } else if (param.type === 'constant' && mappedParentName === PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME) {
+            } else if (param.type === 'constant' && isGeneratedComponent(mappedParent, PHLYNX_GENERATED_COMPONENTS.instanceParameters)) {
               mappedParameters[`${param.nodeName}/${param.parameterName}`] = {
                 name: eqVar.name(),
                 componentName: mappedParentName,
@@ -2065,10 +2116,22 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
   }
 }
 
-function findComponentByAnyName(model, names) {
+/**
+ * Finds a parameter component an export generated: by its id, or, in a model exported before PhLynx gave them ids,
+ * by any of its names.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @param {Iterable<string>} names - The names it may have without an id.
+ * @returns {Object|null} The component, for the caller to free.
+ */
+function findParameterComponent(model, generated, names) {
+  const byId = findGeneratedComponent(model, generated)
+  if (byId) return byId
   for (const name of names) {
     const comp = model.componentByName(name, true)
-    if (comp) return comp
+    if (comp && !comp.id()) return comp
+    comp?.delete()
   }
   return null
 }
@@ -2122,7 +2185,7 @@ export function loadParametersFromCellML(modelString) {
     const parser = new _libcellml.Parser(false)
     const model = parser.parseModel(modelString)
 
-    const parameterComponent = findComponentByAnyName(model, INSTANCE_PARAMETER_COMPONENT_NAMES)
+    const parameterComponent = findParameterComponent(model, PHLYNX_GENERATED_COMPONENTS.instanceParameters, INSTANCE_PARAMETER_COMPONENT_NAMES)
     if (parameterComponent) {
       const byComponent = collectComponentParameters(parameterComponent)
       for (const [componentName, params] of Object.entries(byComponent)) {
@@ -2134,7 +2197,7 @@ export function loadParametersFromCellML(modelString) {
       parameterComponent.delete()
     }
 
-    const globalParameterComponent = findComponentByAnyName(model, GLOBAL_PARAMETER_COMPONENT_NAMES)
+    const globalParameterComponent = findParameterComponent(model, PHLYNX_GENERATED_COMPONENTS.globalParameters, GLOBAL_PARAMETER_COMPONENT_NAMES)
     if (globalParameterComponent) {
       for (let i = 0; i < globalParameterComponent.variableCount(); i++) {
         const variable = globalParameterComponent.variableByIndex(i)

@@ -57,6 +57,21 @@ export const PARAMETER_TYPE_OPTIONS = [
 
 export const PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME = 'global_parameters'
 export const PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME = 'instance_parameters'
+// The component an export adds to hold the variable of integration.
+export const PHLYNX_ENVIRONMENT_COMPONENT_NAME = 'phlynx_environment'
+// The components an export adds, by name and id. A name gets a suffix when a module already uses it, so the id is
+// what identifies the component.
+export const PHLYNX_GENERATED_COMPONENTS = Object.freeze({
+  environment: { name: PHLYNX_ENVIRONMENT_COMPONENT_NAME, id: 'phlynx_autogen_environment_0001' },
+  globalParameters: { name: PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME, id: 'phlynx_autogen_global_parameters_0001' },
+  instanceParameters: { name: PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME, id: 'phlynx_autogen_instance_parameters_0001' },
+  summations: { name: 'generated_summations', id: 'phlynx_autogen_summations_0001' },
+  multiplications: { name: 'generated_multiplications', id: 'phlynx_autogen_multiplications_0001' },
+  inspectionModules: { name: 'inspection_modules', id: 'phlynx_autogen_inspection_modules_0001' },
+  affineUnitConversions: { name: 'affine_unit_conversions', id: 'phlynx_autogen_affine_unit_conversions_0001' },
+})
+export const PHLYNX_ENVIRONMENT_COMPONENT_ID = PHLYNX_GENERATED_COMPONENTS.environment.id
+export const PHLYNX_GENERATED_COMPONENT_IDS = new Set(Object.values(PHLYNX_GENERATED_COMPONENTS).map(({ id }) => id))
 
 export const INSTANCE_PARAMETER_COMPONENT_NAMES = new Set(['model_parameters', PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME])
 export const GLOBAL_PARAMETER_COMPONENT_NAMES = new Set([PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME])
@@ -129,7 +144,6 @@ export const STANDARD_UNITS = [
     'weber',
 ]
 
-export const EXCLUDED_COMPONENTS = new Set(['environment'])
 export const TIME_UNITS = new Set(['second', 'millisecond', 'microsecond', 'minute', 'hour', 'ms', 's'])
 export const TIME_NAMES = new Set(['time', 't'])
 

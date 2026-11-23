@@ -129,7 +129,7 @@ ode(V, t) = flow_in - flow_out;
 ```
 
 - The second argument is the VoI, whatever its name (`t`, `time`, `tau`) or units. Simple Mode adds its row to the Parameters tab; in Advanced Mode, declare it yourself (`var t: second;`).
-- On export, every module's VoI is connected to one `environment` variable, which takes its name and units from the first ODE's VoI (e.g. `environment/time` in seconds). If a module's VoI is in units that can't convert to the environment's, such as metres against seconds, export stops with an error naming it.
+- On export, every module's VoI is connected to the one variable of a `phlynx_environment` component, which takes its name and units from the first ODE's VoI (e.g. `phlynx_environment/time` in seconds). A module may itself be called `environment`. If one is already called `phlynx_environment`, the component becomes `phlynx_environment_1`. The other components an export adds (`instance_parameters`, `global_parameters`, `generated_summations`, `generated_multiplications`, `inspection_modules` and `affine_unit_conversions`) get a suffix in the same way. Each has an id starting `phlynx_autogen_`, which is how PhLynx recognises it when it reads the file back. If a module's VoI is in units that can't convert to the environment's, such as metres against seconds, export stops with an error naming it.
 - A module without ODEs that needs the VoI, such as a stimulus, can declare `t` or `time` in time units, and PhLynx connects it as well.
 
 #### Set a starting value {#initial-values}
