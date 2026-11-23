@@ -234,6 +234,22 @@ describe('layoutPieces', () => {
     expect(laidOut([...cells, tube('junction')]).places.get(pieceKey('link')).channel).toBeUndefined()
   })
 
+  it('marks a gap junction between two cells apart as broken, its module drawn as the joint, not a card', () => {
+    const cells = getBuiltInPieceTemplate('two-cell-epithelium').pieces
+    const tube = (flux) => ({ id: 'link', kind: 'tube', label: 'Link', ends: ['a', 'b'], flux })
+    const nodes = [{ id: 'gj', data: { name: 'gj', bioView: { site: 'pieces/link' } } }]
+    const layout = laidOut([...cells, tube('junction')], { nodes })
+    const link = layout.places.get(pieceKey('link'))
+    expect(link).toMatchObject({ kind: 'link', broken: true })
+    expect(link.joint).toBeUndefined()
+    expect(link.points.length).toBeGreaterThan(1)
+    expect(layout.places.get('gj')).toMatchObject({ kind: 'card', joint: 'junction', broken: true })
+    // Any other tube between them is whole, its module a card.
+    const flow = laidOut([...cells, tube('flow')], { nodes })
+    expect(flow.places.get(pieceKey('link')).broken).toBeUndefined()
+    expect(flow.places.get('gj').joint).toBeUndefined()
+  })
+
   it('puts a compartment docked to a fold round the fold, and the fold in the colour of its lumen', () => {
     const layout = laidOut(getBuiltInPieceTemplate('cardiomyocyte').pieces)
     const cell = layout.places.get(pieceKey('sarcolemma'))

@@ -1,7 +1,11 @@
 <template>
   <!-- A tube: a line from one of its compartments to the other, and room along it for its module -->
   <div
-    :class="['bio-link', `bio-link--${data.flow}`, { 'bio-link--empty': data.empty, 'bio-link--selected': selected }]"
+    :class="[
+      'bio-link',
+      `bio-link--${data.flow}`,
+      { 'bio-link--empty': data.empty, 'bio-link--selected': selected, 'bio-link--broken': data.broken },
+    ]"
     data-testid="bio-link"
   >
     <!-- One that joins its pieces is the joint between them; with a module in it, the module draws it (BioJoint) -->
@@ -65,6 +69,7 @@
     </svg>
     <!-- Its module's room, a drop target while empty; the module on it is drawn over it as a card -->
     <div v-if="data.empty && !data.joint" class="bio-link__zone" :style="zoneStyle">
+      <BioBrokenBadge v-if="data.broken" :name="data.name" />
       <span class="bio-link__label">{{ data.name }}</span>
       <small class="bio-link__hint" data-testid="bio-empty-hint">Drop a module</small>
     </div>
@@ -74,6 +79,7 @@
 <script setup>
 import { computed, useId } from 'vue'
 import BioBilayerStrips from './BioBilayerStrips.vue'
+import BioBrokenBadge from './BioBrokenBadge.vue'
 import BioJointGlyph from './BioJointGlyph.vue'
 import { MEMBRANE_BAND_HALF } from '../../services/bioView/geometry'
 
@@ -177,6 +183,12 @@ function offsetPoints(by) {
 
 .bio-link--diffusion .bio-link__stroke {
   stroke-dasharray: 8 6;
+}
+
+/* A gap junction between cells apart: its paired membranes drawn broken, in the warning's colour */
+.bio-link--broken .bio-link__stroke {
+  stroke: var(--p-orange-500);
+  stroke-dasharray: 10 6;
 }
 
 .bio-link__head {

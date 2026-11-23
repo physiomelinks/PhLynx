@@ -246,6 +246,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             name: place.label,
             empty: place.empty,
             flow: place.flow,
+            broken: !!place.broken,
             instance: place.instance,
             site: place.site,
             ...(place.joint
@@ -425,6 +426,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
               joint: place.joint,
               tone: layout.get(place.link).tone,
               vertical: !!layout.get(place.link).channel?.vertical,
+              broken: !!place.broken,
               width: zone.width,
               height: zone.height,
               droppable: true,

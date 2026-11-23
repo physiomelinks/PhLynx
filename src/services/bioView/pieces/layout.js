@@ -1373,6 +1373,8 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     }
     let zone
     let joint = null
+    // A gap junction needs its two membranes to meet: apart, it is drawn broken, its connexons with nothing to dock to.
+    let broken = false
     // A bridge between two cells apart is an open channel across the gap between their membranes.
     const cells = [...new Set(tube.ends.map((id) => topology.enclosureOf(id)))]
     const channel =
@@ -1410,7 +1412,8 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       // Bent by the user, its room is at its bend; else midway along its way, clear of its ends.
       zone = tube.bends?.length === 1 ? zoneAt(tube.bends[0]) : clearOfEnds(zoneAt(pathMiddle(points)), points, [a, b])
       const rect = boxOf([zone, ...points.map((point) => ({ ...point, width: 0, height: 0 }))])
-      places.set(key, { ...base, rect, points, zone })
+      broken = tube.flux === 'junction'
+      places.set(key, { ...base, rect, points, zone, ...(broken && { broken: true }) })
       // Grips: one at each end, to join it to another compartment, and one above its room, to bend it.
       const grip = (what, at, extra = {}) =>
         places.set(`grip:${what}:${tube.id}`, { kind: 'grip', grip: what, piece: tube.id, ...own, ...at, ...extra })
@@ -1418,11 +1421,12 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       grip('end', points.at(-1), { end: 1 })
       grip('bend', { x: zone.x + zone.width / 2, y: zone.y - GRIP_RISE }, { below: zone.height / 2 + GRIP_RISE })
     }
-    // The module on it is drawn as a card in the room it leaves, or as its joint.
+    // The module on it is drawn as a card in the room it leaves, or as its joint (broken, a junction apart).
     if (node) {
       places.set(node, {
         kind: 'card',
         ...(joint && { joint }),
+        ...(broken && { joint: tube.flux, broken: true }),
         x: zone.x + (zone.width - CARD.width) / 2,
         y: zone.y + (zone.height - CARD.height) / 2,
         ...own,

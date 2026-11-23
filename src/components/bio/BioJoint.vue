@@ -1,13 +1,18 @@
 <template>
   <!-- A module in a link's joint, drawn as the joint itself, named below it -->
-  <div :class="['bio-joint', { 'bio-joint--selected': selected }]" data-testid="bio-joint">
+  <div
+    :class="['bio-joint', { 'bio-joint--selected': selected, 'bio-joint--broken': data.broken }]"
+    data-testid="bio-joint"
+  >
     <BioHandles :handles="data.handles ?? []" />
+    <BioBrokenBadge v-if="data.broken" :name="data.name" />
     <BioJointGlyph :kind="data.joint" :width="data.width" :height="data.height" :tone="data.tone" :vertical="!!data.vertical" :selected="selected" />
     <span class="bio-joint__name"><BioPieceName :id="id" :name="data.name" /></span>
   </div>
 </template>
 
 <script setup>
+import BioBrokenBadge from './BioBrokenBadge.vue'
 import BioHandles from './BioHandles.vue'
 import BioJointGlyph from './BioJointGlyph.vue'
 import BioPieceName from './BioPieceName.vue'
@@ -39,6 +44,10 @@ defineProps({
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--p-text-color);
+}
+
+.bio-joint--broken .bio-joint__name {
+  color: var(--p-orange-500);
 }
 
 .bio-joint--selected .bio-joint__name {
