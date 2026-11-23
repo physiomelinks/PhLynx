@@ -708,8 +708,8 @@ class TestAnnotationCoupling(unittest.TestCase):
         # A porter dropped in the cell's process zone is a process, coupled to the cell's pool.
         before = set(page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)"))
         zone = page.locator(f'{BIO_NODE}[data-id="pc:metabolism"]').bounding_box()
-        # On its first slot, in its row at the top-left: the rest of the zone takes a drop as the cell.
-        self.drop_module("porter", (zone["x"] + 60, zone["y"] + 45))
+        # On its hint: an empty zone takes a drop anywhere in it.
+        self.drop_module("porter", (zone["x"] + zone["width"] / 2, zone["y"] + zone["height"] / 2))
         expect(page.locator(PLACED)).to_have_count(len(before) + 1)
         added = set(page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)")) - before
         card = page.locator(f'{BIO_NODE}[data-id="{added.pop()}"]')

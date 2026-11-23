@@ -79,8 +79,8 @@ function closeUp(layout, ref, id, write) {
 }
 
 /**
- * Gives the box a process area's cards and its spare slot take, a little grown: the rest of its zone is the
- * cell's.
+ * Gives the box a process area's cards and its spare slot take, a little grown: once it has cards, the rest of its
+ * zone is the cell's.
  *
  * @param {Array<{x: number, y: number}>} slots - The cards' top-lefts.
  * @param {{width: number, height: number}} size - How big each is drawn (see processSize).
@@ -140,7 +140,12 @@ export function dropSites(sites, dragged = null) {
           occupant: occupants[order] ?? null,
         })
       )
-      if (site.process) targets.push({ ...base, type: 'area', area: 'process', rect: cardsRect(site.slots, size) })
+      // A drop on a process zone's row of cards goes last in it; an empty zone takes a drop anywhere in it, as its hint
+      // asks, while one with cards leaves the rest of itself to the cell.
+      if (site.process) {
+        const rect = !occupants.length && site.rect ? site.rect : cardsRect(site.slots, size)
+        targets.push({ ...base, type: 'area', area: 'process', rect })
+      }
       continue
     }
     if (role === 'membrane') {

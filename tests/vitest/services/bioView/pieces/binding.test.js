@@ -195,3 +195,27 @@ describe('layoutPhysiology beside the pieces', () => {
     expect(places.get('loose')).toMatchObject({ kind: 'card' })
   })
 })
+
+describe('a drop on a process zone', () => {
+  const epithelial = getBuiltInPieceTemplate('epithelial-cell').pieces
+  const middleOf = (places) => {
+    const { rect } = places.get(pieceKey('metabolism'))
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+  }
+
+  it('goes in the zone anywhere in it while it is empty', () => {
+    const { places, sites } = layoutPieces(epithelial)
+    expect(nearestSite(dropSites(sites), middleOf(places))).toMatchObject({
+      ref: 'pieces/metabolism',
+      area: 'process',
+    })
+  })
+
+  it('goes to the cell away from its row of cards once it has one', () => {
+    const nodes = [node('gly', 'pieces/metabolism')]
+    const { places, sites } = layoutPieces(epithelial, { nodes })
+    const { rect } = places.get(pieceKey('metabolism'))
+    const point = { x: rect.x + rect.width - 20, y: rect.y + rect.height - 10 }
+    expect(nearestSite(dropSites(sites), point)).toMatchObject({ ref: 'pieces/cell', area: 'cell' })
+  })
+})
