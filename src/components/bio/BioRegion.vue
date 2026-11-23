@@ -11,9 +11,11 @@
         'bio-region--inner': data.form === 'inner' && !data.clip,
         'bio-region--drawn': !!data.clip,
         'bio-region--tube': data.shape === 'tube',
+        'bio-region--tinting': !!tintOf,
       },
     ]"
-    :style="cutoutStyle"
+    :style="[cutoutStyle, tintStyle]"
+    :data-tint="tintStyle ? data.tint : undefined"
     data-testid="bio-region"
     :data-site="data.site ?? undefined"
   >
@@ -43,6 +45,7 @@ import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
 import { partOf } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, facetById } from '../../services/bioView/shape'
+import { tintColour } from '../../services/bioView/speciesLayout'
 
 const props = defineProps({
   /** Its node id, for renaming it. */
@@ -79,6 +82,15 @@ const cutoutStyle = computed(() => {
   const r = Math.min(radius, width / 2, height / 2)
   const cut = `M ${x + r} ${y} H ${x + width - r} A ${r} ${r} 0 0 1 ${x + width} ${y + r} V ${y + height - r} A ${r} ${r} 0 0 1 ${x + width - r} ${y + height} H ${x + r} A ${r} ${r} 0 0 1 ${x} ${y + height - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`
   return { clipPath: `path(evenodd, "M -4 -4 H 100000 V 100000 H -4 Z ${cut}")` }
+})
+
+/** The focused species' colour, which its concentration tints a compartment holding it with; null with none. */
+const tintOf = inject('bioTintColour', computed(() => null))
+/** Over its own colour, under its name and anything in it. */
+const tintStyle = computed(() => {
+  if (props.data.tint === undefined || !tintOf.value) return undefined
+  const colour = tintColour(tintOf.value, props.data.tint)
+  return { backgroundImage: `linear-gradient(${colour}, ${colour})` }
 })
 
 const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)
@@ -174,6 +186,11 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   z-index: -1;
   border-radius: inherit;
   background: var(--p-content-background);
+}
+
+/* While a species tints the compartments holding it, none keeps its own colour, so a tint means the same everywhere */
+.bio-region.bio-region--tinting {
+  background-color: var(--p-content-background);
 }
 
 /* A tube, a stretch of vessel or duct: walls along its length, open at its ends */

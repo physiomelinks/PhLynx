@@ -2,7 +2,12 @@
   <div
     :class="[
       'bio-cell',
-      { 'bio-cell--selected': selected, 'bio-cell--empty': isEmpty, 'bio-cell--own-membrane': !data.membrane },
+      {
+        'bio-cell--selected': selected,
+        'bio-cell--empty': isEmpty,
+        'bio-cell--own-membrane': !data.membrane,
+        'bio-cell--tinting': !!tintOf,
+      },
     ]"
     data-testid="bio-cell"
     :data-site="data.site ?? undefined"
@@ -27,6 +32,14 @@
           data-testid="bio-skin"
         />
       </template>
+      <!-- The focused species' concentration in it, as a tint of its colour -->
+      <path
+        v-if="tint"
+        class="bio-cell__tint"
+        :d="leaflet(-HEAD_OFFSET)"
+        :style="{ fill: tint }"
+        data-testid="bio-concentration-tint"
+      />
       <!-- A fold's lumen is the space outside: in the colour of the compartment against that side -->
       <path
         v-for="fold in folds"
@@ -100,6 +113,7 @@ import BioBilayer from './BioBilayer.vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
 import { HEAD_OFFSET, foldPoint, leafletPath } from '../../services/bioView/geometry'
+import { tintColour } from '../../services/bioView/speciesLayout'
 
 const props = defineProps({
   /** Its node id, for renaming it. */
@@ -117,6 +131,13 @@ const props = defineProps({
  */
 const isEmpty = computed(() => !!props.data.empty && props.data.site !== null)
 const hasBilayer = computed(() => !isEmpty.value || !!props.data.membrane)
+
+/** The focused species' colour, which its concentration tints a compartment holding it with; null with none. */
+const tintOf = inject('bioTintColour', computed(() => null))
+/** Its tint's colour, as strong as the concentration; null when it isn't tinted. */
+const tint = computed(() =>
+  props.data.tint === undefined || !tintOf.value || isEmpty.value ? null : tintColour(tintOf.value, props.data.tint)
+)
 
 /** How far inside the bilayer's inner head groups a selected cell's ring is drawn. */
 const SELECTION_INSET = 6
@@ -256,6 +277,16 @@ function foldNameStyle({ edge, at, depth }) {
   stroke: color-mix(in srgb, var(--p-amber-200) 80%, var(--p-content-background));
   stroke-width: 7;
   stroke-linejoin: round;
+}
+
+.bio-cell__tint {
+  pointer-events: none;
+}
+
+/* While a species tints the compartments holding it, none keeps its own colour, so a tint means the same everywhere */
+.bio-cell--tinting .bio-cell__cytosol,
+.bio-cell--tinting .bio-cell__lumen {
+  fill: var(--p-content-background);
 }
 
 .bio-cell__cytosol {

@@ -49,6 +49,8 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
    * flowScales. `group` is 'species', 'path' or 'all'.
    */
   const flowScale = ref({ group: 'species', spikes: false })
+  /** How a focused species' concentration tints its compartments: see concentrationTints. */
+  const concentrationScale = ref('linear')
   /** Whether a view is following the cursor and offering its playback, as species mode does. */
   const isFollowed = ref(false)
 
@@ -179,6 +181,7 @@ export const useVoiCursorStore = defineStore('voiCursor', () => {
     isLooping,
     playSeconds,
     flowScale,
+    concentrationScale,
     isFollowed,
     marker,
     range,
