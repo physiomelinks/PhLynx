@@ -10,6 +10,7 @@ import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useNodeThemeStore } from '../../../src/stores/nodeThemeStore.js'
 import { useOmexStore } from '../../../src/stores/omexStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
+import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore.js'
 
 /**
  * Loads a workspace file into fresh stores and saves it again, as the app does on load then save.
@@ -27,6 +28,7 @@ export function loadAndSave(doc) {
   const bioPieces = useBioPiecesStore()
   const bioGlyphs = useGlyphLibraryStore()
   const nodeTheme = useNodeThemeStore()
+  const appearance = useWorkspaceAppearanceStore()
 
   const migrated = migrateWorkspace(doc)
   library.loadState(migrated.store)
@@ -37,8 +39,9 @@ export function loadAndSave(doc) {
   bioPieces.loadState(migrated.bioPieces)
   bioGlyphs.loadState(migrated.bioGlyphs)
   nodeTheme.loadState(migrated.nodeTheme)
+  appearance.loadState(migrated.appearance)
 
-  const sources = { library, simulation, inspectionModules, omex, parameters, bioPieces, bioGlyphs, nodeTheme }
+  const sources = { library, simulation, inspectionModules, omex, parameters, bioTemplates, bioGlyphs, nodeTheme, appearance }
   const file = buildWorkspaceFile({ flow: migrated.flow, ...sources })
   return JSON.parse(JSON.stringify(file))
 }

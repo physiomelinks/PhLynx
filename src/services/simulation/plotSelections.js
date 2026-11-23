@@ -530,3 +530,34 @@ export function renamePlotVariables(plotConfig, nodeId, renamed) {
   const groups = resolveGroups(plotConfig).map((group) => (group.xAxis ? { ...group, xAxis: rename(group.xAxis) } : group))
   return withSelections(plotConfig, groups, selections)
 }
+
+/**
+ * Adds another config's plotted variables to a config as a plot of their own, as the instance editor sends its plot
+ * to the workspace's plots. A variable is on one plot at most, so those the config already plots stay where they are.
+ * An empty last plot is filled rather than another added.
+ *
+ * @param {Object} plotConfig - The config to add to.
+ * @param {Object} sourceConfig - The plot to add, its first plot's x-axis carried over.
+ * @param {string} name - The new plot's name.
+ * @returns {{plotConfig: Object, addedCount: number, skippedCount: number}} The config as it was when nothing is added.
+ */
+export function appendPlot(plotConfig, sourceConfig, name) {
+  const plotted = new Set((plotConfig?.selections || []).map(({ key }) => key))
+  const incoming = (sourceConfig?.selections || []).filter(({ plot }) => plot !== false)
+  const added = incoming.filter(({ key }) => !plotted.has(key))
+  const skippedCount = incoming.length - added.length
+  if (!added.length) return { plotConfig, addedCount: 0, skippedCount }
+
+  const groups = resolveGroups(plotConfig)
+  const last = groups.at(-1)
+  const isLastEmpty = !(plotConfig?.selections || []).some(({ groupId }) => groupId === last.id)
+  let next = plotConfig
+  let id = last.id
+  if (isLastEmpty && !last.xAxis) next = renamePlot(plotConfig, id, name)
+  else ({ plotConfig: next, id } = addPlot(plotConfig, name))
+
+  const xAxis = resolveGroups(sourceConfig)[0]?.xAxis ?? null
+  if (xAxis) next = setPlotXAxis(next, id, xAxis)
+  next = withSelections(next, resolveGroups(next), [...(next?.selections || []), ...added.map((selection) => ({ ...selection, groupId: id }))])
+  return { plotConfig: next, addedCount: added.length, skippedCount }
+}

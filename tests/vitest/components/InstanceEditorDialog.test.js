@@ -127,7 +127,7 @@ const ensureResults = vi.fn()
 /** Stands in for SimulationPanel: the test reads the props the dialog gives it. */
 const SimulationPanelStub = defineComponent({
   name: 'SimulationPanel',
-  props: ['instanceId', 'plotConfig', 'isUnitFiltered'],
+  props: ['instanceId', 'plotConfig'],
   emits: ['update:plotConfig'],
   setup(_, { expose, slots }) {
     expose({ ensureResults })
@@ -1140,13 +1140,8 @@ describe('InstanceEditorDialog Plot tab', () => {
       expect(plotTabLabel()).toBe('Plot (2)')
     })
 
-    it('plots nothing clicked with Auto-update off, or with another tab shown', async () => {
+    it('plots nothing clicked with another tab shown', async () => {
       await openPlotTab()
-      wrapper.find('.plot-tab-auto-label').findComponent({ name: 'ToggleSwitch' }).vm.$emit('update:modelValue', false)
-      await clickVariable('x')
-      expect(plottedKeys()).toEqual([])
-
-      wrapper.find('.plot-tab-auto-label').findComponent({ name: 'ToggleSwitch' }).vm.$emit('update:modelValue', true)
       wrapper.vm.showTab('parameters')
       await clickVariable('x')
       wrapper.vm.showTab('plot')
@@ -1155,20 +1150,25 @@ describe('InstanceEditorDialog Plot tab', () => {
       expect(ensureResults).not.toHaveBeenCalled()
     })
 
-    it('puts Auto-update in the run’s toolbar, and filters the plot’s picker by units while it is off', async () => {
-      mountDialog({ defaultTab: 'plot' }, { isPanelReal: true })
-      const editor = await open()
-      await report(editor, 'init', XML)
-      await flushPromises()
-      const panel = wrapper.findComponent({ name: 'SimulationPanel' })
-      // Its own span, so a narrow toolbar can hide it and leave the switch.
-      expect(panel.find('[role="toolbar"] .plot-tab-auto-label .plot-tab-auto-text').text()).toBe('Auto-update')
-      expect(panel.props('isUnitFiltered')).toBe(false)
+    it('adds its plot to the workspace’s plots, once, from the run’s toolbar', async () => {
+      const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
+      const settingsStore = useSimulationSettingsStore()
+      settingsStore.setPlotConfig({ groups: [], selections: [] })
+      await openPlotTab()
+      const send = () => wrapper.find('[data-testid="editor-send-plot"]')
+      // Nothing plotted, nothing to send.
+      expect(send().attributes('disabled')).toBeDefined()
 
-      wrapper.find('.plot-tab-auto-label').findComponent({ name: 'ToggleSwitch' }).vm.$emit('update:modelValue', false)
+      await clickVariable('x')
+      await send().trigger('click')
       await flushPromises()
-      expect(panel.props('isUnitFiltered')).toBe(true)
-      expect(panel.findComponent({ name: 'SimulationControls' }).props('isUnitFiltered')).toBe(true)
+      expect(settingsStore.plotConfig.selections.map(({ key }) => key)).toContain('a::x')
+      expect(wrapper.find('.plot-tab-notice').text()).toBe('Added to the workspace’s plots')
+
+      await send().trigger('click')
+      await flushPromises()
+      expect(settingsStore.plotConfig.selections.filter(({ key }) => key === 'a::x')).toHaveLength(1)
+      expect(wrapper.find('.plot-tab-notice').text()).toBe('Already in the workspace’s plots')
     })
 
     it('asks for a save to plot a variable the saved instance doesn’t have', async () => {
@@ -1176,17 +1176,17 @@ describe('InstanceEditorDialog Plot tab', () => {
       await openPlotTab()
       await clickVariable('x')
       expect(plottedKeys()).toEqual([])
-      expect(wrapper.find('.plot-tab-auto-notice').text()).toBe('Save to plot x')
+      expect(wrapper.find('.plot-tab-notice').text()).toBe('Save to plot x')
       expect(ensureResults).not.toHaveBeenCalled()
     })
 
     it('asks for a save to plot an unsaved diagram element’s variable', async () => {
       await openPlotTab()
       await clickVariable('nowhere')
-      expect(wrapper.find('.plot-tab-auto-notice').exists()).toBe(false)
+      expect(wrapper.find('.plot-tab-notice').exists()).toBe(false)
       wrapper.findComponent(FakeEditor).vm.$emit('variable-click', 'q_X', { isUnsaved: true })
       await flushPromises()
-      expect(wrapper.find('.plot-tab-auto-notice').text()).toBe('Save to plot q_X')
+      expect(wrapper.find('.plot-tab-notice').text()).toBe('Save to plot q_X')
       expect(plottedKeys()).toEqual([])
     })
 
@@ -1198,7 +1198,7 @@ describe('InstanceEditorDialog Plot tab', () => {
       await openPlotTab()
       await clickVariable('k')
       expect(plottedKeys()).toEqual(['a::k'])
-      expect(wrapper.find('.plot-tab-auto-notice').exists()).toBe(false)
+      expect(wrapper.find('.plot-tab-notice').exists()).toBe(false)
       expect(ensureResults).toHaveBeenCalledTimes(1)
 
       await clickVariable('p')
@@ -1315,8 +1315,7 @@ describe('InstanceEditorDialog Plot tab', () => {
       window.localStorage.setItem('instanceEditorDialog.editorKind', 'math')
       try {
         await openPlotTab()
-        expect(wrapper.find('.plot-tab-auto-label').findComponent({ name: 'ToggleSwitch' }).props('disabled')).toBe(false)
-        expect(wrapper.find('.plot-tab-auto-notice').exists()).toBe(false)
+        expect(wrapper.find('.plot-tab-notice').exists()).toBe(false)
 
         await clickVariable('x')
         expect(plottedKeys()).toEqual(['a::x'])

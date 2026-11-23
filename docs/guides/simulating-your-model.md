@@ -5,8 +5,8 @@ PhLynx runs and plots your model in-app. Three places share the same controls, a
 | Place | Open with | Adds |
 | :--- | :--- | :--- |
 | **Simulation** tab, [Context Sidebar](../reference/ui-overview.md#context-sidebar) | **Simulation** (chart-line icon) in the Context Sidebar | **Selection** scope, floating viewer, page link |
-| **Plot** tab, [Instance Editor](../reference/ui-overview.md#instance-editor) | Editing an instance | **This instance** scope, **Auto-update** |
-| `/simulation` page | **Open the simulation page** (external-link icon) in the sidebar | Run settings, run-mode switch, downloads |
+| **Plot** tab, [Instance Editor](../reference/ui-overview.md#instance-editor) | Editing an instance | **This instance** scope, click a variable to plot it, send the plot to the workspace |
+| `/simulation` page | **Simulation** in the top navigation | Run settings, action bar with **Export** |
 
 The walkthroughs below use the Simulation tab and the three-instance SN model from the [Quick Start](../getting-started/quick-start-guide.md), with the default run of 0–10 s. Every control is listed in the [Simulation UI Reference](../reference/simulation-ui-overview.md).
 
@@ -16,7 +16,7 @@ The walkthroughs below use the Simulation tab and the three-instance SN model fr
 
 1. Open the Context Sidebar with **Show context panel** (hamburger icon, top right), then its **Simulation** tab (chart-line icon).
 2. Leave the scope switch beside Play on **Whole model**. To run only some instances, see [Simulating Part of the Model](#simulating-part-of-the-model).
-3. Click **Simulate the whole model** (play icon), or press F9 while the panel has focus. A progress bar shows while it runs, and the [status line](#status-line) under the toolbar then says what ran, e.g. *Simulated the whole model.*
+3. Click **Simulate the whole model** (runner icon), or press F9 while the panel has focus. A progress bar shows while it runs, and the [status line](#status-line) under the toolbar then says what ran, e.g. *Simulated the whole model.*
 4. In the **Plots** view under the charts, type part of a name in **Add a variable…**, e.g. `soma V`, and pick **soma_SN/V**. Words match anywhere in the `instance/variable` path. See [Choosing What to Plot](#choosing-what-to-plot) for more.
 
 A dot on Play means the results are out of date, for example after you edit the model or change the selection. Press Play again to update them.
@@ -46,7 +46,7 @@ A model with no differential equations is solved once, as a **steady state**, ra
 To check one instance or a few on their own:
 
 - **From the canvas:** right-click an instance and choose **Simulate Instance**. If it is part of a selection, the item reads **Simulate Selection (N)** and runs every selected instance. The Simulation tab opens and runs at once.
-- **From the Simulation tab:** select instances on the canvas (Ctrl/Cmd+click adds one, Shift+drag draws a box), then turn the scope switch beside Play off. It reads **Selection (N)** and runs at once. Selecting other instances later marks the results out of date; press Play to run the new selection.
+- **From the Simulation tab:** select instances on the canvas (Ctrl/Cmd+click adds one, Shift+drag draws a box), then turn the scope switch beside Run off. Its tooltip reads **Selection (N)**, and it runs at once. Selecting other instances later marks the results out of date; press Play to run the new selection.
 - **From the Instance Editor:** in the **Plot** tab, set the scope switch to **This instance**.
 
 > [!NOTE]
@@ -74,7 +74,7 @@ The full list of plot controls is in the [Simulation UI Reference](../reference/
 
 ## Plotting from the Math {#plotting-from-the-math}
 
-In the Instance Editor's **Plot** tab, with **Auto-update** on (the default), click a variable in the CellML Text or Math Editor to plot it alone. Runs use the saved instance, so click **Save to include your edits** first. To plot several variables, turn Auto-update off and add them from the search. This chart isn't saved to the workspace.
+In the Instance Editor's **Plot** tab, click a variable in the CellML Text or Math Editor to plot it alone. Runs use the saved instance, so click **Save to include your edits** first. To plot several variables, add them from the search. This chart isn't saved with the workspace until you click **Add this plot to the workspace's plots** (send icon) in the toolbar. That adds it as a new plot, which you can undo. Variables the workspace already plots stay on their own plots.
 
 ## Trying Values with Sliders {#using-sliders}
 
@@ -123,7 +123,7 @@ With the default settings, soma_SN fires. This sweep finds the M-current conduct
 3. Click **Sweep a parameter** (plus icon), type `g_M` and pick **soma_SN/g_M**. The search only offers what a sweep can vary: constants, global constants, and boundary conditions that nothing supplies in the scope Play runs next. So a connected boundary condition can be swept when you simulate its instance on its own; in a whole-model run, the status line says it *is supplied through a connection in this run*. *Not in the last run* marks a parameter outside the current scope. The info icon beside the parameter explains what a sweep does and what an export makes of it.
 4. The range starts at half the parameter's value either side, with 51 points. Set **From** to `0.002`, **To** to `0.006` and **Points** to `21`. The points are spaced evenly, ends included.
 5. Under **Reading** (shown for models with ODEs), click **Max**. The line below now reads *21 time courses*, with an estimate of how long they will take.
-6. Click **Run the sweep** (chart-line icon), which has appeared in the toolbar. It turns into a highlighted **Sweep** button, and the sweep runs at once.
+6. Click **Sweep** (three-curves icon) in the run modes beside Run. It was greyed out until the sweep was set. It is highlighted now, and the sweep runs at once.
 
 ![The Sweep view after a sweep of g_M](../assets/images/sweep-view.png){.align-center width="550px"}
 
@@ -159,6 +159,14 @@ If **Simulation starts at** is earlier than **Plots start at**, to let the model
 
 To go back to one curve, click the curves' **⋯** ▸ **Draw one curve**.
 
+### Sweeping from a Slider {#sweep-from-slider}
+
+A slider's **Sweep** button (three-curves icon) is a quicker way in, and needs no search:
+
+1. In **Sliders**, click **Sweep** on a slider, e.g. g_Na. Its parameter is swept across the slider's range, and Run switches to **Sweep**. Press Run.
+2. For a curve per value of a second parameter, click **Sweep** on its slider, e.g. Cm, and pick **A curve for each value of Cm**. The curves use the ends and middle of that slider's range. The button shows how many there are, e.g. **×3**.
+3. Click a highlighted **Sweep** button to **Edit in the Sweep tab**, **Stop sweeping** or **Draw one curve**.
+
 ### Limits and Run Time {#sweep-limits}
 
 - A sweep can have 2 to 1000 points, a second parameter up to 8 values, and 2000 runs in total. Problems are shown in the Sweep view, and in the Sweep button's tooltip.
@@ -167,14 +175,14 @@ To go back to one curve, click the curves' **⋯** ▸ **Draw one curve**.
 
 ### Turning a Sweep Off {#sweep-off}
 
-- Click **Sweep** in the toolbar again (tooltip *Sweeping soma_SN/g_M: switch back to one run*). Play then runs a single time course, and the sweep is kept for later.
+- Click **Time course** (chart-line icon) in the run modes. Run then runs a single time course, and the sweep is kept for later.
 - Click the sweep's **⋯** ▸ **Stop sweeping** to delete it.
 
-The sweep is saved with the workspace, but the **Sweep** button starts off when you reopen it. You can also edit the sweep in **Simulation Settings ▸ Sliders & sweep**, or switch Play between **Time course** and **Sweep** on the [simulation page](../reference/simulation-ui-overview.md#simulation-page).
+The sweep is saved with the workspace, but Run starts on **Time course** when you reopen it. You can also edit the sweep in **Simulation Settings ▸ Sliders & sweep**.
 
 ### Exporting Sweep Results {#sweep-export}
 
-On the simulation page, **CSV** downloads the plotted series against the swept parameter, and **PNG** downloads the charts. **SED-ML** is off while **Sweep** is on; switch back to the time course to export the run. Web OpenCOR can't run sweeps, so an **OpenCOR** export simulates the model once, at the parameter's own value.
+On the simulation page, **Export** ▸ **CSV** downloads the plotted series against the swept parameter, and **PNG** downloads the charts. **SED-ML** is off while **Sweep** is on; switch back to the time course to export the run. Web OpenCOR can't run sweeps, so an **OpenCOR** export simulates the model once, at the parameter's own value.
 
 ## Protocols {#protocols}
 

@@ -12,10 +12,8 @@
         :is-outdated="isOutdated"
         :is-in-sidebar="!instanceId"
         :has-float="!instanceId"
-        :has-page-link="!instanceId"
         @play="play"
         @stop="stop"
-        @open-page="openSimulationPage"
       >
         <slot name="toolbar" />
       </SimulationToolbar>
@@ -121,7 +119,6 @@
           :keep-current="keepCurrent"
           :plot-config="plotConfig"
           :plot-node-id="plotConfig ? instanceId : null"
-          :is-unit-filtered="isUnitFiltered"
           @change="rerunForSliders"
           @update:plot-config="(next) => emit('update:plotConfig', next)"
         />
@@ -136,8 +133,7 @@
  * the simulated instances. The instance editor's Plot tab gives it a single plot of its own, of its instance's
  * variables, in place of the workspace's plots, and its `toolbar` slot adds controls to the run's row.
  */
-import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, ref, toRef } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, toRef } from 'vue'
 
 import ProgressBar from 'primevue/progressbar'
 import Splitter from 'primevue/splitter'
@@ -163,12 +159,9 @@ const props = defineProps({
   instanceId: { type: String, default: null },
   // A single plot of the view's own, never saved, shown in place of the workspace's plots.
   plotConfig: { type: Object, default: null },
-  // Adding to the view's own plot offers only variables in the units it already shows.
-  isUnitFiltered: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:plotConfig'])
 
-const router = useRouter()
 const voiCursor = useVoiCursorStore()
 const {
   nodes,
@@ -190,22 +183,6 @@ const {
   stop,
   keepCurrent,
 } = useSimulationRunner({ instanceId: toRef(props, 'instanceId') })
-
-// What had the focus when the simulation page opened, to give it back on return, as the page takes it.
-let focusBeforePage = null
-
-/** Shows the results on the simulation page. */
-function openSimulationPage() {
-  focusBeforePage = document.activeElement
-  router.push({ name: 'simulation' })
-}
-
-onActivated(async () => {
-  const element = focusBeforePage
-  focusBeforePage = null
-  await nextTick()
-  if (element?.isConnected) element.focus()
-})
 
 // Plots above the controls at any width; a wider tab gives taller plots.
 const SIZES_KEY = 'phlynx.simulation.splitSizes'

@@ -454,22 +454,24 @@
                 ref="simulationPanelRef"
                 v-model:plot-config="editorPlotConfig"
                 :instance-id="id"
-                :is-unit-filtered="!isAutoUpdate"
                 class="plot-tab-workbench"
               >
                 <template #toolbar>
-                  <label
-                    class="plot-tab-auto-label"
-                    v-hint.bottom="'Click a variable in the math to plot it alone. Off, adding offers only the plot\'s units.'"
-                  >
-                    <ToggleSwitch
-                      v-model="isAutoUpdate"
-                      class="plot-tab-auto-switch"
-                      aria-label="Auto-update: plot a variable clicked in the math"
+                  <span v-if="plotNotice" class="plot-tab-notice" role="status" :title="plotNotice">{{ plotNotice }}</span>
+                  <!-- A span carries the tooltip, as a disabled button shows none. -->
+                  <span class="plot-tab-send" v-tooltip.bottom="sendPlotHint">
+                    <Button
+                      icon="pi pi-send"
+                      text
+                      rounded
+                      size="small"
+                      severity="secondary"
+                      :disabled="!plottedCount"
+                      aria-label="Add this plot to the workspace's plots"
+                      data-testid="editor-send-plot"
+                      @click="sendPlotToWorkspace"
                     />
-                    <span class="plot-tab-auto-text">Auto-update</span>
-                  </label>
-                  <span v-if="plotNotice" class="plot-tab-auto-notice" role="status" :title="plotNotice">{{ plotNotice }}</span>
+                  </span>
                 </template>
               </SimulationPanel>
             </TabPanel>
@@ -617,7 +619,6 @@ import TabList from 'primevue/tablist'
 import TabPanel from 'primevue/tabpanel'
 import TabPanels from 'primevue/tabpanels'
 import Tabs from 'primevue/tabs'
-import ToggleSwitch from 'primevue/toggleswitch'
 
 import CellMLTextEditor from './CellMLTextEditor.vue'
 import MathWorkbenchEditor from './MathWorkbenchEditor.vue'
@@ -649,6 +650,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useMathSession } from '../composables/useMathSession'
 import { useAppSettings } from '../composables/useAppSettings'
 import { useInstanceSave } from '../composables/useInstanceSave'
+import { useNodeDataHistory } from '../composables/useNodeDataHistory'
 import { useCouplingContext } from '../composables/useCouplingContext'
 import { useCelldlEditorHost } from '../composables/useCelldlEditorHost'
 import { useEditorCloseGuard } from '../composables/useEditorCloseGuard'
@@ -679,6 +681,7 @@ import { spreadConfig } from '../services/configSpread'
 import { isSoleOwnConfig, newConfigRef } from '../services/configOwnership'
 import { isModuleConfig } from '../services/moduleConfig'
 import {
+  appendPlot,
   createSinglePlotConfig,
   getNodePlotEntries,
   renamePlotVariables,
@@ -689,6 +692,7 @@ import {
 import { isEmpty, isNumericLiteral, syncInitialiserUnits } from '../utils/variables'
 import { getUnknownUnitsNotice, isValueMissing } from '../utils/parameterRows'
 import {
+  FLOW_IDS,
   NEW_MODULE_MATH_REF,
   PORT_TYPE_OPTIONS,
   PROTECTED_MATH_REFS,
@@ -1570,8 +1574,6 @@ const issueFilter = useIssueFilter({
 
 // The Plot tab's own single plot, made afresh on each open and never saved.
 const editorPlotConfig = ref(createSinglePlotConfig())
-// Whether clicking a variable in the math plots it.
-const isAutoUpdate = ref(true)
 const simulationPanelRef = ref(null)
 // Says why a clicked variable wasn't plotted.
 const plotNotice = ref('')
@@ -1612,7 +1614,7 @@ function followSavedNames(plotConfig) {
 }
 
 /**
- * Shows a note beside the Auto-update switch for a few seconds.
+ * Shows a note in the Plot tab's toolbar for a few seconds.
  *
  * @param {string} text
  */
@@ -1623,7 +1625,7 @@ function showPlotNotice(text) {
 }
 
 /**
- * Plots a variable clicked in the math alone, while the Plot tab shows and auto-updates, running the model when
+ * Plots a variable clicked in the math alone, while the Plot tab shows, running the model when
  * no results of its scope are shown. Runs use the saved instance, so only its variables can be plotted.
  *
  * @param {string} name
@@ -1631,7 +1633,7 @@ function showPlotNotice(text) {
  * @param {boolean} [options.isUnsaved] - The variable is a diagram element's that the math doesn't have until saved.
  */
 function plotClickedVariable(name, { isUnsaved = false } = {}) {
-  if (activeTab.value !== 'plot' || rightCollapsed.value || !isAutoUpdate.value) return
+  if (activeTab.value !== 'plot' || rightCollapsed.value) return
   const node = nodes.value.find((candidate) => candidate.id === props.id)
   const row = node?.data?.variables?.find((candidate) => candidate.name === name)
   if (!row) {
@@ -1642,6 +1644,35 @@ function plotClickedVariable(name, { isUnsaved = false } = {}) {
   plotNotice.value = ''
   editorPlotConfig.value = replacePlotSelections(editorPlotConfig.value, node, row)
   simulationPanelRef.value?.ensureResults()
+}
+
+const { recordEdit: recordWorkspaceEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
+const sendPlotHint = computed(() => (plottedCount.value ? 'Add this plot to the workspace’s plots' : 'Plot a variable first'))
+
+/**
+ * Adds the Plot tab's plot to the workspace's plots, as one undo step, under the names the saved instance gives its
+ * variables. Those the workspace already plots stay where they are.
+ */
+async function sendPlotToWorkspace() {
+  const before = simulationSettingsStore.plotConfig
+  const { plotConfig, addedCount, skippedCount } = appendPlot(before, followSavedNames(editorPlotConfig.value), editableName.value || props.initialName)
+  if (!addedCount) {
+    showPlotNotice(skippedCount ? 'Already in the workspace’s plots' : 'Nothing to add: save to plot new variables')
+    return
+  }
+  const states = { before: JSON.stringify(before ?? null), after: JSON.stringify(plotConfig) }
+  await recordWorkspaceEdit({
+    type: 'send-editor-plot',
+    nodeIds: [],
+    keys: [],
+    apply: () => simulationSettingsStore.setPlotConfig(plotConfig),
+    library: {
+      isAt: (side) => JSON.stringify(simulationSettingsStore.plotConfig ?? null) === states[side],
+      restore: (side) => simulationSettingsStore.setPlotConfig(JSON.parse(states[side])),
+    },
+  })
+  const skipped = skippedCount ? ` (${skippedCount} already plotted)` : ''
+  showPlotNotice(`Added to the workspace’s plots${skipped}`)
 }
 
 /**
@@ -1857,7 +1888,6 @@ watch(
       return
     }
     editorPlotConfig.value = createSinglePlotConfig()
-    isAutoUpdate.value = true
     await loadEditor()
   }
 )
@@ -3706,26 +3736,8 @@ async function saveInstance(options) {
   gap: 8px;
 }
 
-/* In the run's toolbar, beside the whole model switch. */
-.plot-tab-auto-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  font-size: 0.8125rem;
-  color: var(--p-text-color);
-  cursor: pointer;
-}
-
-/* Measured against the toolbar: too narrow for the label, the switch stands alone, its meaning in the tooltip. */
-@container (max-width: 360px) {
-  .plot-tab-auto-text {
-    display: none;
-  }
-}
-
 /* Shrinks to an ellipsis, its full text in the title, so it never pushes the toolbar's buttons off. */
-.plot-tab-auto-notice {
+.plot-tab-notice {
   flex: 0 1 auto;
   min-width: 0;
   font-size: 0.8125rem;
@@ -3733,6 +3745,11 @@ async function saveInstance(options) {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--p-text-muted-color);
+}
+
+.plot-tab-send {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .plot-tab-note {

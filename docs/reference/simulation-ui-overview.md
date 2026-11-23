@@ -6,17 +6,14 @@ Every Simulation panel control. For a walkthrough, see [Simulating Your Model](.
 
 | Button (tooltip) | Purpose |
 | :--- | :--- |
-| **Play / Stop** (triangle / square) | Runs or stops (F9). The tooltip says what runs, e.g. **Simulate the whole model**. A dot means results are out of date. |
-| Scope switch | **Whole model** or **Selection** (sidebar) / **This instance** (Plot tab). |
-| **Run the protocol's experiments** (checklist icon) | Shown when a protocol is loaded. See [Running Protocols](../guides/running-protocols.md). |
-| **Run the sweep** (chart-line icon) | Shown when a sweep is set. |
+| **Run / Stop** (runner / square) | Runs or stops (F9). The tooltip says what runs, e.g. **Simulate the whole model**. A dot means results are out of date. |
+| Scope switch | **Whole model** or **Selection** (sidebar) / **This instance** (Plot tab). Its handle shows the scope (network or box icon), and its tooltip names it. |
+| Run modes: **Time course** (chart-line icon), **Protocol** (checklist icon), **Sweep** (three-curves icon) | What Run runs. Choosing one runs it. A mode that isn't set up yet is greyed out, and its tooltip says how to set it up. See [Running Protocols](../guides/running-protocols.md) and [Sweeping a Parameter](../guides/simulating-your-model.md#sweeping-a-parameter). |
+| **Add this plot to the workspace's plots** (send icon) | Plot tab only. See [Plotting from the Instance Editor](../guides/simulating-your-model.md#plotting-from-the-math). |
 | **Track this run** (bookmark icon) | See [Tracked Runs](#tracked-runs). |
 | **Float over the canvas** (window icon) | Sidebar only. Opens the [floating viewer](#floating-viewer). |
-| **Open the simulation page** (external-link icon) | Sidebar only. |
-| **Edit obs_data** (pen-to-square icon) | Opens the protocol editor. |
-| **Simulation settings** (cog icon) | Opens [Simulation Settings](#simulation-settings) on Solver. |
-
-The protocol and sweep buttons switch what Play runs, and run it.
+| **Edit protocol** (pen-to-square icon) | Opens the protocol editor (**Edit obs_data**). |
+| **Simulation settings** (cog icon) | Sidebar and Plot tab. Opens [Simulation Settings](#simulation-settings) on Solver. |
 
 The **status line** under the toolbar says what ran, or why nothing did (*Can’t simulate yet: N problems*). When it shows a down arrow, click it to list the problems, warnings or solver messages. See [Reading the Status Line](../guides/simulating-your-model.md#status-line).
 
@@ -34,6 +31,7 @@ Views: **Plots**, **Sliders**, **Sweep**, **Runs**. Search matches every typed w
 ### Sliders {#sliders}
 
 - **Add slider**. Moving one reruns the model.
+- **Sweep** (three-curves icon) on a slider sweeps its parameter across the slider's range and switches Run to **Sweep**. With a sweep already set, it offers **A curve for each value of** the parameter (the range's ends and middle) or **Sweep it instead**.
 - ⋯ menu: **Back to the model's value**, **Apply this value to the model**, **Edit range…**, **Remove slider**.
 - **swept** marks the swept parameter. Sliders are off during a protocol.
 
@@ -56,10 +54,9 @@ Views: **Plots**, **Sliders**, **Sweep**, **Runs**. Search matches every typed w
 
 ![The /simulation page](../assets/images/simulation-page.png){.align-center width="800px"}
 
-- Open it from **Simulation** in the top navigation, or **Open the simulation page** (external-link icon) in the Simulation tab. **Workspace** (arrow icon) goes back.
+- Open it from **Simulation** in the top navigation; **Workspace** goes back.
 - Runs the whole model.
-- When a protocol or sweep is set, a **Time course / Protocol / Sweep** switch on the bar under the toolbar sets what Play runs, and runs it.
-- The **CSV**, **PNG** and **SED-ML** [downloads](#downloads) are on the same bar.
+- Its action bar has **Run**, the [run modes](#toolbar), **Track this run**, **Edit protocol** and **Export** (the [downloads](#downloads)).
 - **Hide controls** (tornado icon, top left of the controls) closes the controls panel, and the same button, now **Show controls** (hamburger icon), opens it again; drag its edge to resize it. Its folding **Simulation settings** section holds the [Solver tab's](#simulation-settings) fields (the first is **Starts at**); changes there apply as you make them.
 
 ## Floating Viewer {#floating-viewer}
@@ -86,8 +83,10 @@ Web OpenCOR doesn’t support a later **Plots start at**, so an export may not m
 
 ## Downloads {#downloads}
 
-Only on the simulation page:
+Only on the simulation page, from **Export** (export icon) in the action bar. The button repeats the last download picked; the arrow beside it lists them all:
 
 - **CSV:** every plotted series.
 - **PNG:** the charts as one image (not for steady state).
-- **SED-ML:** zip of the run, its plots and the CellML model. When disabled, its tooltip says why.
+- **SED-ML:** zip of the run, its plots and the CellML model.
+
+A download that isn't available is greyed out, and the button's tooltip says why.

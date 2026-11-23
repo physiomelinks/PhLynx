@@ -216,7 +216,8 @@ const settingsStore = useSimulationSettingsStore()
 // What the header's info says: what a sweep does, how its reading works, and what an export makes of it.
 const ABOUT =
   'Run the model at each value of one parameter, and plot against it: solved once each, or with differential ' +
-  'equations, a time course each, read between the plots’ Start and End. Play runs it with the toolbar’s Sweep on. ' +
+  'equations, a time course each, read between the plots’ Start and End. Run plays it with the Sweep tab on. ' +
+  'A slider’s sweep button sweeps its parameter across the slider’s range, or draws a curve for each of its values. ' +
   'To step from a holding value and read the peak, use a protocol. Web OpenCOR can’t run sweeps, so an export solves ' +
   'or simulates the model once, at the parameter’s own value.'
 
