@@ -311,12 +311,12 @@ class TestBioTemplates(unittest.TestCase):
         expect(piece(page, "compartment-2")).to_be_visible()
         page.wait_for_timeout(300)
 
-        # A tube: its module's card, then the tube, selected by its empty room.
+        # A tube: its module, drawn as the stretch of vessel a conduit is, then the tube, selected by its empty room.
         self.drop_piece("tube", centre(piece(page, "compartment").bounding_box()))
         link = page.locator("[data-testid=bio-link]")
         expect(link).to_have_count(1)
-        self.delete_at(centre(bound(page, "bioCard").bounding_box()))
-        expect(bound(page, "bioCard")).to_have_count(0)
+        self.delete_at(centre(bound(page, "bioJoint").bounding_box()))
+        expect(bound(page, "bioJoint")).to_have_count(0)
         expect(link).to_have_count(1)
         room = page.locator(".bio-link__zone")
         self.delete_at(centre(room.bounding_box()))
@@ -412,12 +412,14 @@ class TestBioTemplates(unittest.TestCase):
         one, two = first.bounding_box(), second.bounding_box()
         assert two["x"] > one["x"] + one["width"], (one, two)
 
-        # A tube dropped on the first joins it to the nearest other, with a new module in it named for it.
+        # A tube dropped on the first joins it to the nearest other, with a new module in it named for it, drawn as
+        # the stretch of vessel a conduit is.
         self.drop_piece("tube", centre(one))
         link = page.locator("[data-testid=bio-link]")
         expect(link).to_have_count(1)
-        held = bound(page, "bioCard").filter(has_text="Tube")
+        held = bound(page, "bioJoint").filter(has_text="Tube")
         expect(held).to_have_count(1)
+        expect(held.locator("[data-testid=bio-conduit]")).to_have_count(1)
 
         # A library module dropped on the tube's room takes the new one's place.
         page.locator("[data-testid=library-tab-modules]").click()
@@ -426,7 +428,7 @@ class TestBioTemplates(unittest.TestCase):
         self.drop_module(0, centre(held.bounding_box()))
         expect(link).to_have_count(1)
         expect(held).to_have_count(0)
-        expect(bound(page, "bioCard")).to_have_count(1)
+        expect(bound(page, "bioJoint")).to_have_count(1)
 
         # A compartment dragged takes its end of the tube along, and one step back puts it where it was.
         two = second.bounding_box()

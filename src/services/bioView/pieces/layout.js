@@ -328,6 +328,28 @@ function pathMiddle(points) {
   return best.point
 }
 
+/**
+ * Which way a path runs at `centre`, along its stretch nearest it (the longer of two as near, as at a bend): down
+ * or across, and backwards (up or to the left) or not. A conduit's vessel is drawn along it, flowing its way.
+ */
+export function runAt(points, centre) {
+  let best = null
+  for (let i = 1; i < points.length; i++) {
+    const [p, q] = [points[i - 1], points[i]]
+    const dx = q.x - p.x
+    const dy = q.y - p.y
+    const length = Math.hypot(dx, dy)
+    const t = length ? Math.max(0, Math.min(1, ((centre.x - p.x) * dx + (centre.y - p.y) * dy) / length ** 2)) : 0
+    const distance = Math.hypot(centre.x - (p.x + t * dx), centre.y - (p.y + t * dy))
+    const nearer = !best || distance < best.distance - 0.5
+    const asNearButLonger = best && Math.abs(distance - best.distance) <= 0.5 && length > best.length
+    if (nearer || asNearButLonger) best = { distance, length, dx, dy }
+  }
+  if (!best) return { vertical: false, reverse: false }
+  const vertical = Math.abs(best.dy) > Math.abs(best.dx)
+  return { vertical, reverse: vertical ? best.dy < 0 : best.dx < 0 }
+}
+
 /** Whether two rects overlap. */
 const overlap = (r, q) => r.x < q.x + q.width && q.x < r.x + r.width && r.y < q.y + q.height && q.y < r.y + r.height
 
@@ -1386,6 +1408,8 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     let joint = null
     // A gap junction needs its two membranes to meet: apart, it is drawn broken, its connexons with nothing to dock to.
     let broken = false
+    // A flow between compartments apart runs along a conduit: which way its way runs at its room.
+    let conduit = null
     // A bridge between two cells apart is an open channel across the gap between their membranes.
     const cells = [...new Set(tube.ends.map((id) => topology.enclosureOf(id)))]
     const channel =
@@ -1421,10 +1445,22 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     } else {
       const points = routeTube(a, b, tube.bends ?? [])
       // Bent by the user, its room is at its bend; else midway along its way, clear of its ends.
-      zone = tube.bends?.length === 1 ? zoneAt(tube.bends[0]) : clearOfEnds(zoneAt(pathMiddle(points)), points, [a, b])
+      const centre = tube.bends?.length === 1 ? tube.bends[0] : pathMiddle(points)
+      // A flow runs along a conduit, drawn as a stretch of vessel along its way (see BioJointGlyph): its room turned
+      // to run down a way that runs down.
+      conduit = tube.flux === 'flow' ? runAt(points, centre) : null
+      const size = conduit?.vertical ? { width: TUBE_ZONE.height, height: TUBE_ZONE.width } : TUBE_ZONE
+      zone = tube.bends?.length === 1 ? zoneAt(centre, size) : clearOfEnds(zoneAt(centre, size), points, [a, b])
       const rect = boxOf([zone, ...points.map((point) => ({ ...point, width: 0, height: 0 }))])
       broken = tube.flux === 'junction'
-      places.set(key, { ...base, rect, points, zone, ...(broken && { broken: true }) })
+      places.set(key, {
+        ...base,
+        rect,
+        points,
+        zone,
+        ...(broken && { broken: true }),
+        ...(conduit && { conduit, tone: byId.get(tube.ends[0]).tone }),
+      })
       // Grips: one at each end, to join it to another compartment, and one above its room, to bend it.
       const grip = (what, at, extra = {}) =>
         places.set(`grip:${what}:${tube.id}`, { kind: 'grip', grip: what, piece: tube.id, ...own, ...at, ...extra })
@@ -1432,12 +1468,14 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       grip('end', points.at(-1), { end: 1 })
       grip('bend', { x: zone.x + zone.width / 2, y: zone.y - GRIP_RISE }, { below: zone.height / 2 + GRIP_RISE })
     }
-    // The module on it is drawn as a card in the room it leaves, or as its joint (broken, a junction apart).
+    // The module on it is drawn as a card in the room it leaves, or as its joint (broken, a junction apart), or as
+    // the stretch of vessel a conduit is.
     if (node) {
       places.set(node, {
         kind: 'card',
         ...(joint && { joint }),
         ...(broken && { joint: tube.flux, broken: true }),
+        ...(conduit && { joint: 'conduit', conduit }),
         x: zone.x + (zone.width - CARD.width) / 2,
         y: zone.y + (zone.height - CARD.height) / 2,
         ...own,

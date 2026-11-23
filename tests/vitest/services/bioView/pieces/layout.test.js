@@ -4,7 +4,13 @@ import {
   BUILT_IN_PIECE_TEMPLATES,
   getBuiltInPieceTemplate,
 } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
-import { layoutPieces, membraneKey, pieceKey, routeTube } from '../../../../../src/services/bioView/pieces/layout.js'
+import {
+  layoutPieces,
+  membraneKey,
+  pieceKey,
+  routeTube,
+  runAt,
+} from '../../../../../src/services/bioView/pieces/layout.js'
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
 import { CELL_RADIUS, GLYPH_WIDTH, MIN_CELL } from '../../../../../src/services/bioView/geometry.js'
 import { encloseCompartment } from '../../../../../src/services/bioView/pieces/edits.js'
@@ -21,6 +27,23 @@ const right = (rect) => rect.x + rect.width
 const bottom = (rect) => rect.y + rect.height
 const contains = (outer, inner) =>
   inner.x >= outer.x && inner.y >= outer.y && right(inner) <= right(outer) && bottom(inner) <= bottom(outer)
+
+describe('runAt', () => {
+  const way = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: -300 },
+  ]
+
+  it('gives the way the stretch nearest a point runs', () => {
+    expect(runAt(way, { x: 50, y: 2 })).toEqual({ vertical: false, reverse: false })
+    expect(runAt(way, { x: 98, y: -150 })).toEqual({ vertical: true, reverse: true })
+  })
+
+  it('takes the longer stretch at a bend', () => {
+    expect(runAt(way, { x: 100, y: 0 })).toEqual({ vertical: true, reverse: true })
+  })
+})
 
 describe('the built-in templates written as pieces', () => {
   it('all validate', () => {
@@ -244,10 +267,29 @@ describe('layoutPieces', () => {
     expect(link.joint).toBeUndefined()
     expect(link.points.length).toBeGreaterThan(1)
     expect(layout.places.get('gj')).toMatchObject({ kind: 'card', joint: 'junction', broken: true })
-    // Any other tube between them is whole, its module a card.
+    // Any other tube between them is whole: a diffusion's module a card, a flow's the stretch of vessel it runs along.
+    const diffusion = laidOut([...cells, tube('diffusion')], { nodes })
+    expect(diffusion.places.get(pieceKey('link')).broken).toBeUndefined()
+    expect(diffusion.places.get('gj').joint).toBeUndefined()
     const flow = laidOut([...cells, tube('flow')], { nodes })
     expect(flow.places.get(pieceKey('link')).broken).toBeUndefined()
-    expect(flow.places.get('gj').joint).toBeUndefined()
+    expect(flow.places.get('gj')).toMatchObject({ kind: 'card', joint: 'conduit' })
+  })
+
+  it('draws a flow between compartments apart as a conduit, its room turned to run the way its way does', () => {
+    const box = (id, x, y) => ({ id, kind: 'compartment', label: id, frame: { x, y, width: 200, height: 120 } })
+    const tube = { id: 'vessel', kind: 'tube', label: 'Vessel', ends: ['a', 'b'], flux: 'flow' }
+    const nodes = [{ id: 'r', data: { name: 'r', bioView: { site: 'pieces/vessel' } } }]
+    // Side by side: across, its room wider than tall.
+    const across = laidOut([box('a', 0, 0), box('b', 600, 0), tube], { nodes })
+    const link = across.places.get(pieceKey('vessel'))
+    expect(link.conduit).toEqual({ vertical: false, reverse: false })
+    expect(link.zone.width).toBeGreaterThan(link.zone.height)
+    expect(across.places.get('r')).toMatchObject({ joint: 'conduit', conduit: { vertical: false, reverse: false } })
+    // One above the other, flowing up: down its way, backwards, its room taller than wide.
+    const up = laidOut([box('a', 0, 600), box('b', 0, 0), tube], { nodes }).places.get(pieceKey('vessel'))
+    expect(up.conduit).toEqual({ vertical: true, reverse: true })
+    expect(up.zone.height).toBeGreaterThan(up.zone.width)
   })
 
   it('puts a compartment docked to a fold round the fold, and the fold in the colour of its lumen', () => {

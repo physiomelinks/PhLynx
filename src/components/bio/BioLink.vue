@@ -42,6 +42,10 @@
         >
       </div>
     </template>
+    <!-- A conduit is a vessel along its whole way; with a module in it, the module draws it (BioJoint) -->
+    <template v-else-if="data.conduit">
+      <BioConduit v-if="data.empty" :points="points" :tone="data.tone" :selected="selected" empty />
+    </template>
     <svg v-else class="bio-link__line" :width="data.width" :height="data.height" overflow="visible">
       <defs>
         <marker
@@ -68,10 +72,22 @@
       />
     </svg>
     <!-- Its module's room, a drop target while empty; the module on it is drawn over it as a card -->
-    <div v-if="data.empty && !data.joint" class="bio-link__zone" :style="zoneStyle">
+    <div
+      v-if="data.empty && !data.joint"
+      :class="['bio-link__zone', { 'bio-link__zone--conduit': data.conduit }]"
+      :style="zoneStyle"
+    >
       <BioBrokenBadge v-if="data.broken" :name="data.name" />
-      <span class="bio-link__label">{{ data.name }}</span>
-      <small class="bio-link__hint" data-testid="bio-empty-hint">Drop a module</small>
+      <!-- A conduit's name goes below its vessel, as a joint's does, clear of its walls -->
+      <span
+        v-if="data.conduit"
+        :class="['bio-link__joint-name', { 'bio-link__joint-name--beside': data.conduit.vertical }]"
+        >{{ data.name }} <small data-testid="bio-empty-hint">· Drop a module</small></span
+      >
+      <template v-else>
+        <span class="bio-link__label">{{ data.name }}</span>
+        <small class="bio-link__hint" data-testid="bio-empty-hint">Drop a module</small>
+      </template>
     </div>
   </div>
 </template>
@@ -80,6 +96,7 @@
 import { computed, useId } from 'vue'
 import BioBilayerStrips from './BioBilayerStrips.vue'
 import BioBrokenBadge from './BioBrokenBadge.vue'
+import BioConduit from './BioConduit.vue'
 import BioJointGlyph from './BioJointGlyph.vue'
 import { MEMBRANE_BAND_HALF } from '../../services/bioView/geometry'
 
@@ -212,6 +229,13 @@ function offsetPoints(by) {
   border: 2px solid var(--p-primary-color);
 }
 
+/* A conduit's room is outlined by its vessel, not by a box */
+.bio-link__zone--conduit,
+.bio-link--selected .bio-link__zone--conduit {
+  border: 0;
+  background: transparent;
+}
+
 .bio-link--selected .bio-link__stroke {
   stroke: var(--p-primary-color);
 }
@@ -239,6 +263,13 @@ function offsetPoints(by) {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--p-text-muted-color);
+}
+
+/* Beside a conduit running down, clear of its vessel */
+.bio-link__joint-name.bio-link__joint-name--beside {
+  top: 50%;
+  left: calc(50% + 40px);
+  transform: translateY(-50%);
 }
 
 .bio-link__label {

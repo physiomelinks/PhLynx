@@ -258,7 +258,10 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
                   }),
                 }
               : place.points
-                ? { points: place.points.map(shift) }
+                ? {
+                    points: place.points.map(shift),
+                    ...(place.conduit && { conduit: place.conduit, tone: place.tone }),
+                  }
                 : {
                     from: shift(place.line.from),
                     to: shift(place.line.to),
@@ -413,7 +416,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
       case 'card':
         // A module in a link's joint is drawn as the joint itself: over it, named, to select or drag out.
         if (place.joint) {
-          const { zone } = layout.get(place.link)
+          const { zone, points } = layout.get(place.link)
           parents.push({
             ...base(id),
             type: 'bioJoint',
@@ -426,6 +429,13 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
               joint: place.joint,
               tone: layout.get(place.link).tone,
               vertical: !!layout.get(place.link).channel?.vertical,
+              // A conduit's vessel runs along its tube's whole way, drawn from the joint's own corner.
+              ...(place.conduit &&
+                points && {
+                  points: points.map((point) => ({ x: point.x - zone.x, y: point.y - zone.y })),
+                  // Named beside it where it runs down, clear of its vessel.
+                  beside: !!place.conduit.vertical,
+                }),
               broken: !!place.broken,
               width: zone.width,
               height: zone.height,
