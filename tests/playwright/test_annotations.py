@@ -171,6 +171,24 @@ def mock_ontology_services(target, requests):
     target.route(UNIPROT_ROUTE, lambda route: route.fulfill(status=503, body=""))
 
 
+def empty_spot(page):
+    """A screen point of the physiological view with nothing drawn on it, for the pane's own menu: the first, in a
+    grid from the view's top-left, where the pane itself is under the pointer."""
+    point = page.evaluate(
+        """(selector) => {
+            const pane = document.querySelector(selector)
+            const { left, top, width, height } = pane.getBoundingClientRect()
+            for (let y = top + 20; y < top + height - 20; y += 20)
+                for (let x = left + 20; x < left + width - 20; x += 20)
+                    if (document.elementFromPoint(x, y) === pane) return [x, y]
+            return null
+        }""",
+        f"{BIO} .vue-flow__pane",
+    )
+    assert point, "No empty spot in the physiological view"
+    return tuple(point)
+
+
 def open_menu(page, index, label):
     """Open the toolbar's index-th split button menu (0 Import, 1 Export) and pick an item."""
     page.locator(".file-io-buttons .p-splitbutton").nth(index).locator(".p-splitbutton-dropdown").click()
@@ -448,13 +466,13 @@ class TestAnnotationCoupling(unittest.TestCase):
         )
 
         # Species mode is offered without leaving the view.
-        page.mouse.click(450, 200, button="right")
+        page.mouse.click(*empty_spot(page), button="right")
         expect(page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True)).to_be_visible()
 
-    def show_species(self, scope, at=(450, 200)):
+    def show_species(self, scope, at=None):
         """Turn species mode on from the pane menu, showing the coupled species, those with fluxes, or every one."""
         page = self.page
-        page.mouse.click(*at, button="right")
+        page.mouse.click(*(at or empty_spot(page)), button="right")
         menu = page.locator(".p-contextmenu")
         menu.get_by_text("Species Mode", exact=True).hover()
         menu.get_by_text(scope, exact=True).click()
@@ -686,12 +704,16 @@ class TestAnnotationCoupling(unittest.TestCase):
         page = self.page
         self.open_physiology_with_cell()
         self.place_toys()
-        cell = piece(page, "cell").bounding_box()
         self.place_cell_pool()
-        # A porter dropped in the cell's process area is a process, coupled to the cell's pool.
-        self.drop_module("porter", (cell["x"] + cell["width"] * 0.3, cell["y"] + cell["height"] * 0.42))
-        card = page.locator(f"{BIO} .vue-flow__node-bioCard")
-        expect(card).to_have_count(1)
+        # A porter dropped in the cell's process zone is a process, coupled to the cell's pool.
+        before = set(page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)"))
+        zone = page.locator(f'{BIO_NODE}[data-id="pc:metabolism"]').bounding_box()
+        # On its first slot, in its row at the top-left: the rest of the zone takes a drop as the cell.
+        self.drop_module("porter", (zone["x"] + 60, zone["y"] + 45))
+        expect(page.locator(PLACED)).to_have_count(len(before) + 1)
+        added = set(page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)")) - before
+        card = page.locator(f'{BIO_NODE}[data-id="{added.pop()}"]')
+        expect(card).to_have_class(re.compile("vue-flow__node-bioProtein"))
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
         pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
         self.show_species("Species with Fluxes", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
@@ -740,7 +762,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_focusing_a_species_tints_its_compartments_by_its_concentration(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         self.place_cell_pool()
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
@@ -1053,7 +1075,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         # With the side-cars, the placed instances couple by property, species and place.
         self.import_sidecar("outside", "pool.ttl")
         # A side-car saved from the editor shows in the view at once: species mode is offered.
-        page.mouse.click(450, 200, button="right")
+        page.mouse.click(*empty_spot(page), button="right")
         expect(page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True)).to_be_visible()
         page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True).hover()
         expect(page.locator(".p-contextmenu").get_by_text("Show Species", exact=True)).to_be_visible()
