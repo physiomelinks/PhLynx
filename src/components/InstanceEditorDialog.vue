@@ -600,7 +600,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
+import { ref, reactive, computed, shallowRef, watch, onMounted, onUnmounted, nextTick, toRaw } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 import Button from 'primevue/button'
@@ -655,7 +655,7 @@ import { useEditorCloseGuard } from '../composables/useEditorCloseGuard'
 import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
-import { prepareSavedMath, variableIdsOf } from '../services/math/variableIds'
+import { variableIdsOf } from '../services/math/variableIds'
 import { placesOf, quantityOfPort } from '../services/annotations/couple'
 import { isSidecarPort, reconcileAnnotatedPorts } from '../services/annotations/ports'
 import { fromAnnotationTitle } from '../services/annotations/display'
@@ -706,14 +706,19 @@ import { detachReactivity } from '../utils/reactivity'
 import { waitUntilStable } from '../utils/layout'
 import { notify } from '../utils/notify'
 import { escapeHtml } from '../utils/importBatch'
-import { areModelsEquivalent, getModelComponentNames, renameLayoutComponent, renameModelComponent } from '../utils/cellml'
+import { renameLayoutComponent, renameModelComponent } from '../utils/cellml'
+import {
+  areModelsEquivalentInBackground,
+  getModelComponentNamesInBackground,
+  prepareSavedMathInBackground,
+} from '../services/libcellml/modelQueries'
 import { areUnitsModelsEquivalent, mergeUnitDefinitions } from '../utils/units'
 import { separateParameters } from '../services/math/separateParameters'
 import { getEditorTabFormats, getModuleFormat } from '../services/moduleFormats'
 import { issueItems } from '../services/celldl/issues'
 import { buildElementTable, variableRenames } from '../services/celldl/elementTable'
 import { renamePortVariables, renameRows, renameValues } from '../services/math/reconcileRows'
-import { liveComponentMath } from '../services/celldl/liveMath'
+import { liveComponentMathInBackground } from '../services/libcellml/cellmlImport'
 import { sectionLayout } from '../services/celldl/sectionLayout'
 import { analyzeMathXml } from '../services/math/analyzeMath'
 import {
@@ -1145,12 +1150,24 @@ async function openDiagram() {
   return isDiagramShown.value
 }
 
-/** The live conversion's math, read only for a math editor shown over an edited diagram; null otherwise. */
-const liveMath = computed(() => {
-  if (!isMathLocked.value || !isDiagramDirty.value || !MATH_EDITOR_KINDS.has(editorKind.value)) return null
-  const conversion = liveConvert.cellml.value
-  return conversion && liveComponentMath(conversion.cellml, conversion.componentName)
-})
+/**
+ * The live conversion's math, read only for a math editor shown over an edited diagram; null otherwise. Read from the
+ * conversion's CellML in the libCellML worker, so it follows the conversion once that answers.
+ */
+const liveMath = shallowRef(null)
+let liveMathRequest = 0
+watch(
+  () => {
+    if (!isMathLocked.value || !isDiagramDirty.value || !MATH_EDITOR_KINDS.has(editorKind.value)) return null
+    return liveConvert.cellml.value
+  },
+  async (conversion) => {
+    const request = ++liveMathRequest
+    const math = conversion ? await liveComponentMathInBackground(conversion.cellml, conversion.componentName) : null
+    if (request === liveMathRequest) liveMath.value = math || null
+  },
+  { immediate: true }
+)
 
 /** The math the math editors show: the live conversion's, or else the session's. */
 const shownModel = computed(() => liveMath.value || currentModel.value)
@@ -2290,10 +2307,11 @@ function deletePort(index) {
  * Whether the instance has edits Cancel asks before discarding. Plots and sliders apply as they change, so only the
  * instance's own edits count.
  *
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function hasDiscardableEdits() {
-  const isDirty = session.hasUnsavedInvalidEdit() || session.isDirty() || session.isLayoutDirty() || isDiagramDirty.value
+async function hasDiscardableEdits() {
+  const isDirty =
+    session.hasUnsavedInvalidEdit() || (await session.checkDirty()) || session.isLayoutDirty() || isDiagramDirty.value
   return isDirty || hasDraftEdits(annotationDraft.value)
 }
 
@@ -2308,7 +2326,8 @@ async function closeOnOutsideClick() {
   if (loading.value) return
   await flushEdits()
   // Any edit at all keeps the editor open, the instance's name and ports included.
-  if (hasUnsavedEdits.value || hasDiscardableEdits()) {
+  // Discardable edits first: it waits for the math's comparison, which hasUnsavedEdits reads.
+  if ((await hasDiscardableEdits()) || hasUnsavedEdits.value) {
     notify.info({ message: 'Save or cancel your edits to close the editor.', duration: 2500 })
     return
   }
@@ -2334,7 +2353,7 @@ const onDialogVisibleChange = (visible) => {
 
 async function handleCancel() {
   await flushEdits()
-  if (hasDiscardableEdits()) {
+  if (await hasDiscardableEdits()) {
     // Keeping the edits is the default, so a stray Enter or click doesn't lose them.
     const confirmed = await confirm({
       header: 'Unsaved Changes',
@@ -2623,11 +2642,11 @@ function overwritableDiagram(name) {
  *
  * @param {string} math - The converted component's math.
  * @param {{componentFile: string, model: string|null}} units - Its grouping's units after the save.
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function isDiagramOnlyChange(math, units) {
+async function isDiagramOnlyChange(math, units) {
   const storedMath = store.availableMath.get(props.mathRef)
-  if (!storedMath || !areModelsEquivalent(storedMath, separateParameters(math).math)) return false
+  if (!storedMath || !(await areModelsEquivalentInBackground(storedMath, separateParameters(math).math))) return false
   const storedUnits = store.availableUnits.find((file) => file.componentFile === units.componentFile)?.model ?? null
   return areUnitsModelsEquivalent(storedUnits, units.model)
 }
@@ -2760,7 +2779,7 @@ async function stageDiagram({ newName = null, isWarned = false } = {}) {
   const units = groupingUnitsAfterSave(store, `${file}:${name}`, result.unitsModel)
   const isOwnModule = stored && !isRenamed && store.availableMath.has(props.mathRef)
   // Only the diagram changed, so its module keeps its math, and the instances on it theirs.
-  if (isOwnModule && !overwriteRef && isDiagramOnlyChange(component.math, units)) {
+  if (isOwnModule && !overwriteRef && (await isDiagramOnlyChange(component.math, units))) {
     return { mathRef: props.mathRef, math: null, source, units: null, isEditorDocument }
   }
   // Saved under its module's name, it overwrites it, or is converted again as a new component, as CellML is saved.
@@ -2893,7 +2912,7 @@ function rescaleInstanceValues(rescales, renames) {
  * @returns {Promise<{mathRef: string, math: string, layout: Object|null}|null>} Null when the save stops.
  */
 async function resolveMathTarget(math, layout) {
-  const componentNames = getModelComponentNames(math)
+  const componentNames = await getModelComponentNamesInBackground(math)
   if (!componentNames || componentNames.length === 0) {
     notify.error({ message: 'Could not find a valid component name in the model.' })
     return null
@@ -3096,7 +3115,7 @@ async function saveInstance(options) {
   // only they changed. Template math keeps no annotations, so they also need a new component.
   const isAnnotationChanged = hasDraftEdits(annotationDraft.value)
   const isMathChanged =
-    isRegenerated || session.isDirty() || (isAnnotationChanged && PROTECTED_MATH_REFS.has(props.mathRef))
+    isRegenerated || (await session.checkDirty()) || (isAnnotationChanged && PROTECTED_MATH_REFS.has(props.mathRef))
   // The editor drops ids, so the stored math's go back on, following renamed variables. A variable annotated
   // anew gets one, which its sidecar subject names.
   const editedMath = target?.math ?? currentModel.value
@@ -3106,7 +3125,7 @@ async function saveInstance(options) {
       ? findVariableRenames({ previousMathRef: props.mathRef, math: editedMath })
       : new Map()
   const draft = renameDraftVariables(annotationDraft.value, idRenames, new Set(parameterRows.value.map((row) => row.name)))
-  const { math: savedMath, idsChanged } = prepareSavedMath({
+  const { math: savedMath, idsChanged } = await prepareSavedMathInBackground({
     storedMath: store.availableMath.get(props.mathRef) ?? '',
     editedMath,
     isMathChanged,

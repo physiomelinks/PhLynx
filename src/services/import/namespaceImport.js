@@ -5,7 +5,7 @@
  * Files with no namespace of their own, such as a lone config or parameters file, go to the one
  * namespace that fits, and the user picks only when several do.
  */
-import { hoistEncapsulatedComponents, processCellMLData } from '../../utils/cellml'
+import { processCellMLDataInBackground } from '../libcellml/cellmlImport'
 import { parseMathRef } from '../../utils/config'
 import {
   NO_NAMESPACE,
@@ -46,13 +46,14 @@ function fileOfClash({ kind, key }) {
  * What CellML files would add to the library, in the form findClashes takes.
  *
  * @param {Array<{ key: string, cellml: string }>} files - Library keys and the CellML to load under them.
- * @returns {{ mathFiles: Array, unitsFiles: Array }}
+ * @returns {Promise<{ mathFiles: Array, unitsFiles: Array }>}
  */
-export function incomingFromCellml(files) {
+export async function incomingFromCellml(files) {
   const mathFiles = []
   const unitsFiles = []
-  for (const { key, cellml } of files) {
-    const result = processCellMLData(hoistEncapsulatedComponents(cellml).cellml)
+  const results = await Promise.all(files.map(({ cellml }) => processCellMLDataInBackground(cellml, { hoist: true })))
+  for (const [index, { key }] of files.entries()) {
+    const result = results[index]
     if (result.type !== 'success') continue
     if (result.components?.length) mathFiles.push({ key, components: result.components })
     if (result.units.count) unitsFiles.push({ key, model: result.units.model })
@@ -91,7 +92,7 @@ export const AS_IS = Object.freeze({
  * @param {Object} deps.store - The library store.
  * @param {Function} deps.prompt - From useConfirmDialog: resolves the text entered, or null.
  * @param {Function} deps.choose - From useConfirmDialog: resolves 'accept', 'extra' or 'reject'.
- * @param {(mapKey: (key: string) => string|null) => Object} deps.incomingFor - What the files would add, as
+ * @param {(mapKey: (key: string) => string|null) => Object|Promise<Object>} deps.incomingFor - What the files would add, as
  *   findClashes takes it, under their mapped keys; mapKey gives null for a file being left out.
  * @returns {Promise<NamespacePlan>}
  */
@@ -130,8 +131,7 @@ export async function planNamespaceImport(keys, { store, prompt, choose, incomin
   }
   const targets = new Set([...chosen.values()].filter((value) => value !== undefined))
 
-  const clashes = store
-    .findClashes(incomingFor((key) => (isCancelled(key) ? null : mapKey(key))))
+  const clashes = (await store.findClashes(await incomingFor((key) => (isCancelled(key) ? null : mapKey(key)))))
     .filter((clash) => targets.has(namespaceOfClash(clash)))
   const byNamespace = new Map()
   for (const clash of clashes) {

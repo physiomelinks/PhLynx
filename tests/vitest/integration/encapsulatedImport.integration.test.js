@@ -184,7 +184,7 @@ describe('importing a CellML model with encapsulated components (#787)', () => {
    * @returns {Promise<{nodes: Array, edges: Array}>}
    */
   async function importModel(xml = encapsulatedModel()) {
-    const cellml = prepareCellmlImport(xml, FILE)
+    const cellml = await prepareCellmlImport(xml, FILE)
     const processed = processCellMLData(cellml)
     expect(processed.type).toBe('success')
     store.addMathFile(FILE, processed.components)
@@ -314,18 +314,18 @@ describe('importing a CellML model with encapsulated components (#787)', () => {
     }
   }, 60000)
 
-  it('leaves a model without encapsulation byte-identical, and says once when containment groups are ignored', () => {
+  it('leaves a model without encapsulation byte-identical, and says once when containment groups are ignored', async () => {
     const raw10 = encapsulatedModel().replace(GROUPS, '')
-    expect(prepareCellmlImport(raw10, FILE)).toBe(raw10)
+    expect(await prepareCellmlImport(raw10, FILE)).toBe(raw10)
     const flat = hoistEncapsulatedComponents(encapsulatedModel()).cellml
-    expect(prepareCellmlImport(flat, FILE)).toBe(flat)
+    expect(await prepareCellmlImport(flat, FILE)).toBe(flat)
     expect(notify.info).not.toHaveBeenCalled()
 
     const containmentOnly = encapsulatedModel(CONTAINMENT).replace(GROUPS, '')
     expect(hoistEncapsulatedComponents(containmentOnly)).toEqual({ cellml: containmentOnly, hoisted: [], ignoredContainment: true, hoistFailed: false })
 
     const xml = encapsulatedModel(CONTAINMENT)
-    const prepared = prepareCellmlImport(xml, FILE)
+    const prepared = await prepareCellmlImport(xml, FILE)
     expect(prepared).toBe(hoistEncapsulatedComponents(xml).cellml)
     expect(notify.info).toHaveBeenCalledTimes(1)
     expect(notify.info).toHaveBeenCalledWith(expect.objectContaining({ title: 'Containment Groups Ignored' }))

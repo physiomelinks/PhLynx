@@ -11,10 +11,11 @@ import { crossingFlow, ownSpecies, speciesNetwork } from '../services/bioView/sp
 import {
   cellHintAt,
   cellNameBox,
-  regionNameAt,
+  concentrationTints,
   facetLabelBoxes,
-  placeSpeciesTokens,
   flowScales,
+  placeSpeciesTokens,
+  regionNameAt,
   routeSpecies,
 } from '../services/bioView/speciesLayout'
 import { getHandleId } from '../utils/handles'
@@ -23,6 +24,7 @@ import { whole } from '../services/bioView/drop'
 import { CARD, PROCESS_INSET, layoutPhysiology, processSize } from '../services/bioView/layout'
 import { resolveBioRole } from '../services/bioView/roles'
 import { locationSource } from '../services/annotations/locationSources'
+import { OPB } from '../services/annotations/iris'
 
 // Stacking: the cells and compartments (see structureZ) under everything drawn on them.
 // A membrane is its cell's child, which vue-flow draws one above max(its own, its parent's): -8, over every cell and
@@ -700,15 +702,18 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
  *   `voiCursor`, a Ref<{index: number, range: [number, number]}|null>: the point of the latest run whose flows
  *   are shown, and the stretch of it they are sized against; null for the run's end, sized against each other. A compartment's tokens follow its
  *   bioView.speciesOrder.
+ *   `focusedSpecies`, a Ref<{nodeId: string, species: string}|null>: the focused species token, whose concentration tints
+ *   every compartment holding it, scaled as `tintMode` says (see concentrationTints).
  * @returns {{ roles: ComputedRef<Map>, layout: ComputedRef<Map>, sites: ComputedRef<Array<Object>>,
  *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
  *   `species` is the species network and where it is drawn, while species mode is on; `speciesOrderPreview` places
- *   one compartment's tokens in an order of the caller's.
+ *   one compartment's tokens in an order of the caller's; `concentrationTint`, the focused species' compartments
+ *   and how strongly each is tinted at the cursor, null with nothing to tint.
  */
 export function useBioNodes(
   nodes,
   edges = ref([]),
-  { speciesMode = ref(null), voiCursor = ref(null), flowScale = ref(null) } = {},
+  { speciesMode = ref(null), voiCursor = ref(null), flowScale = ref(null), focusedSpecies = ref(null), tintMode = ref('linear') } = {}
 ) {
   const libraryStore = useLibraryStore()
   const piecesStore = useBioPiecesStore()
@@ -881,6 +886,43 @@ export function useBioNodes(
     return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf, largest }) }
   })
 
+  // The focused species' concentration in each compartment holding it, over the latest run. Amounts aren't tinted, so
+  // a tint always means a concentration; nor is a compartment whose unit isn't the focused one's.
+  const concentrationSeries = computed(() => {
+    const target = unref(focusedSpecies)
+    if (!target || !speciesTokens.value) return null
+    const { results, mapping } = simulationResults
+    if (!results || !mapping || results.isSweep) return null
+    const series = []
+    for (const [nodeId, tokens] of speciesTokens.value.network.compartments) {
+      const token = tokens.find((entry) => entry.species === target.species)
+      if (token?.annotation?.property !== OPB.concentration) continue
+      const read = readNodeSeries(results, mapping, nodeId, token.variable)
+      if (read?.values) series.push({ nodeId, values: read.values, unit: read.unit })
+    }
+    if (!series.length) return null
+    const unit = (series.find((entry) => entry.nodeId === target.nodeId) ?? series[0]).unit
+    return { species: target.species, unit, series: series.filter((entry) => entry.unit === unit) }
+  })
+  // Scaled once for the stretch the cursor plays, not at each point.
+  const concentrationScaleOf = computed(() => {
+    const found = concentrationSeries.value
+    if (!found) return null
+    const last = found.series[0].values.length - 1
+    const range = unref(voiCursor)?.range ?? [0, last]
+    return concentrationTints(found.series, range, { mode: unref(tintMode) ?? 'linear', unit: found.unit })
+  })
+  const concentrationTint = computed(() => {
+    const found = concentrationSeries.value
+    const tintOf = concentrationScaleOf.value
+    if (!found || !tintOf) return null
+    const tints = found.series.map(({ nodeId, values }) => {
+      const index = unref(voiCursor)?.index ?? values.length - 1
+      return { nodeId, intensity: tintOf(nodeId, index), value: values[index] }
+    })
+    return { species: found.species, unit: found.unit, tints: tints.filter((tint) => tint.intensity !== null) }
+  })
+
   const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))
   const focus = computed(() =>
     focusCouplings(nodes.value, edges.value, layout.value, selected.value, sidecarOf, facesOf),
@@ -904,6 +946,8 @@ export function useBioNodes(
   // or a run touches.
   const bioNodes = computed((previous) => {
     const byId = new Map(nodes.value.map((node) => [node.id, node]))
+    // How strongly the focused species' concentration tints each compartment holding it, at the cursor.
+    const tints = new Map((concentrationTint.value?.tints ?? []).map((tint) => [tint.nodeId, tint.intensity]))
     const next = laidOutNodes.value.map((node) => {
       const main = byId.get(node.id)
       return {
@@ -915,6 +959,7 @@ export function useBioNodes(
           handles: focus.value.handles.get(node.id) ?? [],
           coupled: focus.value.partners.has(node.id),
           ...((node.type === 'bioProtein' || node.type === 'bioCard') && { uncoupled: !coupledIds.value.has(node.id) }),
+          ...(tints.has(node.id) && { tint: tints.get(node.id) }),
         },
       }
     })
@@ -951,6 +996,7 @@ export function useBioNodes(
     couplingEdges,
     hasSpecies,
     species,
+    concentrationTint,
     speciesOrderPreview,
     loadSidecars,
   }

@@ -1,55 +1,56 @@
 import { findImplicitVariables, findVoiNames, inferType, isEmpty, isNumericLiteral } from './variables.js'
+import { Parser as HtmlParser } from 'htmlparser2'
 import { analyzeMathXml } from '../services/math/analyzeMath.js'
 import { resolveBoundaryValues, storeOptions } from '../services/export/boundaryValues.js'
 import { dropDrivenStates } from '../services/math/dropDrivenStates.js'
 import { couplingConflicts, multiplyFactor, variableTypes } from './multiport.js'
 import { couplingUnitConflicts } from './couplingUnits.js'
 import { portDisplayName } from './portIdentity.js'
+import { appendChildren, childElements, elementsWithId, parseXml, removeNode, tryParseXml } from './xmlDom.js'
 import {
   STANDARD_UNITS,
   AFFINE_UNIT_CONVERSIONS,
   CELLML_NS,
   MATHML_NS,
-  PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME,
-  PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME,
+  PHLYNX_ENVIRONMENT_COMPONENT_ID,
+  PHLYNX_GENERATED_COMPONENTS,
   INSTANCE_PARAMETER_COMPONENT_NAMES,
   GLOBAL_PARAMETER_COMPONENT_NAMES,
 } from './constants.js'
 
 let _libcellml = null
-let resolveLibCellMLReady
-let rejectLibCellMLReady
-const libcellmlReady = new Promise((resolve, reject) => {
-  resolveLibCellMLReady = resolve
-  rejectLibCellMLReady = reject
-})
-// Avoid an unhandled rejection when nothing is waiting on readiness.
-libcellmlReady.catch(() => {})
+let libcellmlLoading = null
 
+/**
+ * Binds the libCellML instance the synchronous functions here use.
+ *
+ * @param {Object} instance - A loaded libCellML module.
+ */
 export function initLibCellML(instance) {
   _libcellml = instance
-  resolveLibCellMLReady(instance)
+  libcellmlLoading = Promise.resolve(instance)
 }
 
 /**
- * Initialises libCellML once the plugin's promise resolves, or fails whenLibCellMLReady() if it rejects.
+ * Loads libCellML on first call and binds it with initLibCellML; later calls share that load, and a failed load is
+ * tried again. Resolves at once with an instance already bound (tests bind one directly).
  *
- * @param {Promise} ready - The plugin's libCellML promise.
- * @returns {Promise} Settles with ready.
+ * @returns {Promise<Object>} The libCellML module.
  */
-export function bindLibCellML(ready) {
-  return ready.then(initLibCellML, (error) => {
-    rejectLibCellMLReady(error)
-    throw error
-  })
-}
-
-/**
- * Resolves once initLibCellML has been called and CellML parsing is available; rejects if libCellML
- * fails to load.
- */
-export function whenLibCellMLReady() {
-  return libcellmlReady
+export function loadLibCellML() {
+  libcellmlLoading ??= Promise.all([import('libcellml.js/libcellml.js'), import('libcellml.js/libcellml.wasm?url')])
+    .then(([{ default: createLibCellML }, { default: wasmUrl }]) => createLibCellML({ locateFile: () => wasmUrl }))
+    .then(
+      (instance) => {
+        initLibCellML(instance)
+        return instance
+      },
+      (error) => {
+        libcellmlLoading = null
+        throw error
+      }
+    )
+  return libcellmlLoading
 }
 
 /**
@@ -66,13 +67,11 @@ export function getLibCellML() {
 export { loggerMessages } from './libcellmlLogger.js'
 
 export function extractParametersFromCellML(cellmlString, filename) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
-  const model = doc.getElementsByTagName('model')[0]
+  const model = parseXml(cellmlString)?.getElementsByTagName('model')[0]
   if (!model) return []
 
   const params = []
-  for (const node of model.childNodes) {
-    if (node.nodeType !== Node.ELEMENT_NODE || node.localName !== 'component') continue
+  for (const node of childElements(model, 'component')) {
     for (const variable of node.getElementsByTagName('variable')) {
       const initialValue = variable.getAttribute('initial_value')
       if (!initialValue || isNaN(parseFloat(initialValue))) continue
@@ -88,19 +87,15 @@ export function extractParametersFromCellML(cellmlString, filename) {
 }
 
 export function inferPrimaryComponentName(cellmlString) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
-  const model = doc.getElementsByTagName('model')[0]
+  const model = parseXml(cellmlString)?.getElementsByTagName('model')[0]
   if (!model) return null
-  for (const node of model.childNodes) {
-    if (node.nodeType === Node.ELEMENT_NODE && node.localName === 'component') {
-      return node.getAttribute('name')
-    }
-  }
-  return null
+  const [component] = childElements(model, 'component')
+  return component ? component.getAttribute('name') : null
 }
 
 export function inferComponentNameFromConnections(cellmlString, paramsComponentName) {
-  const doc = new DOMParser().parseFromString(cellmlString, 'application/xml')
+  const doc = parseXml(cellmlString)
+  if (!doc) return null
 
   // CellML 2.0: component names on <map_components> child of <connection>
   for (const mapComponents of doc.getElementsByTagName('map_components')) {
@@ -307,17 +302,94 @@ function nextAvailableVarName(component, baseName) {
   return candidateName
 }
 
-function nextAvailableComponentName(model, baseName) {
+/**
+ * Names a component after a base name, with the first suffix (`_1`, `_2`, ...) that makes it unique.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {string} baseName
+ * @param {Set<string>} [reserved] - Names taken by components not yet in the model.
+ * @returns {string}
+ */
+function nextAvailableComponentName(model, baseName, reserved = new Set()) {
   let candidateName = baseName
-  let index = 1
-  let currentCandidate = model.componentByName(candidateName, true)
-  while (currentCandidate !== null) {
+  for (let index = 1; reserved.has(candidateName) || model.containsComponentByName(candidateName, true); index++) {
     candidateName = `${baseName}_${index}`
-    index++
-    currentCandidate.delete()
-    currentCandidate = model.componentByName(candidateName, true)
   }
   return candidateName
+}
+
+/**
+ * Names a component an export generates, as nextAvailableComponentName would with only these names taken. Code
+ * that reads a run's results by component, such as mapInspectionModules, finds the name this way.
+ *
+ * @param {string} baseName - Its name in PHLYNX_GENERATED_COMPONENTS.
+ * @param {Iterable<string>} takenNames - The names of the model's other components, such as its instances'.
+ * @returns {string}
+ */
+export function generatedComponentName(baseName, takenNames) {
+  const taken = new Set(takenNames)
+  let candidateName = baseName
+  for (let index = 1; taken.has(candidateName); index++) candidateName = `${baseName}_${index}`
+  return candidateName
+}
+
+/**
+ * Finds a component an export generated, by its id, among a model's top-level components.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @returns {Object|null} The component, for the caller to free.
+ */
+function findGeneratedComponent(model, { id }) {
+  for (let i = 0; i < model.componentCount(); i++) {
+    const component = model.componentByIndex(i)
+    if (component.id() === id) return component
+    component.delete()
+  }
+  return null
+}
+
+/**
+ * Creates a component an export generates, under the first free name (see nextAvailableComponentName) and with its
+ * id, and adds it to the model.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{name: string, id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @param {Set<string>} [reserved] - Names taken by components not yet in the model.
+ * @returns {Object} The component, for the caller to free.
+ */
+function addGeneratedComponent(model, generated, reserved) {
+  const component = new _libcellml.Component()
+  component.setName(nextAvailableComponentName(model, generated.name, reserved))
+  component.setId(generated.id)
+  model.addComponent(component)
+  return component
+}
+
+/**
+ * Finds a component an export generates, or adds it (see addGeneratedComponent).
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{name: string, id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @returns {Object} The component, for the caller to free.
+ */
+function findOrAddGeneratedComponent(model, generated) {
+  return findGeneratedComponent(model, generated) ?? addGeneratedComponent(model, generated)
+}
+
+/**
+ * Checks whether a component is one an export generated: by its id, or, in a model exported before PhLynx gave
+ * them ids, by its name.
+ *
+ * @param {Object} component - A libcellml Component.
+ * @param {{name: string, id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @param {Iterable<string>} [names] - The names it may have without an id; its base name by default.
+ * @returns {boolean}
+ */
+function isGeneratedComponent(component, generated, names = [generated.name]) {
+  const id = component?.id()
+  if (id) return id === generated.id
+  return !!component && [...names].includes(component.name())
 }
 
 export function sanitiseCellMLIdentifier(name) {
@@ -390,12 +462,7 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
     }
 
     // Get or create the single shared affine conversions component
-    let convComp = model.componentByName('affine_unit_conversions', true)
-    const isNew = convComp === null
-    if (isNew) {
-      convComp = new _libcellml.Component()
-      convComp.setName('affine_unit_conversions')
-    }
+    const convComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.affineUnitConversions)
     garbageCollector.add(convComp)
 
     // Create uniquely named local variables within the shared component
@@ -434,13 +501,8 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
 
     convComp.appendMath(mathML)
 
-    // Only add to model if newly created
-    if (isNew) {
-      model.addComponent(convComp)
-    }
-
     // Look up fresh references for equivalence wiring
-    const freshConvComp = model.componentByName('affine_unit_conversions', true)
+    const freshConvComp = findGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.affineUnitConversions)
     garbageCollector.add(freshConvComp)
     const freshInLocal = freshConvComp.variableByName(inNewName)
     garbageCollector.add(freshInLocal)
@@ -495,12 +557,7 @@ function createAffineConversionComponent(model, v1, v2, v1CompName, v2CompName) 
 function createMultiplyComponent(model, sourceComp, sourceVarName, factor) {
   const sourceVar = requireVariable(sourceComp, sourceVarName)
   // Get or create the shared multiplications component
-  let mulComp = model.componentByName('generated_multiplications', true)
-  if (mulComp === null) {
-    mulComp = new _libcellml.Component()
-    mulComp.setName('generated_multiplications')
-    model.addComponent(mulComp)
-  }
+  const mulComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.multiplications)
 
   // Determine units from the source variable
   const sourceUnits = sourceVar.units()
@@ -562,12 +619,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
   const { referenceVar, termVars } = lookup
 
   // Create the Component
-  let sumComp = model.componentByName('generated_summations', true)
-  if (sumComp === null) {
-    sumComp = new _libcellml.Component()
-    sumComp.setName('generated_summations')
-    model.addComponent(sumComp)
-  }
+  const sumComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.summations)
 
   // Setup Variables
   const referenceUnits = referenceVar.units()
@@ -640,12 +692,7 @@ function createSummationComponent(model, sourceComp, sourceVarName, targetCompon
  * @param {Map<string, libcellml.Component>} nodeComponentMap - NodeID -> component
  */
 function createInspectionModuleComponent(model, module, nodeComponentMap) {
-  let inspectionComp = model.componentByName('inspection_modules', true)
-  if (inspectionComp === null) {
-    inspectionComp = new _libcellml.Component()
-    inspectionComp.setName('inspection_modules')
-    model.addComponent(inspectionComp)
-  }
+  const inspectionComp = findOrAddGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.inspectionModules)
 
   const unitsName = module.units || 'dimensionless'
   const sumVarName = nextAvailableVarName(inspectionComp, sanitiseCellMLIdentifier(module.name))
@@ -746,14 +793,12 @@ function extractUnitsFromMath(multiBlockMathString) {
   const wrappedString = `<root>${multiBlockMathString}</root>`
 
   // Parse the XML String
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(wrappedString, 'application/xml')
+  const { doc, error } = tryParseXml(wrappedString)
 
   // Check for parsing errors (optional safety)
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
-    console.error('XML Parse Error:', parserError.textContent)
-    throw new Error('XML Parse Error:', parserError.textContent)
+  if (!doc) {
+    console.error('XML Parse Error:', error)
+    throw new Error('XML Parse Error:', error)
   }
 
   // Find all <cn> elements
@@ -792,10 +837,11 @@ function handleLoggerErrors(logger, headerMessage, dontThrow = false) {
 }
 
 /**
- * Adds the `environment` component, holding the model's variable of integration (VoI), and connects each
+ * Adds the `phlynx_environment` component, holding the model's variable of integration (VoI), and connects each
  * component's VoI to it. The environment's VoI takes the name and units of the first ODE's, so a model that
- * integrates over a distance in metres gets `environment/x` in metres. A model without ODEs is algebraic: it
- * has no VoI, and so no environment.
+ * integrates over a distance in metres gets `phlynx_environment/x` in metres. A model without ODEs is algebraic: it
+ * has no VoI, and so no environment. A module may already be called `phlynx_environment`, so the component takes the
+ * first free name, `phlynx_environment_1` and so on, and is identified by its id, PHLYNX_ENVIRONMENT_COMPONENT_ID.
  *
  * @param {Object} model - A libcellml Model.
  * @param {Array<{component: Object, voiNames: Set<string>, hasOde: boolean}>} voiVariables - Each component's
@@ -809,9 +855,8 @@ function addEnvironmentComponent(model, voiVariables) {
     .find(({ component, name }) => component.hasVariableByName(name))
   if (!odeVoi) return
 
-  const environmentComp = new _libcellml.Component()
-  environmentComp.setName('environment')
-  model.addComponent(environmentComp)
+  const environmentComp = addGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.environment)
+  const environmentName = environmentComp.name()
 
   const odeVoiVar = odeVoi.component.variableByName(odeVoi.name)
   const odeVoiUnits = odeVoiVar.units()
@@ -824,7 +869,7 @@ function addEnvironmentComponent(model, voiVariables) {
   odeVoiVar.delete()
 
   const voiUnits = voiVar.units()
-  const environmentVoi = `environment/${voiVar.name()} (${voiUnits.name()})`
+  const environmentVoi = `${environmentName}/${voiVar.name()} (${voiUnits.name()})`
   const incompatible = []
   for (const { component, voiNames } of voiVariables) {
     for (const name of voiNames) {
@@ -870,34 +915,35 @@ export function splitWideMath(math) {
   // Too few elements to exceed either limit.
   if (!math || (math.match(/<[A-Za-z]/g)?.length ?? 0) <= Math.min(MAX_MATH_EQUATIONS, MAX_MATH_OPERANDS)) return math
 
-  const doc = new DOMParser().parseFromString(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`, 'application/xml')
-  if (doc.querySelector('parsererror')) return math
+  const doc = parseXml(`<root xmlns:cellml="${CELLML_NS}">${math}</root>`)
+  if (!doc) return math
   let isChanged = false
 
   for (const apply of Array.from(doc.getElementsByTagNameNS(MATHML_NS, 'apply'))) {
-    const [operator, ...operands] = Array.from(apply.children)
+    const [operator, ...operands] = childElements(apply)
     if (operands.length <= MAX_MATH_OPERANDS || !GROUPABLE_OPERATORS.has(operator.localName)) continue
     let groups = operands
     while (groups.length > MAX_MATH_OPERANDS) {
       const grouped = []
       for (let i = 0; i < groups.length; i += MAX_MATH_OPERANDS) {
         const group = doc.createElementNS(MATHML_NS, 'apply')
-        group.append(doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS))
+        appendChildren(group, [doc.createElementNS(MATHML_NS, operator.localName), ...groups.slice(i, i + MAX_MATH_OPERANDS)])
         grouped.push(group)
       }
       groups = grouped
     }
-    apply.replaceChildren(operator, ...groups)
+    while (apply.firstChild) apply.removeChild(apply.firstChild)
+    appendChildren(apply, [operator, ...groups])
     isChanged = true
   }
 
-  for (const mathElement of Array.from(doc.documentElement.children)) {
-    const equations = Array.from(mathElement.children)
+  for (const mathElement of childElements(doc.documentElement)) {
+    const equations = childElements(mathElement)
     let last = mathElement
     for (let i = MAX_MATH_EQUATIONS; i < equations.length; i += MAX_MATH_EQUATIONS) {
       const next = mathElement.cloneNode(false)
-      next.append(...equations.slice(i, i + MAX_MATH_EQUATIONS))
-      last.after(next)
+      appendChildren(next, equations.slice(i, i + MAX_MATH_EQUATIONS))
+      last.parentNode.insertBefore(next, last.nextSibling)
       last = next
       isChanged = true
     }
@@ -905,7 +951,7 @@ export function splitWideMath(math) {
 
   if (!isChanged) return math
   const serializer = new XMLSerializer()
-  return Array.from(doc.documentElement.children, (element) => serializer.serializeToString(element)).join('\n')
+  return childElements(doc.documentElement).map((element) => serializer.serializeToString(element)).join('\n')
 }
 
 /**
@@ -926,13 +972,11 @@ function splitWideComponentMath(parent) {
 }
 
 function prioritizeEnvironmentComponent(xmlString) {
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(xmlString, 'application/xml')
+  const { doc, error } = tryParseXml(xmlString)
 
   // Check for parse errors.
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
-    console.error('XML Parse Error during reordering:', parserError.textContent)
+  if (!doc) {
+    console.error('XML Parse Error during reordering:', error)
     return xmlString // Return original if parsing fails
   }
 
@@ -940,10 +984,10 @@ function prioritizeEnvironmentComponent(xmlString) {
   const model = doc.getElementsByTagNameNS(CELLML_NS, 'model')[0]
   if (!model) return xmlString
 
-  // Find the 'environment' component.
+  // Find the environment component PhLynx added.
   const components = Array.from(doc.getElementsByTagNameNS(CELLML_NS, 'component'))
 
-  const envComp = components.find((c) => c.getAttribute('name') === 'environment')
+  const envComp = components.find((c) => c.getAttribute('id') === PHLYNX_ENVIRONMENT_COMPONENT_ID)
 
   // Move it to be the first component child of model.
   if (envComp) {
@@ -1040,11 +1084,11 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
   const unchanged = { xml: xmlString, idMap: new Map(), variableIds: new Map() }
   if (!wanted.size && !/\sid\s*=/.test(xmlString)) return unchanged
 
-  const doc = new DOMParser().parseFromString(xmlString, 'application/xml')
-  if (doc.querySelector('parsererror')) return unchanged
+  const doc = parseXml(xmlString)
+  if (!doc) return unchanged
 
-  const component = [...doc.documentElement.children].find((el) => el.localName === 'component') ?? null
-  const elements = [...doc.querySelectorAll('[id]')]
+  const component = childElements(doc.documentElement, 'component')[0] ?? null
+  const elements = elementsWithId(doc)
   const componentName = component?.getAttribute('name')
   // The instance's name is the component's id, so no other element may take it.
   const renamed = (id) => {
@@ -1071,7 +1115,7 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
   if (component && !component.hasAttribute('id')) component.setAttribute('id', instanceName)
 
   const variableIds = new Map()
-  for (const variable of component ? [...component.children].filter((el) => el.localName === 'variable') : []) {
+  for (const variable of component ? childElements(component, 'variable') : []) {
     const name = variable.getAttribute('name')
     if (!name) continue
     if (!variable.hasAttribute('id') && wanted.has(name)) {
@@ -1103,11 +1147,8 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
 export function stripCelsiusToArbitraryUnit(xmlString) {
   const CELSIUS_UNIT_NAME = 'celsius'
 
-  const domParser = new DOMParser()
-  const doc = domParser.parseFromString(xmlString, 'application/xml')
-
-  const parserError = doc.querySelector('parsererror')
-  if (parserError) {
+  const doc = parseXml(xmlString)
+  if (!doc) {
     console.warn('stripCelsiusToArbitraryUnit: XML parse error — returning original string unchanged.')
     return xmlString
   }
@@ -1122,7 +1163,7 @@ export function stripCelsiusToArbitraryUnit(xmlString) {
   // Remove the <units name="celsius"> definition.
   for (const el of unitsElements) {
     if (el.getAttribute('name') === CELSIUS_UNIT_NAME) {
-      el.parentNode.removeChild(el)
+      removeNode(el)
     }
   }
 
@@ -1226,8 +1267,8 @@ export function generateFlattenedModel(
   const parser = new _libcellml.Parser(false)
   const importer = new _libcellml.Importer(true)
   const analyser = new _libcellml.Analyser()
-  const globalParameterComponent = new _libcellml.Component()
-  const parameterComponent = new _libcellml.Component()
+  let globalParameterComponent = null
+  let parameterComponent = null
 
   // --- Helper State ---
   const modelCache = new Map() // Key: mathRef,        Value: libcellml.Model
@@ -1315,11 +1356,10 @@ export function generateFlattenedModel(
   }
 
   try {
-    globalParameterComponent.setName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME)
-    model.addComponent(globalParameterComponent)
-
-    parameterComponent.setName(PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME)
-    model.addComponent(parameterComponent)
+    // Added before the instances, so it can't take a name one of them has.
+    const instanceNames = new Set(nodes.map((node) => node.data?.name))
+    globalParameterComponent = addGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.globalParameters, instanceNames)
+    parameterComponent = addGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.instanceParameters, instanceNames)
 
     // A boundary condition's value is used only when nothing in its coupled group supplies one.
     const boundaryValues = resolveBoundaryValues(nodes, edges, libraryStore.getMathAnalysis, storeOptions(libraryStore))
@@ -1532,7 +1572,7 @@ export function generateFlattenedModel(
           if (scaled) {
             const factor = multiplyFactor(scaled.port, i)
             const { outputVarName } = createMultiplyComponent(model, scaled.component, scaled.varName, factor)
-            mulComp ??= model.componentByName('generated_multiplications', true)
+            mulComp ??= findGeneratedComponent(model, PHLYNX_GENERATED_COMPONENTS.multiplications)
             term = { component: mulComp, varName: outputVarName }
           }
           if (summed) {
@@ -1585,11 +1625,11 @@ export function generateFlattenedModel(
     addEnvironmentComponent(model, voiVariables)
 
     if (globalParameterComponent.variableCount() === 0) {
-      model.removeComponentByName(PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME, true)
+      model.removeComponentByName(globalParameterComponent.name(), true)
     }
 
     if (parameterComponent.variableCount() === 0) {
-      model.removeComponentByName(PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME, true)
+      model.removeComponentByName(parameterComponent.name(), true)
     }
 
     // ------------------
@@ -1652,8 +1692,8 @@ export function generateFlattenedModel(
     for (const importSource of unitsImportSourceMap.values()) importSource.delete()
 
     // Delete Main Objects.
-    parameterComponent.delete()
-    globalParameterComponent.delete()
+    parameterComponent?.delete()
+    globalParameterComponent?.delete()
     analyser.delete()
     model.delete()
     printer.delete()
@@ -1663,65 +1703,92 @@ export function generateFlattenedModel(
   }
 }
 
+/**
+ * Reads a model's name and top-level components from its text, as libCellML's Model.componentCount counts them:
+ * imported components count, encapsulated ones (CellML 2.0 `<encapsulation>`, 1.x encapsulation groups) don't, and
+ * comments are skipped. A streaming pass, which costs far less than a DOM or libCellML parse of every module.
+ *
+ * @param {string} xml
+ * @returns {{ modelName: string, componentCount: number }}
+ */
+function countTopLevelComponents(xml) {
+  const names = []
+  const encapsulated = new Set()
+  const stack = []
+  let modelName = ''
+  let group = null // the open 1.x group: whether it's an encapsulation, and its child components
+  const parser = new HtmlParser(
+    {
+      onopentag(rawName, attributes) {
+        const name = rawName.slice(rawName.indexOf(':') + 1)
+        if (name === 'model') modelName = attributes.name ?? ''
+        else if (name === 'component') names.push(attributes.name)
+        else if (name === 'group') group = { isEncapsulation: false, children: [] }
+        else if (name === 'relationship_ref' && group && attributes.relationship === 'encapsulation') {
+          group.isEncapsulation = true
+        } else if (name === 'component_ref' && stack.at(-1) === 'component_ref') {
+          if (stack.includes('encapsulation')) encapsulated.add(attributes.component)
+          else group?.children.push(attributes.component)
+        }
+        stack.push(name)
+      },
+      onclosetag() {
+        if (stack.pop() !== 'group') return
+        if (group?.isEncapsulation) group.children.forEach((child) => encapsulated.add(child))
+        group = null
+      },
+    },
+    { xmlMode: true }
+  )
+  parser.write(xml)
+  parser.end()
+  return { modelName, componentCount: names.filter((name) => !encapsulated.has(name)).length }
+}
+
 function isPossibleParameter(variable, voiNames, includeInitialised = false) {
-  if (voiNames.has(variable.name())) return false
-  if (!includeInitialised && variable.initialValue() !== '') return false
+  if (voiNames.has(variable.name)) return false
+  if (!includeInitialised && variable.initialValue !== '') return false
   return true
 }
 
 /**
  * Extracts unique variable names from a CellML model/component. A variable the math computes, or a
  * DAE solves implicitly, is a `variable`; anything else is a `constant` until someone says otherwise.
+ * Reads the math's analysis, not libCellML, so the library store can call it on the main thread.
  *
- * @param {string} math
+ * @param {string} math - A model holding one top-level component, which may encapsulate others.
  * @param {boolean} [includeInitialisedVariables]
  * @param {Map<string, string>} [defaults] - The math's values, for stored math, which holds none (libraryStore.getMathDefaults).
+ * @throws {Error} When the model holds no top-level component, or more than one.
  */
 export function extractVariablesFromMath(math, includeInitialisedVariables = true, defaults = new Map()) {
-  const garbageCollector = new Set() // To track created objects for cleanup.
-  try {
-    const variables = []
-    if (math) {
-      const analysis = analyzeMathXml(math)
-      const roles = {
-        states: new Set(analysis?.stateVariables),
-        assigned: new Set(analysis?.assigned),
-        voi: findVoiNames(analysis),
-      }
-      const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
-      const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
-      roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
-      const parser = new _libcellml.Parser(false)
-      garbageCollector.add(parser)
-      const model = parser.parseModel(math)
-      garbageCollector.add(model)
-      if (model.componentCount() > 1) throw new Error(`More than one component detected in ${model.modelName()}.`)
-      const comp = model.componentByIndex(0)
-      garbageCollector.add(comp)
-      if (!comp) throw new Error(`No component found in file.`)
-      for (let v = 0; v < comp.variableCount(); v++) {
-        const variable = comp.variableByIndex(v)
-        garbageCollector.add(variable)
-        const units = variable.units()
-        garbageCollector.add(units)
-        if (isPossibleParameter(variable, roles.voi, includeInitialisedVariables)) {
-          const initialValue = variable.initialValue()
-          variables.push({
-            name: variable.name(),
-            units: units.name(),
-            value: isNumericLiteral(initialValue) ? initialValue : '',
-            type: inferType(variable.name(), roles),
-            access: 'access',
-            data_reference: 'unknown',
-          })
-        }
-      }
-    }
+  const variables = []
+  if (!math) return variables
+  const { modelName, componentCount } = countTopLevelComponents(math)
+  if (componentCount > 1) throw new Error(`More than one component detected in ${modelName || 'the model'}.`)
+  if (!componentCount) throw new Error(`No component found in file.`)
 
-    return variables
-  } finally {
-    garbageCollector.forEach((obj) => obj?.delete())
+  const analysis = analyzeMathXml(math)
+  const roles = {
+    states: new Set(analysis?.stateVariables),
+    assigned: new Set(analysis?.assigned),
+    voi: findVoiNames(analysis),
   }
+  const initialValues = new Map(analysis?.declared.map((variable) => [variable.name, variable.initialValue]))
+  const isSupplied = (name) => isNumericLiteral(initialValues.get(name)) || isNumericLiteral(defaults.get(name))
+  roles.implicit = findImplicitVariables(analysis, roles, isSupplied)
+  for (const variable of analysis?.declared ?? []) {
+    if (!isPossibleParameter(variable, roles.voi, includeInitialisedVariables)) continue
+    variables.push({
+      name: variable.name,
+      units: variable.units,
+      value: isNumericLiteral(variable.initialValue) ? variable.initialValue : '',
+      type: inferType(variable.name, roles),
+      access: 'access',
+      data_reference: 'unknown',
+    })
+  }
+  return variables
 }
 
 function removeComments(node) {
@@ -1736,18 +1803,6 @@ function removeComments(node) {
       removeComments(child)
     }
   }
-}
-
-function hasParserError(parsedDocument) {
-  var parser = new DOMParser(),
-    errorneousParse = parser.parseFromString('<', 'application/xml'),
-    parsererrorNS = errorneousParse.getElementsByTagName('parsererror')[0].namespaceURI
-
-  if (parsererrorNS === 'http://www.w3.org/1999/xhtml') {
-    return parsedDocument.getElementsByTagName('parsererror').length > 0
-  }
-
-  return parsedDocument.getElementsByTagNameNS(parsererrorNS, 'parsererror').length > 0
 }
 
 export function extractComponentsFromCellmlString(cellmlString) {
@@ -1834,11 +1889,9 @@ export function uniqueComponentIds(componentModels) {
   const idMaps = []
   for (const xml of componentModels) {
     const idMap = new Map()
-    const doc = /\sid\s*=/.test(xml) ? new DOMParser().parseFromString(xml, 'application/xml') : null
-    const component = doc?.querySelector('parsererror')
-      ? null
-      : ([...(doc?.documentElement.children ?? [])].find((el) => el.localName === 'component') ?? null)
-    const tree = component ? [component, ...component.querySelectorAll('[id]')] : []
+    const doc = /\sid\s*=/.test(xml) ? parseXml(xml) : null
+    const component = doc ? (childElements(doc.documentElement, 'component')[0] ?? null) : null
+    const tree = component ? [component, ...elementsWithId(component)] : []
     const elements = tree.filter((el) => el.hasAttribute('id'))
     const own = new Set(elements.map((el) => el.getAttribute('id')))
     for (const el of elements) {
@@ -1887,61 +1940,6 @@ export function combineComponentModels(modelName, componentModels, names = []) {
     printer.delete()
     parser.delete()
   }
-}
-
-export function mergeModelComponents(targetModelString, sourceModelString, newComponentName, oldComponentName) {
-  const parser = new _libcellml.Parser(false)
-
-  let targetModel = null
-  if (targetModelString && targetModelString.trim().length > 0) {
-    try {
-      targetModel = parser.parseModel(targetModelString)
-    } catch (error) {
-      parser.delete()
-      return ''
-      // Handle parsing error if needed
-    }
-  }
-
-  if (!targetModel) {
-    targetModel = new _libcellml.Model()
-    targetModel.setName('User_Modules')
-  }
-
-  let sourceModel = null
-  try {
-    sourceModel = parser.parseModel(sourceModelString)
-  } catch (error) {
-    targetModel.delete()
-    parser.delete()
-    return ''
-  }
-
-  if (sourceModel.componentCount() > 0) {
-    const component = sourceModel.componentByIndex(0)
-    const existingComponent = targetModel.componentByName(oldComponentName || newComponentName, true)
-
-    if (existingComponent) {
-      targetModel.removeComponentByName(oldComponentName || newComponentName, true)
-      existingComponent.delete()
-    }
-
-    const clonedComponent = component.clone()
-    clonedComponent.setName(newComponentName)
-    targetModel.addComponent(clonedComponent)
-    clonedComponent.delete()
-    component.delete()
-  }
-
-  const printer = new _libcellml.Printer()
-  const mergedModelString = printer.printModel(targetModel, false)
-
-  targetModel.delete()
-  sourceModel.delete()
-  parser.delete()
-  printer.delete()
-
-  return mergedModelString
 }
 
 /**
@@ -2008,7 +2006,8 @@ export function getModelComponentNames(modelString) {
  * @returns {string} The renamed model's XML.
  */
 export function renameModelComponent(modelString, fromName, toName) {
-  const doc = new DOMParser().parseFromString(modelString, 'application/xml')
+  const doc = parseXml(modelString)
+  if (!doc) return modelString
   const renameAttribute = (tagName, attribute) => {
     Array.from(doc.getElementsByTagNameNS(CELLML_NS, tagName)).forEach((el) => {
       if (el.getAttribute(attribute) === fromName) el.setAttribute(attribute, toName)
@@ -2079,13 +2078,13 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
             const mappedParent = eqVar.parent()
             garbageCollector.add(mappedParent)
             const mappedParentName = mappedParent?.name()
-            if (param.type === 'global_constant' && mappedParentName === PHLYNX_GLOBAL_PARAMETERS_COMPONENT_NAME) {
+            if (param.type === 'global_constant' && isGeneratedComponent(mappedParent, PHLYNX_GENERATED_COMPONENTS.globalParameters)) {
               mappedParameters[`${param.nodeName}/${param.parameterName}`] = {
                 name: eqVar.name(),
                 componentName: mappedParentName,
               }
               break
-            } else if (param.type === 'constant' && mappedParentName === PHLYNX_INSTANCE_PARAMETERS_COMPONENT_NAME) {
+            } else if (param.type === 'constant' && isGeneratedComponent(mappedParent, PHLYNX_GENERATED_COMPONENTS.instanceParameters)) {
               mappedParameters[`${param.nodeName}/${param.parameterName}`] = {
                 name: eqVar.name(),
                 componentName: mappedParentName,
@@ -2117,10 +2116,22 @@ export function extractVoiAndParametersFromModel(modelString, parameterInfo) {
   }
 }
 
-function findComponentByAnyName(model, names) {
+/**
+ * Finds a parameter component an export generated: by its id, or, in a model exported before PhLynx gave them ids,
+ * by any of its names.
+ *
+ * @param {Object} model - A libcellml Model.
+ * @param {{id: string}} generated - From PHLYNX_GENERATED_COMPONENTS.
+ * @param {Iterable<string>} names - The names it may have without an id.
+ * @returns {Object|null} The component, for the caller to free.
+ */
+function findParameterComponent(model, generated, names) {
+  const byId = findGeneratedComponent(model, generated)
+  if (byId) return byId
   for (const name of names) {
     const comp = model.componentByName(name, true)
-    if (comp) return comp
+    if (comp && !comp.id()) return comp
+    comp?.delete()
   }
   return null
 }
@@ -2174,7 +2185,7 @@ export function loadParametersFromCellML(modelString) {
     const parser = new _libcellml.Parser(false)
     const model = parser.parseModel(modelString)
 
-    const parameterComponent = findComponentByAnyName(model, INSTANCE_PARAMETER_COMPONENT_NAMES)
+    const parameterComponent = findParameterComponent(model, PHLYNX_GENERATED_COMPONENTS.instanceParameters, INSTANCE_PARAMETER_COMPONENT_NAMES)
     if (parameterComponent) {
       const byComponent = collectComponentParameters(parameterComponent)
       for (const [componentName, params] of Object.entries(byComponent)) {
@@ -2186,7 +2197,7 @@ export function loadParametersFromCellML(modelString) {
       parameterComponent.delete()
     }
 
-    const globalParameterComponent = findComponentByAnyName(model, GLOBAL_PARAMETER_COMPONENT_NAMES)
+    const globalParameterComponent = findParameterComponent(model, PHLYNX_GENERATED_COMPONENTS.globalParameters, GLOBAL_PARAMETER_COMPONENT_NAMES)
     if (globalParameterComponent) {
       for (let i = 0; i < globalParameterComponent.variableCount(); i++) {
         const variable = globalParameterComponent.variableByIndex(i)

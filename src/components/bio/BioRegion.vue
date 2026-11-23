@@ -11,9 +11,11 @@
         'bio-region--inner': data.form === 'inner' && !data.clip,
         'bio-region--drawn': !!data.clip,
         'bio-region--tube': data.shape === 'tube',
+        'bio-region--tinting': !!tintOf,
       },
     ]"
-    :style="cutoutStyle"
+    :style="[cutoutStyle, tintStyle]"
+    :data-tint="tintStyle ? data.tint : undefined"
     data-testid="bio-region"
     :data-site="data.site ?? undefined"
   >
@@ -46,6 +48,7 @@ import BioPieceName from './BioPieceName.vue'
 import BioPieceResize from './BioPieceResize.vue'
 import { partOf } from '../../services/bioView/geometry'
 import { EPITHELIAL_SHAPE, facetById } from '../../services/bioView/shape'
+import { tintColour } from '../../services/bioView/speciesLayout'
 
 const props = defineProps({
   /** Its node id, for renaming it. */
@@ -88,6 +91,15 @@ const cutoutStyle = computed(() => {
 const labelStyle = computed(() => {
   const at = props.data.nameAt
   return at ? { position: 'absolute', left: `${at.x}px`, top: `${at.y}px`, whiteSpace: 'nowrap' } : undefined
+})
+
+/** The focused species' colour, which its concentration tints a compartment holding it with; null with none. */
+const tintOf = inject('bioTintColour', computed(() => null))
+/** Over its own colour, under its name and anything in it. */
+const tintStyle = computed(() => {
+  if (props.data.tint === undefined || !tintOf.value) return undefined
+  const colour = tintColour(tintOf.value, props.data.tint)
+  return { backgroundImage: `linear-gradient(${colour}, ${colour})` }
 })
 
 const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)
@@ -183,6 +195,11 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
   z-index: -1;
   border-radius: inherit;
   background: var(--p-content-background);
+}
+
+/* While a species tints the compartments holding it, none keeps its own colour, so a tint means the same everywhere */
+.bio-region.bio-region--tinting {
+  background-color: var(--p-content-background);
 }
 
 /* A tube, a stretch of vessel or duct: walls along its length, open at its ends */

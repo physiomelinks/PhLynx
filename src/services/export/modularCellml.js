@@ -20,6 +20,7 @@ import { groupingCellmlFile, unitsUsedBy } from '../userModules'
 import { TURTLE_FORMAT, sidecarLocation } from './annotationsRdf'
 import { unitsFileLocation } from './omex'
 import { flatFileNames } from '../../utils/namespaces'
+import { childElements, elementsWithId, parseXml, removeNode } from '../../utils/xmlDom'
 
 export const MODULAR_MAIN_FILE = 'model.cellml'
 const XLINK_NS = 'http://www.w3.org/1999/xlink'
@@ -47,8 +48,8 @@ export async function buildModularModel(nodes, edges, libraryStore, inspectionMo
   const { mainFileName = MODULAR_MAIN_FILE, ...flattenOptions } = options
   const instanceSources = new Map()
   const flat = await (await generateFlattenedModel(nodes, edges, libraryStore, inspectionModules, { ...flattenOptions, instanceSources })).text()
-  const flatDoc = new DOMParser().parseFromString(flat, 'application/xml')
-  const flatUnits = new Map(childrenNamed(flatDoc.documentElement, 'units').map((el) => [el.getAttribute('name'), el]))
+  const flatDoc = parseXml(flat)
+  const flatUnits = new Map(childElements(flatDoc.documentElement, 'units').map((el) => [el.getAttribute('name'), el]))
 
   // Module files sit beside the main model, which imports them by name.
   const folder = mainFileName.slice(0, mainFileName.lastIndexOf('/') + 1)
@@ -144,11 +145,6 @@ function cellmlFileName(componentFile) {
   return /\.cellml$/i.test(file) ? file : `${file}.cellml`
 }
 
-/** An element's child elements of one local name. */
-function childrenNamed(parent, localName) {
-  return [...parent.children].filter((el) => el.localName === localName)
-}
-
 /**
  * Finds the library units file that defines each units, as generateFlattenedModel imports them: the first file to
  * define it, among those written to the export (one per location, the first of a name winning).
@@ -165,10 +161,10 @@ function unitsSources(availableUnits = [], prefix) {
   for (const { componentFile, model } of availableUnits) {
     const location = unitsFileLocation(componentFile)
     if (!model || texts.has(location)) continue
-    const doc = new DOMParser().parseFromString(model, 'application/xml')
-    if (doc.getElementsByTagName('parsererror')[0]) continue
+    const doc = parseXml(model)
+    if (!doc) continue
     texts.set(location, model)
-    for (const units of childrenNamed(doc.documentElement, 'units')) {
+    for (const units of childElements(doc.documentElement, 'units')) {
       const name = units.getAttribute('name')
       if (name && !definedIn.has(name)) definedIn.set(name, location)
     }
@@ -216,10 +212,10 @@ function moduleFile(location, maths, flatUnits, names, sources) {
   const libcellml = getLibCellML()
   const serializer = new XMLSerializer()
   const components = maths.map((math, index) => {
-    const doc = new DOMParser().parseFromString(math, 'application/xml')
-    const component = childrenNamed(doc.documentElement, 'component')[0]
+    const doc = parseXml(math)
+    const component = childElements(doc.documentElement, 'component')[0]
     component.setAttribute('name', names[index])
-    for (const variable of childrenNamed(component, 'variable')) {
+    for (const variable of childElements(component, 'variable')) {
       const type = variable.getAttribute('interface')
       if (type !== 'public' && type !== 'public_and_private') variable.setAttribute('interface', 'public')
     }
@@ -243,9 +239,9 @@ function moduleFile(location, maths, flatUnits, names, sources) {
     } else if (definition) {
       // Units' ids, which no module sidecar points at, could repeat the components' ones.
       const copy = definition.cloneNode(true)
-      for (const el of [copy, ...copy.querySelectorAll('[id]')]) el.removeAttribute('id')
+      for (const el of [copy, ...elementsWithId(copy)]) el.removeAttribute('id')
       units.set(name, serializer.serializeToString(copy))
-      pending.push(...childrenNamed(definition, 'unit').map((unit) => unit.getAttribute('units')))
+      pending.push(...childElements(definition, 'unit').map((unit) => unit.getAttribute('units')))
     } else if (AFFINE_UNIT_CONVERSIONS[name]) {
       // As the flattened model masks it, before stripCelsiusToArbitraryUnit.
       units.set(name, `<units name="${name}"><unit units="${AFFINE_UNIT_CONVERSIONS[name].baseUnit}"/></units>`)
@@ -284,16 +280,16 @@ function mainModel(flatDoc, imports, sources) {
     return importOf.get(href)
   }
 
-  for (const component of childrenNamed(model, 'component')) {
+  for (const component of childElements(model, 'component')) {
     const target = imports.get(component.getAttribute('name'))
     if (!target) continue
     const imported = flatDoc.createElementNS(CELLML_NS, 'component')
     imported.setAttribute('name', component.getAttribute('name'))
     imported.setAttribute('component_ref', target.componentRef)
     importFrom(target.href).appendChild(imported)
-    component.remove()
+    removeNode(component)
   }
-  for (const units of childrenNamed(model, 'units')) {
+  for (const units of childElements(model, 'units')) {
     const name = units.getAttribute('name')
     // Affine units are masked, never imported, as generateFlattenedModel does.
     const href = AFFINE_UNIT_CONVERSIONS[name] ? null : sources.href(name)
@@ -302,7 +298,7 @@ function mainModel(flatDoc, imports, sources) {
     imported.setAttribute('name', name)
     imported.setAttribute('units_ref', name)
     importFrom(href).appendChild(imported)
-    units.remove()
+    removeNode(units)
   }
   model.insertBefore(fragment, model.firstChild)
   return reprint(getLibCellML(), new XMLSerializer().serializeToString(flatDoc))

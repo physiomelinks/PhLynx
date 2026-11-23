@@ -23,6 +23,8 @@ import { BASELINE_SIMULATION_SETTINGS } from '../../../src/utils/constants.js'
 import { ensureLibCellmlReady } from '../helpers/libcellml-bootstrap.js'
 
 // libOpenCOR gives Node a global Worker, which the library store would start the math worker with; analyse inline.
+// libOpenCOR's node build defines a Worker that can't load the libCellML worker, so its operations run here.
+vi.mock('../../../src/services/libcellml/libcellmlClient', () => import('../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../src/services/math/mathWorkerClient.js', async () => {
   const { analyzeMathBatch } = await import('../../../src/services/math/analyzeMath.js')
   const analyzeBatchInBackground = async (items) => analyzeMathBatch(items)

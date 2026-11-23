@@ -81,6 +81,79 @@ export function flowScales(flows, [first, last], { group = 'species', spikes = f
   return (flow) => scales.get(groupOf(flow)) ?? 0
 }
 
+/**
+ * How a focused species' concentration is turned into its compartments' tint: 'linear', none at zero and full at the
+ * most any compartment holds; 'log', between the least and most held, on a log scale, so a small amount still shows;
+ * 'compartment', each between its own least and most, so its course shows, though compartments can't be compared.
+ */
+export const TINT_MODES = Object.freeze(['linear', 'log', 'compartment'])
+
+/** How much of a compartment's colour its species' tint takes at full concentration, so names over it stay legible. */
+export const TINT_MAX = 0.55
+
+/**
+ * A compartment's tint, as a CSS colour: the species' colour, as strong as its concentration.
+ *
+ * @param {string} colour - The species', any CSS colour.
+ * @param {number} intensity - From 0 to 1, from concentrationTints.
+ * @returns {string}
+ */
+export const tintColour = (colour, intensity) =>
+  `color-mix(in srgb, ${colour} ${Math.round(TINT_MAX * intensity * 1000) / 10}%, transparent)`
+
+/**
+ * Gives how strongly each compartment is tinted by its concentration of a species over a stretch of a run, so a tint
+ * means the same from one point to the next. Shared scales compare only the series in one unit; the rest aren't tinted.
+ *
+ * @param {Iterable<{nodeId: string, values: ArrayLike<number>, unit?: string}>} series - Each compartment's
+ *   concentration over the run.
+ * @param {number[]} range - The stretch's first and last points.
+ * @param {Object} [options]
+ * @param {'linear'|'log'|'compartment'} [options.mode='linear'] - See TINT_MODES.
+ * @param {string} [options.unit] - The unit compared; every series' when not given.
+ * @returns {(nodeId: string, index: number) => number|null} The tint, from 0 to 1, at a point; null for no tint.
+ */
+export function concentrationTints(series, [first, last], { mode = 'linear', unit } = {}) {
+  const compared = [...series].filter((entry) => unit === undefined || entry.unit === unit)
+  const valuesOf = new Map(compared.map((entry) => [entry.nodeId, entry.values]))
+  const extentOf = (values, keep = () => true) => {
+    let low = Infinity
+    let high = -Infinity
+    for (let index = Math.max(0, first); index <= Math.min(last, values.length - 1); index++) {
+      const value = values[index]
+      if (!Number.isFinite(value) || !keep(value)) continue
+      low = Math.min(low, value)
+      high = Math.max(high, value)
+    }
+    return { low, high }
+  }
+  const clamp = (share) => Math.min(1, Math.max(0, share))
+  if (mode === 'compartment') {
+    const extents = new Map(compared.map((entry) => [entry.nodeId, extentOf(entry.values)]))
+    return (nodeId, index) => {
+      const value = valuesOf.get(nodeId)?.[index]
+      if (!Number.isFinite(value)) return null
+      const { low, high } = extents.get(nodeId)
+      return high > low ? clamp((value - low) / (high - low)) : 0.5
+    }
+  }
+  const isLog = mode === 'log'
+  let low = Infinity
+  let high = -Infinity
+  for (const { values } of compared) {
+    const extent = extentOf(values, isLog ? (value) => value > 0 : undefined)
+    low = Math.min(low, extent.low)
+    high = Math.max(high, extent.high)
+  }
+  return (nodeId, index) => {
+    const value = valuesOf.get(nodeId)?.[index]
+    if (!Number.isFinite(value)) return null
+    if (!isLog) return high > 0 ? clamp(value / high) : 0
+    if (!(value > 0) || !(high > 0)) return 0
+    return high > low ? clamp(Math.log10(value / low) / Math.log10(high / low)) : 1
+  }
+}
+
 /** The radius of the open circle a dependence link ends in at its protein (SBGN's modulation). */
 export const DEPENDENCE_END = 4
 

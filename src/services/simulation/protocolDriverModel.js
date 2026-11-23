@@ -3,6 +3,10 @@
  * the parameter it drives, which loses its own value.
  */
 import { writeDriverMathML } from '../protocol/libopencorEngine/protocolDrivers'
+import { PHLYNX_ENVIRONMENT_COMPONENT_ID } from '../../utils/constants'
+
+// What PhLynx called its environment before it gave it an id.
+const LEGACY_ENVIRONMENT_COMPONENT_NAME = 'environment'
 
 export const DRIVER_COMPONENT = 'protocol_drivers'
 
@@ -50,7 +54,8 @@ function findEquivalenceSet(variable, handles) {
 export const NO_CLOCK = 'The model has no variable of integration for a protocol to follow.'
 
 /**
- * Finds the model's variable of integration (VoI): the environment's one variable, named and in units as the model's
+ * Finds the model's variable of integration (VoI): the one variable of the environment PhLynx added (found by its id,
+ * or by its old name in an older export), named and in units as the model's
  * first ODE has it (see the flattening in utils/cellml.js).
  *
  * @param {Object} model - A libcellml Model.
@@ -58,7 +63,16 @@ export const NO_CLOCK = 'The model has no variable of integration for a protocol
  * @returns {Object|null} The variable, or null for a model without one.
  */
 function findClock(model, keep) {
-  const environment = keep(model.componentByName('environment', true))
+  let environment = null
+  for (let i = 0; i < model.componentCount() && !environment; i++) {
+    const component = keep(model.componentByIndex(i))
+    if (component.id() === PHLYNX_ENVIRONMENT_COMPONENT_ID) environment = component
+  }
+  // A module called environment has an id, its instance's name, so only an older export's environment matches.
+  if (!environment) {
+    const legacy = keep(model.componentByName(LEGACY_ENVIRONMENT_COMPONENT_NAME, true))
+    if (legacy && !legacy.id()) environment = legacy
+  }
   return environment?.variableCount() ? keep(environment.variableByIndex(0)) : null
 }
 
@@ -85,7 +99,7 @@ function addVariable(libcellml, component, { name, units, initialValue }) {
  * value, and every value equivalent to it, gives way to the driver, whose number starts as that value.
  *
  * @param {Object} options
- * @param {Object} options.libcellml - The libcellml module (see whenLibCellMLReady).
+ * @param {Object} options.libcellml - The libcellml module (see loadLibCellML).
  * @param {string} options.cellml - The flattened model.
  * @param {Array<Object>} options.drivers - From planDrivers.
  * @returns {{cellml: string, errors: string[]}} The model with its drivers, and why any couldn't be added.
@@ -148,7 +162,7 @@ export function addProtocolDrivers({ libcellml, cellml, drivers }) {
  * starts at 0.
  *
  * @param {Object} options
- * @param {Object} options.libcellml - The libcellml module (see whenLibCellMLReady).
+ * @param {Object} options.libcellml - The libcellml module (see loadLibCellML).
  * @param {string} options.cellml - The flattened model, with any drivers.
  * @returns {{cellml: string, errors: string[]}} The model with its clock, and why it couldn't be added.
  */

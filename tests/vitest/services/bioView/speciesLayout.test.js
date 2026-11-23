@@ -912,3 +912,58 @@ describe('species in a cell with pieces inside it', () => {
     expect(path.legs.inside).not.toContain(' L')
   })
 })
+
+describe('the tint a focused species gives its compartments', () => {
+  const outside = { nodeId: 'out', unit: 'mM', values: Float64Array.from([140, 140, 140]) }
+  const inside = { nodeId: 'in', unit: 'mM', values: Float64Array.from([10, 14, 28]) }
+
+  it('runs from none at zero to full at the most any compartment holds, by default', async () => {
+    const { concentrationTints } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const tint = concentrationTints([outside, inside], [0, 2])
+    expect(tint('out', 0)).toBe(1)
+    expect(tint('in', 0)).toBeCloseTo(10 / 140)
+    expect(tint('in', 2)).toBeCloseTo(0.2)
+    // A compartment it doesn't know isn't tinted.
+    expect(tint('elsewhere', 0)).toBeNull()
+  })
+
+  it('scales only over the stretch played, clamping points outside it', async () => {
+    const { concentrationTints } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const tint = concentrationTints([inside], [0, 1])
+    expect(tint('in', 1)).toBe(1)
+    expect(tint('in', 2)).toBe(1)
+  })
+
+  it('on a log scale, puts the least held at none and the most at full', async () => {
+    const { concentrationTints } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const calcium = { nodeId: 'cyto', unit: 'mM', values: Float64Array.from([1e-4, 1e-3, 0]) }
+    const bath = { nodeId: 'bath', unit: 'mM', values: Float64Array.from([1, 1, 1]) }
+    const tint = concentrationTints([calcium, bath], [0, 2], { mode: 'log' })
+    expect(tint('cyto', 0)).toBe(0)
+    expect(tint('cyto', 1)).toBeCloseTo(0.25)
+    expect(tint('bath', 0)).toBe(1)
+    // None held is no tint, not a log of zero.
+    expect(tint('cyto', 2)).toBe(0)
+    // One value held throughout is full.
+    expect(concentrationTints([bath], [0, 2], { mode: 'log' })('bath', 0)).toBe(1)
+  })
+
+  it('per compartment, runs each between its own least and most, a steady one halfway', async () => {
+    const { concentrationTints } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const tint = concentrationTints([outside, inside], [0, 2], { mode: 'compartment' })
+    expect(tint('in', 0)).toBe(0)
+    expect(tint('in', 1)).toBeCloseTo(4 / 18)
+    expect(tint('in', 2)).toBe(1)
+    expect(tint('out', 1)).toBe(0.5)
+  })
+
+  it('compares only one unit, and leaves points with no value untinted', async () => {
+    const { concentrationTints } = await import('../../../../src/services/bioView/speciesLayout.js')
+    const micro = { nodeId: 'micro', unit: 'uM', values: Float64Array.from([5000, NaN, 5000]) }
+    const tint = concentrationTints([outside, inside, micro], [0, 2], { unit: 'mM' })
+    expect(tint('micro', 0)).toBeNull()
+    expect(tint('out', 0)).toBe(1)
+    expect(concentrationTints([micro], [0, 2])('micro', 1)).toBeNull()
+    expect(concentrationTints([{ ...inside, values: Float64Array.from([0, 0, 0]) }], [0, 2])('in', 0)).toBe(0)
+  })
+})

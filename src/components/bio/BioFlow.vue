@@ -160,7 +160,11 @@
             @pointerdown="onChipPointerDown($event, token)"
           >
             <title>
-              {{ `${token.label} in ${nameOf(token.nodeId)}: click to plot it and the flows into it, drag to reorder` }}
+              {{
+                `${token.label} in ${nameOf(token.nodeId)}${concentrationText(
+                  token
+                )}: click to plot it and the flows into it, drag to reorder`
+              }}
             </title>
             <rect
               :x="token.x - token.width / 2"
@@ -254,20 +258,12 @@
               :points="ghost.points.map((point) => `${point.x},${point.y}`).join(' ')"
             />
             <!-- A compartment or cell already there, grown to fit what is added: the room it gains, its new outline -->
-            <g
-              v-else-if="ghost.type === 'grows'"
-              data-testid="bio-piece-ghost-grown"
-              :data-kind="ghost.kind"
-            >
+            <g v-else-if="ghost.type === 'grows'" data-testid="bio-piece-ghost-grown" :data-kind="ghost.kind">
               <mask :id="`bio-ghost-grown-${index}`" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
                 <path :d="roundedRectPath(ghost.rect, cornerOf(ghost))" fill="white" />
                 <path :d="roundedRectPath(ghost.was, cornerOf(ghost))" fill="black" />
               </mask>
-              <rect
-                class="bio-piece-preview__grows"
-                v-bind="ghost.rect"
-                :mask="`url(#bio-ghost-grown-${index})`"
-              />
+              <rect class="bio-piece-preview__grows" v-bind="ghost.rect" :mask="`url(#bio-ghost-grown-${index})`" />
               <path class="bio-piece-preview__outline" :d="roundedRectPath(ghost.rect, cornerOf(ghost))" />
             </g>
             <!-- A compartment or cell pushed out of the way of one that grows: where it goes -->
@@ -662,6 +658,7 @@ const cursor = useVoiCursorStore()
 const voiCursor = computed(() => (cursor.isActive ? { index: cursor.index, range: cursor.range } : null))
 const {
   bioNodes,
+  concentrationTint,
   couplingEdges,
   layout,
   roles,
@@ -671,7 +668,13 @@ const {
   species,
   speciesOrderPreview,
   loadSidecars,
-} = useBioNodes(main.nodes, main.edges, { speciesMode, voiCursor, flowScale: computed(() => cursor.flowScale) })
+} = useBioNodes(main.nodes, main.edges, {
+  speciesMode,
+  voiCursor,
+  flowScale: computed(() => cursor.flowScale),
+  focusedSpecies: computed(() => viewMode.focusedSpecies),
+  tintMode: computed(() => cursor.concentrationScale),
+})
 const { applyPlan, placePiecesTemplate, editPieces, strandedBy, nameError, renameInstance } = useBioEdits(roles)
 
 onMounted(() => loadSidecars())
@@ -682,8 +685,8 @@ onMounted(() => loadSidecars())
 const handlesOf = computed(
   () =>
     new Map(
-      bioNodes.value.map((node) => [node.id, `${node.parentNode ?? ''} ${JSON.stringify(node.data.handles ?? [])}`]),
-    ),
+      bioNodes.value.map((node) => [node.id, `${node.parentNode ?? ''} ${JSON.stringify(node.data.handles ?? [])}`])
+    )
 )
 watch(handlesOf, async (now, before) => {
   const changed = [...now].filter(([id, handles]) => before?.get(id) !== handles).map(([id]) => id)
@@ -729,10 +732,9 @@ const extent = computed(() =>
   bioNodes.value
     .filter((node) => !node.parentNode)
     .map(
-      (node) =>
-        `${Math.round(node.position.x)},${Math.round(node.position.y)},${node.width ?? ''},${node.height ?? ''}`,
+      (node) => `${Math.round(node.position.x)},${Math.round(node.position.y)},${node.width ?? ''},${node.height ?? ''}`
     )
-    .join(';'),
+    .join(';')
 )
 watch(extent, async () => {
   if (!isViewSet || isViewChosen || history.isReplaying) return
@@ -747,7 +749,7 @@ watch(
   (isEmpty) => {
     if (isEmpty) isViewSet = isViewChosen = false
   },
-  { flush: 'sync' },
+  { flush: 'sync' }
 )
 
 // ── Dragging into a membrane or onto a site of the pieces ──────────────
@@ -1067,12 +1069,12 @@ const dropText = computed(() => {
   const isPorted = (data) => hasPorts(data) || (!id && !!libraryStore.getModuleAnnotations(data?.mathRef))
   const text = dropLabel(
     siteLabel(site, nameOf),
-    { name: id ? nameOf(id) : (dragged?.moduleRef?.split(':')[0] ?? 'the module'), hasPorts: isPorted(dragged) },
+    { name: id ? nameOf(id) : dragged?.moduleRef?.split(':')[0] ?? 'the module', hasPorts: isPorted(dragged) },
     (owned ? [] : neighboursAt(site, id)).map(({ id: other, ref }) => ({
       label: labels.get(ref) ?? ref,
       name: nameOf(other),
       hasPorts: hasPorts(main.findNode(other)?.data),
-    })),
+    }))
   )
   const replaced = owned ? null : replacedOccupant(site, id)
   return { text, replace: replaced ? `Replaces ${nameOf(replaced)}` : null }
@@ -1123,7 +1125,7 @@ function onNodesChange(changes) {
   changes = changes.filter(
     (change) =>
       change.type !== 'position' ||
-      (findNode(change.id)?.type !== 'bioMembrane' && (!structureDrag?.alone || structureDrag.alone.has(change.id))),
+      (findNode(change.id)?.type !== 'bioMembrane' && (!structureDrag?.alone || structureDrag.alone.has(change.id)))
   )
   for (const change of changes) {
     if (change.type === 'select') {
@@ -1205,7 +1207,7 @@ function moveStructure(event, node) {
   applyNodeChanges(
     [...starts]
       .filter(([id]) => id !== node.id)
-      .map(([id, start]) => ({ id, type: 'position', position: { x: start.x + delta.x, y: start.y + delta.y } })),
+      .map(([id, start]) => ({ id, type: 'position', position: { x: start.x + delta.x, y: start.y + delta.y } }))
   )
 }
 
@@ -1255,7 +1257,7 @@ async function settleNodeDrag({ nodes: dragged }) {
   const alone = structureDrag?.alone
   const nodes = dragged
     .filter((moved) => !alone || alone.has(moved.id))
-    .map((moved) => (moved.type === 'bioMembrane' ? (findNode(moved.parentNode) ?? moved) : moved))
+    .map((moved) => (moved.type === 'bioMembrane' ? findNode(moved.parentNode) ?? moved : moved))
   structureDrag = null
   const target = activeTarget.value
   const dropped = draggingId.value
@@ -1299,7 +1301,7 @@ async function settleNodeDrag({ nodes: dragged }) {
           position: { x: at.x, y: at.y },
           layout: layout.value,
           bioViews: bioViews(),
-        }),
+        })
       )
     } else if (place?.kind === 'region' && place.anchored) {
       // A compartment lying against cells is placed by them: it goes back, and moves when they do.
@@ -1442,9 +1444,21 @@ const scopedSpecies = computed(() => species.value?.network.species ?? [])
 const colourIndex = (curie) =>
   Math.max(
     0,
-    scopedSpecies.value.findIndex((entry) => entry.species === curie),
+    scopedSpecies.value.findIndex((entry) => entry.species === curie)
   ) % SPECIES_COLOURS.length
 const colourOf = (curie) => SPECIES_COLOURS[colourIndex(curie)]
+/** What colour the focused species' concentration tints its compartments (see BioCell and BioRegion). */
+provide(
+  'bioTintColour',
+  computed(() => (concentrationTint.value ? colourOf(concentrationTint.value.species) : null))
+)
+/** A tinted compartment's concentration of the focused species at the cursor, for its token's tooltip. */
+function concentrationText(token) {
+  const tinted = concentrationTint.value
+  if (tinted?.species !== token.species) return ''
+  const value = tinted.tints.find((tint) => tint.nodeId === token.nodeId)?.value
+  return Number.isFinite(value) ? ` (${Number(value.toPrecision(4))}${tinted.unit ? ` ${tinted.unit}` : ''})` : ''
+}
 /** The species menu's rows. */
 const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
 const speciesMenuRef = ref(null)
@@ -1628,7 +1642,7 @@ function onTokenClick({ nodeId, species: curie, label }) {
         const mathRef = main.findNode(id)?.data?.mathRef
         return mathRef ? libraryStore.getParsedModuleAnnotations(mathRef) : null
       },
-    },
+    }
   )
   viewMode.focusedSpecies = { nodeId, species: curie, label: `${label} in ${nameOf(nodeId)}`, scope }
 }
@@ -1636,7 +1650,7 @@ function onTokenClick({ nodeId, species: curie, label }) {
 // Selecting an instance plots it instead; so does leaving the view.
 watch(
   () => main.nodes.value.some((node) => node.selected),
-  (isSelected) => isSelected && clearSpeciesFocus(),
+  (isSelected) => isSelected && clearSpeciesFocus()
 )
 onBeforeUnmount(clearSpeciesFocus)
 
@@ -1744,7 +1758,7 @@ function liesAgainstMenu(id, role) {
         icon: isCurrent(cellId, against) ? 'pi pi-check' : undefined,
         // A new place for the region clears where it was dragged to.
         command: () => setChoice(id, { adjacent: [{ cell: cellId, ...against }], rect: undefined }, 'bio-adjacent'),
-      })),
+      }))
     ),
   }
 }
@@ -1769,7 +1783,7 @@ async function keepEdit(raw, type, failed = 'Could not change it') {
 }
 
 /** The piece a cell's or region's name is: a cell's inside, else its membrane; a region's compartment. */
-const namedPieceOf = (place) => (place.kind === 'cell' ? (place.bulk ?? place.piece) : place.piece)
+const namedPieceOf = (place) => (place.kind === 'cell' ? place.bulk ?? place.piece : place.piece)
 
 /** The piece a cell's or region's skin is on: a cell's membrane, a region's compartment. */
 const skinnedPieceOf = (place) => place.piece
@@ -1800,14 +1814,14 @@ const skinArt = computed(
     new Map(
       [...piecesStore.allSkins]
         .filter(([, skin]) => skin.art)
-        .map(([id, skin]) => [id, { href: skinHref(skin.art), isShape: !!skin.shape }]),
-    ),
+        .map(([id, skin]) => [id, { href: skinHref(skin.art), isShape: !!skin.shape }])
+    )
 )
 provide('bioSkinOf', (skin) => {
   const art = skin && skinArt.value.get(skin.ref)
   if (!art) return null
   // A skin that gives the cell its shape is drawn exactly where its geometry is: stretched to the cell's own box.
-  const aspect = art.isShape ? SKIN_ASPECT.stretch : (SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain)
+  const aspect = art.isShape ? SKIN_ASPECT.stretch : SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain
   return { href: art.href, aspect, opacity: skin.opacity ?? 1 }
 })
 
@@ -1997,7 +2011,7 @@ async function removeWithModules(next, stranded, label) {
   if (answer !== 'accept') return
   await deleteInstances(
     stranded.map((node) => node.id),
-    { removeNodes: main.removeNodes, history, after: () => editPieces(next, 'bio-pieces-remove') },
+    { removeNodes: main.removeNodes, history, after: () => editPieces(next, 'bio-pieces-remove') }
   )
 }
 
@@ -2008,7 +2022,7 @@ const { armedTile, draggedTile } = storeToRefs(viewMode)
 // A template file asked for there is loaded here, into the middle of the view.
 watch(
   () => viewMode.templateFileRequests,
-  () => loadTemplateFile(viewCentre()),
+  () => loadTemplateFile(viewCentre())
 )
 
 /**
@@ -2095,14 +2109,14 @@ function moveDraft(pointer) {
     mode === 'frame'
       ? moveFrame(base, piece, delta, rects)
       : mode === 'slide'
-        ? slideDock(base, piece, delta, rects)
-        : mode === 'grip:fold'
-          ? moveFold(base, piece, grip, rects)
-          : mode === 'grip:bend'
-            ? bendTube(base, piece, { x: grip.x, y: grip.y + below })
-            : mode === 'grip:reach'
-              ? reachTo(base, piece, pointer, rects)
-              : null
+      ? slideDock(base, piece, delta, rects)
+      : mode === 'grip:fold'
+      ? moveFold(base, piece, grip, rects)
+      : mode === 'grip:bend'
+      ? bendTube(base, piece, { x: grip.x, y: grip.y + below })
+      : mode === 'grip:reach'
+      ? reachTo(base, piece, pointer, rects)
+      : null
   return raw && validatePieces(raw).pieces
 }
 
@@ -2351,9 +2365,7 @@ const sceneOptions = () => {
   return { shapes, nodes, widthOf }
 }
 
-const pieceScene = computed(() =>
-  carriedTile.value ? dropScene(piecesStore.pieces, sceneOptions()) : null,
-)
+const pieceScene = computed(() => (carriedTile.value ? dropScene(piecesStore.pieces, sceneOptions()) : null))
 /** What the carried piece would do where the pointer is: { key, label | invalid, highlights, ghosts }. */
 const piecePreview = shallowRef(null)
 const piecePointer = ref(null)
@@ -2440,7 +2452,10 @@ function growthNote(ghosts) {
     const listed = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
     return `${listed} ${names.length > 1 ? many : one}`
   }
-  const notes = [said('grows', 'grows to fit it', 'grow to fit it'), said('moves', 'moves out of the way', 'move out of the way')]
+  const notes = [
+    said('grows', 'grows to fit it', 'grow to fit it'),
+    said('moves', 'moves out of the way', 'move out of the way'),
+  ]
   return notes.filter(Boolean).join('; ') || null
 }
 
@@ -2582,7 +2597,7 @@ async function placeTile(tile, point) {
       // Named for the piece, which is drawn by its module's name while it holds one.
       const name = placeholderName(
         site.label,
-        main.nodes.value.filter((node) => node.id !== id).map((node) => node.data?.name),
+        main.nodes.value.filter((node) => node.id !== id).map((node) => node.data?.name)
       )
       if (id && name) await renameInstance(id, name)
     }
@@ -2842,7 +2857,7 @@ function onNodeContextMenu({ event, node }) {
         label: 'Reset to Annotations',
         icon: 'pi pi-replay',
         command: () => applyPlan(new Map([[node.id, undefined]]), 'bio-reset'),
-      },
+      }
     )
   }
   items.push(
@@ -2851,7 +2866,7 @@ function onNodeContextMenu({ event, node }) {
       label: deletionLabel(node.id, main.nodes.value),
       icon: 'pi pi-trash',
       command: () => deleteNodes(deletionScope(node.id, main.nodes.value)),
-    },
+    }
   )
   menuItems.value = items
   contextMenu.value.show(event)
@@ -2896,7 +2911,7 @@ async function deleteNodes(ids) {
       const patches = releaseFromCell(contents, layout.value, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
       before = () =>
         applyPlan(
-          new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])),
+          new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)]))
         )
     }
   }
@@ -3016,7 +3031,7 @@ function onPaneContextMenu(event) {
 /** The open placing dialog: { mode, at, id?, name?, initialRole? }. */
 const placing = ref(null)
 const cellChoices = computed(() =>
-  targets.value.map((cell) => ({ id: cell.id, name: main.findNode(cell.id)?.data?.name ?? cell.id })),
+  targets.value.map((cell) => ({ id: cell.id, name: main.findNode(cell.id)?.data?.name ?? cell.id }))
 )
 
 /** Puts a new protein in a slot, moving the proteins after it along, as part of the current step. */
@@ -3280,7 +3295,7 @@ async function onPlaceConfirm(choice) {
   if (mode === 'compartment') {
     props.createInstance(
       libraryStore.availableModules.get(moduleRef),
-      placement ? { role: 'region', adjacent: [placement] } : { role: 'region', rect: regionRectAt(at) },
+      placement ? { role: 'region', adjacent: [placement] } : { role: 'region', rect: regionRectAt(at) }
     )
   }
 }

@@ -5,6 +5,7 @@ const { hoistEncapsulatedComponents, processCellMLData } = vi.hoisted(() => ({
   hoistEncapsulatedComponents: vi.fn((cellml) => ({ cellml, hoisted: [], ignoredContainment: false })),
   processCellMLData: vi.fn(),
 }))
+vi.mock('../../../src/services/libcellml/libcellmlClient', () => import('../helpers/inlineLibcellmlClient.js'))
 vi.mock('../../../src/utils/cellml', async (importActual) => ({ ...(await importActual()), hoistEncapsulatedComponents, processCellMLData }))
 
 import { IMPORT_KEYS } from '../../../src/utils/constants.js'

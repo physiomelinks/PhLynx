@@ -8,23 +8,27 @@ import { buildParameterChanges } from '../services/simulation/parameterChanges'
 import { buildParameterOverrides } from '../services/simulation/parameterSliders'
 import {
   applyParameterOverrides,
-  buildScopedModel,
+  buildScopedModelInBackground,
   buildScopeSignature,
   checkScope,
   resolveScope,
   summariseScopeReport,
 } from '../services/simulation/scopedModel'
-import { NO_CLOCK, addProtocolClock, addProtocolDrivers } from '../services/simulation/protocolDriverModel'
+import { NO_CLOCK } from '../services/simulation/protocolDriverModel'
+import {
+  addProtocolClockInBackground,
+  addProtocolDriversInBackground,
+  buildVariableMappingInBackground,
+} from '../services/libcellml/simulationModel'
 import { listFeatureOperands, resolveFeatureOperands } from '../services/simulation/protocolFeatures'
 import { clampSolverSettings, prepareProtocolRun } from '../services/simulation/protocolRun'
 import { familyValues, findBoundarySweepProblem, findSweepProblem, listSweptBoundaries, resolveSweepTarget, splitFamily, sweepLabel, sweepReadout, sweepValues } from '../services/simulation/sweep'
-import { buildVariableMapping, mapInspectionModules } from '../services/simulation/variableMapping'
+import { mapInspectionModules } from '../services/simulation/variableMapping'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useProtocolStore } from '../stores/protocolStore'
 import { selectExperiment, useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
-import { whenLibCellMLReady } from '../utils/cellml'
 import { FLOW_IDS } from '../utils/constants'
 
 // One run at a time, shared by every caller; a newer run makes an older one's results irrelevant.
@@ -269,7 +273,7 @@ export function useSimulation() {
       } else {
         const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
         // libOpenCOR checks the model and reports its issues, so the flatten's own check is skipped.
-        const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+        const cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
         if (token !== runToken) return
         built = {
           key: ++sessionCount,
@@ -348,10 +352,10 @@ export function useSimulation() {
     let source = kept
     if (!source) {
       const withOverrides = applyParameterOverrides(scope, libraryStore, overrides)
-      let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+      let cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
       if (token !== runToken) return
       if (drivers.length) {
-        const added = addProtocolDrivers({ libcellml: await whenLibCellMLReady(), cellml, drivers })
+        const added = await addProtocolDriversInBackground({ cellml, drivers })
         if (token !== runToken) return
         if (added.errors.length) {
           store.report = { ...store.report, errors: added.errors }
@@ -449,16 +453,15 @@ export function useSimulation() {
     if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'] }
     // As runProtocolOn flattens it: the model as it is, without the sliders' values.
     const withOverrides = applyParameterOverrides(scope, libraryStore, selectRunOverrides(true))
-    let cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
-    const libcellml = await whenLibCellMLReady()
+    let cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
     const { drivers } = protocolStore
     if (drivers.length) {
-      const added = addProtocolDrivers({ libcellml, cellml, drivers })
+      const added = await addProtocolDriversInBackground({ cellml, drivers })
       if (added.errors.length) return { errors: added.errors }
       cellml = added.cellml
     }
     // Each experiment's own time, from the end of its warm-up, for the SED-ML's time axes.
-    const clocked = addProtocolClock({ libcellml, cellml })
+    const clocked = await addProtocolClockInBackground({ cellml })
     if (clocked.errors.length) return { errors: clocked.errors }
     cellml = clocked.cellml
     if (busy()) return refusal
@@ -514,7 +517,7 @@ export function useSimulation() {
     if (!simulator) return { errors: [libopencor.reason ?? 'The simulator couldn’t load.'] }
     // As run flattens it: with the sliders' values, as the results show them.
     const withOverrides = applyParameterOverrides(scope, libraryStore, selectRunOverrides(false))
-    const cellml = await buildScopedModel(withOverrides.scope, withOverrides.libraryStore, { check: false }).text()
+    const cellml = await buildScopedModelInBackground(withOverrides.scope, withOverrides.libraryStore, { check: false })
     if (busy()) return refusal
 
     const built = { key: ++sessionCount, cellml }
@@ -549,10 +552,9 @@ export function useSimulation() {
    * @returns {Promise<Object>} The kept model, with its mapping, inspection outputs and variables.
    */
   async function mapResults(built, scope, results) {
-    const libcellml = await whenLibCellMLReady()
     return {
       ...built,
-      mapping: buildVariableMapping({ libcellml, cellml: built.cellml, nodes: scope.nodes, results }),
+      mapping: await buildVariableMappingInBackground({ cellml: built.cellml, nodes: scope.nodes, results }),
       inspectionOutputs: mapInspectionModules(scope.inspectionModules, scope.nodes, results),
       // Only names and kinds are kept, not values: they don't change while the model doesn't.
       variables: new Map([...results.variables].map(([name, { kind }]) => [name, { kind }])),
@@ -570,8 +572,8 @@ export function useSimulation() {
    */
   async function mapPartialResults(source, scope, partialResults) {
     if (source.mapping) return { results: partialResults, mapping: source.mapping }
-    const libcellml = await whenLibCellMLReady()
-    return { results: partialResults, mapping: buildVariableMapping({ libcellml, cellml: source.cellml, nodes: scope.nodes, results: partialResults }) }
+    const mapping = await buildVariableMappingInBackground({ cellml: source.cellml, nodes: scope.nodes, results: partialResults })
+    return { results: partialResults, mapping }
   }
 
   /** Stops the running simulation, keeping the points it computed; before it starts, abandons it. */

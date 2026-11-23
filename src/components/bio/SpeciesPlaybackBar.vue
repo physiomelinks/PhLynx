@@ -136,6 +136,19 @@
           </p>
         </fieldset>
         <fieldset class="species-playback__window">
+          <legend>Concentration tint</legend>
+          <label class="species-playback__field">
+            <span>Scale</span>
+            <select v-model="cursor.concentrationScale" class="species-playback__wide" data-testid="bio-species-tint-scale">
+              <option v-for="option in TINT_SCALES" :key="option.mode" :value="option.mode">{{ option.label }}</option>
+            </select>
+          </label>
+          <p class="species-playback__note">
+            {{ TINT_SCALES.find((option) => option.mode === cursor.concentrationScale).note }} Click a species to tint
+            every compartment holding it.
+          </p>
+        </fieldset>
+        <fieldset class="species-playback__window">
           <legend>Window ({{ unitLabel }})</legend>
           <label class="species-playback__field">
             <span>From</span>
@@ -188,6 +201,13 @@ const WIDTH_GROUPS = [
   { group: 'species', label: 'Within each species', note: 'A path against the flows of its own species: which of a species’ paths carries most, and when.' },
   { group: 'path', label: 'Each path with itself', note: 'A path against its own flow alone: every path’s own course, however small beside the others.' },
   { group: 'all', label: 'Across all paths', note: 'Every path against every flow: which species and paths carry most overall.' },
+]
+
+/** How a focused species' concentration can tint its compartments, and what each shows (see TINT_MODES). */
+const TINT_SCALES = [
+  { mode: 'linear', label: 'Linear, shared', note: 'None at zero, full at the most any compartment holds in the window: compartments compared as they are.' },
+  { mode: 'log', label: 'Log, shared', note: 'From the least to the most held, on a log scale: a small concentration still shows beside a large one.' },
+  { mode: 'compartment', label: 'Each compartment with itself', note: 'Each from its own least to most in the window: its own course, but compartments can’t be compared.' },
 ]
 
 /** The times the whole window can be played in, in seconds. */

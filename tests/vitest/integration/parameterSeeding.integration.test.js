@@ -58,7 +58,7 @@ describe('enterocyte parameter seeding', () => {
     const file = await parseParametersJson(readResource('NKA_parameters.json'), 'NKA_parameters.json')
     await useParametersImport(deps).importParameterFile(file, 'NKA_parameters.json', { record: false })
 
-    const processed = processCellMLData(prepareCellmlImport(readResource('NKA.cellml'), 'NKA.cellml'))
+    const processed = processCellMLData(await prepareCellmlImport(readResource('NKA.cellml'), 'NKA.cellml'))
     expect(processed.type).toBe('success')
     library.addMathFile('NKA.cellml', processed.components)
     library.addUnitsFile({ componentFile: 'NKA.cellml', model: processed.units.model })

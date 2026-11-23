@@ -108,16 +108,16 @@ describe('library namespaces', () => {
     expect([...store.namespacesWithFiles(['lung.cellml'])]).toEqual([])
   })
 
-  it('reports math and configs that would change what is loaded, and nothing for the same content', () => {
+  it('reports math and configs that would change what is loaded, and nothing for the same content', async () => {
     loadRepo(ENTEROCYTE, { rate: 1 })
 
-    const same = store.findClashes({
+    const same = await store.findClashes({
       mathFiles: [{ key: `${ENTEROCYTE}/membrane.cellml`, components: [{ name: 'membrane', math: membraneMath(1) }] }],
       configFiles: [{ key: `${ENTEROCYTE}/membrane_config.json`, configs: [config()] }],
     })
     expect(same).toEqual([])
 
-    const changed = store.findClashes({
+    const changed = await store.findClashes({
       mathFiles: [{ key: `${ENTEROCYTE}/membrane.cellml`, components: [{ name: 'membrane', math: membraneMath(5) }] }],
       configFiles: [
         { key: 'loose_config.json', namespace: ENTEROCYTE, configs: [config({ general_ports: [{ port_type: 'v', variables: ['v'] }] })] },
@@ -132,7 +132,7 @@ describe('library namespaces', () => {
 
     // Another namespace's file of the same name is not a clash.
     expect(
-      store.findClashes({
+      await store.findClashes({
         mathFiles: [{ key: `${CARDIAC}/membrane.cellml`, components: [{ name: 'membrane', math: membraneMath(5) }] }],
       })
     ).toEqual([])

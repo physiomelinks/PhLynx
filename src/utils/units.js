@@ -1,10 +1,11 @@
 import { AFFINE_UNIT_CONVERSIONS, STANDARD_UNITS } from './constants'
+import { parseXml } from './xmlDom'
 
 export function extractUnitNames(modelXml) {
   if (typeof modelXml !== 'string' || !modelXml.trim()) return []
 
-  const doc = new DOMParser().parseFromString(modelXml, 'application/xml')
-  if (doc.getElementsByTagName('parsererror').length) return []
+  const doc = parseXml(modelXml)
+  if (!doc) return []
 
   return Array.from(doc.documentElement.children)
     .filter((el) => el.localName === 'units')
@@ -169,8 +170,8 @@ export function extractUnitDefinitions(modelXml) {
   const definitions = new Map()
   if (typeof modelXml !== 'string' || !modelXml.trim()) return definitions
 
-  const doc = new DOMParser().parseFromString(modelXml, 'application/xml')
-  if (doc.getElementsByTagName('parsererror').length) return definitions
+  const doc = parseXml(modelXml)
+  if (!doc) return definitions
 
   for (const el of doc.documentElement.children) {
     const name = el.localName === 'units' && el.getAttribute('name')

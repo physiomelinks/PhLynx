@@ -56,9 +56,9 @@ vi.mock('../../../src/services/simulation/libopencorLoader', () => ({
 const built = vi.hoisted(() => ({ scopes: [] }))
 vi.mock('../../../src/services/simulation/scopedModel', async (importOriginal) => ({
   ...(await importOriginal()),
-  buildScopedModel: (scope) => {
+  buildScopedModelInBackground: async (scope) => {
     built.scopes.push(scope)
-    return new Blob(['<model/>'])
+    return '<model/>'
   },
 }))
 vi.mock('../../../src/services/simulation/variableMapping', () => ({
@@ -68,7 +68,18 @@ vi.mock('../../../src/services/simulation/variableMapping', () => ({
 }))
 // A test may hold libcellml back, to act while a run's results are being mapped.
 const libcellml = vi.hoisted(() => ({ ready: null }))
-vi.mock('../../../src/utils/cellml', () => ({ whenLibCellMLReady: () => libcellml.ready ?? Promise.resolve({}) }))
+vi.mock('../../../src/services/libcellml/simulationModel', async () => {
+  const { buildVariableMapping } = await import('../../../src/services/simulation/variableMapping')
+  const { addProtocolClock, addProtocolDrivers } = await import('../../../src/services/simulation/protocolDriverModel')
+  return {
+    buildVariableMappingInBackground: async (options) => {
+      await libcellml.ready
+      return buildVariableMapping(options)
+    },
+    addProtocolDriversInBackground: async (options) => addProtocolDrivers(options),
+    addProtocolClockInBackground: async (options) => addProtocolClock(options),
+  }
+})
 const drivenModels = vi.hoisted(() => [])
 const clocking = vi.hoisted(() => ({ errors: [] }))
 vi.mock('../../../src/services/simulation/protocolDriverModel', async (importOriginal) => ({
