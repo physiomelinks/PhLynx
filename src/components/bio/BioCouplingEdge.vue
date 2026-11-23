@@ -13,6 +13,7 @@
 <script setup>
 import { computed } from 'vue'
 import { BaseEdge, getStraightPath } from '@vue-flow/core'
+import { HANDLE_SIZE } from './BioHandles.vue'
 
 defineOptions({ inheritAttrs: false })
 
@@ -25,7 +26,15 @@ const props = defineProps({
   data: { type: Object, default: () => ({}) },
 })
 
-const path = computed(() => getStraightPath(props))
+// Vue Flow hands over each Top handle's top-centre; meet the dot's centre instead
+const path = computed(() =>
+  getStraightPath({
+    sourceX: props.sourceX,
+    sourceY: props.sourceY + HANDLE_SIZE / 2,
+    targetX: props.targetX,
+    targetY: props.targetY + HANDLE_SIZE / 2,
+  }),
+)
 </script>
 
 <style scoped>

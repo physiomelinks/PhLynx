@@ -35,6 +35,7 @@ import { pathOf } from '../shapeGeometry.js'
 import { INNER_INSET, LIMITS, isDefaultZoneLabel } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
+import { nameFits, proteinReach } from '../speciesLayout.js'
 
 /** The key a piece's place has in the view's layout. */
 export const pieceKey = (id) => `pc:${id}`
@@ -63,8 +64,6 @@ const FRAMED_MIN = Object.freeze({ width: 3 * CELL_RADIUS, height: 3 * CELL_RADI
 const FREE_COMPARTMENT = Object.freeze({ width: 320, height: REGION_HEIGHT })
 /** Room round what stands inside a compartment, for its proteins' names, and between two in a row. */
 const ROOM = GLYPH_HEIGHT / 2 + 36
-/** Room below what stands in a cell with no module of its own yet, for its name and hint, centred there. */
-const HINT_ROOM = 100
 /** How far a compartment docked inside a membrane reaches unless it says (it starts INNER_INSET in). */
 const INNER_DEPTH = 84
 /**
@@ -84,14 +83,36 @@ const BAND_OVERRUN = GAP
 const TUBE_ZONE = Object.freeze({ width: CARD.width + 16, height: CARD.height + 16 })
 /** The least height a process zone is drawn: a row of cartoons with their names, as one spanning its cell is. */
 const ZONE_HEIGHT = processZone({ x: 0, y: 0, width: 0 }, 0).height
-/** How far a zone laid out in a row keeps from anything standing by its frame. */
-const ZONE_GAP = 8
+/**
+ * How far a process zone keeps from the edge of its compartment (past a membrane's band and the proteins on it) and
+ * from anything else standing in it, the same on every side.
+ */
+const ZONE_MARGIN = 16
+/** How rounded a process zone's corners are drawn (see BioZone). */
+const ZONE_CORNER = 8
+/**
+ * How far in from a membrane's middle a process zone keeps on a side with no proteins: its margin past the band, and
+ * far enough that its rounded corner keeps its margin from the band round the cell's rounded corner too.
+ */
+const MEMBRANE_ZONE_INSET = Math.ceil(
+  Math.max(
+    MEMBRANE_BAND_HALF + ZONE_MARGIN,
+    CELL_RADIUS - ZONE_CORNER - (CELL_RADIUS - MEMBRANE_BAND_HALF - ZONE_MARGIN - ZONE_CORNER) / Math.SQRT2,
+  ),
+)
+/** How far a compartment is grown at a time to find room for its name. */
+const NAME_GROWTH = 8
+/** The most room a compartment's name takes below what stands in it: its inset, its height, and its hint's. */
+const NAME_ROOM = 96
 /** A piece with a frame is resized from its bottom-right corner. */
 const FRAME_RESIZE = Object.freeze({ mode: 'frame', position: 'bottom-right' })
 const OPPOSITE = Object.freeze({ top: 'bottom', bottom: 'top', left: 'right', right: 'left' })
 
 /** How far above a tube's room its bend grip sits. */
 const GRIP_RISE = 10
+
+/** How rounded a compartment standing freely is drawn (see BioRegion). */
+const REGION_RADIUS = 12
 
 /** How close two compartments' edges are to count as touching, for a tube between them. */
 const TOUCHING = 8
@@ -381,27 +402,48 @@ function channelBox({ from, to, half, vertical }) {
 }
 
 /**
- * Where two rects touch, if they do: the middle of the stretch of edge they share; or, with one inside the other, the
- * middle of the inner one's right side.
+ * Where two rects touch, if they do, and how big a joint there is drawn: on the stretch of edge they share where both
+ * run straight, past their rounded corners, as long along it as that stretch allows (no shorter than `least`, nor
+ * longer than `size`), as near the middle of what they share as it may; or, with one inside the other, at the middle
+ * of the inner one's right side, as big as `size`.
+ *
+ * @param {Object} a
+ * @param {Object} b
+ * @param {{radii?: [number, number], size?: {width: number, height: number}, least?: number}} [options] - How rounded
+ *   each one's corners are; the joint's size, its height along a side they share side by side, its width along one
+ *   they share one above the other; and the least it is drawn along it.
+ * @returns {{x: number, y: number, size: {width: number, height: number}}|null} Its middle, and size.
  */
-function contact(a, b) {
+function contact(a, b, { radii = [0, 0], size = { width: 0, height: 0 }, least = 0 } = {}) {
   const near = (p, q) => Math.abs(p - q) <= TOUCHING
-  const shared = (lowA, highA, lowB, highB) => (Math.max(lowA, lowB) + Math.min(highA, highB)) / 2
+  const [ra, rb] = radii
+  /** Where along the shared stretch the joint's middle goes, and how long it is, at most `length`. */
+  const along = (lowA, highA, lowB, highB, length) => {
+    const middle = (Math.max(lowA, lowB) + Math.min(highA, highB)) / 2
+    const [from, to] = [Math.max(lowA + ra, lowB + rb), Math.min(highA - ra, highB - rb)]
+    const long = Math.max(least, Math.min(length, to - from))
+    if (to - from < long) return { at: to > from ? (from + to) / 2 : middle, long }
+    return { at: Math.min(to - long / 2, Math.max(from + long / 2, middle)), long }
+  }
   // One inside the other: where the inner one's right side meets the outer's inside.
   const holds = (outer, inner) =>
     inner.x >= outer.x && inner.y >= outer.y && rightOf(inner) <= rightOf(outer) && bottomOf(inner) <= bottomOf(outer)
   const inner = holds(a, b) ? b : holds(b, a) ? a : null
-  if (inner) return { x: rightOf(inner), y: inner.y + inner.height / 2 }
+  if (inner) return { x: rightOf(inner), y: inner.y + inner.height / 2, size }
   const overlapX = a.x < rightOf(b) && b.x < rightOf(a)
   const overlapY = a.y < bottomOf(b) && b.y < bottomOf(a)
-  if (overlapY && near(rightOf(a), b.x))
-    return { x: (rightOf(a) + b.x) / 2, y: shared(a.y, bottomOf(a), b.y, bottomOf(b)) }
-  if (overlapY && near(rightOf(b), a.x))
-    return { x: (rightOf(b) + a.x) / 2, y: shared(a.y, bottomOf(a), b.y, bottomOf(b)) }
-  if (overlapX && near(bottomOf(a), b.y))
-    return { x: shared(a.x, rightOf(a), b.x, rightOf(b)), y: (bottomOf(a) + b.y) / 2 }
-  if (overlapX && near(bottomOf(b), a.y))
-    return { x: shared(a.x, rightOf(a), b.x, rightOf(b)), y: (bottomOf(b) + a.y) / 2 }
+  const sideBySide = (x) => {
+    const { at, long } = along(a.y, bottomOf(a), b.y, bottomOf(b), size.height)
+    return { x, y: at, size: { width: size.width, height: long } }
+  }
+  const oneAbove = (y) => {
+    const { at, long } = along(a.x, rightOf(a), b.x, rightOf(b), size.width)
+    return { x: at, y, size: { width: long, height: size.height } }
+  }
+  if (overlapY && near(rightOf(a), b.x)) return sideBySide((rightOf(a) + b.x) / 2)
+  if (overlapY && near(rightOf(b), a.x)) return sideBySide((rightOf(b) + a.x) / 2)
+  if (overlapX && near(bottomOf(a), b.y)) return oneAbove((bottomOf(a) + b.y) / 2)
+  if (overlapX && near(bottomOf(b), a.y)) return oneAbove((bottomOf(b) + a.y) / 2)
   return null
 }
 
@@ -583,6 +625,54 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         .facets.map((facet) => [facet.id, (occupants.get(facetPath(membraneId, facet)) ?? []).map(widthOf)]),
     )
 
+  /** How far the proteins on each side of a membrane reach into its cell, from its middle; none on a side, 0. */
+  const proteinReachOf = (membraneId) => {
+    const reach = { top: 0, right: 0, bottom: 0, left: 0 }
+    for (const span of topology.spansOf(membraneId)) {
+      for (const id of occupants.get(spanPath(membraneId, span.id)) ?? []) {
+        reach[span.side] = Math.max(reach[span.side], proteinReach(span.side, widthOf(id)))
+      }
+    }
+    return reach
+  }
+  /**
+   * How far in from a compartment's edge a process zone keeps, on each side: ZONE_MARGIN past its border; in a
+   * membrane, past its band and round its corners, or past the proteins on that side and their names.
+   */
+  const zoneMargins = (containerId) => {
+    const membraneId = bulks.get(containerId)
+    const reach = membraneId && proteinReachOf(membraneId)
+    const margin = (side) => (reach ? Math.max(MEMBRANE_ZONE_INSET, reach[side] + ZONE_MARGIN) : ZONE_MARGIN)
+    return { top: margin('top'), right: margin('right'), bottom: margin('bottom'), left: margin('left') }
+  }
+  /**
+   * How tall a compartment must be for its name to find a clear corner (see nameFits), at least as tall as it is: it
+   * grows from its bottom until the name fits there, where what stands in it leaves no room. It grows no further than
+   * puts its lower-left corner past all that stands in it: where the name still doesn't fit, what is in the way is
+   * along its sides, which growing doesn't clear, and the name is drawn over it as nameInCorners falls back to.
+   */
+  const heightForName = (containerId, kind, size) => {
+    const name = byId.get(containerId)?.label ?? ''
+    const membraneId = bulks.get(containerId)
+    const reach = membraneId ? proteinReachOf(membraneId) : { top: 0, right: 0, bottom: 0, left: 0 }
+    const empty = !occupants.get(containerId)?.length
+    const inside = [...(arrangements.get(containerId)?.values() ?? [])]
+    const lowest = Math.max(0, ...inside.map(bottomOf))
+    const limit = Math.min(LIMITS.size.max, Math.max(size.height, lowest + reach.bottom + NAME_ROOM))
+    // The proteins along its top and bottom with their names, which a name in a corner keeps clear of. Those down its
+    // sides stand at points along them, which the name finds its way between.
+    const fits = (height) => {
+      const proteins = [
+        { x: 0, y: 0, width: size.width, height: reach.top },
+        { x: 0, y: height - reach.bottom, width: size.width, height: reach.bottom },
+      ].filter((strip) => strip.height > 0)
+      return nameFits(kind, { x: 0, y: 0, width: size.width, height }, name, [...inside, ...proteins], empty)
+    }
+    let height = size.height
+    while (height < limit && !fits(height)) height += NAME_GROWTH
+    return fits(height) ? height : size.height
+  }
+
   // ── 1. Sizes, from the inside out ─────────────────────────────────────
   const sizes = new Map()
   /** Where what stands in a compartment goes, from its corner, and how far it reaches. */
@@ -619,6 +709,14 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     others.forEach(measure)
     const membraneId = containerId && bulks.get(containerId)
     const folds = membraneId ? foldsIn(membraneId, { width, height }) : []
+    const margins = containerId ? zoneMargins(containerId) : { top: 0, right: 0, bottom: 0, left: 0 }
+    /** The band a zone without a frame is laid out in, in its row from the top, as wide as the container allows. */
+    const zoneRow = (wide, index) => ({
+      x: margins.left,
+      y: margins.top + index * (ZONE_HEIGHT + ZONE_MARGIN),
+      width: wide - margins.left - margins.right,
+      height: ZONE_HEIGHT,
+    })
     // How big the container must be for what is moved clear of its folds, past what they reach.
     const need = { width: 0, height: 0 }
     const clear = (rect, least) => {
@@ -634,8 +732,10 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     // compartment is for what stands in it; then the rest, each sized for what it holds. Any grown bigger than its
     // frame pushes the others out of its way.
     const framed = list.filter((piece) => piece.frame)
+    // A zone is kept its margin in from the container's top and left; past its right and bottom, the container grows.
     for (const zone of framed.filter((piece) => piece.kind === 'zone')) {
-      const { x, y, width: wide, height: high } = zone.frame
+      const { width: wide, height: high } = zone.frame
+      const [x, y] = [Math.max(zone.frame.x, margins.left), Math.max(zone.frame.y, margins.top)]
       rel.set(zone.id, clear({ x, y, width: Math.max(wide, cardsOf(zone)), height: Math.max(high, ZONE_HEIGHT) }))
     }
     for (const piece of framed.filter((piece) => piece.kind !== 'zone')) {
@@ -643,19 +743,19 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     }
     makeRoom(framed, rel)
     const framedZones = framed.filter((piece) => piece.kind === 'zone').map((zone) => rel.get(zone.id))
-    // Process zones without a frame in rows from the top, below the proteins on its top side, as wide as it is,
-    // passing over a row anything with a frame stands in or comes within a gap of, so a zone dropped in is drawn in
-    // a spare place touching nothing, for the user to move where they want it.
+    // Process zones without a frame in rows from the top, their margin in from its sides, as wide as it is, passing
+    // over a row anything with a frame stands in or comes within a margin of, so a zone dropped in is drawn in a
+    // spare place touching nothing, for the user to move where they want it.
     let row = 0
     const placed = framed.map((piece) => rel.get(piece.id))
     const isTaken = (band) =>
       placed.some((rect) =>
         overlapping(
           {
-            x: rect.x - ZONE_GAP,
-            y: rect.y - ZONE_GAP,
-            width: rect.width + 2 * ZONE_GAP,
-            height: rect.height + 2 * ZONE_GAP,
+            x: rect.x - ZONE_MARGIN,
+            y: rect.y - ZONE_MARGIN,
+            width: rect.width + 2 * ZONE_MARGIN,
+            height: rect.height + 2 * ZONE_MARGIN,
           },
           band,
         ),
@@ -663,21 +763,21 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     // What the zones need of its width: those that span it, room for their cards and a spare place past them, not
     // the width they take from it, which would grow it again and again; those with frames, their reach. Either keeps
     // the same margin past it, so a zone given a frame where it was drawn leaves the container as it was.
-    let zonesNeed = Math.max(0, ...framedZones.map((rect) => rightOf(rect) + CELL_RADIUS / 2))
+    let zonesNeed = Math.max(0, ...framedZones.map((rect) => rightOf(rect) + margins.right))
     for (const zone of zones) {
       if (!zone.frame) {
         // Rows go down, so one is past every zone with a frame in the end.
-        let area = processZone({ x: 0, y: 0, width }, row++)
-        while (isTaken(area)) area = processZone({ x: 0, y: 0, width }, row++)
+        let area = zoneRow(width, row++)
+        while (isTaken(area)) area = zoneRow(width, row++)
         const cards = cardsOf(zone)
-        zonesNeed = Math.max(zonesNeed, area.x + cards + CELL_RADIUS / 2)
+        zonesNeed = Math.max(zonesNeed, area.x + cards + margins.right)
         // A fold it would cross leaves it the wider side, and the cell grows until its cards fit there. The folds
         // move as it does, so step out from the width it needs with none by what is still short, to find the least
         // width they fit at whatever width it is laid out at now.
         if (folds.length) {
           let wide = zonesNeed
           for (let short = 1; short > 0 && wide < LIMITS.size.max; wide += Math.max(1, Math.ceil(short))) {
-            const band = processZone({ x: 0, y: 0, width: wide }, row - 1)
+            const band = zoneRow(wide, row - 1)
             short = cards - widestClear(band, foldsIn(membraneId, { width: wide, height })).width
             if (short <= 0) break
           }
@@ -700,13 +800,13 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
     // What else stands in it keeps more room past it, for the names of the proteins on it.
     const fixed = others.map((piece) => rel.get(piece.id))
     const reach = boxOf([...fixed, { x: 0, y: 0, width: 0, height: 0 }])
-    const tall = boxOf([...rel.values(), { x: 0, y: 0, width: 0, height: 0 }])
     arrangements.set(containerId ?? '', rel)
     return {
       width: fixed.length ? reach.x + reach.width : 0,
       zonesNeed,
-      height: tall.y + tall.height,
-      zones: zones.length,
+      height: fixed.length ? reach.y + reach.height : 0,
+      // The zones keep their margin past them at the bottom too.
+      zonesHeight: zones.length ? Math.max(...zoneBottoms) + margins.bottom : 0,
       need,
     }
   }
@@ -728,10 +828,6 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
         // other at the next: it takes the biggest of those.
         const least = size
         const tried = [size]
-        // Below what stands in it: room for its name and hint while it has no module, which are centred there; once it
-        // has one, its name goes in a corner and the hint goes, so only the room its bottom side's proteins take.
-        const below = (inside) =>
-          !inside.zones && !standing.has(bulk) ? 0 : occupants.get(bulk)?.length ? ROOM : HINT_ROOM
         for (let pass = 0; pass < FIT_PASSES; pass++) {
           const inside = arrange(bulk, size.width, size.height)
           const grown = {
@@ -741,7 +837,12 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
               inside.zonesNeed,
               inside.need.width,
             ),
-            height: Math.max(least.height, inside.height + below(inside), inside.need.height),
+            height: Math.max(
+              least.height,
+              inside.height ? inside.height + ROOM : 0,
+              inside.zonesHeight,
+              inside.need.height,
+            ),
           }
           if (grown.width === size.width && grown.height === size.height) break
           const back = tried.findIndex((each) => each.width === grown.width && each.height === grown.height)
@@ -756,7 +857,8 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
           tried.push(grown)
           size = grown
         }
-        // The zones span the cell as it finally is.
+        // Taller where its name finds no clear corner, then the zones span the cell as it finally is.
+        if (standing.has(bulk)) size = { ...size, height: heightForName(bulk, 'cell', size) }
         arrange(bulk, size.width, size.height)
       } else if (bulk) arrange(bulk, size.width, size.height)
       sizes.set(piece.id, { width: size.width, height: size.height })
@@ -768,12 +870,18 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       : piece.style === 'vessel'
         ? { ...TUBE }
         : { ...FREE_COMPARTMENT }
-    const inside = standing.has(piece.id) ? arrange(piece.id, base.width) : { width: 0, zonesNeed: 0, height: 0 }
+    const inside = standing.has(piece.id)
+      ? arrange(piece.id, base.width)
+      : { width: 0, zonesNeed: 0, height: 0, zonesHeight: 0 }
     const size = {
       width: Math.max(base.width, inside.width ? inside.width + ROOM : 0, inside.zonesNeed),
-      height: Math.max(base.height, inside.height + ROOM),
+      height: Math.max(base.height, inside.height ? inside.height + ROOM : 0, inside.zonesHeight),
     }
-    if (standing.has(piece.id)) arrange(piece.id, size.width)
+    if (standing.has(piece.id)) {
+      arrange(piece.id, size.width)
+      // Taller where its name finds no clear corner.
+      size.height = heightForName(piece.id, 'region', size)
+    }
     sizes.set(piece.id, size)
     return size
   }
@@ -1245,7 +1353,9 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
   for (const tube of ofKind('tube')) {
     const [a, b] = tube.ends.map((id) => rects.get(id))
     if (!a || !b) continue
-    const touch = contact(a, b)
+    // A joint stays on the straight of both sides it is on, clear of their rounded corners: a cell's, its membrane's.
+    const radii = tube.ends.map((id) => (bulks.has(id) ? CELL_RADIUS : REGION_RADIUS))
+    const touch = contact(a, b, { radii, size: TUBE_ZONE, least: 2 * BRIDGE_HALF })
     // A skin may anchor it, as the rod's cilium.
     const host = [tube.ends[0], tube.ends[1]].map((id) => byId.get(topology.enclosureOf(id))).find(Boolean)
     const anchor = host?.skin && shapes.get(host.skin.ref)?.anchors?.[tube.id]
@@ -1292,7 +1402,7 @@ export function layoutPieces(pieces, { shapes = new Map(), nodes = [], widthOf =
       const hostRect = host && rects.get(host.id)
       zone = anchor
         ? zoneAt({ x: hostRect.x + anchor.x + anchor.width / 2, y: hostRect.y + anchor.y + anchor.height / 2 })
-        : zoneAt(touch)
+        : zoneAt(touch, touch.size)
       joint = tube.flux
       places.set(key, { ...base, rect: zone, joint, tone: byId.get(tube.ends[0]).tone, zone })
     } else {

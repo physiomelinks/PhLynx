@@ -586,3 +586,75 @@ describe('making room for what grows', () => {
     expect(rectOf(layout, 'o')).toMatchObject({ x: 200, y: 100 })
   })
 })
+
+describe('process zone margins', () => {
+  const compartment = { id: 'c', kind: 'compartment', label: 'C' }
+  const membrane = { id: 'm', kind: 'membrane', label: 'M', encloses: ['c'] }
+  const zone = (id, frame) => ({ id, kind: 'zone', label: id, compartment: 'c', ...(frame && { frame }) })
+  const marginsOf = (layout, host, id) => {
+    const [outer, inner] = [rectOf(layout, host), rectOf(layout, id)]
+    return {
+      left: inner.x - outer.x,
+      top: inner.y - outer.y,
+      right: right(outer) - right(inner),
+      bottom: bottom(outer) - bottom(inner),
+    }
+  }
+
+  it('keeps a zone the same margin from each side of a compartment, at least, past its name', () => {
+    const { left, top, right: past, bottom: below } = marginsOf(laidOut([compartment, zone('z')]), 'c', 'z')
+    expect([top, past]).toEqual([left, left])
+    expect(below).toBeGreaterThanOrEqual(left)
+  })
+
+  it('keeps a zone further in from a membrane, past its band and clear of its rounded corners', () => {
+    const plain = marginsOf(laidOut([compartment, zone('z')]), 'c', 'z')
+    const tight = { ...membrane, frame: { x: 0, y: 0, width: 120, height: 120 } }
+    const inCell = marginsOf(laidOut([compartment, tight, zone('z')]), 'm', 'z')
+    expect([inCell.top, inCell.right]).toEqual([inCell.left, inCell.left])
+    expect(inCell.left).toBeGreaterThan(plain.left)
+    // Its rounded corner keeps its margin from the inside of the band round the cell's corner.
+    const fromCorner = Math.hypot(CELL_RADIUS - (inCell.left + 8), CELL_RADIUS - (inCell.top + 8)) + 8
+    expect(CELL_RADIUS - 12 - fromCorner).toBeGreaterThanOrEqual(plain.left)
+  })
+
+  it('keeps a zone dragged into a corner its margin in, as one laid out in a row is', () => {
+    const row = marginsOf(laidOut([compartment, membrane, zone('z')]), 'm', 'z')
+    const dragged = laidOut([compartment, membrane, zone('z', { x: 0, y: 0, width: 200, height: 88 })])
+    expect(marginsOf(dragged, 'm', 'z')).toMatchObject({ left: row.left, top: row.top })
+  })
+
+  it('keeps a zone clear of the proteins on a side of a membrane, with their names', () => {
+    const bare = marginsOf(laidOut([compartment, membrane, zone('z')]), 'm', 'z')
+    const nodes = [{ id: 'p', data: { name: 'p', bioView: { site: 'pieces/m.top' } } }]
+    const withProtein = marginsOf(laidOut([compartment, membrane, zone('z')], { nodes }), 'm', 'z')
+    expect(withProtein.top).toBeGreaterThan(bare.top)
+    expect(withProtein.left).toBe(bare.left)
+  })
+})
+
+describe('a joint between cells that touch', () => {
+  const cellAt = (id, x, y) => [
+    { id, kind: 'compartment', label: id },
+    { id: `m${id}`, kind: 'membrane', label: `M${id}`, encloses: [id], frame: { x, y, width: 320, height: 240 } },
+  ]
+  const joined = (dy) =>
+    laidOut([
+      ...cellAt('a', 0, 0),
+      ...cellAt('b', 320, dy),
+      { id: 't', kind: 'tube', label: 'T', ends: ['a', 'b'], flux: 'bridge' },
+    ]).places.get(pieceKey('t')).zone
+
+  it('sits in the middle of the side they share, as big as a joint is', () => {
+    const zone = joined(0)
+    expect(zone.y + zone.height / 2).toBe(120)
+    expect(zone.height).toBe(joined(60).height)
+  })
+
+  it('is no longer than where both membranes run straight, past their rounded corners, where they share little', () => {
+    // They share 100 to 240 down; both run straight from 100 + CELL_RADIUS to 240 - CELL_RADIUS.
+    const zone = joined(100)
+    expect(zone.y).toBe(100 + CELL_RADIUS)
+    expect(bottom(zone)).toBe(240 - CELL_RADIUS)
+  })
+})

@@ -496,7 +496,7 @@ function boxOf(place) {
     case 'cytosolic':
       return { x: place.x, y: place.y, ...processSize(place) }
     case 'card':
-      return { x: place.x, y: place.y, ...CARD }
+      return place.rect ?? { x: place.x, y: place.y, ...CARD }
     default:
       return null
   }
@@ -545,10 +545,13 @@ export function focusCouplings(nodes, edges, layout, selected, sidecarOf, facesO
   const drawnEdges = []
   const handles = new Map()
   const partners = new Set()
-  // A membrane has no box of its own: it is drawn over its cell's, so its couplings end on that.
+  // A membrane has no box of its own: it is drawn over its cell's, so its couplings end on that. A module in a
+  // link's joint is drawn as the joint, over the link's zone, not as a card.
   const placeOf = (nodeId) => {
     const place = layout.get(nodeId)
-    return place?.kind === 'membrane' ? { ...place, rect: layout.get(place.cell)?.rect } : place
+    if (place?.kind === 'membrane') return { ...place, rect: layout.get(place.cell)?.rect }
+    if (place?.kind === 'card' && place.joint) return { ...place, rect: layout.get(place.link)?.zone }
+    return place
   }
   const addHandle = (nodeId, id, point) => {
     const box = boxOf(placeOf(nodeId))
@@ -570,7 +573,9 @@ export function focusCouplings(nodes, edges, layout, selected, sidecarOf, facesO
         const handle = node?.data?.handles?.find((h) => getHandleId(h) === end.handleId)
         const face = handle ? handleFace(end.nodeId, handle, [edge], sidecarOf(node)) : null
         const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
-        Object.assign(end, facePoint(end.place, face, size, facesOf(end.nodeId)))
+        // No face to leave from (nothing couples it, or the faces tie): from its centre
+        if (face) Object.assign(end, facePoint(end.place, face, size, facesOf(end.nodeId)))
+        else end.point = { x: end.place.x, y: end.place.y }
       } else if (!['cell', 'region', 'membrane'].includes(end.place.kind)) {
         end.point = centreOf(boxOf(end.place))
       }

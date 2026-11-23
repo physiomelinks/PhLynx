@@ -303,11 +303,11 @@ describe('previewing what a drop grows', () => {
       { id: 'c', kind: 'compartment', label: 'C' },
       { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['c'], frame: { x: 100, y: 100, width: 320, height: 144 } },
     ])
-    const nodes = [{ id: 'm', data: { name: 'm', bioView: { site: 'pieces/c' } } }]
-    const [empty] = grownBy(cell, 'zone', { x: 260, y: 170 })
-    const [filled] = grownBy(cell, 'zone', { x: 260, y: 170 }, { nodes })
-    // A cell with no module keeps room below for its name and hint; with one, it doesn't.
-    expect(filled.rect.height).toBeLessThan(empty.rect.height)
+    const nodes = [{ id: 'p', data: { name: 'p', bioView: { site: 'pieces/pm.top' } } }]
+    const [bare] = grownBy(cell, 'zone', { x: 260, y: 170 })
+    const [withProtein] = grownBy(cell, 'zone', { x: 260, y: 170 }, { nodes })
+    // A protein on its top side keeps the zone further down, past it and its name, so the cell grows more.
+    expect(withProtein.rect.height).toBeGreaterThan(bare.rect.height)
   })
 })
 

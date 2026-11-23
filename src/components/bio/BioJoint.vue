@@ -1,12 +1,14 @@
 <template>
   <!-- A module in a link's joint, drawn as the joint itself, named below it -->
   <div :class="['bio-joint', { 'bio-joint--selected': selected }]" data-testid="bio-joint">
+    <BioHandles :handles="data.handles ?? []" />
     <BioJointGlyph :kind="data.joint" :width="data.width" :height="data.height" :tone="data.tone" :vertical="!!data.vertical" :selected="selected" />
     <span class="bio-joint__name"><BioPieceName :id="id" :name="data.name" /></span>
   </div>
 </template>
 
 <script setup>
+import BioHandles from './BioHandles.vue'
 import BioJointGlyph from './BioJointGlyph.vue'
 import BioPieceName from './BioPieceName.vue'
 

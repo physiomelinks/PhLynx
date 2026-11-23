@@ -241,6 +241,19 @@ function processBoxes(place, label) {
   return proteinBoxes({ x: place.x + width / 2, y: place.y + height / 2 }, label)
 }
 
+/**
+ * How far a membrane protein on one side of a cell reaches into it, from the middle of the membrane: half its
+ * cartoon, and its name (with what it carries) on the cell's side of it, as proteinBoxes draws them.
+ *
+ * @param {'top'|'right'|'bottom'|'left'} side
+ * @param {number} labelWidth - How wide its name is drawn (see proteinLabelWidth).
+ * @returns {number}
+ */
+export function proteinReach(side, labelWidth) {
+  const { height, detailHeight, gap } = TEXT.protein
+  return GLYPH_HEIGHT / 2 + gap + (side === 'left' || side === 'right' ? labelWidth : height + detailHeight)
+}
+
 /** How far a cell's name is moved at a time when looking for a clear corner. */
 const NAME_STEP = 4
 /** How far along a cell, as a share of its width, its name may move from a corner to keep clear. */
@@ -263,15 +276,54 @@ export function cellNameBox(cellId, layout, labelOf = () => undefined) {
   const name = labelOf(cellId)?.name ?? ''
   if (!place || !name) return null
   const { rect } = place
-  const width = [...name].length * TEXT.cell.char + 8
-  const height = TEXT.cell.height
   const others = [...(place.zones ?? []).map((zone) => zone.rect), ...nestedIn(cellId, layout)]
   for (const [id, other] of layout) {
     if (other.cell !== cellId) continue
     if (other.kind === 'protein') others.push(...proteinBoxes(other, labelOf(id)))
     if (other.kind === 'cytosolic') others.push(...processBoxes(other, labelOf(id)))
   }
-  return nameInCorners(rect, { width, height }, others, { inset: CELL_INSET, reachY: NAME_DROP })
+  const [size, options] = nameFitting('cell', name)
+  return nameInCorners(rect, size, others, options)
+}
+
+/**
+ * The size of a cell's or a free compartment's name (with its hint, for an empty compartment), and how it is kept in
+ * from the edge, for nameInCorners.
+ *
+ * @param {'cell'|'region'} kind
+ * @param {string} name
+ * @param {boolean} [empty]
+ * @returns {[{width: number, height: number}, {inset: number, reachY: number}]}
+ */
+function nameFitting(kind, name, empty = false) {
+  if (kind === 'cell') {
+    const size = { width: [...name].length * TEXT.cell.char + 8, height: TEXT.cell.height }
+    return [size, { inset: CELL_INSET, reachY: NAME_DROP }]
+  }
+  const { char, height, padding } = TEXT.region
+  const width = Math.max([...name].length * char, empty ? TEXT.hint.width : 0) + 2 * padding.x
+  const tall = height + (empty ? TEXT.hint.height : 0) + 2 * padding.y
+  // The label's own padding keeps the name in from the edge.
+  return [
+    { width, height: tall },
+    { inset: 0, reachY: tall },
+  ]
+}
+
+/**
+ * Whether a cell's or free compartment's name finds a clear corner (see nameInCorners), so it needs no room made for it.
+ *
+ * @param {'cell'|'region'} kind
+ * @param {Object} rect - The cell or compartment.
+ * @param {string} name
+ * @param {Array<Object>} others - What is drawn in it.
+ * @param {boolean} [empty] - A compartment's: whether its hint is drawn with its name.
+ * @returns {boolean}
+ */
+export function nameFits(kind, rect, name, others, empty = false) {
+  if (!name) return true
+  const [size, options] = nameFitting(kind, name, empty)
+  return !!cornerSpot(rect, size, others, options)
 }
 
 /**
@@ -299,7 +351,16 @@ function nestedIn(id, layout) {
  *   up) it may move.
  * @returns {Object} Its box.
  */
-function nameInCorners(rect, { width, height }, others, { inset, reachY }) {
+function nameInCorners(rect, size, others, options) {
+  const { inset } = options
+  return (
+    cornerSpot(rect, size, others, options) ??
+    box(rect.x + inset, rect.y + rect.height - inset - size.height, size.width, size.height)
+  )
+}
+
+/** As nameInCorners, but nothing where neither corner is clear. */
+function cornerSpot(rect, { width, height }, others, { inset, reachY }) {
   const [left, top] = [rect.x + inset, rect.y + inset]
   const bottom = rect.y + rect.height - inset - height
   // The name stays in a corner or tries the next.
@@ -312,13 +373,13 @@ function nameInCorners(rect, { width, height }, others, { inset, reachY }) {
     spots.sort((a, b) => a.i + a.j - (b.i + b.j) || a.i - b.i)
     return spots.map(({ i, j }) => box(left + j * NAME_STEP, y0 + way * i * NAME_STEP, width, height)).find(clear)
   }
-  return inCorner(top, 1) ?? inCorner(bottom, -1) ?? box(left, bottom, width, height)
+  return inCorner(top, 1) ?? inCorner(bottom, -1) ?? null
 }
 
 /**
  * Where a compartment standing freely draws its name (and, while empty, its hint), when compartments are nested in
- * it: in a corner clear of them (see nameInCorners). Otherwise, and for a compartment along a cell, BioRegion puts
- * it by its own rules.
+ * it or process zones are within it: in a corner clear of them (see nameInCorners). Otherwise, and for a compartment
+ * along a cell, BioRegion puts it by its own rules.
  *
  * @param {string} regionId
  * @param {Map<string, Object>} layout
@@ -328,14 +389,17 @@ function nameInCorners(rect, { width, height }, others, { inset, reachY }) {
 export function regionNameAt(regionId, layout, labelOf = () => undefined) {
   const place = layout.get(regionId)
   if (place?.kind !== 'region' || place.form !== 'free' || place.edge) return null
-  const nested = nestedIn(regionId, layout)
+  // What is nested in it, and the process zones within it.
+  const nested = [
+    ...nestedIn(regionId, layout),
+    ...[...layout.values()]
+      .filter((other) => other.kind === 'zone' && other.cell === regionId)
+      .map((zone) => zone.rect),
+  ]
   if (!nested.length) return null
-  const { char, height, padding } = TEXT.region
   const name = labelOf(regionId)?.name ?? place.label ?? ''
-  const width = Math.max([...name].length * char, place.empty ? TEXT.hint.width : 0) + 2 * padding.x
-  const tall = height + (place.empty ? TEXT.hint.height : 0) + 2 * padding.y
-  // The label's own padding keeps the name in from the edge.
-  return nameInCorners(place.rect, { width, height: tall }, nested, { inset: 0, reachY: tall })
+  const [size, options] = nameFitting('region', name, place.empty)
+  return nameInCorners(place.rect, size, nested, options)
 }
 
 /** How far an empty cell's name and hint are moved at a time when looking for somewhere clear. */

@@ -191,6 +191,27 @@ describe('the couplings of what is selected', () => {
     }
   })
 
+  it('draws a line nothing couples from the protein’s centre to its partner’s', () => {
+    const uncoupled = [edge('none', 'p', 'handle_po', 'lumen', 'handle_l', [])]
+    const { edges: drawn, handles } = focusCouplings(nodes, uncoupled, layout, new Set(['p']), () => null)
+    expect(drawn.map((e) => [e.id, e.data.uncoupled])).toEqual([['none', true]])
+    const lumen = layout.get('lumen').rect
+    expect(handles.get('p')).toEqual([{ id: 'none:s', x: GLYPH_WIDTH / 2, y: GLYPH_HEIGHT / 2 }])
+    expect(handles.get('lumen')).toEqual([{ id: 'none:t', x: lumen.width / 2, y: lumen.height / 2 }])
+  })
+
+  it('draws a line to a module in a link’s joint from the middle of the joint it is drawn as', () => {
+    const zone = { x: 90, y: 80, width: 40, height: 100 }
+    const places = new Map([
+      ['gj', { kind: 'card', joint: 'junction', x: 60, y: 110, link: 'piece:L' }],
+      ['piece:L', { kind: 'link', joint: 'junction', rect: zone, zone }],
+      ['cell', { kind: 'cell', rect: { x: 0, y: 0, width: 100, height: 200 } }],
+    ])
+    const joined = [edge('j', 'gj', 'handle_g', 'cell', 'handle_c', [])]
+    const { handles } = focusCouplings([], joined, places, new Set(['gj']), () => null)
+    expect(handles.get('gj')).toEqual([{ id: 'j:s', x: zone.width / 2, y: zone.height / 2 }])
+  })
+
   it('marks what the selection is coupled to, so a membrane’s proteins and a protein’s membrane light up', () => {
     expect([...focus('wall').partners]).toEqual(['p'])
     expect(focus('p').partners).toEqual(new Set(['lumen', 'cell', 'wall']))
