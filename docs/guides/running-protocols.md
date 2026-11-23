@@ -22,7 +22,7 @@ This walkthrough uses the three-instance SN model (`soma_SN`, `axon_SN`, `var_SN
 ### Open the Editor {#open-the-editor}
 
 1. Open the **Simulation** tab in the [Context Sidebar](../reference/ui-overview.md#context-sidebar) (chart-line icon).
-2. In the Simulation toolbar, click **Edit obs_data** (pen-to-square icon), the second button from the right. The **Edit obs_data** dialog opens.
+2. In the Simulation toolbar, click **Edit protocol** (pen-to-square icon). The **Edit obs_data** dialog opens.
 3. If the workspace has no protocol, click **Add protocol_info**. This creates **Experiment 1**, with no warm-up, one 1 s sub-experiment and no parameters.
 
 The dialog has four sections: **protocol_info** (the experiments), **data_items**, **prediction_items** and **prediction_plots**. In **protocol_info**, the **Experiments** list is on the left and the selected experiment's timeline is on the right. The timeline has a **Warm-up** column, then a numbered column for each sub-experiment, sized by its length. Each parameter you set has a lane across the timeline.
@@ -121,12 +121,12 @@ Data items are measured data that a calibration fits. PhLynx lists them read-onl
 
 ## Running a Protocol {#running-a-protocol}
 
-Once the workspace has a protocol, **Run the protocol's experiments** (checklist icon) appears in the Simulation toolbar, to the right of the scope switch. To get one, import a COMBINE archive that contains an `obs_data.json` (Import ▸ **COMBINE Archive**), or create one in **Edit obs_data** ([Creating or Editing a Protocol](#editing-a-protocol)).
+The **Protocol** run mode (checklist icon), beside Run in the Simulation toolbar, is greyed out until the workspace has a protocol. To get one, import a COMBINE archive that contains an `obs_data.json` (Import ▸ **COMBINE Archive**), or create one with **Edit protocol** ([Creating or Editing a Protocol](#editing-a-protocol)).
 
-1. Click **Run the protocol's experiments**. It turns green and runs every experiment straight away. While it is on, **Play** (F9) runs the protocol. The status line then reads, for example, **Ran 2 protocol experiments on the whole model**.
+1. Click **Protocol**. It is highlighted and runs every experiment straight away. While it is on, **Run** (F9) runs the protocol. Click **Time course** to go back. The status line then reads, for example, **Ran 2 protocol experiments on the whole model**.
 2. Choose an experiment in **Experiment to show**, the picker above the plots. Choose **All experiments** to overlay them, each in its own colour.
 3. Click **Inputs** (sliders icon) next to the picker to add a plot of each parameter the protocol sets.
-4. To go back to normal runs, click **Run the protocol's experiments** again. On the [simulation page](../reference/simulation-ui-overview.md#simulation-page), use the **Time course / Protocol / Sweep** switch.
+4. To go back to normal runs, click **Time course** (chart-line icon) in the run modes.
 
 How a protocol runs:
 

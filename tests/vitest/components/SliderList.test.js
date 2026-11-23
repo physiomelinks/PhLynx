@@ -142,3 +142,63 @@ describe('SliderList', () => {
     expect(useSimulationResultsStore().sliderValues.get('a::k')).toBeCloseTo(1.002)
   })
 })
+
+describe('SliderList sweep button', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useProtocolStore().areSlidersOff = false
+    vi.clearAllMocks()
+  })
+
+  const sweepButton = () => wrapper.find('[data-testid="slider-sweep-k"]')
+
+  it('sweeps the parameter across the slider’s range, turning sweep mode on', async () => {
+    mountList()
+    expect(sweepButton().attributes('aria-pressed')).toBe('false')
+    await sweepButton().trigger('click')
+    const sweep = useSimulationSettingsStore().simulationSettings.sweep
+    expect([sweep.key, sweep.from, sweep.to]).toEqual(['a::k', 0, 2])
+    expect(useSimulationResultsStore().isSweepMode).toBe(true)
+    expect(sweepButton().attributes('aria-pressed')).toBe('true')
+  })
+
+  it('draws a curve for each of the range’s ends and middle of another slider’s parameter', async () => {
+    const twoNodes = [
+      ...nodes,
+      { id: 'b', data: { name: 'b', variables: [{ name: 'g', type: 'constant', value: '4', units: 'second' }] } },
+    ]
+    const settingsStore = useSimulationSettingsStore()
+    settingsStore.setParameterScanConfig({
+      selections: [
+        { key: 'a::k', nodeId: 'a', nodeName: 'a', parameterName: 'k', type: 'constant', min: 0, default: 1, max: 2 },
+        { key: 'b::g', nodeId: 'b', nodeName: 'b', parameterName: 'g', type: 'constant', min: 2, default: 4, max: 6 },
+      ],
+    })
+    wrapper = mount(SliderList, { props: { nodes: reactive(twoNodes) }, global: { plugins: [PrimeVue] } })
+    await wrapper.find('[data-testid="slider-sweep-k"]').trigger('click')
+
+    await wrapper.find('[data-testid="slider-sweep-g"]').trigger('click')
+    const items = wrapper.vm.$.setupState.sweepMenuItems
+    expect(items.map(({ label }) => label)).toEqual(['A curve for each value of g', 'Sweep g instead'])
+    items[0].command()
+    await wrapper.vm.$nextTick()
+
+    const sweep = settingsStore.simulationSettings.sweep
+    expect(sweep.key).toBe('a::k')
+    expect([sweep.family.key, sweep.family.values]).toEqual(['b::g', [2, 4, 6]])
+    expect(wrapper.find('.slider-sweep-count').text()).toBe('×3')
+  })
+
+  it('stops sweeping from the swept slider’s button', async () => {
+    mountList()
+    await wrapper.setProps({ hasSweepView: true })
+    await sweepButton().trigger('click')
+    await sweepButton().trigger('click')
+    const items = wrapper.vm.$.setupState.sweepMenuItems
+    expect(items.map(({ label }) => label)).toEqual(['Edit in the Sweep tab', 'Stop sweeping'])
+    items[0].command()
+    expect(wrapper.emitted('edit-sweep')).toHaveLength(1)
+    items[1].command()
+    expect(useSimulationSettingsStore().simulationSettings.sweep).toBeNull()
+  })
+})

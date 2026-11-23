@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SimulationToolbar from '../../../src/components/simulation/SimulationToolbar.vue'
 import { useFloatingViewer } from '../../../src/composables/useFloatingViewer.js'
-import { useProtocolStore } from '../../../src/stores/protocolStore.js'
 import { useSimulationResultsStore } from '../../../src/stores/simulationResultsStore.js'
 import { useSimulationSettingsStore } from '../../../src/stores/simulationSettingsStore.js'
 
@@ -26,39 +25,25 @@ const tooltip = {
  */
 const mountToolbar = (props = {}) => mount(SimulationToolbar, { props, global: { plugins: [PrimeVue], directives: { tooltip, hint: tooltip } } })
 
-describe('SimulationToolbar sweep mode', () => {
+describe('SimulationToolbar run modes', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('offers sweep mode only once a sweep is set', async () => {
+  it('always shows the three modes beside play, those not set up disabled', () => {
     const wrapper = mountToolbar()
-    expect(wrapper.find('[data-testid="sim-sweep-mode"]').exists()).toBe(false)
-
-    const settingsStore = useSimulationSettingsStore()
-    settingsStore.setSimulationSettings({ ...settingsStore.simulationSettings, sweep: SWEEP })
-    await wrapper.vm.$nextTick()
-    expect(wrapper.find('[data-testid="sim-sweep-mode"]').attributes('aria-pressed')).toBe('false')
+    const tabs = wrapper.find('.run-mode-tabs')
+    expect(wrapper.find('.toolbar-run-wrap').element.nextElementSibling.nextElementSibling).toBe(tabs.element)
+    expect(tabs.findAll('button').map((button) => button.attributes('aria-label'))).toEqual(['Time course', 'Protocol', 'Sweep'])
+    expect(wrapper.find('[data-testid="sim-sweep-mode"]').attributes('aria-disabled')).toBe('true')
     wrapper.unmount()
   })
 
-  it('switches to the sweep, turning the protocol off, and plays', async () => {
+  it('plays when a mode is switched to', async () => {
     const settingsStore = useSimulationSettingsStore()
     settingsStore.setSimulationSettings({ ...settingsStore.simulationSettings, sweep: SWEEP })
-    const protocolStore = useProtocolStore()
-    protocolStore.isProtocolMode = true
-    const resultsStore = useSimulationResultsStore()
     const wrapper = mountToolbar()
-
     await wrapper.find('[data-testid="sim-sweep-mode"]').trigger('click')
-
-    expect(resultsStore.isSweepMode).toBe(true)
-    expect(protocolStore.isProtocolMode).toBe(false)
+    expect(useSimulationResultsStore().isSweepMode).toBe(true)
     expect(wrapper.emitted('play')).toHaveLength(1)
-    expect(wrapper.find('[data-testid="sim-sweep-mode"]').attributes('aria-pressed')).toBe('true')
-
-    // Removing the sweep, from whichever view, turns sweep mode off.
-    settingsStore.setSimulationSettings({ ...settingsStore.simulationSettings, sweep: null })
-    await wrapper.vm.$nextTick()
-    expect(resultsStore.isSweepMode).toBe(false)
     wrapper.unmount()
   })
 })
@@ -154,20 +139,32 @@ describe('SimulationToolbar placement', () => {
 
   const labelsOf = (wrapper) => wrapper.findAll('button').map((button) => button.attributes('aria-label'))
 
-  it('offers the simulation page where asked, and opens it', async () => {
-    const wrapper = mountToolbar({ hasPageLink: true })
-    const open = wrapper.find('button[aria-label="Open the simulation page"]')
-    expect(open.find('.pi-external-link').exists()).toBe(true)
-    await open.trigger('click')
-    expect(wrapper.emitted('open-page')).toHaveLength(1)
+  it('has no simulation page button: the global nav has the page', () => {
+    const wrapper = mountToolbar()
+    expect(labelsOf(wrapper)).not.toContain('Open the simulation page')
+    expect(wrapper.find('.pi-external-link').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('offers neither the page nor floating on the simulation page', () => {
-    const wrapper = mountToolbar({ hasFloat: false })
-    expect(labelsOf(wrapper)).not.toContain('Open the simulation page')
+  it('offers neither floating nor the settings on the simulation page', () => {
+    const wrapper = mountToolbar({ hasFloat: false, hasSettings: false })
     expect(labelsOf(wrapper)).not.toContain('Float the results over the canvas')
+    expect(labelsOf(wrapper)).not.toContain('Simulation settings')
     expect(labelsOf(wrapper)).toContain('Track this run')
+    expect(labelsOf(wrapper)).toContain('Edit protocol')
+    wrapper.unmount()
+  })
+
+  it('names the scope in the switch’s tooltip alone', () => {
+    const wrapper = mountToolbar({ partLabel: 'This instance', partName: 'this instance' })
+    expect(wrapper.find('.toolbar-scope').text()).toBe('')
+    expect(wrapper.find('.toolbar-scope').attributes('data-tooltip')).toBe('Whole model')
+    wrapper.unmount()
+  })
+
+  it('shows a runner on play', () => {
+    const wrapper = mountToolbar()
+    expect(wrapper.find('.toolbar-run .toolbar-run-icon').exists()).toBe(true)
     wrapper.unmount()
   })
 })
@@ -193,61 +190,37 @@ describe('SimulationToolbar overflow menu', () => {
   const menuLabels = (wrapper) => wrapper.vm.$.setupState.moreItems.map((item) => item.label)
 
   it('has no menu while everything fits', async () => {
-    const wrapper = mountToolbar({ hasPageLink: true })
+    const wrapper = mountToolbar()
     await flushPromises()
     expect(wrapper.find('button[aria-label="More simulation actions"]').exists()).toBe(false)
     expect(menuLabels(wrapper)).toEqual([])
     wrapper.unmount()
   })
 
-  it('moves as few buttons as fit into the menu, the least used first', async () => {
-    // Shown, the run, the switch, the spacer, track, float, page, obs_data and settings: eight, or 240px.
+  it('moves as few buttons as fit into the menu, the least used first, never the run modes', async () => {
+    // Shown, the run, the switch, the modes, the spacer, track, float, the protocol and settings: eight, or 240px.
     rowWidth = 190
-    const wrapper = mountToolbar({ hasPageLink: true, isRunning: true })
+    const wrapper = mountToolbar({ isRunning: true })
     await flushPromises()
 
     // Three hidden, and the more button shown, makes six, or 180px; two hidden would make 210px.
-    expect(menuLabels(wrapper)).toEqual(['Open the simulation page', 'Edit obs_data', 'Simulation settings'])
+    expect(menuLabels(wrapper)).toEqual(['Float over the canvas', 'Edit protocol', 'Simulation settings'])
     expect(wrapper.vm.$.setupState.moreItems.map((item) => !!item.disabled)).toEqual([false, true, true])
-    expect(shownLabels(wrapper)).toEqual([
-      'toolbar-run-wrap',
-      'toolbar-scope',
-      'toolbar-spacer',
-      'toolbar-track',
-      'Float the results over the canvas',
-      'More simulation actions',
-    ])
-    wrapper.vm.$.setupState.moreItems[0].command()
-    expect(wrapper.emitted('open-page')).toHaveLength(1)
-    wrapper.unmount()
-  })
-
-  it('keeps the modes to last, and fits again when a sweep is set', async () => {
-    // Room for five: four hidden, and the more button.
-    rowWidth = 150
-    const wrapper = mountToolbar({ hasPageLink: true })
-    await flushPromises()
-    expect(menuLabels(wrapper)).toEqual(['Float over the canvas', 'Open the simulation page', 'Edit obs_data', 'Simulation settings'])
-
-    const settingsStore = useSimulationSettingsStore()
-    settingsStore.setSimulationSettings({ ...settingsStore.simulationSettings, sweep: SWEEP })
-    await flushPromises()
-    // The sweep button takes the track button's place.
-    expect(menuLabels(wrapper)).toEqual(['Track this run', 'Float over the canvas', 'Open the simulation page', 'Edit obs_data', 'Simulation settings'])
-    expect(shownLabels(wrapper)).toContain('Run the sweep')
+    expect(shownLabels(wrapper)).toEqual(['toolbar-run-wrap', 'toolbar-scope', 'What play runs', 'toolbar-spacer', 'toolbar-track', 'More simulation actions'])
     wrapper.unmount()
   })
 })
 
-describe('SimulationToolbar slot', () => {
+describe('SimulationToolbar slots', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('puts a view’s own controls right after the scope switch', () => {
+  it('puts a view’s own actions after the spacer, and its end ones last', () => {
     const wrapper = mount(SimulationToolbar, {
       global: { plugins: [PrimeVue], directives: { tooltip, hint: tooltip } },
-      slots: { default: '<span class="own-control">Mine</span>' },
+      slots: { default: '<span class="own-action">Mine</span>', end: '<span class="own-end">End</span>' },
     })
-    expect(wrapper.find('.toolbar-scope').element.nextElementSibling.classList.contains('own-control')).toBe(true)
+    expect(wrapper.find('.toolbar-spacer').element.nextElementSibling.classList.contains('own-action')).toBe(true)
+    expect(wrapper.find('.toolbar-row').element.lastElementChild.classList.contains('own-end')).toBe(true)
     wrapper.unmount()
   })
 })

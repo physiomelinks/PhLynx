@@ -78,7 +78,6 @@
         />
         <Button
           v-else
-          icon="pi pi-play"
           text
           rounded
           size="small"
@@ -87,7 +86,9 @@
           v-tooltip.top="playHint"
           @mousedown.stop
           @click="play"
-        />
+        >
+          <template #icon><RunIcon class="viewer-run-icon" aria-hidden="true" /></template>
+        </Button>
         <Button
           v-show="!hidden.has('sliders')"
           icon="pi pi-sliders-h"
@@ -272,6 +273,7 @@ import Splitter from 'primevue/splitter'
 import ToggleSwitch from 'primevue/toggleswitch'
 import SplitterPanel from 'primevue/splitterpanel'
 
+import RunIcon from '../icons/RunIcon.vue'
 import ProtocolResultsControls from './ProtocolResultsControls.vue'
 import FeaturePlot from './FeaturePlot.vue'
 import SimulationPlot from './SimulationPlot.vue'
@@ -545,6 +547,11 @@ function pinWhereShown() {
 </script>
 
 <style scoped>
+.viewer-run-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
 .viewer-head {
   display: flex;
   align-items: center;

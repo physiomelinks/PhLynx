@@ -58,36 +58,14 @@ function getOffered(filter) {
 
 const findPicker = () => wrapper.findComponent({ name: 'VariablePathPicker' })
 
-describe('SimulationControls unit filter', () => {
+describe('SimulationControls own plot', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('offers only variables in the plotted units, and says so', () => {
-    mountControls({ plotConfig: buildPlot(['V']), isUnitFiltered: true })
-    expect(getOffered(findPicker().props('filter'))).toEqual(['a/E', 'a/V'])
-    expect(findPicker().props('placeholder')).toBe('Add a variable in mV…')
-    expect(findPicker().props('emptyMessage')).toBe('No variable in mV matches.')
-  })
-
-  it('accepts each of the units a plot already mixes', () => {
-    mountControls({ plotConfig: buildPlot(['V', 'n']), isUnitFiltered: true })
-    expect(getOffered(findPicker().props('filter'))).toEqual(['a/E', 'a/n', 'a/V'])
-    expect(findPicker().props('placeholder')).toBe('Add a variable in mV or no units…')
-  })
-
-  it('offers every variable unfiltered, or with nothing plotted yet', async () => {
+  it('offers every variable, whatever the units already plotted', () => {
     mountControls({ plotConfig: buildPlot(['V']) })
     expect(getOffered(findPicker().props('filter'))).toHaveLength(4)
     expect(findPicker().props('placeholder')).toBe('Add a variable…')
     expect(findPicker().props('emptyMessage')).toBe('No variable matches.')
-
-    await wrapper.setProps({ plotConfig: createSinglePlotConfig(), isUnitFiltered: true })
-    expect(getOffered(findPicker().props('filter'))).toHaveLength(4)
-    expect(findPicker().props('placeholder')).toBe('Add a variable…')
-  })
-
-  it('still plots against a variable in other units', () => {
-    mountControls({ plotConfig: buildPlot(['V']), isUnitFiltered: true })
-    expect(getOffered(wrapper.findComponent({ name: 'PlotListEditor' }).props('isPlottable'))).toHaveLength(4)
   })
 })
 

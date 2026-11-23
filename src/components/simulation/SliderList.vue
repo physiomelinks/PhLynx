@@ -11,6 +11,26 @@
         <span v-else class="slider-value" :class="{ 'slider-value--changed': slider.isChanged && !protocolStore.areSlidersOff }">
           {{ formatValue(slider.value) }} {{ slider.units }}
         </span>
+        <!-- Sweeps the parameter over the slider's range, or draws a curve for each of a few of its values. -->
+        <span class="slider-sweep-wrap">
+          <Button
+            text
+            rounded
+            size="small"
+            :severity="slider.sweepRole ? 'primary' : 'secondary'"
+            class="slider-sweep"
+            :class="{ 'slider-sweep--on': slider.sweepRole }"
+            :aria-label="sweepButtonLabel(slider)"
+            :aria-pressed="!!slider.sweepRole"
+            aria-haspopup="true"
+            :data-testid="`slider-sweep-${slider.parameterName}`"
+            v-tooltip.bottom="sweepButtonLabel(slider)"
+            @click="(event) => onSweepClick(event, slider)"
+          >
+            <template #icon><SweepIcon class="slider-sweep-icon" /></template>
+          </Button>
+          <span v-if="slider.sweepRole === 'family'" class="slider-sweep-count" aria-hidden="true">×{{ familyCount }}</span>
+        </span>
         <Button
           icon="pi pi-ellipsis-h"
           text
@@ -97,6 +117,7 @@
     />
 
     <Menu ref="menu" :model="menuItems" popup />
+    <Menu ref="sweepMenu" :model="sweepMenuItems" popup />
     <Popover ref="rangePopover">
       <div v-if="rangeSlider" class="slider-range">
         <label :for="`${rangeId}-min`">Minimum</label>
@@ -140,6 +161,7 @@ import Slider from 'primevue/slider'
 
 import { useNodeDataHistory } from '../../composables/useNodeDataHistory'
 import VariablePathPicker from './VariablePathPicker.vue'
+import SweepIcon from '../icons/SweepIcon.vue'
 import {
   createSliderDefinition,
   isSlidableRow,
@@ -148,6 +170,7 @@ import {
   removeSlider,
   sliderValueKey,
 } from '../../services/simulation/parameterSliders'
+import { createFamily, createSweep, familyValues } from '../../services/simulation/sweep'
 import { GLOBAL_COMPONENT, buildVariableIndex } from '../../services/simulation/variableIndex'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useProtocolStore } from '../../stores/protocolStore'
@@ -166,8 +189,11 @@ const props = defineProps({
   keepCurrent: { type: Function, default: (change) => change() },
   // With a search to add sliders for constants and global constants across the model.
   withPicker: { type: Boolean, default: false },
+  // Beside a Sweep view, which the sweep's menu can show (see `edit-sweep`).
+  hasSweepView: { type: Boolean, default: false },
 })
-const emit = defineEmits(['change'])
+// `edit-sweep`: asks the controls to show the Sweep view.
+const emit = defineEmits(['change', 'edit-sweep'])
 
 const libraryStore = useLibraryStore()
 const protocolStore = useProtocolStore()
@@ -201,19 +227,36 @@ function inScope(definition) {
 }
 
 /**
- * Tells whether play sweeps a slider's parameter, or varies it across the sweep's curves: a global constant is one
- * parameter, whichever instance named it.
+ * Tells whether a sweep's parameter, or its curves', is a slider's: a global constant is one parameter, whichever
+ * instance named it.
+ *
+ * @param {Object} definition
+ * @param {Object} target - The sweep or its family.
+ * @returns {boolean}
+ */
+const isSameParameter = (definition, target) =>
+  target.type === 'global_constant' ? definition.type === 'global_constant' && definition.parameterName === target.parameterName : definition.key === target.key
+
+/**
+ * Tells what the sweep set up does with a slider's parameter: sweeps it, draws a curve per value of it, or nothing.
+ *
+ * @param {Object} definition
+ * @returns {'sweep'|'family'|null}
+ */
+function sweepRoleOf(definition) {
+  const sweep = settingsStore.simulationSettings.sweep
+  if (!sweep) return null
+  if (isSameParameter(definition, sweep)) return 'sweep'
+  return sweep.family && isSameParameter(definition, sweep.family) ? 'family' : null
+}
+
+/**
+ * Tells whether play sweeps a slider's parameter, or varies it across the sweep's curves.
  *
  * @param {Object} definition
  * @returns {boolean}
  */
-function isSwept(definition) {
-  const sweep = settingsStore.simulationSettings.sweep
-  if (!resultsStore.isSweepMode || protocolStore.isActive || !sweep) return false
-  const matches = (target) =>
-    target.type === 'global_constant' ? definition.type === 'global_constant' && definition.parameterName === target.parameterName : definition.key === target.key
-  return matches(sweep) || (!!sweep.family && matches(sweep.family))
-}
+const isSwept = (definition) => resultsStore.isSweepMode && !protocolStore.isActive && !!sweepRoleOf(definition)
 
 /**
  * Tells whether a slider can't be moved: while the protocol runs, or while the sweep sets its parameter.
@@ -266,6 +309,7 @@ const sliders = computed(() => {
       isChanged: override !== undefined,
       // The sweep sets its parameter at each of its values, in place of the slider's.
       isSwept: isSwept(definition),
+      sweepRole: sweepRoleOf(definition),
     })
   }
   return [...byValue.values()].filter((slider) => slider.inScope)
@@ -455,6 +499,120 @@ function applyToModel(slider) {
   })
 }
 
+const sweep = computed(() => settingsStore.simulationSettings.sweep ?? null)
+const familyCount = computed(() => (sweep.value?.family ? familyValues(sweep.value.family).length : 0))
+const sweepMenu = ref(null)
+const sweepMenuSlider = ref(null)
+
+/**
+ * Says what a slider's sweep button does.
+ *
+ * @param {Object} slider
+ * @returns {string}
+ */
+function sweepButtonLabel(slider) {
+  if (slider.sweepRole === 'sweep') return `Sweeping ${slider.parameterName}`
+  if (slider.sweepRole === 'family') return `A curve for each of ${familyCount.value} values of ${slider.parameterName}`
+  return sweep.value ? `Sweep ${slider.parameterName}, or a curve for each of its values` : `Sweep ${slider.parameterName} across its range`
+}
+
+/**
+ * Builds a sweep of a slider's parameter, over the slider's range when it has one.
+ *
+ * @param {Object} slider
+ * @returns {Object|null}
+ */
+function sweepOfSlider(slider) {
+  const row = slider.node?.data?.variables?.find((candidate) => candidate.name === slider.parameterName)
+  if (!row) return null
+  const built = createSweep(slider.node, row, libraryStore.getGlobalConstant)
+  return slider.hasRange ? { ...built, from: slider.min, to: slider.max } : built
+}
+
+/**
+ * Builds the curves for a slider's parameter: its range's ends and middle, or its own value without a range.
+ *
+ * @param {Object} slider
+ * @returns {Object|null}
+ */
+function familyOfSlider(slider) {
+  const row = slider.node?.data?.variables?.find((candidate) => candidate.name === slider.parameterName)
+  if (!row) return null
+  const family = createFamily(slider.node, row, libraryStore.getGlobalConstant)
+  if (!slider.hasRange) return family
+  const middle = Number(((slider.min + slider.max) / 2).toPrecision(6))
+  return { ...family, values: [slider.min, middle, slider.max] }
+}
+
+/**
+ * Sets the sweep, turning sweep mode on for play to run it; or off, with no sweep left.
+ *
+ * @param {Object|null} next
+ */
+function setSweep(next) {
+  settingsStore.setSimulationSettings({ ...settingsStore.simulationSettings, sweep: next })
+  if (next) {
+    protocolStore.isProtocolMode = false
+    resultsStore.isSweepMode = true
+  }
+}
+
+/**
+ * Sweeps a slider's parameter at once when nothing is swept yet; otherwise offers what to do with it.
+ *
+ * @param {Event} event
+ * @param {Object} slider
+ */
+function onSweepClick(event, slider) {
+  if (!sweep.value) {
+    const next = sweepOfSlider(slider)
+    if (next) setSweep(next)
+    return
+  }
+  sweepMenuSlider.value = slider
+  sweepMenu.value.toggle(event)
+}
+
+const sweepMenuItems = computed(() => {
+  const slider = sweepMenuSlider.value
+  if (!slider || !sweep.value) return []
+  const { readout, family } = sweep.value
+  if (slider.sweepRole === 'sweep') {
+    return [
+      props.hasSweepView && { label: 'Edit in the Sweep tab', icon: 'pi pi-pencil', command: () => emit('edit-sweep') },
+      { label: 'Stop sweeping', icon: 'pi pi-times', command: () => setSweep(null) },
+    ].filter(Boolean)
+  }
+  if (slider.sweepRole === 'family') {
+    return [
+      props.hasSweepView && { label: 'Edit the values in the Sweep tab', icon: 'pi pi-pencil', command: () => emit('edit-sweep') },
+      {
+        label: 'Draw one curve',
+        icon: 'pi pi-minus',
+        command: () => {
+          const { family: _family, ...rest } = sweep.value
+          setSweep(rest)
+        },
+      },
+    ].filter(Boolean)
+  }
+  return [
+    {
+      label: `A curve for each value of ${slider.parameterName}`,
+      icon: 'pi pi-bars',
+      command: () => setSweep({ ...sweep.value, family: familyOfSlider(slider) }),
+    },
+    {
+      label: `Sweep ${slider.parameterName} instead`,
+      icon: 'pi pi-arrow-right-arrow-left',
+      command: () => {
+        const next = sweepOfSlider(slider)
+        if (next) setSweep({ ...next, ...(readout && { readout }), ...(family && !isSameParameter(slider, family) && { family }) })
+      },
+    },
+  ]
+})
+
 const menu = ref(null)
 const menuSlider = ref(null)
 const rangePopover = ref(null)
@@ -560,6 +718,43 @@ function openRange(slider) {
 .slider-value--changed {
   color: var(--p-primary-color);
   font-weight: 600;
+}
+
+.slider-sweep-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.slider-sweep-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Set up, the sweep's curves take a colour each, as on the run-mode tab. */
+.slider-sweep--on :deep(.sweep-curve--1) {
+  stroke: var(--p-red-500);
+}
+
+.slider-sweep--on :deep(.sweep-curve--2) {
+  stroke: var(--p-amber-500);
+}
+
+.slider-sweep--on :deep(.sweep-curve--3) {
+  stroke: var(--p-emerald-500);
+}
+
+.slider-sweep-count {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  padding: 0 3px;
+  border-radius: 6px;
+  font-size: 0.625rem;
+  line-height: 1.3;
+  background: var(--p-primary-color);
+  color: var(--p-primary-contrast-color);
+  pointer-events: none;
 }
 
 .slider-swept {

@@ -13,7 +13,7 @@ Double-click a node, or click its **Edit instance** (pencil icon) button, to ope
 | **CellML Text** (code icon) | Text editor with a **Simple Mode** toggle and font-size buttons. The equation preview above it renders the line under the cursor and lists parse errors by line; you can collapse or resize it. |
 | **Math Editor** (calculator icon) | Shows the equations as typeset maths that you edit in place, with a toolbar. Always in Simple Mode. See [Using the Math Editor](#math-editor). |
 
-If one tab can't show part of the math, it points you to the other. While the right pane shows the **Plot** tab with **Auto-update** on, clicking a variable in the math plots it. For the rest of the dialog (Parameters, Ports, Plot), see [Interface Overview](../reference/ui-overview.md#instance-editor).
+If one tab can't show part of the math, it points you to the other. While the right pane shows the **Plot** tab, clicking a variable in the math plots it. For the rest of the dialog (Parameters, Ports, Plot), see [Interface Overview](../reference/ui-overview.md#instance-editor).
 
 ### Simple Mode vs. Advanced Mode
 

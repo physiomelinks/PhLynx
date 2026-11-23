@@ -334,7 +334,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             plot_variable(page, "soma_SN/V")
 
-            # The sweep is set in its view, then played with the toolbar's Sweep on.
+            # The sweep is set in its view, then played with the Sweep run mode.
             page.get_by_role("button", name=re.compile(r"^Sweep \(")).click()
             page.get_by_role("button", name="Sweep a parameter").click()
             pick_path(page, "Choose a parameter to sweep", "soma_SN/g_Na")
@@ -358,8 +358,8 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && {RESULTS_STORE}.results.readout === 'min'", timeout=120000)
             expect(page.locator(".simulation-plot .plot-title-against")).to_have_text(" vs soma_SN/g_Na (min of each run)")
 
-            # Switched off, play runs the time course again.
-            page.get_by_test_id("sim-sweep-mode").click()
+            # Back on the time course, play runs it again.
+            page.get_by_test_id("sim-run-mode").click()
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && !{RESULTS_STORE}.results.isSweep", timeout=120000)
             # ----------- END ------------
 
@@ -566,7 +566,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             plot_variable(page, "soma_SN/V")
 
-            page.get_by_role("button", name="Open the simulation page").click()
+            page.get_by_role("link", name="Simulation", exact=True).click()
             expect(page).to_have_url(re.compile(r"/simulation$"))
             sim_page = page.locator(".simulation-view")
             charts = sim_page.locator(".simulation-plot")
@@ -593,7 +593,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(times.nth(1)).to_have_text(times.nth(0).inner_text())
 
             with page.expect_download() as download:
-                sim_page.get_by_role("button", name="Download the results as CSV").click()
+                sim_page.get_by_test_id("sim-export").click()
             with open(download.value.path()) as f:
                 lines = f.read().splitlines()
             # The first column is the variable of integration, named after the model's first ODE's: t.
@@ -602,12 +602,13 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(lines[1].split(",")[0], "0")
 
             with page.expect_download() as download:
-                sim_page.get_by_role("button", name="Download the charts as a PNG image").click()
+                sim_page.get_by_role("button", name="Choose what to download").click()
+                page.get_by_role("menuitem", name="PNG").click()
             with open(download.value.path(), "rb") as f:
                 self.assertEqual(f.read(8), b"\x89PNG\r\n\x1a\n")
 
             # Back on the workspace, the sidebar shows both charts too.
-            sim_page.get_by_role("button", name="Back to the workspace").click()
+            page.get_by_role("link", name="Workspace", exact=True).click()
             expect(page).not_to_have_url(re.compile(r"/simulation$"))
             expect(page.locator(".simulation-panel .simulation-plot")).to_have_count(2)
             # ----------- END ------------
@@ -633,8 +634,9 @@ class TestSimulationTab(unittest.TestCase):
             page.evaluate(SHORTEN_SIMULATION)
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
-            protocol_button = page.get_by_role("button", name="Run the protocol's experiments")
-            expect(protocol_button).to_have_count(0)
+            protocol_button = page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode")
+            # Shown before there is a protocol, disabled, saying why.
+            expect(protocol_button).to_have_attribute("aria-disabled", "true")
             # A slider tried out before the protocol turns on.
             add_slider(page, "soma_SN/g_Na")
             slider = page.get_by_role("slider", name="g_Na value")
@@ -681,26 +683,27 @@ class TestSimulationTab(unittest.TestCase):
 
             # The simulation page switches between them too, once the sidebar's list has gone.
             expect(page.get_by_role("listbox")).to_have_count(0)
-            page.get_by_role("button", name="Open the simulation page").click()
+            page.get_by_role("link", name="Simulation", exact=True).click()
             sim_page = page.locator(".simulation-view")
             sim_page.get_by_role("combobox", name="Experiment to show").click()
             page.get_by_role("option", name="SHR", exact=True).click()
             self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
             # It switches between the time course and the protocol too, running each at once.
             run_mode = sim_page.get_by_role("group", name="What play runs")
+            page_protocol = run_mode.get_by_role("button", name="Protocol")
             run_mode.get_by_role("button", name="Time course").click()
-            expect(protocol_button).to_have_attribute("aria-pressed", "false")
+            expect(page_protocol).to_have_attribute("aria-pressed", "false")
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && !{RESULTS_STORE}.protocolResults", timeout=120000)
             expect(sim_page.get_by_role("combobox", name="Experiment to show")).to_have_count(0)
-            run_mode.get_by_role("button", name="Protocol").click()
-            expect(protocol_button).to_have_attribute("aria-pressed", "true")
+            page_protocol.click()
+            expect(page_protocol).to_have_attribute("aria-pressed", "true")
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && !!{RESULTS_STORE}.protocolResults", timeout=120000)
             expect(sim_page.get_by_role("combobox", name="Experiment to show")).to_be_visible()
-            sim_page.get_by_role("button", name="Back to the workspace").click()
+            page.get_by_role("link", name="Workspace", exact=True).click()
             expect(sim_page).to_have_count(0)
 
             # Back to the time course, the slider is on again with the value it was left at.
-            protocol_button.click()
+            page.locator(".simulation-panel").get_by_test_id("sim-run-mode").click()
             expect(protocol_button).to_have_attribute("aria-pressed", "false")
             page.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
             expect(slider_note).to_have_count(0)
@@ -732,7 +735,7 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             page.evaluate(ADD_RAMP_PROTOCOL)
-            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             start, middle, end = page.evaluate(SHOWN_I_IN)
@@ -766,7 +769,7 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             # A protocol of two sub-experiments, the second doubling the M current's conductance, then a copy of it.
-            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            page.get_by_role("button", name="Edit protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Edit obs_data")
             dialog.get_by_role("button", name="Add protocol_info").click()
             dialog.get_by_role("button", name="Add parameter to set").click()
@@ -786,7 +789,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(dialog).to_be_hidden()
 
             # Saved as the workspace's obs_data, the protocol now runs.
-            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
@@ -815,7 +818,7 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
-            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            page.get_by_role("button", name="Edit protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Edit obs_data")
             dialog.get_by_role("button", name="Add protocol_info").click()
             dialog.get_by_role("button", name=re.compile(r"^Edit sub-experiment 1 length")).click()
@@ -849,7 +852,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(dialog.get_by_role("button", name="How soma_SN/I_in varies in sub-experiment 1: Trace")).to_be_visible()
             dialog.get_by_role("button", name="Save").click()
 
-            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             inputs = page.evaluate(
@@ -887,7 +890,7 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
             page.evaluate(ADD_PROTOCOL)
-            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            page.get_by_role("button", name="Edit protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Edit obs_data")
             # With no data items, there are none to list, and the footer counts none.
             expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
@@ -937,15 +940,16 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(saved["protocol_info"], SAVED_PROTOCOL_INFO)
             self.assertEqual(saved["prediction_items"], PREDICTION_ITEMS)
 
-            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
             plot_variable(page, "soma_SN/V")
-            page.get_by_role("button", name="Open the simulation page").click()
+            page.get_by_role("link", name="Simulation", exact=True).click()
             results = page.locator(".simulation-view")
             with page.expect_download() as download:
-                results.get_by_role("button", name="Download the protocol's run as SED-ML").click()
+                results.get_by_role("button", name="Choose what to download").click()
+                page.get_by_role("menuitem", name="SED-ML").click()
 
             # The zip holds the SED-ML and the model it runs, with the protocol's clock written in.
             with open(download.value.path(), "rb") as f:
@@ -979,7 +983,7 @@ class TestSimulationTab(unittest.TestCase):
             saved = page.evaluate(SAVED_OBS_DATA)
 
             # A row each, without what a calibration needs or a way to edit them.
-            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            page.get_by_role("button", name="Edit protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Edit obs_data")
             section = dialog.get_by_role("region", name="data_items")
             rows = section.get_by_test_id("od-data-row")
@@ -1008,7 +1012,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(show_data_items).to_be_checked()
             show_data_items.uncheck()
             settings.get_by_role("button", name="Done").click()
-            page.get_by_role("button", name="Edit obs_data", exact=True).click()
+            page.get_by_role("button", name="Edit protocol", exact=True).click()
             expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
             expect(dialog.get_by_role("region", name="data_items")).to_have_count(0)
             dialog.get_by_role("button", name="Cancel").click()
@@ -1037,7 +1041,7 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             page.evaluate(ADD_FEATURES_PROTOCOL)
-            page.get_by_role("button", name="Run the protocol's experiments").click()
+            page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
 
@@ -1085,7 +1089,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(voltage.locator(".plot-key")).to_contain_text("g_M doubled")
 
             # The simulation page shows them too.
-            page.get_by_role("button", name="Open the simulation page").click()
+            page.get_by_role("link", name="Simulation", exact=True).click()
             sim_page = page.locator(".simulation-view")
             expect(sim_page.locator(".simulation-plot .plot-title")).to_have_text(["soma_SN/i_M", "soma_SN/V", "instance_parameters/g_M"])
             expect(sim_page.get_by_role("button", name="V_peak_obs (calc max)")).to_be_visible()
