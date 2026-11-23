@@ -216,6 +216,40 @@ def open_app(page):
     expect(page.locator(".vue-flow__pane")).to_be_visible(timeout=APP_MOUNT_TIMEOUT)
 
 
+def placed_ids(page):
+    """The ids of the modules drawn in the physiological view."""
+    return page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)")
+
+
+def delete_added_modules(page, before):
+    """Delete the new, empty modules a template has just come with, those not in before, so its pieces are bare for a
+    test to drop modules on."""
+    # They are added one site at a time: wait until they stop coming.
+    added, steady = [], 0
+    while steady < 3:
+        page.wait_for_timeout(100)
+        now = [node_id for node_id in placed_ids(page) if node_id not in before]
+        steady = steady + 1 if now and now == added else 0
+        added = now
+    for node_id in added:
+        node = page.locator(f'{BIO_NODE}[data-id="{node_id}"]')
+        # Clicked on the node itself, as its middle may be another node's: a membrane's is the cell's inside it.
+        node.dispatch_event("click")
+        page.keyboard.press("Delete")
+        expect(node).to_have_count(0)
+
+
+def add_bare_template(page, name, at=(450, 200)):
+    """Place a template from the physiological view's menu, its pieces bare."""
+    before = set(placed_ids(page))
+    page.mouse.click(*at, button="right")
+    menu = page.locator(".p-contextmenu")
+    menu.get_by_text("Add Template", exact=True).hover()
+    menu.get_by_text(name, exact=True).click()
+    expect(menu).to_be_hidden()
+    delete_added_modules(page, before)
+
+
 def place(page, name, x=700, y=450):
     """Drags the named library module onto the canvas."""
     card = page.locator(".mlc__card--draggable").filter(has_text=name).first
@@ -379,10 +413,8 @@ class TestAnnotationCoupling(unittest.TestCase):
         import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(450, 200, button="right")
+        add_bare_template(page, "Epithelial cell")
         menu = page.locator(".p-contextmenu")
-        menu.get_by_text("Add Template", exact=True).hover()
-        menu.get_by_text("Epithelial cell", exact=True).click()
         expect(piece(page, "cell")).to_be_visible()
         page.keyboard.press("Escape")
         expect(page.locator(".p-contextmenu")).to_be_hidden()
@@ -546,10 +578,8 @@ class TestAnnotationCoupling(unittest.TestCase):
         import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(450, 200, button="right")
+        add_bare_template(page, "Cardiomyocyte")
         menu = page.locator(".p-contextmenu")
-        menu.get_by_text("Add Template", exact=True).hover()
-        menu.get_by_text("Cardiomyocyte", exact=True).click()
         expect(piece(page, "myocyte")).to_be_visible()
         page.keyboard.press("Escape")
         expect(menu).to_be_hidden()
@@ -623,10 +653,12 @@ class TestAnnotationCoupling(unittest.TestCase):
         # A rod: an outer and an inner segment inside one cell, each with its own GO term, and a tube between them, the
         # cilium.
         page.locator("[data-testid=library-tab-build]").click()
+        before = set(placed_ids(page))
         with page.expect_file_chooser() as chooser:
             page.locator("[data-testid=bio-palette-load-template]").click()
         chooser.value.set_files(toy("rod.pieces.json"))
         expect(piece(page, "outer-segment")).to_be_visible()
+        delete_added_modules(page, before)
         page.locator("[data-testid=library-tab-modules]").click()
         fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
         placed = page.locator(PLACED)
@@ -809,10 +841,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.place_cell_pool()
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
         tokens = page.locator("[data-testid=bio-species-token]")
-        # The pane's right, clear of the cell and the minimap.
-        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
-        spare = (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2)
-        self.show_species("Coupled Species", spare)
+        self.show_species("Coupled Species")
         expect(tokens).to_have_count(3)
         expect(page.locator("[data-testid=bio-species-path]")).to_have_count(2)
 
@@ -825,21 +854,21 @@ class TestAnnotationCoupling(unittest.TestCase):
         expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(1)
         expect(lumen).to_have_count(1)
 
-        self.show_species("Species with Fluxes", spare)
+        self.show_species("Species with Fluxes")
         expect(tokens).to_have_count(2)
         expect(lumen).to_have_count(0)
         expect(page.locator("[data-testid=bio-species-path]")).to_have_count(1)
         expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(0)
 
         # Focused, it stays: from Coupled Species into Species with Fluxes, until the focus is cleared.
-        self.show_species("Coupled Species", spare)
+        self.show_species("Coupled Species")
         lumen.click()
         expect(page.locator(".bio-species-token--focused")).to_have_count(1)
-        self.show_species("Species with Fluxes", spare)
+        self.show_species("Species with Fluxes")
         expect(tokens).to_have_count(3)
         expect(lumen).to_have_class(re.compile(r"bio-species-token--focused"))
         expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(1)
-        page.mouse.click(*spare)
+        page.mouse.click(*empty_spot(page))
         expect(tokens).to_have_count(2)
 
     def chip_order(self, node_id):
@@ -1134,10 +1163,8 @@ class TestAddedCellMembrane(unittest.TestCase):
             import_files(page, "Module Annotations", [toy(name) for name in ["pool.ttl", "porter.ttl", "wall.ttl"]])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(450, 200, button="right")
+        add_bare_template(page, "Cell")
         menu = page.locator(".p-contextmenu")
-        menu.get_by_text("Add Template", exact=True).hover()
-        menu.get_by_text("Cell", exact=True).click()
         expect(piece(page, "cell")).to_be_visible()
         page.keyboard.press("Escape")
         expect(menu).to_be_hidden()

@@ -6,10 +6,10 @@ from playwright.sync_api import sync_playwright, expect
 
 try:
     from .config import BASE_URL, HEADLESS_MODE
-    from .test_annotations import TOY_MATHS, import_files, toy
+    from .test_annotations import TOY_MATHS, add_bare_template, import_files, toy
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE
-    from test_annotations import TOY_MATHS, import_files, toy
+    from test_annotations import TOY_MATHS, add_bare_template, import_files, toy
 
 
 BIO = ".bio-flow"
@@ -600,6 +600,19 @@ class TestBioTemplates(unittest.TestCase):
         page.locator("[data-testid=bio-palette-template][data-template=cell]").click()
         expect(page.locator("[data-testid=bio-piece-preview]")).to_have_count(0)
 
+    def test_a_template_from_the_menu_comes_with_its_modules_as_from_the_build_tab(self):
+        page = self.page
+        self.open_physiology()
+        page.mouse.click(450, 200, button="right")
+        menu = page.locator(".p-contextmenu")
+        menu.get_by_text("Add Template", exact=True).hover()
+        menu.get_by_text("Cell", exact=True).click()
+        # A new module on each site that takes one, named for its site, as a drop from the Build tab adds.
+        expect(bound(page, "bioCell")).to_have_count(1)
+        expect(bound(page, "bioCell")).to_contain_text("Cell")
+        expect(bound(page, "bioMembrane")).to_have_count(1)
+        expect(empty_piece(page, "cell")).to_have_count(0)
+
     def test_a_template_dropped_on_a_compartment_goes_in_it(self):
         page = self.page
         self.open_physiology()
@@ -826,13 +839,11 @@ class TestBioTemplates(unittest.TestCase):
         expect(zone).to_have_attribute("aria-pressed", "false")
 
     def open_physiology_with_template(self, name):
-        """Open the app, switch to the physiological view and place a template's pieces from the pane's menu."""
+        """Open the app, switch to the physiological view and place a template's pieces, bare, from the pane's menu."""
         page = self.page
         self.open_physiology()
-        page.mouse.click(450, 200, button="right")
+        add_bare_template(page, name)
         menu = page.locator(".p-contextmenu")
-        menu.get_by_text("Add Template", exact=True).hover()
-        menu.get_by_text(name, exact=True).click()
         expect(page.locator(f'{BIO_NODE}[data-id^="pc:"]').first).to_be_visible()
         # The menu fades out over the cell, and would take the first drop.
         expect(menu).to_be_hidden()
@@ -1303,10 +1314,8 @@ class TestBioTemplates(unittest.TestCase):
         import_files(page, "Module Annotations", [toy("porter.ttl")])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(450, 200, button="right")
+        add_bare_template(page, "Cell")
         menu = page.locator(".p-contextmenu")
-        menu.get_by_text("Add Template", exact=True).hover()
-        menu.get_by_text("Cell", exact=True).click()
         cell = piece(page, "cell")
         expect(cell).to_be_visible()
         page.keyboard.press("Escape")

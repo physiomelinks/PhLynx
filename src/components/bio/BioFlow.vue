@@ -2485,7 +2485,10 @@ function loadTemplateFile(at) {
   templateFileInput.value?.click()
 }
 
-/** Adds the chosen template file to the user's templates and places it, or says what is wrong with it. */
+/**
+ * Adds the chosen template file to the user's templates and places it as a Build tab drop would, or says what is wrong
+ * with it.
+ */
 async function onTemplateFile(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -2496,7 +2499,7 @@ async function onTemplateFile(event) {
     ? { template: null, errors: parseErrors, warnings: [] }
     : templateLibrary.addLocalTemplate(raw)
   if (!template) return notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
-  await placePiecesAt(template.id, at)
+  await placeTile({ kind: 'template', template: template.id }, at)
   if (warnings.length) notify.warning({ title: `Loaded ${template.name}`, message: summariseProblems(warnings) })
 }
 
@@ -2512,9 +2515,15 @@ function savePiecesAsTemplate() {
   legacyDownload(filename, new Blob([text], { type: 'application/json' }))
 }
 
-/** The Add Template submenu: built-ins, then the user's own, then loading and removing theirs. */
+/**
+ * The Add Template submenu: built-ins, then the user's own, then loading and removing theirs. A template chosen here is
+ * placed as one dropped from the Build tab would be, with its modules.
+ */
 function addTemplateMenu(at) {
-  const place = (template) => ({ label: template.name, command: () => placePiecesAt(template.id, at) })
+  const place = (template) => ({
+    label: template.name,
+    command: () => placeTile({ kind: 'template', template: template.id }, at),
+  })
   const builtIn = templateLibrary.library.filter((template) => !isLocalTemplateId(template.id))
   const own = templateLibrary.localTemplates
   return [

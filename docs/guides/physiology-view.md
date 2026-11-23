@@ -37,7 +37,7 @@ Every edit in the view is one undo step, named in the undo notice.
 
 ## Building the View {#building}
 
-The view is built from five **pieces**, each with **sites** to drop modules on. The library's **Build** tab lists them, and the templates made from them. Drag a piece or template onto the view, or click it and then click where it goes. While a piece is carried, what it would go on is outlined in green and a dashed preview shows where it would be drawn; the label by the pointer says what it would do, or, in red, why it can't go there. Each piece dropped from the Build tab comes with a new, empty module on each site that takes one, named for its site, for a library module to replace later.
+The view is built from five **pieces**, each with **sites** to drop modules on. The library's **Build** tab lists them, and the templates made from them. Drag a piece or template onto the view, or click it and then click where it goes. While a piece is carried, what it would go on is outlined in green and a dashed preview shows where it would be drawn; the label by the pointer says what it would do, or, in red, why it can't go there. Each piece or template placed comes with a new, empty module on each site that takes one, named for its site, for a library module to replace later.
 
 | Piece | Dropped | Sites |
 | :--- | :--- | :--- |
