@@ -61,7 +61,7 @@ Hover or click the chips for the detail: each term's IRI, the place the annotati
 An instance's place comes from where it sits in the [physiology view](./physiology-view.md):
 
 - **On a site of the pieces**, the site says it: a module dropped on the apical membrane of an epithelial cell is in that membrane, with the cell's cytoplasm on one side and the apical fluid on the other. Sides are relative: on an organelle's membrane, its lumen is the inside and the cytoplasm around it the outside.
-- **Off the pieces**, its role and the cell it is drawn on say it: a transporter on a cell's basolateral facet faces whatever compartment lies against that facet.
+- **Off the pieces** it has no place, and couples by placement with nothing until it is dropped on a site.
 
 Two annotated ports couple when their property and species are equal, their places are the same, and their roles complement each other: a concentration's owner with a reader, or a sum of flows with a flow into it. See [Roles](../reference/annotation-vocabulary.md#roles).
 

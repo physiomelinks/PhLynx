@@ -9,25 +9,27 @@ The physiology view draws the workspace as physiology: cells, their membranes, t
 
 ## What Each Instance Is {#roles}
 
-Each instance is drawn by its role:
+An instance on a [piece](#building) is what its site is:
 
-| Role | Drawn as |
+| Site | Drawn as |
 | :--- | :--- |
-| **Membrane protein** | A [skin](#skins) on one facet of a cell's membrane: apical, lateral or basolateral |
-| **Membrane** | The cell's outline, selectable apart from its inside |
-| **Cell** | The cell's inside (cytoplasm) |
-| **Process in a cell** | A box inside a cell, such as glycolysis |
-| **Region outside cells** | A compartment, such as a lumen or the interstitium |
-| **Card** | Nothing physiological is known |
+| **A stretch of membrane** or a fold | A membrane protein: a [skin](#skins) on that stretch |
+| **A membrane** | The cell's outline, selectable apart from its inside |
+| **A cell's inside** | The cell's inside (cytoplasm) |
+| **A process zone** | A process, such as glycolysis, drawn as its skin |
+| **Any other compartment** | That compartment, such as a lumen or the interstitium |
+| **A tube** | The flux through it, as a card in the tube or as its joint |
 
-The role comes from the module's [Module kind](./annotation-coupling.md#annotations-tab) (**Transporter**, **Membrane** or **Compartment**), else from where its annotated variables are. To choose one yourself, right-click the instance and pick **Show As**; **Reset to Annotations** undoes your choice. Right-click a compartment for **Lies Against**, to say which facet of which cell it borders.
+Moved to another site, it becomes what that site is.
+
+An instance on no piece is drawn beside the pieces, as its module's annotations say: a protein in the tray on the left when its [Module kind](./annotation-coupling.md#annotations-tab) is **Transporter**, or its variables lie both inside and outside a cell; anything else as a card on the right, a process with its symbol. Drop it on a site to place it.
 
 Double-click an instance to open its [Instance Editor](../reference/ui-overview.md#instance-editor). Right-click it for **Rename…**, which renames the instance as the diagram does (a name another instance has is refused), for **Connections**, which lists the instances it is coupled to and opens each coupling, or for **Apply Parameter Set**, which applies another of its math's [parameter sets](./use-with-circulatory-autogen.md#parameter-files) as the diagram's menu does. With **Settings ▸ Auto-plot selection** on, selecting an instance after a run plots what its annotations say matters: a protein's flows, a compartment's concentrations, a membrane's potential.
 
 Dragging a structure moves all of it; dragging a part moves only that part:
 
-- **Structures**: a cell (by its inside or its outline), an organelle, a compartment standing on its own and a process zone move with everything in them, docked to them or joined to them by a tube (see [Moving and Resizing](#moving-pieces)). A hand-added cell takes its membrane, proteins, cards and the compartments lying only against it along.
-- **Parts**: a protein (it snaps between slots, and can leave its cell), a process card and a module outside any structure move alone.
+- **Structures**: a cell (by its inside or its outline), an organelle, a compartment standing on its own and a process zone move with everything in them, docked to them or joined to them by a tube (see [Moving and Resizing](#moving-pieces)).
+- **Parts**: a protein (it snaps between slots, and can leave its cell), a process and a module outside any structure move alone.
 
 **Delete** or **Backspace**, or **Delete** on an instance's menu, deletes the selected instances from the workspace with their connections, as in the diagram. With a protein selected, right-click one of its connections for **Delete Connection**.
 
@@ -66,7 +68,7 @@ Drag a module from Available Modules, or an instance already in the view, onto a
 
 To make a new module in place, right-click an empty site, or a slot on a stretch of membrane or in a process zone, and choose **New Module Here**: it is placed and connected as a dropped one would be, and its first save makes it a module of its own.
 
-Right-click an instance on a site to **Unbind** it: a protein goes to the tray.
+Right-click an instance on a site to **Unbind** it: it is drawn beside the pieces, as its annotations say (see [What Each Instance Is](#roles)). Dropping a module from Available Modules anywhere off the pieces puts it there the same way.
 
 ### Moving and Resizing {#moving-pieces}
 
@@ -85,9 +87,7 @@ Right-click a piece for:
 - **Fit to Contents**: shrinks a cell or compartment back to what its contents need. A piece never shrinks on its own.
 - **Straighten Tube**: takes a tube's bend away.
 - **Detach From**: on a compartment docked to more than one membrane side or fold, takes it off one of them, leaving it against the rest.
-- **Remove**: a piece, with what can't stand without it, such as the fluids docked to a membrane. On a cell, choose the whole cell or its membrane alone, which leaves its inside where it was; folds, process zones and tubes on it are listed too. When other pieces go along, or modules are placed on what goes, PhLynx says so and asks first; the modules stay in the diagram, and proteins go to the tray.
-
-To build without pieces, right-click the canvas and choose **Add Cell…** or **Add Compartment…**, picking the module for each. A hand-added cell takes drops as a cell built from pieces does: on its membrane, while it has none, on its inside, and on its facets' slots.
+- **Remove**: a piece, with what can't stand without it, such as the fluids docked to a membrane. On a cell, choose the whole cell or its membrane alone, which leaves its inside where it was; folds, process zones and tubes on it are listed too. When other pieces go along, or modules are placed on what goes, PhLynx says so and asks first; the modules stay in the diagram, drawn beside the pieces as their annotations say.
 
 ### My Templates {#my-templates}
 
