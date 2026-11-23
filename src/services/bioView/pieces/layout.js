@@ -580,6 +580,21 @@ export function boundToPieces(pieces, nodes) {
 }
 
 /**
+ * The role of each node bound to a site of the pieces: its site's role (see topologyOf). A node on no site the pieces
+ * offer has none.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @param {Array<{id: string, data?: Object}>} nodes
+ * @returns {Map<string, string>} Node id -> its site's role.
+ */
+export function siteRolesOf(pieces, nodes) {
+  const { bound } = boundToPieces(pieces, nodes)
+  if (!bound.size) return new Map()
+  const roleAt = new Map(topologyOf(pieces).sites.map((site) => [pieceSiteRef(site.path), site.role]))
+  return new Map([...bound].map(([id, ref]) => [id, roleAt.get(ref)]))
+}
+
+/**
  * Lays the pieces out.
  *
  * @param {ReadonlyArray<Object>} pieces - Validated (see validatePieces).

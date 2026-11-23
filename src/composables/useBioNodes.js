@@ -1,6 +1,6 @@
 import { computed, ref, unref, watch } from 'vue'
 import { useBioPiecesStore } from '../stores/bioPiecesStore'
-import { PIECES_INSTANCE, boundToPieces, layoutPieces } from '../services/bioView/pieces/layout'
+import { PIECES_INSTANCE, boundToPieces, layoutPieces, siteRolesOf } from '../services/bioView/pieces/layout'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { readNodeSeries } from '../services/simulation/variableMapping'
@@ -723,10 +723,13 @@ export function useBioNodes(
 
   const roles = computed(() => {
     const source = locationSource()
+    // A module on a piece is what its site is: as a drag of a piece would leave it, so a drag shows it.
+    const siteRoles = siteRolesOf(piecesStore.draft ?? piecesStore.pieces, nodes.value)
     return new Map(
       nodes.value.map((node) => {
         const sidecar = node.data?.mathRef ? libraryStore.getParsedModuleAnnotations(node.data.mathRef) : null
-        return [node.id, resolveBioRole(node.data, { sidecar, worked: source.workedRole(node, { sidecar }) })]
+        const worked = source.workedRole(node, { sidecar })
+        return [node.id, resolveBioRole(node.data, { sidecar, worked, siteRole: siteRoles.get(node.id) })]
       }),
     )
   })

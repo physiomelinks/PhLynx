@@ -474,18 +474,17 @@ export function nearestSite(targets, point, snap = 60, { areas = true, membrane 
 
 /**
  * Plans binding a node to a template site. On a slot it takes that slot and the rest of the row moves along;
- * on a process area it goes at the end of the row. A one-module site's occupant is unbound to a card (a
- * protein to the tray), so the drop replaces it. The row the node left closes up.
+ * on a process area it goes at the end of the row. A one-module site's occupant is unbound, drawn as its
+ * annotations say, so the drop replaces it. The row the node left closes up.
  *
  * @param {Object} options
  * @param {string} options.id - The node bound.
  * @param {Object} options.site - From nearestSite.
  * @param {Map<string, Object>} options.layout - The layout before the drop.
- * @param {Map<string, Object>} options.roles - Node id -> resolveBioRole's result.
  * @param {Map<string, Object>} options.bioViews - Node id -> its data.bioView.
  * @returns {Map<string, Object>} Node id -> its new bioView.
  */
-export function planSiteBind({ id, site, layout, roles, bioViews }) {
+export function planSiteBind({ id, site, layout, bioViews }) {
   const plan = new Map()
   const write = (nodeId, patch) => plan.set(nodeId, patchBioView(plan.get(nodeId) ?? bioViews.get(nodeId), patch))
   const from = layout.get(id)
@@ -503,14 +502,15 @@ export function planSiteBind({ id, site, layout, roles, bioViews }) {
     writeParts(parts, write)
   }
 
-  write(id, { ...Object.fromEntries(BIND_CLEARS.map((key) => [key, undefined])), role: site.role, site: site.ref })
+  // The site says what it is: a stored role goes with the rest.
+  write(id, { ...Object.fromEntries([...BIND_CLEARS, 'role'].map((key) => [key, undefined])), site: site.ref })
   if (site.kind === 'slots') {
     const row = rowOf(layout, site.ref).filter((other) => other !== id)
     row.splice(Math.min(site.order ?? row.length, row.length), 0, id)
     row.forEach((other, order) => write(other, { order }))
   } else {
     const occupant = site.occupant
-    if (occupant && occupant !== id) write(occupant, unbound(occupant, roles, bioViews, true))
+    if (occupant && occupant !== id) write(occupant, UNBOUND)
   }
   return plan
 }
@@ -526,35 +526,26 @@ export function replacedOccupant(site, id) {
   return site?.kind === 'single' && site.occupant && site.occupant !== id ? site.occupant : null
 }
 
-/**
- * The fields that unbind a node: no site or order, and a protein out of any membrane; replaced, anything else
- * becomes a card.
- */
-function unbound(id, roles, bioViews, replaced = false) {
-  const role = bioViews.get(id)?.role ?? roles?.get(id)?.role
-  const patch = { site: undefined, order: undefined }
-  if (role === 'membraneProtein') return { ...patch, facet: null }
-  return replaced ? { ...patch, role: 'none' } : patch
-}
+/** The fields that unbind a node: no site or order, nor a stored role, so its annotations say what it is. */
+const UNBOUND = Object.freeze({ site: undefined, order: undefined, role: undefined })
 
 /**
- * Plans unbinding a node from its template site: its row closes up, and it goes where its role puts it, a
- * protein to the tray at the given position.
+ * Plans unbinding a node from its template site: its row closes up, and it is drawn as its annotations say, at the
+ * given position.
  *
  * @param {Object} options
  * @param {string} options.id
  * @param {{x: number, y: number}} [options.position] - Its new top-left.
  * @param {Map<string, Object>} options.layout
- * @param {Map<string, Object>} [options.roles]
  * @param {Map<string, Object>} options.bioViews
  * @returns {Map<string, Object>}
  */
-export function planUnbind({ id, position, layout, roles, bioViews }) {
+export function planUnbind({ id, position, layout, bioViews }) {
   const plan = new Map()
   const write = (nodeId, patch) => plan.set(nodeId, patchBioView(plan.get(nodeId) ?? bioViews.get(nodeId), patch))
   const from = layout.get(id)
   if (from?.instance && (from.kind === 'protein' || from.kind === 'cytosolic')) closeUp(layout, from.site, id, write)
-  write(id, { ...unbound(id, roles, bioViews), ...(position && { position: whole(position) }) })
+  write(id, { ...UNBOUND, ...(position && { position: whole(position) }) })
   return plan
 }
 

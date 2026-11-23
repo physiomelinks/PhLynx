@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import { getBuiltInPieceTemplate } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
-import { boundToPieces, layoutPieces, pieceKey } from '../../../../../src/services/bioView/pieces/layout.js'
+import {
+  boundToPieces,
+  layoutPieces,
+  pieceKey,
+  siteRolesOf,
+} from '../../../../../src/services/bioView/pieces/layout.js'
+import { encloseCompartment } from '../../../../../src/services/bioView/pieces/edits.js'
+import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
+import { resolveBioRole } from '../../../../../src/services/bioView/roles.js'
 import { layoutPhysiology } from '../../../../../src/services/bioView/layout.js'
 import { dropSites, nearestSite } from '../../../../../src/services/bioView/drop.js'
 
@@ -26,6 +34,30 @@ describe('boundToPieces', () => {
     expect(occupants.get('sarcolemma.surface')).toEqual(['nka', 'ncx'])
     expect([...bound.keys()].sort()).toEqual(['a-cytosol', 'ncx', 'nka'])
     expect(bound.get('nka')).toBe('pieces/sarcolemma.surface')
+  })
+})
+
+describe('a module’s role on the pieces', () => {
+  const roleOn = (pieces, nodes, id) =>
+    resolveBioRole(nodes.find((n) => n.id === id).data, { siteRole: siteRolesOf(pieces, nodes).get(id) })
+
+  it('is its site’s role, whatever role is stored', () => {
+    const nodes = [node('nka', 'pieces/sarcolemma.surface', { role: 'cytosolic' }), node('lost', 'pieces/nowhere')]
+    expect(roleOn(cardiomyocyte, nodes, 'nka')).toMatchObject({ role: 'membraneProtein', source: 'site' })
+    // A site the pieces don't offer is no site.
+    expect(siteRolesOf(cardiomyocyte, nodes).has('lost')).toBe(false)
+  })
+
+  it('follows its site when a membrane is wrapped round its compartment', () => {
+    const { pieces } = validatePieces([
+      { id: 'lumen', kind: 'compartment', label: 'Lumen', frame: { x: 0, y: 0, width: 200, height: 120 } },
+    ])
+    const nodes = [node('saline', 'pieces/lumen')]
+    expect(roleOn(pieces, nodes, 'saline').role).toBe('region')
+
+    const { rects } = layoutPieces(pieces)
+    const wrapped = validatePieces(encloseCompartment(pieces, 'lumen', rects).pieces).pieces
+    expect(roleOn(wrapped, nodes, 'saline')).toMatchObject({ role: 'cytosol', source: 'site' })
   })
 })
 

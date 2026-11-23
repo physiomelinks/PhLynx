@@ -676,7 +676,7 @@ const {
   focusedSpecies: computed(() => viewMode.focusedSpecies),
   tintMode: computed(() => cursor.concentrationScale),
 })
-const { applyPlan, placePiecesTemplate, editPieces, strandedBy, nameError, renameInstance } = useBioEdits(roles)
+const { applyPlan, placePiecesTemplate, editPieces, strandedBy, nameError, renameInstance } = useBioEdits()
 
 onMounted(() => loadSidecars())
 

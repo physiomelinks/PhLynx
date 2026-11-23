@@ -18,7 +18,7 @@ import { resolveBioRole } from './roles.js'
 import { cellFinder, scaffoldFromNodes } from './scaffold.js'
 import { EPITHELIAL_SHAPE } from './shape.js'
 import { parseSiteRef } from './siteRefs.js'
-import { PIECES_INSTANCE, boundToPieces } from './pieces/layout.js'
+import { PIECES_INSTANCE, boundToPieces, siteRolesOf } from './pieces/layout.js'
 import { piecePlaces } from './pieces/placement.js'
 
 const SELF = 'self'
@@ -54,9 +54,11 @@ function sitePlaces(ref, { pieces }) {
  * @returns {Object}
  */
 export function preparePlacement(nodes, { sidecarFor = () => null, pieces = [], workedRole } = {}) {
+  const siteRoles = siteRolesOf(pieces, nodes)
   const roleOf = (node) => {
     const sidecar = node.data?.mathRef ? (sidecarFor(node.data.mathRef) ?? null) : null
-    return resolveBioRole(node.data, { sidecar, worked: workedRole?.(node, { sidecar }) ?? null })
+    const worked = workedRole?.(node, { sidecar }) ?? null
+    return resolveBioRole(node.data, { sidecar, worked, siteRole: siteRoles.get(node.id) })
   }
   const roles = new Map(nodes.map((node) => [node.id, roleOf(node)]))
   const onPieces = boundToPieces(pieces, nodes).bound

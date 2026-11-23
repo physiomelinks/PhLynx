@@ -14,10 +14,9 @@ import { sanitiseName } from '../utils/identifiers'
  * Edits made in the physiological view: new bioViews for diagram nodes, and changes to the pieces it is built from.
  * Each call is one undo step in the diagram's history, whatever it changes.
  *
- * @param {Ref<Map<string, Object>>} [roles] - Node id -> resolveBioRole's result, for a role a bioView leaves out.
  * @returns {Object} applyPlan and the pieces' actions.
  */
-export function useBioEdits(roles = null) {
+export function useBioEdits() {
   const main = useVueFlow(FLOW_IDS.MAIN)
   const { recordEdit } = useNodeDataHistory(FLOW_IDS.MAIN)
   const pieces = useBioPiecesStore()
@@ -76,7 +75,7 @@ export function useBioEdits(roles = null) {
   }
 
   /**
-   * Unbinds nodes from their sites: proteins go to the tray, the rest where their role puts them.
+   * Unbinds nodes from their sites, so each is drawn as its annotations say.
    *
    * @param {Array<Object>} nodes
    * @returns {Map<string, Object>} A plan for applyPlan.
@@ -84,9 +83,8 @@ export function useBioEdits(roles = null) {
   function unbindPlan(nodes) {
     const plan = new Map()
     for (const node of nodes) {
-      const { site, order, ...rest } = node.data.bioView
-      const role = rest.role ?? roles?.value?.get(node.id)?.role
-      plan.set(node.id, role === 'membraneProtein' ? { ...rest, facet: null } : rest)
+      const { site, order, role, ...rest } = node.data.bioView
+      plan.set(node.id, rest)
     }
     return plan
   }
