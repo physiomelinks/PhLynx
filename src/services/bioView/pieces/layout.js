@@ -447,6 +447,17 @@ function contact(a, b, { radii = [0, 0], size = { width: 0, height: 0 }, least =
   return null
 }
 
+/**
+ * Whether two compartments touch, as the layout sees it: where a gap junction between them can be drawn whole.
+ *
+ * @param {Object} [a] - The one's rect.
+ * @param {Object} [b] - The other's.
+ * @returns {boolean}
+ */
+export function compartmentsTouch(a, b) {
+  return !!a && !!b && !!contact(a, b)
+}
+
 /** How far down a process zone its row starts: below its name, in its top-left corner, as a compartment's contents are. */
 const ZONE_ROW_TOP = 18
 

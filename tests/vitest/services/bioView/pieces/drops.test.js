@@ -191,16 +191,35 @@ describe('dropping a tube, fold or zone', () => {
     expect(ghosts.some((ghost) => ghost.type === 'path')).toBe(true)
   })
 
-  it('between two cells, names them, as a gap junction unless the user makes it a bridge', () => {
-    // The two cells alone, without the fluids round them, which are nearer.
-    const cells = valid(getBuiltInPieceTemplate('two-cell-epithelium').pieces.filter((piece) => !piece.docks))
-    const scene = dropScene(cells)
+  // The two cells alone, without the fluids round them, which are nearer; moved together, B against A's right side.
+  const twoCells = (touching) =>
+    valid(
+      getBuiltInPieceTemplate('two-cell-epithelium')
+        .pieces.filter((piece) => !piece.docks)
+        .map((piece) =>
+          touching && piece.id === 'b-membrane' ? { ...piece, frame: { ...piece.frame, x: 320 } } : piece,
+        ),
+    )
+  const tubeDropIn = (pieces) => {
+    const scene = dropScene(pieces)
     const a = scene.rects.get('a')
     const drop = resolveDrop('tube', { x: a.x + a.width / 2, y: a.y + a.height / 2 }, scene)
+    return { drop, tubeOf: (choice) => previewDrop(scene, drop, choice).pieces.find((piece) => piece.kind === 'tube') }
+  }
+
+  it('between two touching cells, names them, as a gap junction unless the user makes it a bridge', () => {
+    const { drop, tubeOf } = tubeDropIn(twoCells(true))
     expect(drop.cells).toEqual(['Epithelial cell A', 'Epithelial cell B'])
-    const tubeOf = (choice) => previewDrop(scene, drop, choice).pieces.find((piece) => piece.kind === 'tube')
+    expect(drop.label).toBe('Joins Epithelial cell A to Epithelial cell B')
     expect(tubeOf()).toMatchObject({ ends: ['a', 'b'], flux: 'junction', label: 'Gap junction' })
     expect(tubeOf({ flux: 'bridge' })).toMatchObject({ ends: ['a', 'b'], flux: 'bridge', label: 'Bridge' })
+  })
+
+  it('between two cells apart, is a bridge, asking nothing, a gap junction needing them to touch', () => {
+    const { drop, tubeOf } = tubeDropIn(twoCells(false))
+    expect(drop.cells).toBeUndefined()
+    expect(drop.label).toBe('Bridges Epithelial cell A to Epithelial cell B')
+    expect(tubeOf()).toMatchObject({ ends: ['a', 'b'], flux: 'bridge', label: 'Bridge' })
   })
 
   it('between two spaces of one cell, is an open channel, asking nothing', () => {

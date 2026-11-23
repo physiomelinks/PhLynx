@@ -2471,8 +2471,8 @@ async function placePieceAt(kind, point) {
 const CELL_TUBE_FLUX = Object.freeze({ gap: 'junction', bridge: 'bridge' })
 
 /**
- * What a tube between two cells joins them by: the setting's choice, else the user's, asked with a box to remember
- * it as the setting.
+ * What a tube between two touching cells joins them by: the setting's choice, else the user's, asked with a box to
+ * remember it as the setting. Between two apart, the drop makes it a bridge, asking nothing (see resolveDrop).
  *
  * @param {[string, string]} cells - Their names.
  * @returns {Promise<'junction'|'bridge'|null>} null when cancelled.
@@ -2485,8 +2485,9 @@ async function cellTubeFlux([first, second]) {
     const { action, remember } = await choose({
       header: 'Join two cells',
       message:
-        `How does the tube join ${first} to ${second}? A gap junction is where their two membranes meet, with a ` +
-        'connexon in each; a bridge is an open channel of cytoplasm between them, walled by membrane.',
+        `${first} and ${second} touch. How does the tube join them? A gap junction is where their two membranes ` +
+        'meet, with a connexon in each; a bridge is an open channel of cytoplasm between them, walled by membrane. ' +
+        'Between cells apart, a tube is always a bridge.',
       extraLabel: 'Gap junction',
       acceptLabel: 'Bridge',
       rejectLabel: 'Cancel',

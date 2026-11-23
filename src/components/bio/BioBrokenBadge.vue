@@ -2,7 +2,10 @@
   <!-- A gap junction between cells apart: drawn as the orange warning of a coupling that can't be exported -->
   <span
     class="bio-broken-badge"
-    :title="`${name}: a gap junction needs the two cells' membranes to touch. Move the cells together.`"
+    v-tooltip.top="
+      `${name} is broken: its cells are too far apart. A gap junction needs the two cells' membranes to touch, so ` +
+      'move them together.'
+    "
     data-testid="bio-broken"
   >
     <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>

@@ -17,7 +17,7 @@ import {
   freeStretch,
   joinsTwoCells,
 } from './edits.js'
-import { layoutPieces } from './layout.js'
+import { compartmentsTouch, layoutPieces } from './layout.js'
 import { validatePieces } from './model.js'
 import { topologyOf } from './topology.js'
 
@@ -271,13 +271,16 @@ function resolveTube(scene, point) {
     return { key: 'tube|none', invalid: 'Drop it on or between two compartments.' }
   }
   const ends = [first.id, second.piece.id]
+  // Between two cells apart, only a bridge can join them, a gap junction needing their membranes to meet. Between two
+  // that touch, whether it is a gap junction or a bridge is the user's to say (see placePieceAt).
+  const cells = joinsTwoCells(scene.pieces, ends)
+  const apart = cells && !compartmentsTouch(...ends.map((id) => scene.rects.get(id)))
   return {
     key: `tube|${ends.join('|')}`,
-    label: `Joins ${first.label} to ${second.piece.label}`,
+    label: apart ? `Bridges ${first.label} to ${second.piece.label}` : `Joins ${first.label} to ${second.piece.label}`,
     highlights: ends.map((id) => ({ type: 'rect', rect: scene.rects.get(id) })),
-    // Between two cells, whether it is a gap junction or a bridge is the user's to say (see placePieceAt).
-    ...(joinsTwoCells(scene.pieces, ends) && { cells: [first.label, second.piece.label] }),
-    apply: (pieces, { flux } = {}) => addTube(pieces, ends, flux),
+    ...(cells && !apart && { cells: [first.label, second.piece.label] }),
+    apply: (pieces, { flux = apart ? 'bridge' : undefined } = {}) => addTube(pieces, ends, flux),
   }
 }
 
@@ -391,7 +394,7 @@ const RESOLVERS = {
  * @returns {{key: string, label: string, highlights: Array<Object>, apply: Function, cells?: [string, string]}|
  *   {key: string, invalid: string}} apply(pieces, choice) gives { pieces, id } (raw, for validatePieces) or
  *   { pieces: null, error }; highlights are lines ({type: 'line', from, to}) or rects ({type: 'rect', rect}) to draw
- *   over the target; cells, a tube's, names the two cells it would join, as a gap junction or a bridge.
+ *   over the target; cells, a tube's, names the two touching cells it would join, as a gap junction or a bridge.
  */
 export function resolveDrop(kind, point, scene) {
   const resolve = RESOLVERS[kind]
