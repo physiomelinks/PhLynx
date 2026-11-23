@@ -9,6 +9,7 @@ import { useEdgeDragOffsets } from '../../../src/composables/useEdgeDragOffsets.
 import { setEdgeRoute } from '../../../src/composables/useEdgeRouteEditing.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
+import { ARROW_SIZES, EDGE_WIDTHS } from '../../../src/utils/constants.js'
 
 const nodes = ref([])
 const edges = ref([])
@@ -200,6 +201,69 @@ describe('CouplingEdge', () => {
 
     it('ignores waypoints that are not points', () => {
       expect(drawnPath(mountRoute({ couplings: [], waypoints: [{ x: 'a', y: 1 }] }))).toBe(getSmoothStepPath(geometry)[0])
+    })
+  })
+
+  describe('appearance', () => {
+    const geometry = { sourceX: 0, sourceY: 0, targetX: 300, targetY: 120, sourcePosition: 'right', targetPosition: 'left' }
+    const mountStyled = (props = {}) =>
+      mount(CouplingEdge, {
+        props: { id: 'e', source: 'a', target: 'b', ...geometry, data: { couplings: [] }, ...props },
+        global: { directives: { tooltip: {}, hint: {} } },
+      })
+    const baseEdge = (wrapper) => wrapper.findComponent({ name: 'BaseEdge' })
+    const waypoints = [{ x: 150, y: -80 }, { x: 250, y: -80 }]
+
+    it('draws the built-in line and arrow when it has no appearance', () => {
+      const wrapper = mountStyled()
+      expect(baseEdge(wrapper).props('style').strokeWidth).toBe(EDGE_WIDTHS.normal)
+      expect(baseEdge(wrapper).props('markerEnd')).toBe('url(#coupling-edge-arrow-e)')
+      expect(wrapper.find('marker').attributes()).toMatchObject({
+        markerwidth: String(ARROW_SIZES.medium),
+        markerunits: 'userSpaceOnUse',
+      })
+    })
+
+    it('squares the corners of a step edge, with or without waypoints', () => {
+      const step = (extra = {}) => ({ data: { couplings: [], appearance: { path: 'step' }, ...extra } })
+      expect(baseEdge(mountStyled(step())).props('path')).toBe(getSmoothStepPath({ ...geometry, borderRadius: 0 })[0])
+      const rounded = baseEdge(mountStyled({ data: { couplings: [], waypoints } })).props('path')
+      const square = baseEdge(mountStyled(step({ waypoints }))).props('path')
+      expect(rounded).toContain('Q')
+      expect(square).not.toBe(rounded)
+    })
+
+    it('widens the line by its width, and by 2 more when selected', () => {
+      const thick = { data: { couplings: [], appearance: { width: 'thick' } } }
+      expect(baseEdge(mountStyled(thick)).props('style').strokeWidth).toBe(EDGE_WIDTHS.thick)
+      expect(baseEdge(mountStyled({ ...thick, selected: true })).props('style').strokeWidth).toBe(EDGE_WIDTHS.thick + 2)
+    })
+
+    it('overrides the stroke width older edges were saved with', () => {
+      const wrapper = mountStyled({ style: { strokeWidth: 5, opacity: 0.4 }, data: { couplings: [], appearance: { width: 'thin' } } })
+      expect(baseEdge(wrapper).props('style')).toMatchObject({ strokeWidth: EDGE_WIDTHS.thin, opacity: 0.4 })
+    })
+
+    it('leaves the line colour to CSS, so it can show conflicts and uncoupled edges', () => {
+      // A colour from an older build is ignored.
+      const wrapper = mountStyled({ data: { couplings: [], appearance: { colour: '#ff0000' } } })
+      expect(baseEdge(wrapper).props('style').stroke).toBeUndefined()
+      expect(wrapper.find('marker polyline').attributes('style')).toBeUndefined()
+    })
+
+    it('sizes the arrow by its option, the same whether selected or not', () => {
+      for (const [size, width] of Object.entries(ARROW_SIZES)) {
+        for (const selected of [false, true]) {
+          const marker = mountStyled({ data: { couplings: [], appearance: { arrow: size } }, selected }).find('marker')
+          expect(marker.attributes('markerwidth')).toBe(String(width))
+        }
+      }
+    })
+
+    it('draws no arrow for none', () => {
+      const wrapper = mountStyled({ data: { couplings: [], appearance: { arrow: 'none' } } })
+      expect(wrapper.find('marker').exists()).toBe(false)
+      expect(baseEdge(wrapper).props('markerEnd')).toBeUndefined()
     })
   })
 

@@ -6,6 +6,7 @@ import { useFlowHistoryStore } from '../stores/historyStore'
 import { useGtm } from './useGtm'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { buildWorkflowGraph } from '../services/import/buildWorkflow'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 import { notify } from '../utils/notify'
 import { useWorkflowLayout } from './useWorkflowLayout'
 
@@ -17,6 +18,7 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
   const { nodes, addNodes } = useVueFlow()
   const store = useLibraryStore()
   const defaultParameters = useDefaultParametersStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
   const { trackEvent } = useGtm()
   const { clearWorkspace } = useClearWorkspace()
   const { prepareLayout } = useWorkflowLayout({ fitViewParams })
@@ -65,7 +67,11 @@ export function useLoadFromInstanceArray({ fitViewParams } = {}) {
       }
 
       // 1. Prepare the layout promise chain
-      const layoutPromise = prepareLayout(result.pendingEdges, progressCallback, result.pendingInstances.length)
+      const layoutPromise = prepareLayout(
+        appearanceStore.withConnectionDefaults(result.pendingEdges),
+        progressCallback,
+        result.pendingInstances.length
+      )
 
       // 2. Add nodes as a single undoable batch so this import is not split into
       //    separate node and edge history entries.

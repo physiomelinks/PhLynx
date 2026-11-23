@@ -678,11 +678,10 @@ class TestCelldl(unittest.TestCase):
             page.mouse.move(x, y, steps=4)
             expect(page.locator(".tooltip-info .tippy-box")).to_contain_text("u_i_C")
 
-            # With the Plot tab shown and Auto-update on, clicking the junction plots its potential, and the tab stays.
+            # With the Plot tab shown, clicking the junction plots its potential, and the tab stays.
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
             dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()
             expect(dialog.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=SIMULATION_TIMEOUT)
-            expect(dialog.get_by_role("switch", name="Auto-update: plot a variable clicked in the math")).to_be_checked()
             click_element(page, JUNCTION)
             expect(dialog.locator(".simulation-plot .plot-title")).to_have_text(f"{MODULE}/u_i_C")
             expect(dialog.get_by_role("tab", name="Plot (1)")).to_have_attribute("aria-selected", "true")

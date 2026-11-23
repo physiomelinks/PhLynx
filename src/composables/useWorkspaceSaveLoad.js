@@ -13,6 +13,7 @@ import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { driveEdgesByAnnotations, drivenSummary, withCouplings } from '../services/annotations/edgeCouplings'
 import { dropStaleAnnotatedPorts } from '../services/annotations/reconcileNodes'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 import { buildWorkspaceFile } from '../services/workspaceFile'
 import { migrateWorkspaceInBackground } from '../services/workspaceMigrator'
 import { JSON_FILE_TYPES } from '../utils/constants'
@@ -58,6 +59,7 @@ export function useWorkspaceSaveLoad({
   const bioPiecesStore = useBioPiecesStore()
   const skinLibraryStore = useSkinLibraryStore()
   const nodeThemeStore = useNodeThemeStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
   const { trackEvent } = useGtm()
   const historyStore = useFlowHistoryStore()
   const { ensureContext } = useCouplingContext()
@@ -117,6 +119,7 @@ export function useWorkspaceSaveLoad({
       bioPieces: bioPiecesStore,
       bioSkins: skinLibraryStore,
       nodeTheme: nodeThemeStore,
+      appearance: appearanceStore,
     })
   }
 
@@ -223,7 +226,8 @@ export function useWorkspaceSaveLoad({
       bioPiecesStore.loadState(migratedState.bioPieces)
       skinLibraryStore.loadState(migratedState.bioSkins)
       nodeThemeStore.loadState(migratedState.nodeTheme)
-      // After the pieces, which place the nodes.
+      appearanceStore.loadState(migratedState.appearance)
+      // After the templates, which place the nodes.
       const driven = await driveLoadedEdges()
       // A loaded workspace is as saved as its file.
       historyStore.markSaved()

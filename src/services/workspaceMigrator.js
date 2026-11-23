@@ -366,6 +366,11 @@ function convertStore(oldStore, globalConstantNames, newAvailableModules) {
  * - 1.4.0: `parameters` holds the default parameter sets; older files have none.
  *   simulation.simulationSettings' `tolerance` becomes `relativeTolerance`, CVODE's relative tolerance,
  *   beside a new `absoluteTolerance`. Older files used `tolerance` for both, so both take its value.
+ * - Any version: an edge's data may have an `appearance` `{path, arrow, width}` (see
+ *   BUILT_IN_EDGE_APPEARANCE in utils/constants.js): only the values that differ from the built-in ones,
+ *   which a missing key means. The file may have an `appearance` block `{connections}`, the appearance new
+ *   connections start with, left out while it is the built-in one. Files without them load with the
+ *   built-in ones, so they need no migration.
  */
 const LEGACY_VERSION = 'legacy'
 

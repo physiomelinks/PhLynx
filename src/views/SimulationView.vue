@@ -1,94 +1,56 @@
 <template>
   <div ref="pageEl" class="simulation-view" @keydown.f9.prevent="canPlay && play()">
-    <header class="page-head">
-      <div class="page-head-row">
-        <Button
-          icon="pi pi-arrow-left"
-          label="Workspace"
-          text
-          size="small"
-          severity="secondary"
-          class="page-back"
-          aria-label="Back to the workspace"
-          v-hint.bottom="'Back to the workspace'"
-          @click="goToWorkspace"
-        />
-        <!-- Focused on arrival, so keyboard and screen-reader users start on the page. -->
-        <h1 ref="titleEl" class="page-title" tabindex="-1">Simulation</h1>
-        <SimulationToolbar
-          class="page-toolbar"
-          :is-running="isRunning"
-          :is-loading="isLoading"
-          :blocked-reason="blockedReason"
-          :is-outdated="isOutdated"
-          :has-scope-switch="false"
-          :has-float="false"
-          @play="play"
-          @stop="stop"
-        />
-      </div>
-      <!-- Always there, so the bar showing and hiding never moves what is below it. -->
-      <div class="page-progress-slot">
-        <ProgressBar
-          v-if="isRunning"
-          :mode="store.progress > 0 ? 'determinate' : 'indeterminate'"
-          :value="Math.round(store.progress * 100)"
-          :show-value="false"
-          class="page-progress"
-          aria-label="Simulation progress"
-        />
-      </div>
-      <div class="page-head-row page-results-bar">
-        <SimulationStatusLine :status="statusLine" class="page-status" />
-        <!-- As the toolbar's protocol and sweep buttons do, switching runs at once. -->
-        <SelectButton
-          v-if="runModes.length > 1"
-          :model-value="runMode"
-          :options="runModes"
-          option-label="label"
-          option-value="value"
-          :allow-empty="false"
-          size="small"
-          aria-label="What play runs"
-          @update:model-value="switchRunMode"
-        />
-        <ProtocolResultsControls />
-        <div class="page-exports" role="group" aria-label="Downloads">
-          <Button
-            label="CSV"
-            icon="pi pi-download"
-            size="small"
-            outlined
-            :disabled="!hasCharts"
-            aria-label="Download the results as CSV"
-            @click="downloadCsv"
-          />
-          <Button
-            v-if="!xAxis.isSteadyState"
-            label="PNG"
-            icon="pi pi-image"
-            size="small"
-            outlined
-            :disabled="!hasFigures"
-            aria-label="Download the charts as a PNG image"
-            @click="downloadPng"
-          />
-          <!-- Wrapped, so its reason shows while it's disabled. -->
-          <span v-tooltip.bottom="sedmlReason ?? sedmlHint" class="export-button">
-            <Button
-              label="SED-ML"
-              icon="pi pi-download"
+    <!-- Named for screen readers and focused on arrival; the global nav shows which page this is. -->
+    <h1 ref="titleEl" class="visually-hidden" tabindex="-1">Simulation</h1>
+    <!-- An action bar, as the workspace's: run and what it runs, track and the protocol, then the exports. -->
+    <header class="page-action-bar">
+      <SimulationToolbar
+        class="page-toolbar"
+        :is-running="isRunning"
+        :is-loading="isLoading"
+        :blocked-reason="blockedReason"
+        :is-outdated="isOutdated"
+        :has-scope-switch="false"
+        :has-float="false"
+        :has-settings="false"
+        @play="play"
+        @stop="stop"
+      >
+        <template #end>
+          <Divider layout="vertical" class="page-action-divider" />
+          <!-- Wrapped, so the reason it is disabled shows. -->
+          <span v-tooltip.bottom="exportHint" class="page-export">
+            <SplitButton
+              text
               size="small"
-              outlined
-              :disabled="!canExportSedml"
-              :loading="isExportingSedml"
-              :aria-label="isSedmlProtocol ? 'Download the protocol\'s run as SED-ML' : 'Download the run as SED-ML'"
-              @click="exportSedml"
-            />
+              severity="primary"
+              :model="exportMenuItems"
+              :disabled="!!currentExport.disabledReason"
+              :button-props="{ 'data-testid': 'sim-export', 'aria-label': `Download ${currentExport.label}` }"
+              :menu-button-props="{ 'aria-label': 'Choose what to download' }"
+              @click="currentExport.action()"
+            >
+              <template #icon><ExportIcon /></template>
+            </SplitButton>
           </span>
-        </div>
-      </div>
+        </template>
+      </SimulationToolbar>
     </header>
+    <!-- Always there, so the bar showing and hiding never moves what is below it. -->
+    <div class="page-progress-slot">
+      <ProgressBar
+        v-if="isRunning"
+        :mode="store.progress > 0 ? 'determinate' : 'indeterminate'"
+        :value="Math.round(store.progress * 100)"
+        :show-value="false"
+        class="page-progress"
+        aria-label="Simulation progress"
+      />
+    </div>
+    <div class="page-results-bar">
+      <SimulationStatusLine :status="statusLine" class="page-status" />
+      <ProtocolResultsControls />
+    </div>
 
     <div class="page-body">
       <!-- Beside the charts, or over them when the window is too narrow for both. -->
@@ -170,18 +132,18 @@ export default {
 
 <script setup>
 /**
- * The simulation page: the workspace's results across the page, with the toolbar to run them, the charts with their
- * cursors in step, then a protocol run's prediction plots, downloads of the values as CSV, the charts as one PNG and
- * the run as SED-ML, and beside them what gets plotted and tried out.
+ * The simulation page: the workspace's results across the page, with an action bar to run them, track the run, edit
+ * the protocol and download the values as CSV, the charts as one PNG or the run as SED-ML, the charts with their
+ * cursors in step, then a protocol run's prediction plots, and beside them what gets plotted and tried out.
  */
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 
-import Button from 'primevue/button'
+import Divider from 'primevue/divider'
 import ProgressBar from 'primevue/progressbar'
-import SelectButton from 'primevue/selectbutton'
+import SplitButton from 'primevue/splitbutton'
 
 import ResizableLibraryPanel from '../components/ResizableLibraryPanel.vue'
+import ExportIcon from '../components/icons/ExportIcon.vue'
 import FeaturePlot from '../components/simulation/FeaturePlot.vue'
 import ProtocolResultsControls from '../components/simulation/ProtocolResultsControls.vue'
 import SimulationControls from '../components/simulation/SimulationControls.vue'
@@ -193,8 +155,6 @@ import { useSimulationCharts } from '../composables/useSimulationCharts'
 import { useSimulationRunner } from '../composables/useSimulationRunner'
 import { useSliderReruns } from '../composables/useSliderReruns'
 import { buildResultsCsv, collectResultColumns, composeChartsImage } from '../services/simulation/resultsExport'
-import { useProtocolStore } from '../stores/protocolStore'
-import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { legacyDownload } from '../utils/save'
 
 const FILE_NAME = 'simulation-results'
@@ -205,7 +165,6 @@ const CHART_GAP_PX = 16
 const PREDICTION_HEADING_PX = 34
 const MIN_CHART_HEIGHT = 240
 
-const router = useRouter()
 const {
   nodes,
   store,
@@ -222,8 +181,6 @@ const {
   stop,
   keepCurrent,
 } = useSimulationRunner({ isWholeModelOnly: true })
-const protocolStore = useProtocolStore()
-const settingsStore = useSimulationSettingsStore()
 // Disabled, with why, while PhLynx can't plan the run.
 const { isProtocol: isSedmlProtocol, reason: sedmlReason, canExport: canExportSedml, isExporting: isExportingSedml, exportZip: exportSedml } = useSedmlExport()
 const sedmlHint = computed(() =>
@@ -238,30 +195,6 @@ const hasFigures = computed(() => hasCharts.value || predictionPlotCharts.value.
 
 const titleEl = ref(null)
 onActivated(() => titleEl.value?.focus())
-
-/** Returns to the workspace, as the page left it. */
-function goToWorkspace() {
-  router.push({ name: 'workspace' })
-}
-
-// What play can run: the time course, and the protocol or the sweep when the workspace has one.
-const runModes = computed(() => [
-  { label: 'Time course', value: 'run' },
-  ...(protocolStore.hasProtocol || protocolStore.source?.parseError ? [{ label: 'Protocol', value: 'protocol' }] : []),
-  ...(settingsStore.simulationSettings.sweep ? [{ label: 'Sweep', value: 'sweep' }] : []),
-])
-const runMode = computed(() => (protocolStore.isProtocolMode ? 'protocol' : store.isSweepMode ? 'sweep' : 'run'))
-
-/**
- * Switches what play runs, one mode at a time, and runs it.
- *
- * @param {'run'|'protocol'|'sweep'} mode
- */
-function switchRunMode(mode) {
-  protocolStore.isProtocolMode = mode === 'protocol'
-  store.isSweepMode = mode === 'sweep'
-  if (canPlay.value) play()
-}
 
 const emptyTitle = computed(() => (store.results ? 'Nothing plotted yet' : 'No results yet'))
 const emptyHint = computed(() => {
@@ -321,6 +254,48 @@ function setPlot(key, plot) {
 
 const columns = computed(() => collectResultColumns(xAxis.value, charts.value))
 
+// The downloads, the export button running the one picked last, as the workspace's Export does.
+const exportOptions = computed(() => [
+  {
+    key: 'csv',
+    label: 'CSV',
+    icon: 'pi pi-table',
+    hint: 'Download the plotted values as CSV',
+    disabledReason: hasCharts.value ? null : 'Plot a variable to download its values',
+    action: downloadCsv,
+  },
+  {
+    key: 'png',
+    label: 'PNG',
+    icon: 'pi pi-image',
+    hint: 'Download the charts as one PNG image',
+    disabledReason: xAxis.value.isSteadyState ? 'A steady state has no time-course charts' : hasFigures.value ? null : 'Plot a variable to download its chart',
+    action: downloadPng,
+  },
+  {
+    key: 'sedml',
+    label: 'SED-ML',
+    icon: 'pi pi-file-export',
+    hint: sedmlHint.value,
+    disabledReason: isExportingSedml.value ? 'Exporting…' : canExportSedml.value ? null : (sedmlReason.value ?? 'Not available yet'),
+    action: exportSedml,
+  },
+])
+const currentExportKey = ref('csv')
+const currentExport = computed(() => exportOptions.value.find(({ key }) => key === currentExportKey.value))
+const exportHint = computed(() => currentExport.value.disabledReason ?? `${currentExport.value.hint}. Other formats in the menu`)
+const exportMenuItems = computed(() =>
+  exportOptions.value.map((option) => ({
+    label: option.label,
+    icon: option.icon,
+    disabled: !!option.disabledReason,
+    command: () => {
+      currentExportKey.value = option.key
+      option.action()
+    },
+  }))
+)
+
 /** Downloads every plotted series as CSV, at full precision. */
 function downloadCsv() {
   legacyDownload(`${FILE_NAME}.csv`, new Blob([buildResultsCsv(columns.value)], { type: 'text/csv' }))
@@ -346,45 +321,41 @@ function downloadPng() {
   color: var(--p-text-color);
 }
 
-.page-head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex-shrink: 0;
-  padding: 8px 16px 8px 8px;
-  border-bottom: 1px solid var(--p-content-border-color);
-}
-
-.page-head-row {
+/* As the workspace's action bar. */
+.page-action-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.page-back {
   flex-shrink: 0;
+  height: var(--view-header-height, 46px);
+  box-sizing: border-box;
+  padding: 0 var(--view-header-padding-x, 1rem);
+  border-bottom: 1px solid var(--p-content-border-color);
+  background-color: var(--p-content-background);
 }
 
-.page-title {
-  flex-shrink: 0;
-  margin: 0;
-  padding-right: 12px;
-  border-right: 1px solid var(--p-content-border-color);
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-.page-title:focus {
-  outline: none;
+:global(.p-dark) .page-action-bar {
+  background-color: var(--p-surface-900);
+  border-bottom-color: var(--p-surface-800);
 }
 
 .page-toolbar {
   flex: 1;
+  min-width: 0;
+}
+
+.page-action-divider {
+  margin: 0 8px;
+  align-self: stretch;
+}
+
+.page-export {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .page-progress-slot {
   height: 3px;
+  flex-shrink: 0;
 }
 
 .page-progress {
@@ -392,8 +363,13 @@ function downloadPng() {
 }
 
 .page-results-bar {
+  display: flex;
   flex-wrap: wrap;
-  padding-left: 8px;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 4px var(--view-header-padding-x, 1rem) 8px;
+  border-bottom: 1px solid var(--p-content-border-color);
 }
 
 .page-status {
@@ -401,14 +377,17 @@ function downloadPng() {
   min-width: 14rem;
 }
 
-.page-exports {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
-.export-button {
-  display: inline-flex;
+.visually-hidden:focus {
+  outline: none;
 }
 
 .page-body {

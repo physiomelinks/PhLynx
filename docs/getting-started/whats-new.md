@@ -32,6 +32,13 @@ See [Coupling with Annotations](../guides/annotation-coupling.md).
 - **Units files in COMBINE archives.** Units files are carried in OMEX archives and registered again when the archive is opened.
 - **More ways in and out.** Import parameter sets and Circulatory Autogen JSON module arrays, and export nested parameter JSON and CA module arrays. See [Supported File Formats](../reference/file-types.md).
 
+## Simulating {#simulating}
+
+- **Run modes always in view.** **Time course**, **Protocol** and **Sweep** sit beside the new Run button (a runner) wherever you simulate. A mode that isn't set up yet is greyed out, and its tooltip says how to set it up.
+- **Sweep from a slider.** A slider's sweep button sweeps its parameter across the slider's range, or adds a curve for each of a few of its values. See [Sweeping from a Slider](../guides/simulating-your-model.md#sweep-from-slider).
+- **Keep the editor's plot.** The Instance Editor's Plot tab can add its plot to the workspace's plots. It now always plots the variable you click, with less in its toolbar.
+- **A tidier simulation page.** An action bar like the workspace's, with a single **Export** button for CSV, PNG and SED-ML.
+
 ## Building Models {#building-models}
 
 - **Tidier connections.** Arrows can be reshaped by dragging their segments, or routed around the instances in their way. See [Routing connections](../reference/ui-overview.md#routing).

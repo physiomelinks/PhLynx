@@ -24,10 +24,10 @@
         <VariablePathPicker
           ref="plotPicker"
           :index="index"
-          :filter="isAddable"
+          :filter="isPlottable"
           :describe="describePlottable"
-          :placeholder="addPlaceholder"
-          :empty-message="addEmptyMessage"
+          placeholder="Add a variable…"
+          empty-message="No variable matches."
           aria-label="Add a variable to plot"
           @pick="plotEntry"
         />
@@ -71,10 +71,12 @@
     <SliderList
       v-else
       with-picker
+      has-sweep-view
       :nodes="nodes"
       :scope-node-ids="scopeNodeIds"
       :keep-current="keepCurrent"
       @change="emit('change')"
+      @edit-sweep="view = 'sweep'"
     />
   </section>
 </template>
@@ -97,7 +99,7 @@ import SliderList from './SliderList.vue'
 import SweepEditor from './SweepEditor.vue'
 import VariablePathPicker from './VariablePathPicker.vue'
 import { sliderValueKey } from '../../services/simulation/parameterSliders'
-import { addPlotSelection, getPlotUnits, plotVariable, resolveGroups } from '../../services/simulation/plotSelections'
+import { addPlotSelection, plotVariable, resolveGroups } from '../../services/simulation/plotSelections'
 import { buildVariableIndex, indexKeyOf, resolvePlotTarget } from '../../services/simulation/variableIndex'
 import { useInspectionModuleStore } from '../../stores/inspectionModuleStore'
 import { useSimulationResultsStore } from '../../stores/simulationResultsStore'
@@ -116,8 +118,6 @@ const props = defineProps({
   plotConfig: { type: Object, default: null },
   // The one instance whose variables can be plotted, or null for any.
   plotNodeId: { type: String, default: null },
-  // Adding to the view's own plot offers only variables in the units it already shows.
-  isUnitFiltered: { type: Boolean, default: false },
   // The time course and solver settings, in a section at the top.
   hasSettings: { type: Boolean, default: false },
 })
@@ -210,26 +210,6 @@ function findOwnGlobalRow(entry) {
   const node = props.nodes.find((candidate) => candidate.id === props.plotNodeId)
   const row = node?.data?.variables?.find((candidate) => candidate.type === 'global_constant' && candidate.name === entry.rowName)
   return row ? { node, row } : null
-}
-
-// The units the view's own plot shows, when adding to it offers only those; empty offers any.
-const filteredUnits = computed(() => {
-  if (!props.isUnitFiltered || !isSinglePlot.value) return new Set()
-  return getPlotUnits(props.plotConfig, plotOptions.value[0]?.id)
-})
-const filteredUnitsLabel = computed(() => [...filteredUnits.value].map((units) => units || 'no units').join(' or '))
-const addPlaceholder = computed(() => (filteredUnits.value.size ? `Add a variable in ${filteredUnitsLabel.value}…` : 'Add a variable…'))
-const addEmptyMessage = computed(() => (filteredUnits.value.size ? `No variable in ${filteredUnitsLabel.value} matches.` : 'No variable matches.'))
-
-/**
- * Checks whether the search offers an entry to add: a plottable one, in the plot's units while it is filtered
- * by them. Plotting against a variable stays open to any units.
- *
- * @param {Object} entry
- * @returns {boolean}
- */
-function isAddable(entry) {
-  return isPlottable(entry) && (!filteredUnits.value.size || filteredUnits.value.has(entry.units || ''))
 }
 
 /**

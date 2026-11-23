@@ -10,6 +10,7 @@ import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { TOY_MODULES, readToy } from '../services/annotations/toyModel.js'
 import { TOY_PLACEMENTS, loadToyNodes } from '../services/annotations/toyNodes.js'
+import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore.js'
 
 const nodes = ref([])
 const edges = ref([])
@@ -150,6 +151,22 @@ describe('useConnect', () => {
 
       expect(edges.value).toHaveLength(1)
       expect(deps.activateHandle).not.toHaveBeenCalled()
+    })
+
+    it('leaves the appearance out while the default is the built-in one', async () => {
+      await connect(connection)
+
+      expect(edges.value[0].data).not.toHaveProperty('appearance')
+    })
+
+    it('copies the default for new connections, so changing it later leaves the edge alone', async () => {
+      const appearance = useWorkspaceAppearanceStore()
+      appearance.setConnectionDefaults({ path: 'step', width: 'thick' })
+
+      await connect(connection)
+      appearance.setConnectionDefaults({ arrow: 'none' })
+
+      expect(edges.value[0].data.appearance).toEqual({ path: 'step', width: 'thick' })
     })
 
     it('picks the next port slot for later edges from the same source', async () => {
@@ -331,6 +348,15 @@ describe('useConnect', () => {
 
       expect(during.confirm).toEqual(['pending--a--b'])
       expect(during.revert).toEqual(['a--b', 'pending--a--b'])
+    })
+
+    it("keeps the replaced edge's appearance rather than the default", async () => {
+      edges.value[0].data = { ...edges.value[0].data, appearance: { path: 'step' } }
+      useWorkspaceAppearanceStore().setConnectionDefaults({ width: 'thin' })
+
+      await connect(second)
+
+      expect(edges.value[0].data.appearance).toEqual({ path: 'step' })
     })
 
     it('records a replace-edge command that undo and redo swap', async () => {

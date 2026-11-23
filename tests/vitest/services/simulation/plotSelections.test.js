@@ -4,6 +4,7 @@ import { buildSimulationJson } from '../../../../src/services/export/simulation.
 import {
   acceptsUnits,
   addPlot,
+  appendPlot,
   addPlotSelection,
   assignSelection,
   buildPlotConfig,
@@ -395,5 +396,40 @@ describe('renamePlotVariables', () => {
     const renamed = renamePlotVariables(config, 'a', new Map([['x', 'y'], ['y', 'y']]))
     expect(renamed.selections.map(({ key }) => key)).toEqual(['a::y', 'b::x'])
     expect(renamed.groups[0].xAxis).toMatchObject({ key: 'a::y', variableName: 'y' })
+  })
+})
+
+describe('appendPlot', () => {
+  const nodeA = createNode('a')
+  const rowOf = (node, name) => node.data.variables.find((row) => row.name === name)
+  const plotOf = (...names) => names.reduce((config, name) => addPlotSelection(config, nodeA, rowOf(nodeA, name), 'plot-1'), buildPlotConfig(normaliseGroups(), []))
+
+  it('fills an empty last plot, named for the instance', () => {
+    const { plotConfig, addedCount } = appendPlot(buildPlotConfig(normaliseGroups(), []), plotOf('x'), 'a')
+    expect(addedCount).toBe(1)
+    expect(resolveGroups(plotConfig).map(({ name }) => name)).toEqual(['a'])
+    expect(plotConfig.selections.map(({ key, groupId }) => [key, groupId])).toEqual([['a::x', 'plot-1']])
+  })
+
+  it('adds a plot of its own after the workspace’s, leaving variables already plotted where they are', () => {
+    const workspace = plotOf('x')
+    const { plotConfig, addedCount, skippedCount } = appendPlot(workspace, plotOf('x', 'y'), 'a')
+    expect([addedCount, skippedCount]).toEqual([1, 1])
+    const groups = resolveGroups(plotConfig)
+    expect(groups.map(({ name }) => name)).toEqual(['Plot 1', 'a'])
+    expect(plotConfig.selections.map(({ key, groupId }) => [key, groupId])).toEqual([
+      ['a::x', 'plot-1'],
+      ['a::y', groups[1].id],
+    ])
+  })
+
+  it('carries the plot’s x-axis over, and adds nothing already plotted', () => {
+    const source = setPlotXAxis(plotOf('y'), 'plot-1', createPlotXAxis(nodeA, rowOf(nodeA, 'x')))
+    const { plotConfig } = appendPlot(plotOf('k'), source, 'a')
+    expect(resolveGroups(plotConfig)[1].xAxis.key).toBe('a::x')
+
+    const again = appendPlot(plotConfig, source, 'a')
+    expect([again.addedCount, again.skippedCount]).toEqual([0, 1])
+    expect(again.plotConfig).toBe(plotConfig)
   })
 })

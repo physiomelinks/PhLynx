@@ -16,6 +16,7 @@ import { useViewModeStore } from '../stores/viewModeStore'
 import { cancelSimulation, forgetSimulationSession } from './useSimulation'
 import { resetSliderReruns } from './useSliderReruns'
 import { useSessionMetadataStore } from '../stores/sessionMetadataStore'
+import { useWorkspaceAppearanceStore } from '../stores/workspaceAppearanceStore'
 
 import { FLOW_IDS } from '../utils/constants'
 
@@ -32,6 +33,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const nodeThemeStore = useNodeThemeStore()
   const sessionMetadataStore = useSessionMetadataStore()
   const defaultParametersStore = useDefaultParametersStore()
+  const appearanceStore = useWorkspaceAppearanceStore()
 
   const clearWorkspace = async ({ recordHistory = true } = {}) => {
     const oldNodes = nodes.value
@@ -46,6 +48,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldThemeState = nodeThemeStore.snapshot()
     const oldSessionMetadata = sessionMetadataStore.getState()
     const oldParameters = defaultParametersStore.getState()
+    const oldAppearance = appearanceStore.getState()
 
     const undoState = () => {
       nodes.value = oldNodes
@@ -59,6 +62,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         sessionMetadataStore.loadState(oldSessionMetadata)
         simStore.loadState(oldSimStore)
         defaultParametersStore.loadState(oldParameters)
+        appearanceStore.loadState(oldAppearance)
         for (const [name, data] of oldGlobalConstants) {
           libraryStore.assignGlobalConstant(name, data.value, data.units, data.data_reference)
         }
@@ -86,6 +90,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         sessionMetadataStore.resetState()
         // Another workspace's species are not this one's to hide.
         useViewModeStore().hiddenSpecies = []
+        appearanceStore.resetState()
         libraryStore.resetGlobalConstants()
         if (!keepParameters) defaultParametersStore.resetState()
       }

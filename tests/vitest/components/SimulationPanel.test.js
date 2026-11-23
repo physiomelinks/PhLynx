@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { defineComponent, h, KeepAlive, nextTick, ref } from 'vue'
+import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
@@ -58,41 +58,22 @@ describe('SimulationPanel', () => {
   beforeEach(() => setActivePinia(createPinia()))
   afterEach(() => (document.body.innerHTML = ''))
 
-  it('opens the simulation page from the sidebar', async () => {
+  it('offers no simulation page button, in the sidebar or the instance editor', async () => {
     const router = await buildRouter()
-    const wrapper = mountWith(SimulationPanel, { router })
-    await wrapper.find(PAGE_BUTTON).trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.name).toBe('simulation')
-    wrapper.unmount()
+    for (const props of [{}, { instanceId: 'a' }]) {
+      const wrapper = mountWith(SimulationPanel, { props, router })
+      expect(wrapper.find(PAGE_BUTTON).exists()).toBe(false)
+      wrapper.unmount()
+    }
   })
 
-  it('doesn’t offer the simulation page in the instance editor', async () => {
+  it('names the scope only in its switch’s tooltip, in the sidebar and the instance editor', async () => {
     const router = await buildRouter()
-    const wrapper = mountWith(SimulationPanel, { props: { instanceId: 'a' }, router })
-    expect(wrapper.find(PAGE_BUTTON).exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it('gives the focus back to the page button on returning from the page', async () => {
-    const router = await buildRouter()
-    const isPanelShown = ref(true)
-    // Kept alive, as the workspace is behind the simulation page.
-    const Host = defineComponent({
-      setup: () => () => h(KeepAlive, null, () => (isPanelShown.value ? h(SimulationPanel) : h('div', 'page'))),
-    })
-    const wrapper = mountWith(Host, { router })
-    const button = wrapper.find(PAGE_BUTTON).element
-    button.focus()
-    await wrapper.find(PAGE_BUTTON).trigger('click')
-    isPanelShown.value = false
-    await nextTick()
-    expect(document.activeElement).not.toBe(button)
-
-    isPanelShown.value = true
-    await flushPromises()
-    expect(document.activeElement).toBe(button)
-    wrapper.unmount()
+    for (const props of [{}, { instanceId: 'a' }]) {
+      const wrapper = mountWith(SimulationPanel, { props, router })
+      expect(wrapper.find('.toolbar-scope').text()).toBe('')
+      wrapper.unmount()
+    }
   })
 
   it('shows the selection plot only in the physiological view, and never in the instance editor', async () => {

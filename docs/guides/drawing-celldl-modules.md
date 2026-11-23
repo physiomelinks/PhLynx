@@ -125,7 +125,7 @@ Saved diagram edits can be undone from the workspace (Ctrl/Cmd+Z), like other mo
 
 ## Plotting from the Diagram {#plotting}
 
-Open the **Plot** tab and keep **Auto-update** on: clicking a junction or element in the diagram then plots its main variable (for example, a 0-junction's potential). With another tab shown, clicking only selects. See [Plotting from the Math](./simulating-your-model.md#plotting-from-the-math).
+Open the **Plot** tab: clicking a junction or element in the diagram then plots its main variable (for example, a 0-junction's potential). With another tab shown, clicking only selects. See [Plotting from the Math](./simulating-your-model.md#plotting-from-the-math).
 
 ## Connecting CellDL Modules {#connecting}
 

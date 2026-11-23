@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { computed, defineComponent, h, KeepAlive, ref } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -78,13 +78,16 @@ describe('SimulationView', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('has the toolbar, without the float button or the scope switch, and the controls beside', async () => {
+  it('has an action bar, without the float button, the scope switch or the settings, and the controls beside', async () => {
     const { wrapper } = await mountPage()
-    const labels = wrapper.findAll('button').map((button) => button.attributes('aria-label'))
+    const labels = wrapper.findAll('.page-action-bar button').map((button) => button.attributes('aria-label'))
     expect(labels).toContain('Simulate the whole model')
-    expect(labels).toContain('Track this run')
-    expect(labels).toContain('Simulation settings')
+    expect(labels).toEqual(expect.arrayContaining(['Time course', 'Protocol', 'Sweep', 'Track this run', 'Edit protocol', 'Download CSV']))
+    expect(labels).not.toContain('Simulation settings')
     expect(labels).not.toContain('Float the results over the canvas')
+    // The global nav names and leaves the page.
+    expect(labels).not.toContain('Back to the workspace')
+    expect(wrapper.find('h1').classes()).toContain('visually-hidden')
     // With no canvas to select from, it runs the whole model, with no switch to the selection.
     expect(wrapper.find('.toolbar-scope').exists()).toBe(false)
     expect(wrapper.find('.controls-stub').exists()).toBe(true)
@@ -94,12 +97,15 @@ describe('SimulationView', () => {
   it('prompts to run before there are results, with nothing to download', async () => {
     const { wrapper } = await mountPage()
     expect(wrapper.find('.page-empty').text()).toContain('No results yet')
-    expect(wrapper.find('button[aria-label="Download the results as CSV"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.find('button[aria-label="Download the charts as a PNG image"]').attributes('disabled')).toBeDefined()
-    // Without a protocol, the SED-ML download is there, for the time course.
-    const sedml = wrapper.find('button[aria-label="Download the run as SED-ML"]')
-    expect(sedml.attributes('disabled')).toBeDefined()
-    expect(sedml.element.parentElement.dataset.tooltip).toBe('Download the run as SED-ML, with the model it runs and its plots')
+    expect(wrapper.find('[data-testid="sim-export"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.page-export').attributes('data-tooltip')).toBe('Plot a variable to download its values')
+    // Each format stays in the menu, disabled with why.
+    const items = wrapper.findComponent({ name: 'SplitButton' }).props('model')
+    expect(items.map(({ label, disabled }) => [label, disabled])).toEqual([
+      ['CSV', true],
+      ['PNG', true],
+      ['SED-ML', true],
+    ])
     wrapper.unmount()
   })
 
@@ -114,14 +120,15 @@ describe('SimulationView', () => {
     expect(plots.every((plot) => plot.props('syncKey') === 'simulation-page')).toBe(true)
     expect(wrapper.find('.page-empty').exists()).toBe(false)
 
-    await wrapper.find('button[aria-label="Download the results as CSV"]').trigger('click')
+    await wrapper.find('[data-testid="sim-export"]').trigger('click')
     expect(legacyDownload).toHaveBeenCalledWith('simulation-results.csv', expect.any(Blob))
+    expect(wrapper.find('.page-export').attributes('data-tooltip')).toBe('Download the plotted values as CSV. Other formats in the menu')
     wrapper.unmount()
   })
 
   it('focuses its heading on arrival', async () => {
     const { wrapper } = await mountPage({ isKeptAlive: true })
-    expect(document.activeElement).toBe(wrapper.find('h1.page-title').element)
+    expect(document.activeElement).toBe(wrapper.find('h1').element)
     wrapper.unmount()
   })
 
@@ -152,14 +159,6 @@ describe('SimulationView', () => {
     predictionPlotCharts.value = [{ key: 'f1', title: 'Peak', series: [] }]
     await wrapper.vm.$nextTick()
     expect(heightOf()).toBe((800 - 16 - 34 - 16) / 2 - 64)
-    wrapper.unmount()
-  })
-
-  it('goes back to the workspace', async () => {
-    const { wrapper, router } = await mountPage()
-    await wrapper.find('button[aria-label="Back to the workspace"]').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.path).toBe('/')
     wrapper.unmount()
   })
 
