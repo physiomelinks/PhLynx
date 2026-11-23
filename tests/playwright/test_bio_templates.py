@@ -141,6 +141,32 @@ class TestBioTemplates(unittest.TestCase):
         expect(cell).to_be_visible()
         return cell
 
+    def grow_taller(self, cell, by):
+        """Drag a cell's resize handle down, so it is taller by about `by` screen pixels."""
+        page = self.page
+        box = cell.bounding_box()
+        page.mouse.move(box["x"] + 30, box["y"] + box["height"] - 30)
+        corner = centre(cell.locator("[data-testid=bio-piece-resize]").first.bounding_box())
+        page.mouse.move(*corner)
+        page.mouse.down()
+        page.mouse.move(corner[0], corner[1] + by, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+
+    def butt_against(self, first, second):
+        """Drag a cell left until its left side meets another's right side, so the two touch (a gap junction needs
+        them to: between cells apart, a tube is always a bridge)."""
+        for _ in range(4):
+            one, two = first.bounding_box(), second.bounding_box()
+            gap = two["x"] - (one["x"] + one["width"])
+            # Within a few pixels counts as touching (the layout's TOUCHING is 8 flow units).
+            if abs(gap) <= 4:
+                return
+            self.drag((two["x"] + two["width"] - 30, two["y"] + two["height"] - 20), (-gap, 0))
+            self.page.wait_for_timeout(300)
+        one, two = first.bounding_box(), second.bounding_box()
+        self.assertAlmostEqual(two["x"], one["x"] + one["width"], delta=4)
+
     def pane_point(self, across, down):
         box = self.page.locator(f"{BIO} .vue-flow__pane").bounding_box()
         return (box["x"] + box["width"] * across, box["y"] + box["height"] * down)
@@ -450,10 +476,10 @@ class TestBioTemplates(unittest.TestCase):
         one = first.bounding_box()
         second = self.drop_cell((one["x"] + one["width"] * 1.9, one["y"] + one["height"] / 2), "compartment-2")
         page.wait_for_timeout(300)
-        one, two = first.bounding_box(), second.bounding_box()
-        assert two["x"] > one["x"] + one["width"], (one, two)
+        self.butt_against(first, second)
+        one = first.bounding_box()
 
-        # A tube between two cells asks how it joins them; as a gap junction, it has a new module on it named for it.
+        # A tube between two touching cells asks how it joins them; as a gap junction, it has a new module on it named for it.
         self.drop_piece("tube", centre(one))
         dialog = page.locator(".p-dialog").filter(has_text="Join two cells")
         expect(dialog).to_be_visible()
@@ -481,27 +507,39 @@ class TestBioTemplates(unittest.TestCase):
         one = first.bounding_box()
         second = self.drop_cell((one["x"] + one["width"] * 1.9, one["y"] + one["height"] / 2), "compartment-2")
         page.wait_for_timeout(300)
+        # A bridge's channel needs the cells to face each other along enough of their sides.
+        for cell in (first, second):
+            self.grow_taller(cell, 120)
         one = first.bounding_box()
-
-        # Chosen as a bridge, remembered: an open channel walled by membrane across the gap between the cells.
-        self.drop_piece("tube", centre(one))
-        dialog = page.locator(".p-dialog").filter(has_text="Join two cells")
-        expect(dialog).to_be_visible()
-        dialog.get_by_text("Remember this choice").click()
-        dialog.get_by_role("button", name="Bridge", exact=True).click()
-        expect(dialog).to_be_hidden()
+        asked = page.locator(".p-dialog").filter(has_text="Join two cells")
         bridge = page.locator("[data-testid=bio-bridge]")
+
+        # Between cells apart, a tube is a bridge, asking nothing: an open channel walled by membrane across the gap.
+        self.drop_piece("tube", centre(one))
         expect(bridge).to_have_count(1)
+        expect(asked).to_have_count(0)
         expect(page.locator(BIO).get_by_text("Bridge", exact=True)).to_be_visible()
         channel, two = bridge.bounding_box(), second.bounding_box()
         assert channel["x"] < one["x"] + one["width"] and channel["x"] + channel["width"] > two["x"], (channel, one, two)
+        undo(page)
+        expect(bridge).to_have_count(0)
+
+        # Between touching cells it asks; chosen as a bridge and remembered, it is drawn as the joint where they meet.
+        self.butt_against(first, second)
+        self.drop_piece("tube", centre(first.bounding_box()))
+        expect(asked).to_be_visible()
+        asked.get_by_text("Remember this choice").click()
+        asked.get_by_role("button", name="Bridge", exact=True).click()
+        expect(asked).to_be_hidden()
+        expect(page.locator(BIO).get_by_text("Bridge", exact=True)).to_be_visible()
+        expect(page.locator("[data-testid=bio-link]")).to_have_count(1)
 
         # The next is a bridge too, without asking: the choice is now the setting's.
         undo(page)
-        expect(bridge).to_have_count(0)
+        expect(page.locator("[data-testid=bio-link]")).to_have_count(0)
         self.drop_piece("tube", centre(first.bounding_box()))
-        expect(bridge).to_have_count(1)
-        expect(page.locator(".p-dialog").filter(has_text="Join two cells")).to_have_count(0)
+        expect(page.locator(BIO).get_by_text("Bridge", exact=True)).to_be_visible()
+        expect(asked).to_have_count(0)
         stored = page.evaluate("() => JSON.parse(localStorage.getItem('phlynx-settings')).bioCellTube")
         self.assertEqual(stored, "bridge")
     def test_the_build_palette_places_a_template_with_new_modules_to_replace(self):
@@ -671,7 +709,9 @@ class TestBioTemplates(unittest.TestCase):
         outer, dip, band = cell.bounding_box(), fold.bounding_box(), zone.bounding_box()
         assert band["y"] < dip["y"] + dip["height"], (dip, band)
         assert band["x"] + band["width"] < dip["x"], (dip, band)
-        assert band["x"] > outer["x"] and band["width"] > (dip["x"] - outer["x"]) * 0.6, (outer, dip, band)
+        # It runs all along that side: from its margin in the cell up to the room the fold keeps clear beside it.
+        assert band["x"] > outer["x"] and band["x"] - outer["x"] < 80, (outer, band)
+        assert dip["x"] - (band["x"] + band["width"]) < 90, (dip, band)
 
     def test_a_compartments_far_edge_dragged_onto_a_fold_docks_it_there_too(self):
         page = self.page
@@ -968,7 +1008,9 @@ class TestBioTemplates(unittest.TestCase):
         self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
         protein = bound(page, "bioProtein")
         expect(protein).to_have_count(1)
-        protein_box = protein.bounding_box()
+        # Centred on the membrane's top, as the cell is drawn once it has refitted round the protein and its name.
+        page.wait_for_timeout(300)
+        protein_box, cell = protein.bounding_box(), piece(page, "cell").bounding_box()
         self.assertAlmostEqual(protein_box["y"] + protein_box["height"] / 2, cell["y"], delta=2)
 
         # On the apical fluid, clear of the slots: the band becomes that module's.
@@ -1075,11 +1117,15 @@ class TestBioTemplates(unittest.TestCase):
         expect(region).to_have_count(1)
         cell = piece(page, "cell").bounding_box()
         self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
-        protein = bound(page, "bioProtein")
-        expect(protein).to_have_count(1)
+        expect(bound(page, "bioProtein")).to_have_count(1)
+        # Followed by its id: off the cell, a module with no annotations is drawn as a card.
+        protein = page.locator(f'{BIO_NODE}[data-id="{bound(page, "bioProtein").get_attribute("data-id")}"]')
         joined = page.locator(
             f'.vue-flow__edge[data-id="{region.get_attribute("data-id")}--{protein.get_attribute("data-id")}"]'
         )
+        # Measured again: the cell and its fluid refit round the protein and its name.
+        page.wait_for_timeout(300)
+        cell, lumen = piece(page, "cell").bounding_box(), piece(page, "apical-fluid").bounding_box()
 
         def in_diagram(count):
             page.locator("[data-testid=view-mode]").get_by_text("Diagram").click()
@@ -1091,7 +1137,8 @@ class TestBioTemplates(unittest.TestCase):
 
         # Off the cell, clear of it: no longer joined to the lumen.
         start = centre(protein.bounding_box())
-        self.drag(start, (cell["x"] + cell["width"] + 150 - start[0], lumen["y"] - start[1]))
+        clear = max(cell["x"] + cell["width"], lumen["x"] + lumen["width"]) + 150
+        self.drag(start, (clear - start[0], lumen["y"] - start[1]))
         in_diagram(0)
 
         # One undo puts it back on the membrane, joined again: the edge's handles change in the same step.
@@ -1619,7 +1666,9 @@ class TestBioTemplates(unittest.TestCase):
         protein.click()
         shown = page.locator(f'{BIO} .vue-flow__edge[data-id="{edge_id}"]')
         expect(shown).to_have_count(1)
-        self.menu_at(centre(shown.locator(".bio-coupling-edge__hover").bounding_box()), "Delete Connection")
+        # On the line where it leaves the protein's face for the lumen, clear of the protein drawn over its other end.
+        line, face = shown.locator(".bio-coupling-edge__hover").bounding_box(), protein.bounding_box()
+        self.menu_at((line["x"] + line["width"] / 2, (line["y"] + face["y"]) / 2), "Delete Connection")
         expect(shown).to_have_count(0)
         expect(protein).to_have_count(1)
         self.in_diagram(edge_id, 0, protein)
