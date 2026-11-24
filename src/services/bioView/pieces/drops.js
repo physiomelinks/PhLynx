@@ -6,7 +6,7 @@
  */
 
 import { EMPTY_SPAN } from '../geometry.js'
-import { SIDES } from './constants.js'
+import { ROOM_INSIDE, SIDES } from './constants.js'
 import {
   addCompartment,
   addDock,
@@ -165,8 +165,8 @@ const NAME_ROOM = 56
 function frameAt(point, size, within = null) {
   const at = { x: point.x - size.width / 2, y: point.y - size.height / 2 }
   if (!within) return { ...at, ...size }
-  const x = Math.max(within.x + 12, Math.min(at.x, within.x + within.width - size.width - 12))
-  const y = Math.max(within.y + NAME_ROOM, Math.min(at.y, within.y + within.height - size.height - 12))
+  const x = Math.max(within.x + ROOM_INSIDE, Math.min(at.x, within.x + within.width - size.width - ROOM_INSIDE))
+  const y = Math.max(within.y + NAME_ROOM, Math.min(at.y, within.y + within.height - size.height - ROOM_INSIDE))
   return { x: x - within.x, y: y - within.y, ...size }
 }
 

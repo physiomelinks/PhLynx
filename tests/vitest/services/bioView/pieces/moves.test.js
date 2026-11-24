@@ -79,11 +79,56 @@ describe('moveFrame', () => {
   it('keeps an organelle in its cell’s top and left, and grows the cell past its right', () => {
     const rects = rectsOf(cardiomyocyte)
     const up = valid(moveFrame(cardiomyocyte, 'sr-membrane', { x: -1000, y: -1000 }, rects))
-    expect(byId(up, 'sr-membrane').frame).toMatchObject({ x: 8, y: 8 })
+    expect(byId(up, 'sr-membrane').frame).toMatchObject({ x: 30, y: 30 })
     const out = valid(moveFrame(cardiomyocyte, 'sr-membrane', { x: 800, y: 0 }, rects))
     const cell = rectsOf(out).get('sarcolemma')
     const sr = rectsOf(out).get('sr-membrane')
     expect(cell.x + cell.width).toBeGreaterThan(sr.x + sr.width)
+  })
+
+  it('keeps a cell the same room from every side of the compartment it stands in', () => {
+    const pieces = valid([
+      { id: 'c', kind: 'compartment', label: 'C', frame: { x: 100, y: 50, width: 600, height: 500 } },
+      { id: 'b', kind: 'compartment', label: 'B', parent: 'c' },
+      {
+        id: 'bm',
+        kind: 'membrane',
+        label: 'BM',
+        encloses: ['b'],
+        parent: 'c',
+        frame: { x: 100, y: 100, width: 200, height: 150 },
+      },
+    ])
+    const rects = rectsOf(pieces)
+    const margins = (delta) => {
+      const after = rectsOf(valid(moveFrame(pieces, 'bm', delta, rects)))
+      const [outer, inner] = [after.get('c'), after.get('bm')]
+      return {
+        left: inner.x - outer.x,
+        top: inner.y - outer.y,
+        right: outer.x + outer.width - (inner.x + inner.width),
+        bottom: outer.y + outer.height - (inner.y + inner.height),
+      }
+    }
+    // Dragged past its top-left corner it stops; past its bottom-right, the compartment grows to leave as much.
+    expect(margins({ x: -1000, y: -1000 })).toMatchObject({ left: 30, top: 30 })
+    expect(margins({ x: 1000, y: 1000 })).toMatchObject({ right: 30, bottom: 30 })
+  })
+
+  it('draws what a frame puts nearer a compartment’s top or left that room in from it', () => {
+    const pieces = valid([
+      { id: 'c', kind: 'compartment', label: 'C', frame: { x: 100, y: 50, width: 600, height: 500 } },
+      { id: 'b', kind: 'compartment', label: 'B', parent: 'c' },
+      {
+        id: 'bm',
+        kind: 'membrane',
+        label: 'BM',
+        encloses: ['b'],
+        parent: 'c',
+        frame: { x: 0, y: 8, width: 200, height: 150 },
+      },
+    ])
+    expect(rectsOf(pieces).get('bm')).toMatchObject({ x: 130, y: 80 })
   })
 
   it('moves an organelle drawn clear of a fold from where it is drawn, not the frame that put it on the fold', () => {

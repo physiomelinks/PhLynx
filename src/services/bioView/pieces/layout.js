@@ -33,7 +33,7 @@ import { parseSiteRef } from '../siteRefs.js'
 import { withFolds } from '../shape.js'
 import { contextOfPiece } from '../skinContext.js'
 import { resolveSkin } from '../skinRegistry.js'
-import { INNER_INSET, LIMITS, isDefaultZoneLabel } from './constants.js'
+import { INNER_INSET, LIMITS, ROOM_INSIDE, isDefaultZoneLabel } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
 import { nameFits, nameInUpperCorner, proteinReach } from '../speciesLayout.js'
@@ -63,7 +63,7 @@ const ORGANELLE_MIN = Object.freeze({ width: 200, height: 140 })
 const FRAMED_MIN = Object.freeze({ width: 3 * CELL_RADIUS, height: 3 * CELL_RADIUS })
 /** How big a compartment standing freely is drawn unless its frame says. */
 const FREE_COMPARTMENT = Object.freeze({ width: 320, height: REGION_HEIGHT })
-/** Room round what stands inside a compartment, for its proteins' names, and between two in a row. */
+/** Room by what stands in a row inside a compartment with no frame of its own, and between two in the row. */
 const ROOM = SYMBOL_HEIGHT / 2 + 36
 /** How far a compartment docked inside a membrane reaches unless it says (it starts INNER_INSET in). */
 const INNER_DEPTH = 84
@@ -813,8 +813,12 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       const [x, y] = [Math.max(zone.frame.x, margins.left), Math.max(zone.frame.y, margins.top)]
       rel.set(zone.id, clear({ x, y, width: Math.max(wide, cardsOf(zone)), height: Math.max(high, ZONE_HEIGHT) }))
     }
+    // The rest keep the same room from each side of what they stand in: in from its top and left, as it grows to
+    // leave past its right and bottom.
+    const low = containerId ? ROOM_INSIDE : -Infinity
     for (const piece of framed.filter((piece) => piece.kind !== 'zone')) {
-      rel.set(piece.id, clear({ x: piece.frame.x, y: piece.frame.y, ...sizes.get(piece.id) }))
+      const [x, y] = [Math.max(piece.frame.x, low), Math.max(piece.frame.y, low)]
+      rel.set(piece.id, clear({ x, y, ...sizes.get(piece.id) }, { x: low, y: low }))
     }
     makeRoom(framed, rel)
     const framedZones = framed.filter((piece) => piece.kind === 'zone').map((zone) => rel.get(zone.id))
@@ -911,13 +915,13 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
           const grown = {
             width: Math.max(
               least.width,
-              inside.width ? inside.width + CELL_RADIUS + ROOM : 0,
+              inside.width ? inside.width + ROOM_INSIDE : 0,
               inside.zonesNeed,
               inside.need.width,
             ),
             height: Math.max(
               least.height,
-              inside.height ? inside.height + ROOM : 0,
+              inside.height ? inside.height + ROOM_INSIDE : 0,
               inside.zonesHeight,
               inside.need.height,
             ),
@@ -952,8 +956,8 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       ? arrange(piece.id, base.width)
       : { width: 0, zonesNeed: 0, height: 0, zonesHeight: 0 }
     const size = {
-      width: Math.max(base.width, inside.width ? inside.width + ROOM : 0, inside.zonesNeed),
-      height: Math.max(base.height, inside.height ? inside.height + ROOM : 0, inside.zonesHeight),
+      width: Math.max(base.width, inside.width ? inside.width + ROOM_INSIDE : 0, inside.zonesNeed),
+      height: Math.max(base.height, inside.height ? inside.height + ROOM_INSIDE : 0, inside.zonesHeight),
     }
     if (standing.has(piece.id)) {
       arrange(piece.id, size.width)

@@ -4,13 +4,13 @@
  * coordinates; frames are written from the corner of what a piece stands in.
  */
 
-import { INNER_INSET, LIMITS } from './constants.js'
+import { INNER_INSET, LIMITS, ROOM_INSIDE } from './constants.js'
 import { fluxBetween, isDefaultTubeName, tubeName } from './edits.js'
 import { topologyOf } from './topology.js'
 
 /** How short a span another's slide may leave it, as a share of its side. */
 const LEAST_SPAN = 0.05
-/** How far in from its parent's corner a child is kept. */
+/** How far in from its compartment's corner a process zone is kept, at least: its layout keeps it its margin in. */
 const INSET = 8
 /** How near a resized piece comes to what stood further from it before it pushes that out of its way. */
 const PUSH_GAP = 40
@@ -76,7 +76,7 @@ function pinSiblingZones(raw, piece, rects) {
 }
 
 /** How near a piece standing in what `parent` names may come to its corner. */
-const lowOf = (parent) => (parent ? INSET : LIMITS.at.min)
+const lowOf = (parent, kind) => (!parent ? LIMITS.at.min : kind === 'zone' ? INSET : ROOM_INSIDE)
 
 /**
  * Moves a piece with a frame by how far it was dragged. One standing in a compartment is kept from going out of its
@@ -99,7 +99,7 @@ export function moveFrame(pieces, id, delta, rects) {
   if (starts.some((start) => !start)) return null
   // The size drawn now: a membrane's frame is only its least. All go as far, as far as each may.
   const parent = piece.kind === 'zone' ? piece.compartment : piece.parent
-  const low = lowOf(parent)
+  const low = lowOf(parent, piece.kind)
   const along = (axis) =>
     clamp(
       delta[axis],
@@ -166,7 +166,7 @@ function keepJunctionsTouching(raw, pieces, id, before, after) {
     const piece = raw.find((each) => each.id === other)
     const start = frameOf(piece, before)
     if (!start) continue
-    const low = lowOf(piece.parent)
+    const low = lowOf(piece.parent, piece.kind)
     piece.frame = {
       ...start,
       x: round(clamp(start.x + shift.x, low, LIMITS.at.max)),

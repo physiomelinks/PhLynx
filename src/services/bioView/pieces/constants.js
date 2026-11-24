@@ -50,6 +50,11 @@ export const DEFAULT_FOLD_AT = 0.75
 
 /** How far in from a membrane a compartment docked inside it starts, in pixels. */
 export const INNER_INSET = 10
+/**
+ * How far what stands by its frame in a compartment or cell keeps from each of its sides, the same all round: it is
+ * kept that far in from the top and left, and the compartment grows to leave as much past it at the right and bottom.
+ */
+export const ROOM_INSIDE = 30
 
 export const DEFAULT_TONE = 'sky'
 export const DEFAULT_FLUX = 'flow'
