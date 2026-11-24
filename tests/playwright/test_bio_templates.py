@@ -286,6 +286,59 @@ class TestBioTemplates(unittest.TestCase):
         self.delete_at(inside)
         expect(page.locator(f"{BIO} .vue-flow__node-bioRegion")).to_have_count(0)
 
+    def box_select(self, box, margin=40):
+        """Drag a selection box, with Shift, round a bounding box."""
+        page = self.page
+        start = (box["x"] - margin, box["y"] - margin)
+        end = (box["x"] + box["width"] + margin, box["y"] + box["height"] + margin)
+        page.keyboard.down("Shift")
+        page.mouse.move(*start)
+        page.mouse.down()
+        page.mouse.move(*end, steps=8)
+        page.mouse.up()
+        page.keyboard.up("Shift")
+
+    def test_delete_takes_a_box_selection_whole(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        nodes = page.locator(f"{BIO} .vue-flow__node")
+
+        # A cell, selected whole: one Delete takes its two modules and its two pieces, unasked, as one step.
+        cell = self.drop_cell(self.pane_point(0.5, 0.45), "compartment")
+        page.wait_for_timeout(300)
+        box = cell.bounding_box()
+        self.box_select(box)
+        expect(page.locator(f"{BIO} .vue-flow__node.selected")).to_have_count(2)
+        page.keyboard.press("Delete")
+        expect(nodes).to_have_count(0)
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        self.expect_in_diagram(0)
+        undo(page)
+        expect(bound(page, "bioCell")).to_have_count(1)
+        expect(bound(page, "bioMembrane")).to_have_count(1)
+        self.expect_in_diagram(2)
+
+    def test_delete_takes_a_box_selection_whole_with_an_empty_piece_in_it(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+
+        # A cell whose membrane is already empty: nothing is left behind, not the compartment emptied.
+        cell = self.drop_cell(self.pane_point(0.5, 0.45), "compartment")
+        page.wait_for_timeout(300)
+        box = cell.bounding_box()
+        self.delete_at((box["x"] + 2, box["y"] + box["height"] / 2))
+        expect(bound(page, "bioMembrane")).to_have_count(0)
+        expect(bound(page, "bioCell")).to_have_count(1)
+        page.wait_for_timeout(300)
+        self.box_select(cell.bounding_box())
+        expect(page.locator(f"{BIO} .vue-flow__node.selected")).to_have_count(2)
+        page.keyboard.press("Delete")
+        expect(page.locator(f"{BIO} .vue-flow__node")).to_have_count(0)
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        self.expect_in_diagram(0)
+
     def on_top_at_its_centre(self, node):
         """Whether a node is the one drawn on top at its own centre, so not hidden by what it is in."""
         x, y = centre(node.bounding_box())
@@ -1205,6 +1258,81 @@ class TestBioTemplates(unittest.TestCase):
         self.assertGreater(offset[0], 40)
         self.assert_moved(before[1], piece(page, "apical-fluid").bounding_box(), offset)
         self.assert_moved(before[2], protein.bounding_box(), (0, 0))
+
+    def alt_drag(self, start, offset, release=True):
+        """Drag with Alt held, which lifts a piece out of where it is; held at the end, Alt is still down."""
+        self.page.keyboard.down("Alt")
+        self.drag(start, offset, release)
+        if release:
+            self.page.keyboard.up("Alt")
+
+    def test_alt_and_a_drag_lift_a_piece_out_to_stand_or_dock_somewhere_else(self):
+        page = self.page
+        self.open_physiology_with_template("Cardiomyocyte")
+        label = page.locator("[data-testid=bio-piece-drop-label]")
+        cell = lambda: piece(page, "myocyte").bounding_box()
+        organelle = lambda: piece(page, "sr").bounding_box()
+        fluid = lambda: piece(page, "extracellular").bounding_box()
+        right_of = lambda box: box["x"] + box["width"]
+
+        # An organelle lifted out of its cell: it stays where it is while carried, its label saying where it would
+        # go, and stands on the view once let go of, as one step.
+        before = organelle()
+        self.assertLess(right_of(before), right_of(cell()))
+        start = (before["x"] + 30, before["y"] + before["height"] - 40)
+        self.alt_drag(start, (right_of(cell()) + 60 - before["x"], 0), release=False)
+        expect(label).to_contain_text("Moves Sarcoplasmic reticulum out, onto the view")
+        self.assert_moved(before, organelle(), (0, 0))
+        page.mouse.up()
+        page.keyboard.up("Alt")
+        expect(label).to_have_count(0)
+        page.wait_for_timeout(300)
+        self.assertGreater(organelle()["x"], right_of(cell()))
+        undo(page)
+        page.wait_for_timeout(300)
+        self.assert_moved(before, organelle(), (0, 0))
+
+        # Without Alt, it only moves within its cell, which grows to hold it.
+        self.drag(start, (right_of(cell()) + 60 - before["x"], 0))
+        page.wait_for_timeout(300)
+        self.assertLess(right_of(organelle()), right_of(cell()))
+        undo(page)
+        page.wait_for_timeout(300)
+
+        # A fluid along a whole side has nowhere to go by a drag alone; lifted, it is detached, to stand on its own.
+        before = fluid()
+        overlap = before["y"] + before["height"] - cell()["y"]
+        hold = (before["x"] + 30, before["y"] + before["height"] * 0.6)
+        self.drag(hold, (0, -120))
+        page.wait_for_timeout(300)
+        self.assert_moved(before, fluid(), (0, 0))
+        self.alt_drag(hold, (0, -160), release=False)
+        expect(label).to_contain_text("Detaches Extracellular space, to stand on its own")
+        page.mouse.up()
+        page.keyboard.up("Alt")
+        page.wait_for_timeout(300)
+        self.assertLess(fluid()["y"], before["y"] - 100)
+
+        # Carried back to the cell's top side, it is docked there again.
+        free = fluid()
+        hold = (free["x"] + 30, free["y"] + free["height"] * 0.6)
+        top = cell()
+        self.alt_drag(hold, (top["x"] + top["width"] * 0.3 - hold[0], top["y"] - 5 - hold[1]), release=False)
+        expect(label).to_contain_text("Docks Extracellular space against Sarcolemma’s top, outside")
+        page.mouse.up()
+        page.keyboard.up("Alt")
+        page.wait_for_timeout(300)
+        docked = fluid()
+        self.assertAlmostEqual(docked["y"] + docked["height"] - cell()["y"], overlap, delta=3)
+
+        # The menu does the same without a drag: Detach, and Move Out of what a piece stands in.
+        self.piece_menu("extracellular", "Detach")
+        page.wait_for_timeout(300)
+        expect(piece(page, "extracellular")).to_be_visible()
+        undo(page)
+        self.piece_menu("sr", "Move Out of Cardiomyocyte")
+        page.wait_for_timeout(300)
+        self.assertGreater(organelle()["x"], right_of(cell()))
 
     def add_zone(self):
         """Click the palette's process zone, then the cell's lower half: a zone in the cell. Back on the modules."""

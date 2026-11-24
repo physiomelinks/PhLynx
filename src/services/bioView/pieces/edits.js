@@ -156,7 +156,7 @@ export function dockCompartment(pieces, { membrane: membraneId, side, face, from
  * @param {string} compartmentId - What the span's id is made from.
  * @param {string} name - The compartment's name, in the span's.
  */
-function cutStretch(membrane, validated, side, from, to, compartmentId, name) {
+export function cutStretch(membrane, validated, side, from, to, compartmentId, name) {
   const ids = new Set(
     Object.values(membrane.sides)
       .flat()

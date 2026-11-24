@@ -77,6 +77,11 @@ Right-click an instance on a site to **Unbind** it: it is drawn beside the piece
 - Hover over a cell, organelle, free compartment or process zone for the resize handle at its bottom-right corner.
 - A compartment docked along one side has a grip on its far edge. Drag it across the side to set how far the compartment reaches. Drag it onto another membrane's side or a fold to dock the compartment there too, so that it lies between the two: the green outline and the label by the pointer show what it would dock to. A dyadic cleft between an organelle and a T-tubule is built this way: dock a compartment beside the organelle, then drag its far edge onto the T-tubule's wall. Between a fold and a side, or two sides that face each other, it is drawn as the gap between them.
 - Drag a fold by the grip at its end, along its side and deeper or shallower; a tube by the grip above its module, to bend it; and a tube's end grip onto another compartment, to join it there.
+- Hold **Alt** (**Option** on a Mac) while dragging a compartment, cell, organelle or process zone to lift it out of where it is. It stays put while you carry it, and the outline and the label by the pointer show where it would go: docked against the membrane side the pointer is by, standing in the compartment under the pointer, or out on the view. Let go with Alt still down to put it there; let go of Alt first to move it as a plain drag does. This is how a compartment already on the view is docked to a membrane, how a docked one is detached, even one along a whole side that a plain drag can't move, and how a cell is moved from one compartment to another.
+  - What stands in the piece goes with it, and so does a compartment docked only to it. A compartment docked to something left behind as well stays against that.
+  - Cells joined by gap junctions go together.
+  - Modules stay on their pieces, and are coupled to their new neighbours. Tubes keep their ends, lose their bends, and carry what a new tube between those ends would.
+  - A compartment that is part of the inside of a cell with no other inside, such as a rod's inner segment, stays where it is.
 
 ### Editing Pieces {#editing-pieces}
 
@@ -86,7 +91,9 @@ Right-click a piece for:
 - **Skin** and, on a cell, **Membrane Skin**: how the piece is drawn. See [Skins](#skins).
 - **Fit to Contents**: shrinks a cell or compartment back to what its contents need. A piece never shrinks on its own.
 - **Straighten Tube**: takes a tube's bend away.
-- **Detach From**: on a compartment docked to more than one membrane side or fold, takes it off one of them, leaving it against the rest.
+- **Detach**: on a compartment docked to one membrane side or fold, takes it off, leaving it standing where it is.
+- **Detach From**: on a compartment docked to more than one membrane side or fold, takes it off one of them, leaving it against the rest, or off **All of Them**.
+- **Move Out of…**: on a compartment, cell or organelle standing in a compartment, stands it beside that one instead.
 - **Remove**: a piece, with what can't stand without it, such as the fluids docked to a membrane. On a cell, choose the whole cell or its membrane alone, which leaves its inside where it was; folds, process zones and tubes on it are listed too. When other pieces go along, or modules are placed on what goes, PhLynx says so and asks first; the modules stay in the diagram, drawn beside the pieces as their annotations say.
 
 ### My Templates {#my-templates}

@@ -21,6 +21,7 @@ import {
 import { compartmentsTouch, layoutPieces } from './layout.js'
 import { validatePieces } from './model.js'
 import { reattachTube } from './moves.js'
+import { dockPiece, liftedWith, standPiece, standingIn } from './relocate.js'
 import { topologyOf } from './topology.js'
 
 /** The kinds of piece the palette offers, in its order. */
@@ -438,6 +439,77 @@ export function resolveExtraDock(scene, compartmentId, point) {
   }
 }
 
+/**
+ * What letting go of a piece already on the view at a point would do, lifted from where it is (see relocate.js): a
+ * compartment by a membrane's side is docked there, along as much of it as the compartment is long; else the piece
+ * stands in the compartment the point is in, or on the view, moved as far as the pointer has. What is lifted with it
+ * is no target.
+ *
+ * @param {Object} scene - From dropScene.
+ * @param {string} id - A compartment, a cell's membrane or a process zone.
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @param {{x: number, y: number}} shift - How far the pointer has gone since it took hold of the piece.
+ * @returns {Object} As resolveDrop's, with `carried` (the tops lifted, each drawn where it would go by previewDrop)
+ *   and `lifted` (the ids of all that goes with it).
+ */
+export function resolveCarry(scene, id, point, shift) {
+  const lifted = liftedWith(scene.pieces, id)
+  if (lifted.error) return { key: `carry|${id}|held`, invalid: lifted.error }
+  const carry = { carried: lifted.tops, lifted: lifted.ids }
+  const name = lifted.label
+  const rest = { ...scene, pieces: scene.pieces.filter((piece) => !lifted.ids.has(piece.id)) }
+  const by = lifted.kind === 'compartment' && membraneSideAt(rest, point, DOCK_BAND)
+  if (by) {
+    const { membrane, side, face, at, rect } = by
+    const free = freeStretch(rest.pieces, membrane.id, side, face, at)
+    if (!free) {
+      return {
+        key: `carry|${id}|full|${membrane.id}|${side}|${face}`,
+        invalid: `A compartment is already against that stretch of ${membrane.label}, on that face.`,
+      }
+    }
+    // As much of the free stretch as it is long, round the point, taking what it would leave too short to use.
+    const own = scene.rects.get(id)
+    const across = side === 'top' || side === 'bottom'
+    const length = across ? rect.width : rect.height
+    const share = own ? (across ? own.width : own.height) / length : 1
+    let from = Math.max(free.from, Math.min(at - share / 2, free.to - share))
+    let to = Math.min(free.to, from + share)
+    const least = EMPTY_SPAN / length
+    if (from - free.from < least) from = free.from
+    if (free.to - to < least) to = free.to
+    const fraction = (value) => Math.round(value * 1000) / 1000
+    const stretch = to - from > 0.05 ? { from: fraction(from), to: fraction(to) } : free
+    return {
+      ...carry,
+      key: `carry|${id}|dock|${membrane.id}|${side}|${face}|${stretch.from}|${stretch.to}`,
+      label:
+        face === 'inside'
+          ? `Docks ${name} inside ${membrane.label}, along its ${SIDE_NAMES[side]}`
+          : `Docks ${name} against ${membrane.label}’s ${SIDE_NAMES[side]}, outside`,
+      highlights: [sideHighlight(rect, side, stretch.from, stretch.to)],
+      apply: (pieces) => dockPiece(pieces, id, { on: membrane.id, side, face, ...stretch }, scene.rects),
+    }
+  }
+  const host = compartmentAt(rest, point)
+  if (lifted.kind === 'zone' && !host) return { key: `carry|${id}|none`, invalid: 'Drop it in a compartment.' }
+  const here = standingIn(scene.pieces, lifted.root)
+  const docked = !!scene.byId.get(lifted.root)?.docks?.length
+  const stays = (host?.id ?? null) === here
+  const where = host ? ` in ${host.label}` : ''
+  return {
+    ...carry,
+    key: `carry|${id}|in|${host?.id ?? ''}|${snap(shift)}`,
+    label: stays
+      ? `${docked ? 'Detaches' : 'Moves'} ${name}${docked ? `, to stand${where || ' on its own'}` : where}`
+      : host
+        ? `Moves ${name} into ${host.label}`
+        : `Moves ${name} out, onto the view`,
+    highlights: host ? [{ type: 'rect', rect: scene.rects.get(host.id) }] : [],
+    apply: (pieces) => standPiece(pieces, id, { parent: host?.id ?? null, shift }, scene.rects),
+  }
+}
+
 const RESOLVERS = {
   compartment: resolveCompartment,
   membrane: resolveMembrane,
@@ -516,6 +588,13 @@ export function previewDrop(scene, drop, choice) {
   for (const place of places.values()) {
     // A grip is a handle on a piece, not part of it, and a membrane's band is drawn by its cell.
     if (place.kind === 'grip' || place.kind === 'membrane') continue
+    if (drop.lifted?.has(place.piece)) {
+      // A piece carried somewhere else is drawn where it would go, what goes with it left to follow.
+      if (drop.carried.includes(place.piece) && place.rect) {
+        ghosts.push({ type: 'rect', kind: place.kind, rect: place.rect })
+      }
+      continue
+    }
     if (before.has(place.piece)) {
       // A compartment or cell made bigger to fit what the drop adds, or pushed out of the way of one that is.
       const was = GROWING_KINDS.has(place.kind) && scene.rects.get(place.piece)

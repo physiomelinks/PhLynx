@@ -517,6 +517,7 @@ import {
   compartmentAtPoint,
   dropScene,
   previewDrop,
+  resolveCarry,
   resolveDrop,
   resolveExtraDock,
   resolveTubeEnd,
@@ -531,6 +532,7 @@ import {
   reachTo,
   slideDock,
 } from '../../services/bioView/pieces/moves'
+import { detachPiece, moveOut, outOf } from '../../services/bioView/pieces/relocate'
 import { PIECES_SCHEMA_VERSION } from '../../services/bioView/pieces/constants'
 import { validatePieces } from '../../services/bioView/pieces/model'
 import { useBioPiecesStore } from '../../stores/bioPiecesStore'
@@ -594,6 +596,7 @@ const {
   findNode,
   fitView,
   getSelectedNodes,
+  nodesSelectionActive,
   onMoveStart,
   screenToFlowCoordinate,
   setViewport,
@@ -1057,6 +1060,7 @@ function onNodeDragStart({ event, node, nodes }) {
 /** Follows a piece's drag as it goes. */
 function onNodeDrag({ event }) {
   if (!pieceMove) return
+  pieceMove.alt = pieceMove.liftable && !!event?.altKey
   const pointer = pointerAt(event)
   if (pointer) followPiece(pointer)
 }
@@ -1901,7 +1905,10 @@ function startPieceMove(node, event) {
   const place = layout.value.get(node.id)
   const pointer = pointerAt(event)
   if (!place?.piece || !pointer) return false
-  const mode = node.type === 'bioGrip' ? `grip:${place.grip}` : place.drag
+  // A compartment, cell or process zone can be lifted out of where it is with Alt, even one with no way to move
+  // otherwise, which is held still until then.
+  const liftable = node.type !== 'bioGrip' && LIFTED_KINDS.includes(place.kind)
+  const mode = node.type === 'bioGrip' ? `grip:${place.grip}` : (place.drag ?? (liftable ? 'held' : null))
   if (!mode) return false
   // The view stays where the user is working, however the layout's extent changes.
   isViewChosen = true
@@ -1918,8 +1925,73 @@ function startPieceMove(node, event) {
     // A compartment's far edge can be dropped on another membrane's side or a fold: what it could go on, read once.
     scene: mode === 'grip:reach' ? dropScene(piecesStore.pieces, sceneOptions()) : null,
     dock: null,
+    liftable,
+    // Whether Alt is down, lifting it; what it could go on, read once it is lifted; and the pieces as letting go
+    // of it where it is would leave them.
+    alt: liftable && !!event?.altKey,
+    lifting: false,
+    lift: null,
+    lifted: null,
+  }
+  if (liftable) {
+    window.addEventListener('keydown', onLiftKey, true)
+    window.addEventListener('keyup', onLiftKey, true)
   }
   return true
+}
+
+/** The kinds of place whose piece Alt lifts out of where it is, to stand or dock somewhere else. */
+const LIFTED_KINDS = ['cell', 'region', 'zone']
+
+/** Alt pressed or let go of while a piece is dragged lifts it, or puts it back to move as it does without. */
+function onLiftKey(event) {
+  if (event.key !== 'Alt' || !pieceMove?.liftable) return
+  event.preventDefault()
+  pieceMove.alt = event.type === 'keydown'
+  if (pendingPosition) followPiece(pendingPosition)
+}
+
+function stopLiftKeys() {
+  window.removeEventListener('keydown', onLiftKey, true)
+  window.removeEventListener('keyup', onLiftKey, true)
+}
+onBeforeUnmount(stopLiftKeys)
+
+/**
+ * The pieces as a lifted piece let go of at a point would leave them: docked to the membrane side there, or standing
+ * in the compartment there or on the view, with the target outlined, where it would be drawn, and the label by the
+ * pointer saying so; null where it can't go there (the label says why).
+ *
+ * @param {Object} move - The drag (see startPieceMove), which keeps the last target's result.
+ * @param {{x: number, y: number}} point
+ * @returns {ReadonlyArray<Object>|null}
+ */
+function carryDraft(move, point) {
+  move.lifting = true
+  move.lift ??= dropScene(move.base, sceneOptions())
+  const shift = { x: point.x - move.pointer.x, y: point.y - move.pointer.y }
+  const drop = resolveCarry(move.lift, move.piece, point, shift)
+  piecePointer.value = point
+  if (drop.key === piecePreview.value?.key) return move.lifted
+  if (drop.invalid) {
+    piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
+    move.lifted = null
+    return null
+  }
+  const { pieces, ghosts, errors } = previewDrop(move.lift, drop)
+  piecePreview.value = pieces
+    ? { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts }
+    : { key: drop.key, invalid: summariseProblems(errors), highlights: drop.highlights, ghosts: [] }
+  move.lifted = pieces
+  return pieces
+}
+
+/** Puts a piece that was lifted back to moving as it does without Alt. */
+function setDown(move) {
+  if (!move.lifting) return
+  move.lifting = false
+  move.lifted = null
+  clearPiecePreview()
 }
 
 /** Whether a node change is one a piece's move or resize stands in for, and so is left unapplied. */
@@ -1966,6 +2038,13 @@ function followPiece(pointer) {
   moveFrameRequest = requestAnimationFrame(() => {
     moveFrameRequest = 0
     if (!pieceMove || !pendingPosition) return
+    // Lifted, it stays where it is until let go of: only where it would go is drawn.
+    if (pieceMove.alt) {
+      carryDraft(pieceMove, pendingPosition)
+      piecesStore.draft = null
+      return
+    }
+    setDown(pieceMove)
     // It reaches as far as it is dragged, and what it would dock to there is outlined.
     if (pieceMove.scene) dockDraft(pieceMove, pendingPosition)
     const draft = moveDraft(pendingPosition)
@@ -1978,8 +2057,9 @@ function followPiece(pointer) {
  * a compartment whose far edge is on another membrane's side or a fold there too.
  */
 async function endPieceMove({ event, node }) {
+  const lifting = pieceMove.liftable && !!event?.altKey
   // Where the pointer was let go, which the frame still to come would have laid it out for.
-  const last = moveFrameRequest && pendingPosition
+  const last = !lifting && moveFrameRequest && pendingPosition
   if (last) {
     const draft = moveDraft(last)
     if (draft) piecesStore.draft = draft
@@ -1989,6 +2069,17 @@ async function endPieceMove({ event, node }) {
   cancelAnimationFrame(moveFrameRequest)
   moveFrameRequest = 0
   pendingPosition = null
+  stopLiftKeys()
+  // Let go of with Alt down, it goes where its label said: somewhere else, as one step.
+  if (lifting) {
+    const point = pointerAt(event)
+    const next = point && carryDraft(move, point)
+    clearPiecePreview()
+    piecesStore.draft = null
+    if (next) await editPieces(next, 'bio-pieces-relocate')
+    return
+  }
+  setDown(move)
   if (move.scene) {
     const docked = dockDraft(move, pointerAt(event))
     clearPiecePreview()
@@ -2143,6 +2234,7 @@ function pieceMenu(place) {
     })
   }
   if (piece.kind === 'compartment' && piece.docks?.length > 1) items.push(detachMenu(piece))
+  items.push(...relocateMenu(piece))
   items.push(...removeMenu(place, piece))
   return [{ separator: true }, ...items]
 }
@@ -2174,7 +2266,53 @@ function removeMenu(place, piece) {
   return [{ ...item, items: [...whole, ...(parts.length ? [{ separator: true }, ...parts] : [])] }]
 }
 
-/** Takes one of the docks of a compartment docked to several membranes or folds away: one item for each. */
+/**
+ * Keeps a piece put somewhere else (see pieces/relocate.js) as one step, or says why it can't go there.
+ *
+ * @param {{pieces: Array<Object>|null, error?: string}} result
+ * @param {string} failed - The title of what went wrong.
+ * @returns {Promise<boolean>}
+ */
+async function keepRelocation(result, failed) {
+  if (!result.pieces) {
+    notify.error({ title: failed, message: result.error ?? 'It can’t go there.' })
+    return false
+  }
+  return keepEdit(result.pieces, 'bio-pieces-relocate', failed)
+}
+
+/** Where each piece is drawn in the view, with the modules on them. */
+const drawnRects = () => dropScene(piecesStore.pieces, sceneOptions()).rects
+
+/**
+ * What a piece's menu offers of what Alt and a drag do: Detach, for a compartment against one membrane side or fold,
+ * which leaves it standing where it is; and Move Out, for a compartment or cell standing in a compartment, which
+ * stands it beside that one.
+ */
+function relocateMenu(piece) {
+  const items = []
+  if (piece.kind === 'compartment' && piece.docks?.length === 1) {
+    items.push({
+      label: 'Detach',
+      icon: 'pi pi-link',
+      command: () => keepRelocation(detachPiece(piecesStore.pieces, piece.id, drawnRects()), 'Could not detach it'),
+    })
+  }
+  const from = outOf(piecesStore.pieces, piece.id)
+  if (from) {
+    items.push({
+      label: `Move Out of ${from.label}`,
+      icon: 'pi pi-sign-out',
+      command: () => keepRelocation(moveOut(piecesStore.pieces, piece.id, drawnRects()), 'Could not move it out'),
+    })
+  }
+  return items
+}
+
+/**
+ * Takes one of the docks of a compartment docked to several membranes or folds away: one item for each, and one for
+ * them all, which leaves it standing where it is.
+ */
 function detachMenu(piece) {
   const SIDE_WORDS = { top: 'top', bottom: 'bottom', left: 'left side', right: 'right side' }
   return {
@@ -2188,7 +2326,13 @@ function detachMenu(piece) {
         command: () =>
           keepEdit(removeDock(piecesStore.pieces, piece.id, index), 'bio-pieces-undock', 'Could not detach it'),
       }
-    }),
+    }).concat([
+      { separator: true },
+      {
+        label: 'All of Them',
+        command: () => keepRelocation(detachPiece(piecesStore.pieces, piece.id, drawnRects()), 'Could not detach it'),
+      },
+    ]),
   }
 }
 
@@ -2765,10 +2909,106 @@ function deletionLayers() {
 }
 
 /**
- * Deletes the selection, for the workspace's Delete and Backspace keys, a layer at a time (see deletionLayers): the
- * modules first, then the empty pieces.
+ * The pieces a node of the view draws, with or without a module on it: a cell's inside (its compartment, or all its
+ * membrane encloses where no one of them is its inside), a region's compartment, a membrane's band's membrane, a
+ * process zone, a tube (by its room, or the module on it). None for a grip, or a module that is on a piece but does
+ * not draw it: a protein, or a process in a zone.
+ *
+ * @param {string} nodeId
+ * @returns {string[]}
+ */
+function piecesDrawnBy(nodeId) {
+  const place = layout.value.get(nodeId)
+  switch (place?.kind) {
+    case 'cell': {
+      if (place.bulk) return [place.bulk]
+      const membrane = piecesStore.pieces.find((each) => each.id === place.piece)
+      return membrane ? [membrane.id, ...(membrane.encloses ?? [])] : []
+    }
+    case 'region':
+    case 'zone':
+    case 'link':
+      return place.piece ? [place.piece] : []
+    case 'membrane': {
+      const id = place.piece ?? layout.value.get(place.cell)?.piece
+      return id ? [id] : []
+    }
+    case 'card': {
+      const id = place.link && layout.value.get(place.link)?.piece
+      return id ? [id] : []
+    }
+    default:
+      return []
+  }
+}
+
+/** The selected nodes Delete acts on: grips are handles on a piece, not the piece, so they are left out. */
+const selectedForDeletion = () =>
+  getSelectedNodes.value.filter((node) => layout.value.get(node.id)?.kind !== 'grip')
+
+/**
+ * Deletes everything a selection of several nodes holds, in one undo step: each selected module, each piece a
+ * selected node draws, and the modules on those pieces. It asks first only when that takes what was not selected: a
+ * piece that goes with one selected (see removedWith), or a module on a piece that goes.
+ *
+ * @param {Array<Object>} selected - The selected nodes of the view.
+ * @returns {Promise<void>}
+ */
+async function deleteWholeSelection(selected) {
+  const chosen = new Set(selected.map((node) => node.id))
+  const instances = new Set(main.nodes.value.filter((node) => node.selected || chosen.has(node.id)).map((node) => node.id))
+  const known = new Set(piecesStore.pieces.map((piece) => piece.id))
+  const pieces = [...new Set(selected.flatMap((node) => piecesDrawnBy(node.id)))].filter((id) => known.has(id))
+  if (!pieces.length) {
+    await deleteNodes([...instances])
+    return
+  }
+  const { pieces: raw, removed } = removePieces(piecesStore.pieces, pieces)
+  const { pieces: next, errors } = validatePieces(raw)
+  if (!next) {
+    notify.error({ title: 'Could not delete the selection', message: summariseProblems(errors) })
+    return
+  }
+  const stranded = strandedBy(next).map((node) => node.id)
+  // A fold has no node of its own to select: it goes with its membrane unasked.
+  const kindOf = new Map(piecesStore.pieces.map((piece) => [piece.id, piece.kind]))
+  const alongWith = [...removed].filter((id) => !pieces.includes(id) && kindOf.get(id) !== 'fold').map(pieceName)
+  const modulesToo = stranded.filter((id) => !instances.has(id)).map(nameOf)
+  if (alongWith.length || modulesToo.length) {
+    isConfirming.value = true
+    let answer
+    try {
+      answer = await choose({
+        header: 'Delete selection?',
+        message: [
+          alongWith.length ? `${alongWith.join(', ')} go${alongWith.length === 1 ? 'es' : ''} with the selection.` : '',
+          modulesToo.length ? `These modules are deleted from the diagram with it: ${modulesToo.join(', ')}.` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+        severity: 'warning',
+        acceptLabel: 'Delete',
+        rejectLabel: 'Cancel',
+      })
+    } finally {
+      isConfirming.value = false
+    }
+    if (answer !== 'accept') return
+  }
+  const going = [...new Set([...instances, ...stranded])].filter((id) => main.findNode(id))
+  const takePieces = () => editPieces(next, 'bio-pieces-remove')
+  if (going.length) await deleteInstances(going, { removeNodes: main.removeNodes, history, after: takePieces })
+  else await takePieces()
+}
+
+/**
+ * Deletes the selection, for the workspace's Delete and Backspace keys. One selected node goes a layer at a time
+ * (see deletionLayers): its module first, then the empty piece. A selection of several nodes, or one made by
+ * dragging a box (with Shift), goes whole: the modules and the pieces they are on together.
  */
 async function deleteSelection() {
+  const selected = selectedForDeletion()
+  if (selected.length > 1 || (selected.length && nodesSelectionActive.value)) return deleteWholeSelection(selected)
   const { instances, pieces, compartments } = deletionLayers()
   if (instances.length && !(await deleteNodes(instances))) return
   if (compartments.length) await removeThesePieces([...compartments, ...pieces], { withModules: true })

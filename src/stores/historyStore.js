@@ -44,6 +44,7 @@ export const STEP_LABELS = {
   'bio-pieces-tube-end': 'Join tube',
   'bio-pieces-dock': 'Dock compartment',
   'bio-pieces-undock': 'Detach compartment',
+  'bio-pieces-relocate': 'Move piece elsewhere',
   'bio-pieces-rename': 'Rename piece',
   'bio-pieces-skin': 'Change skin',
   'bio-pieces-remove': 'Remove piece',

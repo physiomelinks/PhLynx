@@ -172,7 +172,8 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
           width,
           height,
           zIndex: Z.zone,
-          draggable: !!place.drag,
+          // Held still, one with no way to move can still be lifted out with Alt (see BioFlow).
+          draggable: true,
           data: {
             ...base(id).data,
             // Whether any module is in it yet, which base says of every piece with no node of its own.
@@ -268,8 +269,9 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const hint = own.data.empty && cellHintAt(id, layout, labelOf)
         parents.push({
           ...own,
-          // A piece moves as its own drag says (see BioFlow), with or without a module on it.
-          ...(place.piece && { draggable: !!place.drag }),
+          // A piece moves as its own drag says (see BioFlow), with or without a module on it; one with no way to
+          // move is held still, to be lifted out with Alt.
+          ...(place.piece && { draggable: true }),
           type: 'bioCell',
           position: { x, y },
           width,
@@ -297,7 +299,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const named = regionNameAt(id, layout, labelOf)
         parents.push({
           ...own,
-          ...(place.piece && { draggable: !!place.drag }),
+          ...(place.piece && { draggable: true }),
           type: 'bioRegion',
           position: { x, y },
           width,
