@@ -44,7 +44,7 @@
             aria-label="Clean up workspace"
             v-hint.bottom="'Clean up workspace'"
             @click="handleAutoLayout"
-            :disabled="!somethingAvailable"
+            :disabled="!somethingAvailable || viewMode.isBio"
           >
             <DustpanBrush />
           </Button>
