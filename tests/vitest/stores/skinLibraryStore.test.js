@@ -214,7 +214,7 @@ describe('skinLibraryStore', () => {
     freshStore()
     expect(getSkin('rod-outer-segment')).toMatchObject({
       name: 'Rod outer segment',
-      appliesTo: ['subcompartment'],
+      appliesTo: ['cytosol', 'subcompartment'],
       terms: ['GO:0001750'],
       renderer: 'area',
       isBuiltIn: true,
