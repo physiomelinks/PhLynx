@@ -57,13 +57,28 @@
           title="Choose which species are shown"
           aria-haspopup="dialog"
           data-testid="bio-species-menu-button"
+          :class="{ 'bio-species-menu-button--open': isSpeciesMenuOpen }"
+          :aria-expanded="String(isSpeciesMenuOpen)"
           @click="speciesMenuRef?.toggle($event)"
         >
-          <i class="pi pi-angle-right"></i>
+          <!-- A hamburger while the menu is closed, tapering into a tornado while it is open -->
+          <svg class="bio-species-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <line
+              v-for="(y, index) in [7, 12, 17]"
+              :key="y"
+              :class="`bio-species-menu-line bio-species-menu-line--${index + 1}`"
+              x1="4"
+              :y1="y"
+              x2="20"
+              :y2="y"
+              pathLength="100"
+            />
+          </svg>
         </ControlButton>
       </Controls>
       <SpeciesMenu
         ref="speciesMenuRef"
+        @update:open="isSpeciesMenuOpen = $event"
         :species="menuSpecies"
         :hidden="viewMode.hiddenSpecies"
         :scope="viewMode.speciesScope"
@@ -1275,6 +1290,8 @@ function concentrationText(token) {
 /** The species menu's rows. */
 const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
 const speciesMenuRef = ref(null)
+/** Whether the species menu is open, which turns its button's hamburger into a tornado. */
+const isSpeciesMenuOpen = ref(false)
 const isFocused = (token) =>
   viewMode.focusedSpecies?.nodeId === token.nodeId && viewMode.focusedSpecies?.species === token.species
 /** Whether a species is set back while another is focused. */
@@ -3387,6 +3404,55 @@ defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
   margin-left: 2px;
   border-radius: 4px;
   box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
+}
+
+.bio-species-menu-icon {
+  width: 14px;
+  height: 14px;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+}
+
+/* Each line is one dash along a 0–100 path, so its length and offset can shorten it with round caps kept.
+   Matches the library panel's toggle. */
+.bio-species-menu-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 100 200;
+  stroke-dashoffset: 0;
+  transform-box: view-box;
+  transform: translateX(0);
+  transition:
+    stroke-dasharray 260ms cubic-bezier(0.5, 0, 0.2, 1),
+    stroke-dashoffset 260ms cubic-bezier(0.5, 0, 0.2, 1),
+    transform 260ms cubic-bezier(0.5, 0, 0.2, 1);
+}
+
+.bio-species-menu-line--2 {
+  transition-delay: 40ms;
+}
+
+.bio-species-menu-line--3 {
+  transition-delay: 80ms;
+}
+
+.bio-species-menu-button--open .bio-species-menu-line--1 {
+  transform: translateX(-1px);
+}
+
+.bio-species-menu-button--open .bio-species-menu-line--2 {
+  stroke-dasharray: 62 200;
+  stroke-dashoffset: -22;
+  transform: translateX(0.5px);
+}
+
+.bio-species-menu-button--open .bio-species-menu-line--3 {
+  stroke-dasharray: 25 200;
+  stroke-dashoffset: -50;
+  transform: translateX(1.5px);
 }
 
 /* The selection's coupling lines are hidden while dragging, and so are their ends. */

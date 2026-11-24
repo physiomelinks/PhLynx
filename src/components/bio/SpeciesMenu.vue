@@ -1,5 +1,5 @@
 <template>
-  <Popover ref="popover">
+  <Popover ref="popover" @show="emit('update:open', true)" @hide="emit('update:open', false)">
     <div class="species-menu" role="dialog" aria-label="Species shown" data-testid="bio-species-menu">
       <fieldset class="species-menu__group">
         <legend>Show</legend>
@@ -57,7 +57,7 @@ const props = defineProps({
   /** 'coupled', 'fluxes' or 'all'. */
   scope: { type: String, default: 'coupled' },
 })
-const emit = defineEmits(['update:hidden', 'update:scope'])
+const emit = defineEmits(['update:hidden', 'update:scope', 'update:open'])
 
 const SCOPES = [
   { scope: 'coupled', label: 'Coupled species' },
