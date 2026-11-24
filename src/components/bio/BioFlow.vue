@@ -149,11 +149,17 @@
                 'bio-species-token--focused': isFocused(token),
                 'bio-species-token--dragging': draggingChip === token.key,
                 'bio-species--dimmed': isDimmed(token.species),
+                'bio-species-token--tinted': !!chipTintOf(token),
               },
             ]"
-            :style="{ '--species': colourOf(token.species), transform: offsetOf(token) }"
+            :style="{
+              '--species': colourOf(token.species),
+              '--chip-tint': chipTintOf(token) ? chipTintShare(chipTintOf(token).intensity) : undefined,
+              transform: offsetOf(token),
+            }"
             role="button"
             data-testid="bio-species-token"
+            :data-tint="chipTintOf(token)?.intensity"
             :data-node="token.nodeId"
             :data-species="token.species"
             @click.stop="onTokenClick(token)"
@@ -353,7 +359,7 @@
       </template>
     </VueFlow>
     <!-- Species mode after a run: play its flows through the run, or scrub to a point of it -->
-    <SpeciesPlaybackBar v-if="isSpeciesOn && species" />
+    <SpeciesPlaybackBar v-if="isSpeciesOn && species" :amounts-only="tintsOnlyAmounts" />
     <div
       v-if="pointerLabel"
       class="bio-drop-label"
@@ -505,7 +511,7 @@ import {
   whole,
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
-import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
+import { chipOrder, chipTintShare, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
 import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
@@ -629,6 +635,8 @@ const voiCursor = computed(() => (cursor.isActive ? { index: cursor.index, range
 const {
   bioNodes,
   concentrationTint,
+  tintsOnlyAmounts,
+  chipTints,
   couplingEdges,
   layout,
   roles,
@@ -1254,12 +1262,15 @@ provide(
   'bioTintColour',
   computed(() => (concentrationTint.value ? colourOf(concentrationTint.value.species) : null))
 )
-/** A tinted compartment's concentration of the focused species at the cursor, for its token's tooltip. */
+/** How strongly a chip is tinted by what its compartment holds, with no species focused; undefined when it isn't. */
+const chipTintOf = (token) => chipTints.value.get(token.nodeId)?.get(token.species)
+/** What a token's compartment holds of its species at the cursor, where that tints it or its chip, for its tooltip. */
 function concentrationText(token) {
   const tinted = concentrationTint.value
-  if (tinted?.species !== token.species) return ''
-  const value = tinted.tints.find((tint) => tint.nodeId === token.nodeId)?.value
-  return Number.isFinite(value) ? ` (${Number(value.toPrecision(4))}${tinted.unit ? ` ${tinted.unit}` : ''})` : ''
+  const held =
+    tinted?.species === token.species ? tinted.tints.find((tint) => tint.nodeId === token.nodeId) : chipTintOf(token)
+  if (!Number.isFinite(held?.value)) return ''
+  return ` (${Number(held.value.toPrecision(4))}${held.unit ? ` ${held.unit}` : ''})`
 }
 /** The species menu's rows. */
 const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
@@ -3313,6 +3324,11 @@ defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
   fill: color-mix(in srgb, var(--species) 16%, var(--p-content-background));
   stroke: var(--species);
   stroke-width: 1.5;
+}
+
+/* With no species focused, a chip is as strong as what its compartment holds of its species */
+.bio-species-token--tinted rect {
+  fill: color-mix(in srgb, var(--species) var(--chip-tint), var(--p-content-background));
 }
 
 .bio-species-token text {

@@ -136,16 +136,32 @@
           </p>
         </fieldset>
         <fieldset class="species-playback__window">
-          <legend>Concentration tint</legend>
+          <legend
+            v-hint.top="'Amounts tint too, but only each compartment against itself: an amount depends on its compartment’s size, so amounts aren’t compared across compartments.'"
+            data-testid="bio-species-tint-legend"
+          >
+            Concentration tint
+          </legend>
           <label class="species-playback__field">
             <span>Scale</span>
-            <select v-model="cursor.concentrationScale" class="species-playback__wide" data-testid="bio-species-tint-scale">
+            <!-- Amounts depend on their compartment's size, so they are only ever scaled each against itself -->
+            <select
+              class="species-playback__wide"
+              :value="tintScale"
+              :disabled="amountsOnly"
+              data-testid="bio-species-tint-scale"
+              @change="cursor.concentrationScale = $event.target.value"
+            >
               <option v-for="option in TINT_SCALES" :key="option.mode" :value="option.mode">{{ option.label }}</option>
             </select>
           </label>
           <p class="species-playback__note">
-            {{ TINT_SCALES.find((option) => option.mode === cursor.concentrationScale).note }} Click a species to tint
-            every compartment holding it.
+            {{ TINT_SCALES.find((option) => option.mode === tintScale).note }} Click a species to tint every compartment
+            holding it.
+          </p>
+          <p v-if="amountsOnly" class="species-playback__note" data-testid="bio-species-tint-amounts">
+            Shared scales compare concentrations. Here the species are annotated as amounts, which depend on a
+            compartment’s size, so each is scaled against itself.
           </p>
         </fieldset>
         <fieldset class="species-playback__window">
@@ -213,7 +229,14 @@ const TINT_SCALES = [
 /** The times the whole window can be played in, in seconds. */
 const PLAY_SECONDS = [5, 10, 30, 60]
 
+const props = defineProps({
+  /** Whether only amounts can tint (see useBioNodes), so the shared scales, which compare concentrations, are off. */
+  amountsOnly: { type: Boolean, default: false },
+})
+
 const cursor = useVoiCursorStore()
+/** The tint's scale in use: the one chosen, but each compartment against itself with only amounts to tint. */
+const tintScale = computed(() => (props.amountsOnly ? 'compartment' : cursor.concentrationScale))
 const settings = ref(null)
 /** The stretch a plot was zoomed into when the settings opened, if any. */
 const plotZoom = ref(null)

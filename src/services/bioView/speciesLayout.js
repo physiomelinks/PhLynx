@@ -100,6 +100,18 @@ export const TINT_MAX = 0.55
 export const tintColour = (colour, intensity) =>
   `color-mix(in srgb, ${colour} ${Math.round(TINT_MAX * intensity * 1000) / 10}%, transparent)`
 
+/** How much of its species' colour a chip's fill takes, from the least to the most its compartment holds. */
+export const CHIP_TINT = Object.freeze({ min: 0.06, max: 0.6 })
+
+/**
+ * How much of its species' colour a chip's fill takes, as a CSS percentage: as strong as what its compartment holds.
+ *
+ * @param {number} intensity - From 0 to 1, from concentrationTints.
+ * @returns {string}
+ */
+export const chipTintShare = (intensity) =>
+  `${Math.round((CHIP_TINT.min + (CHIP_TINT.max - CHIP_TINT.min) * intensity) * 1000) / 10}%`
+
 /**
  * Gives how strongly each compartment is tinted by its concentration of a species over a stretch of a run, so a tint
  * means the same from one point to the next. Shared scales compare only the series in one unit; the rest aren't tinted.

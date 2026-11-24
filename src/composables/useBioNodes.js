@@ -658,7 +658,9 @@ const COMPARTMENT_ROLES = new Set(['cytosol', 'region'])
  *   bioNodes: ComputedRef<Array<Object>>, hasSpecies: ComputedRef<boolean>, species: ComputedRef<Object|null> }}
  *   `species` is the species network and where it is drawn, while species mode is on; `speciesOrderPreview` places
  *   one compartment's tokens in an order of the caller's; `concentrationTint`, the focused species' compartments
- *   and how strongly each is tinted at the cursor, null with nothing to tint.
+ *   and how strongly each is tinted at the cursor, null with nothing to tint; `tintsOnlyAmounts`, whether only amounts
+ *   can tint, which are scaled each against itself whatever `tintMode` says; `chipTints`, with no species focused, each
+ *   compartment's species and how strongly its chip is tinted at the cursor, as a Map of Maps, by node then species.
  */
 export function useBioNodes(
   nodes,
@@ -838,41 +840,100 @@ export function useBioNodes(
     return { network, tokens, ...routeSpecies(network, layout.value, tokens, { facesOf, arrowsOf, flowOf, largest }) }
   })
 
-  // The focused species' concentration in each compartment holding it, over the latest run. Amounts aren't tinted, so
-  // a tint always means a concentration; nor is a compartment whose unit isn't the focused one's.
-  const concentrationSeries = computed(() => {
+  /** A compartment's token for a species that can tint it: its concentration, else its amount. */
+  const tintTokenOf = (tokens, species) => {
+    const held = tokens.filter((entry) => entry.species === species)
+    return (
+      held.find((entry) => entry.annotation?.property === OPB.concentration) ??
+      held.find((entry) => entry.annotation?.property === OPB.amount)
+    )
+  }
+  // Whether only amounts can tint: the focused species', or with none focused every species', is held as an amount
+  // wherever it is held. An amount depends on its compartment's size, so it is only ever scaled against itself.
+  const tintsOnlyAmounts = computed(() => {
+    if (!speciesTokens.value) return false
     const target = unref(focusedSpecies)
-    if (!target || !speciesTokens.value) return null
+    let hasAmount = false
+    for (const tokens of speciesTokens.value.network.compartments.values()) {
+      for (const curie of new Set(tokens.map((entry) => entry.species))) {
+        if (target && curie !== target.species) continue
+        const property = tintTokenOf(tokens, curie)?.annotation?.property
+        if (property === OPB.concentration) return false
+        if (property === OPB.amount) hasAmount = true
+      }
+    }
+    return hasAmount
+  })
+  /**
+   * A species' concentration or amount in each compartment holding it, over the latest run, and how it is scaled: as
+   * chosen, but each compartment against itself where the species is only held as amounts. A shared scale compares
+   * only concentrations, in one unit (the focused compartment's, given one); each against itself takes amounts too.
+   */
+  const tintSeriesOf = (species, focusNodeId) => {
     const { results, mapping } = simulationResults
-    if (!results || !mapping || results.isSweep) return null
+    if (!speciesTokens.value || !results || !mapping || results.isSweep) return null
     const series = []
     for (const [nodeId, tokens] of speciesTokens.value.network.compartments) {
-      const token = tokens.find((entry) => entry.species === target.species)
-      if (token?.annotation?.property !== OPB.concentration) continue
+      const token = tintTokenOf(tokens, species)
+      if (!token) continue
       const read = readNodeSeries(results, mapping, nodeId, token.variable)
-      if (read?.values) series.push({ nodeId, values: read.values, unit: read.unit })
+      if (!read?.values) continue
+      series.push({ nodeId, values: read.values, unit: read.unit, isAmount: token.annotation.property === OPB.amount })
     }
-    if (!series.length) return null
-    const unit = (series.find((entry) => entry.nodeId === target.nodeId) ?? series[0]).unit
-    return { species: target.species, unit, series: series.filter((entry) => entry.unit === unit) }
+    const concentrations = series.filter((entry) => !entry.isAmount)
+    const mode = concentrations.length ? (unref(tintMode) ?? 'linear') : 'compartment'
+    const unit = (concentrations.find((entry) => entry.nodeId === focusNodeId) ?? concentrations[0])?.unit
+    const tinted = series.filter((entry) => (entry.isAmount ? mode === 'compartment' : entry.unit === unit))
+    return tinted.length ? { species, unit, mode, series: tinted } : null
+  }
+  /** A species' series scaled for the stretch the cursor plays. */
+  const tintScaleOf = (found) => {
+    const range = unref(voiCursor)?.range ?? [0, found.series[0].values.length - 1]
+    return concentrationTints(found.series, range, { mode: found.mode })
+  }
+  /** How strongly each compartment holding a species is tinted at the cursor, and what it holds there. */
+  const tintsAt = (found, tintOf) =>
+    found.series
+      .map(({ nodeId, values, unit }) => {
+        const index = unref(voiCursor)?.index ?? values.length - 1
+        return { nodeId, intensity: tintOf(nodeId, index), value: values[index], unit }
+      })
+      .filter((tint) => tint.intensity !== null)
+
+  const concentrationSeries = computed(() => {
+    const target = unref(focusedSpecies)
+    return target ? tintSeriesOf(target.species, target.nodeId) : null
   })
   // Scaled once for the stretch the cursor plays, not at each point.
-  const concentrationScaleOf = computed(() => {
-    const found = concentrationSeries.value
-    if (!found) return null
-    const last = found.series[0].values.length - 1
-    const range = unref(voiCursor)?.range ?? [0, last]
-    return concentrationTints(found.series, range, { mode: unref(tintMode) ?? 'linear', unit: found.unit })
-  })
+  const concentrationScaleOf = computed(() => (concentrationSeries.value ? tintScaleOf(concentrationSeries.value) : null))
   const concentrationTint = computed(() => {
     const found = concentrationSeries.value
     const tintOf = concentrationScaleOf.value
     if (!found || !tintOf) return null
-    const tints = found.series.map(({ nodeId, values }) => {
-      const index = unref(voiCursor)?.index ?? values.length - 1
-      return { nodeId, intensity: tintOf(nodeId, index), value: values[index] }
-    })
-    return { species: found.species, unit: found.unit, tints: tints.filter((tint) => tint.intensity !== null) }
+    return { species: found.species, unit: found.unit, tints: tintsAt(found, tintOf) }
+  })
+
+  // With no species focused, every species' chips are tinted instead, each by what its compartment holds.
+  const chipScales = computed(() => {
+    if (unref(focusedSpecies) || !speciesTokens.value) return []
+    const held = new Set()
+    for (const tokens of speciesTokens.value.network.compartments.values()) {
+      for (const token of tokens) held.add(token.species)
+    }
+    return [...held]
+      .map((curie) => tintSeriesOf(curie))
+      .filter(Boolean)
+      .map((found) => ({ found, tintOf: tintScaleOf(found) }))
+  })
+  const chipTints = computed(() => {
+    const byNode = new Map()
+    for (const { found, tintOf } of chipScales.value) {
+      for (const tint of tintsAt(found, tintOf)) {
+        if (!byNode.has(tint.nodeId)) byNode.set(tint.nodeId, new Map())
+        byNode.get(tint.nodeId).set(found.species, tint)
+      }
+    }
+    return byNode
   })
 
   const selected = computed(() => new Set(nodes.value.filter((node) => node.selected).map((node) => node.id)))
@@ -949,6 +1010,8 @@ export function useBioNodes(
     hasSpecies,
     species,
     concentrationTint,
+    tintsOnlyAmounts,
+    chipTints,
     speciesOrderPreview,
     loadSidecars,
   }

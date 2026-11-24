@@ -172,3 +172,46 @@ describe('generateFlattenedModel ids for annotations', () => {
     expect(ids.length).toBe(new Set(ids).size)
   })
 })
+
+describe('generateFlattenedModel with units files that have ids', () => {
+  beforeAll(async () => {
+    await ensureLibCellmlReady()
+  }, 120000)
+
+  // Ids as libCellML's Annotator writes them, starting over in each file.
+  const unitsFile = (name) => `<model xmlns="http://www.cellml.org/cellml/2.0#" name="units_${name}" id="b4da55">
+  <units name="${name}" id="b4da56"><unit units="second" exponent="-1" id="b4da57"/></units>
+</model>`
+
+  it('drops the ids of units and their unit children, so two files cannot repeat them', async () => {
+    setActivePinia(createPinia())
+    const store = useLibraryStore()
+    store.addUnitsFile({ componentFile: 'a.cellml', model: unitsFile('per_second') })
+    store.addUnitsFile({ componentFile: 'b.cellml', model: unitsFile('per_sec') })
+
+    const refs = ['file:decay', 'file:decay_b']
+    store.addMath(refs[0], XML)
+    store.addMath(refs[1], XML.replace('units="per_second"', 'units="per_sec"'))
+    const nodes = refs.map((mathRef, i) => {
+      const rows = reconcileRows(analyzeMathXml(store.availableMath.get(mathRef)), [], {
+        defaults: store.getMathDefaults(mathRef),
+      })
+      return {
+        id: `n${i + 1}`,
+        type: 'instanceNode',
+        data: { name: `decay_${i + 1}`, mathRef, variables: rows, ports: [] },
+      }
+    })
+
+    // Validates: generateFlattenedModel throws on a duplicated id.
+    const text = await (await generateFlattenedModel(nodes, [], store)).text()
+    const doc = new DOMParser().parseFromString(text, 'application/xml')
+    const units = [...doc.getElementsByTagName('units')]
+    expect(units.map((el) => el.getAttribute('name')).sort()).toEqual(['per_sec', 'per_second'])
+    for (const el of [...units, ...doc.getElementsByTagName('unit')]) expect(el.hasAttribute('id')).toBe(false)
+    // The instances keep theirs.
+    const ids = [...text.matchAll(/\bid="([^"]*)"/g)].map((m) => m[1])
+    expect(ids).toEqual(expect.arrayContaining(['decay_1-x', 'decay_2-x']))
+    expect(ids.length).toBe(new Set(ids).size)
+  })
+})
