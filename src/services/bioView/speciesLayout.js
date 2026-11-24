@@ -383,6 +383,23 @@ function nameFitting(kind, name, empty = false) {
 }
 
 /**
+ * Where a cell's or free compartment's name is drawn in its upper-left corner, clear of what else is drawn there (see
+ * nameInCorners), for what stands in it to make room for; nothing where it finds no room there.
+ *
+ * @param {'cell'|'region'} kind
+ * @param {Object} rect - The cell or compartment.
+ * @param {string} name
+ * @param {Array<Object>} others - What else is drawn in it.
+ * @param {boolean} [empty] - A compartment's: whether its hint is drawn with its name.
+ * @returns {Object|null} Its box.
+ */
+export function nameInUpperCorner(kind, rect, name, others, empty = false) {
+  if (!name) return null
+  const [size, options] = nameFitting(kind, name, empty)
+  return cornerSpot(rect, size, others, options, { lower: false })
+}
+
+/**
  * Whether a cell's or free compartment's name finds a clear corner (see nameInCorners), so it needs no room made for it.
  *
  * @param {'cell'|'region'} kind
@@ -432,7 +449,7 @@ function nameInCorners(rect, size, others, options) {
 }
 
 /** As nameInCorners, but nothing where neither corner is clear. */
-function cornerSpot(rect, { width, height }, others, { inset, reachY }) {
+function cornerSpot(rect, { width, height }, others, { inset, reachY }, { lower = true } = {}) {
   const [left, top] = [rect.x + inset, rect.y + inset]
   const bottom = rect.y + rect.height - inset - height
   // The name stays in a corner or tries the next.
@@ -445,7 +462,7 @@ function cornerSpot(rect, { width, height }, others, { inset, reachY }) {
     spots.sort((a, b) => a.i + a.j - (b.i + b.j) || a.i - b.i)
     return spots.map(({ i, j }) => box(left + j * NAME_STEP, y0 + way * i * NAME_STEP, width, height)).find(clear)
   }
-  return inCorner(top, 1) ?? inCorner(bottom, -1) ?? null
+  return inCorner(top, 1) ?? (lower ? inCorner(bottom, -1) : null) ?? null
 }
 
 /**

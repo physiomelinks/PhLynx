@@ -36,7 +36,7 @@ import { resolveSkin } from '../skinRegistry.js'
 import { INNER_INSET, LIMITS, isDefaultZoneLabel } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
-import { nameFits, proteinReach } from '../speciesLayout.js'
+import { nameFits, nameInUpperCorner, proteinReach } from '../speciesLayout.js'
 
 /** The key a piece's place has in the view's layout. */
 export const pieceKey = (id) => `pc:${id}`
@@ -621,7 +621,8 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
   const isFree = (piece) => piece.kind === 'compartment' && !isDocked(piece) && !isEnclosed(piece)
   const sitePath = (piece) => (piece.site === false ? null : pieceSiteRef(piece.id))
   /** The line skin a membrane is drawn with (see resolveSkin): a lipid bilayer unless chosen otherwise. */
-  const membraneSkinOf = (membrane) => resolveSkin(contextOfPiece(topology, membrane.id), membrane.skin)?.id ?? 'bilayer'
+  const membraneSkinOf = (membrane) =>
+    resolveSkin(contextOfPiece(topology, membrane.id), membrane.skin)?.id ?? 'bilayer'
   /** The area skin a compartment is drawn with (see resolveSkin), as a piece's skin is kept; null for none. */
   const areaSkinOf = (compartment) => {
     const skin = compartment && resolveSkin(contextOfPiece(topology, compartment.id), compartment.skin)
@@ -701,6 +702,22 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
     return { top: margin('top'), right: margin('right'), bottom: margin('bottom'), left: margin('left') }
   }
   /**
+   * How far down a compartment its name reaches where it is drawn in its upper-left corner, past the proteins along
+   * its top, for rows of zones to start below; 0 where it isn't drawn there: a cell with no module has its name
+   * centred, with its hint, below what stands in it.
+   */
+  const nameBottomOf = (containerId, width) => {
+    const membraneId = bulks.get(containerId)
+    const empty = !occupants.get(containerId)?.length
+    if (membraneId && empty) return 0
+    const top = membraneId ? proteinReachOf(membraneId).top : 0
+    const proteins = top ? [{ x: 0, y: 0, width, height: top }] : []
+    const rect = { x: 0, y: 0, width, height: LIMITS.size.max }
+    const name = byId.get(containerId)?.label ?? ''
+    const spot = nameInUpperCorner(membraneId ? 'cell' : 'region', rect, name, proteins, empty)
+    return spot ? bottomOf(spot) : 0
+  }
+  /**
    * How tall a compartment must be for its name to find a clear corner (see nameFits), at least as tall as it is: it
    * grows from its bottom until the name fits there, where what stands in it leaves no room. It grows no further than
    * puts its lower-left corner past all that stands in it: where the name still doesn't fit, what is in the way is
@@ -765,10 +782,13 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
     const membraneId = containerId && bulks.get(containerId)
     const folds = membraneId ? foldsIn(membraneId, { width, height }) : []
     const margins = containerId ? zoneMargins(containerId) : { top: 0, right: 0, bottom: 0, left: 0 }
+    // Rows of zones start below its name, where that is in its upper-left corner, so a zone dropped in leaves the
+    // name where it was; a zone moved there by the user moves the name instead.
+    const rowsTop = containerId ? Math.max(margins.top, nameBottomOf(containerId, width) + ZONE_MARGIN) : margins.top
     /** The band a zone without a frame is laid out in, in its row from the top, as wide as the container allows. */
     const zoneRow = (wide, index) => ({
       x: margins.left,
-      y: margins.top + index * (ZONE_HEIGHT + ZONE_MARGIN),
+      y: rowsTop + index * (ZONE_HEIGHT + ZONE_MARGIN),
       width: wide - margins.left - margins.right,
       height: ZONE_HEIGHT,
     })
@@ -871,7 +891,13 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
     if (piece.kind === 'membrane') {
       const least = piece.frame ? FRAMED_MIN : piece.parent ? ORGANELLE_MIN : MIN_CELL
       const base = piece.frame ? { width: piece.frame.width, height: piece.frame.height } : { ...least }
-      let size = fitCellRect({ x: 0, y: 0, ...base }, countsOf(piece.id), shapeOf.get(piece.id), widthsOf(piece.id), least)
+      let size = fitCellRect(
+        { x: 0, y: 0, ...base },
+        countsOf(piece.id),
+        shapeOf.get(piece.id),
+        widthsOf(piece.id),
+        least,
+      )
       const bulk = topology.bulkOf(piece.id)
       if (bulk) {
         // Grown for what stands in it; and again while that moves round its folds, which move as it grows. Its size is
@@ -1239,8 +1265,7 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
         .spansOf(membrane.id)
         .filter((span) => span.site !== false)
         .map((span) => {
-          if (span.from === 0 && span.to === 1)
-            return { facetId: span.id, label: span.label, edge: span.side }
+          if (span.from === 0 && span.to === 1) return { facetId: span.id, label: span.label, edge: span.side }
           const middle = proteinPlacement(rect, span.id, 0, 1, shape)
           return {
             facetId: span.id,

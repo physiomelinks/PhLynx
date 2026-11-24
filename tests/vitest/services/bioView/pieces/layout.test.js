@@ -650,7 +650,7 @@ describe('process zone margins', () => {
   const membrane = { id: 'm', kind: 'membrane', label: 'M', encloses: ['c'] }
   const zone = (id, frame) => ({ id, kind: 'zone', label: id, compartment: 'c', ...(frame && { frame }) })
   const marginsOf = (layout, host, id) => {
-    const [outer, inner] = [rectOf(layout, host), rectOf(layout, id)]
+    const [outer, inner] = [layout.rects.get(host), layout.rects.get(id)]
     return {
       left: inner.x - outer.x,
       top: inner.y - outer.y,
@@ -659,10 +659,22 @@ describe('process zone margins', () => {
     }
   }
 
-  it('keeps a zone the same margin from each side of a compartment, at least, past its name', () => {
+  it('keeps a zone the same margin from each side of a compartment, starting rows below its name', () => {
     const { left, top, right: past, bottom: below } = marginsOf(laidOut([compartment, zone('z')]), 'c', 'z')
-    expect([top, past]).toEqual([left, left])
+    expect(past).toBe(left)
     expect(below).toBeGreaterThanOrEqual(left)
+    // Its name and hint in its upper-left corner (20 and 16 high, with 8 padding each way), then the margin.
+    expect(top).toBe(20 + 16 + 2 * 8 + left)
+  })
+
+  it('leaves a cell’s name in its upper-left corner once it has a module, the first zone dropped below it', () => {
+    const nodes = [{ id: 'n', data: { name: 'n', bioView: { site: 'pieces/c' } } }]
+    const empty = marginsOf(laidOut([compartment, membrane, zone('z')]), 'm', 'z')
+    const filled = marginsOf(laidOut([compartment, membrane, zone('z')], { nodes }), 'm', 'z')
+    // The name 20 high, 32 in from the membrane's middle, then the margin past it.
+    expect(filled.top).toBe(32 + 20 + 16)
+    // With no module, its name is centred with its hint below the zones.
+    expect(empty.top).toBe(empty.left)
   })
 
   it('keeps a zone further in from a membrane, past its band and clear of its rounded corners', () => {
@@ -728,7 +740,13 @@ describe('the area skins the pieces are drawn with', () => {
       const cell = (skins) => [
         { id: 'c', kind: 'compartment', label: 'C', ...(skins.bulk && { skin: skins.bulk }) },
         { id: 'm', kind: 'membrane', label: 'M', encloses: ['c'], ...(skins.membrane && { skin: skins.membrane }) },
-        { id: 'out', kind: 'compartment', label: 'Out', docks: [{ on: 'm', side: 'top', face: 'outside' }], skin: { ref: 'local:sea' } },
+        {
+          id: 'out',
+          kind: 'compartment',
+          label: 'Out',
+          docks: [{ on: 'm', side: 'top', face: 'outside' }],
+          skin: { ref: 'local:sea' },
+        },
       ]
       const skinOf = (layout, id) => layout.places.get(pieceKey(id))?.skin
       const onBulk = laidOut(cell({ bulk: { ref: 'local:cyto', mode: 'cover' } }))
@@ -753,13 +771,23 @@ describe('the area skins the pieces are drawn with', () => {
           kind: 'compartment',
           label: 'OS',
           term: 'GO:0099998',
-          docks: ['top', 'bottom', 'left'].map((side) => ({ on: 'm', side, face: 'inside', ...(side !== 'left' && { to: 0.5 }) })),
+          docks: ['top', 'bottom', 'left'].map((side) => ({
+            on: 'm',
+            side,
+            face: 'inside',
+            ...(side !== 'left' && { to: 0.5 }),
+          })),
         },
         {
           id: 'is',
           kind: 'compartment',
           label: 'IS',
-          docks: ['top', 'bottom', 'right'].map((side) => ({ on: 'm', side, face: 'inside', ...(side !== 'right' && { from: 0.5 }) })),
+          docks: ['top', 'bottom', 'right'].map((side) => ({
+            on: 'm',
+            side,
+            face: 'inside',
+            ...(side !== 'right' && { from: 0.5 }),
+          })),
         },
         { id: 'm', kind: 'membrane', label: 'M', encloses: ['os', 'is'] },
       ]
