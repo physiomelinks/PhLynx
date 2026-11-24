@@ -84,6 +84,7 @@ function pieceData(place) {
           ...data,
           form: 'inner',
           ...(place.cutout && { cutout: place.cutout }),
+          ...(place.clip && { clip: place.clip }),
         }
       : data
   }

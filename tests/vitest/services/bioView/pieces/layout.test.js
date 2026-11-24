@@ -16,6 +16,7 @@ import { CELL_RADIUS, SYMBOL_WIDTH, MIN_CELL } from '../../../../../src/services
 import { encloseCompartment } from '../../../../../src/services/bioView/pieces/edits.js'
 import { fitToContents, moveFrame, resizeFrame } from '../../../../../src/services/bioView/pieces/moves.js'
 import { LABEL_GAP } from '../../../../../src/services/bioView/metrics.js'
+import { INNER_INSET } from '../../../../../src/services/bioView/pieces/constants.js'
 
 const laidOut = (raw, options) => {
   const { pieces, errors } = validatePieces(raw)
@@ -726,6 +727,44 @@ describe('a joint between cells that touch', () => {
     const zone = joined(100)
     expect(zone.y).toBe(100 + CELL_RADIUS)
     expect(bottom(zone)).toBe(240 - CELL_RADIUS)
+  })
+})
+
+describe('compartments docked inside a membrane on several sides', () => {
+  const layout = laidOut(getBuiltInPieceTemplate('rod-photoreceptor').pieces)
+  const cell = rectOf(layout, 'plasma-membrane')
+  const inside = {
+    x: cell.x + INNER_INSET,
+    y: cell.y + INNER_INSET,
+    width: cell.width - 2 * INNER_INSET,
+    height: cell.height - 2 * INNER_INSET,
+  }
+
+  it('keeps each clear of the membrane on every side, not only the side each dock pushes it in from', () => {
+    for (const id of ['outer-segment', 'inner-segment']) expect(contains(inside, rectOf(layout, id))).toBe(true)
+    expect(rectOf(layout, 'outer-segment')).toMatchObject({ x: inside.x, y: inside.y, height: inside.height })
+    expect(right(rectOf(layout, 'inner-segment'))).toBe(right(inside))
+  })
+
+  it('still meets the other where their docks split the sides', () => {
+    expect(right(rectOf(layout, 'outer-segment'))).toBe(rectOf(layout, 'inner-segment').x)
+  })
+
+  it('clips each to the membrane’s rounded inside, in its own coordinates', () => {
+    for (const id of ['outer-segment', 'inner-segment']) {
+      const rect = rectOf(layout, id)
+      expect(layout.places.get(pieceKey(id)).clip).toEqual({
+        x: inside.x - rect.x,
+        y: inside.y - rect.y,
+        width: inside.width,
+        height: inside.height,
+        radius: CELL_RADIUS - INNER_INSET,
+      })
+    }
+  })
+
+  it('leaves compartments docked outside unclipped', () => {
+    expect(layout.places.get(pieceKey('extracellular')).clip).toBeUndefined()
   })
 })
 

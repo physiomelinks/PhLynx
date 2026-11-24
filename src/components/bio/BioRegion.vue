@@ -13,7 +13,7 @@
         'bio-region--tinting': !!tintOf,
       },
     ]"
-    :style="[cutoutStyle, tintStyle]"
+    :style="[clipStyle, tintStyle]"
     :data-tint="tintStyle ? data.tint : undefined"
     data-testid="bio-region"
     :data-site="data.site ?? undefined"
@@ -45,6 +45,7 @@ import { computed, inject } from 'vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
 import BioPieceResize from './BioPieceResize.vue'
+import { roundedRectPath } from '../../services/bioView/geometry'
 import { tintColour } from '../../services/bioView/speciesLayout'
 
 const props = defineProps({
@@ -53,6 +54,9 @@ const props = defineProps({
   data: { type: Object, required: true },
   selected: { type: Boolean, default: false },
 })
+
+/** Its corners' radius, as its style rounds them, where it has no clip to follow. */
+const REGION_RADIUS = 12
 
 /** The colour of a compartment with none of its own. */
 const DEFAULT_TONE = 'sky'
@@ -63,14 +67,28 @@ const edge = computed(() => props.data.edge ?? null)
 const skinOf = inject('bioSkinOf', () => null)
 const skin = computed(() => skinOf(props.data.skin))
 
-/** A microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it. */
-const cutoutStyle = computed(() => {
-  const hole = props.data.cutout
-  if (!hole) return undefined
-  const { x, y, width, height, radius } = hole
-  const r = Math.min(radius, width / 2, height / 2)
-  const cut = `M ${x + r} ${y} H ${x + width - r} A ${r} ${r} 0 0 1 ${x + width} ${y + r} V ${y + height - r} A ${r} ${r} 0 0 1 ${x + width - r} ${y + height} H ${x + r} A ${r} ${r} 0 0 1 ${x} ${y + height - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`
-  return { clipPath: `path(evenodd, "M -4 -4 H 100000 V 100000 H -4 Z ${cut}")` }
+/**
+ * Clipped to the inside of the membrane it lies within, so neither its colour nor its skin runs over the membrane's
+ * rounded corners; and a microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it.
+ */
+const clipStyle = computed(() => {
+  const { clip, cutout: hole } = props.data
+  if (!clip && !hole) return undefined
+  const keep = clip ? roundedRectPath(clip, clip.radius) : 'M -4 -4 H 100000 V 100000 H -4 Z'
+  const cut = hole ? ` ${roundedRectPath(hole, hole.radius)}` : ''
+  const style = { clipPath: `path(evenodd, "${keep}${cut}")` }
+  if (!clip) return style
+  // Its corners where they are the membrane's inside's too are rounded as those are, so its outline follows the clip.
+  const { width, height } = props.data
+  const at = (x, y) => Math.abs(x) < 0.5 && Math.abs(y) < 0.5
+  const round = (x, y) => (at(x, y) ? `${Math.min(clip.radius, width / 2, height / 2)}px` : `${REGION_RADIUS}px`)
+  style.borderRadius = [
+    round(clip.x, clip.y),
+    round(clip.x + clip.width - width, clip.y),
+    round(clip.x + clip.width - width, clip.y + clip.height - height),
+    round(clip.x, clip.y + clip.height - height),
+  ].join(' ')
+  return style
 })
 
 /** Where the layout found room for its name, clear of the compartments nested in it (see regionNameAt). */

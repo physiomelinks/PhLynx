@@ -135,6 +135,26 @@ function boxOf(rects) {
   }
 }
 
+/** A rect grown by `by` on every side (shrunk, when negative). */
+const grownBy = (rect, by) => ({
+  x: rect.x - by,
+  y: rect.y - by,
+  width: Math.max(0, rect.width + 2 * by),
+  height: Math.max(0, rect.height + 2 * by),
+})
+
+/** Where two rects overlap; an empty rect at the nearer edge where they don't. */
+function overlapOf(a, b) {
+  const x = Math.max(a.x, b.x)
+  const y = Math.max(a.y, b.y)
+  return {
+    x,
+    y,
+    width: Math.max(0, Math.min(rightOf(a), rightOf(b)) - x),
+    height: Math.max(0, Math.min(bottomOf(a), bottomOf(b)) - y),
+  }
+}
+
 /** A box from two corners, in either order. */
 const between = (a, b) => ({
   x: Math.min(a.x, b.x),
@@ -1001,6 +1021,20 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
   // Docked compartments, drawn from their docks: inside ones in from the stretches they are docked to, outside ones
   // out from them.
   const cutouts = new Map()
+  /** By compartment id: the inside of the membrane it is docked within, as a rounded rect in its own coordinates. */
+  const clips = new Map()
+  /**
+   * The membrane a compartment is docked inside of on every dock, as a dock on each of several of its sides is.
+   *
+   * @returns {Object|null} Its rect; null for one docked outside, to a fold, or to more than one membrane.
+   */
+  function membraneWithin(compartment) {
+    const [first] = compartment.docks
+    const isWithin = compartment.docks.every(
+      (dock) => dock.face === 'inside' && dock.on === first.on && byId.get(dock.on)?.kind === 'membrane',
+    )
+    return isWithin ? (rects.get(first.on) ?? null) : null
+  }
   /**
    * The gap between the wall of a fold a compartment is docked into and the side of a membrane it is docked out from,
    * where the two face each other across it: from the side to the wall, over the stretch both reach.
@@ -1151,6 +1185,20 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       isHorizontal([...sides][0]) &&
       compartment.docks.every((dock) => dock.side && dock.from === 0 && dock.to === 1)
     if (isBand) rect = { ...rect, x: rect.x - BAND_OVERRUN, width: rect.width + 2 * BAND_OVERRUN }
+    // Within a membrane: kept INNER_INSET in from all of it, as each dock's stretch runs on to the membrane at its
+    // ends, and rounded where it reaches the membrane's corners as the membrane is.
+    const membrane = membraneWithin(compartment)
+    if (membrane) {
+      const inside = grownBy(membrane, -INNER_INSET)
+      rect = overlapOf(rect, inside)
+      clips.set(compartment.id, {
+        x: inside.x - rect.x,
+        y: inside.y - rect.y,
+        width: inside.width,
+        height: inside.height,
+        radius: CELL_RADIUS - INNER_INSET,
+      })
+    }
     rects.set(compartment.id, rect)
     if (cutouts.has(compartment.id)) {
       const hole = cutouts.get(compartment.id)
@@ -1361,6 +1409,7 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
           edge: compartment.docks.find((dock) => dock.side)?.side ?? 'top',
         }),
       ...(cutouts.has(compartment.id) && { cutout: cutouts.get(compartment.id) }),
+      ...(clips.has(compartment.id) && { clip: clips.get(compartment.id) }),
       ...(areaSkinOf(compartment) && { skin: areaSkinOf(compartment) }),
       ...(compartment.style === 'vessel' && { shape: 'tube' }),
       label: compartment.label,
