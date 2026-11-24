@@ -216,6 +216,100 @@ describe('resizeFrame and fitToContents', () => {
   })
 })
 
+describe('resizing a compartment beside a cell', () => {
+  /** A compartment grown past its frame for the cell in it, which pushes the cell to its right out of its way. */
+  const pieces = valid([
+    { id: 'a', kind: 'compartment', label: 'A' },
+    { id: 'am', kind: 'membrane', label: 'AM', encloses: ['a'], frame: { x: 450, y: 0, width: 320, height: 240 } },
+    { id: 'c', kind: 'compartment', label: 'C', frame: { x: 100, y: 0, width: 320, height: 200 } },
+    { id: 'b', kind: 'compartment', label: 'B', parent: 'c' },
+    {
+      id: 'bm',
+      kind: 'membrane',
+      label: 'BM',
+      encloses: ['b'],
+      parent: 'c',
+      frame: { x: 60, y: 60, width: 320, height: 240 },
+    },
+  ])
+  const rects = rectsOf(pieces)
+  const [c, a] = [rects.get('c'), rects.get('am')]
+  const right = (rect) => rect.x + rect.width
+  const gap = a.x - right(c)
+  /** Where the two are drawn through a resize of the compartment to each of these widths in turn. */
+  const through = (widths) => {
+    const pushed = new Map()
+    return widths.map((width) => {
+      const raw = resizeFrame(pieces, 'c', { ...c, width }, rects, { rectsOf: (each) => rectsOf(valid(each)), pushed })
+      const after = rectsOf(valid(raw))
+      return { c: after.get('c'), a: after.get('am') }
+    })
+  }
+
+  it('starts with the cell pushed clear of the compartment', () => {
+    expect(c.width).toBeGreaterThan(320)
+    expect(gap).toBe(30)
+  })
+
+  it('leaves the cell where it was pushed as the resize starts and as the compartment shrinks', () => {
+    for (const step of through([c.width, c.width - 60, 200, 60])) {
+      expect(step.c.width).toBe(c.width)
+      expect(step.a).toMatchObject({ x: a.x, y: a.y })
+    }
+  })
+
+  it('pushes the cell as far as the compartment grows, keeping the gap it had', () => {
+    for (const [index, step] of through([c.width + 1, c.width + 50, c.width + 51, c.width + 300]).entries()) {
+      expect(right(step.c), index).toBe(right(c) + [1, 50, 51, 300][index])
+      expect(step.a.x - right(step.c), index).toBe(gap)
+      expect(step.a.y, index).toBe(a.y)
+    }
+  })
+
+  it('leaves the cell where it was pushed as the compartment shrinks again', () => {
+    const [grown, shrunk, regrown] = through([c.width + 200, c.width + 20, c.width + 120])
+    expect(shrunk.a.x).toBe(grown.a.x)
+    expect(right(shrunk.c)).toBe(right(c) + 20)
+    expect(regrown.a.x).toBe(grown.a.x)
+  })
+
+  it('comes no nearer than a gap to a cell that stood further off, then pushes it', () => {
+    const far = valid(
+      pieces.map((piece) => (piece.id === 'am' ? { ...piece, frame: { ...piece.frame, x: 800 } } : piece)),
+    )
+    const before = rectsOf(far)
+    const start = before.get('c')
+    const at = (grow) => {
+      const raw = resizeFrame(far, 'c', { ...start, width: start.width + grow }, before, {
+        rectsOf: (each) => rectsOf(valid(each)),
+      })
+      const after = rectsOf(valid(raw))
+      return after.get('am').x - right(after.get('c'))
+    }
+    const room = 800 - right(start)
+    expect(at(room - 41)).toBe(41)
+    expect(at(room - 40)).toBe(40)
+    expect(at(room - 39)).toBe(40)
+    expect(at(room + 100)).toBe(40)
+  })
+
+  it('pushes what lies below it down, and on to what that then comes near', () => {
+    const below = (id, y) => ({ id, kind: 'compartment', label: id, frame: { x: 100, y, width: 200, height: 100 } })
+    const stacked = valid([...pieces, below('d', 600), below('e', 720)])
+    const before = rectsOf(stacked)
+    const start = before.get('c')
+    const grow = 600 - (start.y + start.height) + 30
+    const raw = resizeFrame(stacked, 'c', { ...start, height: start.height + grow }, before, {
+      rectsOf: (each) => rectsOf(valid(each)),
+    })
+    const after = rectsOf(valid(raw))
+    const bottom = (rect) => rect.y + rect.height
+    expect(after.get('d').y).toBe(bottom(after.get('c')) + 40)
+    expect(after.get('e').y).toBe(bottom(after.get('d')) + 20)
+    expect(after.get('am')).toMatchObject({ x: a.x, y: a.y })
+  })
+})
+
 describe('slideDock', () => {
   it('slides a microdomain along its side, its span and the spans beside it going with it', () => {
     const rects = rectsOf(withMicrodomain)

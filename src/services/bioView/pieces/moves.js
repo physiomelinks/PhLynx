@@ -12,6 +12,8 @@ import { topologyOf } from './topology.js'
 const LEAST_SPAN = 0.05
 /** How far in from its parent's corner a child is kept. */
 const INSET = 8
+/** How near a resized piece comes to what stood further from it before it pushes that out of its way. */
+const PUSH_GAP = 40
 
 const copy = (pieces) => JSON.parse(JSON.stringify(pieces))
 const round = (value) => Math.round(value)
@@ -173,10 +175,92 @@ function keepJunctionsTouching(raw, pieces, id, before, after) {
   }
 }
 
+/** What a piece stands in: a zone's compartment, another's parent; '' for the view. */
+const containerOf = (piece) => (piece.kind === 'zone' ? piece.compartment : piece.parent) ?? ''
+
+/**
+ * Gives what stands by its frame beside a piece the frame it is drawn at, so a piece pushed out of the way of one
+ * grown past its frame (see layoutPieces) stays where it was pushed while that one's frame changes.
+ *
+ * @returns {Array<Object>} Those beside it, pinned.
+ */
+function pinBeside(raw, piece, rects) {
+  const beside = raw.filter((other) => other !== piece && other.frame && containerOf(other) === containerOf(piece))
+  for (const other of beside) {
+    const drawn = frameOf(other, rects)
+    if (drawn) other.frame = { ...other.frame, x: round(drawn.x), y: round(drawn.y) }
+  }
+  return beside
+}
+
+/**
+ * Pushes what stands beside a resized piece out of its way as it grows over it: right or down, whichever way it lay
+ * from the piece before the resize, the lesser where both, keeping the gap it had from it, PUSH_GAP at most, so it
+ * starts to move as the piece comes that near and moves as far as the piece's edge does from then on. On, from what
+ * is pushed, to what that then comes as near. Nothing is pulled back as the piece shrinks again: each stays where
+ * `pushed` says an earlier step of the same resize left it. What overlapped before the resize is left as it was.
+ *
+ * @param {Array<Object>} beside - What stands by its frame beside the piece (see pinBeside), changed in place.
+ * @param {Object} piece - The piece resized.
+ * @param {Map<string, Object>} before - Where each was drawn before the resize.
+ * @param {Object} now - Where the piece is drawn resized.
+ * @param {Map<string, {x: number, y: number}>} [pushed] - How far each has been pushed in this resize: updated.
+ */
+function pushBeside(beside, piece, before, now, pushed = new Map()) {
+  const all = [piece, ...beside].filter((each) => before.get(each.id))
+  const was = new Map(all.map((each) => [each.id, before.get(each.id)]))
+  const at = new Map(
+    all.map((each) => {
+      const [rect, shift] = [was.get(each.id), pushed.get(each.id) ?? { x: 0, y: 0 }]
+      return [each.id, { ...rect, x: rect.x + shift.x, y: rect.y + shift.y }]
+    }),
+  )
+  at.set(piece.id, now)
+  const [rightOf, bottomOf] = [(rect) => rect.x + rect.width, (rect) => rect.y + rect.height]
+  const apart = (a, b) => a.x >= rightOf(b) || b.x >= rightOf(a) || a.y >= bottomOf(b) || b.y >= bottomOf(a)
+  const moved = new Set([piece.id])
+  for (let pass = 0; pass < all.length; pass++) {
+    let changed = false
+    for (const a of all) {
+      if (!moved.has(a.id)) continue
+      const [wa, ra] = [was.get(a.id), at.get(a.id)]
+      for (const b of all) {
+        if (b === a || b === piece) continue
+        const [wb, rb] = [was.get(b.id), at.get(b.id)]
+        if (!apart(wa, wb)) continue
+        const gap = { x: Math.min(PUSH_GAP, wb.x - rightOf(wa)), y: Math.min(PUSH_GAP, wb.y - bottomOf(wa)) }
+        // As near as it may come either way; it is in the way where it is nearer both ways.
+        const reach = { x: ra.x, y: ra.y, width: ra.width + Math.max(0, gap.x), height: ra.height + Math.max(0, gap.y) }
+        if (apart(reach, rb)) continue
+        const right = gap.x >= 0 ? rightOf(reach) - rb.x : Infinity
+        const down = gap.y >= 0 ? bottomOf(reach) - rb.y : Infinity
+        if (right === Infinity && down === Infinity) continue
+        at.set(b.id, right <= down ? { ...rb, x: rb.x + right } : { ...rb, y: rb.y + down })
+        moved.add(b.id)
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  for (const other of beside) {
+    const [start, end] = [was.get(other.id), at.get(other.id)]
+    if (!start) continue
+    const shift = { x: round(end.x - start.x), y: round(end.y - start.y) }
+    if (!shift.x && !shift.y) continue
+    pushed.set(other.id, shift)
+    other.frame = {
+      ...other.frame,
+      x: clamp(other.frame.x + shift.x, LIMITS.at.min, LIMITS.at.max),
+      y: clamp(other.frame.y + shift.y, LIMITS.at.min, LIMITS.at.max),
+    }
+  }
+}
+
 /**
  * Sets the rect a piece with a frame is drawn at, as a resize leaves it. A membrane's is its least size: it still
  * grows for what is on and in it. Given `rectsOf`, a cell resized moves the cells joined to it by gap junctions so
- * they stay against it, as far as the side each is against moves where it is then drawn.
+ * they stay against it, as far as the side each is against moves where it is then drawn, and a cell or compartment
+ * resized pushes what stands beside it out of its way (see pushBeside).
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {string} id
@@ -185,9 +269,11 @@ function keepJunctionsTouching(raw, pieces, id, before, after) {
  * @param {Object} [options]
  * @param {(raw: Array<Object>) => Map<string, Object>|null} [options.rectsOf] - Where pieces are drawn, as
  *   layoutPieces' rects; null where they don't validate.
+ * @param {Map<string, {x: number, y: number}>} [options.pushed] - How far earlier steps of the same resize pushed
+ *   what stands beside it, which this step adds to: kept by the caller from the resize's start to its end.
  * @returns {Array<Object>|null}
  */
-export function resizeFrame(pieces, id, rect, rects, { rectsOf } = {}) {
+export function resizeFrame(pieces, id, rect, rects, { rectsOf, pushed } = {}) {
   const raw = copy(pieces)
   const piece = raw.find((each) => each.id === id)
   if (!piece) return null
@@ -200,9 +286,13 @@ export function resizeFrame(pieces, id, rect, rects, { rectsOf } = {}) {
     height: size(rect.height),
   }
   pinSiblingZones(raw, piece, rects)
-  if (rectsOf && piece.kind === 'membrane' && topologyOf(pieces).junctionNeighbours(id).length) {
-    keepJunctionsTouching(raw, pieces, id, rects, rectsOf(raw))
-  }
+  if (piece.kind === 'zone') return raw
+  // The cells joined to it go as it does, not out of its way.
+  const joined = piece.kind === 'membrane' ? topologyOf(pieces).junctionGroupOf(id) : [id]
+  const beside = pinBeside(raw, piece, rects).filter((other) => !joined.includes(other.id))
+  const after = rectsOf?.(raw)
+  if (after && joined.length > 1) keepJunctionsTouching(raw, pieces, id, rects, after)
+  if (after?.get(id)) pushBeside(beside, piece, rects, after.get(id), pushed)
   return raw
 }
 

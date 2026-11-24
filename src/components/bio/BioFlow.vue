@@ -2067,6 +2067,8 @@ function onPieceResize(nodeId, phase, params) {
       resize: place.resize,
       base,
       rects: pieceRects(),
+      // How far what stands beside it has been pushed out of its way, which shrinking it again doesn't undo.
+      pushed: new Map(),
     }
     return
   }
@@ -2086,13 +2088,14 @@ provide('bioPieceResize', onPieceResize)
 
 /** The pieces as a resize to these bounds leaves them, validated. */
 function resizeDraft(params) {
-  const { piece, base, rects } = pieceResize
-  // A cell's junction partners stay against it, as far as it is drawn resized.
+  const { piece, base, rects, pushed } = pieceResize
+  // A cell's junction partners stay against it, and what stands beside it out of its way, as far as it is drawn
+  // resized.
   const rectsOf = (resized) => {
     const valid = validatePieces(resized).pieces
     return valid && layoutPieces(valid).rects
   }
-  const raw = resizeFrame(base, piece, params, rects, { rectsOf })
+  const raw = resizeFrame(base, piece, params, rects, { rectsOf, pushed })
   return raw && validatePieces(raw).pieces
 }
 
