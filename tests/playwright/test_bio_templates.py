@@ -6,10 +6,10 @@ from playwright.sync_api import sync_playwright, expect
 
 try:
     from .config import BASE_URL, HEADLESS_MODE
-    from .test_annotations import TOY_MATHS, add_bare_template, import_files, toy
+    from .test_annotations import TOY_MATHS, add_template, import_files, inside_of, toy
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE
-    from test_annotations import TOY_MATHS, add_bare_template, import_files, toy
+    from test_annotations import TOY_MATHS, add_template, import_files, inside_of, toy
 
 
 BIO = ".bio-flow"
@@ -223,44 +223,39 @@ class TestBioTemplates(unittest.TestCase):
         self.page.mouse.click(*point)
         self.page.keyboard.press("Delete")
 
-    def test_delete_takes_a_piece_a_layer_at_a_time(self):
+    def test_delete_takes_a_piece_with_its_module_in_one_press(self):
         page = self.page
         self.open_physiology()
         page.locator("[data-testid=library-tab-build]").click()
         regions = page.locator(f"{BIO} .vue-flow__node-bioRegion")
 
-        # A compartment: the first Delete takes its module, leaving it empty; the second takes it.
+        # A compartment is its module: one Delete takes both, unasked.
         self.drop_piece("compartment", self.pane_point(0.3, 0.3))
         expect(bound(page, "bioRegion")).to_have_count(1)
         box = piece(page, "compartment").bounding_box()
-        corner = (box["x"] + 20, box["y"] + box["height"] - 15)
-        self.delete_at(corner)
-        expect(bound(page, "bioRegion")).to_have_count(0)
-        expect(empty_piece(page, "compartment")).to_have_count(1)
-        self.delete_at(corner)
+        self.delete_at((box["x"] + 20, box["y"] + box["height"] - 15))
         expect(regions).to_have_count(0)
+        expect(page.locator(".p-dialog")).to_have_count(0)
 
-        # A cell's inside: its compartment's module, then the compartment with everything attached to it, its
-        # membrane and the membrane's module, once that is confirmed, leaving nothing behind.
+        # A cell's inside: its compartment with everything attached to it, the membrane named in one question.
+        # The id the deleted one had is free again.
         cell = self.drop_cell(self.pane_point(0.5, 0.45), "compartment")
         expect(bound(page, "bioMembrane")).to_have_count(1)
         self.expect_in_diagram(2)
         box = cell.bounding_box()
-        inside = (box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.3)
-        self.delete_at(inside)
-        expect(bound(page, "bioCell")).to_have_count(0)
-        expect(bound(page, "bioMembrane")).to_have_count(1)
-        self.delete_at(inside)
-        page.locator(".p-dialog").get_by_role("button", name="Remove", exact=True).click()
+        self.delete_at((box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.3))
+        dialog = page.locator(".p-dialog")
+        expect(dialog).to_contain_text("goes with it")
+        dialog.get_by_role("button", name="Delete", exact=True).click()
         expect(page.locator(f"{BIO} .vue-flow__node")).to_have_count(0)
         self.expect_in_diagram(0)
-        # One step, undone as one: back to the empty compartment in its membrane, the membrane's module on it.
+        # One step, undone as one: the cell back with both its modules.
         undo(page)
+        expect(bound(page, "bioCell")).to_have_count(1)
         expect(bound(page, "bioMembrane")).to_have_count(1)
-        expect(empty_piece(page, "compartment")).to_have_count(1)
-        expect(page.locator(f"{BIO} .vue-flow__node-bioCell")).to_have_count(1)
+        self.expect_in_diagram(2)
 
-    def test_delete_on_a_cells_membrane_takes_its_module_then_the_membrane_alone(self):
+    def test_delete_on_a_cells_membrane_takes_the_membrane_alone(self):
         page = self.page
         self.open_physiology()
         page.locator("[data-testid=library-tab-build]").click()
@@ -271,20 +266,16 @@ class TestBioTemplates(unittest.TestCase):
         band = (box["x"] + 2, box["y"] + box["height"] / 2)
         inside = (box["x"] + box["width"] * 0.25, box["y"] + box["height"] * 0.3)
 
-        # The membrane's module goes, the membrane staying, empty, round the compartment and its module.
-        self.delete_at(band)
-        expect(bound(page, "bioMembrane")).to_have_count(0)
-        expect(bound(page, "bioCell")).to_have_count(1)
-        # The empty membrane is still selectable by its band; Delete takes it, leaving the compartment as it was.
+        # The membrane and its module go, unasked, leaving the compartment and its module as they were.
         self.delete_at(band)
         expect(cells).to_have_count(0)
         expect(bound(page, "bioRegion")).to_have_count(1)
-        # Then the compartment, a layer at a time: its module, then itself.
-        self.delete_at(inside)
-        expect(bound(page, "bioRegion")).to_have_count(0)
-        expect(empty_piece(page, "compartment")).to_have_count(1)
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        self.expect_in_diagram(1)
+        # Then the compartment, in one press.
         self.delete_at(inside)
         expect(page.locator(f"{BIO} .vue-flow__node-bioRegion")).to_have_count(0)
+        self.expect_in_diagram(0)
 
     def box_select(self, box, margin=40):
         """Drag a selection box, with Shift, round a bounding box."""
@@ -318,26 +309,6 @@ class TestBioTemplates(unittest.TestCase):
         expect(bound(page, "bioCell")).to_have_count(1)
         expect(bound(page, "bioMembrane")).to_have_count(1)
         self.expect_in_diagram(2)
-
-    def test_delete_takes_a_box_selection_whole_with_an_empty_piece_in_it(self):
-        page = self.page
-        self.open_physiology()
-        page.locator("[data-testid=library-tab-build]").click()
-
-        # A cell whose membrane is already empty: nothing is left behind, not the compartment emptied.
-        cell = self.drop_cell(self.pane_point(0.5, 0.45), "compartment")
-        page.wait_for_timeout(300)
-        box = cell.bounding_box()
-        self.delete_at((box["x"] + 2, box["y"] + box["height"] / 2))
-        expect(bound(page, "bioMembrane")).to_have_count(0)
-        expect(bound(page, "bioCell")).to_have_count(1)
-        page.wait_for_timeout(300)
-        self.box_select(cell.bounding_box())
-        expect(page.locator(f"{BIO} .vue-flow__node.selected")).to_have_count(2)
-        page.keyboard.press("Delete")
-        expect(page.locator(f"{BIO} .vue-flow__node")).to_have_count(0)
-        expect(page.locator(".p-dialog")).to_have_count(0)
-        self.expect_in_diagram(0)
 
     def on_top_at_its_centre(self, node):
         """Whether a node is the one drawn on top at its own centre, so not hidden by what it is in."""
@@ -383,7 +354,7 @@ class TestBioTemplates(unittest.TestCase):
         assert self.on_top_at_its_centre(inner)
         assert self.name_clear_of(piece(page, "compartment-3"), inner)
 
-    def test_delete_takes_a_tube_and_a_process_zone_a_layer_at_a_time(self):
+    def test_delete_takes_a_tube_and_a_process_zone_in_one_press(self):
         page = self.page
         self.open_physiology()
         page.locator("[data-testid=library-tab-build]").click()
@@ -392,19 +363,18 @@ class TestBioTemplates(unittest.TestCase):
         expect(piece(page, "compartment-2")).to_be_visible()
         page.wait_for_timeout(300)
 
-        # A tube: its module, drawn as the stretch of vessel a conduit is, then the tube, selected by its empty room.
+        # A tube is its module, drawn as the stretch of vessel a conduit is: one Delete takes both.
         self.drop_piece("tube", centre(piece(page, "compartment").bounding_box()))
         link = page.locator("[data-testid=bio-link]")
         expect(link).to_have_count(1)
         self.delete_at(centre(bound(page, "bioJoint").bounding_box()))
         expect(bound(page, "bioJoint")).to_have_count(0)
-        expect(link).to_have_count(1)
-        room = page.locator(".bio-link__zone")
-        self.delete_at(centre(room.bounding_box()))
         expect(link).to_have_count(0)
         expect(piece(page, "compartment")).to_be_visible()
+        self.expect_in_diagram(2)
 
         # A process zone, empty, goes at once.
+        page.locator("[data-testid=library-tab-build]").click()
         self.drop_piece("zone", centre(piece(page, "compartment").bounding_box()))
         zone = page.locator(f"{BIO} .vue-flow__node-bioZone")
         expect(zone).to_have_count(1)
@@ -542,13 +512,11 @@ class TestBioTemplates(unittest.TestCase):
         expect(page.locator(BIO).get_by_text("Gap_junction", exact=True)).to_be_visible()
         expect(page.locator("[data-testid=bio-bridge]")).to_have_count(0)
 
-        # The cell's menu takes it away again, asking first, as a module is in it; the module stays in the diagram.
-        count = page.locator(f'{BIO_NODE}:not([data-id^="pc:"]):not([data-id^="grip:"])').count()
-        self.piece_menu("compartment", "Remove", "Gap junction")
-        expect(page.locator(".p-dialog")).to_be_visible()
-        page.locator(".p-dialog").get_by_role("button", name="Remove", exact=True).click()
+        # The cell's menu takes it away again with its module, unasked, as nothing else goes with it.
+        self.piece_menu("compartment", "Remove", "Gap_junction")
         expect(link).to_have_count(0)
-        expect(page.locator(f'{BIO_NODE}:not([data-id^="pc:"]):not([data-id^="grip:"])')).to_have_count(count)
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        expect(page.locator(BIO).get_by_text("Gap_junction", exact=True)).to_have_count(0)
 
 
     def test_a_bridge_between_two_cells_is_an_open_channel_and_the_choice_is_remembered(self):
@@ -892,12 +860,12 @@ class TestBioTemplates(unittest.TestCase):
         expect(zone).to_have_attribute("aria-pressed", "false")
 
     def open_physiology_with_template(self, name):
-        """Open the app, switch to the physiological view and place a template's pieces, bare, from the pane's menu."""
+        """Open the app, switch to the physiological view and place a template's pieces from the pane's menu, each
+        compartment, membrane and tube with its new, empty module."""
         page = self.page
         self.open_physiology()
-        add_bare_template(page, name)
+        add_template(page, name)
         menu = page.locator(".p-contextmenu")
-        expect(page.locator(f'{BIO_NODE}[data-id^="pc:"]').first).to_be_visible()
         # The menu fades out over the cell, and would take the first drop.
         expect(menu).to_be_hidden()
         # Room for the whole template.
@@ -979,8 +947,7 @@ class TestBioTemplates(unittest.TestCase):
     def test_the_drop_target_and_its_label_are_green(self):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
-        hint = centre(page.locator("[data-testid=bio-cell] [data-testid=bio-empty-hint]").bounding_box())
-        self.drag_over(0, hint)
+        self.drag_over(0, self.cell_inside())
         green = page.evaluate("""() => {
             const probe = document.createElement('div')
             probe.style.color = 'var(--p-green-600)'
@@ -995,40 +962,35 @@ class TestBioTemplates(unittest.TestCase):
         idle = page.locator(".bio-site-prompt--membrane path")
         self.assertNotEqual(idle.evaluate("(el) => getComputedStyle(el).stroke"), green)
 
-    def test_drop_on_the_cell_hint_then_on_its_membrane(self):
+    def cell_inside(self):
+        """A screen point on the epithelial cell's inside, clear of its slots, its process zone and its name."""
+        return inside_of(self.page, "cell")
+
+    def test_drop_on_a_cells_inside_then_on_its_membrane_replaces_their_modules(self):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
         active = page.locator(".bio-site-prompt--active")
+        cell = piece(page, "cell")
+        inside = cell.get_attribute("data-id")
 
-        # On the empty cell's hint: the cell's inside, not a process card.
-        hint = centre(page.locator("[data-testid=bio-cell] [data-testid=bio-empty-hint]").bounding_box())
-        self.drag_over(0, hint)
+        # On the cell's inside, not a process card: its new, empty module replaced, unasked.
+        self.drag_over(0, self.cell_inside())
         expect(active).to_have_class(has_class("bio-site-prompt--cell"))
-        self.drop_module(0, hint)
+        self.drop_module(0, self.cell_inside())
+        expect(page.locator(f'{BIO_NODE}[data-id="{inside}"]')).to_have_count(0)
         expect(bound(page, "bioCell")).to_have_count(1)
         expect(bound(page, "bioCard")).to_have_count(0)
 
         # Just inside the outline, between the apical slot and the corner: the cell's membrane.
-        cell = bound(page, "bioCell").bounding_box()
-        band = (cell["x"] + cell["width"] * 0.2, cell["y"] + 4)
+        wall = bound(page, "bioMembrane").get_attribute("data-id")
+        box = bound(page, "bioCell").bounding_box()
+        band = (box["x"] + box["width"] * 0.2, box["y"] + 4)
         self.drag_over(1, band)
         expect(active).to_have_class(has_class("bio-site-prompt--membrane"))
         self.drop_module(1, band)
+        expect(page.locator(f'{BIO_NODE}[data-id="{wall}"]')).to_have_count(0)
         expect(bound(page, "bioMembrane")).to_have_count(1)
         expect(bound(page, "bioCell")).to_have_count(1)
-
-    def test_a_membrane_on_an_empty_cell_draws_its_bilayer(self):
-        page = self.page
-        self.open_physiology_with_template("Epithelial cell")
-        cell = piece(page, "cell")
-        expect(cell.locator("[data-testid=bio-bilayer]")).to_have_count(0)
-
-        # Just inside the empty cell's outline: its membrane, which shows though nothing is inside yet.
-        box = cell.bounding_box()
-        self.drop_module(1, (box["x"] + box["width"] * 0.2, box["y"] + 4))
-        expect(bound(page, "bioMembrane")).to_have_count(1)
-        expect(cell.locator("[data-testid=bio-bilayer]")).to_have_count(1)
-        expect(cell.locator("[data-testid=bio-empty-hint]")).to_have_count(1)
 
     def apical_prompts(self, y):
         """The slot prompts on the row at screen height y, left to right: (centre, is spare, has a plus)."""
@@ -1077,26 +1039,21 @@ class TestBioTemplates(unittest.TestCase):
         protein_box, cell = protein.bounding_box(), piece(page, "cell").bounding_box()
         self.assertAlmostEqual(protein_box["y"] + protein_box["height"] / 2, cell["y"], delta=2)
 
-        # On the apical fluid, clear of the slots: the band becomes that module's.
+        # On the apical fluid, clear of the slots: it replaces the fluid's new, empty module, unasked.
         lumen = piece(page, "apical-fluid").bounding_box()
         point = (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3)
-        self.drop_module(1, point)
-        expect(empty_piece(page, "apical-fluid")).to_have_count(0)
-        expect(bound(page, "bioRegion")).to_have_count(1)
-        first = bound(page, "bioRegion").get_attribute("data-id")
+        first = self.swap_onto("apical-fluid", 1, point).get_attribute("data-id")
 
-        # Another on the same fluid replaces it, once confirmed, and the one it replaced becomes a card.
+        # Another on the same fluid replaces it, once confirmed, and the one it replaced is deleted.
         self.drop_module(2, point)
         page.get_by_role("button", name="Replace").click()
-        expect(bound(page, "bioRegion")).to_have_count(1)
-        expect(bound(page, "bioRegion")).not_to_have_attribute("data-id", first)
-        expect(bound(page, "bioCard")).to_have_count(1)
-        expect(bound(page, "bioCard")).to_have_attribute("data-id", first)
-
-        # One undo takes back the whole replacing drop: the new instance goes, and the first is bound again.
-        undo(page)
+        expect(piece(page, "apical-fluid")).not_to_have_attribute("data-id", first)
+        expect(page.locator(f'{BIO_NODE}[data-id="{first}"]')).to_have_count(0)
         expect(bound(page, "bioCard")).to_have_count(0)
-        expect(bound(page, "bioRegion")).to_have_attribute("data-id", first)
+
+        # One undo takes back the whole replacing drop: the new instance goes, and the first is back.
+        undo(page)
+        expect(piece(page, "apical-fluid")).to_have_attribute("data-id", first)
         expect(bound(page, "bioProtein")).to_have_count(1)
 
 
@@ -1106,14 +1063,13 @@ class TestBioTemplates(unittest.TestCase):
         cell = piece(page, "cell").bounding_box()
         self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
         lumen = piece(page, "apical-fluid").bounding_box()
-        self.drop_module(1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
-        protein, region = bound(page, "bioProtein"), bound(page, "bioRegion")
-        expect(region).to_have_count(1)
+        region = self.swap_onto("apical-fluid", 1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
+        protein = bound(page, "bioProtein")
 
         # Dragged by its inside, clear of what is in it: the cell moves, and the protein and the fluid move with it.
         box = piece(page, "cell").bounding_box()
         before, lumen = protein.bounding_box(), region.bounding_box()
-        self.drag((box["x"] + 30, box["y"] + box["height"] - 40), (120, 60))
+        self.drag(inside_of(page, "cell"), (120, 60))
         page.wait_for_timeout(300)
         expect(protein).to_have_count(1)
         moved = piece(page, "cell").bounding_box()
@@ -1130,13 +1086,10 @@ class TestBioTemplates(unittest.TestCase):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
         lumen = piece(page, "apical-fluid").bounding_box()
-        self.drop_module(1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
-        expect(bound(page, "bioRegion")).to_have_count(1)
+        apical_region = self.swap_onto("apical-fluid", 1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
         blood = piece(page, "basolateral-fluid").bounding_box()
-        self.drop_module(2, (blood["x"] + 20, blood["y"] + blood["height"] * 2 / 3))
-        regions = bound(page, "bioRegion")
-        expect(regions).to_have_count(2)
-        apical, basolateral = regions.nth(0).get_attribute("data-id"), regions.nth(1).get_attribute("data-id")
+        basolateral_region = self.swap_onto("basolateral-fluid", 2, (blood["x"] + 20, blood["y"] + blood["height"] * 2 / 3))
+        apical, basolateral = apical_region.get_attribute("data-id"), basolateral_region.get_attribute("data-id")
         cell = piece(page, "cell").bounding_box()
         self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
         protein = bound(page, "bioProtein")
@@ -1176,9 +1129,7 @@ class TestBioTemplates(unittest.TestCase):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
         lumen = piece(page, "apical-fluid").bounding_box()
-        self.drop_module(1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
-        region = bound(page, "bioRegion")
-        expect(region).to_have_count(1)
+        region = self.swap_onto("apical-fluid", 1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
         cell = piece(page, "cell").bounding_box()
         self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
         expect(bound(page, "bioProtein")).to_have_count(1)
@@ -1226,7 +1177,7 @@ class TestBioTemplates(unittest.TestCase):
         # stays where it is dropped.
         before = boxes()
         body = before[0]
-        self.drag((body["x"] + 30, body["y"] + body["height"] - 40), (90, 50), release=False)
+        self.drag(inside_of(page, "cell"), (90, 50), release=False)
         offset = self.moved(before[0], piece(page, "cell").bounding_box())
         self.assertGreater(offset[0], 50)
         self.assert_moved(before[1], piece(page, "apical-fluid").bounding_box(), offset)
@@ -1389,6 +1340,7 @@ class TestBioTemplates(unittest.TestCase):
         page = self.page
         self.open_physiology_with_template("Cell")
         cell = piece(page, "cell")
+        inside_module, wall = cell.get_attribute("data-id"), bound(page, "bioMembrane").get_attribute("data-id")
         active = page.locator(".bio-site-prompt--active")
         label = page.locator("[data-testid=bio-drop-label]")
 
@@ -1399,8 +1351,8 @@ class TestBioTemplates(unittest.TestCase):
         expect(active).to_have_class(has_class("bio-site-prompt--membrane"))
         expect(label).to_contain_text("(membrane)")
         self.drop_module(1, band)
-        expect(bound(page, "bioMembrane")).to_have_count(1)
-        # It now has one: another dropped there would replace it.
+        expect(bound(page, "bioMembrane")).not_to_have_attribute("data-id", wall)
+        # Another dropped there would replace it.
         self.drag_over(0, band)
         expect(active).to_have_class(has_class("bio-site-prompt--membrane"))
         expect(label).to_contain_text("Replaces")
@@ -1412,14 +1364,14 @@ class TestBioTemplates(unittest.TestCase):
         expect(active).to_have_class(has_class("bio-site-prompt--cell"))
         expect(label).to_contain_text("(intracellular space)")
         self.drop_module(0, inside)
-        expect(bound(page, "bioCell")).to_have_count(1)
+        expect(cell).not_to_have_attribute("data-id", inside_module)
         expect(bound(page, "bioCard")).to_have_count(0)
-        # Each drop is one step.
+        # Each drop is one step, which puts back the new, empty module it replaced.
         undo(page)
-        expect(bound(page, "bioCell")).to_have_count(0)
-        expect(bound(page, "bioMembrane")).to_have_count(1)
+        expect(cell).to_have_attribute("data-id", inside_module)
+        expect(bound(page, "bioMembrane")).not_to_have_attribute("data-id", wall)
         undo(page)
-        expect(bound(page, "bioMembrane")).to_have_count(0)
+        expect(bound(page, "bioMembrane")).to_have_attribute("data-id", wall)
 
     def drop_named(self, name, point):
         """Drag the library module by its name onto a screen point of the physiological view."""
@@ -1442,7 +1394,7 @@ class TestBioTemplates(unittest.TestCase):
         import_files(page, "Module Annotations", [toy("porter.ttl")])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        add_bare_template(page, "Cell")
+        add_template(page, "Cell")
         menu = page.locator(".p-contextmenu")
         cell = piece(page, "cell")
         expect(cell).to_be_visible()
@@ -1462,9 +1414,10 @@ class TestBioTemplates(unittest.TestCase):
         # Dropped on the cell's outline by a corner, clear of its slots, a protein never becomes its membrane.
         start = centre(protein.bounding_box())
         corner = (box["x"] + box["width"] * 0.12, box["y"] + 3)
+        wall = bound(page, "bioMembrane").get_attribute("data-id")
         self.drag(start, (corner[0] - start[0], corner[1] - start[1]))
         expect(bound(page, "bioProtein")).to_have_count(1)
-        expect(bound(page, "bioMembrane")).to_have_count(0)
+        expect(bound(page, "bioMembrane")).to_have_attribute("data-id", wall)
         start = centre(protein.bounding_box())
         target = (box["x"] + box["width"] / 2, box["y"])
         self.drag(start, (target[0] - start[0], target[1] - start[1]))
@@ -1526,7 +1479,6 @@ class TestBioTemplates(unittest.TestCase):
         expect(rod.locator("[data-testid=bio-bilayer]")).to_have_count(1)
         for segment in ("outer-segment", "inner-segment"):
             expect(piece(page, segment).locator("[data-testid=bio-skin]")).to_have_count(1)
-        expect(rod.locator("[data-testid=bio-empty-hint]")).to_have_count(0)
         box = rod.bounding_box()
         assert box["width"] > 2 * box["height"], box
         # Its segments are spaces of their own, the outer left of the inner, and the space outside lies round it on
@@ -1551,7 +1503,8 @@ class TestBioTemplates(unittest.TestCase):
             while (c && !c.exposed?.nodes) c = c.parent
             return c.exposed.nodes.value.map((n) => n.data.bioView?.site).filter(Boolean).sort()
         }""")
-        self.assertEqual(sites, ["pieces/plasma-membrane.os-lower", "pieces/plasma-membrane.os-upper"])
+        spans = [site for site in sites if site.startswith("pieces/plasma-membrane.")]
+        self.assertEqual(spans, ["pieces/plasma-membrane.os-lower", "pieces/plasma-membrane.os-upper"])
 
     def test_draw_a_cell_with_a_skin_and_take_it_away(self):
         page = self.page
@@ -1585,29 +1538,29 @@ class TestBioTemplates(unittest.TestCase):
         self.piece_menu("cell", "Skin", "Nucleus art")
         expect(skin).to_have_count(1)
 
-    def test_remove_a_piece_keeping_the_module_on_it_and_undo(self):
+    def swap_onto(self, path, index, point=None):
+        """Drop the library's index-th module on a compartment, membrane or tube, in place of its new, empty module,
+        which goes unasked. Gives the piece's node, now the dropped module's."""
+        page = self.page
+        node = piece(page, path)
+        placeholder = node.get_attribute("data-id")
+        self.drop_module(index, point or centre(node.bounding_box()))
+        expect(page.locator(f'{BIO_NODE}[data-id="{placeholder}"]')).to_have_count(0)
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        expect(piece(page, path)).to_have_count(1)
+        return piece(page, path)
+
+    def test_remove_a_piece_deletes_its_module_and_undo(self):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
-        para = piece(page, "paracellular")
-        expect(para).to_have_count(1)
-
-        # A module on the paracellular space: removing it asks first, and the module stays in the diagram.
-        box = para.bounding_box()
-        self.drop_module(1, (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2))
-        region = bound(page, "bioRegion")
-        expect(region).to_have_count(1)
+        region = self.swap_onto("paracellular", 1)
         module = region.get_attribute("data-id")
+
+        # Removing the paracellular space takes its module with it, unasked, as nothing else goes.
         box = region.bounding_box()
-        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right")
-        page.locator(".p-contextmenu").get_by_text("Remove", exact=True).click()
-        page.get_by_role("button", name="Cancel").click()
-        expect(region).to_have_attribute("data-id", module)
-        expect(page.locator(".p-dialog-mask")).to_have_count(0)
-        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right")
-        page.locator(".p-contextmenu").get_by_text("Remove", exact=True).click()
-        # Exact, as each library card's remove button is named "Remove <module>".
-        page.get_by_role("button", name="Remove", exact=True).click()
-        expect(page.locator(f'{BIO_NODE}[data-id="{module}"]')).to_have_count(1)
+        self.menu_at(centre(box), "Remove")
+        expect(page.locator(".p-dialog")).to_have_count(0)
+        expect(page.locator(f'{BIO_NODE}[data-id="{module}"]')).to_have_count(0)
         expect(page.locator(f'{BIO_NODE}:has([data-site="pieces/paracellular"])')).to_have_count(0)
 
         # The cell's process zone, with nothing on it: gone at once.
@@ -1618,8 +1571,7 @@ class TestBioTemplates(unittest.TestCase):
         undo(page)
         expect(piece(page, "metabolism")).to_have_count(1)
         undo(page)
-        expect(region).to_have_attribute("data-id", module)
-        expect(piece(page, "paracellular")).to_have_count(1)
+        expect(piece(page, "paracellular")).to_have_attribute("data-id", module)
 
     # ---------- renaming instances -----------
 
@@ -1629,9 +1581,8 @@ class TestBioTemplates(unittest.TestCase):
         cell = piece(page, "cell").bounding_box()
         self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
         lumen = piece(page, "apical-fluid").bounding_box()
-        self.drop_module(1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
-        region, protein = bound(page, "bioRegion"), bound(page, "bioProtein")
-        expect(region).to_have_count(1)
+        region = self.swap_onto("apical-fluid", 1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
+        protein = bound(page, "bioProtein")
         taken = protein.locator(".bio-protein__label").inner_text().strip()
         dialog = page.locator("[data-testid=bio-node-rename]")
         field = page.locator("#bio-node-rename-input")
@@ -1668,38 +1619,27 @@ class TestBioTemplates(unittest.TestCase):
         menu.get_by_text(label, exact=True).click()
         expect(menu).to_be_hidden()
 
-    def test_new_module_here_on_an_empty_site_or_slot(self):
+    def test_new_module_here_only_on_a_slot(self):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
 
-        # On the empty lumen: a new module bound to it, as one step, opened in the editor to write its math.
-        lumen = piece(page, "apical-fluid").bounding_box()
-        self.menu_at((lumen["x"] + 30, lumen["y"] + 20), "New Module Here")
-        self.cancel_editor()
-        expect(empty_piece(page, "apical-fluid")).to_have_count(0)
-        expect(bound(page, "bioRegion")).to_have_count(1)
-        undo(page)
-        expect(bound(page, "bioRegion")).to_have_count(0)
-        expect(empty_piece(page, "apical-fluid")).to_have_count(1)
-
-        # On the apical slot of the empty cell: a new protein there, joined to its neighbours.
+        # On the cell's apical slot: a new protein there, as one step, opened in the editor to write its math.
         cell = piece(page, "cell").bounding_box()
         self.menu_at((cell["x"] + cell["width"] / 2, cell["y"] + 2), "New Module Here")
         self.cancel_editor()
         protein = bound(page, "bioProtein")
         expect(protein).to_have_count(1)
         self.assertAlmostEqual(centre(protein.bounding_box())[1], piece(page, "cell").bounding_box()["y"], delta=3)
+        undo(page)
+        expect(protein).to_have_count(0)
 
-        # Not on an occupied single site: the lumen bound again offers no new module.
-        self.menu_at((lumen["x"] + 30, lumen["y"] + 20), "New Module Here")
-        self.cancel_editor()
-        region = bound(page, "bioRegion")
-        expect(region).to_have_count(1)
-        box = region.bounding_box()
-        page.mouse.click(box["x"] + 30, box["y"] + 20, button="right")
-        expect(page.locator(".p-contextmenu")).to_be_visible()
-        expect(page.locator(".p-contextmenu").get_by_text("New Module Here", exact=True)).to_have_count(0)
-        page.keyboard.press("Escape")
+        # Not on the lumen: a compartment always has its module, to be replaced by a drop.
+        lumen = piece(page, "apical-fluid").bounding_box()
+        page.mouse.click(lumen["x"] + 30, lumen["y"] + 20, button="right")
+        menu = page.locator(".p-contextmenu")
+        expect(menu).to_be_visible()
+        expect(menu.get_by_text("Rename…", exact=True)).to_be_visible()
+        expect(menu.get_by_text("New Module Here", exact=True)).to_have_count(0)
 
     # ---------- deleting -----------
 
@@ -1708,9 +1648,7 @@ class TestBioTemplates(unittest.TestCase):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
         lumen = piece(page, "apical-fluid").bounding_box()
-        self.drop_module(1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
-        region = bound(page, "bioRegion")
-        expect(region).to_have_count(1)
+        region = self.swap_onto("apical-fluid", 1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
         cell = piece(page, "cell").bounding_box()
         self.drop_module(0, (cell["x"] + cell["width"] / 2, cell["y"]))
         protein = bound(page, "bioProtein")
@@ -1730,7 +1668,7 @@ class TestBioTemplates(unittest.TestCase):
         protein, edge_id = self.protein_by_its_lumen()
         p = protein.get_attribute("data-id")
         mine = page.locator(f'{BIO_NODE}[data-id="{p}"]')
-        region = bound(page, "bioRegion")
+        region = piece(page, "apical-fluid")
         self.in_diagram(edge_id, 1, mine)
 
         # Delete: gone from the workspace with its edge, and one undo brings both back.
@@ -1760,7 +1698,7 @@ class TestBioTemplates(unittest.TestCase):
     def test_delete_a_selection_and_not_while_typing(self):
         page = self.page
         protein, _ = self.protein_by_its_lumen()
-        region = bound(page, "bioRegion")
+        region = piece(page, "apical-fluid")
         protein.click()
         modifier = "Meta" if sys.platform == "darwin" else "Control"
         box = region.bounding_box()
@@ -1785,17 +1723,21 @@ class TestBioTemplates(unittest.TestCase):
         expect(protein).to_have_count(1)
         expect(region).to_have_count(1)
 
-    def test_remove_a_whole_cell_keeps_its_modules(self):
+    def test_remove_a_whole_cell_deletes_everything_on_it(self):
         page = self.page
         protein, _ = self.protein_by_its_lumen()
-        # Followed by its id: off the pieces, a module with no annotations is drawn as a card.
         protein = page.locator(f'{BIO_NODE}[data-id="{protein.get_attribute("data-id")}"]')
-        self.piece_menu("cell", "Remove", "Epithelial cell (whole cell)")
-        page.get_by_role("button", name="Remove", exact=True).click()
-        expect(page.locator(f'{BIO_NODE}[data-id^="pc:"]')).to_have_count(0)
-        expect(protein).to_have_count(1)
+        name = protein.locator(".bio-protein__label").inner_text().strip()
+        self.piece_menu("cell", "Remove", "Epithelial_cell (whole cell)")
+        # The fluids docked to it go too, and the protein on it: named in one question.
+        dialog = page.locator(".p-dialog")
+        expect(dialog).to_contain_text("Basolateral_fluid_interstitium")
+        expect(dialog).to_contain_text(name)
+        dialog.get_by_role("button", name="Remove", exact=True).click()
+        expect(page.locator(f"{BIO_NODE}")).to_have_count(0)
         undo(page)
         expect(piece(page, "cell")).to_have_count(1)
+        expect(protein).to_have_count(1)
 
     def test_delete_a_connection_shown_for_a_selected_protein(self):
         page = self.page
@@ -1831,9 +1773,7 @@ class TestBioTemplates(unittest.TestCase):
         page = self.page
         self.open_physiology_with_template("Epithelial cell")
         lumen = piece(page, "apical-fluid").bounding_box()
-        self.drop_module(1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
-        region = bound(page, "bioRegion")
-        expect(region).to_have_count(1)
+        region = self.swap_onto("apical-fluid", 1, (lumen["x"] + 20, lumen["y"] + lumen["height"] / 3))
         page.evaluate(ADD_TRIAL_SETS_JS)
 
         # As in the diagram: the values it changes are listed first, then applied and the set ticked.
@@ -1864,7 +1804,7 @@ class TestBioTemplates(unittest.TestCase):
         self.assertAlmostEqual(centre(protein.bounding_box())[1], cell["y"] + cell["height"], delta=4)
 
         # Saving either instance as it stands asks nothing: placing and moving touch no config.
-        for node in (protein, bound(page, "bioRegion")):
+        for node in (protein, piece(page, "apical-fluid")):
             node.dispatch_event("dblclick")
             editor = page.locator(".module-editor-dialog")
             expect(editor.get_by_role("tab", name=re.compile(r"Ports \(")).first).to_be_visible(timeout=30000)

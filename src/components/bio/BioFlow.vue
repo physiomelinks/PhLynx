@@ -57,23 +57,10 @@
           title="Choose which species are shown"
           aria-haspopup="dialog"
           data-testid="bio-species-menu-button"
-          :class="{ 'bio-species-menu-button--open': isSpeciesMenuOpen }"
           :aria-expanded="String(isSpeciesMenuOpen)"
           @click="speciesMenuRef?.toggle($event)"
         >
-          <!-- A hamburger while the menu is closed, tapering into a tornado while it is open -->
-          <svg class="bio-species-menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <line
-              v-for="(y, index) in [7, 12, 17]"
-              :key="y"
-              :class="`bio-species-menu-line bio-species-menu-line--${index + 1}`"
-              x1="4"
-              :y1="y"
-              x2="20"
-              :y2="y"
-              pathLength="100"
-            />
-          </svg>
+          <HamburgerTornadoIcon :open="isSpeciesMenuOpen" class="bio-species-menu-icon" />
         </ControlButton>
       </Controls>
       <SpeciesMenu
@@ -508,6 +495,7 @@ import BioLink from './BioLink.vue'
 import BioJoint from './BioJoint.vue'
 import BioZone from './BioZone.vue'
 import BioGrip from './BioGrip.vue'
+import HamburgerTornadoIcon from '../icons/HamburgerTornadoIcon.vue'
 import SpeciesMenu from './SpeciesMenu.vue'
 import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
@@ -527,7 +515,14 @@ import {
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
 import { chipOrder, chipTintShare, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
-import { deleteConnection, deleteInstances, deletionLabel, deletionScope } from '../../services/bioView/deletion'
+import {
+  deleteConnection,
+  deleteInstances,
+  deletionLabel,
+  deletionMessage,
+  deletionScope,
+  planDeletion,
+} from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
@@ -543,7 +538,7 @@ import {
   resolveExtraDock,
   resolveTubeEnd,
 } from '../../services/bioView/pieces/drops'
-import { relabelPiece, removeDock, removePieces, skinPiece } from '../../services/bioView/pieces/edits'
+import { relabelPiece, removeDock, skinPiece } from '../../services/bioView/pieces/edits'
 import {
   bendTube,
   fitToContents,
@@ -566,7 +561,8 @@ import { skinLibraryFile } from '../../services/bioView/skinLibrary'
 import { SYMBOL_HEIGHT, SYMBOL_WIDTH, MEMBRANE_BAND_HALF, roundedRectPath } from '../../services/bioView/geometry'
 import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
-import { isPlaceholder, placeholderName, takesPlaceholder } from '../../services/bioView/placeholders'
+import { isPlaceholder, placeholderName } from '../../services/bioView/placeholders'
+import { isPieceModule, modulesOf, owedSites, pieceNameOf } from '../../services/bioView/pieces/pairing'
 import { CARD, GAP, processSize } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
 import useDragAndDrop from '../../composables/useDnD'
@@ -617,7 +613,6 @@ const {
   findNode,
   fitView,
   getSelectedNodes,
-  nodesSelectionActive,
   onMoveStart,
   screenToFlowCoordinate,
   setViewport,
@@ -668,7 +663,13 @@ const {
   focusedSpecies: computed(() => viewMode.focusedSpecies),
   tintMode: computed(() => cursor.concentrationScale),
 })
-const { applyPlan, placePiecesTemplate, editPieces, strandedBy, nameError, renameInstance } = useBioEdits()
+const {
+  applyPlan,
+  placePiecesTemplate,
+  editPieces: editPiecesOnly,
+  nameError,
+  renameInstance,
+} = useBioEdits()
 
 onMounted(() => loadSidecars())
 
@@ -880,7 +881,7 @@ async function dropStaleLinks(before) {
 const isConfirming = ref(false)
 
 /**
- * Asks before a drop replaces what is on a one-module site; any other drop goes ahead.
+ * Asks before a drop replaces what is on a compartment, membrane or tube, which deletes it; any other drop goes ahead.
  *
  * @param {Object} site - The drop target.
  * @param {string|null} id - The node dropped, or null for a new one.
@@ -896,8 +897,8 @@ async function confirmReplace(site, id, name) {
     const answer = await choose({
       header: 'Replace module?',
       message:
-        `${site.label} holds ${nameOf(occupant)}. Put ${name} there instead? ` +
-        `${nameOf(occupant)} stays in the diagram, with its connections, as a card.`,
+        `${siteLabel(site, nameOf)} is ${nameOf(occupant)}. Put ${name} there instead? ` +
+        `${nameOf(occupant)} is deleted from the diagram, with its connections.`,
       severity: 'warning',
       acceptLabel: 'Replace',
       rejectLabel: 'Cancel',
@@ -1128,15 +1129,22 @@ async function settleNodeDrag({ nodes }) {
   }
   const binds = !!target?.site && nodes.some((moved) => moved.id === dropped)
   if (binds && !(await confirmReplace(target.site, dropped, nameOf(dropped)))) return putBack(nodes)
-  // A placeholder on the site goes, for the node dropped there to take its place.
+  // What is on a compartment, membrane or tube goes, for the node dropped there to take its place.
   const replaced = binds ? replacedOccupant(target.site, dropped) : null
-  const placeholder = replaced && isPlaceholder(main.findNode(replaced), main.edges.value) ? replaced : null
+  // A compartment's, membrane's or tube's module is that piece, so it is never set loose: let go off a site, it goes
+  // back.
+  const kept = []
 
   for (const moved of nodes) {
     const at = positionOf(moved)
     const place = layout.value.get(moved.id)
-    if ((moved.id === dropped && target?.site) || place?.instance) relocated.push(moved.id)
-    if (moved.id === dropped && target?.site) {
+    const isDropped = moved.id === dropped && !!target?.site
+    if (!isDropped && place?.instance && isPieceModuleNode(moved.id)) {
+      kept.push(moved)
+      continue
+    }
+    if (isDropped || place?.instance) relocated.push(moved.id)
+    if (isDropped) {
       add(planSiteBind({ id: moved.id, site: target.site, ...planContext() }))
     } else if (place?.instance) {
       // Out of its site, to where it was dropped.
@@ -1146,19 +1154,28 @@ async function settleNodeDrag({ nodes }) {
       plan.set(moved.id, patchBioView(main.findNode(moved.id)?.data?.bioView, { position: whole(at) }))
     }
   }
+  if (kept.length) putBack(kept)
   const before = neighboursOf(relocated)
   if (!binds && !before.size) return applyPlan(plan, 'bio-layout')
-  // Out of the places they left, and onto a site of the pieces joined to the neighbours there, in the same step.
+  // Out of the places they left, and onto a site of the pieces joined to the neighbours there, in the same step. A
+  // piece whose module moved to another is given a new one.
   history.startBatch()
   try {
-    if (placeholder) main.removeNodes([placeholder], true)
+    if (replaced) main.removeNodes([replaced], true)
     if (await applyPlan(plan, 'bio-layout')) {
       await dropStaleLinks(before)
       if (binds) await connectToNeighbours(dropped, target.site)
+      await fillOwedModules()
     }
   } finally {
     history.endBatch(binds ? 'bio-bind' : 'bio-layout')
   }
+}
+
+/** Whether a node is a compartment's, membrane's or tube's module: on a site that takes one module. */
+function isPieceModuleNode(id) {
+  const ref = layout.value.get(id)?.site
+  return !!ref && isPieceModule(sites.value.find((site) => site.ref === ref))
 }
 
 function onNodeDoubleClick({ node }) {
@@ -1569,6 +1586,58 @@ async function takeOut(id, plan, type) {
 
 // ── Editing the pieces ─────────────────────────────────────────────────
 /**
+ * Makes an edit and gives each compartment, membrane and tube it leaves with no module a new, empty one, all as one
+ * step: none is ever without a module (see pieces/pairing.js).
+ *
+ * @param {string} type - The step's type.
+ * @param {() => Promise<boolean>} edit - Whether it made a change.
+ * @returns {Promise<boolean>}
+ */
+async function withOwedModules(type, edit) {
+  history.startBatch()
+  try {
+    const done = await edit()
+    if (done) await fillOwedModules()
+    return done
+  } finally {
+    history.endBatch(type)
+  }
+}
+
+/**
+ * Replaces the pieces with an edit of them, as one step, each compartment, membrane and tube left with no module
+ * given one (see withOwedModules). Every edit of the pieces made here goes through it.
+ *
+ * @param {ReadonlyArray<Object>} next - Validated.
+ * @param {string} [type='bio-pieces-edit']
+ * @returns {Promise<boolean>}
+ */
+const editPieces = (next, type = 'bio-pieces-edit') => withOwedModules(type, () => editPiecesOnly(next, type))
+
+/**
+ * Gives each compartment, membrane and tube with no module a new, empty one, named for it and joined to what is next
+ * to it, in the step already open.
+ *
+ * @returns {Promise<void>}
+ */
+async function fillOwedModules() {
+  const module = newModule()
+  if (!module || !props.createInstance) return
+  for (const site of owedSites(piecesStore.pieces, main.nodes.value)) {
+    const ref = pieceSiteRef(site.path)
+    // Named for the piece, which is drawn by its module's name.
+    const name = placeholderName(
+      site.label,
+      main.nodes.value.map((node) => node.data?.name)
+    )
+    const id = props.createInstance(module, { site: ref }, { name })
+    // The layout takes it in before it is joined to its neighbours, as the next one is to it.
+    await nextTick()
+    await connectToNeighbours(id, { ref, role: site.role })
+  }
+}
+
+/**
  * Keeps an edit to the pieces as one step, or says why it can't be made.
  *
  * @param {Array<Object>|null} raw - What an edit gives (see pieces/edits.js), or null when it can't be made.
@@ -1596,19 +1665,29 @@ const namedPieceOf = (place) => (place.kind === 'cell' ? place.bulk ?? place.pie
 const skinnedPieceOf = (place) => (place.kind === 'cell' ? place.bulk : place.piece)
 
 /**
- * Names a cell or compartment from the field its name becomes on a click: the module on it, as the diagram renames
- * an instance, or else the piece itself.
+ * The module a piece is, if it has one: a compartment's, membrane's or tube's, which is its one name.
+ *
+ * @param {string} pieceId
+ * @returns {string|null} Its node id.
+ */
+const moduleOfPiece = (pieceId) => [...modulesOf(piecesStore.pieces, main.nodes.value, [pieceId])][0] ?? null
+
+/**
+ * Names a cell or compartment from the field its name becomes on a click: its module, as the diagram renames an
+ * instance, since the two have one name; else (a zone, or a piece for the moment it is made before its module) the
+ * piece itself.
  *
  * @param {string} id - The piece's node id.
  * @param {string} name
  */
 async function renamePiece(id, name) {
-  if (main.findNode(id)) {
-    const error = await renameInstance(id, name)
+  const place = layout.value.get(id)
+  const module = main.findNode(id) ? id : place?.piece && moduleOfPiece(namedPieceOf(place))
+  if (module) {
+    const error = await renameInstance(module, name)
     if (error) notify.error({ title: 'Could not rename it', message: error })
     return
   }
-  const place = layout.value.get(id)
   if (!place?.piece) return
   keepEdit(relabelPiece(piecesStore.pieces, namedPieceOf(place), name), 'bio-pieces-rename', 'Could not rename it')
 }
@@ -1685,11 +1764,6 @@ function skinOf(nodeId) {
   const choice = pieceSkinChoice(skinnedPieceOfNode(nodeId))
   return choice && { context: choice.context, skin: choice.drawn?.id ?? null }
 }
-
-/** The nodes selected in the view that are pieces with no module on them, which the diagram's selection leaves out. */
-const selectedPieceNodes = computed(() =>
-  getSelectedNodes.value.filter((node) => !main.findNode(node.id) && skinnedPieceOfNode(node.id)).map((node) => node.id)
-)
 
 const skinFileInput = ref(null)
 /** The piece a loaded skin is for. */
@@ -1787,11 +1861,10 @@ async function onRenameNodeConfirm() {
 }
 
 // ── Removing pieces ────────────────────────────────────────────────────
-/** How a piece is named in a menu or question. */
+/** How a piece is named in a menu or question: a compartment, membrane or tube by its module's name. */
 const pieceName = (id) => {
   const [pieceId, spanId] = id.split('.')
-  const piece = piecesStore.pieces.find((each) => each.id === pieceId)
-  if (!spanId) return piece?.label ?? id
+  if (!spanId) return pieceNameOf(piecesStore.pieces, main.nodes.value, pieceId)
   return (
     topologyOf(piecesStore.pieces)
       .spansOf(pieceId)
@@ -1800,90 +1873,14 @@ const pieceName = (id) => {
 }
 
 /**
- * Removes pieces, and what goes with them (see removePieces), as one step, asking first when modules are on what
- * goes. They stay in the diagram: proteins go to the tray, the rest where their roles put them.
+ * Removes pieces from a piece's menu, with everything on them and the modules there, as Delete does (see
+ * deleteWithPieces).
  *
  * @param {string[]} ids
- * @param {Object} [options]
- * @param {boolean} [options.withModules=false] - Delete the modules on what goes from the diagram instead, as Delete
- *   does for a compartment and everything attached to it.
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>}
  */
-async function removeThesePieces(ids, { withModules = false } = {}) {
-  const { pieces: raw, removed } = removePieces(piecesStore.pieces, ids)
-  const { pieces: next, errors } = validatePieces(raw)
-  const label = ids.map(pieceName).join(', ')
-  if (!next) return notify.error({ title: `Could not remove ${label}`, message: summariseProblems(errors) })
-  const stranded = strandedBy(next)
-  if (withModules) return removeWithModules(next, stranded, label)
-  const alongWith = [...removed].filter((id) => !ids.includes(id)).map(pieceName)
-  if (stranded.length || alongWith.length) {
-    const names = stranded.map((node) => nameOf(node.id)).join(', ')
-    isConfirming.value = true
-    try {
-      const answer = await choose({
-        header: 'Remove piece?',
-        message: [
-          alongWith.length ? `${alongWith.join(', ')} go${alongWith.length === 1 ? 'es' : ''} with ${label}.` : '',
-          stranded.length
-            ? `Modules are placed there: ${names}. They stay in the diagram, without the connections their places ` +
-              'there made; proteins go to the tray.'
-            : '',
-        ]
-          .filter(Boolean)
-          .join(' '),
-        severity: 'warning',
-        acceptLabel: 'Remove',
-        rejectLabel: 'Cancel',
-      })
-      if (answer !== 'accept') return
-    } finally {
-      isConfirming.value = false
-    }
-  }
-  // The modules it strands lose the placement edges to the neighbours they had there, in the same step.
-  const before = neighboursOf(stranded.map((node) => node.id))
-  history.startBatch()
-  try {
-    if (await editPieces(next, 'bio-pieces-remove')) await dropStaleLinks(before)
-  } finally {
-    history.endBatch('bio-pieces-remove')
-  }
-}
-
-/**
- * Removes pieces with the modules on them, which are deleted from the diagram, as one step, asking first when
- * modules go.
- *
- * @param {ReadonlyArray<Object>} next - The pieces as the removal leaves them, validated.
- * @param {Array<Object>} stranded - The diagram nodes on what goes (see strandedBy).
- * @param {string} label - What was asked to go.
- * @returns {Promise<void>}
- */
-async function removeWithModules(next, stranded, label) {
-  if (!stranded.length) {
-    await editPieces(next, 'bio-pieces-remove')
-    return
-  }
-  const names = stranded.map((node) => nameOf(node.id)).join(', ')
-  isConfirming.value = true
-  let answer
-  try {
-    answer = await choose({
-      header: 'Remove piece?',
-      message: `Everything attached to ${label} goes with it, and these modules are deleted from the diagram: ${names}.`,
-      severity: 'warning',
-      acceptLabel: 'Remove',
-      rejectLabel: 'Cancel',
-    })
-  } finally {
-    isConfirming.value = false
-  }
-  if (answer !== 'accept') return
-  await deleteInstances(
-    stranded.map((node) => node.id),
-    { removeNodes: main.removeNodes, history, after: () => editPieces(next, 'bio-pieces-remove') }
-  )
+function removeThesePieces(ids) {
+  return deleteWithPieces([], ids, { header: 'Remove piece?', acceptLabel: 'Remove' })
 }
 
 // ── The build palette ──────────────────────────────────────────────────
@@ -1908,7 +1905,11 @@ async function placePiecesAt(templateId, point, { inCompartment = false } = {}) 
   const template = templateLibrary.getTemplate(templateId)
   if (!template) return
   const into = inCompartment ? templateHost(dropScene(piecesStore.pieces, sceneOptions()), point) : null
-  const errors = await placePiecesTemplate(template, point, { into })
+  let errors = []
+  await withOwedModules('bio-pieces-add', async () => {
+    errors = await placePiecesTemplate(template, point, { into })
+    return !errors.length
+  })
   if (errors.length) notify.error({ title: 'Could not add the template', message: summariseProblems(errors) })
 }
 
@@ -2225,19 +2226,28 @@ function resizeDraft(params) {
  * @param {Object} place - The piece's place.
  * @returns {Array<Object>} Menu items, after a separator; none for a place that is no piece.
  */
-function pieceMenu(place) {
+function pieceMenu(place, nodeId = null) {
   const piece = place?.piece && piecesStore.pieces.find((each) => each.id === place.piece)
   if (!piece) return []
   const isStructure = place.kind === 'cell' || place.kind === 'region'
   const named = isStructure ? namedPieceOf(place) : piece.id
-  const items = [
-    {
+  // A compartment, membrane or tube is renamed as its module, which the menu of that module's own node already does.
+  const module = moduleOfPiece(named)
+  const items = []
+  if (module && module !== nodeId) {
+    items.push({
+      label: `Rename ${nameOf(module)}…`,
+      icon: 'pi pi-pencil',
+      command: () => (renamingNode.value = { id: module, name: nameOf(module) }),
+    })
+  } else if (!module) {
+    items.push({
       label: 'Rename Piece…',
       icon: 'pi pi-pencil',
       command: () => (renaming.value = { id: named, label: pieceName(named), placeholder: pieceName(named) }),
-    },
-  ]
-  // A cell's inside and its membrane each have their own; an empty membrane's band, its membrane's.
+    })
+  }
+  // A cell's inside and its membrane each have their own skins.
   const areaItems = isStructure && skinnedPieceOf(place) ? skinMenu(skinnedPieceOf(place)) : []
   if (areaItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: areaItems })
   const membraneItems = place.kind === 'cell' || place.kind === 'membrane' ? skinMenu(place.piece) : []
@@ -2282,7 +2292,7 @@ function removeMenu(place, piece) {
     ...all.filter((each) => each.kind === 'fold' && each.membrane === piece.id),
     ...all.filter((each) => each.kind === 'zone' && each.compartment === inside),
     ...all.filter((each) => each.kind === 'tube' && each.ends.some((end) => end === inside || enclosed.includes(end))),
-  ].map((each) => remove([each.id], each.label))
+  ].map((each) => remove([each.id], pieceName(each.id)))
   const whole =
     place.kind === 'cell'
       ? [
@@ -2398,9 +2408,19 @@ function trackPiece(point) {
   const tile = carriedTile.value
   const scene = pieceScene.value
   if (!tile || !scene) return
-  if (point.x !== piecePointer.value?.x || point.y !== piecePointer.value?.y) piecePointer.value = point
   const drop = isTemplateTile(tile) ? templateDrop(tile.template, point, scene) : resolveDrop(tile.piece, point, scene)
-  if (!drop) return
+  if (drop) showPieceDrop({ scene, drop }, point)
+}
+
+/**
+ * Shows what a piece's drop at a point would do, worked out again only where its target is a new one, with its label
+ * by the pointer.
+ *
+ * @param {{scene: Object, drop: Object}} carried - The scene it was found in, and the drop (see resolveDrop).
+ * @param {{x: number, y: number}} point
+ */
+function showPieceDrop({ scene, drop }, point) {
+  if (point.x !== piecePointer.value?.x || point.y !== piecePointer.value?.y) piecePointer.value = point
   if (drop.key === piecePreview.value?.key) return
   if (drop.invalid) {
     piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
@@ -2590,43 +2610,16 @@ function applyTile(tile, point) {
 }
 
 /**
- * Places what a palette tile stands for, as applyTile does, with a new, empty module on each site it adds that takes
- * one module, all as one step, so a model built from the palette is whole, each module there to replace later.
+ * Places what a palette tile stands for, as applyTile does, where the user chose: each compartment, membrane and tube
+ * it adds comes with a new, empty module (see withOwedModules), there to be replaced later.
  *
  * @param {{kind: string, template?: string}} tile
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
-async function placeTile(tile, point) {
-  // Put where the user chose, as its preview showed: the view stays where it is, not fitted to what is added.
+function placeTile(tile, point) {
+  // As its preview showed: the view stays where it is, not fitted to what is added.
   isViewSet = isViewChosen = true
-  // A new module adds no sites, and keeps its own step: a drop asking what it is holds that step open past here.
-  if (tile.kind === 'module') return applyTile(tile, point)
-  const before = new Set(siteTargets.value.map((target) => target.ref))
-  history.startBatch()
-  try {
-    await applyTile(tile, point)
-    const module = newModule()
-    if (!module || !props.createInstance) return
-    await nextTick()
-    const fresh = siteTargets.value
-      .filter((target) => !before.has(target.ref) && takesPlaceholder(target))
-      .map((target) => target.ref)
-    for (const ref of fresh) {
-      // Found again each time, as the sites before it took their modules.
-      await nextTick()
-      const site = siteTargets.value.find((target) => target.ref === ref && target.type === 'area')
-      if (!site || !takesPlaceholder(site)) continue
-      const id = await addModuleIn(module, { site })
-      // Named for the piece, which is drawn by its module's name while it holds one.
-      const name = placeholderName(
-        site.label,
-        main.nodes.value.filter((node) => node.id !== id).map((node) => node.data?.name)
-      )
-      if (id && name) await renameInstance(id, name)
-    }
-  } finally {
-    history.endBatch('bio-build')
-  }
+  return applyTile(tile, point)
 }
 
 /** Places the armed tile where the view is clicked; a click on the view's own controls is theirs. */
@@ -2846,9 +2839,11 @@ function onNodeContextMenu({ event, node }) {
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
   // On a piece of the pieces: what can be done to the piece itself.
-  if (place?.piece) items.push(...pieceMenu(place))
-  // Bound to a site of the pieces that is there: unbound, it is drawn as its annotations say, beside the pieces.
-  const site = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
+  if (place?.piece) items.push(...pieceMenu(place, node.id))
+  // Bound to a row of a membrane or zone: unbound, it is drawn as its annotations say, beside the pieces. A
+  // compartment's, membrane's or tube's module is that piece, and is never unbound.
+  const bound = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
+  const site = bound && !isPieceModule(bound) ? bound : null
   const unbind = () =>
     takeOut(node.id, planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), 'bio-unbind')
   if (site && place?.kind === 'protein') {
@@ -2869,7 +2864,7 @@ function onNodeContextMenu({ event, node }) {
     {
       label: deletionLabel(node.id, main.nodes.value),
       icon: 'pi pi-trash',
-      command: () => deleteNodes(deletionScope(node.id, main.nodes.value)),
+      command: () => deleteWithPieces(deletionScope(node.id, main.nodes.value)),
     }
   )
   menuItems.value = items
@@ -2885,55 +2880,6 @@ function onNodeContextMenu({ event, node }) {
 async function deleteNodes(ids) {
   const going = ids.filter((id) => main.findNode(id))
   return deleteInstances(going, { removeNodes: main.removeNodes, history })
-}
-
-/**
- * The module a piece's own node holds apart from it, if any: a cell's membrane's (drawn as a band over it), or a
- * tube's (drawn as a card in its room). A compartment's module is drawn as the piece itself, so it is never apart.
- */
-function moduleApartFrom(id, place) {
-  if (place.kind === 'cell') return place.membrane ?? null
-  if (place.kind === 'link') {
-    for (const [cardId, card] of layout.value) if (card.kind === 'card' && card.link === id) return cardId
-  }
-  return null
-}
-
-/**
- * What Delete takes of the selection, a layer at a time: a module before the piece it is on. A selected node that
- * is a module (a piece holding one is drawn as its module's node) loses only its module, leaving the piece empty. A
- * cell's inside, once empty, is its compartment, which goes with everything attached to it: its membrane, and what
- * is docked to that, the modules on them deleted. Any other selected empty piece loses its own module if it holds
- * one apart, else goes itself, as its Remove would take it; an empty membrane's band takes the membrane alone. Grips
- * are handles on a piece, not the piece, so they are left out.
- *
- * @returns {{instances: string[], pieces: string[], compartments: string[]}} compartments: the cells' insides to go.
- */
-function deletionLayers() {
-  const instances = new Set(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
-  const pieces = new Set()
-  const compartments = new Set()
-  for (const node of getSelectedNodes.value) {
-    if (main.findNode(node.id)) {
-      instances.add(node.id)
-      continue
-    }
-    const place = layout.value.get(node.id)
-    const piece = place?.piece && place.kind !== 'grip' && piecesStore.pieces.find((each) => each.id === place.piece)
-    if (!piece) continue
-    if (place.kind === 'cell' && place.bulk) {
-      compartments.add(place.bulk)
-      continue
-    }
-    const held = moduleApartFrom(node.id, place)
-    if (held && main.findNode(held)) {
-      instances.add(held)
-      continue
-    }
-    pieces.add(piece.id)
-    if (place.kind === 'cell') for (const id of piece.encloses ?? []) pieces.add(id)
-  }
-  return { instances: [...instances], pieces: [...pieces], compartments: [...compartments] }
 }
 
 /**
@@ -2975,72 +2921,53 @@ const selectedForDeletion = () =>
   getSelectedNodes.value.filter((node) => layout.value.get(node.id)?.kind !== 'grip')
 
 /**
- * Deletes everything a selection of several nodes holds, in one undo step: each selected module, each piece a
- * selected node draws, and the modules on those pieces. It asks first only when that takes what was not selected: a
- * piece that goes with one selected (see removedWith), or a module on a piece that goes.
+ * Deletes nodes of the view, the pieces they draw, everything that goes with those pieces (see removedWith) and the
+ * modules on all of it, in one undo step. A compartment, membrane or tube is its module, so deleting either takes
+ * both. It asks first only when that takes what was not chosen: a piece that goes with one chosen, or a module on a
+ * span, fold or zone of what goes.
  *
- * @param {Array<Object>} selected - The selected nodes of the view.
- * @returns {Promise<void>}
+ * @param {string[]} ids - Nodes of the view: modules, and the nodes of pieces such as zones.
+ * @param {string[]} [pieceIds=[]] - Pieces chosen too, as a piece's Remove chooses them.
+ * @param {{header?: string, acceptLabel?: string}} [question] - How the question is put.
+ * @returns {Promise<boolean>} Whether anything was asked to go.
  */
-async function deleteWholeSelection(selected) {
-  const chosen = new Set(selected.map((node) => node.id))
-  const instances = new Set(main.nodes.value.filter((node) => node.selected || chosen.has(node.id)).map((node) => node.id))
-  const known = new Set(piecesStore.pieces.map((piece) => piece.id))
-  const pieces = [...new Set(selected.flatMap((node) => piecesDrawnBy(node.id)))].filter((id) => known.has(id))
-  if (!pieces.length) {
-    await deleteNodes([...instances])
-    return
+async function deleteWithPieces(ids, pieceIds = [], { header = 'Delete selection?', acceptLabel = 'Delete' } = {}) {
+  const plan = planDeletion(piecesStore.pieces, main.nodes.value, {
+    instances: ids.filter((id) => main.findNode(id)),
+    pieces: [...ids.flatMap(piecesDrawnBy), ...pieceIds],
+  })
+  if (plan.errors.length) {
+    notify.error({ title: `Could not delete ${plan.pieces.map(pieceName).join(', ')}`, message: summariseProblems(plan.errors) })
+    return false
   }
-  const { pieces: raw, removed } = removePieces(piecesStore.pieces, pieces)
-  const { pieces: next, errors } = validatePieces(raw)
-  if (!next) {
-    notify.error({ title: 'Could not delete the selection', message: summariseProblems(errors) })
-    return
-  }
-  const stranded = strandedBy(next).map((node) => node.id)
-  // A fold has no node of its own to select: it goes with its membrane unasked.
-  const kindOf = new Map(piecesStore.pieces.map((piece) => [piece.id, piece.kind]))
-  const alongWith = [...removed].filter((id) => !pieces.includes(id) && kindOf.get(id) !== 'fold').map(pieceName)
-  const modulesToo = stranded.filter((id) => !instances.has(id)).map(nameOf)
-  if (alongWith.length || modulesToo.length) {
+  if (!plan.next) return deleteNodes(plan.going)
+  const message = deletionMessage(plan, { pieceName, nodeName: nameOf })
+  if (message) {
     isConfirming.value = true
     let answer
     try {
-      answer = await choose({
-        header: 'Delete selection?',
-        message: [
-          alongWith.length ? `${alongWith.join(', ')} go${alongWith.length === 1 ? 'es' : ''} with the selection.` : '',
-          modulesToo.length ? `These modules are deleted from the diagram with it: ${modulesToo.join(', ')}.` : '',
-        ]
-          .filter(Boolean)
-          .join(' '),
-        severity: 'warning',
-        acceptLabel: 'Delete',
-        rejectLabel: 'Cancel',
-      })
+      answer = await choose({ header, message, severity: 'warning', acceptLabel, rejectLabel: 'Cancel' })
     } finally {
       isConfirming.value = false
     }
-    if (answer !== 'accept') return
+    if (answer !== 'accept') return false
   }
-  const going = [...new Set([...instances, ...stranded])].filter((id) => main.findNode(id))
-  const takePieces = () => editPieces(next, 'bio-pieces-remove')
-  if (going.length) await deleteInstances(going, { removeNodes: main.removeNodes, history, after: takePieces })
-  else await takePieces()
+  const going = plan.going.filter((id) => main.findNode(id))
+  const takePieces = () => editPieces(plan.next, 'bio-pieces-remove')
+  if (going.length) return deleteInstances(going, { removeNodes: main.removeNodes, history, after: takePieces })
+  return takePieces()
 }
 
 /**
- * Deletes the selection, for the workspace's Delete and Backspace keys. One selected node goes a layer at a time
- * (see deletionLayers): its module first, then the empty piece. A selection of several nodes, or one made by
- * dragging a box (with Shift), goes whole: the modules and the pieces they are on together.
+ * Deletes the selection, for the workspace's Delete and Backspace keys, in one press: each selected module, each
+ * piece a selected node draws, and everything on those pieces (see deleteWithPieces).
+ *
+ * @returns {Promise<boolean>}
  */
-async function deleteSelection() {
-  const selected = selectedForDeletion()
-  if (selected.length > 1 || (selected.length && nodesSelectionActive.value)) return deleteWholeSelection(selected)
-  const { instances, pieces, compartments } = deletionLayers()
-  if (instances.length && !(await deleteNodes(instances))) return
-  if (compartments.length) await removeThesePieces([...compartments, ...pieces], { withModules: true })
-  else if (pieces.length) await removeThesePieces(pieces)
+function deleteSelection() {
+  const chosen = new Set(selectedForDeletion().map((node) => node.id))
+  for (const node of main.nodes.value) if (node.selected) chosen.add(node.id)
+  return deleteWithPieces([...chosen])
 }
 
 /** A shown connection's menu: delete it, as the diagram would. */
@@ -3103,11 +3030,20 @@ function onModuleDragOver(event) {
   event.preventDefault()
   const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   draggingId.value = 'library'
-  trackDrag(point, targetAt(point))
+  const module = libraryDrag.draggedType.value
+  // One that makes a piece shows the piece, as its tile does; a membrane's off a compartment shows why it can't go.
+  const made = libraryPieceDrop(module, point, () => (libraryScene ??= dropScene(piecesStore.pieces, sceneOptions())))
+  trackDrag(point, made ? null : libraryTargetAt(module, point))
+  if (made) showPieceDrop(made, point)
+  else clearPiecePreview()
 }
+
+/** The pieces as drawn, read once while a library module is dragged over them. */
+let libraryScene = null
 
 function onModuleDragLeave(event) {
   if (event.currentTarget.contains(event.relatedTarget)) return
+  libraryScene = null
   clearPiecePreview()
   if (draggingId.value === 'library') draggingId.value = activeTarget.value = pointer.value = null
 }
@@ -3135,6 +3071,8 @@ async function onModuleDrop(event) {
   libraryDrag.isDragging.value = false
   libraryDrag.isDragOver.value = false
   draggingId.value = activeTarget.value = pointer.value = null
+  libraryScene = null
+  clearPiecePreview()
   return placeModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
 }
 
@@ -3142,21 +3080,102 @@ async function onModuleDrop(event) {
 const newModule = () => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null
 
 /**
- * Adds a library module where it was dropped or the armed New Module tile put: into the membrane slot or onto the
- * template site there, or loose where it was put, drawn as its annotations say; each as one step.
+ * What a library module's annotations say its component is, which decides whether a drop of it makes a piece: a
+ * compartment's or a membrane's, else null.
+ *
+ * @param {Object|null} module - A library module.
+ * @returns {'compartment'|'membrane'|null}
+ */
+function pieceKindOf(module) {
+  const kind = module?.mathRef ? libraryStore.getParsedModuleAnnotations(module.mathRef)?.component?.kind : null
+  return kind === 'compartment' || kind === 'membrane' ? kind : null
+}
+
+/**
+ * Where a library module dropped at a point goes on the pieces: the site there, except that a membrane's module on a
+ * cell's inside goes to the cell's membrane.
+ *
+ * @param {Object|null} module
+ * @param {{x: number, y: number}} point
+ * @returns {{site: Object}|null}
+ */
+function libraryTargetAt(module, point) {
+  const target = targetAt(point)
+  if (pieceKindOf(module) !== 'membrane' || target?.site.role !== 'cytosol') return target
+  const path = parseSiteRef(target.site.ref)?.path
+  const membrane = path && topologyOf(piecesStore.pieces).enclosureOf(path)
+  const ring = membrane && siteTargets.value.find((each) => each.ref === pieceSiteRef(membrane) && each.type === 'area')
+  return ring ? { site: ring } : target
+}
+
+/**
+ * The piece a library module dropped at a point makes, as the Compartment or Membrane tile would: a compartment's
+ * module on the bare canvas makes a compartment; a membrane's module on a compartment with no membrane goes round it
+ * as its membrane, and anywhere else off the pieces can't go (`invalid` says why). Null where it goes on a site
+ * there, or loose.
+ *
+ * @param {Object|null} module
+ * @param {{x: number, y: number}} point
+ * @param {() => Object} [sceneOf] - Gives the pieces as drawn (see dropScene), which a drag reads once.
+ * @returns {{kind: string, scene: Object, drop: Object}|null} drop: from resolveDrop.
+ */
+function libraryPieceDrop(module, point, sceneOf = () => dropScene(piecesStore.pieces, sceneOptions())) {
+  const kind = pieceKindOf(module)
+  if (!kind) return null
+  const target = libraryTargetAt(module, point)
+  if (kind === 'compartment' && target) return null
+  if (kind === 'membrane' && target && !['region', 'cytosol'].includes(target.site.role)) return null
+  const scene = sceneOf()
+  const drop = resolveDrop(kind, point, scene)
+  // On a compartment that has a membrane, or is against one, it takes the place of what is there.
+  if (kind === 'membrane' && target && drop.invalid) return null
+  return { kind, scene, drop }
+}
+
+/**
+ * Adds a library module where it was dropped or the armed New Module tile put: as a new compartment or membrane (see
+ * libraryPieceDrop), in place of what is on the compartment, membrane or tube there, into the slot there, or loose
+ * where it was put, drawn as its annotations say; each as one step.
  *
  * @param {Object} module - A library module.
  * @param {{x: number, y: number}} point - In flow coordinates.
  * @returns {Promise<void>}
  */
 async function placeModuleAt(module, point) {
-  const target = targetAt(point)
+  const name = module.moduleRef?.split(':')[0] ?? 'the new module'
+  const made = libraryPieceDrop(module, point)
+  if (made) return placePieceWith(module, made)
+  const target = libraryTargetAt(module, point)
   if (target) {
-    if (!(await confirmReplace(target.site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
+    if (!(await confirmReplace(target.site, null, name))) return
     await addModuleAt(module, target)
     return
   }
   props.createInstance(module, { position: whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 }) })
+}
+
+/**
+ * Adds the compartment or membrane a library module dropped makes, with an instance of the module as its module, as
+ * one step, saying why where it can't go.
+ *
+ * @param {Object} module - A library module.
+ * @param {{kind: string, scene: Object, drop: Object}} made - From libraryPieceDrop.
+ * @returns {Promise<void>}
+ */
+async function placePieceWith(module, { kind, scene, drop }) {
+  if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
+  const { pieces, id, errors } = previewDrop(scene, drop)
+  if (!pieces || !id) return notify.error({ title: 'It can’t go there', message: summariseProblems(errors) })
+  const type = `bio-pieces-${kind}`
+  await withOwedModules(type, async () => {
+    if (!(await editPiecesOnly(pieces, type))) return false
+    const site = topologyOf(piecesStore.pieces).sites.find((each) => each.path === id)
+    const ref = pieceSiteRef(id)
+    const instance = props.createInstance(module, { site: ref })
+    await nextTick()
+    if (site) await connectToNeighbours(instance, { ref, role: site.role })
+    return true
+  })
 }
 
 /**
@@ -3169,10 +3188,16 @@ async function placeModuleAt(module, point) {
 async function addModuleAt(module, target) {
   history.startBatch()
   try {
-    // A placeholder there goes, for the module to take its place.
+    // The compartment's, membrane's or tube's module there goes, for this one to take its place: once this one is
+    // made, so it never takes the id the other had.
     const replaced = replacedOccupant(target.site, null)
-    if (replaced && isPlaceholder(main.findNode(replaced), main.edges.value)) main.removeNodes([replaced], true)
-    return await addModuleIn(module, target)
+    const id = await addModuleIn(module, target)
+    if (replaced) {
+      main.removeNodes([replaced], true)
+      // The handles at the far ends of its edges turn ghost a tick later, which belongs in this step.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    return id
   } finally {
     history.endBatch('bio-add')
   }
@@ -3192,8 +3217,9 @@ async function addModuleIn(module, { site }) {
 }
 
 /**
- * The "New Module Here" item, where the menu opened on an empty template site or a slot: it adds a new module
- * there, as a drop of one would. The first save of its maths makes it a module of its own.
+ * The "New Module Here" item, where the menu opened on a slot of a membrane's or zone's row: it adds a new module
+ * there, as a drop of one would. A compartment, membrane or tube always has its module. The first save of its maths
+ * makes it a module of its own.
  *
  * @param {MouseEvent} event - The menu's.
  * @returns {Array<Object>} The item, or none.
@@ -3201,8 +3227,9 @@ async function addModuleIn(module, { site }) {
 function newModuleItem(event) {
   const module = newModule()
   if (!module || !props.createInstance) return []
-  const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
-  if (!target || replacedOccupant(target.site, null)) return []
+  // A slot, not the membrane it is on: a membrane always has its module.
+  const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }), { membrane: false })
+  if (!target || isPieceModule(target.site)) return []
   return [
     {
       label: 'New Module Here',
@@ -3214,11 +3241,8 @@ function newModuleItem(event) {
 
 /** Whether one of the view's dialogs is open, so the workspace's shortcuts wait. */
 const isDialogOpen = computed(() => !!renaming.value || !!renamingNode.value || isConfirming.value)
-/**
- * What the properties panel reads and sets while this view is open: the roles, the skins, the pieces selected that
- * are no module's, and the choices the menus make.
- */
-const properties = { roles, chooseSkin, skinOf, selectedPieceNodes }
+/** What the properties panel reads and sets while this view is open: the roles, the skins, and the choices the menus make. */
+const properties = { roles, chooseSkin, skinOf }
 
 defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
 </script>
@@ -3407,52 +3431,11 @@ defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
 }
 
 .bio-species-menu-icon {
-  width: 14px;
-  height: 14px;
+  /* Sized past the controls' own svg limit, which is too small for its lines to read. */
   max-width: none;
   max-height: none;
-  overflow: visible;
-}
-
-/* Each line is one dash along a 0–100 path, so its length and offset can shorten it with round caps kept.
-   Matches the library panel's toggle. */
-.bio-species-menu-line {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-dasharray: 100 200;
-  stroke-dashoffset: 0;
-  transform-box: view-box;
-  transform: translateX(0);
-  transition:
-    stroke-dasharray 260ms cubic-bezier(0.5, 0, 0.2, 1),
-    stroke-dashoffset 260ms cubic-bezier(0.5, 0, 0.2, 1),
-    transform 260ms cubic-bezier(0.5, 0, 0.2, 1);
-}
-
-.bio-species-menu-line--2 {
-  transition-delay: 40ms;
-}
-
-.bio-species-menu-line--3 {
-  transition-delay: 80ms;
-}
-
-.bio-species-menu-button--open .bio-species-menu-line--1 {
-  transform: translateX(-1px);
-}
-
-.bio-species-menu-button--open .bio-species-menu-line--2 {
-  stroke-dasharray: 62 200;
-  stroke-dashoffset: -22;
-  transform: translateX(0.5px);
-}
-
-.bio-species-menu-button--open .bio-species-menu-line--3 {
-  stroke-dasharray: 25 200;
-  stroke-dashoffset: -50;
-  transform: translateX(1.5px);
+  --hamburger-tornado-size: 14px;
+  --hamburger-tornado-stroke-width: 2.5;
 }
 
 /* The selection's coupling lines are hidden while dragging, and so are their ends. */

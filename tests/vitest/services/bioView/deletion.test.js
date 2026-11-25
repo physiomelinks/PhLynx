@@ -7,9 +7,12 @@ import {
   deleteConnection,
   deleteInstances,
   deletionLabel,
+  deletionMessage,
   deletionScope,
   isDeleteKey,
+  planDeletion,
 } from '../../../../src/services/bioView/deletion.js'
+import { validatePieces } from '../../../../src/services/bioView/pieces/model.js'
 import { useFlowHistoryStore } from '../../../../src/stores/historyStore.js'
 
 const nodes = ref([])
@@ -124,5 +127,61 @@ describe('deleteConnection', () => {
     expect(disconnectInstances).toHaveBeenCalledWith(['a--c'])
     expect(history.undoLabel).toBe('Disconnect')
     expect(history.pointerIndex).toBe(0)
+  })
+})
+
+describe('planDeletion', () => {
+  const pieces = validatePieces([
+    { id: 'bath', kind: 'compartment', label: 'Bath', frame: { x: 0, y: 0, width: 200, height: 120 } },
+    { id: 'cell', kind: 'compartment', label: 'Cell', frame: { x: 400, y: 0, width: 200, height: 120 } },
+    { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'], sides: { top: [{ id: 'apical', label: 'Apical' }] } },
+    { id: 'link', kind: 'tube', label: 'Link', ends: ['bath', 'cell'] },
+  ]).pieces
+  const on = (id, site) => ({ id, data: { name: id, bioView: { site } } })
+  const nodes = [
+    on('saline', 'pieces/bath'),
+    on('cytosol', 'pieces/cell'),
+    on('wall', 'pieces/pm'),
+    on('pump', 'pieces/pm.apical'),
+    on('conduit', 'pieces/link'),
+    on('stale', 'pieces/nowhere'),
+    { id: 'loose', data: { name: 'loose' } },
+  ]
+
+  it('takes a cell’s compartment with its membrane, tube and every module on them, asking about what was not chosen', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['cytosol'] })
+    expect(plan.pieces).toEqual(['cell'])
+    expect(plan.next.map((piece) => piece.id)).toEqual(['bath'])
+    expect(plan.going.sort()).toEqual(['conduit', 'cytosol', 'pump', 'wall'])
+    expect(plan.alongWith).toEqual(['pm', 'link'])
+    // The membrane's and tube's modules are those pieces, named by them; the protein is asked about.
+    expect(plan.modulesToo).toEqual(['pump'])
+  })
+
+  it('takes a membrane alone, leaving the compartment it enclosed', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['wall'] })
+    expect(plan.next.map((piece) => piece.id)).toEqual(['bath', 'cell', 'link'])
+    expect(plan.going.sort()).toEqual(['pump', 'wall'])
+    expect(plan.alongWith).toEqual([])
+    expect(plan.modulesToo).toEqual(['pump'])
+  })
+
+  it('takes a free compartment and its module without asking, and pieces chosen by id', () => {
+    const plan = planDeletion(pieces, nodes, { pieces: ['link'] })
+    expect(plan.going).toEqual(['conduit'])
+    expect(deletionMessage(plan, { pieceName: (id) => id, nodeName: (id) => id })).toBeNull()
+  })
+
+  it('takes no piece for a protein or a loose module, nor a module on a site no piece offers', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['pump', 'loose'] })
+    expect(plan.next).toBeNull()
+    expect(plan.going).toEqual(['pump', 'loose'])
+    expect(planDeletion(pieces, nodes, { instances: ['saline'] }).going).not.toContain('stale')
+  })
+
+  it('says what else goes', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['cytosol'] })
+    const names = { pieceName: (id) => id.toUpperCase(), nodeName: (id) => `<${id}>` }
+    expect(deletionMessage(plan, names)).toBe('PM, LINK go with it. These modules on it are deleted too: <pump>.')
   })
 })

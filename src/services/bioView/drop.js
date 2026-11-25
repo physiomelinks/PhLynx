@@ -280,8 +280,9 @@ export function nearestSite(targets, point, snap = 60, { areas = true, membrane 
 
 /**
  * Plans binding a node to a template site. On a slot it takes that slot and the rest of the row moves along;
- * on a process area it goes at the end of the row. A one-module site's occupant is unbound, drawn as its
- * annotations say, so the drop replaces it. The row the node left closes up.
+ * on a process area it goes at the end of the row. A one-module site's occupant is left for the caller to delete in
+ * the same step (see replacedOccupant): a compartment, membrane or tube is its module, so the one there is replaced,
+ * never set loose. The row the node left closes up.
  *
  * @param {Object} options
  * @param {string} options.id - The node bound.
@@ -308,9 +309,6 @@ export function planSiteBind({ id, site, layout, bioViews }) {
     const row = rowOf(layout, site.ref).filter((other) => other !== id)
     row.splice(Math.min(site.order ?? row.length, row.length), 0, id)
     row.forEach((other, order) => write(other, { order }))
-  } else {
-    const occupant = site.occupant
-    if (occupant && occupant !== id) write(occupant, UNBOUND)
   }
   return plan
 }

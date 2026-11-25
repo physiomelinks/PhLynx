@@ -3,6 +3,7 @@ import { useNodeDataHistory } from './useNodeDataHistory'
 import { whole } from '../services/bioView/drop'
 import { PIECES_INSTANCE } from '../services/bioView/pieces/layout'
 import { stampTemplate } from '../services/bioView/pieces/stamp'
+import { isPieceModule } from '../services/bioView/pieces/pairing'
 import { topologyOf } from '../services/bioView/pieces/topology'
 import { parseSiteRef } from '../services/bioView/siteRefs'
 import { useBioPiecesStore } from '../stores/bioPiecesStore'
@@ -90,34 +91,67 @@ export function useBioEdits() {
   }
 
   /**
-   * The nodes bound to sites of the pieces that other pieces would no longer offer.
+   * The nodes bound to sites of the pieces that other pieces would no longer offer. One bound to a site the pieces
+   * don't offer now is on none, and the edit leaves it be.
    *
    * @param {ReadonlyArray<Object>} next - Validated pieces.
    * @returns {Array<Object>}
    */
   function strandedBy(next) {
+    const offeredNow = new Set(topologyOf(pieces.pieces).sites.map((site) => site.path))
     const offered = new Set(topologyOf(next).sites.map((site) => site.path))
     return main.nodes.value.filter((node) => {
       const parsed = parseSiteRef(node.data?.bioView?.site)
-      return parsed?.instance === PIECES_INSTANCE && !offered.has(parsed.path)
+      return parsed?.instance === PIECES_INSTANCE && offeredNow.has(parsed.path) && !offered.has(parsed.path)
     })
   }
 
   /**
+   * Whether a node stranded by an edit goes with what it was on: it was a compartment's, membrane's or tube's module,
+   * which is that piece, or the piece its site was on is gone. Else only its site went, as a span merged away, and it
+   * is unbound.
+   *
+   * @param {Object} node - On a site of the pieces as they are.
+   * @param {Map<string, Object>} sites - The sites the pieces offer now, by path.
+   * @param {Set<string>} kept - The ids of the pieces the edit keeps.
+   * @returns {boolean}
+   */
+  function goesWithSite(node, sites, kept) {
+    const site = sites.get(parseSiteRef(node.data.bioView.site).path)
+    return isPieceModule(site) || !kept.has(site.piece)
+  }
+
+  /**
    * Replaces the pieces, as one step: an edit worked out from them (see pieces/edits.js and moves.js), already
-   * validated. Nodes bound to sites they no longer offer are unbound in that step.
+   * validated. Nodes bound to sites they no longer offer are deleted in that step where they go with what they were
+   * on (see goesWithSite), and otherwise unbound.
    *
    * @param {ReadonlyArray<Object>} next - The pieces as the edit leaves them.
    * @param {string} [type='bio-pieces-edit'] - The command type.
    * @returns {Promise<boolean>}
    */
-  function editPieces(next, type = 'bio-pieces-edit') {
-    if (busy()) return Promise.resolve(false)
-    return applyPlan(
-      unbindPlan(strandedBy(next)),
-      type,
-      pieces.edit(() => pieces.setPieces(next)),
-    )
+  async function editPieces(next, type = 'bio-pieces-edit') {
+    if (busy()) return false
+    const stranded = strandedBy(next)
+    const sites = new Map(topologyOf(pieces.pieces).sites.map((site) => [site.path, site]))
+    const kept = new Set(next.map((piece) => piece.id))
+    const going = stranded.filter((node) => goesWithSite(node, sites, kept)).map((node) => node.id)
+    const edit = () =>
+      applyPlan(
+        unbindPlan(stranded.filter((node) => !going.includes(node.id))),
+        type,
+        pieces.edit(() => pieces.setPieces(next)),
+      )
+    if (!going.length) return edit()
+    history.startBatch()
+    try {
+      main.removeNodes(going, true)
+      // The handles at the far ends of their edges turn ghost a tick later, which belongs in this step.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      return await edit()
+    } finally {
+      history.endBatch(type)
+    }
   }
 
   /**

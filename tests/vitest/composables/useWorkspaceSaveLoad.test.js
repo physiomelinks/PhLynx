@@ -316,6 +316,21 @@ describe('applyWorkspaceState', () => {
     expect(useBioPiecesStore().pieces).toEqual(pieces)
   })
 
+  it('fills the pieces loaded with no module once the pieces and library are in, outside the history', async () => {
+    useBioPiecesStore().addTemplate(getBuiltInPieceTemplate('cell'), { x: 0, y: 0 })
+    await view.onSaveConfirm('cell')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    setActivePinia(createPinia())
+    const seen = []
+    const fillOwedModules = vi.fn(() => seen.push(useBioPiecesStore().pieces.length))
+    view = useWorkspaceSaveLoad({ saveDialogVisible, nodes, edges, ...flow, fillOwedModules })
+    await view.applyWorkspaceState(saved)
+
+    expect(fillOwedModules).toHaveBeenCalledTimes(1)
+    expect(seen[0]).toBeGreaterThan(0)
+  })
+
   it('saves a workspace without pieces without the key, and loading one empties the pieces store', async () => {
     fillStores()
     await view.onSaveConfirm('plain')

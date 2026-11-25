@@ -281,7 +281,6 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             ...own.data,
             ...pieceData(place),
             membrane: place.membrane,
-            ...(place.membraneEmpty && { membraneEmpty: true }),
             width,
             height,
             ...(named && { nameAt: { x: named.x - x, y: named.y - y } }),

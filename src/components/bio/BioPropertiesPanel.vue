@@ -62,8 +62,7 @@ import { FLOW_IDS, GHOST_NODE_TYPE } from '../../utils/constants'
 const props = defineProps({
   /**
    * From the open physiology view (BioFlow's exposed `properties`): { roles: Ref<Map>, chooseSkin(ids, skin),
-   * skinOf(id), selectedPieceNodes: Ref<string[]> }. Without skinOf, a node's skin is its
-   * role's.
+   * skinOf(id) }. Without skinOf, a node's skin is its role's.
    */
   properties: { type: Object, required: true },
 })
@@ -80,8 +79,8 @@ function shared(values) {
   return values.every((value) => value === values[0]) ? values[0] : MIXED
 }
 
-/** The selected nodes a skin is chosen for: the instances, and the pieces selected in the view with no module on them. */
-const skinIds = computed(() => [...ids.value, ...(props.properties.selectedPieceNodes?.value ?? [])])
+/** The selected nodes a skin is chosen for: the instances, a compartment's, membrane's or tube's being that piece. */
+const skinIds = ids
 
 /** A node's skin: what it is for its skin, and the skin it is drawn with (null for none); null with no skin. */
 const skinOfNode = (id) => {

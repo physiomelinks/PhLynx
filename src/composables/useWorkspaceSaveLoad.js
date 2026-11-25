@@ -33,6 +33,8 @@ import { ensureExtension, legacyDownload, saveFileHandle, writeFileHandle } from
  * @param {Function} options.setViewport - Vue Flow `setViewport`.
  * @param {Function} options.rebuildNodeEdgeIndex - Rebuilds the view's node-to-edge index.
  * @param {Function} options.recomputeMissingCouplings - Recomputes the view's missing couplings.
+ * @param {() => Promise<void>|void} [options.fillOwedModules] - Pairs the pieces and modules loaded, outside the
+ *   history, once the nodes, library and pieces are all in (see pieces/pairing.js).
  * @returns {{
  *   handleSaveWorkspace: () => Promise<void>,
  *   onSaveConfirm: (fileName: string) => Promise<void>,
@@ -49,6 +51,7 @@ export function useWorkspaceSaveLoad({
   setViewport,
   rebuildNodeEdgeIndex,
   recomputeMissingCouplings,
+  fillOwedModules,
 }) {
   const libraryStore = useLibraryStore()
   const sessionMetadataStore = useSessionMetadataStore()
@@ -229,6 +232,7 @@ export function useWorkspaceSaveLoad({
       appearanceStore.loadState(migratedState.appearance)
       // After the templates, which place the nodes.
       const driven = await driveLoadedEdges()
+      await fillOwedModules?.()
       // A loaded workspace is as saved as its file.
       historyStore.markSaved()
 

@@ -96,6 +96,11 @@ describe('validatePieces', () => {
     expect(errorsOf([{ id: 'a', kind: 'compartment', label: 'A', site: 'no' }])).toEqual([
       'Piece "a": "site" must be true or false.',
     ])
+    // A compartment, membrane or tube is its module, so always offers its site; a span, fold or zone may not.
+    expect(errorsOf([{ id: 'a', kind: 'compartment', label: 'A', site: false }])).toEqual([
+      'Piece "a": a compartment always offers its site.',
+    ])
+    expect(errorsOf([...cell(), { id: 'z', kind: 'zone', label: 'Z', compartment: 'cell', site: false }])).toEqual([])
     expect(errorsOf([{ id: 't', kind: 'tube', label: 'T', ends: ['a', 'a'] }])[0]).toMatch(
       /"ends" must name the two different/,
     )

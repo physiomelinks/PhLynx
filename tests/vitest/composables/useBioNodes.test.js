@@ -4,7 +4,7 @@ import { bioFlowNodes, shareEqual } from '../../../src/composables/useBioNodes.j
 import { SYMBOL_HEIGHT, SYMBOL_WIDTH } from '../../../src/services/bioView/geometry.js'
 import { layoutPhysiology } from '../../../src/services/bioView/layout.js'
 import { getBuiltInPieceTemplate } from '../../../src/services/bioView/pieces/builtInTemplates.js'
-import { boundToPieces, layoutPieces, membraneKey, pieceKey } from '../../../src/services/bioView/pieces/layout.js'
+import { boundToPieces, layoutPieces, pieceKey } from '../../../src/services/bioView/pieces/layout.js'
 import { validatePieces } from '../../../src/services/bioView/pieces/model.js'
 
 const role = (role, extra = {}) => ({ role, skin: null, ...extra })
@@ -170,9 +170,11 @@ describe('physiological view nodes', () => {
       },
     ])
     expect(errors).toEqual([])
-    const { places } = layoutPieces(pieces)
-    const z = Object.fromEntries(bioFlowNodes([], new Map(), places).map((n) => [n.id, n.zIndex]))
-    const [cell, inner, deeper, band] = [pieceKey('pm'), pieceKey('inner'), pieceKey('deeper'), membraneKey('pm')]
+    // The membrane's band is its module's node.
+    const nodes = [{ id: 'wall', data: { name: 'wall', bioView: { site: 'pieces/pm' } } }]
+    const { places } = layoutPieces(pieces, { nodes })
+    const z = Object.fromEntries(bioFlowNodes(nodes, new Map(), places).map((n) => [n.id, n.zIndex]))
+    const [cell, inner, deeper, band] = [pieceKey('pm'), pieceKey('inner'), pieceKey('deeper'), 'wall']
     expect(places.get(inner).parent).toBe(cell)
     expect(places.get(deeper).parent).toBe(inner)
     expect(z[inner]).toBeGreaterThan(z[cell])

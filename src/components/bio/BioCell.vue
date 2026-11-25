@@ -4,9 +4,7 @@
       'bio-cell',
       {
         'bio-cell--selected': selected,
-        'bio-cell--empty': isEmpty,
         'bio-cell--own-membrane': !data.membrane,
-        'bio-cell--membrane-empty': data.membraneEmpty,
         'bio-cell--tinting': !!tintOf,
       },
     ]"
@@ -14,9 +12,7 @@
     :data-site="data.site ?? undefined"
   >
     <svg class="bio-cell__art" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" overflow="visible">
-      <!-- A cell of the pieces with no module in it yet: just where it goes -->
-      <path v-if="isEmpty" class="bio-cell__outline" :d="leaflet(0)" data-testid="bio-cell-outline" />
-      <path v-else class="bio-cell__cytosol" :d="leaflet(-HEAD_OFFSET)" />
+      <path class="bio-cell__cytosol" :d="leaflet(-HEAD_OFFSET)" />
       <!-- Its skin: artwork of the user's, within its outline, under everything else in it -->
       <template v-if="skin">
         <clipPath :id="skinClipId"><path :d="leaflet(-HEAD_OFFSET)" /></clipPath>
@@ -49,14 +45,13 @@
         :d="lumenPath(fold)"
         data-testid="bio-fold"
       />
-      <!-- The membrane, drawn by its skin (a lipid bilayer unless chosen otherwise); drawn too round an empty inside
-           once a module is the membrane, so a bound membrane shows -->
-      <g v-if="hasBilayer" class="bio-cell__bilayer" data-testid="bio-bilayer">
+      <!-- The membrane, drawn by its skin (a lipid bilayer unless chosen otherwise) -->
+      <g class="bio-cell__bilayer" data-testid="bio-bilayer">
         <BioMembraneLine :skin="data.membraneSkin" :width="width" :height="height" :folds="folds" />
       </g>
       <!-- Selected with its membrane a node of its own: a ring just inside the bilayer, which is the membrane's -->
       <path
-        v-if="selected && data.membrane && hasBilayer"
+        v-if="selected && data.membrane"
         class="bio-cell__selection"
         :d="leaflet(-HEAD_OFFSET - SELECTION_INSET)"
         data-testid="bio-cell-selection"
@@ -87,8 +82,6 @@
     <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
     <span class="bio-cell__label" :style="labelStyle">
       <BioPieceName :id="id" :name="data.name" />
-      <!-- Not on a cell that takes no module of its own, as one that is all docked compartments inside -->
-      <small v-if="data.empty && data.site !== null" class="bio-cell__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
 </template>
@@ -111,19 +104,12 @@ const props = defineProps({
   height: { type: Number, required: true },
 })
 
-/** Whether the bilayer is drawn: on a cell with a module inside it, or with one as its membrane. */
-/**
- * Whether it is a place still waiting for its module. A cell that takes none of its own, being all
- * spaces inside, is never waiting: it is drawn as a cell from the start.
- */
-const isEmpty = computed(() => !!props.data.empty && props.data.site !== null)
-const hasBilayer = computed(() => !isEmpty.value || !!props.data.membrane)
 
 /** The focused species' colour, which its concentration tints a compartment holding it with; null with none. */
 const tintOf = inject('bioTintColour', computed(() => null))
 /** Its tint's colour, as strong as the concentration; null when it isn't tinted. */
 const tint = computed(() =>
-  props.data.tint === undefined || !tintOf.value || isEmpty.value ? null : tintColour(tintOf.value, props.data.tint)
+  props.data.tint === undefined || !tintOf.value ? null : tintColour(tintOf.value, props.data.tint)
 )
 
 /** How far inside the bilayer's inner head groups a selected cell's ring is drawn. */
@@ -156,13 +142,8 @@ const facetLabels = computed(() => {
   })
 })
 
-/**
- * The name goes where the layout found room, in a corner clear of the proteins (see cellNameBox). An empty
- * piece's name and hint are centred where a drop goes to the cell (see cellHint); else centred low.
- */
+/** The name goes where the layout found room, in a corner clear of the proteins (see cellNameBox); else centred low. */
 const labelStyle = computed(() => {
-  const hint = props.data.empty && props.data.hintAt
-  if (hint) return { left: `${hint.x}px`, top: `${hint.y}px`, bottom: 'auto', transform: 'translate(-50%, -50%)' }
   const at = props.data.nameAt
   if (!at) return undefined
   return { left: `${at.x}px`, top: `${at.y}px`, bottom: 'auto', transform: 'none', whiteSpace: 'nowrap' }
@@ -208,19 +189,6 @@ function foldNameStyle({ edge, at, depth }) {
   --bilayer-head: var(--p-amber-700);
   --bilayer-tail: var(--p-amber-600);
   --bilayer-core: color-mix(in srgb, var(--p-amber-200) 70%, var(--p-content-background));
-}
-
-/* A membrane still waiting for its module: its lipids greyed, as the other pieces are outlined while empty */
-.bio-cell--membrane-empty {
-  --bilayer-head: var(--p-surface-400);
-  --bilayer-tail: var(--p-surface-300);
-  --bilayer-core: color-mix(in srgb, var(--p-surface-200) 70%, var(--p-content-background));
-}
-
-.p-dark .bio-cell--membrane-empty {
-  --bilayer-head: var(--p-surface-500);
-  --bilayer-tail: var(--p-surface-600);
-  --bilayer-core: color-mix(in srgb, var(--p-surface-700) 70%, var(--p-content-background));
 }
 
 .bio-cell__art {
@@ -299,28 +267,6 @@ function foldNameStyle({ edge, at, depth }) {
 
 .p-dark .bio-cell__label {
   color: var(--p-amber-200);
-}
-
-.bio-cell__outline {
-  fill: color-mix(in srgb, var(--p-amber-100) 35%, var(--p-content-background));
-  stroke: var(--p-amber-500);
-  stroke-width: 2;
-  stroke-dasharray: 8 6;
-}
-
-.bio-cell--selected .bio-cell__outline {
-  stroke: var(--p-primary-color);
-}
-
-.bio-cell--empty .bio-cell__label {
-  color: var(--p-text-muted-color);
-  text-align: center;
-}
-
-.bio-cell__hint {
-  display: block;
-  font-weight: 400;
-  font-size: 0.75rem;
 }
 
 .bio-cell__facet {

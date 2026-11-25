@@ -4,11 +4,12 @@
     :class="[
       'bio-link',
       `bio-link--${data.flow}`,
-      { 'bio-link--empty': data.empty, 'bio-link--selected': selected, 'bio-link--broken': data.broken },
+      { 'bio-link--selected': selected, 'bio-link--broken': data.broken },
     ]"
     data-testid="bio-link"
   >
-    <!-- One that joins its pieces is the joint between them; with a module in it, the module draws it (BioJoint) -->
+    <!-- One that joins its pieces is the joint between them, which its module draws (BioJoint); drawn here only for the
+         moment it is made before its module -->
     <template v-if="data.joint">
       <!-- A bridge between two cells apart: an open channel of cytoplasm across the gap, walled by membrane, its
            lumen running on over each cell's own membrane, so it opens into both -->
@@ -36,16 +37,13 @@
           :height="channel ? data.zone.height : data.height"
           :tone="data.tone"
           :vertical="!!channel?.vertical"
-          empty
         />
-        <span class="bio-link__joint-name"
-          >{{ data.name }} <small data-testid="bio-empty-hint">· Drop a module</small></span
-        >
+        <span class="bio-link__joint-name">{{ data.name }}</span>
       </div>
     </template>
-    <!-- A conduit is a vessel along its whole way; with a module in it, the module draws it (BioJoint) -->
+    <!-- A conduit is a vessel along its whole way, which its module draws (BioJoint) -->
     <template v-else-if="data.conduit">
-      <BioConduit v-if="data.empty" :points="points" :tone="data.tone" :selected="selected" empty />
+      <BioConduit v-if="data.empty" :points="points" :tone="data.tone" :selected="selected" />
     </template>
     <svg v-else class="bio-link__line" :width="data.width" :height="data.height" overflow="visible">
       <defs>
@@ -72,23 +70,9 @@
         :marker-end="data.flow === 'flow' ? `url(#${markerId})` : undefined"
       />
     </svg>
-    <!-- Its module's room, a drop target while empty; the module on it is drawn over it as a card -->
-    <div
-      v-if="data.empty && !data.joint"
-      :class="['bio-link__zone', { 'bio-link__zone--conduit': data.conduit }]"
-      :style="zoneStyle"
-    >
-      <BioBrokenBadge v-if="data.broken" :name="data.name" />
-      <!-- A conduit's name goes below its vessel, as a joint's does, clear of its walls -->
-      <span
-        v-if="data.conduit"
-        :class="['bio-link__joint-name', { 'bio-link__joint-name--beside': data.conduit.vertical }]"
-        >{{ data.name }} <small data-testid="bio-empty-hint">· Drop a module</small></span
-      >
-      <template v-else>
-        <span class="bio-link__label">{{ data.name }}</span>
-        <small class="bio-link__hint" data-testid="bio-empty-hint">Drop a module</small>
-      </template>
+    <!-- Its module, drawn over it as a card, says when it is broken; for the moment it has none, it says so here -->
+    <div v-if="data.empty && !data.joint && data.broken" class="bio-link__zone" :style="zoneStyle">
+      <BioBrokenBadge :name="data.name" />
     </div>
   </div>
 </template>
@@ -219,22 +203,6 @@ function offsetPoints(by) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 2px dashed color-mix(in srgb, var(--p-text-muted-color) 45%, transparent);
-  border-radius: 8px;
-  background: var(--p-content-background);
-  pointer-events: auto;
-  text-align: center;
-}
-
-.bio-link--selected .bio-link__zone {
-  border: 2px solid var(--p-primary-color);
-}
-
-/* A conduit's room is outlined by its vessel, not by a box */
-.bio-link__zone--conduit,
-.bio-link--selected .bio-link__zone--conduit {
-  border: 0;
-  background: transparent;
 }
 
 .bio-link--selected .bio-link__stroke {
@@ -263,23 +231,6 @@ function offsetPoints(by) {
   white-space: nowrap;
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--p-text-muted-color);
-}
-
-/* Beside a conduit running down, clear of its vessel */
-.bio-link__joint-name.bio-link__joint-name--beside {
-  top: 50%;
-  left: calc(50% + 40px);
-  transform: translateY(-50%);
-}
-
-.bio-link__label {
-  font-weight: 600;
-  color: var(--p-text-muted-color);
-}
-
-.bio-link__hint {
-  font-size: 0.75rem;
   color: var(--p-text-muted-color);
 }
 </style>

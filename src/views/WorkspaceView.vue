@@ -501,7 +501,7 @@
             :default-edge-options="edgeLineOptions"
             :connection-line-options="edgeLineOptions"
             :nodes="nodes"
-            :delete-key-code="dialogVisible || viewMode.isBio ? [] : ['Backspace', 'Delete']"
+            :delete-key-code="dialogVisible || viewMode.isBio || deletesPieces ? [] : ['Backspace', 'Delete']"
             :class="{ 'main-flow--hidden': viewMode.isBio }"
             :inert="viewMode.isBio || null"
           >
@@ -772,7 +772,14 @@ import { getHelperLines } from '../utils/helperLines'
 import { getPurgedUrlForResource, getUrlForResource, loadManifest } from '../utils/resources'
 import { useClearWorkspace } from '../composables/useClearWorkspace'
 import { shouldIgnoreShortcut, useWorkspaceClipboard } from '../composables/useWorkspaceClipboard'
-import { isDeleteKey } from '../services/bioView/deletion'
+import { deleteInstances, deletionMessage, isDeleteKey, planDeletion } from '../services/bioView/deletion'
+import { owedSites, pieceNameOf, piecesOrphanedBy, piecesOwed } from '../services/bioView/pieces/pairing'
+import { topologyOf } from '../services/bioView/pieces/topology'
+import { useBioEdits } from '../composables/useBioEdits'
+import { usePiecePairing } from '../composables/usePiecePairing'
+import { pieceSiteRef } from '../services/bioView/pieces/layout'
+import { placeholderName } from '../services/bioView/placeholders'
+import { getId as getNextNodeId } from '../utils/nodes'
 import { useColorScheme } from '../composables/useColorScheme'
 import { useAppSettings } from '../composables/useAppSettings'
 import { shownToolbarDividers } from '../utils/appSettings'
@@ -847,6 +854,7 @@ const {
   nodes,
   onConnectEnd,
   removeEdges,
+  removeNodes,
   removeSelectedNodes,
   screenToFlowCoordinate,
   setViewport,
@@ -867,6 +875,7 @@ const {
   onDrop: onDropModule,
   onDragLeave,
   isDragOver,
+  buildInstanceNode,
   createInstanceNode,
 } = useDragAndDrop(pendingHistoryNodes)
 
@@ -943,6 +952,82 @@ const simulationSettingsStore = useSimulationSettingsStore()
 const omexStore = useOmexStore()
 const bioPiecesStore = useBioPiecesStore()
 const viewMode = useViewModeStore()
+const pairing = usePiecePairing()
+const { editPieces } = useBioEdits()
+
+/**
+ * Whether the diagram's selection holds a compartment's, membrane's or tube's module, which is that piece: its Delete
+ * then takes the piece and everything on it too (see deleteDiagramSelection), not the diagram's own.
+ */
+const deletesPieces = computed(() => {
+  if (!bioPiecesStore.pieces.length) return false
+  const selected = getSelectedNodes.value
+  if (!selected.some((node) => node.data?.bioView?.site)) return false
+  return piecesOrphanedBy(bioPiecesStore.pieces, nodes.value, selected.map((node) => node.id)).length > 0
+})
+
+/**
+ * Deletes the diagram's selection as the physiology view's Delete does: the modules, the compartments, membranes and
+ * tubes they are, everything that goes with those, and the modules on all of it, asking once when that takes more
+ * than was selected; the selected connections too. One undo step.
+ *
+ * @returns {Promise<void>}
+ */
+async function deleteDiagramSelection() {
+  const pieces = bioPiecesStore.pieces
+  const plan = planDeletion(pieces, nodes.value, { instances: getSelectedNodes.value.map((node) => node.id) })
+  if (plan.errors.length) {
+    notify.error({ title: 'Could not delete the selection', message: plan.errors.join(' ') })
+    return
+  }
+  const message = deletionMessage(plan, {
+    pieceName: (id) => pieceNameOf(pieces, nodes.value, id),
+    nodeName: (id) => findNode(id)?.data?.name ?? id,
+  })
+  if (message) {
+    const answer = await choose({
+      header: 'Delete selection?',
+      message,
+      severity: 'warning',
+      acceptLabel: 'Delete',
+      rejectLabel: 'Cancel',
+    })
+    if (answer !== 'accept') return
+  }
+  const edgeIds = getSelectedEdges.value.map((edge) => edge.id)
+  await deleteInstances(
+    plan.going.filter((id) => findNode(id)),
+    {
+      removeNodes,
+      history: historyStore,
+      before: async () => {
+        if (edgeIds.length) removeEdges(edgeIds)
+      },
+      after: () => (plan.next ? editPieces(plan.next, 'bio-pieces-remove') : null),
+    }
+  )
+}
+
+/**
+ * Pastes what was copied, as the clipboard does, giving each copy of a compartment's module a compartment of its own
+ * in the paste's step: a copy is never on the piece its original is (see nodeDataForCopy), and a compartment's module
+ * is always a compartment. A copy of a membrane's or tube's module is a card until it is put on one.
+ *
+ * @param {boolean} [atMouse=false]
+ * @returns {Promise<void>}
+ */
+async function pasteWithPieces(atMouse = false) {
+  const pasted = await pasteSelection(atMouse)
+  const compartments = new Set(
+    topologyOf(bioPiecesStore.pieces)
+      .sites.filter((site) => site.kind === 'single' && ['region', 'cytosol'].includes(site.role))
+      .map((site) => pieceSiteRef(site.path))
+  )
+  const ids = (pasted ?? [])
+    .filter(({ id, from }) => compartments.has(from?.data?.bioView?.site) && !findNode(id)?.data?.bioView?.site)
+    .map(({ id }) => id)
+  if (ids.length) pairing.giveCompartments(ids)
+}
 /** The library tab shown. Build pieces go on the physiology view, so leaving it goes back to the modules. */
 const libraryTab = ref('modules')
 watch(
@@ -2225,24 +2310,32 @@ function createNewInstanceAtPosition(clientX, clientY) {
   createInstanceNode(module, position)
 }
 
-/**
- * Adds an instance made in the physiological view. In the diagram it goes right of the other
- * instances, out of their way; where it goes in the physiological view is its bioView.
- *
- * @param {Object} moduleData - A library module.
- * @param {Object} bioView - { position } for one put loose; empty for one then bound to a site of the pieces.
- * @returns {string} The new node's id.
- */
-function createBioInstance(moduleData, bioView) {
+/** Where an instance made outside the diagram goes in it: right of the other instances, out of their way. */
+function besideInstances() {
   // Nodes made a moment ago aren't measured yet, so they count at a card's usual width.
   const width = (node) => node.dimensions?.width || 220
-  const position = nodes.value.length
+  return nodes.value.length
     ? {
         x: Math.max(...nodes.value.map((node) => node.position.x + width(node))) + 120,
         y: Math.min(...nodes.value.map((node) => node.position.y)),
       }
     : { x: 0, y: 0 }
-  const { nodeId } = createInstanceNode(moduleData, position, [], { bioView }, { centre: false })
+}
+
+/**
+ * Adds an instance made in the physiological view. In the diagram it goes right of the other
+ * instances, out of their way; where it goes in the physiological view is its bioView.
+ *
+ * @param {Object} moduleData - A library module.
+ * @param {Object} bioView - { position } for one put loose; { site } for one made on a site of the pieces; empty
+ *   for one then bound to a site.
+ * @param {{ name?: string|null }} [options] - name: its instance name, free and sanitised, for the one it would be
+ *   given.
+ * @returns {string} The new node's id.
+ */
+function createBioInstance(moduleData, bioView, { name = null } = {}) {
+  const extra = { bioView, ...(name && { name }) }
+  const { nodeId } = createInstanceNode(moduleData, besideInstances(), [], extra, { centre: false })
   // Placed where it is meant to stay, so history mustn't re-centre the add once it is measured.
   historyStore.lastChangeWasAddSetter(false)
   return nodeId
@@ -2456,8 +2549,44 @@ function snapshotFlowState(nodeIds = null) {
   })
 }
 
+/**
+ * Pairs the pieces and modules of a workspace just loaded, outside the history, as none is ever without the other
+ * (see pieces/pairing.js), so a workspace saved before then opens whole: each compartment's module on no piece is
+ * given a compartment, and each compartment, membrane and tube with no module a new, empty one, named for it.
+ *
+ * @returns {Promise<void>}
+ */
+function fillLoadedPieces() {
+  return pairing.whilePaused(async () => {
+    // The loose modules' kinds, which their sidecars say.
+    const loose = nodes.value.filter((node) => !node.data?.bioView?.site && node.data?.mathRef)
+    const mathRefs = [...new Set(loose.map((node) => node.data.mathRef))]
+    await Promise.all(mathRefs.map((mathRef) => libraryStore.ensureModuleAnnotations(mathRef).catch(() => null)))
+    pairing.giveCompartments(piecesOwed(bioPiecesStore.pieces, nodes.value, pairing.kindOf), { record: false })
+    fillEmptyPieces()
+  })
+}
+
+/** Gives each compartment, membrane and tube with no module a new, empty one, outside the history. */
+function fillEmptyPieces() {
+  const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
+  if (!module) return
+  for (const site of owedSites(bioPiecesStore.pieces, nodes.value)) {
+    const name = placeholderName(
+      site.label,
+      nodes.value.map((node) => node.data?.name)
+    )
+    const nodeId = getNextNodeId(nodes.value.map((node) => node.id))
+    const extra = { bioView: { site: pieceSiteRef(site.path) }, ...(name && { name }) }
+    const { node } = buildInstanceNode(nodeId, module, besideInstances(), [], extra)
+    // Set, not added, so the load records no step.
+    nodes.value = [...nodes.value, node]
+  }
+}
+
 const { handleSaveWorkspace, onSaveConfirm, applyWorkspaceState, buildSaveState } = useWorkspaceSaveLoad({
   saveDialogVisible,
+  fillOwedModules: fillLoadedPieces,
   nodes,
   edges,
   toObject,
@@ -2585,13 +2714,13 @@ const handleKeyDown = (event) => {
   // Pasting places by the diagram's coordinates, so it waits for the diagram.
   if (isCtrl && event.key.toLowerCase() === 'v' && !viewMode.isBio) {
     event.preventDefault()
-    pasteSelection(true)
+    pasteWithPieces(true)
   }
 
   if (isCtrl && event.key.toLowerCase() === 'd' && !viewMode.isBio) {
     event.preventDefault()
     copySelection()
-    pasteSelection()
+    pasteWithPieces()
   }
 
   if (isCtrl && event.key.toLowerCase() === 'a') {
@@ -2622,6 +2751,12 @@ const handleKeyDown = (event) => {
   if (isCtrl && event.key.toLowerCase() === 'i' && !currentImportDisabled.value) {
     event.preventDefault()
     triggerCurrentImport()
+  }
+
+  // A selection holding a piece's module deletes the piece with it, which the diagram's own Delete would not.
+  if (!viewMode.isBio && deletesPieces.value && isDeleteKey(event)) {
+    event.preventDefault()
+    deleteDiagramSelection()
   }
 
   // The hidden diagram never deletes (see its delete-key-code); in the physiology view the view deletes its

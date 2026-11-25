@@ -4,7 +4,7 @@
     seen from the side: its walls, lined within, a rim at its near end and its open far end, and the flow along it.
   -->
   <svg
-    :class="['bio-conduit', { 'bio-conduit--empty': empty, 'bio-conduit--selected': selected }]"
+    :class="['bio-conduit', { 'bio-conduit--selected': selected }]"
     width="1"
     height="1"
     overflow="visible"
@@ -40,8 +40,6 @@ const props = defineProps({
   points: { type: Array, required: true },
   /** The colour of the compartment it flows from, for its lumen. */
   tone: { type: String, default: null },
-  /** With no module in it yet: drawn faint, as a place to drop one. */
-  empty: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
 })
 
@@ -157,28 +155,6 @@ const vessel = computed(() => {
 
 .bio-conduit__head {
   fill: var(--p-text-color);
-}
-
-.bio-conduit--empty .bio-conduit__wall {
-  stroke-dasharray: 8 5;
-}
-
-.bio-conduit--empty .bio-conduit__cap,
-.bio-conduit--empty .bio-conduit__opening {
-  stroke-dasharray: 6 4;
-}
-
-.bio-conduit--empty .bio-conduit__lining {
-  opacity: 0.5;
-}
-
-.bio-conduit--empty .bio-conduit__flow {
-  stroke: var(--p-text-muted-color);
-  stroke-dasharray: 4 4;
-}
-
-.bio-conduit--empty .bio-conduit__head {
-  fill: var(--p-text-muted-color);
 }
 
 .bio-conduit--selected .bio-conduit__wall,

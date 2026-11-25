@@ -203,8 +203,8 @@
           }
         },
         "site": {
-          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
-          "type": "boolean"
+          "description": "Always offered: a compartment, membrane or tube is never without its module.",
+          "const": true
         }
       }
     },
@@ -360,8 +360,8 @@
           }
         },
         "site": {
-          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
-          "type": "boolean"
+          "description": "Always offered: a compartment, membrane or tube is never without its module.",
+          "const": true
         }
       }
     },
@@ -512,8 +512,8 @@
           }
         },
         "site": {
-          "description": "Set to false to offer no site on this piece. Pieces offer a site by default.",
-          "type": "boolean"
+          "description": "Always offered: a compartment, membrane or tube is never without its module.",
+          "const": true
         }
       }
     },

@@ -6,7 +6,7 @@
     may say otherwise: another of these, or a symbol, fitted into the joint and turned with it.
   -->
   <svg
-    :class="['bio-joint-symbol', { 'bio-joint-symbol--empty': empty, 'bio-joint-symbol--selected': selected }]"
+    :class="['bio-joint-symbol', { 'bio-joint-symbol--selected': selected }]"
     :width="width"
     :height="height"
     :viewBox="`0 0 ${width} ${height}`"
@@ -75,8 +75,6 @@ const props = defineProps({
   vertical: { type: Boolean, default: false },
   width: { type: Number, required: true },
   height: { type: Number, required: true },
-  /** With no module in it yet: drawn faint, as a place to drop one. */
-  empty: { type: Boolean, default: false },
   selected: { type: Boolean, default: false },
   /** The colour of the tube it goes on from, for its lumen. */
   tone: { type: String, default: null },
@@ -177,21 +175,6 @@ const barrels = computed(() => [props.width / 2 - BARREL.width - 1, props.width 
 .bio-joint-symbol__pore {
   stroke: var(--p-content-background);
   stroke-width: 4;
-}
-
-.bio-joint-symbol--empty .bio-joint-symbol__barrel {
-  fill: transparent;
-  stroke: var(--p-text-muted-color);
-  stroke-dasharray: 4 3;
-}
-
-.bio-joint-symbol--empty .bio-joint-symbol__flow {
-  stroke: var(--p-text-muted-color);
-  stroke-dasharray: 4 4;
-}
-
-.bio-joint-symbol--empty .bio-joint-symbol__head {
-  fill: var(--p-text-muted-color);
 }
 
 .bio-joint-symbol--selected .bio-joint-symbol__wall,

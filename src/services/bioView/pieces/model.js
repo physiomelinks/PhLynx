@@ -3,8 +3,9 @@
  * this format is a list of pieces to drop onto the view; once dropped they are the workspace's own, edited like any
  * other.
  *
- * Every piece has an `id` (unique among the pieces), a `kind` and a `label`, and offers a site for modules unless
- * `site` is false:
+ * Every piece has an `id` (unique among the pieces), a `kind` and a `label`, and offers a site for modules. A span, fold
+ * or zone offers none where `site` is false; a compartment, membrane or tube always does, as it is never without its
+ * module:
  * - compartment: a space. `parent` is the compartment it stands in (none: the canvas); `frame` is where it is drawn,
  *   from its parent's corner; `docks` lie it against membrane sides or folds, on their inner or outer face, reaching
  *   `depth` from them. A docked compartment is drawn from its docks, and one a membrane encloses undocked (its bulk)
@@ -80,9 +81,16 @@ function readRef(raw, field, where, errors) {
   return undefined
 }
 
-/** Copies `site: false`, the only value it may be set to besides true. */
+/** The pieces that are their module, so always offer its site. */
+const MODULE_KINDS = new Set(['compartment', 'membrane', 'tube'])
+
+/**
+ * Copies `site: false`, the only value it may be set to besides true. A compartment, membrane or tube is never
+ * without its module, so never without its site.
+ */
 function readSite(raw, out, where, errors) {
-  if (raw.site === false) out.site = false
+  if (raw.site === false && MODULE_KINDS.has(raw.kind)) errors.push(`${where}: a ${raw.kind} always offers its site.`)
+  else if (raw.site === false) out.site = false
   else if (raw.site !== undefined && raw.site !== true) errors.push(`${where}: "site" must be true or false.`)
 }
 

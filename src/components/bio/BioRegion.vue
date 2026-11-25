@@ -6,7 +6,6 @@
       edge && `bio-region--edge-${edge}`,
       {
         'bio-region--selected': selected,
-        'bio-region--empty': data.empty,
         'bio-region--template': data.instance,
         'bio-region--inner': data.form === 'inner',
         'bio-region--tube': data.shape === 'tube',
@@ -35,7 +34,6 @@
     <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
     <span class="bio-region__label" :style="labelStyle">
       <BioPieceName :id="id" :name="data.name" />
-      <small v-if="data.empty" class="bio-region__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
 </template>
@@ -207,8 +205,7 @@ const tone = computed(() => props.data.tone || DEFAULT_TONE)
 }
 
 /* A tube, a stretch of vessel or duct: walls along its length, open at its ends */
-.bio-region--tube,
-.bio-region--tube.bio-region--empty {
+.bio-region--tube {
   border-radius: 0;
   border-left: 0;
   border-right: 0;
@@ -219,21 +216,6 @@ const tone = computed(() => props.data.tone || DEFAULT_TONE)
 .bio-region--tube.bio-region--selected {
   border-top-color: var(--p-primary-color);
   border-bottom-color: var(--p-primary-color);
-}
-
-.bio-region--empty {
-  border: 2px dashed color-mix(in srgb, var(--p-text-muted-color) 45%, transparent);
-  opacity: 0.75;
-}
-
-.bio-region--empty.bio-region--selected {
-  border-color: var(--p-primary-color);
-}
-
-.bio-region__hint {
-  display: block;
-  font-weight: 400;
-  font-size: 0.75rem;
 }
 
 .bio-region__skin {

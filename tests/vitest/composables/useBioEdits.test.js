@@ -13,6 +13,7 @@ import { useBioPiecesStore } from '../../../src/stores/bioPiecesStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 
 const nodes = ref([])
+const removals = []
 
 vi.mock('@vue-flow/core', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -21,6 +22,13 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({
     edges: ref([]),
     findNode: (id) => nodes.value.find((node) => node.id === id),
     findEdge: () => undefined,
+    removeNodes: (ids) => {
+      const going = [...ids]
+      const removed = nodes.value.filter((node) => going.includes(node.id))
+      nodes.value = nodes.value.filter((node) => !going.includes(node.id))
+      // As the diagram's history records a removal.
+      removals.push(removed)
+    },
     updateNodeData: (id, update, { replace = false } = {}) => {
       const node = nodes.value.find((candidate) => candidate.id === id)
       if (!node) return
@@ -107,34 +115,58 @@ describe('physiological view edits', () => {
     expect(pieces.pieces.find((piece) => piece.id === 'cell').label).toBe('Enterocyte')
   })
 
-  it('removes a piece, unbinding what was on what goes, as one step', async () => {
+  it('removes a piece, deleting what was on what goes, as one step', async () => {
     await placeAndBind()
+    nodes.value.push(node('wall', { site: 'pieces/plasma-membrane' }))
     const { pieces: raw } = removePieces(pieces.pieces, ['plasma-membrane'])
     const next = valid(raw)
-    expect(edits.strandedBy(next).map((n) => n.id)).toEqual(['p'])
+    expect(edits.strandedBy(next).map((n) => n.id)).toEqual(['p', 'wall'])
     expect(await edits.editPieces(next, 'bio-pieces-remove')).toBe(true)
-    expect(bioView('p')).toEqual({ skin: 'pump' })
+    expect(removals.at(-1).map((n) => n.id)).toEqual(['p', 'wall'])
+    expect(nodes.value.map((n) => n.id)).toEqual(['card', 'other'])
     expect(bioView('card').site).toBe('pieces/metabolism')
     expect(history.undoLabel).toBe('Remove piece')
     await history.undo()
     expect(pieces.pieces.some((piece) => piece.id === 'plasma-membrane')).toBe(true)
-    expect(bioView('p')).toEqual({
-      role: 'membraneProtein',
-      site: 'pieces/plasma-membrane.apical',
-      order: 0,
-      skin: 'pump',
-    })
   })
 
-  it('adds a module dropped on an occupied site and replaces the occupant as one step', async () => {
+  it('unbinds a module whose span an edit takes away, keeping its piece', async () => {
+    await placeAndBind()
+    const next = valid(
+      pieces.pieces.map((piece) =>
+        piece.id === 'plasma-membrane'
+          ? {
+              ...piece,
+              sides: Object.fromEntries(
+                Object.entries(piece.sides).map(([side, spans]) => [
+                  side,
+                  spans.map((span) => (span.id === 'apical' ? { ...span, site: false } : span)),
+                ]),
+              ),
+            }
+          : piece,
+      ),
+    )
+    expect(edits.strandedBy(next).map((n) => n.id)).toEqual(['p'])
+    const removed = removals.length
+    expect(await edits.editPieces(next, 'bio-pieces-edit')).toBe(true)
+    expect(removals).toHaveLength(removed)
+    expect(bioView('p')).toEqual({ skin: 'pump' })
+  })
+
+  it('adds a module dropped on an occupied site and deletes the occupant as one step', async () => {
     await placeAndBind()
     nodes.value.push(node('lumen', { role: 'region', site: 'pieces/apical-fluid' }))
     const roles = new Map(nodes.value.map((n) => [n.id, resolveBioRole(n.data)]))
     const { places, sites } = layoutPieces(pieces.pieces, { nodes: nodes.value })
     const site = dropSites(sites).find((target) => target.ref === 'pieces/apical-fluid')
+    expect(site.occupant).toBe('lumen')
 
-    // As BioFlow's onModuleDrop does: the new instance, then its binding, in one batch.
+    // As BioFlow's addModuleAt does: the occupant deleted, then the new instance and its binding, in one batch.
     history.startBatch()
+    const lumen = nodes.value.find((n) => n.id === 'lumen')
+    nodes.value = nodes.value.filter((n) => n !== lumen)
+    history.addCommand({ type: 'remove', undo: () => nodes.value.push(lumen), redo: () => {} })
     const added = node('saline', { role: 'region', facet: null })
     nodes.value.push(added)
     history.addCommand({
@@ -143,11 +175,13 @@ describe('physiological view edits', () => {
       redo: () => nodes.value.push(added),
     })
     const bioViews = new Map(nodes.value.map((n) => [n.id, n.data.bioView]))
-    await edits.applyPlan(planSiteBind({ id: 'saline', site, layout: places, roles, bioViews }), 'bio-add')
+    const plan = planSiteBind({ id: 'saline', site, layout: places, roles, bioViews })
+    // The occupant is the caller's to delete, never set loose.
+    expect([...plan.keys()]).toEqual(['saline'])
+    await edits.applyPlan(plan, 'bio-add')
     history.endBatch()
 
     expect(bioView('saline')).toEqual({ site: 'pieces/apical-fluid' })
-    expect(bioView('lumen')).toEqual({})
     await history.undo()
     expect(nodes.value.some((n) => n.id === 'saline')).toBe(false)
     expect(bioView('lumen')).toEqual({ role: 'region', site: 'pieces/apical-fluid' })

@@ -22,7 +22,9 @@ An instance on a [piece](#building) is what its site is:
 
 Moved to another site, it becomes what that site is.
 
-An instance on no piece is drawn beside the pieces, as its module's annotations say: a protein in the tray on the left when its [Module kind](./annotation-coupling.md#annotations-tab) is **Transporter**, or its variables lie both inside and outside a cell; anything else as a card on the right, a process with its symbol. Drop it on a site to place it.
+A compartment, membrane or tube is its module: it is made with one, goes by that module's name, and is deleted with it. A cell is two of them, its inside and its membrane, each its own module.
+
+An instance on no piece is drawn beside the pieces, as its module's annotations say: a protein in the tray on the left when its [Module kind](./annotation-coupling.md#annotations-tab) is **Transporter**, or its variables lie both inside and outside a cell; anything else as a card on the right, a process with its symbol. Drop it on a site to place it. The exception is a module whose kind is **Compartment**: there is never a compartment's module that is not a compartment, so one on no piece (added in the diagram, pasted, imported, or given that kind in the Annotations tab) becomes a compartment of its own, where its card would have been.
 
 Double-click an instance to open its [Instance Editor](../reference/ui-overview.md#instance-editor). Right-click it for **Rename…**, which renames the instance as the diagram does (a name another instance has is refused), for **Connections**, which lists the instances it is coupled to and opens each coupling, or for **Apply Parameter Set**, which applies another of its math's [parameter sets](./use-with-circulatory-autogen.md#parameter-files) as the diagram's menu does. With **Settings ▸ Auto-plot selection** on, selecting an instance after a run plots what its annotations say matters: a protein's flows, a compartment's concentrations, a membrane's potential.
 
@@ -31,13 +33,13 @@ Dragging a structure moves all of it; dragging a part moves only that part:
 - **Structures**: a cell (by its inside or its outline), an organelle, a compartment standing on its own and a process zone move with everything in them, docked to them or joined to them by a tube (see [Moving and Resizing](#moving-pieces)).
 - **Parts**: a protein (it snaps between slots, and can leave its cell), a process and a module outside any structure move alone.
 
-**Delete** or **Backspace**, or **Delete** on an instance's menu, deletes the selected instances from the workspace with their connections, as in the diagram. With a protein selected, right-click one of its connections for **Delete Connection**.
+**Delete** or **Backspace**, or **Delete** on an instance's menu, deletes the selected instances from the workspace with their connections, in one press. A selected compartment, membrane or tube goes with its module, and so does everything on it: the proteins on its membrane, the processes in its zones, the compartments docked to it and the tubes to it, with their modules. A membrane deleted alone leaves the compartment it enclosed; a membrane whose last compartment is deleted goes with it. When that takes more than was selected, PhLynx names it and asks once. Deleting a compartment's, membrane's or tube's module in the diagram does the same. With a protein selected, right-click one of its connections for **Delete Connection**.
 
 Every edit in the view is one undo step, named in the undo notice.
 
 ## Building the View {#building}
 
-The view is built from five **pieces**, each with **sites** to drop modules on. The library's **Build** tab lists them, and the templates made from them. Drag a piece or template onto the view, or click it and then click where it goes. While a piece is carried, what it would go on is outlined in green and a dashed preview shows where it would be drawn; the label by the pointer says what it would do, or, in red, why it can't go there. Each piece or template placed comes with a new, empty module on each site that takes one, named for its site, for a library module to replace later.
+The view is built from five **pieces**, each with **sites** to drop modules on. The library's **Build** tab lists them, and the templates made from them. Drag a piece or template onto the view, or click it and then click where it goes. While a piece is carried, what it would go on is outlined in green and a dashed preview shows where it would be drawn; the label by the pointer says what it would do, or, in red, why it can't go there. Each compartment, membrane and tube placed, alone or in a template, comes with a new, empty module named for it, for a library module to replace later; so does one any other edit leaves without a module, and one in a workspace saved without.
 
 | Piece | Dropped | Sites |
 | :--- | :--- | :--- |
@@ -64,11 +66,11 @@ A template is a shortcut: placing one adds a copy of its pieces, which are then 
 
 ### Placing Modules {#placing}
 
-Drag a module from Available Modules, or an instance already in the view, onto a site: a compartment, a cell's inside, its membrane, a tube, or a slot on a stretch of membrane or in a process zone. While you drag, the sites of the piece under the pointer are outlined, with the one the drop would take in green: the membrane as a striped band along the cell's outline, the cell's inside as a tint within it (drop on the cell's **Drop a module** hint), and a stretch's slots on its proteins, with a **+** past the last for a new one. Dropping on a protein puts the module before it. An empty process zone takes a drop anywhere in it; once it holds a process, drop on its row, as the rest of it is the cell's. The label by the pointer names the target, such as **Plasma membrane (membrane)** or **Epithelial cell (intracellular space)**. A site holds one module; dropping on a full one asks **Replace module?**, and the module it held stays in the diagram as a card. A module dropped on a site is connected to the modules on the sites next to it, and those connections are drawn dashed until they carry couplings. Moving it to another site, or off the pieces, takes away the connections its old place made; a connection you drew or edited by hand stays, and a notice names it. Placing and moving modules never changes their module configs, so it asks nothing about them; a drop takes the parameter set chosen on the module's library card.
+Drag a module from Available Modules, or an instance already in the view, onto a site: a compartment, a cell's inside, its membrane, a tube, or a slot on a stretch of membrane or in a process zone. While you drag, the sites of the piece under the pointer are outlined, with the one the drop would take in green: the membrane as a striped band along the cell's outline, the cell's inside as a tint within it, and a stretch's slots on its proteins, with a **+** past the last for a new one. Dropping on a protein puts the module before it. An empty process zone takes a drop anywhere in it; once it holds a process, drop on its row, as the rest of it is the cell's. The label by the pointer names the target, such as **Plasma membrane (membrane)** or **Epithelial cell (intracellular space)**. A compartment, membrane or tube is one module: a module dropped on it replaces the one it was, which is deleted from the diagram with its connections. **Replace module?** asks first, unless that one is still the new, empty module it came with. A module from Available Modules whose kind is **Compartment**, dropped off the pieces, makes a new compartment there with it as its module; one whose kind is **Membrane**, dropped on a compartment with no membrane, goes round it as its membrane, and can't be dropped off the pieces. A module dropped on a site is connected to the modules on the sites next to it, and those connections are drawn dashed until they carry couplings. Moving it to another site, or off the pieces, takes away the connections its old place made; a connection you drew or edited by hand stays, and a notice names it. Placing and moving modules never changes their module configs, so it asks nothing about them; a drop takes the parameter set chosen on the module's library card.
 
-To make a new module in place, right-click an empty site, or a slot on a stretch of membrane or in a process zone, and choose **New Module Here**: it is placed and connected as a dropped one would be, and its first save makes it a module of its own.
+To make a new module in place, right-click a slot on a stretch of membrane or in a process zone and choose **New Module Here**: it is placed and connected as a dropped one would be, and its first save makes it a module of its own.
 
-Right-click an instance on a site to **Unbind** it: it is drawn beside the pieces, as its annotations say (see [What Each Instance Is](#roles)). Dropping a module from Available Modules anywhere off the pieces puts it there the same way.
+Right-click a protein or process to **Unbind** it: it is drawn beside the pieces, as its annotations say (see [What Each Instance Is](#roles)). A compartment's, membrane's or tube's module is that piece, so it is never unbound; dragged off its piece, it goes back. Dropping a module from Available Modules anywhere off the pieces puts it there as a card, unless it makes a piece (see above).
 
 ### Moving and Resizing {#moving-pieces}
 
@@ -87,14 +89,14 @@ Right-click an instance on a site to **Unbind** it: it is drawn beside the piece
 
 Right-click a piece for:
 
-- **Rename Piece…**. A click on an empty piece's name renames it too.
+- **Rename…**: a compartment, membrane or tube is renamed as its module, so this renames the instance. A process zone is renamed with **Rename Piece…**. A click on a piece's name renames it too.
 - **Skin** and, on a cell, **Membrane Skin**: how the piece is drawn. See [Skins](#skins).
 - **Fit to Contents**: shrinks a cell or compartment back to what its contents need. A piece never shrinks on its own.
 - **Straighten Tube**: takes a tube's bend away.
 - **Detach**: on a compartment docked to one membrane side or fold, takes it off, leaving it standing where it is.
 - **Detach From**: on a compartment docked to more than one membrane side or fold, takes it off one of them, leaving it against the rest, or off **All of Them**.
 - **Move Out of…**: on a compartment, cell or organelle standing in a compartment, stands it beside that one instead.
-- **Remove**: a piece, with what can't stand without it, such as the fluids docked to a membrane. On a cell, choose the whole cell or its membrane alone, which leaves its inside where it was; folds, process zones and tubes on it are listed too. When other pieces go along, or modules are placed on what goes, PhLynx says so and asks first; the modules stay in the diagram, drawn beside the pieces as their annotations say.
+- **Remove**: a piece and its module, with what can't stand without it, such as the fluids docked to a membrane, and the modules on all of it, as **Delete** does. On a cell, choose the whole cell or its membrane alone, which leaves its inside where it was; folds, process zones and tubes on it are listed too. When other pieces or modules go along, PhLynx names them and asks first.
 
 ### My Templates {#my-templates}
 

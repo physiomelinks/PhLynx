@@ -61,7 +61,7 @@ const EDGE_BAND = 24
 /** How far from the compartment it is dropped on, or nearest, a tube's other end may be. */
 const TUBE_REACH = 480
 /** The size of what a drop adds standing freely. */
-const SIZES = Object.freeze({
+export const SIZES = Object.freeze({
   compartment: { width: 320, height: 140 },
   subcompartment: { width: 200, height: 120 },
 })

@@ -41,12 +41,6 @@ import { nameFits, nameInUpperCorner, proteinReach } from '../speciesLayout.js'
 /** The key a piece's place has in the view's layout. */
 export const pieceKey = (id) => `pc:${id}`
 
-/**
- * The key of an empty membrane's band. It needs a key of its own because its cell takes pieceKey(id) once the cell's
- * inside is empty too.
- */
-export const membraneKey = (id) => `pc:${id}/membrane`
-
 /** The instance a site of the pieces is named under, as a template instance's sites are. */
 export const PIECES_INSTANCE = 'pieces'
 
@@ -1252,6 +1246,7 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       .filter((piece) => piece.kind === 'zone')
       .map((zone) => ({ rect: rects.get(zone.id) }))
   /** A site, as dropSites reads it, grouped with the rest of the piece it is drawn by. */
+  const nameOfNode = new Map(nodes.map((node) => [node.id, node.data?.name]))
   const offer = (path, role, kind, label, group, extra) => {
     const ref = pieceSiteRef(path)
     const members = occupants.get(path) ?? []
@@ -1261,7 +1256,8 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       path,
       role,
       kind,
-      label,
+      // A compartment, membrane or tube is its module, and goes by its name.
+      label: (kind === 'single' && members[0] && nameOfNode.get(members[0])) || label,
       group,
       occupant: kind === 'single' ? (members[0] ?? null) : null,
       ...(kind === 'slots' && { occupants: members }),
@@ -1298,8 +1294,6 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       rect,
       shape,
       membrane: membraneNode,
-      // A membrane that takes a module and has none yet, which its cell draws greyed (folds with it, being its).
-      membraneEmpty: membrane.site !== false && !membraneNode,
       membraneSite: sitePath(membrane),
       site: bulk ? sitePath(bulk) : null,
       empty: !(bulkId && occupantOf(bulkId)),
@@ -1330,19 +1324,8 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       zones: zonesIn(bulkId),
     })
     if (bulk && bulk.site !== false) offer(bulkId, 'cytosol', 'single', bulk.label, key, { key, rect })
-    if (membraneNode) {
-      places.set(membraneNode, { kind: 'membrane', cell: key, ...own, site: pieceSiteRef(membrane.id) })
-    } else if (membrane.site !== false) {
-      // An empty membrane is still selectable by its band, so that it can be deleted on its own (see BioFlow's
-      // deletionLayers).
-      places.set(membraneKey(membrane.id), {
-        kind: 'membrane',
-        cell: key,
-        ...own,
-        piece: membrane.id,
-        label: membrane.label,
-      })
-    }
+    // Its band is its module's node; a membrane is never without one but for the moment it is made.
+    if (membraneNode) places.set(membraneNode, { kind: 'membrane', cell: key, ...own, site: pieceSiteRef(membrane.id) })
     if (membrane.site !== false) offer(membrane.id, 'membrane', 'single', membrane.label, key, { key, rect })
 
     // The proteins on each span and fold, in slot order, and the slots a drop can take.

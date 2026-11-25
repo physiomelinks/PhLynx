@@ -158,6 +158,23 @@ describe('naming and rolling back steps', () => {
     expect(stepLabel(undefined)).toBeNull()
   })
 
+  it('makes a batch inside another part of the outer step, named by the outer one', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('add', log))
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('bio-bind', log))
+    history.endBatch('bio-bind')
+    await history.executeAndAddCommand(loggedCommand('add-edge', log))
+    history.endBatch('bio-pieces-compartment')
+    expect(history.pointerIndex).toBe(0)
+    expect(history.undoLabel).toBe('Add compartment')
+
+    await history.undo()
+    expect(log.slice(3)).toEqual(['undo add-edge', 'undo bio-bind', 'undo add'])
+  })
+
   it('rolls back a batch, leaving no step', async () => {
     const log = []
     const history = reactive(createHistory())

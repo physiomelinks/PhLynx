@@ -6,7 +6,6 @@ import {
 } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
 import {
   layoutPieces,
-  membraneKey,
   pieceKey,
   routeTube,
   runAt,
@@ -125,33 +124,15 @@ describe('layoutPieces', () => {
     expect(layout.places.has(pieceKey('cell'))).toBe(false)
   })
 
-  it('marks a membrane with no module of its own as empty, whatever is in its cell', () => {
+  it('draws a membrane’s band as its module, and none while it has no module', () => {
     const pieces = [
       { id: 'cell', kind: 'compartment', label: 'Cell' },
       { id: 'pm', kind: 'membrane', label: 'Plasma membrane', encloses: ['cell'] },
     ]
     const on = (site) => ({ id: site, data: { bioView: { site: `pieces/${site}` } } })
-    const cellOf = (layout) => [...layout.places.values()].find((place) => place.kind === 'cell')
-    expect(cellOf(laidOut(pieces, { nodes: [on('cell')] })).membraneEmpty).toBe(true)
-    expect(cellOf(laidOut(pieces, { nodes: [on('cell'), on('pm')] })).membraneEmpty).toBe(false)
-  })
-
-  it('gives an empty membrane a place of its own, so its band can be selected and deleted', () => {
-    const pieces = [
-      { id: 'cell', kind: 'compartment', label: 'Cell' },
-      { id: 'pm', kind: 'membrane', label: 'Plasma membrane', encloses: ['cell'] },
-    ]
-    const on = (site) => ({ id: site, data: { bioView: { site: `pieces/${site}` } } })
-    // Whether or not the cell's inside has a module, which the cell is keyed by.
-    for (const [nodes, cell] of [
-      [[on('cell')], 'cell'],
-      [[], pieceKey('pm')],
-    ]) {
-      const { places } = laidOut(pieces, { nodes })
-      expect(places.get(membraneKey('pm'))).toMatchObject({ kind: 'membrane', cell, piece: 'pm' })
-    }
+    const bands = (layout) => [...layout.places.values()].filter((place) => place.kind === 'membrane')
+    expect(bands(laidOut(pieces, { nodes: [on('cell')] }))).toEqual([])
     const { places } = laidOut(pieces, { nodes: [on('cell'), on('pm')] })
-    expect(places.has(membraneKey('pm'))).toBe(false)
     expect(places.get('pm')).toMatchObject({ kind: 'membrane', cell: 'cell' })
   })
 

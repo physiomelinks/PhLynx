@@ -94,6 +94,9 @@ export function createHistory() {
   // Manual batching flag, and how many commands were pending when it started (only a nested batch finds any).
   const isManualBatching = ref(false)
   let batchStart = 0
+  // How many batches are open inside the outermost one: an edit that batches its own steps can run inside another's
+  // batch, and is then part of that one step.
+  let batchDepth = 0
 
   const canUndo = computed(() => pointer.value >= 0)
   const canRedo = computed(() => pointer.value < stack.value.length - 1)
@@ -148,6 +151,7 @@ export function createHistory() {
     pendingCommands.value = []
     isManualBatching.value = false
     batchStart = 0
+    batchDepth = 0
     savedStep.value = null
   }
 
@@ -185,6 +189,10 @@ export function createHistory() {
    * timer are committed first as their own step, so the batch neither absorbs nor rolls them back.
    */
   function startBatch() {
+    if (isManualBatching.value) {
+      batchDepth++
+      return
+    }
     if (batchTimer) {
       clearTimeout(batchTimer)
       batchTimer = null
@@ -201,6 +209,11 @@ export function createHistory() {
    * @param {string} [type] - Names the step, when it is more than its last command.
    */
   function endBatch(type) {
+    // A batch inside another ends with it, named by the outer one.
+    if (batchDepth > 0) {
+      batchDepth--
+      return
+    }
     isManualBatching.value = false
     commitBatch(type)
   }
@@ -212,6 +225,7 @@ export function createHistory() {
    * @returns {Promise<void>}
    */
   async function rollbackBatch() {
+    batchDepth = 0
     const batch = pendingCommands.value.slice(batchStart)
     pendingCommands.value = pendingCommands.value.slice(0, batchStart)
     isManualBatching.value = false
