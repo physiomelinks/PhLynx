@@ -3,9 +3,9 @@
  * this format is a list of pieces to drop onto the view; once dropped they are the workspace's own, edited like any
  * other.
  *
- * Every piece has an `id` (unique among the pieces), a `kind` and a `label`, and offers a site for modules. A span, fold
- * or zone offers none where `site` is false; a compartment, membrane or tube always does, as it is never without its
- * module:
+ * Every piece has an `id` (unique among the pieces), a `kind` and a `label`, and offers a site for modules, but for an
+ * image, which never does. A span, fold or zone offers none where `site` is false; a compartment, membrane or tube
+ * always does, as it is never without its module:
  * - compartment: a space. `parent` is the compartment it stands in (none: the canvas); `frame` is where it is drawn,
  *   from its parent's corner; `docks` lie it against membrane sides or folds, on their inner or outer face, reaching
  *   `depth` from them. A docked compartment is drawn from its docks, and one a membrane encloses undocked (its bulk)
@@ -16,6 +16,9 @@
  * - tube: joins two compartments (`ends`, upstream first) and carries one flux module; `bends` are its corners.
  * - fold: an invagination of a membrane, dipping in from one side `at` a point along it (0 to 1).
  * - zone: a process zone within a compartment, for process modules.
+ * - image: a picture on the canvas, never in a compartment, drawn by its `frame` and nothing more: no site, no part
+ *   of the model. `image` names its picture, if it has one yet (without, it is drawn as a placeholder to choose one) in the pieces' image store (see bioPiecesStore), so a template, which has no store,
+ *   holds none.
  * Positions along a side (`from`, `to`, `at`) run 0 to 1, left to right or top to bottom, so they hold as the
  * membrane is resized.
  */
@@ -30,6 +33,7 @@ import {
   DEFAULT_TONE,
   FACES,
   FLUXES,
+  IMAGE_REF,
   LIMITS,
   PIECES_SCHEMA_VERSION,
   PIECE_ID,
@@ -89,6 +93,10 @@ const MODULE_KINDS = new Set(['compartment', 'membrane', 'tube'])
  * without its module, so never without its site.
  */
 function readSite(raw, out, where, errors) {
+  if (raw.kind === 'image') {
+    if (raw.site !== undefined) errors.push(`${where}: an image offers no site.`)
+    return
+  }
   if (raw.site === false && MODULE_KINDS.has(raw.kind)) errors.push(`${where}: a ${raw.kind} always offers its site.`)
   else if (raw.site === false) out.site = false
   else if (raw.site !== undefined && raw.site !== true) errors.push(`${where}: "site" must be true or false.`)
@@ -353,12 +361,32 @@ function readZone(raw, piece, where, errors, warnings) {
   if (frame) piece.frame = frame
 }
 
+/** An image's opacity, where it is drawn fainter than solid. */
+const OPACITY = { min: 0.05, max: 1 }
+
+function readImage(raw, piece, where, errors, warnings) {
+  // On the canvas, always drawn by its frame: it has no contents to be sized by.
+  const frame = readFrame(raw, where, errors, warnings)
+  if (frame) piece.frame = frame
+  else if (raw.frame === undefined) errors.push(`${where}: "frame" is required.`)
+  // Without a picture yet, it is a placeholder for one.
+  if (raw.image !== undefined) {
+    if (typeof raw.image === 'string' && IMAGE_REF.test(raw.image)) piece.image = raw.image
+    else errors.push(`${where}: "image" must name its picture, as img- and 16 hexadecimal digits.`)
+  }
+  if (raw.opacity !== undefined && raw.opacity !== 1) {
+    if (isNumberIn(raw.opacity, OPACITY)) piece.opacity = raw.opacity
+    else errors.push(`${where}: "opacity" must be a number from ${OPACITY.min} to ${OPACITY.max}.`)
+  }
+}
+
 const READERS = {
   compartment: readCompartment,
   membrane: readMembrane,
   tube: readTube,
   fold: readFold,
   zone: readZone,
+  image: readImage,
 }
 
 function readPiece(raw, index, errors, warnings) {
@@ -553,6 +581,8 @@ export function validatePiecesTemplate(raw, { allowLocalId = false } = {}) {
   const read = validatePieces(raw.pieces ?? [])
   warnings.push(...read.warnings)
   errors.push(...read.errors)
+  // Its pictures would be in a workspace's image store, which a template has none of.
+  if (read.pieces?.some((piece) => piece.kind === 'image')) errors.push('A template can’t hold images.')
   if (errors.length) return { template: null, errors, warnings }
   template.pieces = read.pieces
   return { template: Object.freeze(template), errors, warnings }

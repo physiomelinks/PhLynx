@@ -77,7 +77,7 @@ describe('validatePieces', () => {
   it('checks each piece’s own fields', () => {
     expect(errorsOf('nope')).toEqual(['"pieces" must be a list.'])
     expect(errorsOf([{ id: 'a', kind: 'cell', label: 'A' }])).toEqual([
-      'Piece "a": "kind" must be one of compartment, membrane, tube, fold, zone.',
+      'Piece "a": "kind" must be one of compartment, membrane, tube, fold, zone, image.',
     ])
     expect(errorsOf([{ id: 'A', kind: 'compartment', label: 'A' }])[0]).toMatch(/"id" must start with a letter/)
     expect(errorsOf([{ id: 'a', kind: 'compartment' }])).toEqual(['Piece "a": "label" is required.'])

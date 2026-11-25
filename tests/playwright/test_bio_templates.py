@@ -63,6 +63,15 @@ ADD_TRIAL_SETS_JS = """
 """
 
 
+# How many pictures a save of the workspace's pieces keeps.
+SAVED_IMAGES_JS = """
+() => {
+    const pinia = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia;
+    return Object.keys(pinia._s.get('bioPieces').getState()?.images ?? {}).length;
+}
+"""
+
+
 def centre(box):
     return (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
 
@@ -97,6 +106,39 @@ def undo(page):
 def has_class(name):
     """Matches a class attribute holding the class."""
     return re.compile(rf"(^|\s){re.escape(name)}(\s|$)")
+
+
+def png_bytes(width=80, height=40, rgb=(200, 60, 60)):
+    """A plain PNG of one colour, to add as a picture."""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+    row = b"\x00" + bytes(rgb) * width
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(row * height))
+        + chunk(b"IEND", b"")
+    )
+
+
+# Drops picture files from the desktop on a screen point, as the browser would.
+DROP_FILE_JS = """
+([x, y, name, bytes]) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(bytes)], name, { type: 'image/png' }));
+    const target = document.elementFromPoint(x, y);
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+        target.dispatchEvent(new DragEvent(type, {
+            dataTransfer: transfer, clientX: x, clientY: y, bubbles: true, cancelable: true,
+        }));
+    }
+}
+"""
 
 
 class TestBioTemplates(unittest.TestCase):
@@ -835,6 +877,70 @@ class TestBioTemplates(unittest.TestCase):
         assert abs(cleft.bounding_box()["width"] - before["width"]) < 6, (before, cleft.bounding_box())
         undo(page)
         expect(reach).to_have_count(0)
+
+    def test_an_image_goes_only_on_bare_canvas_and_is_only_drawn(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        self.drop_piece("compartment", self.pane_point(0.3, 0.3))
+        compartment = piece(page, "compartment")
+        expect(compartment).to_be_visible()
+        regions = bound(page, "bioRegion")
+        expect(regions).to_have_count(1)
+        images = page.locator("[data-testid=bio-image]")
+
+        # Dragged onto a compartment, the Image tile is refused; onto bare canvas, it leaves a placeholder.
+        self.drop_piece("image", centre(compartment.bounding_box()))
+        expect(page.get_by_text("An image goes on bare canvas.").last).to_be_visible()
+        expect(images).to_have_count(0)
+        self.drop_piece("image", self.pane_point(0.7, 0.6))
+        expect(images).to_have_count(1)
+        expect(images.first).to_have_attribute("data-empty", "true")
+        placeholder = images.first.bounding_box()
+        self.assertGreater(placeholder["width"], 100)
+
+        # Its button asks for a picture, which then fills it, keeping its width and taking the picture's shape.
+        with page.expect_file_chooser() as chooser:
+            images.first.locator("[data-testid=bio-image-choose]").click()
+        chooser.value.set_files(files=[{"name": "Heart.png", "mimeType": "image/png", "buffer": png_bytes(80, 40)}])
+        expect(images.first.locator("img")).to_have_attribute("src", re.compile(r"^data:image/png;base64,"))
+        filled = images.first.bounding_box()
+        self.assertAlmostEqual(filled["width"], placeholder["width"], delta=2)
+        self.assertAlmostEqual(filled["height"], filled["width"] / 2, delta=2)
+        # Only drawn: no module comes with it.
+        expect(regions).to_have_count(1)
+        self.assertEqual(page.evaluate(SAVED_IMAGES_JS), 1)
+
+        # It is dragged anywhere, even under the compartment, which stays as it was.
+        node = page.locator(f"{BIO} .vue-flow__node-bioImage")
+        room = compartment.bounding_box()
+        before = node.bounding_box()
+        self.drag(centre(before), (-200, -100))
+        page.wait_for_timeout(300)
+        after = node.bounding_box()
+        self.assertLess(after["x"], before["x"] - 150)
+        self.assertEqual(compartment.bounding_box(), room)
+
+        # Delete takes it alone, and undo brings it back with its picture.
+        self.delete_at((after["x"] + after["width"] - 6, after["y"] + after["height"] - 6))
+        expect(images).to_have_count(0)
+        expect(compartment).to_be_visible()
+        undo(page)
+        expect(images.first.locator("img")).to_have_attribute("src", re.compile(r"^data:image/png;base64,"))
+
+        # The tile clicked, then a click on bare canvas, places another placeholder.
+        tile = palette_piece(page, "image")
+        tile.click()
+        expect(tile).to_have_attribute("aria-pressed", "true")
+        page.mouse.click(*self.pane_point(0.5, 0.85))
+        expect(images).to_have_count(2)
+
+        # A picture dropped from the desktop on bare canvas is added with it; on the compartment, it is refused.
+        page.evaluate(DROP_FILE_JS, [*self.pane_point(0.8, 0.85), "Cell.png", list(png_bytes(rgb=(60, 60, 200)))])
+        expect(images).to_have_count(3)
+        page.evaluate(DROP_FILE_JS, [*centre(compartment.bounding_box()), "On.png", list(png_bytes())])
+        expect(images).to_have_count(3)
+        self.assertEqual(page.evaluate(SAVED_IMAGES_JS), 2)
 
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
         page = self.page

@@ -8,7 +8,8 @@
  * 3. Tubes, between their ends: a right-angle path, or a joint where the two ends touch.
  *
  * The places are in the vocabulary the view already draws (see bioFlowNodes): a membrane is a 'cell', a compartment
- * that isn't a bulk a 'region', a tube a 'link'; a process zone is a 'zone'. Each is keyed by pieceKey(id) and says
+ * that isn't a bulk a 'region', a tube a 'link'; a process zone is a 'zone', an image an 'image'. Each is keyed by
+ * pieceKey(id) and says
  * which piece it is (`piece`) and which site it offers (`site`, a pieceSiteRef, or null).
  */
 
@@ -33,7 +34,7 @@ import { parseSiteRef } from '../siteRefs.js'
 import { withFolds } from '../shape.js'
 import { contextOfPiece } from '../skinContext.js'
 import { resolveSkin } from '../skinRegistry.js'
-import { INNER_INSET, LIMITS, ROOM_INSIDE, isDefaultZoneLabel } from './constants.js'
+import { INNER_INSET, LIMITS, ROOM_INSIDE, isDefaultZoneLabel, isWithinPiece } from './constants.js'
 import { dragModeOf } from './moves.js'
 import { spanPath, topologyOf } from './topology.js'
 import { nameFits, nameInUpperCorner, proteinReach } from '../speciesLayout.js'
@@ -101,6 +102,8 @@ const NAME_GROWTH = 8
 const NAME_ROOM = 96
 /** A piece with a frame is resized from its bottom-right corner. */
 const FRAME_RESIZE = Object.freeze({ mode: 'frame', position: 'bottom-right' })
+/** An image is resized by its frame too, keeping its picture's shape. */
+const IMAGE_RESIZE = Object.freeze({ ...FRAME_RESIZE, keepAspect: true })
 const OPPOSITE = Object.freeze({ top: 'bottom', bottom: 'top', left: 'right', right: 'left' })
 
 /** How far above a tube's room its bend grip sits. */
@@ -645,12 +648,12 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
   }
 
   // What stands in each compartment, or on the canvas (''), by its own frame or in a row: membranes, free
-  // compartments and process zones.
+  // compartments and process zones. Images stand apart, on the canvas by their frames (see below).
   const standing = new Map()
   const stand = (parent, piece) => standing.set(parent ?? '', [...(standing.get(parent ?? '') ?? []), piece])
   for (const piece of pieces) {
     if (piece.kind === 'membrane' || isFree(piece)) stand(piece.parent, piece)
-    if (piece.kind === 'zone') stand(piece.compartment, piece)
+    if (isWithinPiece(piece)) stand(piece.compartment, piece)
   }
 
   // Each membrane's shape: its spans along its sides and its folds, as the view's geometry reads a cell's.
@@ -1001,6 +1004,8 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
     }
   }
   placeIn(null, { x: 0, y: 0 })
+  // Images on the canvas, each where its frame says: under what overlaps it, neither pushing nor pushed.
+  for (const image of ofKind('image')) rects.set(image.id, { ...image.frame })
 
   /** Where a fold is in its membrane, and the rect of its lumen. */
   const pocketOf = (fold) => {
@@ -1241,10 +1246,9 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
   const own = { instance: PIECES_INSTANCE }
   const places = new Map()
   const sites = []
+  /** The zones within a compartment, which what is placed in it (its name, its hint) keeps clear of. */
   const zonesIn = (compartmentId) =>
-    (standing.get(compartmentId) ?? [])
-      .filter((piece) => piece.kind === 'zone')
-      .map((zone) => ({ rect: rects.get(zone.id) }))
+    (standing.get(compartmentId) ?? []).filter(isWithinPiece).map((piece) => ({ rect: rects.get(piece.id) }))
   /** A site, as dropSites reads it, grouped with the rest of the piece it is drawn by. */
   const nameOfNode = new Map(nodes.map((node) => [node.id, node.data?.name]))
   const offer = (path, role, kind, label, group, extra) => {
@@ -1281,7 +1285,7 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
         return { facetId: fold.id, label: fold.label, ...foldPocket(rect, facet), tone: lumen?.tone ?? null }
       })
     const within = (standing.get(bulkId) ?? [])
-      .filter((piece) => piece.kind !== 'zone')
+      .filter((piece) => !isWithinPiece(piece))
       .map((piece) => ({ rect: rects.get(piece.id) }))
     const membraneNode = membrane.site === false ? null : occupantOf(membrane.id)
     places.set(key, {
@@ -1439,6 +1443,24 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
     if (zone.site === false) continue
     const slots = row.map((slot, order) => ({ ...slot, spare: order === members.length }))
     offer(zone.id, 'cytosolic', 'slots', zone.label, host, { cell: host, process: zone.id, symbol: true, slots, rect })
+  }
+
+  // Images: a picture each, drawn by its frame on the canvas, offering no site.
+  for (const image of ofKind('image')) {
+    const rect = rects.get(image.id)
+    if (!rect) continue
+    places.set(pieceKey(image.id), {
+      kind: 'image',
+      ...own,
+      ...handling(image.id, IMAGE_RESIZE),
+      piece: image.id,
+      path: image.id,
+      rect,
+      site: null,
+      image: image.image ?? null,
+      opacity: image.opacity ?? 1,
+      label: image.label,
+    })
   }
 
   // ── 3. Tubes ──────────────────────────────────────────────────────────

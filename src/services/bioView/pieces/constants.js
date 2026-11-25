@@ -1,13 +1,23 @@
 /**
  * The words and bounds of the pieces the physiology view is built from (schema 4): compartments, membranes, tubes,
- * folds and process zones. See model.js for what each piece holds and topology.js for how they relate.
+ * folds and process zones, and images, which are only drawn. See model.js for what each piece holds and topology.js
+ * for how they relate.
  */
 
 /** The format version of a list of pieces, and of a template written as one. */
 export const PIECES_SCHEMA_VERSION = 4
 
 /** The kinds of piece. */
-export const PIECE_KINDS = Object.freeze(['compartment', 'membrane', 'tube', 'fold', 'zone'])
+export const PIECE_KINDS = Object.freeze(['compartment', 'membrane', 'tube', 'fold', 'zone', 'image'])
+
+/** Whether a piece stands within a compartment by its `compartment`, as a process zone does, not by its `parent`. */
+export const isWithinPiece = (piece) => piece?.kind === 'zone'
+
+/**
+ * What a piece stands in, as it is written: a zone's compartment, another's parent; undefined for the canvas, where
+ * an image always is.
+ */
+export const containerIdOf = (piece) => (isWithinPiece(piece) ? piece.compartment : piece?.parent)
 
 /** The sides of a membrane, clockwise from the top. A span's `from` and `to` run left to right, or top to bottom. */
 export const SIDES = Object.freeze(['top', 'right', 'bottom', 'left'])
@@ -26,6 +36,15 @@ export const ZONE_LABEL = 'Process zone'
 
 /** Whether a process zone still has the name it was given when added, as no one has named it. */
 export const isDefaultZoneLabel = (label) => new RegExp(`^${ZONE_LABEL}( \\d+)?$`).test(String(label ?? ''))
+
+/** What a new image is called where its file gives it no name. */
+export const IMAGE_LABEL = 'Image'
+
+/** An image piece's picture: its id in the pieces' image store, from a hash of its data (see bioView/images.js). */
+export const IMAGE_REF = /^img-[0-9a-f]{16}$/
+
+/** The kinds of picture an image can be. */
+export const IMAGE_TYPES = Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
 /** The colours a compartment can be drawn in. */
 export const TONES = Object.freeze(['sky', 'rose', 'teal', 'amber', 'violet', 'lime', 'slate'])
@@ -87,6 +106,7 @@ export const PIECE_KEYS = Object.freeze({
   tube: ['id', 'kind', 'label', 'ends', 'flux', 'bends', 'skin', 'site'],
   fold: ['id', 'kind', 'label', 'membrane', 'side', 'at', 'depth', 'site'],
   zone: ['id', 'kind', 'label', 'compartment', 'frame', 'site'],
+  image: ['id', 'kind', 'label', 'frame', 'image', 'opacity'],
   dock: ['on', 'side', 'face', 'from', 'to'],
   span: ['id', 'label', 'to', 'annotation', 'group', 'site'],
   annotation: ['facet', 'at'],

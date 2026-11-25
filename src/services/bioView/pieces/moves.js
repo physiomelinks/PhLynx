@@ -4,7 +4,7 @@
  * coordinates; frames are written from the corner of what a piece stands in.
  */
 
-import { INNER_INSET, LIMITS, ROOM_INSIDE } from './constants.js'
+import { INNER_INSET, LIMITS, ROOM_INSIDE, containerIdOf, isWithinPiece } from './constants.js'
 import { fluxBetween, isDefaultTubeName, tubeName } from './edits.js'
 import { topologyOf } from './topology.js'
 
@@ -22,7 +22,7 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
 const isAcross = (side) => side === 'top' || side === 'bottom'
 
 /**
- * How a piece can be dragged: by its frame (a membrane, a compartment standing freely, a process zone), along its
+ * How a piece can be dragged: by its frame (a membrane, a compartment standing freely, a process zone, an image), along its
  * side (a compartment docked along one stretch of a membrane's side), or not at all.
  *
  * @param {ReadonlyArray<Object>} pieces
@@ -32,7 +32,7 @@ const isAcross = (side) => side === 'top' || side === 'bottom'
 export function dragModeOf(pieces, id) {
   const piece = pieces.find((each) => each.id === id)
   if (!piece) return null
-  if (piece.kind === 'membrane' || piece.kind === 'zone') return 'frame'
+  if (piece.kind === 'membrane' || piece.kind === 'zone' || piece.kind === 'image') return 'frame'
   if (piece.kind !== 'compartment') return null
   const topology = topologyOf(pieces)
   if (!piece.docks?.length) return topology.enclosureOf(id) ? null : 'frame'
@@ -44,7 +44,7 @@ export function dragModeOf(pieces, id) {
 
 /** The rect a piece's frame is measured from: what it stands in, or the view's corner. */
 function cornerOf(piece, rects) {
-  const parent = piece.kind === 'zone' ? piece.compartment : piece.parent
+  const parent = containerIdOf(piece)
   return (parent && rects.get(parent)) || { x: 0, y: 0 }
 }
 
@@ -76,7 +76,7 @@ function pinSiblingZones(raw, piece, rects) {
 }
 
 /** How near a piece standing in what `parent` names may come to its corner. */
-const lowOf = (parent, kind) => (!parent ? LIMITS.at.min : kind === 'zone' ? INSET : ROOM_INSIDE)
+const lowOf = (parent, kind) => (!parent ? LIMITS.at.min : isWithinPiece({ kind }) ? INSET : ROOM_INSIDE)
 
 /**
  * Moves a piece with a frame by how far it was dragged. One standing in a compartment is kept from going out of its
@@ -98,8 +98,7 @@ export function moveFrame(pieces, id, delta, rects) {
   const starts = moving.map((each) => frameOf(each, rects))
   if (starts.some((start) => !start)) return null
   // The size drawn now: a membrane's frame is only its least. All go as far, as far as each may.
-  const parent = piece.kind === 'zone' ? piece.compartment : piece.parent
-  const low = lowOf(parent, piece.kind)
+  const low = lowOf(containerIdOf(piece), piece.kind)
   const along = (axis) =>
     clamp(
       delta[axis],
@@ -175,8 +174,8 @@ function keepJunctionsTouching(raw, pieces, id, before, after) {
   }
 }
 
-/** What a piece stands in: a zone's compartment, another's parent; '' for the view. */
-const containerOf = (piece) => (piece.kind === 'zone' ? piece.compartment : piece.parent) ?? ''
+/** What a piece stands in: a zone's or image's compartment, another's parent; '' for the view. */
+const containerOf = (piece) => containerIdOf(piece) ?? ''
 
 /**
  * Gives what stands by its frame beside a piece the frame it is drawn at, so a piece pushed out of the way of one
@@ -185,7 +184,10 @@ const containerOf = (piece) => (piece.kind === 'zone' ? piece.compartment : piec
  * @returns {Array<Object>} Those beside it, pinned.
  */
 function pinBeside(raw, piece, rects) {
-  const beside = raw.filter((other) => other !== piece && other.frame && containerOf(other) === containerOf(piece))
+  // An image is drawn under what overlaps it, so nothing pushes it.
+  const beside = raw.filter(
+    (other) => other !== piece && other.kind !== 'image' && other.frame && containerOf(other) === containerOf(piece),
+  )
   for (const other of beside) {
     const drawn = frameOf(other, rects)
     if (drawn) other.frame = { ...other.frame, x: round(drawn.x), y: round(drawn.y) }
@@ -286,7 +288,8 @@ export function resizeFrame(pieces, id, rect, rects, { rectsOf, pushed } = {}) {
     height: size(rect.height),
   }
   pinSiblingZones(raw, piece, rects)
-  if (piece.kind === 'zone') return raw
+  // Neither pushes what is beside it: a zone keeps to its row, and an image is drawn under what it overlaps.
+  if (piece.kind === 'zone' || piece.kind === 'image') return raw
   // The cells joined to it go as it does, not out of its way.
   const joined = piece.kind === 'membrane' ? topologyOf(pieces).junctionGroupOf(id) : [id]
   const beside = pinBeside(raw, piece, rects).filter((other) => !joined.includes(other.id))

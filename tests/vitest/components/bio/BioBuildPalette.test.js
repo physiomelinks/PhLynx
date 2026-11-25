@@ -19,13 +19,14 @@ beforeEach(() => {
 afterEach(() => wrapper.unmount())
 
 describe('the build palette', () => {
-  it('offers the five pieces a view is built from', () => {
+  it('offers the five pieces a view is built from, and an image', () => {
     expect(wrapper.findAll('[data-testid="bio-palette-piece"]').map((each) => each.attributes('data-piece'))).toEqual([
       'compartment',
       'membrane',
       'tube',
       'fold',
       'zone',
+      'image',
     ])
   })
 

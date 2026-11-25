@@ -38,6 +38,8 @@ export const STEP_LABELS = {
   'bio-pieces-tube': 'Add tube',
   'bio-pieces-fold': 'Add fold',
   'bio-pieces-zone': 'Add process zone',
+  'bio-pieces-image': 'Add image',
+  'bio-pieces-image-edit': 'Change image',
   'bio-pieces-edit': 'Edit pieces',
   'bio-pieces-move': 'Move piece',
   'bio-pieces-resize': 'Resize piece',

@@ -21,7 +21,11 @@ describe('the pieces schema, kept in step with the validator', () => {
   it('lists the keys the validator reads, for every object', () => {
     const keys = (def) => Object.keys(def.properties).sort()
     expect(Object.keys(schema.properties).sort()).toEqual([...PIECE_KEYS.assembly].sort())
-    for (const kind of PIECE_KINDS) expect(keys(defs[kind]), kind).toEqual([...PIECE_KEYS[kind]].sort())
+    // An image's picture is in a workspace's image store, which a template file has none of, so it holds no images.
+    for (const kind of PIECE_KINDS.filter((kind) => kind !== 'image')) {
+      expect(keys(defs[kind]), kind).toEqual([...PIECE_KEYS[kind]].sort())
+    }
+    expect(defs.image).toBeUndefined()
     expect(keys(defs.dock)).toEqual([...PIECE_KEYS.dock].sort())
     expect(keys(defs.span)).toEqual([...PIECE_KEYS.span].sort())
     expect(Object.keys(defs.membrane.properties.sides.properties)).toEqual([...SIDES])

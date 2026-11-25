@@ -4,7 +4,7 @@
  * pieces does (see drops.js).
  */
 
-import { LIMITS, SIDES, ZONE_LABEL } from './constants.js'
+import { IMAGE_LABEL, LIMITS, SIDES, ZONE_LABEL, isWithinPiece } from './constants.js'
 import { writtenPieces } from './model.js'
 import { freeId } from './stamp.js'
 import { topologyOf } from './topology.js'
@@ -437,6 +437,65 @@ export function addZone(pieces, compartment) {
 }
 
 /**
+ * Adds an image on the canvas: a picture to look at, drawn by its frame and nothing more.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {{image?: string, frame: {x: number, y: number, width: number, height: number}, label?: string}} what - Its
+ *   picture's id in the image store (none: a placeholder, to choose one later), and where it is drawn on the canvas.
+ * @returns {{pieces: Array<Object>, id: string}}
+ */
+export function addImage(pieces, { image, frame, label }) {
+  const id = freeId('image', taken(pieces))
+  const name = label?.trim() ? label.trim().slice(0, LIMITS.label) : numbered(pieces, 'image', IMAGE_LABEL)
+  const clamped = {
+    x: Math.min(LIMITS.at.max, Math.max(LIMITS.at.min, frame.x)),
+    y: Math.min(LIMITS.at.max, Math.max(LIMITS.at.min, frame.y)),
+    width: Math.min(LIMITS.size.max, Math.max(LIMITS.size.min, frame.width)),
+    height: Math.min(LIMITS.size.max, Math.max(LIMITS.size.min, frame.height)),
+  }
+  return {
+    pieces: [...copy(pieces), { id, kind: 'image', label: name, frame: whole(clamped), ...(image && { image }) }],
+    id,
+  }
+}
+
+/**
+ * Sets how solid an image is drawn: 1 is solid.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {string} id
+ * @param {number} opacity
+ * @returns {Array<Object>|null} Null for no such image.
+ */
+export function setImageOpacity(pieces, id, opacity) {
+  const raw = copy(pieces)
+  const piece = raw.find((each) => each.id === id && each.kind === 'image')
+  if (!piece) return null
+  if (opacity >= 1) delete piece.opacity
+  else piece.opacity = Math.round(opacity * 100) / 100
+  return raw
+}
+
+/**
+ * Gives an image a picture, or another one, as wide as it was and as tall as the new picture's shape makes it.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {string} id
+ * @param {string} image - The picture's id in the image store.
+ * @param {{width: number, height: number}} size - The picture's own size, for its shape.
+ * @returns {Array<Object>|null} Null for no such image.
+ */
+export function replaceImage(pieces, id, image, size) {
+  const raw = copy(pieces)
+  const piece = raw.find((each) => each.id === id && each.kind === 'image')
+  if (!piece) return null
+  piece.image = image
+  const height = (piece.frame.width * size.height) / size.width
+  piece.frame.height = Math.round(Math.min(LIMITS.size.max, Math.max(LIMITS.size.min, height)))
+  return raw
+}
+
+/**
  * Renames a piece, or a stretch of a membrane.
  *
  * @param {ReadonlyArray<Object>} pieces
@@ -497,7 +556,7 @@ export function removedWith(pieces, ids) {
   const dependsOnGoing = (piece) =>
     going.has(piece.parent) ||
     (piece.kind === 'tube' && piece.ends.some((end) => going.has(end))) ||
-    (piece.kind === 'zone' && going.has(piece.compartment)) ||
+    (isWithinPiece(piece) && going.has(piece.compartment)) ||
     (piece.kind === 'fold' && going.has(piece.membrane)) ||
     (piece.docks ?? []).some((dock) => going.has(dock.on)) ||
     (piece.kind === 'membrane' && piece.encloses.every((id) => going.has(id)))

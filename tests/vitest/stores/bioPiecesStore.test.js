@@ -23,6 +23,47 @@ describe('bioPiecesStore', () => {
     expect(store.pieces).toBe(before)
   })
 
+  it('keeps each picture once, and saves only those its images name', () => {
+    const store = useBioPiecesStore()
+    const picture = { type: 'image/png', data: 'data:image/png;base64,iVBORw0KGgo=', width: 4, height: 2 }
+    const id = store.addImage(picture)
+    expect(store.addImage({ ...picture })).toBe(id)
+    expect(store.addImage({ ...picture, data: 'javascript:alert(1)' })).toBeNull()
+    const unused = store.addImage({ ...picture, data: 'data:image/png;base64,AAAA' })
+    store.setPieces([
+      { id: 'box', kind: 'compartment', label: 'Box' },
+      {
+        id: 'pic',
+        kind: 'image',
+        label: 'Pic',
+        frame: { x: 0, y: 0, width: 40, height: 20 },
+        image: id,
+      },
+      { id: 'empty', kind: 'image', label: 'Empty', frame: { x: 0, y: 40, width: 40, height: 20 } },
+    ])
+    const saved = JSON.parse(JSON.stringify(store.getState()))
+    expect(Object.keys(saved.images)).toEqual([id])
+    expect(saved.images[id]).toEqual(picture)
+    expect(store.imageOf(unused)).not.toBeNull()
+    store.resetState()
+    expect(store.imageOf(id)).toBeNull()
+    store.loadState(saved)
+    expect(store.imageOf(id)).toEqual(picture)
+  })
+
+  it('loads a saved picture under the id its data gives, and skips one it can’t draw', () => {
+    const store = useBioPiecesStore()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const picture = { type: 'image/png', data: 'data:image/png;base64,iVBORw0KGgo=', width: 4, height: 2 }
+    store.loadState({
+      pieces: [],
+      images: { 'img-0000000000000000': picture, 'img-1111111111111111': { ...picture, type: 'text/html' } },
+    })
+    expect(Object.keys(store.images)).toEqual([store.addImage(picture)])
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
   it('saves and loads its pieces, and saves nothing without any', () => {
     const store = useBioPiecesStore()
     expect(store.getState()).toBeNull()

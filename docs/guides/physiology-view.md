@@ -49,6 +49,8 @@ The view is built from five **pieces**, each with **sites** to drop modules on. 
 | **Fold** | By a membrane's side: an invagination such as a T-tubule | Protein slots down its walls |
 | **Process zone** | In a compartment | Process slots |
 
+The Build tab's **Image** tile adds a picture to the view, only to look at: it has no sites, no module and no part in the model or a simulation. Drag it onto bare canvas, or click it and then click there, for a dashed placeholder; then click its **Choose picture…** button, or right-click it and choose **Choose Picture…**, to pick a PNG, JPEG, WebP or GIF picture from your computer. You can also drag a picture file from your computer straight onto bare canvas. An image can't be dropped on a compartment, cell, tube or another image. A big picture is shrunk as it is added. Once placed, drag it anywhere: it is drawn under every cell and compartment, and never moves or resizes them. Use its corner handle to resize it (it keeps its shape). Its right-click menu has **Replace Picture…** and **Opacity**. Images are saved with the workspace, but a template can't hold them: **Save Pieces As Template File…** leaves them out.
+
 Each stretch of a membrane that a compartment is docked to is a protein site of its own, so the proteins on it meet that compartment.
 
 ### Templates {#templates}
@@ -74,9 +76,9 @@ Right-click a protein or process to **Unbind** it: it is drawn beside the pieces
 
 ### Moving and Resizing {#moving-pieces}
 
-- Drag a cell, organelle, free compartment or process zone to move it. What is in it, docked to it or joined to it by a tube follows as you drag. A piece stays inside the one it stands in: dragged past its parent's right or bottom, the parent grows.
+- Drag a cell, organelle, free compartment, process zone or image to move it. What is in it, docked to it or joined to it by a tube follows as you drag. A piece stays inside the one it stands in: dragged past its parent's right or bottom, the parent grows.
 - Drag a compartment docked along part of one side to slide it along that side; the protein sites beside it make room.
-- Hover over a cell, organelle, free compartment or process zone for the resize handle at its bottom-right corner.
+- Hover over a cell, organelle, free compartment, process zone or image for the resize handle at its bottom-right corner.
 - A compartment docked along one side has a grip on its far edge. Drag it across the side to set how far the compartment reaches. Drag it onto another membrane's side or a fold to dock the compartment there too, so that it lies between the two: the green outline and the label by the pointer show what it would dock to. A dyadic cleft between an organelle and a T-tubule is built this way: dock a compartment beside the organelle, then drag its far edge onto the T-tubule's wall. Between a fold and a side, or two sides that face each other, it is drawn as the gap between them.
 - Drag a fold by the grip at its end, along its side and deeper or shallower; a tube by the grip above its module, to bend it; and a tube's end grip onto another compartment, to join it there.
 - Hold **Alt** (**Option** on a Mac) while dragging a compartment, cell, organelle or process zone to lift it out of where it is. It stays put while you carry it, and the outline and the label by the pointer show where it would go: docked against the membrane side the pointer is by, standing in the compartment under the pointer, or out on the view. Let go with Alt still down to put it there; let go of Alt first to move it as a plain drag does. This is how a compartment already on the view is docked to a membrane, how a docked one is detached, even one along a whole side that a plain drag can't move, and how a cell is moved from one compartment to another.
@@ -89,7 +91,7 @@ Right-click a protein or process to **Unbind** it: it is drawn beside the pieces
 
 Right-click a piece for:
 
-- **Rename…**: a compartment, membrane or tube is renamed as its module, so this renames the instance. A process zone is renamed with **Rename Piece…**. A click on a piece's name renames it too.
+- **Rename…**: a compartment, membrane or tube is renamed as its module, so this renames the instance. A process zone or image is renamed with **Rename Piece…**. A click on a piece's name renames it too.
 - **Skin** and, on a cell, **Membrane Skin**: how the piece is drawn. See [Skins](#skins).
 - **Fit to Contents**: shrinks a cell or compartment back to what its contents need. A piece never shrinks on its own.
 - **Straighten Tube**: takes a tube's bend away.

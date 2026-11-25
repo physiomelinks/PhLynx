@@ -356,6 +356,9 @@
       <template #node-bioZone="props">
         <BioZone :id="props.id" :data="props.data" :selected="props.selected" />
       </template>
+      <template #node-bioImage="props">
+        <BioImage :id="props.id" :data="props.data" :selected="props.selected" />
+      </template>
       <template #node-bioGrip="props">
         <BioGrip :data="props.data" />
       </template>
@@ -494,6 +497,7 @@ import BioRegion from './BioRegion.vue'
 import BioLink from './BioLink.vue'
 import BioJoint from './BioJoint.vue'
 import BioZone from './BioZone.vue'
+import BioImage from './BioImage.vue'
 import BioGrip from './BioGrip.vue'
 import HamburgerTornadoIcon from '../icons/HamburgerTornadoIcon.vue'
 import SpeciesMenu from './SpeciesMenu.vue'
@@ -501,6 +505,8 @@ import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
 import { useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
+import { useBioImages } from '../../composables/useBioImages'
+import { isImageFileDrag } from '../../services/bioView/images'
 import {
   STRUCTURE_TYPES,
   dropSites,
@@ -538,7 +544,13 @@ import {
   resolveExtraDock,
   resolveTubeEnd,
 } from '../../services/bioView/pieces/drops'
-import { relabelPiece, removeDock, skinPiece } from '../../services/bioView/pieces/edits'
+import {
+  relabelPiece,
+  removeDock,
+  replaceImage,
+  setImageOpacity,
+  skinPiece,
+} from '../../services/bioView/pieces/edits'
 import {
   bendTube,
   fitToContents,
@@ -670,6 +682,7 @@ const {
   nameError,
   renameInstance,
 } = useBioEdits()
+const { chooseImage, keepImageFile } = useBioImages()
 
 onMounted(() => loadSidecars())
 
@@ -2257,7 +2270,8 @@ function pieceMenu(place, nodeId = null) {
   // A tube's joint, where its ends touch; the vessel along a conduit between compartments apart is the view's.
   const jointItems = piece.kind === 'tube' && place.joint && place.joint !== 'conduit' ? skinMenu(piece.id) : []
   if (jointItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: jointItems })
-  if (piece.frame && piece.kind !== 'zone') {
+  if (piece.kind === 'image') items.push(...imageMenu(piece))
+  if (piece.frame && piece.kind !== 'zone' && piece.kind !== 'image') {
     items.push({
       label: 'Fit to Contents',
       icon: 'pi pi-arrows-alt',
@@ -2275,6 +2289,44 @@ function pieceMenu(place, nodeId = null) {
   items.push(...relocateMenu(piece))
   items.push(...removeMenu(place, piece))
   return [{ separator: true }, ...items]
+}
+
+/** How solid an image can be drawn, from its menu. */
+const IMAGE_OPACITIES = [1, 0.75, 0.5, 0.25]
+
+/**
+ * Asks for a picture file and gives an image it, as one step. Called from a click, as a browser only opens its file
+ * picker on one: the placeholder's button (see BioImage), or the image's menu.
+ *
+ * @param {string} pieceId
+ */
+async function choosePictureFor(pieceId) {
+  const picture = await chooseImage()
+  if (picture) await keepEdit(replaceImage(piecesStore.pieces, pieceId, picture.id, picture), 'bio-pieces-image-edit')
+}
+provide('bioImagePick', choosePictureFor)
+
+/** What an image's menu offers: its picture, chosen or another, and how solid it is drawn. */
+function imageMenu(piece) {
+  const opacity = piece.opacity ?? 1
+  const choose = {
+    label: piece.image ? 'Replace Picture…' : 'Choose Picture…',
+    icon: 'pi pi-upload',
+    command: () => choosePictureFor(piece.id),
+  }
+  if (!piece.image) return [choose]
+  return [
+    choose,
+    {
+      label: 'Opacity',
+      icon: 'pi pi-sun',
+      items: IMAGE_OPACITIES.map((each) => ({
+        label: `${Math.round(each * 100)}%`,
+        icon: each === opacity ? 'pi pi-check' : undefined,
+        command: () => keepEdit(setImageOpacity(piecesStore.pieces, piece.id, each), 'bio-pieces-image-edit'),
+      })),
+    },
+  ]
 }
 
 /**
@@ -2408,7 +2460,9 @@ function trackPiece(point) {
   const tile = carriedTile.value
   const scene = pieceScene.value
   if (!tile || !scene) return
-  const drop = isTemplateTile(tile) ? templateDrop(tile.template, point, scene) : resolveDrop(tile.piece, point, scene)
+  const drop = isTemplateTile(tile)
+    ? templateDrop(tile.template, point, scene)
+    : resolveDrop(tile.piece, point, scene, { picture: tile.picture })
   if (drop) showPieceDrop({ scene, drop }, point)
 }
 
@@ -2532,12 +2586,14 @@ function onArmedMove(event) {
 /**
  * Adds one of the five pieces where it is dropped, as one step, saying why where it can't go there.
  *
- * @param {'compartment'|'membrane'|'tube'|'fold'|'zone'} kind
+ * @param {'compartment'|'membrane'|'tube'|'fold'|'zone'|'image'} kind
  * @param {{x: number, y: number}} point - In flow coordinates.
+ * @param {{picture?: Object}} [options] - For an image, its picture, where it has one already (a file dropped from
+ *   the desktop); else it is placed empty, to choose one.
  */
-async function placePieceAt(kind, point) {
+async function placePieceAt(kind, point, { picture } = {}) {
   const scene = dropScene(piecesStore.pieces, sceneOptions())
-  const drop = resolveDrop(kind, point, scene)
+  const drop = resolveDrop(kind, point, scene, { picture })
   if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
   let choice
   if (drop.cells) {
@@ -2602,7 +2658,7 @@ function viewCentre() {
  */
 function applyTile(tile, point) {
   if (tile.kind === 'template') return placePiecesAt(tile.template, point, { inCompartment: true })
-  if (isPieceTile(tile)) return placePieceAt(tile.piece, point)
+  if (isPieceTile(tile)) return placePieceAt(tile.piece, point, { picture: tile.picture })
   if (tile.kind === 'module') {
     const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
     return module && props.createInstance ? placeModuleAt(module, point) : null
@@ -2673,14 +2729,19 @@ async function onTemplateFile(event) {
 
 /** Downloads every piece of the view as a template file anyone can load. */
 function savePiecesAsTemplate() {
+  // A template has no store for pictures, so it holds no images; nothing else depends on one.
+  const pieces = piecesStore.pieces.filter((piece) => piece.kind !== 'image')
   const template = {
     schemaVersion: PIECES_SCHEMA_VERSION,
     id: 'physiology',
     name: 'Physiology',
-    pieces: piecesStore.pieces,
+    pieces,
   }
   const { filename, text } = templateFile(template)
   legacyDownload(filename, new Blob([text], { type: 'application/json' }))
+  if (pieces.length < piecesStore.pieces.length) {
+    notify.info({ title: 'Images left out', message: 'A template can’t hold images, so they were left out of it.' })
+  }
 }
 
 /**
@@ -2901,6 +2962,7 @@ function piecesDrawnBy(nodeId) {
     }
     case 'region':
     case 'zone':
+    case 'image':
     case 'link':
       return place.piece ? [place.piece] : []
     case 'membrane': {
@@ -3020,6 +3082,18 @@ function isLibraryDrag(event) {
 }
 
 function onModuleDragOver(event) {
+  if (isImageFileDrag(event)) {
+    // A picture from the desktop goes on the bare canvas, as the Image tile's does: the label says why it can't go
+    // on a piece.
+    const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+    const scene = (libraryScene ??= dropScene(piecesStore.pieces, sceneOptions()))
+    const drop = resolveDrop('image', point, scene)
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'copy'
+    showPieceDrop({ scene, drop }, point)
+    return
+  }
   if (isTileDrag(event)) {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
@@ -3053,6 +3127,16 @@ function onModuleDragLeave(event) {
  * one step, or where it was dropped, asking what it is. Files dropped here go on to the workspace.
  */
 async function onModuleDrop(event) {
+  if (isImageFileDrag(event) || hasDroppedPictures(event)) {
+    const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+    libraryScene = null
+    clearPiecePreview()
+    event.preventDefault()
+    event.stopPropagation()
+    const drop = resolveDrop('image', point, dropScene(piecesStore.pieces, sceneOptions()))
+    if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
+    return placePictureFiles([...event.dataTransfer.files], point)
+  }
   if (isTileDrag(event)) {
     event.preventDefault()
     event.stopPropagation()
@@ -3074,6 +3158,27 @@ async function onModuleDrop(event) {
   libraryScene = null
   clearPiecePreview()
   return placeModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+}
+
+/** Whether a drop carries files, every one a picture. */
+const hasDroppedPictures = (event) => {
+  const files = [...(event.dataTransfer?.files ?? [])]
+  return files.length > 0 && files.every((file) => file.type.startsWith('image/'))
+}
+
+/**
+ * Adds pictures dropped from the desktop as images on the canvas there, each a little below and right of the one
+ * before.
+ *
+ * @param {File[]} files
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ */
+async function placePictureFiles(files, point) {
+  isViewSet = isViewChosen = true
+  for (const [index, file] of files.entries()) {
+    const picture = await keepImageFile(file)
+    if (picture) await placePieceAt('image', { x: point.x + 24 * index, y: point.y + 24 * index }, { picture })
+  }
 }
 
 /** The library's new, empty module, which the Module tile and "New Module Here" add. */

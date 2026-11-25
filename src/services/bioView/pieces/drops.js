@@ -6,11 +6,13 @@
  */
 
 import { EMPTY_SPAN } from '../geometry.js'
+import { IMAGE_NEW_SIDE, imageFrameSize } from '../images.js'
 import { ROOM_INSIDE, SIDES } from './constants.js'
 import {
   addCompartment,
   addDock,
   addFold,
+  addImage,
   addTube,
   addZone,
   dockCompartment,
@@ -51,7 +53,16 @@ export const PIECE_TILES = Object.freeze([
     hint: 'An invagination of a membrane, such as a T-tubule, in from the side it is dropped on',
   },
   { kind: 'zone', label: 'Process zone', icon: 'pi pi-box', hint: 'An area in a compartment for process modules' },
+  {
+    kind: 'image',
+    label: 'Image',
+    icon: 'pi pi-image',
+    hint: 'A picture on the bare canvas, only to look at: no part of the model. Place it, then choose its picture; or drop a picture file on the canvas',
+  },
 ])
+
+/** How big an image with no picture yet is drawn: a placeholder to choose one. */
+export const EMPTY_IMAGE = Object.freeze({ width: IMAGE_NEW_SIDE, height: (IMAGE_NEW_SIDE * 2) / 3 })
 
 /** How near a membrane's side a compartment or fold must be dropped to go against it, or into it. */
 const DOCK_BAND = 28
@@ -98,7 +109,68 @@ export function dropScene(pieces, { nodes = [], widthOf } = {}) {
   for (const place of places.values()) {
     for (const fold of place.folds ?? []) folds.set(fold.facetId, foldRect(place.rect, fold))
   }
-  return { pieces, rects, folds, byId: new Map(pieces.map((piece) => [piece.id, piece])), nodes, widthOf }
+  return {
+    pieces,
+    rects,
+    folds,
+    drawn: drawnShapes(places),
+    byId: new Map(pieces.map((piece) => [piece.id, piece])),
+    nodes,
+    widthOf,
+  }
+}
+
+/** How near a tube's way a point counts as on it. */
+const ON_TUBE = 12
+
+/**
+ * What is drawn on the view, for a drop that needs bare canvas: the rect of each cell, compartment, zone and image,
+ * and each tube's room and the stretches of its way.
+ *
+ * @param {Map<string, Object>} places - From layoutPieces.
+ * @returns {{rects: Array<Object>, ways: Array<Array<{x: number, y: number}>>}}
+ */
+function drawnShapes(places) {
+  const rects = []
+  const ways = []
+  for (const place of places.values()) {
+    if (place.kind === 'link') {
+      if (place.zone) rects.push(place.zone)
+      if (place.channel) rects.push(channelRect(place.channel))
+      if (place.points) ways.push(place.points)
+      else if (!place.zone && place.rect) rects.push(place.rect)
+    } else if (['cell', 'region', 'zone', 'image'].includes(place.kind) && place.rect) rects.push(place.rect)
+  }
+  return { rects, ways }
+}
+
+/** A bridge's channel as a rect, its band's width across it. */
+const channelRect = ({ from, to }) => ({
+  x: Math.min(from.x, to.x) - ON_TUBE,
+  y: Math.min(from.y, to.y) - ON_TUBE,
+  width: Math.abs(to.x - from.x) + 2 * ON_TUBE,
+  height: Math.abs(to.y - from.y) + 2 * ON_TUBE,
+})
+
+/** How far a point is from the segment between two others. */
+function segmentDistance(point, a, b) {
+  const [dx, dy] = [b.x - a.x, b.y - a.y]
+  const length = dx * dx + dy * dy
+  const t = length ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length)) : 0
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy))
+}
+
+/**
+ * Whether a point is on bare canvas: on no cell, compartment, zone, image or tube.
+ *
+ * @param {Object} scene - From dropScene.
+ * @param {{x: number, y: number}} point
+ * @returns {boolean}
+ */
+export function isBareCanvas(scene, point) {
+  const { rects, ways } = scene.drawn
+  if (rects.some((rect) => contains(rect, point))) return false
+  return !ways.some((way) => way.slice(1).some((b, index) => segmentDistance(point, way[index], b) <= ON_TUBE))
 }
 
 /** A fold's lumen as a rect, from its membrane's rect and where the fold is in it (see foldPocket). */
@@ -510,28 +582,54 @@ export function resolveCarry(scene, id, point, shift) {
   }
 }
 
+/**
+ * An image goes on bare canvas only, never on a piece or another image, centred where it is dropped, as big as
+ * imageFrameSize says.
+ *
+ * @param {Object} scene
+ * @param {{x: number, y: number}} point
+ * @param {{picture?: {id: string, width: number, height: number, label?: string}}} [options] - Its picture, where
+ *   it has one already (a file dropped from the desktop): its id in the image store, its own size and the name it is
+ *   given. Without, it is a placeholder to choose one.
+ */
+function resolveImage(scene, point, { picture } = {}) {
+  if (!isBareCanvas(scene, point)) return { key: 'image|taken', invalid: 'An image goes on bare canvas.' }
+  return {
+    key: `image|${picture?.id ?? ''}|${snap(point)}`,
+    label: picture ? 'An image on the canvas' : 'An image on the canvas, to choose its picture',
+    highlights: [],
+    apply: (pieces) => {
+      const size = picture ? imageFrameSize(picture) : EMPTY_IMAGE
+      const frame = { x: Math.round(point.x - size.width / 2), y: Math.round(point.y - size.height / 2), ...size }
+      return addImage(pieces, { image: picture?.id, frame, label: picture?.label })
+    },
+  }
+}
+
 const RESOLVERS = {
   compartment: resolveCompartment,
   membrane: resolveMembrane,
   tube: resolveTube,
   fold: resolveFold,
   zone: resolveZone,
+  image: resolveImage,
 }
 
 /**
  * Works out what dropping a piece at a point would do.
  *
- * @param {'compartment'|'membrane'|'tube'|'fold'|'zone'} kind
+ * @param {'compartment'|'membrane'|'tube'|'fold'|'zone'|'image'} kind
  * @param {{x: number, y: number}} point - In flow coordinates.
  * @param {Object} scene - From dropScene.
+ * @param {Object} [options] - For an image, the picture chosen already (see resolveImage).
  * @returns {{key: string, label: string, highlights: Array<Object>, apply: Function, cells?: [string, string]}|
  *   {key: string, invalid: string}} apply(pieces, choice) gives { pieces, id } (raw, for validatePieces) or
  *   { pieces: null, error }; highlights are lines ({type: 'line', from, to}) or rects ({type: 'rect', rect}) to draw
  *   over the target; cells, a tube's, names the two touching cells it would join, as a gap junction or a bridge.
  */
-export function resolveDrop(kind, point, scene) {
+export function resolveDrop(kind, point, scene, options) {
   const resolve = RESOLVERS[kind]
-  return resolve ? resolve(scene, point) : { key: `${kind}|unknown`, invalid: 'That is not a piece.' }
+  return resolve ? resolve(scene, point, options) : { key: `${kind}|unknown`, invalid: 'That is not a piece.' }
 }
 
 /** The box round the compartments already there that a new membrane encloses, or null where it encloses none. */

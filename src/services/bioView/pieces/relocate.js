@@ -5,7 +5,7 @@
  * drop's apply does (see drops.js). Modules stay on the pieces they are on, which keep their ids.
  */
 
-import { LIMITS, ROOM_INSIDE } from './constants.js'
+import { LIMITS, ROOM_INSIDE, containerIdOf, isWithinPiece } from './constants.js'
 import { cutStretch, fluxBetween, isDefaultTubeName, joinsTwoCells, tubeName } from './edits.js'
 import { writtenPieces } from './model.js'
 import { topologyOf } from './topology.js'
@@ -21,7 +21,7 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
 const fail = (error) => ({ pieces: null, id: null, error })
 
 /** What a piece stands in, as it is written: a zone's compartment, another's parent; null for the view. */
-const containerOf = (piece) => (piece.kind === 'zone' ? piece.compartment : piece.parent) ?? null
+const containerOf = (piece) => containerIdOf(piece) ?? null
 
 /**
  * What is lifted with a piece: a compartment or process zone itself, or a cell whole (its membrane, taken for a
@@ -49,6 +49,7 @@ export function liftedWith(pieces, id) {
       return { error: `${piece.label} is part of the inside of ${cell}, which has no other: it stays where it is.` }
     }
   } else if (piece?.kind === 'membrane') label = byId.get(topology.bulkOf(id))?.label ?? label
+  if (piece?.kind === 'image') return { error: 'An image stays on the canvas: drag it to move it there.' }
   if (!['compartment', 'membrane', 'zone'].includes(piece?.kind)) {
     return { error: 'Only a compartment, a cell or a process zone can be moved somewhere else.' }
   }
@@ -57,7 +58,7 @@ export function liftedWith(pieces, id) {
   for (const top of tops) for (const enclosed of byId.get(top).encloses ?? []) ids.add(enclosed)
   const goesWith = (each) =>
     ids.has(each.parent) ||
-    (each.kind === 'zone' && ids.has(each.compartment)) ||
+    (isWithinPiece(each) && ids.has(each.compartment)) ||
     (each.kind === 'fold' && ids.has(each.membrane)) ||
     (!!each.docks?.length && each.docks.every((dock) => ids.has(dock.on)))
   for (let grew = true; grew;) {
@@ -164,7 +165,7 @@ export function standPiece(pieces, id, { parent = null, shift = { x: 0, y: 0 } }
   const framed = []
   for (const piece of tops) {
     if (lifted.ids.has(containerOf(piece))) continue
-    if (piece.kind === 'zone') piece.compartment = parent
+    if (isWithinPiece(piece)) piece.compartment = parent
     else if (parent) piece.parent = parent
     else delete piece.parent
     // Drawn by its own frame: a membrane, a zone, and a compartment neither docked nor enclosed.
@@ -178,7 +179,7 @@ export function standPiece(pieces, id, { parent = null, shift = { x: 0, y: 0 } }
     })
   }
   // Kept in from the top and left of what it stands in, all as far; that grows to hold it at its right and bottom.
-  const low = !parent ? LIMITS.at.min : lifted.kind === 'zone' ? ZONE_INSET : ROOM_INSIDE
+  const low = !parent ? LIMITS.at.min : isWithinPiece({ kind: lifted.kind }) ? ZONE_INSET : ROOM_INSIDE
   const nudge = (axis) => Math.max(0, low - Math.min(...framed.map(({ frame }) => frame[axis])))
   const [dx, dy] = [nudge('x'), nudge('y')]
   for (const { piece, frame } of framed) {
@@ -261,7 +262,7 @@ export function detachPiece(pieces, id, rects) {
  */
 export function outOf(pieces, id) {
   const lifted = liftedWith(pieces, id)
-  if (lifted.error || lifted.kind === 'zone') return null
+  if (lifted.error || isWithinPiece({ kind: lifted.kind })) return null
   const within = pieces.find((piece) => piece.id === standingIn(pieces, lifted.root))
   if (!within) return null
   return {

@@ -55,6 +55,9 @@ function structureZ(layout, id) {
   return STRUCTURE_Z + depth * STRUCTURE_LAYER + (layout.get(id)?.kind === 'cell' ? 1 : 0)
 }
 
+/** Images are drawn under every cell and compartment (see structureZ), all of which are drawn over them. */
+const IMAGE_Z = -1100
+
 /** How big a grip is drawn. */
 const GRIP = 14
 
@@ -114,7 +117,7 @@ const viewLabels = (byId, layout, transport) => (id) => ({
  * Turns the physiological layout into nodes for the physiological view's flow. Each has the id of the
  * instance it draws, so selection and edits map straight back. Proteins in a membrane and processes in
  * a cell are children of the cell, so they move with it. A piece with no module on it is a node of its own, keyed
- * 'pc:<id>', and so are its zones and grips.
+ * 'pc:<id>', and so are its zones, images and grips.
  *
  * @param {Array<Object>} nodes - The diagram's nodes.
  * @param {Map<string, Object>} roles - Node id -> resolveBioRole's result.
@@ -181,6 +184,29 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             named: place.named,
             piece: place.piece,
             site: place.site,
+            width,
+            height,
+            ...(place.resize && { resize: place.resize }),
+          },
+        })
+        break
+      }
+      case 'image': {
+        // A picture on the canvas, under every cell and compartment.
+        const { x, y, width, height } = place.rect
+        parents.push({
+          ...base(id),
+          type: 'bioImage',
+          position: { x, y },
+          width,
+          height,
+          zIndex: IMAGE_Z,
+          draggable: true,
+          data: {
+            ...base(id).data,
+            piece: place.piece,
+            image: place.image,
+            opacity: place.opacity,
             width,
             height,
             ...(place.resize && { resize: place.resize }),

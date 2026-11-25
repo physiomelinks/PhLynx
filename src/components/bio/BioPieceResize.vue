@@ -8,6 +8,7 @@
     variant="handle"
     :min-width="20"
     :min-height="20"
+    :keep-aspect-ratio="keepAspect"
     data-testid="bio-piece-resize"
     @resize-start="(event) => report('start', event)"
     @resize="(event) => report('resize', event)"
@@ -24,6 +25,8 @@ const props = defineProps({
   nodeId: { type: String, required: true },
   /** Where the handle is: a corner or an edge (see NodeResizeControl). */
   position: { type: String, default: 'bottom-right' },
+  /** Whether it keeps its shape as it is resized, as an image does. */
+  keepAspect: { type: Boolean, default: false },
 })
 
 /** The view's `(nodeId, phase, params) => void`, which turns a resize into a change to the pieces. */
