@@ -6,6 +6,7 @@ import {
   removePieces,
   replaceImage,
   setImageOpacity,
+  skinPiece,
 } from '../../../../../src/services/bioView/pieces/edits.js'
 import { layoutPieces, pieceKey } from '../../../../../src/services/bioView/pieces/layout.js'
 import { validatePieces, validatePiecesTemplate } from '../../../../../src/services/bioView/pieces/model.js'
@@ -173,5 +174,30 @@ describe('dropping an image', () => {
     const way = layoutPieces(scene.pieces).places.get(pieceKey('t'))
     expect(at(...middle(way.zone)), 'tube').toBe('An image goes on bare canvas.')
     expect(at(160, 300)).toBeNull()
+  })
+})
+
+describe('an image’s skin', () => {
+  it('takes the place of its picture, and a picture the place of its skin', () => {
+    const pieces = valid([image(undefined, { opacity: 0.5 })])
+    const skinned = valid(skinPiece(pieces, 'pic', { ref: 'heart' }))[0]
+    expect(skinned).toMatchObject({ skin: { ref: 'heart', mode: 'contain', opacity: 1 } })
+    expect(skinned.image).toBeUndefined()
+    expect(skinned.opacity).toBeUndefined()
+    const pictured = valid(replaceImage(valid([skinned]), 'pic', PICTURE, { width: 2, height: 1 }))[0]
+    expect(pictured.image).toBe(PICTURE)
+    expect(pictured.skin).toBeUndefined()
+  })
+
+  it('is none without taking its picture', () => {
+    const none = valid(skinPiece(valid([image()]), 'pic', { ref: 'none' }))[0]
+    expect(none).toMatchObject({ image: PICTURE, skin: { ref: 'none' } })
+  })
+
+  it('is drawn with it', () => {
+    const { image: _, ...empty } = image()
+    const place = layoutPieces(valid([{ ...empty, skin: { ref: 'heart', mode: 'cover' } }])).places.get(pieceKey('pic'))
+    expect(place.skin).toMatchObject({ ref: 'heart', mode: 'cover' })
+    expect(layoutPieces(valid([image()])).places.get(pieceKey('pic')).skin).toBeUndefined()
   })
 })

@@ -106,7 +106,7 @@ export const PIECE_KEYS = Object.freeze({
   tube: ['id', 'kind', 'label', 'ends', 'flux', 'bends', 'skin', 'site'],
   fold: ['id', 'kind', 'label', 'membrane', 'side', 'at', 'depth', 'site'],
   zone: ['id', 'kind', 'label', 'compartment', 'frame', 'site'],
-  image: ['id', 'kind', 'label', 'frame', 'image', 'opacity'],
+  image: ['id', 'kind', 'label', 'frame', 'image', 'opacity', 'skin'],
   dock: ['on', 'side', 'face', 'from', 'to'],
   span: ['id', 'label', 'to', 'annotation', 'group', 'site'],
   annotation: ['facet', 'at'],

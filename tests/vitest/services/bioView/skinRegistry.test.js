@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { contextOfModule } from '../../../../src/services/bioView/skinContext.js'
 import {
   NO_SKIN,
+  allowsNoSkin,
   getSkin,
   resolveSkin,
   setLoadedSkins,
@@ -112,5 +113,22 @@ describe('a tube’s joint', () => {
     setLoadedSkins([{ id: 'local:valve', name: 'Valve', appliesTo: ['conduit'], elements: [] }])
     expect(skinsFor(tube('conduit')).map((skin) => skin.id)).toEqual(['narrowing', 'local:valve'])
     expect(resolveSkin(tube('conduit'), { ref: 'local:valve' }).renderer).toBe('symbol')
+  })
+})
+
+describe('image skins', () => {
+  const image = { family: 'image', target: 'image', terms: [] }
+
+  it('are offered to images alone, the built-ins valid', () => {
+    expect(skinsFor(image).map((skin) => skin.id)).toEqual(['blood-vessel', 'heart', 'neuron', 'red-blood-cell'])
+    expect(skinsFor(image).every((skin) => skin.renderer === 'area')).toBe(true)
+    expect(skinsFor({ family: 'area', target: 'cytosol', terms: [] }).map((skin) => skin.id)).not.toContain('heart')
+  })
+
+  it('draw an image with none unless one is chosen', () => {
+    expect(allowsNoSkin('image')).toBe(true)
+    expect(resolveSkin(image)).toBeNull()
+    expect(resolveSkin(image, { ref: 'heart' }).id).toBe('heart')
+    expect(resolveSkin(image, { ref: 'rod-outer-segment' })).toBeNull()
   })
 })

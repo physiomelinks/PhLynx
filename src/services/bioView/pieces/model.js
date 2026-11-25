@@ -17,7 +17,7 @@
  * - fold: an invagination of a membrane, dipping in from one side `at` a point along it (0 to 1).
  * - zone: a process zone within a compartment, for process modules.
  * - image: a picture on the canvas, never in a compartment, drawn by its `frame` and nothing more: no site, no part
- *   of the model. `image` names its picture, if it has one yet (without, it is drawn as a placeholder to choose one) in the pieces' image store (see bioPiecesStore), so a template, which has no store,
+ *   of the model. It shows a picture of the user's or a `skin` made for images, never both. `image` names its picture, if it has one yet (without, it is drawn as a placeholder to choose one) in the pieces' image store (see bioPiecesStore), so a template, which has no store,
  *   holds none.
  * Positions along a side (`from`, `to`, `at`) run 0 to 1, left to right or top to bottom, so they hold as the
  * membrane is resized.
@@ -378,6 +378,9 @@ function readImage(raw, piece, where, errors, warnings) {
     if (isNumberIn(raw.opacity, OPACITY)) piece.opacity = raw.opacity
     else errors.push(`${where}: "opacity" must be a number from ${OPACITY.min} to ${OPACITY.max}.`)
   }
+  // Or drawn with a skin made for images, in place of a picture.
+  const skin = readSkin(raw.skin, where, errors, warnings)
+  if (skin) piece.skin = skin
 }
 
 const READERS = {

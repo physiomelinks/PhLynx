@@ -1728,8 +1728,8 @@ function setSkin(id, skin) {
 }
 
 /**
- * A piece that has a skin of its own (a compartment, a membrane or a tube), what it is for its skin, and the skin it is drawn
- * with; null for any other.
+ * A piece that has a skin of its own (a compartment, a membrane, a tube or an image), what it is for its skin, and the
+ * skin it is drawn with; null for any other.
  *
  * @param {string|null} id - The piece's.
  * @returns {{piece: Object, context: Object, drawn: Object|null}|null}
@@ -1737,7 +1737,7 @@ function setSkin(id, skin) {
 function pieceSkinChoice(id) {
   const piece = id && piecesStore.pieces.find((each) => each.id === id)
   const context = piece && contextOfPiece(topologyOf(piecesStore.pieces), id)
-  if (!context || !['area', 'membrane', 'tube'].includes(context.family)) return null
+  if (!context || !['area', 'membrane', 'tube', 'image'].includes(context.family)) return null
   return { piece, context, drawn: resolveSkin(context, piece.skin) }
 }
 
@@ -1804,14 +1804,15 @@ async function onSkinFile(event) {
 }
 
 /**
- * The Skin submenu of a compartment or membrane: none where it can have none, the skins for what it is (those its
- * term matches first), and for an area how the one it is drawn with fills it, and a file.
+ * The Skin submenu of a compartment, membrane, tube or image: none where it can have none, the skins for what it is
+ * (those its term matches first), and for an area or image how the one it is drawn with fills it, and a file.
  */
 function skinMenu(id) {
   const choice = pieceSkinChoice(id)
   if (!choice) return []
   const { piece, context, drawn } = choice
-  const isArea = context.family === 'area'
+  // Drawn with SVG artwork: an area, or an image, which is offered only skins made for images.
+  const isArea = context.family === 'area' || context.family === 'image'
   // How it fills, kept while the skin it is drawn with is the one chosen.
   const current = isArea && drawn ? pieceSkinFor(piece, drawn.id) : null
   const mark = (isOn) => (isOn ? 'pi pi-check' : 'pi')
@@ -2306,7 +2307,10 @@ async function choosePictureFor(pieceId) {
 }
 provide('bioImagePick', choosePictureFor)
 
-/** What an image's menu offers: its picture, chosen or another, and how solid it is drawn. */
+/**
+ * What an image's menu offers: a picture, chosen or another, and how solid it is drawn; or a skin made for images,
+ * which takes the picture's place.
+ */
 function imageMenu(piece) {
   const opacity = piece.opacity ?? 1
   const choose = {
@@ -2314,9 +2318,11 @@ function imageMenu(piece) {
     icon: 'pi pi-upload',
     command: () => choosePictureFor(piece.id),
   }
-  if (!piece.image) return [choose]
+  const skin = { label: 'Skin', icon: 'pi pi-palette', items: skinMenu(piece.id) }
+  if (!piece.image) return [choose, skin]
   return [
     choose,
+    skin,
     {
       label: 'Opacity',
       icon: 'pi pi-sun',

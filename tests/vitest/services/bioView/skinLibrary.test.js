@@ -172,10 +172,11 @@ describe('area skins', () => {
     expect(validateSkin(glyph()).skin).toHaveProperty('elements')
   })
 
-  it('fill only areas, and must be drawings', () => {
+  it('fill only areas and images, and must be drawings', () => {
     expect(validateAreaSkin(area({ appliesTo: ['protein'] })).errors).toEqual([
-      'Skin "villus": "appliesTo" must list one or more of cytosol, organelle, subcompartment, extracellular.',
+      'Skin "villus": "appliesTo" must list one or more of cytosol, organelle, subcompartment, extracellular, image.',
     ])
+    expect(validateAreaSkin(area({ appliesTo: ['image'] })).skin.appliesTo).toEqual(['image'])
     expect(validateAreaSkin(area({ svg: '<p>no</p>' })).skin).toBeNull()
     expect(validateGlyph(glyph({ appliesTo: ['cytosol'] })).skin).toBeNull()
     // A symbol can draw a tube's joint, too.

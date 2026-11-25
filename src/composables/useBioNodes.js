@@ -207,6 +207,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
             piece: place.piece,
             image: place.image,
             opacity: place.opacity,
+            ...(place.skin && { skin: place.skin }),
             width,
             height,
             ...(place.resize && { resize: place.resize }),

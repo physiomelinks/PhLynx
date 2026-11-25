@@ -1,14 +1,27 @@
 <template>
-  <!-- An image of the pieces: a picture on the canvas, only to look at; with none yet, a placeholder to choose one. -->
+  <!-- An image of the pieces: a picture on the canvas, or a skin made for images, only to look at; with neither yet,
+       a placeholder to choose one. -->
   <div
-    :class="['bio-image', { 'bio-image--selected': selected, 'bio-image--empty': !picture }]"
+    :class="['bio-image', { 'bio-image--selected': selected, 'bio-image--empty': isEmpty }]"
     data-testid="bio-image"
     :data-piece="data.piece"
-    :data-empty="!picture || undefined"
+    :data-empty="isEmpty || undefined"
+    :data-skin="data.skin?.ref"
     :title="data.name"
   >
+    <svg v-if="skin" class="bio-image__skin" :width="data.width" :height="data.height" data-testid="bio-skin">
+      <image
+        :href="skin.href"
+        x="0"
+        y="0"
+        :width="data.width"
+        :height="data.height"
+        :preserveAspectRatio="skin.aspect"
+        :opacity="skin.opacity"
+      />
+    </svg>
     <img
-      v-if="picture"
+      v-else-if="picture"
       class="bio-image__picture"
       :src="picture.data"
       :alt="data.name"
@@ -32,7 +45,7 @@
       v-if="data.resize && id"
       :node-id="id"
       :position="data.resize.position"
-      :keep-aspect="!!picture && !!data.resize.keepAspect"
+      :keep-aspect="!skin && !!picture && !!data.resize.keepAspect"
     />
   </div>
 </template>
@@ -54,6 +67,13 @@ const pieces = useBioPiecesStore()
 /** Its picture, from the pieces' image store; null with none yet, or none in the store by its id. */
 const picture = computed(() => (props.data.image ? pieces.imageOf(props.data.image) : null))
 
+/** The view's `(skin) => { href, aspect, opacity } | null`: the artwork a piece's skin names (see BioRegion). */
+const skinOf = inject('bioSkinOf', () => null)
+const skin = computed(() => (props.data.skin ? skinOf(props.data.skin) : null))
+
+/** With neither a skin nor a picture, it is a placeholder for one. */
+const isEmpty = computed(() => !skin.value && !picture.value)
+
 /** The view's `(pieceId) => void`, which asks for a picture file and gives the image it. */
 const pick = inject('bioImagePick', () => {})
 </script>
@@ -64,6 +84,13 @@ const pick = inject('bioImagePick', () => {})
   box-sizing: border-box;
   width: 100%;
   height: 100%;
+}
+
+.bio-image__skin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
 }
 
 .bio-image__picture {

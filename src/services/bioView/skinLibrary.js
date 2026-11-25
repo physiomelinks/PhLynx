@@ -4,8 +4,8 @@
  * - a symbol, for a protein or process: a short list of restricted shapes (paths, rectangles, circles, text) on a
  *   64×48 canvas, outside of the cell up, each painted with a colour slot rather than a colour, so dark mode and
  *   palettes still apply; no raw SVG is read, so nothing it holds can add scripts, links, styles or event handlers;
- * - an area skin, for a compartment: SVG text (`svg`), cleaned of all but drawing on every read (see sanitiseSkin)
- *   and only ever drawn as an image.
+ * - an area skin, for a compartment or an image on the canvas: SVG text (`svg`), cleaned of all but drawing on every
+ *   read (see sanitiseSkin) and only ever drawn as an image.
  */
 
 import { isValidColour, normaliseColour } from '../../utils/nodeThemes.js'
@@ -34,6 +34,9 @@ export const SKIN_LIBRARY_ID = TEMPLATE_ID
 
 /** What a symbol can be drawn for: a module, or the joint of a tube where its two ends touch. */
 export const SYMBOL_TARGETS = Object.freeze([...SKIN_TARGETS.module, ...SKIN_TARGETS.tube])
+
+/** What an area skin can be for: a compartment's inside, or an image on the canvas. */
+export const AREA_SKIN_TARGETS = Object.freeze([...SKIN_TARGETS.area, ...SKIN_TARGETS.image])
 
 /** SBO term CURIEs. */
 const SBO = /^SBO:\d{7}$/
@@ -383,14 +386,14 @@ export function validateAreaSkin(raw, { allowLocalId = false, where: named, dom 
   warnUnknown(raw, SKIN_LIBRARY_KEYS.area, where, warnings)
   const skin = { id: readId(raw, where, errors, allowLocalId) }
   skin.name = readText(raw, 'name', SKIN_LIBRARY_LIMITS.name, where, errors, true)
-  // What it can fill: a cell's cytosol, an organelle's inside, a subcompartment, or a space outside cells.
+  // What it can fill: a cell's cytosol, an organelle's inside, a subcompartment, a space outside cells, or an image.
   if (
     !Array.isArray(raw.appliesTo) ||
     !raw.appliesTo.length ||
-    !raw.appliesTo.every((target) => SKIN_TARGETS.area.includes(target))
+    !raw.appliesTo.every((target) => AREA_SKIN_TARGETS.includes(target))
   ) {
-    errors.push(`${where}: "appliesTo" must list one or more of ${SKIN_TARGETS.area.join(', ')}.`)
-  } else skin.appliesTo = SKIN_TARGETS.area.filter((target) => raw.appliesTo.includes(target))
+    errors.push(`${where}: "appliesTo" must list one or more of ${AREA_SKIN_TARGETS.join(', ')}.`)
+  } else skin.appliesTo = AREA_SKIN_TARGETS.filter((target) => raw.appliesTo.includes(target))
   readTerms(raw, skin, where, errors)
   const { svg, errors: drawing } = sanitiseSkin(raw.svg, dom)
   if (svg) skin.svg = svg

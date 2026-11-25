@@ -5,6 +5,9 @@
  */
 
 import { IMAGE_LABEL, LIMITS, SIDES, ZONE_LABEL, isWithinPiece } from './constants.js'
+
+/** The choice of no skin, as skinRegistry's NO_SKIN (not imported: the registry reads bundled assets). */
+const NO_SKIN_REF = 'none'
 import { writtenPieces } from './model.js'
 import { freeId } from './stamp.js'
 import { topologyOf } from './topology.js'
@@ -490,6 +493,8 @@ export function replaceImage(pieces, id, image, size) {
   const piece = raw.find((each) => each.id === id && each.kind === 'image')
   if (!piece) return null
   piece.image = image
+  // A picture takes the place of a skin.
+  delete piece.skin
   const height = (piece.frame.width * size.height) / size.width
   piece.frame.height = Math.round(Math.min(LIMITS.size.max, Math.max(LIMITS.size.min, height)))
   return raw
@@ -526,19 +531,24 @@ export function relabelPiece(pieces, path, label) {
 }
 
 /**
- * Draws a membrane, compartment or tube with a skin, or plain.
+ * Draws a membrane, compartment, tube or image with a skin, or plain. An image given a skin loses its picture.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {string} id
  * @param {{ref: string, mode?: string, opacity?: number}|null} skin - Null for none.
- * @returns {Array<Object>|null} Null when there is no such membrane, compartment or tube.
+ * @returns {Array<Object>|null} Null when there is no such membrane, compartment, tube or image.
  */
 export function skinPiece(pieces, id, skin) {
   const raw = copy(pieces)
-  const piece = raw.find((each) => each.id === id && ['membrane', 'compartment', 'tube'].includes(each.kind))
+  const piece = raw.find((each) => each.id === id && ['membrane', 'compartment', 'tube', 'image'].includes(each.kind))
   if (!piece) return null
   if (skin) piece.skin = { ...skin }
   else delete piece.skin
+  // An image shows a skin in place of its picture, never both.
+  if (piece.kind === 'image' && skin && skin.ref !== NO_SKIN_REF) {
+    delete piece.image
+    delete piece.opacity
+  }
   return raw
 }
 

@@ -10,6 +10,8 @@ export const SKIN_TARGETS = Object.freeze({
   area: Object.freeze(['cytosol', 'organelle', 'subcompartment', 'extracellular']),
   membrane: Object.freeze(['plasmaMembrane', 'organelleMembrane']),
   tube: Object.freeze(['conduit', 'gapJunction', 'bridge', 'diffusion']),
+  // An image on the canvas: drawn with SVG artwork as an area is, but offered only skins made for images.
+  image: Object.freeze(['image']),
 })
 
 /** Target -> its family. */
@@ -104,6 +106,8 @@ export function contextOfPiece(topology, id) {
       return contextOf(membraneTarget(topology, piece), terms)
     case 'tube':
       return TUBE_TARGETS[piece.flux] ? contextOf(TUBE_TARGETS[piece.flux], terms) : null
+    case 'image':
+      return contextOf('image')
     default:
       return null
   }

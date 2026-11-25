@@ -2,7 +2,7 @@
  * Every skin there is, whatever it is drawn by, and which of them a thing is offered and drawn with. A skin record is
  * `{ id, name, appliesTo, terms?, renderer, author?, license?, isBuiltIn, ...art }`:
  * - symbol: shapes on a 64×48 canvas (elements, arrowRoom, faces, palette), for a module;
- * - area: cleaned SVG text (`svg`), for a compartment;
+ * - area: cleaned SVG text (`svg`), for a compartment or an image on the canvas;
  * - line: a style the view draws by name (see BioMembraneLine), for a membrane; built in only;
  * - joint: a tube's joint the view draws by name (see BioJointSymbol); built in only. A symbol can draw a joint too,
  *   fitted into it.
@@ -54,8 +54,11 @@ export const DEFAULT_SKINS = Object.freeze({
   diffusion: 'dashed-way',
 })
 
-/** The targets that can be drawn with no skin: an area plain, a process as a plain card. */
-const NONE_ALLOWED = new Set(['process', 'cytosol', 'organelle', 'subcompartment', 'extracellular'])
+/**
+ * The targets that can be drawn with no skin: an area plain, a process as a plain card, an image as its picture or a
+ * placeholder for one.
+ */
+const NONE_ALLOWED = new Set(['process', 'cytosol', 'organelle', 'subcompartment', 'extracellular', 'image'])
 
 /** Whether a target can be drawn with no skin. */
 export const allowsNoSkin = (target) => NONE_ALLOWED.has(target)

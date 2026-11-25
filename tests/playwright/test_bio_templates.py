@@ -942,6 +942,52 @@ class TestBioTemplates(unittest.TestCase):
         expect(images).to_have_count(3)
         self.assertEqual(page.evaluate(SAVED_IMAGES_JS), 2)
 
+    def test_an_image_takes_a_skin_made_for_images_from_its_menu(self):
+        page = self.page
+        self.open_physiology()
+        page.locator("[data-testid=library-tab-build]").click()
+        self.drop_piece("image", self.pane_point(0.5, 0.5))
+        image = page.locator("[data-testid=bio-image]")
+        expect(image).to_have_attribute("data-empty", "true")
+        menu = page.locator(".p-contextmenu")
+
+        def skin_menu():
+            image.click(button="right", position={"x": 12, "y": 12})
+            menu.get_by_text("Skin", exact=True).hover()
+
+        # Its Skin menu offers the skins made for images, and none for a compartment's inside.
+        skin_menu()
+        for name in ("None", "Blood vessel", "Heart", "Neuron", "Red blood cell", "Load SVG…"):
+            expect(menu.get_by_text(name, exact=True)).to_be_visible()
+        expect(menu.get_by_text("Rod outer segment", exact=True)).to_have_count(0)
+        menu.get_by_text("Heart", exact=True).click()
+        expect(image).to_have_attribute("data-skin", "heart")
+        expect(image.locator("[data-testid=bio-skin] image")).to_have_attribute("href", re.compile(r"^data:image/svg"))
+        expect(image).not_to_have_attribute("data-empty", "true")
+
+        # An SVG of the user's is loaded for it, and kept among their skins for images.
+        skin_menu()
+        with page.expect_file_chooser() as chooser:
+            menu.get_by_text("Load SVG…", exact=True).click()
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="#3a7"/></svg>'
+        chooser.value.set_files(files=[{"name": "Kidney.svg", "mimeType": "image/svg+xml", "buffer": svg}])
+        expect(image).to_have_attribute("data-skin", re.compile(r"^local:kidney"))
+        skin_menu()
+        expect(menu.get_by_text("Kidney", exact=True)).to_be_visible()
+
+        # None leaves the placeholder again; a picture chosen takes the skin's place.
+        menu.get_by_text("None", exact=True).click()
+        expect(image).to_have_attribute("data-empty", "true")
+        skin_menu()
+        menu.get_by_text("Heart", exact=True).click()
+        expect(image).to_have_attribute("data-skin", "heart")
+        image.click(button="right", position={"x": 12, "y": 12})
+        with page.expect_file_chooser() as chooser:
+            menu.get_by_text("Choose Picture…", exact=True).click()
+        chooser.value.set_files(files=[{"name": "Heart.png", "mimeType": "image/png", "buffer": png_bytes()}])
+        expect(image.locator("img")).to_have_attribute("src", re.compile(r"^data:image/png;base64,"))
+        expect(image).not_to_have_attribute("data-skin", "heart")
+
     def test_the_build_palette_places_a_template_and_adds_to_its_cell(self):
         page = self.page
         self.open_physiology()

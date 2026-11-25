@@ -640,7 +640,7 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
   /** The line skin a membrane is drawn with (see resolveSkin): a lipid bilayer unless chosen otherwise. */
   const membraneSkinOf = (membrane) =>
     resolveSkin(contextOfPiece(topology, membrane.id), membrane.skin)?.id ?? 'bilayer'
-  /** The area skin a compartment is drawn with (see resolveSkin), as a piece's skin is kept; null for none. */
+  /** The area skin a compartment or image is drawn with (see resolveSkin), as a piece's skin is kept; null for none. */
   const areaSkinOf = (compartment) => {
     const skin = compartment && resolveSkin(contextOfPiece(topology, compartment.id), compartment.skin)
     if (skin?.renderer !== 'area') return null
@@ -1459,6 +1459,7 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
       site: null,
       image: image.image ?? null,
       opacity: image.opacity ?? 1,
+      ...(areaSkinOf(image) && { skin: areaSkinOf(image) }),
       label: image.label,
     })
   }
