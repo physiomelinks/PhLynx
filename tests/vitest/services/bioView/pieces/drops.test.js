@@ -179,6 +179,22 @@ describe('dropping a membrane', () => {
     })
   })
 
+  it('drops a second compartment in a cell beside the first, not over it', () => {
+    const start = valid([{ id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 320, height: 140 } }])
+    const cellOf = dropped(start, 'membrane', { x: 2, y: 70 }).pieces
+    const rectOf = (pieces, id) => dropScene(pieces).rects.get(id)
+    const inside = rectOf(cellOf, 'a')
+    const first = dropped(cellOf, 'compartment', { x: inside.x + 0.3 * inside.width, y: inside.y + 0.5 * inside.height })
+    const second = dropped(first.pieces, 'compartment', {
+      x: inside.x + 0.8 * inside.width,
+      y: inside.y + 0.5 * inside.height,
+    })
+    const [one, two] = [first.id, second.id].map((id) => second.pieces.find((piece) => piece.id === id))
+    expect(one.parent).toBe('a')
+    expect(two.parent).toBe('a')
+    expect(two.frame.x).toBeGreaterThanOrEqual(one.frame.x + one.frame.width)
+  })
+
   it('round one compartment makes it the membrane’s bulk', () => {
     const start = valid([{ id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 320, height: 240 } }])
     const { pieces, id } = dropped(start, 'membrane', { x: 2, y: 100 })

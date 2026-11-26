@@ -234,14 +234,8 @@ function membraneSideAt(scene, point, band, allows = () => true) {
 /** How far down a compartment dropped into another starts at least: below the other's name, in its corner. */
 const NAME_ROOM = 56
 
-/** A frame centred on a point, from a rect's corner, kept inside it where it fits, and below its name. */
-function frameAt(point, size, within = null) {
-  const at = { x: point.x - size.width / 2, y: point.y - size.height / 2 }
-  if (!within) return { ...at, ...size }
-  const x = Math.max(within.x + ROOM_INSIDE, Math.min(at.x, within.x + within.width - size.width - ROOM_INSIDE))
-  const y = Math.max(within.y + NAME_ROOM, Math.min(at.y, within.y + within.height - size.height - ROOM_INSIDE))
-  return { x: x - within.x, y: y - within.y, ...size }
-}
+/** A frame centred on a point, on the view. */
+const frameAt = (point, size) => ({ x: point.x - size.width / 2, y: point.y - size.height / 2, ...size })
 
 /** A side's stretch as a highlight: the line along it. */
 function sideHighlight(rect, side, from, to) {
@@ -254,6 +248,38 @@ function sideHighlight(rect, side, from, to) {
 }
 
 const SIDE_NAMES = { top: 'top', bottom: 'bottom', left: 'left side', right: 'right side' }
+
+/** How far apart pieces standing side by side in a compartment are kept. */
+const BESIDE_GAP = 20
+
+/**
+ * A frame for a piece dropped in a compartment, centred on the point but clear of its name, and of what already
+ * stands in it: moved right past any it would overlap. It is not squeezed in at the right or bottom: the compartment
+ * grows to fit it instead.
+ *
+ * @param {{x: number, y: number}} point
+ * @param {{width: number, height: number}} size
+ * @param {Object} within - Where the compartment is drawn.
+ * @param {Object} scene - From dropScene.
+ * @param {string} hostId - The compartment.
+ * @returns {{x: number, y: number, width: number, height: number}} Relative to the compartment's corner.
+ */
+function frameBeside(point, size, within, scene, hostId) {
+  const others = scene.pieces
+    .filter((piece) => (piece.kind === 'zone' ? piece.compartment === hostId : piece.parent === hostId))
+    .map((piece) => scene.rects.get(piece.id))
+    .filter(Boolean)
+  let x = Math.max(within.x + ROOM_INSIDE, point.x - size.width / 2)
+  const y = Math.max(within.y + NAME_ROOM, point.y - size.height / 2)
+  const overlaps = (rect) =>
+    x < rect.x + rect.width + BESIDE_GAP &&
+    rect.x < x + size.width + BESIDE_GAP &&
+    y < rect.y + rect.height + BESIDE_GAP &&
+    rect.y < y + size.height + BESIDE_GAP
+  // Past each it meets, left to right, until it meets none.
+  for (const rect of [...others].sort((a, b) => a.x - b.x)) if (overlaps(rect)) x = rect.x + rect.width + BESIDE_GAP
+  return { x: Math.round(x - within.x), y: Math.round(y - within.y), ...size }
+}
 
 function resolveCompartment(scene, point) {
   const by = membraneSideAt(scene, point, DOCK_BAND)
@@ -283,7 +309,8 @@ function resolveCompartment(scene, point) {
       key: `compartment|in|${host.id}|${snap(point)}`,
       label: `A compartment in ${host.label}`,
       highlights: [{ type: 'rect', rect }],
-      apply: (pieces) => addCompartment(pieces, { parent: host.id, frame: frameAt(point, SIZES.subcompartment, rect) }),
+      apply: (pieces) =>
+        addCompartment(pieces, { parent: host.id, frame: frameBeside(point, SIZES.subcompartment, rect, scene, host.id) }),
     }
   }
   return {
