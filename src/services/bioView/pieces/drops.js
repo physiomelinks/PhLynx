@@ -679,7 +679,8 @@ const isBigger = (rect, than) =>
  * @param {Object} [choice] - What the user chose for it, passed to its apply: a tube's flux, between two cells.
  * @returns {{pieces: ReadonlyArray<Object>|null, id: string|null, ghosts: Array<Object>, errors: string[]}} ghosts:
  *   {type: 'rect', rect, kind} for each piece added, {type: 'path', points} for a tube's way ({type: 'conduit',
- *   points} for one drawn as a vessel, with no rect), {type: 'fold', ...} for
+ *   points} for one drawn as a vessel, with no rect; {type: 'joint', joint, rect} for one whose ends touch), {type:
+ *   'fold', ...} for
  *   a fold (its lumen's rect). A membrane round compartments already there says what they took (`was`, the box round
  *   them) and whether the cell it makes is bigger than that (`grows`). A compartment or cell already there that the
  *   drop makes bigger is {type: 'grows', kind, label, rect, was}, and one it pushes out of the way {type: 'moves', ...},
@@ -721,6 +722,11 @@ export function previewDrop(scene, drop, choice) {
     // A conduit is drawn as a vessel along its way, with no card: its ghost is that vessel, as BioConduit draws it.
     if (place.conduit) {
       ghosts.push({ type: 'conduit', kind: place.kind, points: place.points })
+      continue
+    }
+    // A joint where a tube's ends touch is drawn as itself in its room (see BioJointSymbol): its ghost is that.
+    if (place.joint && !place.channel && place.zone) {
+      ghosts.push({ type: 'joint', kind: place.kind, joint: place.joint, rect: place.zone })
       continue
     }
     if (place.points) ghosts.push({ type: 'path', points: place.points })

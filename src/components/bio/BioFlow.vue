@@ -268,6 +268,15 @@
               data-testid="bio-piece-ghost"
               :data-kind="ghost.kind"
             />
+            <!-- A tube whose ends touch: the joint it is drawn as, in its room -->
+            <g
+              v-else-if="ghost.type === 'joint'"
+              :transform="`translate(${ghost.rect.x} ${ghost.rect.y})`"
+              data-testid="bio-piece-ghost"
+              :data-kind="ghost.kind"
+            >
+              <BioJointSymbol :kind="ghost.joint" :width="ghost.rect.width" :height="ghost.rect.height" ghost />
+            </g>
             <polyline
               v-else-if="ghost.type === 'path'"
               class="bio-piece-preview__way"
@@ -505,6 +514,7 @@ import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import BioLink from './BioLink.vue'
 import BioJoint from './BioJoint.vue'
+import BioJointSymbol from './BioJointSymbol.vue'
 import BioZone from './BioZone.vue'
 import BioImage from './BioImage.vue'
 import BioGrip from './BioGrip.vue'
@@ -583,7 +593,7 @@ import { skinLibraryFile } from '../../services/bioView/skinLibrary'
 import { SYMBOL_HEIGHT, SYMBOL_WIDTH, MEMBRANE_BAND_HALF, roundedRectPath } from '../../services/bioView/geometry'
 import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { dropLabel, hasPorts, isPlacementEdge, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
-import { isPlaceholder, placeholderName } from '../../services/bioView/placeholders'
+import { isPlaceholder, isPlaceholderNameFor, placeholderName } from '../../services/bioView/placeholders'
 import { isPieceModule, modulesOf, owedSites, pieceNameOf } from '../../services/bioView/pieces/pairing'
 import { CARD, GAP, processSize } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
@@ -900,6 +910,28 @@ async function dropStaleLinks(before) {
   })
 }
 
+/** Each tube's label, by its id. */
+const labelsOfTubes = () =>
+  new Map(piecesStore.pieces.filter((piece) => piece.kind === 'tube').map((piece) => [piece.id, piece.label]))
+
+/**
+ * Renames the module of each tube an edit renamed for what it now carries (a gap junction become a bridge), where
+ * the module still has the name it was given for the tube's old label: one the user named keeps its name.
+ *
+ * @param {Map<string, string>} before - From labelsOfTubes, taken before the edit.
+ * @returns {Promise<void>}
+ */
+async function renameTubeModules(before) {
+  for (const [id, label] of labelsOfTubes()) {
+    const was = before.get(id)
+    const module = was && was !== label ? moduleOfPiece(id) : null
+    if (!module || !isPlaceholderNameFor(nameOf(module), was)) continue
+    const others = main.nodes.value.filter((node) => node.id !== module).map((node) => node.data?.name)
+    const name = placeholderName(label, others)
+    if (name) await renameInstance(module, name)
+  }
+}
+
 /** The modules on a site of the pieces. */
 const placedModuleIds = () =>
   [...layout.value].filter(([id, place]) => place?.instance && place.site && main.findNode(id)).map(([id]) => id)
@@ -1133,8 +1165,9 @@ function onNodeDragStart({ event, node, nodes }) {
   dragStartPointer = pointerAt(event)
   dragStarts.clear()
   for (const moved of nodes) dragStarts.set(moved.id, { ...moved.position })
-  // A piece, or a grip on one, moves as its own drag says; a module moves alone.
-  startPieceMove(node, event)
+  // A piece, or a grip on one, moves as its own drag says; a tube or its module with Alt down moves one of its ends
+  // (see startTubeRetarget); a module moves alone.
+  if (!startPieceMove(node, event) && event?.altKey) startTubeRetarget(node)
 }
 
 /** Follows a piece's drag as it goes. */
@@ -1655,10 +1688,12 @@ async function withOwedModules(type, edit) {
   history.startBatch()
   try {
     const before = neighboursOf(placedModuleIds())
+    const tubeLabels = labelsOfTubes()
     const done = await edit()
     if (done) {
       await fillOwedModules()
       await relinkPlaced(before)
+      await renameTubeModules(tubeLabels)
     }
     return done
   } finally {
@@ -2081,6 +2116,21 @@ function carryDraft(move, point) {
   return pieces
 }
 
+/** The key that lifts a piece, as the keyboard names it. */
+const ALT_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Option' : 'Alt'
+
+/** Says by the pointer, while a piece that Alt can lift is dragged without it, that it can. */
+function showLiftHint(point) {
+  piecePointer.value = point
+  if (piecePreview.value?.key === 'lift-hint') return
+  piecePreview.value = {
+    key: 'lift-hint',
+    label: `Hold ${ALT_KEY} to move it into another compartment, or out onto the view`,
+    highlights: [],
+    ghosts: [],
+  }
+}
+
 /** Puts a piece that was lifted back to moving as it does without Alt. */
 function setDown(move) {
   if (!move.lifting) return
@@ -2149,6 +2199,7 @@ function followPiece(pointer) {
       return
     }
     setDown(pieceMove)
+    if (pieceMove.liftable) showLiftHint(pendingPosition)
     // It reaches as far as it is dragged, and what it would dock to there is outlined.
     if (pieceMove.scene) dockDraft(pieceMove, pendingPosition)
     const draft = moveDraft(pendingPosition)
@@ -2184,6 +2235,7 @@ async function endPieceMove({ event, node }) {
     return
   }
   setDown(move)
+  if (move.liftable) clearPiecePreview()
   if (move.mode === 'grip:reach') {
     const docked = dockDraft(move, pointerAt(event))
     clearPiecePreview()
@@ -2235,8 +2287,12 @@ function startTubeRetarget(node) {
   const start = dragStartPointer
   if (tube?.kind !== 'tube' || !start) return false
   const rects = pieceRects()
-  const [near, far] = tube.ends.map((id) => distanceToRect(rects.get(id), start))
-  const end = far < near ? 1 : 0
+  // The end on the side of the tube's middle the drag began on, along the way from one end to the other: so a joint
+  // whose ends touch is split down its middle.
+  const [a, b] = tube.ends.map((id) => centreOf(rects.get(id)))
+  const middle = centreOf(tubePlace.zone ?? tubePlace.rect)
+  if (!a || !b || !middle) return false
+  const end = (start.x - middle.x) * (b.x - a.x) + (start.y - middle.y) * (b.y - a.y) > 0 ? 1 : 0
   // Held where it was: its module is not dropped on a site, as a plain drag of it would be.
   draggingId.value = activeTarget.value = pointer.value = null
   isViewChosen = true
@@ -2262,13 +2318,8 @@ function startTubeRetarget(node) {
   return true
 }
 
-/** How far a point is from a rect; 0 inside it, Infinity for none. */
-function distanceToRect(rect, point) {
-  if (!rect) return Infinity
-  const dx = Math.max(rect.x - point.x, 0, point.x - (rect.x + rect.width))
-  const dy = Math.max(rect.y - point.y, 0, point.y - (rect.y + rect.height))
-  return Math.hypot(dx, dy)
-}
+/** A rect's centre; null for none. */
+const centreOf = (rect) => rect && { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
 
 /**
  * Shows what letting go of a tube's end here would do: the compartment it would join outlined, the tube as it would
@@ -2301,6 +2352,9 @@ function tubeGhosts(pieces, tubeId) {
   const place = layoutPieces(pieces, sceneOptions()).places.get(pieceKey(tubeId))
   if (!place) return []
   if (place.conduit) return [{ type: 'conduit', kind: place.kind, points: place.points }]
+  if (place.joint && !place.channel && place.zone) {
+    return [{ type: 'joint', kind: place.kind, joint: place.joint, rect: place.zone }]
+  }
   if (place.points) return [{ type: 'path', points: place.points }]
   return place.zone ? [{ type: 'rect', kind: place.kind, rect: place.zone }] : []
 }
@@ -2747,13 +2801,44 @@ function growthNote(ghosts) {
 }
 
 /** The label that follows a carried piece: what it would do there, or why it can't go there. */
+/** How wide a vessel's ghost is either side of its way, as BioConduit draws it, and room for the label's line. */
+const VESSEL_HALF = 34
+const LABEL_LINE = 28
+
+/**
+ * Where the label by the pointer goes below a tube's ghost, when it would otherwise sit on it: the ghost's bottom,
+ * where the label's line, just right of and below the pointer, overlaps it; else null.
+ *
+ * @param {Array<Object>} ghosts
+ * @param {{x: number, y: number}} point
+ * @returns {number|null} In flow coordinates.
+ */
+function tubeGhostBottom(ghosts, point) {
+  const boxes = ghosts.flatMap((ghost) => {
+    if (ghost.type === 'joint') return [ghost.rect]
+    if (ghost.type !== 'conduit' && ghost.type !== 'path') return []
+    const xs = ghost.points.map((p) => p.x)
+    const ys = ghost.points.map((p) => p.y)
+    const half = ghost.type === 'conduit' ? VESSEL_HALF : 4
+    const [left, top] = [Math.min(...xs) - half, Math.min(...ys) - half]
+    return [{ x: left, y: top, width: Math.max(...xs) + half - left, height: Math.max(...ys) + half - top }]
+  })
+  const line = { left: point.x, top: point.y, bottom: point.y + LABEL_LINE }
+  const hit = boxes.filter(
+    (box) => box.x + box.width > line.left && box.y < line.bottom + 18 && box.y + box.height > line.top
+  )
+  return hit.length ? Math.max(...hit.map((box) => box.y + box.height)) : null
+}
+
 const pieceLabel = computed(() => {
   if (!piecePreview.value || !piecePointer.value) return null
   const { x, y, zoom } = viewport.value
   const { invalid, label, ghosts = [] } = piecePreview.value
+  // Clear of a tube's ghost it would sit on, below it.
+  const below = tubeGhostBottom(ghosts, piecePointer.value)
   return {
     left: piecePointer.value.x * zoom + x + 18,
-    top: piecePointer.value.y * zoom + y + 18,
+    top: (below ?? piecePointer.value.y) * zoom + y + 18,
     text: invalid ?? label,
     ...(!invalid && { note: growthNote(ghosts) }),
     invalid: !!invalid,

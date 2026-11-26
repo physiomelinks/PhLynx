@@ -6,13 +6,15 @@
     may say otherwise: another of these, or a symbol, fitted into the joint and turned with it.
   -->
   <svg
-    :class="['bio-joint-symbol', { 'bio-joint-symbol--selected': selected }]"
+    :class="['bio-joint-symbol', { 'bio-joint-symbol--selected': selected, 'bio-joint-symbol--ghost': ghost }]"
     :width="width"
     :height="height"
     :viewBox="`0 0 ${width} ${height}`"
     overflow="visible"
     data-testid="bio-joint-symbol"
   >
+    <!-- Its whole box takes the pointer, not only what is drawn, so a thin joint is easy to grab -->
+    <rect v-if="!ghost" class="bio-joint-symbol__hit" :width="width" :height="height" />
     <g v-if="symbol" :transform="vertical ? `rotate(90 ${width / 2} ${height / 2})` : undefined">
       <BioSymbol
         :skin="symbol.id"
@@ -28,9 +30,11 @@
       <path :d="lumen" class="bio-joint-symbol__lumen" :style="tone && { fill: `color-mix(in srgb, var(--p-${tone}-200) 40%, transparent)` }" />
       <path :d="wall(WALL / 2, neck)" class="bio-joint-symbol__wall" />
       <path :d="wall(height - WALL / 2, height - neck)" class="bio-joint-symbol__wall" />
-      <!-- A chevron at its neck, pointing the way it flows, as along a conduit's vessel -->
+      <!-- A chevron either side of its neck, clear of the handle there, pointing the way it flows -->
       <path
-        :d="`M ${width / 2 - 4} ${height / 2 - 7} L ${width / 2 + 4} ${height / 2} L ${width / 2 - 4} ${height / 2 + 7}`"
+        v-for="x in [width * 0.2, width * 0.8]"
+        :key="x"
+        :d="`M ${x - 4} ${height / 2 - 7} L ${x + 4} ${height / 2} L ${x - 4} ${height / 2 + 7}`"
         class="bio-joint-symbol__chevron"
         data-testid="bio-joint-chevron"
       />
@@ -76,6 +80,8 @@ const props = defineProps({
   width: { type: Number, required: true },
   height: { type: Number, required: true },
   selected: { type: Boolean, default: false },
+  /** Drawn as a drop's preview: in the drop colour, dashed, as where it would go. */
+  ghost: { type: Boolean, default: false },
   /** The colour of the tube it goes on from, for its lumen. */
   tone: { type: String, default: null },
 })
@@ -159,6 +165,24 @@ const barrels = computed(() => [props.width / 2 - BARREL.width - 1, props.width 
 
 .bio-joint-symbol__open--diffusion {
   stroke-dasharray: 8 6;
+}
+
+.bio-joint-symbol__hit {
+  fill: transparent;
+  stroke: none;
+}
+
+/* A drop's preview: what is drawn, in the drop colour */
+.bio-joint-symbol--ghost .bio-joint-symbol__wall,
+.bio-joint-symbol--ghost .bio-joint-symbol__flow,
+.bio-joint-symbol--ghost .bio-joint-symbol__barrel {
+  stroke: var(--bio-drop-active);
+  stroke-dasharray: 8 5;
+}
+
+.bio-joint-symbol--ghost .bio-joint-symbol__lumen,
+.bio-joint-symbol--ghost .bio-joint-symbol__barrel {
+  fill: color-mix(in srgb, var(--bio-drop-active) 12%, transparent);
 }
 
 .bio-joint-symbol__chevron {

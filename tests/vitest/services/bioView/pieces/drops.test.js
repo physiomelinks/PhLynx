@@ -236,6 +236,14 @@ describe('dropping a tube, fold or zone', () => {
     expect(tubeOf({ flux: 'bridge' })).toMatchObject({ ends: ['a', 'b'], flux: 'bridge', label: 'Bridge' })
   })
 
+  it('between two touching cells, is previewed as the joint it is drawn as, in its room', () => {
+    const pieces = twoCells(true)
+    const scene = dropScene(pieces)
+    const { drop } = tubeDropIn(pieces)
+    const ghost = previewDrop(scene, drop).ghosts.find((each) => each.type === 'joint')
+    expect(ghost).toMatchObject({ joint: 'junction', rect: expect.objectContaining({ width: expect.any(Number) }) })
+  })
+
   it('between two cells apart, is a bridge, asking nothing, a gap junction needing them to touch', () => {
     const { drop, tubeOf } = tubeDropIn(twoCells(false))
     expect(drop.cells).toBeUndefined()
