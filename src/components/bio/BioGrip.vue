@@ -18,8 +18,8 @@ defineProps({
 const TITLES = {
   fold: 'Drag to move the fold along its side, or change how deep it is',
   bend: 'Drag to bend the tube through here',
-  start: 'Drag onto another compartment to join this end of the tube to it',
-  end: 'Drag onto another compartment to join this end of the tube to it',
+  start: 'Upstream end: drag onto another compartment to join this end of the tube to it',
+  end: 'Downstream end: drag onto another compartment to join this end of the tube to it',
   reach: 'Drag to set how far the compartment reaches, or onto another membrane or fold to dock it there too',
 }
 </script>

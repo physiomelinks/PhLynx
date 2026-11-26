@@ -454,6 +454,22 @@ export function bendTube(pieces, id, point) {
 }
 
 /**
+ * Reverses a tube: its upstream end becomes its downstream one, and the way it runs with it.
+ *
+ * @param {ReadonlyArray<Object>} pieces
+ * @param {string} id
+ * @returns {Array<Object>|null}
+ */
+export function reverseTube(pieces, id) {
+  const raw = copy(pieces)
+  const tube = raw.find((each) => each.id === id)
+  if (tube?.kind !== 'tube') return null
+  tube.ends = [tube.ends[1], tube.ends[0]]
+  if (tube.bends) tube.bends = [...tube.bends].reverse()
+  return raw
+}
+
+/**
  * Joins one end of a tube to another compartment, carrying what a tube added between the two would: a gap junction
  * between two cells unless `flux` makes it a bridge, an open channel within one cell, else a flow. A diffusion is
  * kept, being no tube's by default. Its name follows what it carries, unless someone has named it.

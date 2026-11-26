@@ -42,6 +42,7 @@ export const STEP_LABELS = {
   'bio-pieces-image-edit': 'Change image',
   'bio-pieces-edit': 'Edit pieces',
   'bio-pieces-move': 'Move piece',
+  'bio-pieces-reverse': 'Reverse tube',
   'bio-pieces-resize': 'Resize piece',
   'bio-pieces-tube-end': 'Join tube',
   'bio-pieces-dock': 'Dock compartment',

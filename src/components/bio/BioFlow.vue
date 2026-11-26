@@ -562,6 +562,7 @@ import {
 } from '../../services/bioView/pieces/edits'
 import {
   bendTube,
+  reverseTube,
   fitToContents,
   moveFold,
   moveFrame,
@@ -581,7 +582,7 @@ import { NO_SKIN, allSkins, allowsNoSkin, resolveSkin, skinsFor } from '../../se
 import { skinLibraryFile } from '../../services/bioView/skinLibrary'
 import { SYMBOL_HEIGHT, SYMBOL_WIDTH, MEMBRANE_BAND_HALF, roundedRectPath } from '../../services/bioView/geometry'
 import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
-import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
+import { dropLabel, hasPorts, isPlacementEdge, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { isPlaceholder, placeholderName } from '../../services/bioView/placeholders'
 import { isPieceModule, modulesOf, owedSites, pieceNameOf } from '../../services/bioView/pieces/pairing'
 import { CARD, GAP, processSize } from '../../services/bioView/layout'
@@ -2321,6 +2322,9 @@ function pieceMenu(place, nodeId = null) {
       command: () => keepEdit(fitToContents(piecesStore.pieces, piece.id), 'bio-pieces-resize'),
     })
   }
+  if (piece.kind === 'tube') {
+    items.push({ label: 'Reverse Flow', icon: 'pi pi-arrow-right-arrow-left', command: () => reverseFlow(piece.id) })
+  }
   if (piece.kind === 'tube' && piece.bends?.length) {
     items.push({
       label: 'Straighten Tube',
@@ -2332,6 +2336,37 @@ function pieceMenu(place, nodeId = null) {
   items.push(...relocateMenu(piece))
   items.push(...removeMenu(place, piece))
   return [{ separator: true }, ...items]
+}
+
+/**
+ * Reverses a tube, as one step: its ends swap, and the placement edges between its module and theirs are made again
+ * the other way. An edge drawn or edited by hand is left as it is.
+ *
+ * @param {string} tubeId
+ * @returns {Promise<boolean>}
+ */
+async function reverseFlow(tubeId) {
+  const raw = reverseTube(piecesStore.pieces, tubeId)
+  const pieces = raw && validatePieces(raw).pieces
+  if (!pieces) return false
+  const module = moduleOfPiece(tubeId)
+  return withOwedModules('bio-pieces-reverse', async () => {
+    if (!(await editPiecesOnly(pieces, 'bio-pieces-reverse'))) return false
+    if (!module || !props.disconnectInstances) return true
+    await nextTick()
+    const ref = layout.value.get(module)?.site
+    const site = ref && siteTargets.value.find((target) => target.ref === ref)
+    if (!site) return true
+    const ends = new Set(neighbourNodes(siteTargets.value, neighbourSites(site), { id: module }).map((n) => n.id))
+    const flipped = main.edges.value.filter(
+      (edge) =>
+        isPlacementEdge(edge) &&
+        ((edge.source === module && ends.has(edge.target)) || (edge.target === module && ends.has(edge.source)))
+    )
+    if (flipped.length) await props.disconnectInstances(flipped.map((edge) => edge.id))
+    await connectToNeighbours(module, site)
+    return true
+  })
 }
 
 /** How solid an image can be drawn, from its menu. */
@@ -2949,6 +2984,10 @@ function onNodeContextMenu({ event, node }) {
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
   // On a piece of the pieces: what can be done to the piece itself.
   if (place?.piece) items.push(...pieceMenu(place, node.id))
+  // A tube's module, drawn on it as a card, its joint or its vessel: the tube's own menu too.
+  else if (place?.kind === 'card' && layout.value.get(place.link)?.piece) {
+    items.push(...pieceMenu(layout.value.get(place.link), node.id))
+  }
   // Bound to a row of a membrane or zone: unbound, it is drawn as its annotations say, beside the pieces. A
   // compartment's, membrane's or tube's module is that piece, and is never unbound.
   const bound = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null

@@ -11,6 +11,7 @@ import {
   moveFrame,
   reattachTube,
   resizeFrame,
+  reverseTube,
   setDepth,
   slideDock,
 } from '../../../../../src/services/bioView/pieces/moves.js'
@@ -411,6 +412,21 @@ describe('setDepth, moveFold, bendTube and reattachTube', () => {
     expect(byId(moved, 't')).toMatchObject({ ends: ['a', 'c'] })
     expect(byId(moved, 't').bends).toBeUndefined()
     expect(reattachTube(bent, 't', 1, 'a')).toBeNull()
+  })
+
+  it('reverses a tube: its ends swap, and its bends run the other way', () => {
+    const start = valid([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 100 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 500, y: 0, width: 200, height: 100 } },
+      { id: 't', kind: 'tube', label: 'T', ends: ['a', 'b'], flux: 'flow', bends: [{ x: 350, y: 80 }] },
+    ])
+    const reversed = valid(reverseTube(start, 't'))
+    expect(byId(reversed, 't')).toMatchObject({ ends: ['b', 'a'], flux: 'flow', bends: [{ x: 350, y: 80 }] })
+    expect(topologyOf(reversed).neighbours('t').map(({ path, relation }) => `${path} ${relation}`)).toEqual([
+      'b upstream',
+      'a downstream',
+    ])
+    expect(reverseTube(start, 'a')).toBeNull()
   })
 
   it('reattached, a tube carries what it joins now, renamed for it unless someone has named it', () => {

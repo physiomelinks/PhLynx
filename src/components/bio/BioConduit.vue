@@ -18,6 +18,10 @@
         <path :d="vessel.body" class="bio-conduit__lining" :stroke-width="2 * lining + 1.5" />
         <path :d="vessel.body" class="bio-conduit__lumen" :style="lumenStyle" :stroke-width="2 * lining - 1.5" />
       </template>
+      <!-- Chevrons down its lumen, pointing the way it flows: upstream end to downstream -->
+      <g v-if="!ghost" class="bio-conduit__chevrons" data-testid="bio-conduit-chevrons">
+        <path v-for="(transform, i) in vessel.chevrons" :key="i" :transform="transform" d="M -4 -7 L 4 0 L -4 7" />
+      </g>
       <g :transform="vessel.near">
         <!-- Filled to the end's chord, but only its curved rim stroked: the chord is where it meets the compartment -->
         <path :d="`M 0 ${-radius} A ${end} ${radius} 0 0 0 0 ${radius} Z`" class="bio-conduit__cap" :style="capStyle" />
@@ -79,9 +83,31 @@ function drawnIn(points, start, finish) {
 const pathOf = (points) => points.map((point, i) => `${i ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ')
 const angleOf = (from, to) => (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI
 
+/** How far apart its chevrons are along its way, and how far each keeps from a bend or an end. */
+const CHEVRON_GAP = 64
+const CHEVRON_CLEAR = 18
+
+/** Where each chevron goes along a way, turned along the stretch it is on. */
+function chevronsAlong(points) {
+  const found = []
+  for (let i = 1; i < points.length; i++) {
+    const [p, q] = [points[i - 1], points[i]]
+    const length = Math.hypot(q.x - p.x, q.y - p.y)
+    const room = length - 2 * CHEVRON_CLEAR
+    if (room < 0) continue
+    const count = Math.max(1, Math.floor(room / CHEVRON_GAP))
+    const angle = angleOf(p, q)
+    for (let k = 0; k < count; k++) {
+      const at = (CHEVRON_CLEAR + (room * (k + 0.5)) / count) / length
+      found.push(`translate(${p.x + (q.x - p.x) * at} ${p.y + (q.y - p.y) * at}) rotate(${angle})`)
+    }
+  }
+  return found
+}
+
 /**
  * Its body along its way, drawn in at each end so the near end's rim and the far end's opening reach the compartments'
- * edges and no further; and each end's frame, turned along the stretch it is on.
+ * edges and no further; each end's frame, turned along the stretch it is on; and its chevrons.
  */
 const vessel = computed(() => {
   const points = props.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.y !== all[i - 1].y)
@@ -93,6 +119,7 @@ const vessel = computed(() => {
     body: pathOf(body),
     near: `translate(${near.x} ${near.y}) rotate(${angleOf(points[0], points[1])})`,
     far: `translate(${far.x} ${far.y}) rotate(${angleOf(points.at(-2), points.at(-1))})`,
+    chevrons: chevronsAlong(body),
   }
 })
 </script>
@@ -153,6 +180,16 @@ const vessel = computed(() => {
 .bio-conduit--selected .bio-conduit__rim,
 .bio-conduit--selected .bio-conduit__opening {
   stroke: var(--p-primary-color);
+}
+
+/* Subtle: a hint of which way it flows, not an arrow over it */
+.bio-conduit__chevrons path {
+  fill: none;
+  stroke: var(--p-text-muted-color);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.45;
 }
 
 /* A drop's preview: the walls dashed and the lumen tinted in the drop colour, as a piece's ghost is */

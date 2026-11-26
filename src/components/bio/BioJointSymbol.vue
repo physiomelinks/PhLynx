@@ -13,11 +13,6 @@
     overflow="visible"
     data-testid="bio-joint-symbol"
   >
-    <defs>
-      <marker :id="markerId" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" class="bio-joint-symbol__head" />
-      </marker>
-    </defs>
     <g v-if="symbol" :transform="vertical ? `rotate(90 ${width / 2} ${height / 2})` : undefined">
       <BioSymbol
         :skin="symbol.id"
@@ -33,7 +28,12 @@
       <path :d="lumen" class="bio-joint-symbol__lumen" :style="tone && { fill: `color-mix(in srgb, var(--p-${tone}-200) 40%, transparent)` }" />
       <path :d="wall(WALL / 2, neck)" class="bio-joint-symbol__wall" />
       <path :d="wall(height - WALL / 2, height - neck)" class="bio-joint-symbol__wall" />
-      <line :x1="4" :y1="height / 2" :x2="width - 4" :y2="height / 2" class="bio-joint-symbol__flow" :marker-end="`url(#${markerId})`" />
+      <!-- A chevron at its neck, pointing the way it flows, as along a conduit's vessel -->
+      <path
+        :d="`M ${width / 2 - 4} ${height / 2 - 7} L ${width / 2 + 4} ${height / 2} L ${width / 2 - 4} ${height / 2 + 7}`"
+        class="bio-joint-symbol__chevron"
+        data-testid="bio-joint-chevron"
+      />
     </template>
     <line
       v-else-if="drawn !== 'junction'"
@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { computed, useId } from 'vue'
+import { computed } from 'vue'
 import BioSymbol from './BioSymbol.vue'
 import { getSkin } from '../../services/bioView/skinRegistry'
 
@@ -85,7 +85,6 @@ const WALL = 6
 /** A connexon, one in each cell's membrane. */
 const BARREL = { width: 20, height: 60 }
 
-const markerId = `bio-joint-head-${useId()}`
 
 /** The drawing each built-in joint skin is: one of the kinds. */
 const DRAWN = Object.freeze({ narrowing: 'flow', 'connexon-pair': 'junction', 'open-way': 'bridge', 'dashed-way': 'diffusion' })
@@ -162,8 +161,13 @@ const barrels = computed(() => [props.width / 2 - BARREL.width - 1, props.width 
   stroke-dasharray: 8 6;
 }
 
-.bio-joint-symbol__head {
-  fill: var(--p-text-color);
+.bio-joint-symbol__chevron {
+  fill: none;
+  stroke: var(--p-text-muted-color);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.45;
 }
 
 .bio-joint-symbol__barrel {
