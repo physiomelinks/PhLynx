@@ -165,6 +165,20 @@ describe('dropping a membrane', () => {
     ])
   })
 
+  it('turns a flow tube between those it encloses into an open channel, renamed unless someone named it', () => {
+    const start = valid([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 160 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 300, y: 0, width: 200, height: 160 } },
+      { id: 't', kind: 'tube', label: 'Tube', ends: ['a', 'b'], flux: 'flow', bends: [{ x: 250, y: 120 }] },
+    ])
+    const { pieces } = dropped(start, 'membrane', { x: 2, y: 80 })
+    expect(pieces.find((piece) => piece.id === 't')).toMatchObject({
+      flux: 'bridge',
+      label: 'Bridge',
+      bends: [{ x: 250, y: 120 }],
+    })
+  })
+
   it('round one compartment makes it the membrane’s bulk', () => {
     const start = valid([{ id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 320, height: 240 } }])
     const { pieces, id } = dropped(start, 'membrane', { x: 2, y: 100 })

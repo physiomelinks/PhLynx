@@ -6,7 +6,7 @@
  */
 
 import { LIMITS, ROOM_INSIDE, containerIdOf, isWithinPiece } from './constants.js'
-import { cutStretch, fluxBetween, isDefaultTubeName, joinsTwoCells, tubeName } from './edits.js'
+import { cutStretch, refluxTubes } from './edits.js'
 import { writtenPieces } from './model.js'
 import { topologyOf } from './topology.js'
 
@@ -90,28 +90,6 @@ export function standingIn(pieces, id) {
     if (bulk && bulk !== id) return bulk
   }
   return containerOf(piece)
-}
-
-/**
- * Gives the tubes to what was lifted what they carry now: as a tube added between its ends would, but for a
- * diffusion, and a gap junction or bridge that still joins two cells, which the user chose. A tube renamed by no one
- * is named for what it carries. Their bends, put where the tube ran before, go.
- */
-function refluxTubes(raw, ids) {
-  for (const tube of raw) {
-    if (tube.kind !== 'tube' || !tube.ends.some((end) => ids.has(end))) continue
-    delete tube.bends
-    if (tube.flux === 'diffusion') continue
-    if ((tube.flux === 'junction' || tube.flux === 'bridge') && joinsTwoCells(raw, tube.ends)) continue
-    const was = tube.flux
-    tube.flux = fluxBetween(raw, tube.ends)
-    if (tube.flux !== was && isDefaultTubeName(tube.label, was)) {
-      tube.label = tubeName(
-        raw.filter((each) => each !== tube),
-        tube.flux,
-      )
-    }
-  }
 }
 
 /** Takes what is left behind off what was lifted: each compartment against both keeps its other docks. */

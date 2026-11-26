@@ -358,7 +358,10 @@ export function encloseCompartment(pieces, compartmentId, rects) {
       }),
     )
   } else delete first.frame
-  return { pieces: [...raw, membrane], id }
+  const next = [...raw, membrane]
+  // A flow between two of them is now an open channel within one cell.
+  refluxTubes(next, new Set(group), { keepBends: true })
+  return { pieces: next, id }
 }
 
 /**
@@ -391,6 +394,32 @@ export const tubeName = (pieces, flux) => numbered(pieces, 'tube', TUBE_NAMES[fl
 /** Whether a tube still has the name it was given for what it carries, as no one has named it. */
 export const isDefaultTubeName = (label, flux) =>
   new RegExp(`^${TUBE_NAMES[flux] ?? 'Tube'}( \\d+)?$`).test(String(label ?? ''))
+
+/**
+ * Gives the tubes to some compartments what they carry now: as a tube added between its ends would, but for a
+ * diffusion, and a gap junction or bridge that still joins two cells, which the user chose. A tube renamed by no one
+ * is named for what it carries. Their bends go, as the tubes' ends were moved, unless `keepBends`.
+ *
+ * @param {Array<Object>} raw - Changed in place.
+ * @param {Set<string>} ids - The compartments whose tubes are worked out again.
+ * @param {{keepBends?: boolean}} [options]
+ */
+export function refluxTubes(raw, ids, { keepBends = false } = {}) {
+  for (const tube of raw) {
+    if (tube.kind !== 'tube' || !tube.ends.some((end) => ids.has(end))) continue
+    if (!keepBends) delete tube.bends
+    if (tube.flux === 'diffusion') continue
+    if ((tube.flux === 'junction' || tube.flux === 'bridge') && joinsTwoCells(raw, tube.ends)) continue
+    const was = tube.flux
+    tube.flux = fluxBetween(raw, tube.ends)
+    if (tube.flux !== was && isDefaultTubeName(tube.label, was)) {
+      tube.label = tubeName(
+        raw.filter((each) => each !== tube),
+        tube.flux,
+      )
+    }
+  }
+}
 
 /**
  * Adds a tube between two compartments: an open channel between two spaces within one membrane, a gap junction
