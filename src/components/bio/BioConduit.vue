@@ -1,7 +1,7 @@
 <template>
   <!--
     A conduit: a vessel along a tube's whole way, from the edge of one compartment to the other's and round its bends,
-    seen from the side: its walls, lined within, a rim at its near end and its open far end, and the flow along it.
+    seen from the side: its walls, lined within, a rim at its near end and its open far end.
   -->
   <svg
     :class="['bio-conduit', { 'bio-conduit--selected': selected }]"
@@ -10,11 +10,6 @@
     overflow="visible"
     data-testid="bio-conduit"
   >
-    <defs>
-      <marker :id="markerId" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" class="bio-conduit__head" />
-      </marker>
-    </defs>
     <template v-if="vessel">
       <!-- Its walls are the edges of a wide stroke, its lumen a narrower one over it; its lining likewise -->
       <path :d="vessel.body" class="bio-conduit__wall" :stroke-width="2 * radius + WALL" />
@@ -27,13 +22,12 @@
       <g :transform="vessel.far">
         <ellipse cx="0" cy="0" :rx="end" :ry="radius" class="bio-conduit__opening" :style="openingStyle" />
       </g>
-      <path :d="vessel.flow" class="bio-conduit__flow" :marker-end="`url(#${markerId})`" />
     </template>
   </svg>
 </template>
 
 <script setup>
-import { computed, useId } from 'vue'
+import { computed } from 'vue'
 
 const props = defineProps({
   /** Its way, as the tube's: right-angle stretches from one compartment's edge to the other's, in this node's frame. */
@@ -50,8 +44,6 @@ const radius = 28
 const lining = radius - WALL / 2 - 3
 /** Its ends' ellipses, the round of the vessel seen a little from the side. */
 const end = Math.round(radius * 0.38)
-
-const markerId = `bio-conduit-head-${useId()}`
 
 const lumenStyle = computed(
   () => props.tone && { stroke: `color-mix(in srgb, var(--p-${props.tone}-200) 45%, var(--p-content-background))` },
@@ -83,7 +75,7 @@ const angleOf = (from, to) => (Math.atan2(to.y - from.y, to.x - from.x) * 180) /
 
 /**
  * Its body along its way, drawn in at each end so the near end's rim and the far end's opening reach the compartments'
- * edges and no further; each end's frame, turned along the stretch it is on; and the flow along its middle.
+ * edges and no further; and each end's frame, turned along the stretch it is on.
  */
 const vessel = computed(() => {
   const points = props.points.filter((p, i, all) => !i || p.x !== all[i - 1].x || p.y !== all[i - 1].y)
@@ -95,7 +87,6 @@ const vessel = computed(() => {
     body: pathOf(body),
     near: `translate(${near.x} ${near.y}) rotate(${angleOf(points[0], points[1])})`,
     far: `translate(${far.x} ${far.y}) rotate(${angleOf(points.at(-2), points.at(-1))})`,
-    flow: pathOf(drawnIn(points, inset + 6, inset + end + 6)),
   }
 })
 </script>
@@ -115,8 +106,7 @@ const vessel = computed(() => {
 
 .bio-conduit__wall,
 .bio-conduit__lumen,
-.bio-conduit__lining,
-.bio-conduit__flow {
+.bio-conduit__lining {
   fill: none;
 }
 
@@ -146,15 +136,6 @@ const vessel = computed(() => {
 
 .bio-conduit__opening {
   fill: color-mix(in srgb, var(--p-sky-300) 60%, var(--p-content-background));
-}
-
-.bio-conduit__flow {
-  stroke: var(--p-text-color);
-  stroke-width: 2;
-}
-
-.bio-conduit__head {
-  fill: var(--p-text-color);
 }
 
 .bio-conduit--selected .bio-conduit__wall,
