@@ -80,7 +80,9 @@ Right-click a protein or process to **Unbind** it: it is drawn beside the pieces
 - Drag a compartment docked along part of one side to slide it along that side; the protein sites beside it make room.
 - Hover over a cell, organelle, free compartment, process zone or image for the resize handle at its bottom-right corner.
 - A compartment docked along one side has a grip on its far edge. Drag it across the side to set how far the compartment reaches. Drag it onto another membrane's side or a fold to dock the compartment there too, so that it lies between the two: the green outline and the label by the pointer show what it would dock to. A dyadic cleft between an organelle and a T-tubule is built this way: dock a compartment beside the organelle, then drag its far edge onto the T-tubule's wall. Between a fold and a side, or two sides that face each other, it is drawn as the gap between them.
-- Drag a fold by the grip at its end, along its side and deeper or shallower; a tube by the grip above its module, to bend it; and a tube's end grip onto another compartment, to join it there.
+- Drag a fold by the grip at its end, along its side and deeper or shallower; a tube by the grip above its module, to bend it; and a tube's end grip onto another compartment, to join it there. While you drag an end, the compartment it would join is outlined and the tube is drawn where it would run.
+- Hold **Alt** (**Option** on a Mac) while dragging a tube, or the module drawn on it, to move its end nearer where you started the drag onto another compartment, as its end grip does. This works for every tube, including those whose ends touch and so have no grips.
+- A tube flows from its upstream end to its downstream end, shown by faint chevrons along it. Its end grips say which end is which.
 - Hold **Alt** (**Option** on a Mac) while dragging a compartment, cell, organelle or process zone to lift it out of where it is. It stays put while you carry it, and the outline and the label by the pointer show where it would go: docked against the membrane side the pointer is by, standing in the compartment under the pointer, or out on the view. Let go with Alt still down to put it there; let go of Alt first to move it as a plain drag does. This is how a compartment already on the view is docked to a membrane, how a docked one is detached, even one along a whole side that a plain drag can't move, and how a cell is moved from one compartment to another.
   - What stands in the piece goes with it, and so does a compartment docked only to it. A compartment docked to something left behind as well stays against that.
   - Cells joined by gap junctions go together.
@@ -94,6 +96,7 @@ Right-click a piece for:
 - **Rename…**: a compartment, membrane or tube is renamed as its module, so this renames the instance. A process zone or image is renamed with **Rename Piece…**. A click on a piece's name renames it too.
 - **Skin** and, on a cell, **Membrane Skin**: how the piece is drawn. See [Skins](#skins).
 - **Fit to Contents**: shrinks a cell or compartment back to what its contents need. A piece never shrinks on its own.
+- **Reverse Flow**: swaps a tube's upstream and downstream ends, and remakes the connections placement made to them the other way. It is also on the tube's module.
 - **Straighten Tube**: takes a tube's bend away.
 - **Detach**: on a compartment docked to one membrane side or fold, takes it off, leaving it standing where it is.
 - **Detach From**: on a compartment docked to more than one membrane side or fold, takes it off one of them, leaving it against the rest, or off **All of Them**.

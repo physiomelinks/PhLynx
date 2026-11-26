@@ -541,7 +541,7 @@ import {
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
-import { PIECES_INSTANCE, layoutPieces, pieceSiteRef } from '../../services/bioView/pieces/layout'
+import { PIECES_INSTANCE, layoutPieces, pieceKey, pieceSiteRef } from '../../services/bioView/pieces/layout'
 import { topologyOf } from '../../services/bioView/pieces/topology'
 import { stampTemplate } from '../../services/bioView/pieces/stamp'
 import {
@@ -1126,7 +1126,11 @@ function pointerAt(event) {
   return Number.isFinite(point?.clientX) ? screenToFlowCoordinate({ x: point.clientX, y: point.clientY }) : null
 }
 
+/** Where the pointer was when a drag began, for which end of a tube an Alt-drag takes (see startTubeRetarget). */
+let dragStartPointer = null
+
 function onNodeDragStart({ event, node, nodes }) {
+  dragStartPointer = pointerAt(event)
   dragStarts.clear()
   for (const moved of nodes) dragStarts.set(moved.id, { ...moved.position })
   // A piece, or a grip on one, moves as its own drag says; a module moves alone.
@@ -1134,7 +1138,9 @@ function onNodeDragStart({ event, node, nodes }) {
 }
 
 /** Follows a piece's drag as it goes. */
-function onNodeDrag({ event }) {
+function onNodeDrag({ event, node }) {
+  // A tube, or its module, dragged with Alt takes the end nearer where the drag began to another compartment.
+  if (!pieceMove && event?.altKey && !startTubeRetarget(node)) return
   if (!pieceMove) return
   pieceMove.alt = pieceMove.liftable && !!event?.altKey
   const pointer = pointerAt(event)
@@ -2009,7 +2015,10 @@ function startPieceMove(node, event) {
     end: place.end,
     below: place.below ?? 0,
     // A compartment's far edge can be dropped on another membrane's side or a fold: what it could go on, read once.
-    scene: mode === 'grip:reach' ? dropScene(piecesStore.pieces, sceneOptions()) : null,
+    scene:
+      mode === 'grip:reach' || mode === 'grip:start' || mode === 'grip:end'
+        ? dropScene(piecesStore.pieces, sceneOptions())
+        : null,
     dock: null,
     liftable,
     // Whether Alt is down, lifting it; what it could go on, read once it is lifted; and the pieces as letting go
@@ -2084,7 +2093,11 @@ function setDown(move) {
 function takesPieceChange(change) {
   if (pieceMove && change.type === 'position') {
     // A tube's end follows the pointer, to be dropped on another compartment.
-    if (change.id === pieceMove.nodeId && (pieceMove.mode === 'grip:start' || pieceMove.mode === 'grip:end'))
+    if (
+      change.id === pieceMove.nodeId &&
+      !pieceMove.retarget &&
+      (pieceMove.mode === 'grip:start' || pieceMove.mode === 'grip:end')
+    )
       return false
     return true
   }
@@ -2124,6 +2137,11 @@ function followPiece(pointer) {
   moveFrameRequest = requestAnimationFrame(() => {
     moveFrameRequest = 0
     if (!pieceMove || !pendingPosition) return
+    // A tube's end: what it would join is outlined, and where the tube would run.
+    if (isTubeEndMove(pieceMove)) {
+      tubeEndDraft(pieceMove, pendingPosition)
+      return
+    }
     // Lifted, it stays where it is until let go of: only where it would go is drawn.
     if (pieceMove.alt) {
       carryDraft(pieceMove, pendingPosition)
@@ -2166,7 +2184,7 @@ async function endPieceMove({ event, node }) {
     return
   }
   setDown(move)
-  if (move.scene) {
+  if (move.mode === 'grip:reach') {
     const docked = dockDraft(move, pointerAt(event))
     clearPiecePreview()
     if (docked) {
@@ -2178,12 +2196,14 @@ async function endPieceMove({ event, node }) {
       return
     }
   }
-  if (move.mode === 'grip:start' || move.mode === 'grip:end') {
+  if (isTubeEndMove(move)) {
     const point = pointerAt(event)
-    const join = resolveTubeEnd(dropScene(piecesStore.pieces, sceneOptions()), move.piece, move.end, point)
+    const join = point && resolveTubeEnd(move.scene, move.piece, move.end, point)
+    clearPiecePreview()
+    if (join?.invalid) notify.info({ title: 'It can’t go there', message: join.invalid })
     // Between two touching cells, it carries what the user says, as a tube dropped between them does.
-    const flux = join?.cells ? await cellTubeFlux(join.cells) : undefined
-    const raw = join && (!join.cells || flux) && join.apply(move.base, { flux })
+    const flux = join?.cells && !join.invalid ? await cellTubeFlux(join.cells) : undefined
+    const raw = join?.apply && (!join.cells || flux) && join.apply(move.base, { flux })
     const next = raw && validatePieces(raw).pieces
     if (next) await editPieces(next, 'bio-pieces-tube-end')
     // Back where its layout puts it: on the end it is joined to now.
@@ -2196,6 +2216,93 @@ async function endPieceMove({ event, node }) {
   } finally {
     piecesStore.draft = null
   }
+}
+
+/** Whether a drag moves one end of a tube: by its grip, or Alt-dragging the tube or its module. */
+const isTubeEndMove = (move) => move?.mode === 'grip:start' || move?.mode === 'grip:end'
+
+/**
+ * Begins an Alt-drag of a tube, or of the module drawn on it, as a drag of one of its ends: the end nearer where the
+ * drag began. The tube and its module stay where they are; what the end would join is outlined as it goes.
+ *
+ * @param {Object} node - The dragged node.
+ * @returns {boolean} Whether it is a tube's.
+ */
+function startTubeRetarget(node) {
+  const place = layout.value.get(node.id)
+  const tubePlace = place?.kind === 'link' ? place : place?.kind === 'card' ? layout.value.get(place.link) : null
+  const tube = tubePlace?.piece && piecesStore.pieces.find((piece) => piece.id === tubePlace.piece)
+  const start = dragStartPointer
+  if (tube?.kind !== 'tube' || !start) return false
+  const rects = pieceRects()
+  const [near, far] = tube.ends.map((id) => distanceToRect(rects.get(id), start))
+  const end = far < near ? 1 : 0
+  // Held where it was: its module is not dropped on a site, as a plain drag of it would be.
+  draggingId.value = activeTarget.value = pointer.value = null
+  isViewChosen = true
+  pieceMove = {
+    nodeId: node.id,
+    piece: tube.id,
+    mode: end ? 'grip:end' : 'grip:start',
+    retarget: true,
+    pointer: start,
+    grip: null,
+    base: piecesStore.pieces,
+    rects,
+    end,
+    below: 0,
+    scene: dropScene(piecesStore.pieces, sceneOptions()),
+    dock: null,
+    liftable: false,
+    alt: false,
+    lifting: false,
+    lift: null,
+    lifted: null,
+  }
+  return true
+}
+
+/** How far a point is from a rect; 0 inside it, Infinity for none. */
+function distanceToRect(rect, point) {
+  if (!rect) return Infinity
+  const dx = Math.max(rect.x - point.x, 0, point.x - (rect.x + rect.width))
+  const dy = Math.max(rect.y - point.y, 0, point.y - (rect.y + rect.height))
+  return Math.hypot(dx, dy)
+}
+
+/**
+ * Shows what letting go of a tube's end here would do: the compartment it would join outlined, the tube as it would
+ * run, and the label by the pointer saying so, or why it can't.
+ *
+ * @param {Object} move - The drag (see startPieceMove and startTubeRetarget).
+ * @param {{x: number, y: number}} point
+ */
+function tubeEndDraft(move, point) {
+  const join = resolveTubeEnd(move.scene, move.piece, move.end, point)
+  piecePointer.value = join ? point : null
+  if (!join) {
+    piecePreview.value = null
+    return
+  }
+  if (join.key === piecePreview.value?.key) return
+  if (join.invalid) {
+    piecePreview.value = { key: join.key, invalid: join.invalid, highlights: [], ghosts: [] }
+    return
+  }
+  const raw = join.apply(move.base)
+  const { pieces, errors } = raw ? validatePieces(raw) : { pieces: null, errors: ['It can’t go there.'] }
+  piecePreview.value = pieces
+    ? { key: join.key, label: join.label, highlights: join.highlights, ghosts: tubeGhosts(pieces, move.piece) }
+    : { key: join.key, invalid: summariseProblems(errors), highlights: join.highlights, ghosts: [] }
+}
+
+/** A tube's ghost, as the pieces would lay it out: its vessel, its way, or its joint's room. */
+function tubeGhosts(pieces, tubeId) {
+  const place = layoutPieces(pieces, sceneOptions()).places.get(pieceKey(tubeId))
+  if (!place) return []
+  if (place.conduit) return [{ type: 'conduit', kind: place.kind, points: place.points }]
+  if (place.points) return [{ type: 'path', points: place.points }]
+  return place.zone ? [{ type: 'rect', kind: place.kind, rect: place.zone }] : []
 }
 
 /**

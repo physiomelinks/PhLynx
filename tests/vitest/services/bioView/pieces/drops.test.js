@@ -331,16 +331,29 @@ describe('dropping a tube, fold or zone', () => {
     }
     const touching = moved(withTube(0), { flux: 'junction' })
     expect(touching.end.cells).toEqual(['Cell A', 'Cell B'])
+    expect(touching.end.label).toBe('Joins its downstream end to Cell B')
     expect(touching.tube).toMatchObject({ ends: ['a', 'b'], flux: 'junction', label: 'Gap junction' })
     const apart = moved(withTube(120))
     expect(apart.end.cells).toBeUndefined()
     expect(apart.tube).toMatchObject({ ends: ['a', 'b'], flux: 'bridge', label: 'Bridge' })
     const scene = dropScene(withTube(0))
-    expect(resolveTubeEnd(scene, 't', 1, middle(scene.rects.get('a')))).toBeNull()
+    // Onto its other end, it says why not; onto the one it joins already, it does nothing.
+    expect(resolveTubeEnd(scene, 't', 1, middle(scene.rects.get('a'))).invalid).toMatch(/can’t join Cell A to itself/)
+    expect(resolveTubeEnd(scene, 't', 0, middle(scene.rects.get('a')))).toBeNull()
   })
 
   it('needs two compartments for a tube', () => {
     expect(resolveDrop('tube', { x: 0, y: 0 }, dropScene([])).invalid).toMatch(/two compartments/)
+  })
+
+  it('says when nothing else is near enough to join', () => {
+    const start = valid([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 100 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 2000, y: 0, width: 200, height: 100 } },
+    ])
+    expect(resolveDrop('tube', { x: 50, y: 50 }, dropScene(start)).invalid).toBe(
+      'Nothing else is near enough to A to join it to.'
+    )
   })
 
   it('folds a membrane in from the side it is dropped on, where along it', () => {

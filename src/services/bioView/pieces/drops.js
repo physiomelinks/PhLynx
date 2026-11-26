@@ -375,7 +375,10 @@ function resolveTube(scene, point) {
       inReach(others.filter((piece) => around.includes(piece.id)))[0]
     )?.piece
   }
-  if (!first || !second) return { key: 'tube|none', invalid: 'Drop it on or between two compartments.' }
+  if (!first) return { key: 'tube|none', invalid: 'Drop it on or between two compartments.' }
+  if (!second) {
+    return { key: `tube|${first.id}|none`, invalid: `Nothing else is near enough to ${first.label} to join it to.` }
+  }
   const ends = [first.id, second.id]
   const { apart, cells } = cellJoin(scene, ends)
   return {
@@ -389,25 +392,32 @@ function resolveTube(scene, point) {
 
 /**
  * What letting go of a tube's end at a point would do: join that end to the innermost compartment there, carrying
- * what a tube dropped between the two would, as for resolveTube.
+ * what a tube dropped between the two would, as for resolveTube. Null where it is on no compartment, or on the one
+ * it joins already; invalid (with why) where it would join the tube's other end to itself.
  *
  * @param {Object} scene - From dropScene.
  * @param {string} tubeId
  * @param {0|1} end - Upstream (0) or downstream (1).
  * @param {{x: number, y: number}} point - In flow coordinates.
- * @returns {{cells?: [string, string], apply: Function}|null} Null where there is no other compartment there.
- *   apply(pieces, choice) gives the raw pieces, or null; cells names the two touching cells it would join, to ask
- *   whether by a gap junction or a bridge.
+ * @returns {{key: string, label?: string, invalid?: string, highlights?: Array<Object>, cells?: [string, string],
+ *   apply?: Function}|null} apply(pieces, choice) gives the raw pieces, or null; cells names the two touching cells it
+ *   would join, to ask whether by a gap junction or a bridge.
  */
 export function resolveTubeEnd(scene, tubeId, end, point) {
   const tube = scene.byId.get(tubeId)
   const target = point && compartmentAt(scene, point)
-  if (tube?.kind !== 'tube' || !target) return null
+  if (tube?.kind !== 'tube' || !target || tube.ends[end] === target.id) return null
   const ends = [...tube.ends]
   ends[end] = target.id
-  if (ends[0] === ends[1]) return null
+  const which = end ? 'downstream' : 'upstream'
+  if (ends[0] === ends[1]) {
+    return { key: `tube-end|${tubeId}|${end}|${target.id}`, invalid: `A tube can’t join ${target.label} to itself.` }
+  }
   const { apart, cells } = cellJoin(scene, ends)
   return {
+    key: `tube-end|${tubeId}|${end}|${target.id}`,
+    label: `Joins its ${which} end to ${target.label}`,
+    highlights: [{ type: 'rect', rect: scene.rects.get(target.id) }],
     ...(cells && { cells }),
     apply: (pieces, { flux = apart ? 'bridge' : undefined } = {}) => reattachTube(pieces, tubeId, end, target.id, flux),
   }
