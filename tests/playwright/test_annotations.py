@@ -774,40 +774,46 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.open_physiology_with_template()
         self.place_toys()
         self.place_cell_pool()
-        import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
+        # The pools also hold glucose, uncoupled: tokens with no path.
+        import_files(page, "Module Annotations", [pool_with_glucose(), toy("porter.ttl")])
         tokens = page.locator("[data-testid=bio-species-token]")
+        glucose = tokens.and_(page.locator('[data-species="CHEBI:17634"]'))
+        paths = page.locator("[data-testid=bio-species-path]")
         # The pane's right, clear of the template and the minimap.
         pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
         spare = (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2)
         self.show_species("Coupled Species", spare)
         expect(tokens).to_have_count(3)
-        expect(page.locator("[data-testid=bio-species-path]")).to_have_count(2)
+        expect(paths).to_have_count(2)
 
-        # Held, the lumen is only read by the porter facing it: a dependence, which is no flux.
+        # Held, the lumen keeps its path: the porter facing it still carries sodium into it, its flow just not summed.
         editor = self.open_editor("outside")
         editor.locator("[data-test=hold-constant-checkbox]").click()
         self.save_editor(editor, removes_couplings=True)
         ids = {toy_names(self.flow())[n["name"]]: n["id"] for n in self.flow()["nodes"]}
         lumen = tokens.and_(page.locator(f'[data-node="{ids["outside"]}"]'))
-        expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(1)
+        expect(paths).to_have_count(2)
+        expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(0)
         expect(lumen).to_have_count(1)
 
+        # Glucose has no path: shown with every annotated species, gone with only those with fluxes.
+        self.show_species("All Annotated Species", spare)
+        expect(glucose).to_have_count(3)
         self.show_species("Species with Fluxes", spare)
-        expect(tokens).to_have_count(2)
-        expect(lumen).to_have_count(0)
-        expect(page.locator("[data-testid=bio-species-path]")).to_have_count(1)
-        expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(0)
+        expect(glucose).to_have_count(0)
+        expect(lumen).to_have_count(1)
+        expect(paths).to_have_count(2)
 
-        # Focused, it stays: from Coupled Species into Species with Fluxes, until the focus is cleared.
-        self.show_species("Coupled Species", spare)
-        lumen.click()
+        # Focused, it stays: from All Annotated Species into Species with Fluxes, until the focus is cleared.
+        self.show_species("All Annotated Species", spare)
+        lumen_glucose = glucose.and_(page.locator(f'[data-node="{ids["outside"]}"]'))
+        lumen_glucose.click()
         expect(page.locator(".bio-species-token--focused")).to_have_count(1)
         self.show_species("Species with Fluxes", spare)
-        expect(tokens).to_have_count(3)
-        expect(lumen).to_have_class(re.compile(r"bio-species-token--focused"))
-        expect(page.locator("[data-testid=bio-species-dependence]")).to_have_count(1)
+        expect(glucose).to_have_count(1)
+        expect(lumen_glucose).to_have_class(re.compile(r"bio-species-token--focused"))
         page.mouse.click(*spare)
-        expect(tokens).to_have_count(2)
+        expect(glucose).to_have_count(0)
 
     def chip_order(self, node_id):
         """The species of a compartment's chips, left to right."""
