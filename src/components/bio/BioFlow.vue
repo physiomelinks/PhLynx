@@ -890,6 +890,35 @@ async function dropStaleLinks(before) {
   })
 }
 
+/** The modules on a site of the pieces. */
+const placedModuleIds = () =>
+  [...layout.value].filter(([id, place]) => place?.instance && place.site && main.findNode(id)).map(([id]) => id)
+
+/**
+ * Brings the placement edges in line with the pieces after an edit of them moved what lies next to what, as a
+ * reparented cell, a re-docked compartment or a re-ended tube does: the placement edges to neighbours a module
+ * left go (see dropStaleLinks), and it is joined to the ones it gained, by the links its site makes (see
+ * siteLinks). Only new neighbours are joined, so an edge the user took away between neighbours that stay is not
+ * put back. Run in the edit's step.
+ *
+ * @param {Map<string, Array<string>>} before - From neighboursOf, taken before the edit.
+ * @returns {Promise<void>}
+ */
+async function relinkPlaced(before) {
+  await dropStaleLinks(before)
+  if (!props.connectInstances) return
+  for (const id of placedModuleIds()) {
+    const ref = layout.value.get(id)?.site
+    const site = ref && siteTargets.value.find((target) => target.ref === ref)
+    if (!site) continue
+    const was = new Set(before.get(id) ?? [])
+    const gained = neighboursAt(site, id).filter((other) => !was.has(other.id))
+    const links = siteLinks(id, site.role, gained)
+    // Each made in turn, so its far end sees it as joined and doesn't make it again.
+    if (links.length) await props.connectInstances(links)
+  }
+}
+
 /** Whether a replace confirmation is open, so the workspace's shortcuts wait. */
 const isConfirming = ref(false)
 
@@ -1609,8 +1638,12 @@ async function takeOut(id, plan, type) {
 async function withOwedModules(type, edit) {
   history.startBatch()
   try {
+    const before = neighboursOf(placedModuleIds())
     const done = await edit()
-    if (done) await fillOwedModules()
+    if (done) {
+      await fillOwedModules()
+      await relinkPlaced(before)
+    }
     return done
   } finally {
     history.endBatch(type)
