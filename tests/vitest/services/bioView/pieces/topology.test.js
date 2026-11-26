@@ -71,6 +71,7 @@ describe('neighbours, as template sites relate today', () => {
       'outer-segment': [
         'region',
         'cilium downstream',
+        'rod-membrane membrane',
         'rod-membrane.os-lower protein',
         'rod-membrane.os-tip protein',
         'rod-membrane.os-upper protein',
@@ -78,13 +79,16 @@ describe('neighbours, as template sites relate today', () => {
       'inner-segment': [
         'region',
         'cilium upstream',
+        'rod-membrane membrane',
         'rod-membrane.is-lower protein',
         'rod-membrane.is-upper protein',
         'rod-membrane.terminal protein',
       ],
-      // With no bulk, the membrane meets neither segment as a whole.
+      // With no bulk, the membrane still meets each segment it encloses.
       'rod-membrane': [
         'membrane',
+        'inner-segment inside',
+        'outer-segment inside',
         'rod-membrane.is-lower protein',
         'rod-membrane.is-upper protein',
         'rod-membrane.os-lower protein',

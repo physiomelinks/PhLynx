@@ -345,7 +345,8 @@ function buildTopology(pieces) {
   for (const membrane of membranes) {
     const bulk = bulks.get(membrane.id)
     const context = { membrane: membrane.id }
-    pair(bulk, membrane.id, 'membrane', 'inside', context)
+    // A membrane is joined to every compartment it encloses, bulk or docked to a side, as each meets it.
+    for (const id of membrane.encloses) pair(id, membrane.id, 'membrane', 'inside', context)
     const walls = [
       ...spans.get(membrane.id).map((span) => span.path),
       ...ofKind('fold')
