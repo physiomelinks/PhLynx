@@ -17,7 +17,9 @@
       <path :d="vessel.body" class="bio-conduit__lining" :stroke-width="2 * lining + 1.5" />
       <path :d="vessel.body" class="bio-conduit__lumen" :style="lumenStyle" :stroke-width="2 * lining - 1.5" />
       <g :transform="vessel.near">
+        <!-- Filled to the end's chord, but only its curved rim stroked: the chord is where it meets the compartment -->
         <path :d="`M 0 ${-radius} A ${end} ${radius} 0 0 0 0 ${radius} Z`" class="bio-conduit__cap" :style="capStyle" />
+        <path :d="`M 0 ${-radius} A ${end} ${radius} 0 0 0 0 ${radius}`" class="bio-conduit__rim" />
       </g>
       <g :transform="vessel.far">
         <ellipse cx="0" cy="0" :rx="end" :ry="radius" class="bio-conduit__opening" :style="openingStyle" />
@@ -124,13 +126,18 @@ const vessel = computed(() => {
   stroke-dasharray: 6 3;
 }
 
-.bio-conduit__cap,
+.bio-conduit__rim,
 .bio-conduit__opening {
   stroke: color-mix(in srgb, var(--p-text-muted-color) 55%, transparent);
   stroke-width: 2.5;
 }
 
+.bio-conduit__rim {
+  fill: none;
+}
+
 .bio-conduit__cap {
+  stroke: none;
   fill: color-mix(in srgb, var(--p-sky-200) 45%, var(--p-content-background));
 }
 
@@ -139,7 +146,7 @@ const vessel = computed(() => {
 }
 
 .bio-conduit--selected .bio-conduit__wall,
-.bio-conduit--selected .bio-conduit__cap,
+.bio-conduit--selected .bio-conduit__rim,
 .bio-conduit--selected .bio-conduit__opening {
   stroke: var(--p-primary-color);
 }
