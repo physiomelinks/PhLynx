@@ -4,7 +4,7 @@
     seen from the side: its walls, lined within, a rim at its near end and its open far end.
   -->
   <svg
-    :class="['bio-conduit', { 'bio-conduit--selected': selected }]"
+    :class="['bio-conduit', { 'bio-conduit--selected': selected, 'bio-conduit--ghost': ghost }]"
     width="1"
     height="1"
     overflow="visible"
@@ -14,8 +14,10 @@
       <!-- Its walls are the edges of a wide stroke, its lumen a narrower one over it; its lining likewise -->
       <path :d="vessel.body" class="bio-conduit__wall" :stroke-width="2 * radius + WALL" />
       <path :d="vessel.body" class="bio-conduit__lumen" :style="lumenStyle" :stroke-width="2 * radius - WALL" />
-      <path :d="vessel.body" class="bio-conduit__lining" :stroke-width="2 * lining + 1.5" />
-      <path :d="vessel.body" class="bio-conduit__lumen" :style="lumenStyle" :stroke-width="2 * lining - 1.5" />
+      <template v-if="!ghost">
+        <path :d="vessel.body" class="bio-conduit__lining" :stroke-width="2 * lining + 1.5" />
+        <path :d="vessel.body" class="bio-conduit__lumen" :style="lumenStyle" :stroke-width="2 * lining - 1.5" />
+      </template>
       <g :transform="vessel.near">
         <!-- Filled to the end's chord, but only its curved rim stroked: the chord is where it meets the compartment -->
         <path :d="`M 0 ${-radius} A ${end} ${radius} 0 0 0 0 ${radius} Z`" class="bio-conduit__cap" :style="capStyle" />
@@ -37,6 +39,8 @@ const props = defineProps({
   /** The colour of the compartment it flows from, for its lumen. */
   tone: { type: String, default: null },
   selected: { type: Boolean, default: false },
+  /** Drawn as a drop's preview: its outline dashed in the drop colour, as where it would go. */
+  ghost: { type: Boolean, default: false },
 })
 
 /** A vessel's wall, as a tube compartment's is drawn (see BioRegion), and its radius to the middle of its walls. */
@@ -149,5 +153,22 @@ const vessel = computed(() => {
 .bio-conduit--selected .bio-conduit__rim,
 .bio-conduit--selected .bio-conduit__opening {
   stroke: var(--p-primary-color);
+}
+
+/* A drop's preview: the walls dashed and the lumen tinted in the drop colour, as a piece's ghost is */
+.bio-conduit--ghost .bio-conduit__wall,
+.bio-conduit--ghost .bio-conduit__rim,
+.bio-conduit--ghost .bio-conduit__opening {
+  stroke: var(--bio-drop-active);
+  stroke-dasharray: 8 5;
+}
+
+.bio-conduit--ghost .bio-conduit__lumen {
+  stroke: color-mix(in srgb, var(--bio-drop-active) 12%, var(--p-content-background));
+}
+
+.bio-conduit--ghost .bio-conduit__cap,
+.bio-conduit--ghost .bio-conduit__opening {
+  fill: color-mix(in srgb, var(--bio-drop-active) 12%, var(--p-content-background));
 }
 </style>

@@ -193,7 +193,9 @@ describe('dropping a tube, fold or zone', () => {
     const { pieces, drop, ghosts } = dropped(start, 'tube', { x: 50, y: 50 })
     expect(drop.label).toBe('Joins A to B')
     expect(pieces.find((piece) => piece.kind === 'tube')).toMatchObject({ ends: ['a', 'b'], flux: 'flow' })
-    expect(ghosts.some((ghost) => ghost.type === 'path')).toBe(true)
+    // Previewed as the vessel it is drawn as, along its way, with no card's room beside it.
+    expect(ghosts.filter((ghost) => ghost.type === 'conduit')).toHaveLength(1)
+    expect(ghosts.some((ghost) => ghost.type === 'rect' && ghost.kind === 'link')).toBe(false)
   })
 
   // The two cells alone, without the fluids round them, which are nearer; moved together, B against A's right side.

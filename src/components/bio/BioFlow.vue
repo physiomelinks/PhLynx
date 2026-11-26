@@ -260,8 +260,16 @@
             <rect v-else class="bio-piece-preview__target" v-bind="mark.rect" rx="12" />
           </template>
           <template v-for="(ghost, index) in piecePreview.ghosts" :key="`ghost-${index}`">
+            <!-- A flow tube between compartments apart: the vessel it is drawn as, not a card's room -->
+            <BioConduit
+              v-if="ghost.type === 'conduit'"
+              :points="ghost.points"
+              ghost
+              data-testid="bio-piece-ghost"
+              :data-kind="ghost.kind"
+            />
             <polyline
-              v-if="ghost.type === 'path'"
+              v-else-if="ghost.type === 'path'"
               class="bio-piece-preview__way"
               :points="ghost.points.map((point) => `${point.x},${point.y}`).join(' ')"
             />
@@ -490,6 +498,7 @@ import InputText from 'primevue/inputtext'
 import BioCard from './BioCard.vue'
 import BioCell from './BioCell.vue'
 import BioConnectionPanel from './BioConnectionPanel.vue'
+import BioConduit from './BioConduit.vue'
 import BioCouplingEdge from './BioCouplingEdge.vue'
 import BioMembrane from './BioMembrane.vue'
 import BioProtein from './BioProtein.vue'
