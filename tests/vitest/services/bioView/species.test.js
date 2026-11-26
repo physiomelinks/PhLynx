@@ -49,9 +49,12 @@ const edge = (source, target, pairs) => ({
   data: { couplings: pairs.map(([a, b]) => ({ sourcePort: port(a), targetPort: port(b) })) },
 })
 
-// held: the lumen is held at a fixed concentration, so only its amount is coupled to the porter.
-function toyNetwork({ held = false, ...options } = {}) {
-  const nodes = [node('lumen', 'pool'), node('cell', 'pool'), node('porter', 'porter'), node('note', 'note')]
+// held: only the lumen's amount is coupled to the porter, as when it is held at a fixed concentration; flagged: the
+// lumen is also marked held (Hold summed flows at 0), as the coupling that left out its flow does.
+function toyNetwork({ held = false, flagged = false, ...options } = {}) {
+  const lumen = node('lumen', 'pool')
+  if (flagged) lumen.data.annotationOverlay = { heldConstant: true }
+  const nodes = [lumen, node('cell', 'pool'), node('porter', 'porter'), node('note', 'note')]
   const roles = { lumen: 'region', cell: 'cytosol', porter: 'membraneProtein', note: 'none' }
   const edges = [
     edge('lumen', 'porter', [
@@ -185,6 +188,34 @@ describe('the species network', () => {
     expect(network.dependences).toEqual([
       { protein: 'porter', compartment: 'lumen', species: CHEBI.sodium, label: 'Na⁺', side: 'outside' },
     ])
+  })
+
+  it('draws a path into a compartment held at its concentration, from the protein’s own flow there', () => {
+    const { network } = toyNetwork({ held: true, flagged: true })
+    expect(network.paths).toEqual([
+      { protein: 'porter', species: CHEBI.sodium, label: 'Na⁺', outside: 'lumen', inside: 'cell' },
+    ])
+    // The held end is the path's, not something the porter only reads.
+    expect(network.dependences).toEqual([])
+    expect(toyNetwork({ held: true, flagged: true, fluxes: true }).network.compartments.get('lumen')).toHaveLength(1)
+  })
+
+  it('draws no path into a held compartment the protein has no flow of the species to', () => {
+    const noOuterFlow = { variables: PORTER.variables.filter(({ variable }) => variable !== 'v_Na_o') }
+    const lumen = { id: 'lumen', data: { name: 'lumen', mathRef: 'pool', annotationOverlay: { heldConstant: true } } }
+    const nodes = [lumen, node('cell', 'pool'), node('porter', 'porter')]
+    const roles = { lumen: 'region', cell: 'cytosol', porter: 'membraneProtein' }
+    const edges = [
+      edge('lumen', 'porter', [['c_Na', 'c_Na_o']]),
+      edge('porter', 'cell', [
+        ['c_Na_i', 'c_Na'],
+        ['v_Na_i', 'v_Na'],
+      ]),
+    ]
+    const sidecarOf = (n) => ({ pool: POOL, porter: noOuterFlow })[n.data.mathRef]
+    const network = speciesNetwork({ nodes, edges, roleOf: (id) => roles[id], sidecarOf })
+    expect(network.paths).toEqual([])
+    expect(network.dependences.map(({ compartment }) => compartment)).toEqual(['lumen'])
   })
 
   it('finds no dependence where a flow is coupled too, or the compartment doesn’t show the species', () => {
