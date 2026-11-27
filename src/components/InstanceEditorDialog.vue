@@ -492,6 +492,9 @@
                 :unit-definitions="store.unitDefinitions"
                 :port-status="annotationPortStatus"
                 :is-placed="isNodePlaced"
+                :active="activeTab === 'annotations'"
+                :workspace-sidecars="workspaceSidecars"
+                :side-names="sideNames"
                 :held-constant="heldConstant"
                 @update:held-constant="setHeldConstant"
               />
@@ -658,7 +661,7 @@ import { useLiveCelldlConvert } from '../composables/useLiveCelldlConvert'
 
 import { isInitialisable } from '../services/math/variableKinds'
 import { variableIdsOf } from '../services/math/variableIds'
-import { placesOf, quantityOfPort } from '../services/annotations/couple'
+import { placesOf, quantityOfPort, sideNamesOf } from '../services/annotations/couple'
 import { isSidecarPort, reconcileAnnotatedPorts } from '../services/annotations/ports'
 import { fromAnnotationTitle } from '../services/annotations/display'
 import { aggregatorVariables, asBoundaryConditions, holdAtZero } from '../services/annotations/heldConstant'
@@ -2099,6 +2102,7 @@ const { getContext, ensureContext } = useCouplingContext()
 const couplingContext = computed(() => getContext(nodes.value))
 const instanceNode = computed(() => nodes.value?.find((node) => node.id === props.id) ?? null)
 const isNodePlaced = computed(() => placesOf(instanceNode.value, couplingContext.value).length > 0)
+const sideNames = computed(() => sideNamesOf(instanceNode.value, couplingContext.value))
 
 /** An annotated port's quantity, for its chips' detail. */
 const portQuantity = (port) =>
@@ -2258,11 +2262,13 @@ const annotationCounts = computed(() => {
 
 // ChEBI species other sidecars in the workspace use, offered first in the Annotations tab.
 const workspaceSpecies = ref([])
+const workspaceSidecars = shallowRef([])
 
-/** Collects the species every parsed sidecar in the workspace uses. */
+/** Collects every parsed sidecar in the workspace, other than this math's, and the species they use. */
 async function findWorkspaceSpecies() {
   const refs = [...store.moduleAnnotations.keys()]
   const sidecars = await Promise.all(refs.map((ref) => store.ensureModuleAnnotations(ref).catch(() => null)))
+  workspaceSidecars.value = sidecars.filter((sidecar, index) => sidecar && refs[index] !== props.mathRef)
   const terms = sidecars.flatMap((sidecar) => (sidecar?.variables ?? []).flatMap((entry) => entry.species ?? []))
   workspaceSpecies.value = [...new Set(terms)].filter((curie) => hasPrefix(curie, 'CHEBI')).sort()
 }

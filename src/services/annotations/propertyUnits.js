@@ -43,3 +43,20 @@ export function propertyUnitsProblem(property, units, definitions, cache = new M
   if (!resolved || expected.allowed.some((allowed) => sameDimensions(resolved, allowed))) return null
   return `${name} isn’t ${expected.noun}`
 }
+
+/**
+ * The properties a variable's units suit: none when its units are unknown or suit no property.
+ *
+ * @param {string|null} units - The variable's units name.
+ * @param {Map<string, Array<Object>>} definitions - As for propertyUnitsProblem.
+ * @param {Map<string, Object|null>} [cache]
+ * @returns {string[]} OPB CURIEs.
+ */
+export function propertiesForUnits(units, definitions, cache = new Map()) {
+  const name = cleanName(units)
+  const resolved = name ? resolveUnits(name, definitions ?? new Map(), cache) : null
+  if (!resolved) return []
+  return Object.entries(PROPERTY_UNITS)
+    .filter(([, { allowed }]) => allowed.some((dimensions) => sameDimensions(resolved, dimensions)))
+    .map(([property]) => property)
+}

@@ -133,6 +133,66 @@ local:entity_vdecayx01 bqbiol:is chebi:29101 ; bqbiol:isPartOf go:0005737 .
   )
 
 describe('AnnotationTab', () => {
+  describe('suggestions', () => {
+    const part = (units, prefix = 0, exponent = 1) => ({ units, prefix, exponent, multiplier: 1 })
+    const unitDefinitions = new Map([
+      ['mM', [part('mole', -3), part('litre', 0, -1)]],
+      ['mol_per_s', [part('mole'), part('second', 0, -1)]],
+      ['pL', [part('litre', -12)]],
+    ])
+    const marker = (name) => rowOf(name).find('[data-test="suggested"]')
+
+    it('fills the empty rows the first time the tab shows, marked, leaving annotated rows alone', async () => {
+      await mountTab({ unitDefinitions })
+      expect(entryOf('J')).toBeUndefined()
+      expect(wrapper.find('[data-test="suggest"]').exists()).toBe(false)
+
+      await wrapper.setProps({ active: true })
+      expect(entryOf('J')).toEqual({ property: 'OPB:00592', species: [], location: 'self', from: null })
+      expect(entryOf('x')).toBeUndefined()
+      expect(marker('J').attributes('aria-label')).toMatch(/^Suggested from its units, name: mol_per_s is a molar flow; No side suffix/)
+      expect(marker('x').exists()).toBe(false)
+      expect(wrapper.find('[data-test="suggestions"]').text()).toContain('Suggested 1 row.')
+
+      // Editing a row makes it the user's.
+      await edit('J', 'species', [NA])
+      expect(marker('J').exists()).toBe(false)
+      expect(wrapper.find('[data-test="suggestions"]').exists()).toBe(false)
+    })
+
+    it('clears what is still as suggested, and suggests again on asking', async () => {
+      await mountTab({ unitDefinitions })
+      await wrapper.setProps({ active: true })
+      expect(entryOf('J')).toMatchObject({ property: 'OPB:00592' })
+      await wrapper.find('[data-test="clear-suggestions"]').trigger('click')
+      expect(wrapper.props('draft').variables.has('J')).toBe(false)
+      expect(marker('J').exists()).toBe(false)
+
+      await wrapper.find('[data-test="suggest"]').trigger('click')
+      expect(entryOf('J')).toMatchObject({ property: 'OPB:00592', location: 'self' })
+    })
+
+    it('suggests the module kind when it has none, and moves suggested places with a new kind', async () => {
+      const kindless = SIDECAR.replace(/^m:decay [^\n]*\n/m, '').replace(/^local:entity_self [^\n]*\n/m, '')
+      const rows = [...ROWS, { name: 'W', units: 'pL', type: 'constant' }]
+      const kinds = new Map([...KINDS, ['W', 'constant']])
+      await mountTab({ unitDefinitions, rows, variableKinds: kinds }, kindless)
+      await wrapper.setProps({ active: true })
+      expect(wrapper.findComponent('[data-test="module-kind"]').props('modelValue')).toBe('compartment')
+      expect(wrapper.find('[data-test="suggestions"]').text()).toContain('the module kind (concentration states and a volume)')
+      expect(entryOf('W')).toMatchObject({ property: 'OPB:00154', location: 'self' })
+
+      await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
+      expect(entryOf('J')).toMatchObject({ property: 'OPB:00592', location: null })
+      expect(entryOf('W')).toMatchObject({ property: 'OPB:00154', location: null })
+    })
+
+    it('names a placed module’s sides after the spaces there', async () => {
+      await mountTab({ sideNames: { 'GO:0005737': 'Enterocyte cytosol' } }, TRANSPORTER)
+      expect(cell('x', 'whose').props('options').map(({ label }) => label)).toContain('Cytoplasm · Enterocyte cytosol')
+    })
+  })
+
   describe('rows', () => {
     it('lists one row per variable in math order, not the VoI, and constants only when asked', async () => {
       await mountTab()
@@ -462,7 +522,7 @@ describe('AnnotationTab', () => {
   })
 
   describe('a flow', () => {
-    it('has a From only on a flow row, starting empty, from the other side', async () => {
+    it('has a From only on a flow row, a transporter’s filled from the other side of its membrane', async () => {
       await mountTab()
       await edit('J', 'what', 'OPB:00340')
       expect(rowOf('J').find('[data-test="from"]').exists()).toBe(false)
@@ -477,14 +537,17 @@ describe('AnnotationTab', () => {
 
       await wrapper.findComponent('[data-test="module-kind"]').vm.$emit('update:modelValue', 'transporter')
       await edit('J', 'whose', 'GO:0005737')
-      expect(cell('J', 'from').props('modelValue')).toBeNull()
+      expect(cell('J', 'from').props('modelValue')).toBe('GO:0005576')
       expect(cell('J', 'from').props('options').map(({ value }) => value)).toEqual(['GO:0005576', '__other-place__'])
 
-      await edit('J', 'from', 'GO:0005576')
-      expect(entryOf('J')).toMatchObject({ location: 'GO:0005737', from: 'GO:0005576' })
-      // Flowing into the source drops it.
+      // Flowing into its source turns it round.
       await edit('J', 'whose', 'GO:0005576')
-      expect(entryOf('J')).toMatchObject({ location: 'GO:0005576', from: null })
+      expect(entryOf('J')).toMatchObject({ location: 'GO:0005576', from: 'GO:0005737' })
+      await edit('J', 'from', null)
+      await edit('J', 'whose', 'GO:0005886')
+      expect(entryOf('J')).toMatchObject({ location: 'GO:0005886', from: null })
+      await edit('J', 'from', 'GO:0005737')
+      expect(entryOf('J')).toMatchObject({ location: 'GO:0005886', from: 'GO:0005737' })
     })
 
     it('shows the process on hover, naming the mediator by its protein once known', async () => {

@@ -59,6 +59,23 @@ export function placesOf(node, context) {
 const locateAt = (node, location, context) =>
   location ? (context?.source?.locate ?? locateAll)(placesOf(node, context), location) : []
 
+/**
+ * What the spaces either side of a placed node's membrane are, named after the places there.
+ *
+ * @param {Object} node
+ * @param {Object} context - From buildCouplingContext.
+ * @returns {Object<string, string>} The places' labels by GO term, for the cytoplasm and extracellular sides that
+ *   resolve; empty for a node not placed.
+ */
+export function sideNamesOf(node, context) {
+  const names = {}
+  for (const side of [GO.cytoplasm, GO.extracellularRegion]) {
+    const labels = [...new Set(locateAt(node, side, context).filter((l) => !l.unresolved && l.label).map((l) => l.label))]
+    if (labels.length) names[side] = labels.join(' / ')
+  }
+  return names
+}
+
 // The side-car entry a side-car-sourced annotation came from, as the side-car is now.
 function sidecarEntry(annotation, node, context) {
   if (annotation.source?.kind !== 'sidecar') return null

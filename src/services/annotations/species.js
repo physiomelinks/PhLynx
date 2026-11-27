@@ -33,8 +33,9 @@ export const SPECIES_ALIASES = [
 /** Each pinned species' label by CURIE, for the label provider. */
 export const SPECIES_LABELS = new Map(SPECIES_ALIASES.map(({ curie, label }) => [curie, label]))
 
-// Short ASCII names for the pinned species, which name the entities a sidecar shares, e.g. 'local:Na_in'.
-const SPECIES_TOKENS = new Map([
+// Short ASCII names for the pinned species, which name the entities a sidecar shares, e.g. 'local:Na_in', and which
+// variable names spell them with.
+export const SPECIES_TOKENS = new Map([
   ['CHEBI:29101', 'Na'],
   ['CHEBI:29103', 'K'],
   ['CHEBI:29108', 'Ca'],
