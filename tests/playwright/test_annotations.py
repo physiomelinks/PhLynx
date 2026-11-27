@@ -15,8 +15,10 @@ from playwright.sync_api import expect, sync_playwright
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .fixtures import use_default_timeouts, wait_for_library, wait_until_still
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from fixtures import use_default_timeouts, wait_for_library, wait_until_still
 
 
 NODE = ".vue-flow__node"
@@ -187,6 +189,8 @@ def import_files(page, label, *file_groups):
 def open_app(page):
     page.goto(BASE_URL)
     expect(page.locator(".vue-flow__pane")).to_be_visible(timeout=APP_MOUNT_TIMEOUT)
+    # Drops and the library's cards wait for the built-in library.
+    wait_for_library(page)
 
 
 def place(page, name, x=700, y=450):
@@ -247,6 +251,7 @@ class TestAnnotationsTab(unittest.TestCase):
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(headless=HEADLESS_MODE)
         self.context = self.browser.new_context(viewport={"width": 1600, "height": 1000})
+        use_default_timeouts(self.context)
         self.page = self.context.new_page()
         self.ols_requests = []
         mock_ontology_services(self.page, self.ols_requests)
@@ -335,6 +340,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(headless=HEADLESS_MODE)
         self.context = self.browser.new_context(viewport={"width": 1600, "height": 1000})
+        use_default_timeouts(self.context)
         self.page = self.context.new_page()
 
     def tearDown(self):
@@ -473,9 +479,10 @@ class TestAnnotationCoupling(unittest.TestCase):
         expect(glucose.and_(dimmed)).to_have_count(2)
         expect(sodium.and_(dimmed)).to_have_count(0)
 
-        # Clearing the focus brings everything back.
-        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
-        page.mouse.click(pane["x"] + pane["width"] - 80, pane["y"] + 80)
+        # Clearing the focus brings everything back. Clicked through the pane's locator, which waits until nothing
+        # (a notification, say) covers the spot.
+        pane = page.locator(f"{BIO} .vue-flow__pane")
+        pane.click(position={"x": pane.bounding_box()["width"] - 80, "y": 80})
         expect(page.locator(".bio-species-token--focused")).to_have_count(0)
         expect(dimmed).to_have_count(0)
 
@@ -534,7 +541,7 @@ class TestAnnotationCoupling(unittest.TestCase):
             self.drop_module(name, point)
             expect(placed).to_have_count(count + 1)
             fit.click()
-            page.wait_for_timeout(400)
+            wait_until_still(page)
 
         def centre(box):
             return (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
@@ -547,7 +554,7 @@ class TestAnnotationCoupling(unittest.TestCase):
             return sorted(boxes, key=lambda box: box["width"])
 
         fit.click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         # A pool in each space: the cleft, the SR, the cytosol and outside the cell.
         drop("pool", centre(piece(page, "cleft").bounding_box()))
         drop("pool", centre(piece(page, "sr").bounding_box()))
@@ -608,10 +615,10 @@ class TestAnnotationCoupling(unittest.TestCase):
             self.drop_module(name, (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2))
             expect(placed).to_have_count(count + 1)
             fit.click()
-            page.wait_for_timeout(400)
+            wait_until_still(page)
 
         fit.click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         drop("pool", piece(page, "outer-segment").bounding_box())
         drop("pool", piece(page, "inner-segment").bounding_box())
         drop("duct", page.locator("[data-testid=bio-process-zone]").bounding_box())
@@ -762,8 +769,8 @@ class TestAnnotationCoupling(unittest.TestCase):
         for now, then in zip(tints(), before):
             self.assertAlmostEqual(now, then / 10, places=3)
 
-        # Clicking off the species clears the tint.
-        page.mouse.click(pane["x"] + pane["width"] - 80, pane["y"] + 80)
+        # Clicking off the species clears the tint, once nothing covers the spot.
+        page.locator(f"{BIO} .vue-flow__pane").click(position={"x": pane["width"] - 80, "y": 80})
         expect(page.locator(".bio-species-token--focused")).to_have_count(0)
         expect(regions).to_have_count(0)
         expect(cell_tint).to_have_count(0)
@@ -919,7 +926,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         page.mouse.down()
         for step in range(1, 11):
             page.mouse.move(x + dx * step / 10, y + dy * step / 10)
-        page.wait_for_timeout(100)
+        wait_until_still(page)
         # As far as the template's name went (the drag's threshold takes a little of the pointer's way).
         title_now = self.centre(title)
         dx, dy = title_now[0] - x, title_now[1] - y
@@ -933,7 +940,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
         # Let go, the layout takes over where the drag left them.
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         dropped = self.centre(token)
         self.assertAlmostEqual(dropped[0], moved[0], delta=4)
         self.assertAlmostEqual(dropped[1], moved[1], delta=4)
@@ -941,7 +948,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
         # One undo puts the template, and its species, back.
         page.locator("button:has(.pi-undo)").first.click()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         back = self.centre(token)
         self.assertAlmostEqual(back[0], token_at[0], delta=4)
         self.assertAlmostEqual(back[1], token_at[1], delta=4)
@@ -967,7 +974,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         page.mouse.down()
         for step in range(1, 11):
             page.mouse.move(x + reach * step / 10, y)
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         # The chip's leg ends where the chip now is, and its neighbour has slid the other way.
         chip_now = self.centre(moving)
         self.assertAlmostEqual(chip_now[0], x + reach, delta=4)
@@ -984,7 +991,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         neighbour_shown = self.centre(neighbour)
         page.mouse.up()
         self.wait_for_order(lumen, auto[::-1])
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertEqual(self.chip_order(lumen), auto[::-1])
         self.assertAlmostEqual(self.centre(neighbour)[0], neighbour_shown[0], delta=4)
         self.assertIsNone(neighbour.evaluate("(el) => el.style.transform || null"))
@@ -1003,10 +1010,10 @@ class TestAnnotationCoupling(unittest.TestCase):
         page.mouse.down()
         for step in range(1, 11):
             page.mouse.move(x + reach * step / 10, y)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         page.keyboard.press("Escape")
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertAlmostEqual(self.centre(neighbour)[0], start[0], delta=1)
         self.assertAlmostEqual(self.centre(moving)[0], x, delta=1)
         self.assertIsNone(page.evaluate(f"({READ_SPECIES_ORDER})('{lumen}')"))

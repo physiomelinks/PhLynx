@@ -1,12 +1,14 @@
-import os
+import re
 import unittest
 
 from playwright.sync_api import sync_playwright, expect
 
 try:
-    from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .config import BASE_URL, HEADLESS_MODE
+    from .fixtures import CHAIN_NODES, read_synthetic, use_default_timeouts, wait_for_library, workspace_url
 except ImportError:
-    from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from config import BASE_URL, HEADLESS_MODE
+    from fixtures import CHAIN_NODES, read_synthetic, use_default_timeouts, wait_for_library, workspace_url
 
 
 NODE = ".vue-flow__node"
@@ -14,8 +16,9 @@ EDGE = ".vue-flow__edge"
 SELECTED_NODE = ".vue-flow__node.selected"
 VIEWPORT = ".vue-flow__transformationpane"
 
-# The workspace-json fixture holds three instances: var_SN, axon_SN and soma_SN.
-FIXTURE_NODE_COUNT = 3
+# The chain workspace's three instances, joined source -> relay -> sink.
+SOURCE, RELAY, SINK = CHAIN_NODES
+FIXTURE_NODE_COUNT = len(CHAIN_NODES)
 
 READ_TRANSFORM_JS = """
 (selector) => {
@@ -44,11 +47,6 @@ window.showSaveFilePicker = async () => {
     throw new DOMException('cancelled', 'AbortError');
 };
 """
-
-
-def read_resource(name):
-    with open(os.path.join(RESOURCE_PATH, name)) as f:
-        return f.read()
 
 
 def transform(page, selector=VIEWPORT):
@@ -131,6 +129,15 @@ def undo(page):
     page.keyboard.press("ControlOrMeta+z")
 
 
+def connect(page, source, target, steps=15):
+    """Drags a connection from one handle to another, letting go only once Vue Flow takes the target as valid."""
+    page.mouse.move(*centre(source))
+    page.mouse.down()
+    page.mouse.move(*centre(target), steps=steps)
+    expect(target).to_have_class(re.compile(r"\bvalid\b"))
+    page.mouse.up()
+
+
 def ghost_handle(page, node_name, side):
     """The middle free (ghost) handle on one side of the named instance."""
     handles = node_by_name(page, node_name).locator(f".vue-flow__handle.handle--ghost.vue-flow__handle-{side}")
@@ -157,6 +164,7 @@ class TestWorkspaceCanvas(unittest.TestCase):
         self.browser = self.playwright.chromium.launch(headless=HEADLESS_MODE)
         # A fixed, roomy viewport keeps the canvas layout identical between runs and machines.
         self.context = self.browser.new_context(viewport={"width": 1600, "height": 900})
+        use_default_timeouts(self.context)
         self.page = self.context.new_page()
 
     def tearDown(self):
@@ -169,10 +177,10 @@ class TestWorkspaceCanvas(unittest.TestCase):
     def open_workspace(self):
         """Load the three-instance fixture and wait for the canvas to render it."""
         page = self.page
-        workspace_json = read_resource("workspace-json.base64").strip()
-        page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
-        # The instances come once the built-in library has loaded, which takes a while with other tests running at the same time.
-        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT, timeout=60000)
+        page.goto(workspace_url())
+        # The instances come once the built-in library has loaded.
+        wait_for_library(page)
+        expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
         expect(page.locator(EDGE)).to_have_count(2)
         # Let the initial fit-view finish so tests start from a stable viewport.
         return wait_for_settled_transform(page)
@@ -182,16 +190,11 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         page.goto(BASE_URL)
         expect(page.locator(".vue-flow__pane")).to_be_visible()
-        # A dropped CellML file waits for the built-in library itself; this waits for the Import menu's CellML File item,
-        # so the app has mounted.
-        page.locator(".file-io-buttons .p-splitbutton").first.locator(".p-splitbutton-dropdown").click()
-        cellml_item = page.get_by_role("menuitem", name="CellML File", exact=True)
-        expect(cellml_item).to_be_enabled(timeout=60000)
-        page.keyboard.press("Escape")
-        expect(cellml_item).to_be_hidden()
+        # A dropped CellML file waits for the built-in library, so wait for it first.
+        wait_for_library(page)
 
     def drop_cellml(self, name):
-        self.page.evaluate(DROP_FILE_JS, [name, read_resource(name)])
+        self.page.evaluate(DROP_FILE_JS, [name, read_synthetic(name).decode()])
 
     # ---------- zoom, fit view and minimap -----------
 
@@ -268,19 +271,19 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         self.open_workspace()
 
-        shift_drag_select(page, ["var_SN", "axon_SN"])
+        shift_drag_select(page, [SOURCE, RELAY])
 
         expect(page.locator(SELECTED_NODE)).to_have_count(2)
-        expect(node_by_name(page, "soma_SN")).not_to_have_class("selected")
+        expect(node_by_name(page, SINK)).not_to_have_class("selected")
 
     def test_modifier_click_adds_instances_to_selection(self):
         page = self.page
         self.open_workspace()
 
         # Vue Flow's multi-selection key is Ctrl (Cmd on macOS); Shift is for the selection box.
-        node_by_name(page, "var_SN").click(position={"x": 60, "y": 55})
+        node_by_name(page, SOURCE).click(position={"x": 60, "y": 55})
         expect(page.locator(SELECTED_NODE)).to_have_count(1)
-        node_by_name(page, "axon_SN").click(modifiers=["ControlOrMeta"], position={"x": 60, "y": 55})
+        node_by_name(page, RELAY).click(modifiers=["ControlOrMeta"], position={"x": 60, "y": 55})
 
         expect(page.locator(SELECTED_NODE)).to_have_count(2)
 
@@ -304,12 +307,12 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         self.open_workspace()
 
-        shift_drag_select(page, ["var_SN", "axon_SN"])
+        shift_drag_select(page, [SOURCE, RELAY])
         expect(page.locator(SELECTED_NODE)).to_have_count(2)
 
         page.keyboard.press("Delete")
         expect(page.locator(NODE)).to_have_count(1)
-        expect(node_by_name(page, "soma_SN")).to_be_visible()
+        expect(node_by_name(page, SINK)).to_be_visible()
 
         undo(page)
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
@@ -321,7 +324,7 @@ class TestWorkspaceCanvas(unittest.TestCase):
         self.open_empty_workspace()
         expect(page.locator(NODE)).to_have_count(0)
 
-        self.drop_cellml("model.cellml")
+        self.drop_cellml("chain.cellml")
 
         expect(page.locator(NODE).first).to_be_visible()
         self.assertGreater(page.locator(NODE).count(), 0)
@@ -331,7 +334,7 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         self.open_workspace()
 
-        self.drop_cellml("model.cellml")
+        self.drop_cellml("chain.cellml")
         dialog = page.get_by_role("alertdialog")
         expect(dialog).to_contain_text("Workspace Not Empty")
         dialog.get_by_role("button", name="Overwrite").click()
@@ -339,8 +342,8 @@ class TestWorkspaceCanvas(unittest.TestCase):
 
         # The fixture's instances are replaced, not added to: appending would leave duplicates (6 nodes).
         expect(page.locator(NODE)).to_have_count(FIXTURE_NODE_COUNT)
-        expect(node_by_name(page, "var_SN")).to_have_count(1)
-        expect(page.locator(NODE).filter(has_text="model.cellml")).to_have_count(FIXTURE_NODE_COUNT)
+        expect(node_by_name(page, SOURCE)).to_have_count(1)
+        expect(page.locator(NODE).filter(has_text="chain.cellml")).to_have_count(FIXTURE_NODE_COUNT)
 
     # ---------- connecting handles -----------
 
@@ -348,7 +351,7 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         self.open_workspace()
 
-        drag(page, centre(ghost_handle(page, "soma_SN", "right")), centre(ghost_handle(page, "var_SN", "left")))
+        connect(page, ghost_handle(page, SINK, "right"), ghost_handle(page, SOURCE, "left"))
 
         expect(page.locator(EDGE)).to_have_count(3)
 
@@ -356,7 +359,7 @@ class TestWorkspaceCanvas(unittest.TestCase):
         page = self.page
         self.open_workspace()
 
-        drag(page, centre(ghost_handle(page, "axon_SN", "right")), centre(ghost_handle(page, "axon_SN", "left")))
+        drag(page, centre(ghost_handle(page, RELAY, "right")), centre(ghost_handle(page, RELAY, "left")))
 
         # Move off the canvas handles, then confirm no edge appeared.
         page.mouse.move(1100, 300)
