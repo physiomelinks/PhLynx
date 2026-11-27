@@ -110,7 +110,8 @@ export function proteinFlow(sidecar, species, side) {
  *     side: 'inside'|'outside'|null}>,
  *   species: Array<{species: string, label: string}>
  * }} Compartment id -> its species tokens; each coupling of a species between a protein and a compartment; each
- *   way a membrane protein carries a species from outside its cell to inside, through flows coupled on both sides;
+ *   way a membrane protein carries a species from outside its cell to inside, through flows coupled on both sides
+ *   (on a side whose compartment is held at its concentration, the protein's own flow there, its amount coupled);
  *   each flow of a species between a process inside a cell and a compartment (`variable`: the process's flow,
  *   which times `produces` is positive while the process gives the species to the compartment);
  *   each compartment species a protein reads only the amount of, as a pump does its ATP, with no flow coupled;
@@ -195,12 +196,27 @@ export function speciesNetwork({
   const holds = (id, species) => !!compartments.get(id)?.some((entry) => entry.species === species)
   const paths = []
   const pathKeys = new Set()
-  // Only flows carry a species: an amount coupled alone is something the protein depends on.
+  // A compartment held at its concentration (Hold summed flows at 0) has the flows into it left uncoupled on
+  // purpose, so only its amount is coupled; a protein with a flow of the species on that side still carries it there.
+  const isHeld = (id) => !!byId.get(id)?.data?.annotationOverlay?.heldConstant
+  const heldEnd = (link) =>
+    link.kind === 'amount' &&
+    isHeld(link.compartment) &&
+    !!proteinFlow(sidecarFor(link.protein), link.species, link.side) &&
+    !links.some(
+      (other) =>
+        other.kind === 'flow' &&
+        other.protein === link.protein &&
+        other.compartment === link.compartment &&
+        other.species === link.species
+    )
+  const isEnd = (link, side) => link.side === side && (link.kind === 'flow' || heldEnd(link))
+  // Only flows carry a species: an amount coupled alone is something the protein depends on, unless it is held.
   for (const link of links) {
-    if (link.kind !== 'flow' || link.side !== 'outside' || roleOf(link.protein) !== 'membraneProtein') continue
+    if (!isEnd(link, 'outside') || roleOf(link.protein) !== 'membraneProtein') continue
     for (const inner of links) {
-      if (inner.kind !== 'flow' || inner.protein !== link.protein || inner.species !== link.species) continue
-      if (inner.side !== 'inside') continue
+      if (inner.protein !== link.protein || inner.species !== link.species) continue
+      if (!isEnd(inner, 'inside')) continue
       if (!holds(link.compartment, link.species) || !holds(inner.compartment, link.species)) continue
       const key = [link.protein, link.species, link.compartment, inner.compartment].join('|')
       if (pathKeys.has(key)) continue
@@ -254,6 +270,9 @@ export function speciesNetwork({
   for (const link of links) {
     if (link.kind !== 'amount' || !holds(link.compartment, link.species)) continue
     if (links.some((other) => other.kind === 'flow' && same(other, link))) continue
+    // A held compartment a path runs to is that path's end, not something the protein only reads.
+    if (paths.some(({ protein, species, outside, inside }) =>
+      protein === link.protein && species === link.species && [outside, inside].includes(link.compartment))) continue
     if (dependences.some((other) => same(other, link))) continue
     const { protein, compartment, species, side } = link
     dependences.push({ protein, compartment, species, label: displayLabel(species), side })

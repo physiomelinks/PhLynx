@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A synthetic chain for the end-to-end tests: three first-order compartments, each relaxing towards the one
+     before it. source decays (dx/dt = -k x), relay follows source (dy/dt = (u_in - y) / T_relax) and sink follows
+     relay (dz/dt = k (v - z)). With the values here, at t = 1: x = e^-2, y = e^-1 - e^-2 and z = e^-1 - y.
+     Small, so it loads and runs fast, yet coupled, so its variables map across instances. -->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="chain">
+  <units name="mM">
+    <unit prefix="milli" units="mole"/>
+    <unit exponent="-1" units="litre"/>
+  </units>
+  <units name="per_second">
+    <unit exponent="-1" units="second"/>
+  </units>
+  <component name="environment">
+    <variable name="time" units="second" interface="public_and_private"/>
+  </component>
+  <component name="source">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="x" units="mM" initial_value="x_init" interface="public"/>
+    <variable name="x_init" units="mM" initial_value="1"/>
+    <variable name="k" units="per_second" initial_value="2"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply><times/><apply><minus/><ci>k</ci></apply><ci>x</ci></apply>
+      </apply>
+    </math>
+  </component>
+  <component name="relay">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="u_in" units="mM" interface="public"/>
+    <variable name="y" units="mM" initial_value="y_init" interface="public"/>
+    <variable name="y_init" units="mM" initial_value="0"/>
+    <variable name="T_relax" units="second" initial_value="1"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>y</ci></apply>
+        <apply><divide/><apply><minus/><ci>u_in</ci><ci>y</ci></apply><ci>T_relax</ci></apply>
+      </apply>
+    </math>
+  </component>
+  <component name="sink">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="v" units="mM" interface="public"/>
+    <variable name="z" units="mM" initial_value="z_init" interface="public"/>
+    <variable name="z_init" units="mM" initial_value="0"/>
+    <variable name="k" units="per_second" initial_value="1"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>z</ci></apply>
+        <apply><times/><ci>k</ci><apply><minus/><ci>v</ci><ci>z</ci></apply></apply>
+      </apply>
+    </math>
+  </component>
+  <connection component_1="environment" component_2="source">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+  <connection component_1="environment" component_2="relay">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+  <connection component_1="environment" component_2="sink">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+  <connection component_1="source" component_2="relay">
+    <map_variables variable_1="x" variable_2="u_in"/>
+  </connection>
+  <connection component_1="relay" component_2="sink">
+    <map_variables variable_1="y" variable_2="v"/>
+  </connection>
+</model>

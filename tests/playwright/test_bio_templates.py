@@ -6,9 +6,11 @@ from playwright.sync_api import sync_playwright, expect
 
 try:
     from .config import BASE_URL, HEADLESS_MODE
+    from .fixtures import use_default_timeouts, wait_for_library, wait_until_still
     from .test_annotations import TOY_MATHS, add_template, import_files, inside_of, toy
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE
+    from fixtures import use_default_timeouts, wait_for_library, wait_until_still
     from test_annotations import TOY_MATHS, add_template, import_files, inside_of, toy
 
 
@@ -147,6 +149,7 @@ class TestBioTemplates(unittest.TestCase):
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(headless=HEADLESS_MODE)
         self.context = self.browser.new_context(viewport={"width": 1600, "height": 1000})
+        use_default_timeouts(self.context)
         self.page = self.context.new_page()
 
     def tearDown(self):
@@ -161,6 +164,8 @@ class TestBioTemplates(unittest.TestCase):
         page = self.page
         page.goto(BASE_URL)
         expect(page.locator(".vue-flow__pane").first).to_be_visible()
+        # The library's cards come with the built-in library.
+        wait_for_library(page)
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
         page.locator(".mlc__group-header").first.click()
@@ -193,7 +198,7 @@ class TestBioTemplates(unittest.TestCase):
         page.mouse.down()
         page.mouse.move(corner[0], corner[1] + by, steps=8)
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
 
     def butt_against(self, first, second):
         """Drag a cell left until its left side meets another's right side, so the two touch (a gap junction needs
@@ -205,7 +210,7 @@ class TestBioTemplates(unittest.TestCase):
             if abs(gap) <= 4:
                 return
             self.drag((two["x"] + two["width"] - 30, two["y"] + two["height"] - 20), (-gap, 0))
-            self.page.wait_for_timeout(300)
+            wait_until_still(self.page)
         one, two = first.bounding_box(), second.bounding_box()
         self.assertAlmostEqual(two["x"], one["x"] + one["width"], delta=4)
 
@@ -235,7 +240,7 @@ class TestBioTemplates(unittest.TestCase):
         compartment = piece(page, "compartment-2")
         expect(compartment).to_be_visible()
         expect(compartment).to_contain_text("Compartment")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         assert compartment.bounding_box()["y"] < cell.bounding_box()["y"]
 
         # Named afterwards as an instance is in the diagram: a click on its name gives a field for it.
@@ -339,7 +344,7 @@ class TestBioTemplates(unittest.TestCase):
 
         # A cell, selected whole: one Delete takes its two modules and its two pieces, unasked, as one step.
         cell = self.drop_cell(self.pane_point(0.5, 0.45), "compartment")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         box = cell.bounding_box()
         self.box_select(box)
         expect(page.locator(f"{BIO} .vue-flow__node.selected")).to_have_count(2)
@@ -392,7 +397,7 @@ class TestBioTemplates(unittest.TestCase):
         box = outer.bounding_box()
         self.drop_piece("membrane", (box["x"] + 30, box["y"] + 30))
         expect(page.locator(f'{BIO} .vue-flow__node-bioCell:has([data-site="pieces/compartment-3"])')).to_be_visible()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         assert self.on_top_at_its_centre(inner)
         assert self.name_clear_of(piece(page, "compartment-3"), inner)
 
@@ -403,7 +408,7 @@ class TestBioTemplates(unittest.TestCase):
         self.drop_piece("compartment", self.pane_point(0.3, 0.4))
         self.drop_piece("compartment", self.pane_point(0.6, 0.3))
         expect(piece(page, "compartment-2")).to_be_visible()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
 
         # A tube is its module, drawn as the stretch of vessel a conduit is: one Delete takes both.
         self.drop_piece("tube", centre(piece(page, "compartment").bounding_box()))
@@ -440,7 +445,7 @@ class TestBioTemplates(unittest.TestCase):
         # Not fitted to it afterwards: it stays where it was shown.
         compartment = piece(page, "compartment")
         expect(compartment).to_be_visible()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         placed = compartment.bounding_box()
         for key in ("x", "y", "width", "height"):
             self.assertAlmostEqual(placed[key], shown[key], delta=3, msg=key)
@@ -457,7 +462,7 @@ class TestBioTemplates(unittest.TestCase):
         expect(zones).to_have_count(1)
         self.drop_piece("zone", centre(compartment.bounding_box()))
         expect(zones).to_have_count(2)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
 
         def apart(a, b):
             return (
@@ -479,7 +484,7 @@ class TestBioTemplates(unittest.TestCase):
         page.mouse.down()
         page.mouse.move(before["x"] + 4, before["y"] + 4, steps=8)
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         after = first.bounding_box()
         self.assertAlmostEqual(after["height"], before["height"], delta=2)
         self.assertGreater(after["width"], 60)
@@ -501,7 +506,7 @@ class TestBioTemplates(unittest.TestCase):
         self.drop_piece("compartment", self.pane_point(0.6, 0.3))
         second = piece(page, "compartment-2")
         expect(second).to_be_visible()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         one, two = first.bounding_box(), second.bounding_box()
         assert two["x"] > one["x"] + one["width"], (one, two)
 
@@ -517,7 +522,7 @@ class TestBioTemplates(unittest.TestCase):
         # A library module dropped on the tube's room takes the new one's place.
         page.locator("[data-testid=library-tab-modules]").click()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         self.drop_module(0, centre(held.bounding_box()))
         expect(link).to_have_count(1)
         expect(held).to_have_count(0)
@@ -526,10 +531,10 @@ class TestBioTemplates(unittest.TestCase):
         # A compartment dragged takes its end of the tube along, and one step back puts it where it was.
         two = second.bounding_box()
         self.drag((two["x"] + two["width"] - 30, two["y"] + two["height"] - 20), (0, 160))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertGreater(second.bounding_box()["y"] - two["y"], 120)
         undo(page)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assert_moved(two, second.bounding_box(), (0, 0), delta=2)
 
     def test_the_build_palette_joins_two_cells_with_a_gap_junction(self):
@@ -540,7 +545,7 @@ class TestBioTemplates(unittest.TestCase):
         first = self.drop_cell(self.pane_point(0.3, 0.4), "compartment")
         one = first.bounding_box()
         second = self.drop_cell((one["x"] + one["width"] * 1.9, one["y"] + one["height"] / 2), "compartment-2")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.butt_against(first, second)
         one = first.bounding_box()
 
@@ -569,7 +574,7 @@ class TestBioTemplates(unittest.TestCase):
         first = self.drop_cell(self.pane_point(0.25, 0.4), "compartment")
         one = first.bounding_box()
         second = self.drop_cell((one["x"] + one["width"] * 1.9, one["y"] + one["height"] / 2), "compartment-2")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         # A bridge's channel needs the cells to face each other along enough of their sides.
         for cell in (first, second):
             self.grow_taller(cell, 120)
@@ -698,7 +703,7 @@ class TestBioTemplates(unittest.TestCase):
         page.mouse.click(*point)
         cell = bound(page, "bioCell")
         expect(cell).to_have_count(1)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         outer, inner = host.bounding_box(), cell.bounding_box()
         self.assertGreaterEqual(inner["x"], outer["x"])
         self.assertGreaterEqual(inner["y"], outer["y"])
@@ -721,7 +726,7 @@ class TestBioTemplates(unittest.TestCase):
         # A membrane dropped in the cell's cytoplasm is refused: it has a membrane already.
         nodes = page.locator(BIO_NODE).count()
         self.drop_piece("membrane", centre(before))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         expect(page.locator(BIO_NODE)).to_have_count(nodes)
 
         # Dropped on a compartment inside the cell, it encloses it: an organelle, and the cell grows to hold it.
@@ -729,7 +734,7 @@ class TestBioTemplates(unittest.TestCase):
         name = organelle.locator("[data-testid=bio-piece-name]")
         expect(name).to_have_text("Compartment_2")
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         outer, inner = cell.bounding_box(), organelle.bounding_box()
         assert outer["x"] < inner["x"] and inner["x"] + inner["width"] < outer["x"] + outer["width"], (outer, inner)
         assert outer["y"] < inner["y"] and inner["y"] + inner["height"] < outer["y"] + outer["height"], (outer, inner)
@@ -739,7 +744,7 @@ class TestBioTemplates(unittest.TestCase):
         microdomain = piece(page, "microdomain")
         expect(microdomain).to_be_visible()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         outer, under = cell.bounding_box(), microdomain.bounding_box()
         assert under["y"] > outer["y"] + outer["height"] / 2, (outer, under)
 
@@ -748,7 +753,7 @@ class TestBioTemplates(unittest.TestCase):
         fold = page.locator("[data-testid=bio-fold]")
         expect(fold).to_have_count(1)
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         outer, dip = cell.bounding_box(), fold.bounding_box()
         assert abs(dip["y"] - outer["y"]) < 6 and dip["height"] > 0.2 * outer["height"], (outer, dip)
         inner = organelle.bounding_box()
@@ -772,7 +777,7 @@ class TestBioTemplates(unittest.TestCase):
         fold = page.locator("[data-testid=bio-fold]")
         expect(fold).to_have_count(1)
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         outer = cell.bounding_box()
 
         # A process zone dropped in the cell stays in its row at the top, but stops short of the fold, on the wider
@@ -781,7 +786,7 @@ class TestBioTemplates(unittest.TestCase):
         zone = page.locator(f"{BIO} .vue-flow__node-bioZone")
         expect(zone).to_have_count(1)
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         outer, dip, band = cell.bounding_box(), fold.bounding_box(), zone.bounding_box()
         assert band["y"] < dip["y"] + dip["height"], (dip, band)
         assert band["x"] + band["width"] < dip["x"], (dip, band)
@@ -796,7 +801,7 @@ class TestBioTemplates(unittest.TestCase):
         cell = self.drop_cell(self.pane_point(0.5, 0.4), "compartment")
         organelle = self.drop_cell(centre(cell.bounding_box()), "compartment-2")
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
 
         # The cell made wider, from its corner, for room right of the organelle.
         outer = cell.bounding_box()
@@ -807,7 +812,7 @@ class TestBioTemplates(unittest.TestCase):
         page.mouse.move(corner[0] + 320, corner[1], steps=8)
         page.mouse.up()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
 
         # A fold down from the cell's top, to the right of the organelle and as deep as it.
         outer, inner = cell.bounding_box(), organelle.bounding_box()
@@ -821,7 +826,7 @@ class TestBioTemplates(unittest.TestCase):
         page.mouse.down()
         page.mouse.move(start[0], inner["y"] + inner["height"] * 0.9, steps=8)
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
 
         # A compartment against the organelle's right side, outside it.
         inner = organelle.bounding_box()
@@ -845,7 +850,7 @@ class TestBioTemplates(unittest.TestCase):
 
         # Drawn between the two: from the organelle's side to the fold's wall, with no reach grip of its own now.
         expect(reach).to_have_count(0)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         inner, gap, wall = organelle.bounding_box(), cleft.bounding_box(), fold.bounding_box()
         assert abs(gap["x"] + gap["width"] - wall["x"]) < 12, (gap, wall)
         assert gap["x"] < inner["x"] + inner["width"], (gap, inner)
@@ -867,13 +872,13 @@ class TestBioTemplates(unittest.TestCase):
         page.mouse.move(to, start[1], steps=6)
         expect(page.locator(".bio-drop-label")).to_have_count(0)
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         after = cleft.bounding_box()
         assert abs(after["x"] + after["width"] - to) < 6, (to, after)
 
         # Undone a step at a time: the reach, then the detach.
         undo(page)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         assert abs(cleft.bounding_box()["width"] - before["width"]) < 6, (before, cleft.bounding_box())
         undo(page)
         expect(reach).to_have_count(0)
@@ -916,7 +921,7 @@ class TestBioTemplates(unittest.TestCase):
         room = compartment.bounding_box()
         before = node.bounding_box()
         self.drag(centre(before), (-200, -100))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         after = node.bounding_box()
         self.assertLess(after["x"], before["x"] - 150)
         self.assertEqual(compartment.bounding_box(), room)
@@ -1089,11 +1094,11 @@ class TestBioTemplates(unittest.TestCase):
             "() => [...document.querySelectorAll('.bio-flow .vue-flow__node')].map((n) => n.getBoundingClientRect().x)"
         )
         # Placed, then fitted by the Controls' button: nothing under the library.
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         self.assertGreaterEqual(min(lefts()), edge)
         page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
         page.locator(f"{BIO} .vue-flow__controls-fitview").click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         self.assertGreaterEqual(min(lefts()), edge)
 
     def test_the_drop_target_and_its_label_are_green(self):
@@ -1187,7 +1192,7 @@ class TestBioTemplates(unittest.TestCase):
         protein = bound(page, "bioProtein")
         expect(protein).to_have_count(1)
         # Centred on the membrane's top, as the cell is drawn once it has refitted round the protein and its name.
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         protein_box, cell = protein.bounding_box(), piece(page, "cell").bounding_box()
         self.assertAlmostEqual(protein_box["y"] + protein_box["height"] / 2, cell["y"], delta=2)
 
@@ -1222,7 +1227,7 @@ class TestBioTemplates(unittest.TestCase):
         box = piece(page, "cell").bounding_box()
         before, lumen = protein.bounding_box(), region.bounding_box()
         self.drag(inside_of(page, "cell"), (120, 60))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         expect(protein).to_have_count(1)
         moved = piece(page, "cell").bounding_box()
         offset = self.moved(box, moved)
@@ -1230,7 +1235,7 @@ class TestBioTemplates(unittest.TestCase):
         self.assert_moved(before, protein.bounding_box(), offset, delta=2)
         self.assert_moved(lumen, region.bounding_box(), offset, delta=2)
         undo(page)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         expect(protein).to_have_count(1)
         self.assertAlmostEqual(protein.bounding_box()["x"], before["x"], delta=2)
 
@@ -1291,7 +1296,7 @@ class TestBioTemplates(unittest.TestCase):
             f'.vue-flow__edge[data-id="{region.get_attribute("data-id")}--{protein.get_attribute("data-id")}"]'
         )
         # Measured again: the cell and its fluid refit round the protein and its name.
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         cell, lumen = piece(page, "cell").bounding_box(), piece(page, "apical-fluid").bounding_box()
 
         def in_diagram(count):
@@ -1334,12 +1339,12 @@ class TestBioTemplates(unittest.TestCase):
         self.assertGreater(offset[0], 50)
         self.assert_moved(before[1], piece(page, "apical-fluid").bounding_box(), offset)
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         for old, new in zip(before, boxes()):
             self.assert_moved(old, new, offset)
         # One step, which one undo takes back.
         undo(page)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assert_moved(before[1], piece(page, "apical-fluid").bounding_box(), (0, 0))
 
         # A protein is a part: dragged off its cell, it moves alone.
@@ -1347,7 +1352,7 @@ class TestBioTemplates(unittest.TestCase):
         start = centre(protein.bounding_box())
         self.drag(start, (0, -260))
         expect(protein).to_have_count(1)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         # The cell stays where it is; it refits its top side, now with no protein on it.
         self.assertAlmostEqual(boxes()[0]["x"], before[0]["x"], delta=3)
         self.assertLess(protein.bounding_box()["y"], before[2]["y"] - 150)
@@ -1356,7 +1361,7 @@ class TestBioTemplates(unittest.TestCase):
         before = boxes()
         body = before[0]
         self.drag((body["x"] + 30, body["y"] + body["height"] - 40), (80, 40))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         offset = self.moved(before[0], piece(page, "cell").bounding_box())
         self.assertGreater(offset[0], 40)
         self.assert_moved(before[1], piece(page, "apical-fluid").bounding_box(), offset)
@@ -1389,31 +1394,31 @@ class TestBioTemplates(unittest.TestCase):
         page.mouse.up()
         page.keyboard.up("Alt")
         expect(label).to_have_count(0)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertGreater(organelle()["x"], right_of(cell()))
         undo(page)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assert_moved(before, organelle(), (0, 0))
 
         # Without Alt, it only moves within its cell, which grows to hold it.
         self.drag(start, (right_of(cell()) + 60 - before["x"], 0))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertLess(right_of(organelle()), right_of(cell()))
         undo(page)
-        page.wait_for_timeout(300)
+        wait_until_still(page)
 
         # A fluid along a whole side has nowhere to go by a drag alone; lifted, it is detached, to stand on its own.
         before = fluid()
         overlap = before["y"] + before["height"] - cell()["y"]
         hold = (before["x"] + 30, before["y"] + before["height"] * 0.6)
         self.drag(hold, (0, -120))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assert_moved(before, fluid(), (0, 0))
         self.alt_drag(hold, (0, -160), release=False)
         expect(label).to_contain_text("Detaches Extracellular space, to stand on its own")
         page.mouse.up()
         page.keyboard.up("Alt")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertLess(fluid()["y"], before["y"] - 100)
 
         # Carried back to the cell's top side, it is docked there again.
@@ -1424,17 +1429,17 @@ class TestBioTemplates(unittest.TestCase):
         expect(label).to_contain_text("Docks Extracellular space against Sarcolemma’s top, outside")
         page.mouse.up()
         page.keyboard.up("Alt")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         docked = fluid()
         self.assertAlmostEqual(docked["y"] + docked["height"] - cell()["y"], overlap, delta=3)
 
         # The menu does the same without a drag: Detach, and Move Out of what a piece stands in.
         self.piece_menu("extracellular", "Detach")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         expect(piece(page, "extracellular")).to_be_visible()
         undo(page)
         self.piece_menu("sr", "Move Out of Cardiomyocyte")
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertGreater(organelle()["x"], right_of(cell()))
 
     def add_zone(self):
@@ -1484,7 +1489,7 @@ class TestBioTemplates(unittest.TestCase):
         self.assertGreater(offset[0], 80)
         self.assert_moved(before[2], region.bounding_box(), offset)
         page.mouse.up()
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         for old, new in zip(before, [loc.bounding_box() for loc in (cell, card, region)]):
             self.assert_moved(old, new, offset)
 
@@ -1580,7 +1585,7 @@ class TestBioTemplates(unittest.TestCase):
         self.assertAlmostEqual(at[0], box["x"] + box["width"] / 2, delta=3)
         # It is the cell's now: it moves with it.
         self.drag((box["x"] + box["width"] - 40, box["y"] + box["height"] - 40), (60, 30))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         moved = cell.bounding_box()
         self.assertAlmostEqual(centre(protein.bounding_box())[0] - at[0], moved["x"] - box["x"], delta=3)
 
@@ -1602,7 +1607,7 @@ class TestBioTemplates(unittest.TestCase):
         self.assertLess(inside["x"] + inside["width"], box["x"] + box["width"])
         undo(page)
         expect(card).to_have_class(has_class("vue-flow__node-bioCard"))
-        page.wait_for_timeout(300)
+        wait_until_still(page)
         self.assertAlmostEqual(card.bounding_box()["x"], before["x"], delta=3)
 
     # ---------- the pieces' menus -----------
@@ -1624,7 +1629,7 @@ class TestBioTemplates(unittest.TestCase):
         self.open_physiology_with_template("Rod photoreceptor")
         fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
         fit.click()
-        page.wait_for_timeout(400)
+        wait_until_still(page)
         rod = page.locator(f'{BIO_NODE}[data-id="pc:plasma-membrane"]')
         # A cell like any other, lying on its side, with each segment's own artwork in it.
         expect(rod.locator("[data-testid=bio-skin]")).to_have_count(0)
@@ -1648,7 +1653,7 @@ class TestBioTemplates(unittest.TestCase):
             self.drop_module(0, (outer["x"] + outer["width"] / 2, y))
             expect(bound(page, "bioProtein")).to_have_count(count + 1)
             fit.click()
-            page.wait_for_timeout(400)
+            wait_until_still(page)
             box = rod.bounding_box()
         sites = page.evaluate("""() => {
             let c = [...document.querySelectorAll('.vue-flow')].find((el) => !el.closest('.bio-flow')).__vueParentComponent

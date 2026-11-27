@@ -7,8 +7,10 @@ from playwright.sync_api import sync_playwright, expect
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .fixtures import APP_READY_TIMEOUT, CHAIN_NODES, node, use_default_timeouts, workspace_url
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from fixtures import APP_READY_TIMEOUT, CHAIN_NODES, node, use_default_timeouts, workspace_url
 
 
 MANIFEST_PATTERN = "**/manifests/vitalworkshop.json"
@@ -27,25 +29,17 @@ class TestLoadViaUrl(unittest.TestCase):
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
             context = browser.new_context()
+            use_default_timeouts(context)
             page = context.new_page()
             page.route(MANIFEST_PATTERN, delay_manifest)
-
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
+            page.goto(workspace_url())
 
             # ---------- START -----------
-            page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").click()
-            # The instances come once the built-in library has loaded, which takes a while with other tests running at the same time.
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
-            expect(page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")).to_be_visible()
-            expect(page.get_by_text("SN_somacell_modules.cellmlsoma_SN")).to_be_visible()
-            expect(page.get_by_role("main")).to_contain_text("var_SN")
-            expect(page.get_by_role("main")).to_contain_text("axon_SN")
-            expect(page.get_by_role("main")).to_contain_text("soma_SN")
-            expect(page.locator(".vue-flow__edge-interaction").first).to_be_visible()
-            expect(page.locator("svg:nth-child(3) > .vue-flow__edge > .vue-flow__edge-interaction")).to_be_visible()
+            # The instances come once the built-in library has loaded.
+            expect(node(page, CHAIN_NODES[0])).to_be_visible(timeout=APP_READY_TIMEOUT)
+            for name in CHAIN_NODES:
+                expect(node(page, name)).to_be_visible()
+            expect(page.locator(".vue-flow__edge-interaction")).to_have_count(2)
             page.close()
             # ----------- END ------------
 
@@ -57,20 +51,16 @@ class TestLoadViaUrl(unittest.TestCase):
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
             context = browser.new_context()
+            use_default_timeouts(context)
             page = context.new_page()
             page.route(MANIFEST_PATTERN, lambda route: route.abort())
-
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
+            page.goto(workspace_url())
 
             # ---------- START -----------
-            # The instances come once the built-in library has loaded, which takes a while with other tests running at the same time.
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
-            expect(page.get_by_role("main")).to_contain_text("var_SN")
-            expect(page.get_by_role("main")).to_contain_text("axon_SN")
-            expect(page.get_by_role("main")).to_contain_text("soma_SN")
+            # The instances come once the built-in library has loaded.
+            expect(node(page, CHAIN_NODES[0])).to_be_visible(timeout=APP_READY_TIMEOUT)
+            for name in CHAIN_NODES:
+                expect(node(page, name)).to_be_visible()
             page.close()
             # ----------- END ------------
 
@@ -82,6 +72,7 @@ class TestLoadViaUrl(unittest.TestCase):
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
 
             context = browser.new_context()
+            use_default_timeouts(context)
             page = context.new_page()
             page.route(MANIFEST_PATTERN, delay_manifest)
 
@@ -91,9 +82,9 @@ class TestLoadViaUrl(unittest.TestCase):
             page.goto(BASE_URL + f"?open=omex#{workspace_omex}")
 
             # ---------- START -----------
+            # A real archive, PhLynx's export of the SN model: the instances come once the built-in library has loaded.
+            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=APP_READY_TIMEOUT)
             page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").click()
-            # The instances come once the built-in library has loaded, which takes a while with other tests running at the same time.
-            expect(page.get_by_text("SN_varicositycell_modules.cellmlvar_SN")).to_be_visible(timeout=60000)
             expect(page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")).to_be_visible()
             expect(page.get_by_text("SN_somacell_modules.cellmlsoma_SN")).to_be_visible()
             expect(page.locator("svg:nth-child(3) > .vue-flow__edge > .vue-flow__edge-interaction")).to_be_visible()

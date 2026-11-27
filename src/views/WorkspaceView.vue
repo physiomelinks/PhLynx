@@ -2916,7 +2916,11 @@ onMounted(async () => {
     .catch((error) => {
       console.error('Failed to initialize libCellML resources in background:', error)
     })
-    .finally(markBuiltInLibraryReady)
+    .finally(() => {
+      markBuiltInLibraryReady()
+      // Marks the page once loads and drops can go ahead, which the end-to-end tests wait on.
+      document.documentElement.dataset.libraryReady = 'true'
+    })
 
   void hydrateCellmlAndDependents().catch((error) => {
     console.error('Failed to load the resource manifest:', error)

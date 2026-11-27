@@ -5,16 +5,17 @@ states the one before ended with. Dev server only, as the scripts import the app
 """
 import json
 import math
-import os
 import unittest
 
 from playwright.sync_api import sync_playwright
 
 try:
-    from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .config import BASE_URL, HEADLESS_MODE
+    from .fixtures import CHAIN_NODES, workspace_url
     from .test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, SIMULATOR_STATUS, TRACK_APP_MODULES, evaluate_within_a_minute
 except ImportError:
-    from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from config import BASE_URL, HEADLESS_MODE
+    from fixtures import CHAIN_NODES, workspace_url
     from test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, SIMULATOR_STATUS, TRACK_APP_MODULES, evaluate_within_a_minute
 
 
@@ -419,8 +420,9 @@ class TestProtocolSegments(unittest.TestCase):
             context, page = self.open_page(browser)
 
             # ---------- START -----------
-            # A flat piecewise of 2000 pieces overflows the stack while the model is read, so long traces need the tree.
-            for points, balanced in ((10001, True), (200, False)):
+            # A flat piecewise of 2000 pieces overflows the stack while the model is read, so long traces need the tree:
+            # 2001 points is past that, and small enough to build and solve quickly on a busy runner.
+            for points, balanced in ((2001, True), (200, False)):
                 with self.subTest(points=points, balanced=balanced):
                     script = PIECEWISE_INPUT.replace("__POINTS__", str(points)).replace("__BALANCED__", "true" if balanced else "false")
                     r = evaluate_within_a_minute(page, script)
@@ -435,12 +437,11 @@ class TestProtocolSegments(unittest.TestCase):
     def test_a_workspace_carries_every_state(self):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            context, page = self.open_page(browser, BASE_URL + f"?open=workspace_json#{workspace_json}")
+            context, page = self.open_page(browser, workspace_url())
 
             # ---------- START -----------
-            page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            # The chain's states all start from other variables: x from x_init, y from y_init and z from z_init.
+            page.locator(".vue-flow__node").nth(len(CHAIN_NODES) - 1).wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(f"{SIMULATOR_STATUS} === 'ready'", timeout=APP_MOUNT_TIMEOUT)
             r = evaluate_within_a_minute(page, CARRY_WORKSPACE_STATES)
             print(f"\n[workspace carry] {json.dumps(r)}")
