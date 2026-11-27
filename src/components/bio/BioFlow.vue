@@ -2516,7 +2516,7 @@ function pieceMenu(place, nodeId = null) {
     items.push({
       label: 'Straighten Tube',
       icon: 'pi pi-minus',
-      command: () => keepEdit(bendTube(piecesStore.pieces, piece.id, null), 'bio-pieces-move'),
+      command: () => keepEdit(bendTube(piecesStore.pieces, piece.id, null), 'bio-pieces-straighten'),
     })
   }
   if (piece.kind === 'compartment' && piece.docks?.length > 1) items.push(detachMenu(piece))
@@ -2631,14 +2631,15 @@ function removeMenu(place, piece) {
  *
  * @param {{pieces: Array<Object>|null, error?: string}} result
  * @param {string} failed - The title of what went wrong.
+ * @param {string} [type='bio-pieces-relocate'] - The step's type, which names it for undo.
  * @returns {Promise<boolean>}
  */
-async function keepRelocation(result, failed) {
+async function keepRelocation(result, failed, type = 'bio-pieces-relocate') {
   if (!result.pieces) {
     notify.error({ title: failed, message: result.error ?? 'It can’t go there.' })
     return false
   }
-  return keepEdit(result.pieces, 'bio-pieces-relocate', failed)
+  return keepEdit(result.pieces, type, failed)
 }
 
 /** Where each piece is drawn in the view, with the modules on them. */
@@ -2655,7 +2656,12 @@ function relocateMenu(piece) {
     items.push({
       label: 'Detach',
       icon: 'pi pi-link',
-      command: () => keepRelocation(detachPiece(piecesStore.pieces, piece.id, drawnRects()), 'Could not detach it'),
+      command: () =>
+        keepRelocation(
+          detachPiece(piecesStore.pieces, piece.id, drawnRects()),
+          'Could not detach it',
+          'bio-pieces-undock',
+        ),
     })
   }
   const from = outOf(piecesStore.pieces, piece.id)
@@ -2663,7 +2669,12 @@ function relocateMenu(piece) {
     items.push({
       label: `Move Out of ${from.label}`,
       icon: 'pi pi-sign-out',
-      command: () => keepRelocation(moveOut(piecesStore.pieces, piece.id, drawnRects()), 'Could not move it out'),
+      command: () =>
+        keepRelocation(
+          moveOut(piecesStore.pieces, piece.id, drawnRects()),
+          'Could not move it out',
+          'bio-pieces-move-out',
+        ),
     })
   }
   return items
@@ -2690,7 +2701,12 @@ function detachMenu(piece) {
       { separator: true },
       {
         label: 'All of Them',
-        command: () => keepRelocation(detachPiece(piecesStore.pieces, piece.id, drawnRects()), 'Could not detach it'),
+        command: () =>
+          keepRelocation(
+            detachPiece(piecesStore.pieces, piece.id, drawnRects()),
+            'Could not detach it',
+            'bio-pieces-undock',
+          ),
       },
     ]),
   }

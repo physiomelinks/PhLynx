@@ -149,6 +149,10 @@ describe('naming and rolling back steps', () => {
     history.endBatch()
     expect(history.undoLabel).toBe('Skin')
     expect(stepLabel({ type: 'bio-pieces-move' })).toBe('Move piece')
+    expect(stepLabel({ type: 'bio-pieces-undock' })).toBe('Detach compartment')
+    expect(stepLabel({ type: 'bio-pieces-move-out' })).toBe('Move piece out')
+    expect(stepLabel({ type: 'bio-pieces-straighten' })).toBe('Straighten tube')
+    expect(stepLabel({ type: 'bio-species-order' })).toBe('Reorder species')
     expect(stepLabel({ type: 'add-annotated-ports' })).toBe('Add annotated ports')
   })
 
