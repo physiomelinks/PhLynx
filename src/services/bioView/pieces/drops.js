@@ -587,6 +587,14 @@ export function resolveCarry(scene, id, point, shift) {
     const least = EMPTY_SPAN / length
     if (from - free.from < least) from = free.from
     if (free.to - to < least) to = free.to
+    // An end that falls just short of where a stretch already ends goes there, so no sliver of it is left.
+    const ends = (membrane.sides?.[side] ?? []).flatMap((span) => [span.from, span.to])
+    const snap = (value) => {
+      const near = ends.filter((end) => end >= free.from && end <= free.to && Math.abs(end - value) < least)
+      return near.length ? near.reduce((a, b) => (Math.abs(b - value) < Math.abs(a - value) ? b : a)) : value
+    }
+    from = snap(from)
+    to = snap(to)
     const fraction = (value) => Math.round(value * 1000) / 1000
     const stretch = to - from > 0.05 ? { from: fraction(from), to: fraction(to) } : free
     return {

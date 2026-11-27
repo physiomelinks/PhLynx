@@ -551,7 +551,7 @@ import {
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
-import { PIECES_INSTANCE, layoutPieces, pieceKey, pieceSiteRef } from '../../services/bioView/pieces/layout'
+import { PIECES_INSTANCE, boundToPieces, layoutPieces, pieceKey, pieceSiteRef } from '../../services/bioView/pieces/layout'
 import { topologyOf } from '../../services/bioView/pieces/topology'
 import { stampTemplate } from '../../services/bioView/pieces/stamp'
 import {
@@ -564,6 +564,7 @@ import {
   resolveTubeEnd,
 } from '../../services/bioView/pieces/drops'
 import {
+  mergeFreeSpans,
   relabelPiece,
   removeDock,
   replaceImage,
@@ -591,7 +592,7 @@ import { contextOfPiece } from '../../services/bioView/skinContext'
 import { NO_SKIN, allSkins, allowsNoSkin, resolveSkin, skinsFor } from '../../services/bioView/skinRegistry'
 import { skinLibraryFile } from '../../services/bioView/skinLibrary'
 import { SYMBOL_HEIGHT, SYMBOL_WIDTH, MEMBRANE_BAND_HALF, roundedRectPath } from '../../services/bioView/geometry'
-import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
+import { problemLabel, readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { dropLabel, hasPorts, isPlacementEdge, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { isPlaceholder, isPlaceholderNameFor, placeholderName } from '../../services/bioView/placeholders'
 import { isPieceModule, modulesOf, owedSites, pieceNameOf, piecesByModuleName } from '../../services/bioView/pieces/pairing'
@@ -1709,7 +1710,23 @@ async function withOwedModules(type, edit) {
  * @param {string} [type='bio-pieces-edit']
  * @returns {Promise<boolean>}
  */
-const editPieces = (next, type = 'bio-pieces-edit') => withOwedModules(type, () => editPiecesOnly(next, type))
+const editPieces = (next, type = 'bio-pieces-edit') =>
+  withOwedModules(type, () => editPiecesOnly(joinFreeStretches(next), type))
+
+/**
+ * The pieces with the stretches of each membrane side that nothing keeps apart any more joined back up (see
+ * mergeFreeSpans), as a dock that left, or a compartment that went, leaves them: so docking and undocking again
+ * leaves a side as it was.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @returns {ReadonlyArray<Object>}
+ */
+function joinFreeStretches(pieces) {
+  const { occupants } = boundToPieces(pieces, main.nodes.value)
+  const occupied = new Set([...occupants].filter(([, ids]) => ids.length).map(([path]) => path))
+  const raw = mergeFreeSpans(pieces, occupied)
+  return (raw && validatePieces(raw).pieces) || pieces
+}
 
 /**
  * Gives each compartment, membrane and tube with no module a new, empty one, named for it and joined to what is next
@@ -2114,7 +2131,7 @@ function carryDraft(move, point) {
   const { pieces, ghosts, errors } = previewDrop(move.lift, drop)
   piecePreview.value = pieces
     ? { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts }
-    : { key: drop.key, invalid: summariseProblems(errors), highlights: drop.highlights, ghosts: [] }
+    : { key: drop.key, invalid: problemLabel(errors), highlights: drop.highlights, ghosts: [] }
   move.lifted = pieces
   return pieces
 }
@@ -2347,7 +2364,7 @@ function tubeEndDraft(move, point) {
   const { pieces, errors } = raw ? validatePieces(raw) : { pieces: null, errors: ['It can’t go there.'] }
   piecePreview.value = pieces
     ? { key: join.key, label: join.label, highlights: join.highlights, ghosts: tubeGhosts(pieces, move.piece) }
-    : { key: join.key, invalid: summariseProblems(errors), highlights: join.highlights, ghosts: [] }
+    : { key: join.key, invalid: problemLabel(errors), highlights: join.highlights, ghosts: [] }
 }
 
 /** A tube's ghost, as the pieces would lay it out: its vessel, its way, or its joint's room. */
@@ -2388,7 +2405,7 @@ function dockDraft(move, point) {
       const { pieces, errors } = previewDrop(move.scene, drop)
       piecePreview.value = pieces
         ? { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts: [] }
-        : { key: drop.key, invalid: summariseProblems(errors), highlights: drop.highlights, ghosts: [] }
+        : { key: drop.key, invalid: problemLabel(errors), highlights: drop.highlights, ghosts: [] }
       move.dock = pieces
     }
   }
@@ -2729,7 +2746,7 @@ function showPieceDrop({ scene, drop }, point) {
   }
   const preview = previewDrop(scene, drop)
   piecePreview.value = preview.errors.length
-    ? { key: drop.key, invalid: summariseProblems(preview.errors), highlights: drop.highlights, ghosts: [] }
+    ? { key: drop.key, invalid: problemLabel(preview.errors), highlights: drop.highlights, ghosts: [] }
     : { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts: preview.ghosts }
 }
 

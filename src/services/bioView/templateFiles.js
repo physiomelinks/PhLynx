@@ -68,6 +68,23 @@ export function summariseProblems(problems, max = SHOWN_PROBLEMS) {
   return (more > 0 ? [...shown, `…and ${more} more.`] : shown).join('<br>')
 }
 
+/** A side cut into more stretches than a membrane may have, as validatePieces says it. */
+const TOO_MANY_SPANS = /"sides\.(top|right|bottom|left)" must be a list of 1 to (\d+) spans/
+
+/**
+ * The first of some problems as the label by the pointer shows it: plain text, not HTML, without the id of the piece
+ * it is about, and a side cut into too many stretches said in the user's words.
+ *
+ * @param {string[]} problems - From validatePieces.
+ * @returns {string}
+ */
+export function problemLabel(problems) {
+  const [first = 'It can’t go there.'] = problems
+  const spans = first.match(TOO_MANY_SPANS)
+  if (spans) return `That would cut the membrane’s ${spans[1]} side into more than ${spans[2]} stretches.`
+  return first.replace(/^Piece "[^"]*": /, '')
+}
+
 /**
  * Writes a template as a file anyone can load: its own id, without the `local:` prefix, its pieces as they are
  * written (see writtenPieces), and pointing to the schema that describes it.

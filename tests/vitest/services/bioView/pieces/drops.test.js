@@ -90,6 +90,17 @@ describe('dropping a compartment', () => {
     ])
   })
 
+  it('gives the part after the stretch an id of its own, never the new stretch’s', () => {
+    const spans = [{ id: 'x', label: 'X', from: 0, to: 1 }]
+    const ids = new Set(['x'])
+    // The new stretch's id, free when cutStretch chose it, is taken by the time the part after it is named.
+    expect(splitSpans(spans, 0.2, 0.4, { id: 'x-2', label: 'New' }, ids).map((span) => span.id)).toEqual([
+      'x',
+      'x-2',
+      'x-3',
+    ])
+  })
+
   it('keeps the spans a stretch covers whole, with their ids, so the proteins on them stay', () => {
     const spans = [
       { id: 'top', label: 'Top', from: 0, to: 0.4 },

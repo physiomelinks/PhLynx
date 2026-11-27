@@ -5,6 +5,7 @@ import { validatePiecesTemplate, writtenTemplate } from '../../../../src/service
 import {
   MAX_TEMPLATE_FILE_BYTES,
   parseTemplateText,
+  problemLabel,
   readTemplateFile,
   summariseProblems,
   templateFile,
@@ -61,6 +62,14 @@ describe('template files', () => {
     expect(summariseProblems(['a', 'b', 'c'])).toBe('a<br>b<br>c')
     expect(summariseProblems(['a', 'b', 'c', 'd', 'e'])).toBe('a<br>b<br>c<br>…and 2 more.')
     expect(summariseProblems(['a', 'b'], 1)).toBe('a<br>…and 1 more.')
+  })
+
+  it('gives the first problem as plain text for the label by the pointer, in the user’s words', () => {
+    expect(problemLabel(['Piece "pm": "sides.top" must be a list of 1 to 8 spans.', 'b'])).toBe(
+      'That would cut the membrane’s top side into more than 8 stretches.',
+    )
+    expect(problemLabel(['Piece "pm": "frame.x" must be a number.'])).toBe('"frame.x" must be a number.')
+    expect(problemLabel([])).toBe('It can’t go there.')
   })
 
   it('escapes what the problems quote from the file', () => {

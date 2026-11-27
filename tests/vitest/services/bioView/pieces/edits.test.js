@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import { getBuiltInPieceTemplate } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
-import { relabelPiece, removePieces, removedWith, skinPiece } from '../../../../../src/services/bioView/pieces/edits.js'
+import {
+  mergeFreeSpans,
+  relabelPiece,
+  removePieces,
+  removedWith,
+  skinPiece,
+} from '../../../../../src/services/bioView/pieces/edits.js'
 import { validatePieces, writtenPieces } from '../../../../../src/services/bioView/pieces/model.js'
 import { topologyOf } from '../../../../../src/services/bioView/pieces/topology.js'
 
@@ -94,5 +100,52 @@ describe('removePieces', () => {
     const segment = rod.find((piece) => piece.kind === 'compartment' && piece.docks?.length)
     const { errors } = validatePieces(removePieces(rod, [segment.id]).pieces)
     expect(errors.length).toBeGreaterThan(0)
+  })
+})
+
+describe('mergeFreeSpans', () => {
+  /** A cell whose top an undocked compartment left in three, a template's named stretch on its bottom. */
+  const cut = (extra = []) =>
+    valid([
+      { id: 'cell', kind: 'compartment', label: 'Cell' },
+      {
+        id: 'pm',
+        kind: 'membrane',
+        label: 'PM',
+        encloses: ['cell'],
+        frame: { x: 0, y: 0, width: 400, height: 300 },
+        sides: {
+          top: [
+            { id: 'top', label: 'Membrane (top)', to: 0.3 },
+            { id: 'x', label: 'PM (X)', to: 0.6 },
+            { id: 'top-2', label: 'Membrane (top)' },
+          ],
+          bottom: [
+            { id: 'bottom', label: 'PM (bottom)', to: 0.5 },
+            { id: 'basal', label: 'Basal membrane' },
+          ],
+        },
+      },
+      ...extra,
+    ])
+  const tops = (pieces) =>
+    topologyOf(valid(pieces))
+      .spansOf('pm')
+      .filter((span) => span.side === 'top')
+      .map(({ id, from, to }) => [id, from, to])
+
+  it('joins the stretches a dock that left cut, but not a template’s named one', () => {
+    expect(tops(mergeFreeSpans(cut(), new Set()))).toEqual([['top', 0, 1]])
+    // The bottom's named stretch stays.
+    const bottom = topologyOf(valid(mergeFreeSpans(cut(), new Set()))).spansOf('pm').filter((s) => s.side === 'bottom')
+    expect(bottom.map((span) => span.id)).toEqual(['bottom', 'basal'])
+  })
+
+  it('keeps apart a stretch with a module on it, and those a dock still starts or ends at', () => {
+    expect(mergeFreeSpans(cut(), new Set(['pm.x']))).toBeNull()
+    const docked = cut([
+      { id: 'x', kind: 'compartment', label: 'X', docks: [{ on: 'pm', side: 'top', face: 'outside', from: 0.3, to: 0.6 }] },
+    ])
+    expect(mergeFreeSpans(docked, new Set())).toBeNull()
   })
 })

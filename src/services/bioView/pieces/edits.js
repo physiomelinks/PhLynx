@@ -57,6 +57,8 @@ const written = (spans) =>
  */
 export function splitSpans(spans, from, to, stretch, ids) {
   if (spans.some((span) => span.from === from && span.to === to)) return spans
+  // Taken first, so no part of a span cut round it is given the same id.
+  ids.add(stretch.id)
   const out = []
   const kept = []
   for (const span of spans) {
@@ -93,6 +95,51 @@ export function splitSpans(spans, from, to, stretch, ids) {
   }
   gap(to)
   return out.sort((a, b) => a.from - b.from)
+}
+
+/**
+ * Joins back up the stretches of a membrane's side that nothing keeps apart any more: two side by side where no dock
+ * on that side, on either face, starts or ends between them, neither has a module on it, and both still have a name
+ * made for them (as a dock or a membrane drawn round compartments makes, or "<membrane> (<side>)"), not one a template
+ * or the user gave. The one named for its side is kept, else the first.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @param {Set<string>} occupied - The span paths ('<membrane>.<span>') with a module on them.
+ * @returns {Array<Object>|null} Raw, for validatePieces; null when nothing joins.
+ */
+export function mergeFreeSpans(pieces, occupied) {
+  const raw = copy(pieces)
+  let merged = false
+  for (const membrane of raw.filter((piece) => piece.kind === 'membrane' && piece.sides)) {
+    const validated = pieces.find((piece) => piece.id === membrane.id)
+    const name = membrane.label.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&')
+    const made = new RegExp(`^(Membrane|${name}) \\(.+\\)$`)
+    for (const side of SIDES) {
+      const spans = validated.sides[side]?.map((span) => ({ ...span }))
+      if (!spans || spans.length < 2) continue
+      const edges = new Set(
+        pieces
+          .flatMap((piece) => piece.docks ?? [])
+          .filter((dock) => dock.on === membrane.id && dock.side === side)
+          .flatMap((dock) => [dock.from ?? 0, dock.to ?? 1]),
+      )
+      const free = (span) => made.test(span.label) && !occupied.has(`${membrane.id}.${span.id}`)
+      const out = [spans[0]]
+      for (const span of spans.slice(1)) {
+        const last = out.at(-1)
+        if (edges.has(span.from) || !free(last) || !free(span)) {
+          out.push(span)
+          continue
+        }
+        const sideName = (each) => each.label === `${membrane.label} (${side})` || each.label === `Membrane (${side})`
+        const keep = [last, span].find(sideName) ?? last
+        out[out.length - 1] = { ...keep, from: last.from, to: span.to }
+        merged = true
+      }
+      if (out.length !== spans.length) membrane.sides[side] = written(out)
+    }
+  }
+  return merged ? raw : null
 }
 
 /**
