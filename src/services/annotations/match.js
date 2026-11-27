@@ -8,10 +8,42 @@
  */
 
 import { rankPlace } from '../bioView/placement.js'
-import { isFlowProperty, takesSpecies } from './iris.js'
+import { GO, OPB, isFlowProperty, takesSpecies } from './iris.js'
 import { locateAll, sameLocation } from './locate.js'
 
 const OUTER_ROLES = { reader: 'owner', contributor: 'aggregator' }
+
+// The direction of a flow between the spaces either side of a plasma membrane, by its sink.
+const MEMBRANE_SIDES = { [GO.cytoplasm]: 'inward', [GO.extracellularRegion]: 'outward' }
+
+/**
+ * Whether an entry is an ion's current across a plasma membrane: a charge flow naming its ion, from one side of the
+ * membrane into the other. Such a current charges the membrane it crosses, so it is matched as a flow into that
+ * membrane, whatever its ion, as a net current with no ion is.
+ *
+ * @param {{ property?: string|null, species?: string[], location?: string|null, from?: string|null }} entry
+ * @returns {'inward'|'outward'|null} Its direction, by its sink; null for anything else.
+ */
+export function membraneCrossing({ property, species, location, from }) {
+  if (property !== OPB.chargeFlowRate || !species?.length || !from || from === location) return null
+  if (!MEMBRANE_SIDES[from]) return null
+  return MEMBRANE_SIDES[location] ?? null
+}
+
+/**
+ * What an entry is matched as: its species and where it is located. An ion's current across a membrane (see
+ * membraneCrossing) is matched as a flow into that membrane with no species, keeping its ions and direction.
+ *
+ * @param {{ property?: string|null, species?: string[], location?: string|null, from?: string|null }} entry
+ * @returns {{ species: string[], at: string|null, ions?: string[], direction?: 'inward'|'outward' }} at is the
+ *   location to resolve.
+ */
+export function matchedAs(entry) {
+  const species = [...new Set(entry.species ?? [])].sort()
+  const direction = membraneCrossing(entry)
+  if (!direction) return { species, at: entry.location }
+  return { species: [], at: GO.plasmaMembrane, ions: species, direction }
+}
 
 /**
  * The derived role of a sidecar variable entry.
@@ -45,7 +77,8 @@ export function isCompleteAnnotation({ property, species, location }) {
  * @param {object} sidecar - From parseSidecar.
  * @param {{ locate?: Function }} [context] - locate(places, location), the location source's; locateAll by default.
  * @returns {Array<{ instance: string, variable: string, subject: string, property: string, species: string[],
- *   location: string, role: string, mathRef: string, locations: Array<object> }>}
+ *   location: string, from: string|null, role: string, mathRef: string, locations: Array<object>,
+ *   ions?: string[], direction?: string }>} species and locations as matchedAs matches them.
  */
 export function quantitiesFor(instance, sidecar, context = {}) {
   if (!instance || !sidecar) return []
@@ -53,17 +86,21 @@ export function quantitiesFor(instance, sidecar, context = {}) {
   const known = instance.variables ? new Set(instance.variables) : null
   return sidecar.variables
     .filter((entry) => isCompleteAnnotation(entry) && (!known || known.has(entry.variable)))
-    .map((entry) => ({
-      instance: instance.name,
-      variable: entry.variable,
-      subject: entry.subject,
-      property: entry.property,
-      species: [...new Set(entry.species)].sort(),
-      location: entry.location,
-      role: roleOf(entry),
-      mathRef: sidecar.mathRef,
-      locations: locate(instance.places ?? [], entry.location),
-    }))
+    .map((entry) => {
+      const { at, ...matched } = matchedAs(entry)
+      return {
+        instance: instance.name,
+        variable: entry.variable,
+        subject: entry.subject,
+        property: entry.property,
+        ...matched,
+        location: entry.location,
+        from: entry.from ?? null,
+        role: roleOf(entry),
+        mathRef: sidecar.mathRef,
+        locations: locate(instance.places ?? [], at),
+      }
+    })
 }
 
 const sameSpecies = (a, b) => a.length === b.length && a.every((term, index) => term === b[index])

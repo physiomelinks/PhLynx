@@ -291,7 +291,7 @@
                 fluid
                 size="small"
                 :delay="120"
-                :disabled="!takesSpecies(row.entry?.property)"
+                :disabled="!allowsSpecies(row.entry?.property)"
                 :placeholder="takesSpecies(row.entry?.property) && !row.entry.species.length ? 'Species' : ''"
                 :aria-label="`Of what for ${row.name}`"
                 data-test="species"
@@ -475,7 +475,16 @@ import {
   setDraftKind,
   setDraftSpaceKind,
 } from '../../services/annotations/draft'
-import { GO, GO_LOCATIONS, OPB, canonicalCurie, hasPrefix, isFlowProperty, takesSpecies } from '../../services/annotations/iris'
+import {
+  GO,
+  GO_LOCATIONS,
+  OPB,
+  allowsSpecies,
+  canonicalCurie,
+  hasPrefix,
+  isFlowProperty,
+  takesSpecies,
+} from '../../services/annotations/iris'
 import { displayLabel } from '../../services/annotations/labels'
 import { aggregatorVariables } from '../../services/annotations/heldConstant'
 import { isCompleteAnnotation } from '../../services/annotations/match'
@@ -947,7 +956,7 @@ const shownRows = computed(() =>
 
 // ── Cell edits ──────────────────────────────────────────────────────────────
 /**
- * A row's entry with a change, keeping it consistent: species only for a property of a species, and a source only
+ * A row's entry with a change, keeping it consistent: species only for a property that may name one, and a source only
  * for a flow into a side other than the source. Null once it says nothing.
  *
  * @param {Object|null} entry
@@ -956,7 +965,7 @@ const shownRows = computed(() =>
  */
 function changedEntry(entry, change) {
   const next = { property: null, species: [], location: null, from: null, ...entry, ...change }
-  if (!takesSpecies(next.property)) next.species = []
+  if (!allowsSpecies(next.property)) next.species = []
   const keepsFrom = isFlowProperty(next.property) && next.location && !isSelfLocation(next.location)
   if (!keepsFrom || next.from === next.location) next.from = null
   return isAnnotatedEntry(next) ? next : null
@@ -1156,7 +1165,7 @@ function applyBulk(field, value) {
     if (field === 'clear') edits.push([row.name, null])
     else if (field === 'what') edits.push([row.name, changedEntry(row.entry, { property: value })])
     else if (field === 'whose') edits.push([row.name, changedEntry(row.entry, { location: value })])
-    else if (takesSpecies(row.entry?.property)) edits.push([row.name, changedEntry(row.entry, { species: [value] })])
+    else if (allowsSpecies(row.entry?.property)) edits.push([row.name, changedEntry(row.entry, { species: [value] })])
     else skipped++
   }
   if (edits.length) draftEntries(edits)

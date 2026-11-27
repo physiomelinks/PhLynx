@@ -6,7 +6,7 @@
 
 import { GO } from './iris.js'
 import { locateAll } from './locate.js'
-import { matchCouplings, pairing, roleOf } from './match.js'
+import { matchCouplings, matchedAs, pairing, roleOf } from './match.js'
 import { variableNamesOf } from './nodeData.js'
 import { multiportTypeFor, portFor } from './ports.js'
 
@@ -83,18 +83,20 @@ export function quantityOfPort(port, node, context) {
   if (known && (port.variables ?? []).some((name) => name && !known.includes(name))) return null
   const entry = sidecarEntry(annotation, node, context)
   const { property, location } = entry ?? annotation
-  const species = [...new Set(entry?.species ?? annotation.species ?? [])].sort()
+  const from = (entry ?? annotation).from ?? null
+  const { at, ...matched } = matchedAs({ property, location, from, species: entry?.species ?? annotation.species })
   const role = entry || !annotation.role ? roleOf({ property, location }) : annotation.role
   return {
     instance: node?.id,
     variable: port.variables?.[0] ?? annotation.variable,
     subject: annotation.subject,
     property,
-    species,
+    ...matched,
     location,
+    from,
     role,
     mathRef: annotation.source?.mathRef ?? node?.data?.mathRef,
-    locations: annotation.absoluteLocation ? [annotation.absoluteLocation] : locateAt(node, location, context),
+    locations: annotation.absoluteLocation ? [annotation.absoluteLocation] : locateAt(node, at, context),
   }
 }
 

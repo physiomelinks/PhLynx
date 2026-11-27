@@ -347,7 +347,18 @@ describe('AnnotationTab', () => {
       expect(labels('J')).not.toContain('Chemical amount density flow rate')
     })
 
-    it('takes a species only for a property of one, and drops it for any other', async () => {
+    it('lets a current name the ion that carries it, keeping it when the current becomes a molar flow', async () => {
+      await mountTab()
+      await edit('x', 'what', 'OPB:00318')
+      expect(cell('x', 'species').props('disabled')).toBe(false)
+      expect(cell('x', 'species').props('placeholder')).toBe('')
+      expect(entryOf('x')).toMatchObject({ property: 'OPB:00318', species: ['CHEBI:29101'] })
+
+      await edit('x', 'what', 'OPB:00592')
+      expect(entryOf('x')).toMatchObject({ property: 'OPB:00592', species: ['CHEBI:29101'] })
+    })
+
+    it('takes a species only for a property that may name one, and drops it for any other', async () => {
       await mountTab()
       expect(cell('J', 'species').props('disabled')).toBe(true)
       expect(cell('x', 'species').props('disabled')).toBe(false)

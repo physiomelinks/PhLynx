@@ -617,6 +617,19 @@ m:vay4adytm bqbiol:isVersionOf <http://example.org/other> .
       expect(written).not.toContain('<http://identifiers.org/GO:0005576>')
     })
 
+    it('carries a current by its ion from one side into the other, sharing the sides’ species entities', async () => {
+      const current = { property: 'OPB:00318', species: ['CHEBI:29101'], location: 'GO:0005737', from: 'GO:0005576' }
+      const written = await edit(read('porter.ttl'), { j_A: current })
+      expect(written).toMatch(
+        /local:process_vp3vtnv5k semsim:hasSourceParticipant \[ semsim:hasPhysicalEntityReference local:Na_out \] ;\n {4}semsim:hasSinkParticipant \[ semsim:hasPhysicalEntityReference local:Na_in \] \./
+      )
+      expect(written.match(/^local:Na_in /gm)).toHaveLength(1)
+      expect(written).not.toContain('local:plasma_membrane')
+      const { byVariable, warnings } = await readToySidecar(written, 'porter')
+      expect(byVariable.j_A).toMatchObject(current)
+      expect(warnings).toEqual([])
+    })
+
     it('goes when nothing is there any more, and keeps the plasma membrane its GO term', async () => {
       const written = await edit(read('porter.ttl'), {
         v_A_i: null,

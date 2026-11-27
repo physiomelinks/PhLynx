@@ -6,6 +6,8 @@ import {
   instanceQuantities,
   isCompleteAnnotation,
   matchCouplings,
+  matchedAs,
+  membraneCrossing,
   pairQuantities,
   pairing,
   quantitiesFor,
@@ -13,7 +15,8 @@ import {
 } from '../../../../src/services/annotations/match.js'
 import { sameLocation } from '../../../../src/services/annotations/locate.js'
 import { placementsOf } from '../../../../src/services/bioView/placement.js'
-import { TOY_MODULES, loadToy } from './toyModel.js'
+import { TOY_MODULES, loadToy, readToy } from './toyModel.js'
+import { parseSidecar } from '../../../../src/services/annotations/sidecar.js'
 import { TOY_PLACEMENTS, TOY_TEMPLATES, TOY_TEMPLATE_INSTANCE } from './toyNodes.js'
 
 /** A located quantity, as matching sees one. */
@@ -46,6 +49,37 @@ describe('isCompleteAnnotation', () => {
     expect(isCompleteAnnotation({ property: OPB.fluidVolume, location: 'self' })).toBe(true)
     expect(isCompleteAnnotation({ property: OPB.fluidVolume, location: null })).toBe(false)
     expect(isCompleteAnnotation({ property: null, location: 'self' })).toBe(false)
+  })
+})
+
+describe('membraneCrossing', () => {
+  const current = { property: OPB.chargeFlowRate, species: [CHEBI.sodium] }
+
+  it('gives the direction of an ion current between the two sides of a plasma membrane, by its sink', () => {
+    expect(membraneCrossing({ ...current, location: GO.cytoplasm, from: GO.extracellularRegion })).toBe('inward')
+    expect(membraneCrossing({ ...current, location: GO.extracellularRegion, from: GO.cytoplasm })).toBe('outward')
+  })
+
+  it('is null for a net current, a current with no source, a molar flow or another place', () => {
+    expect(membraneCrossing({ ...current, species: [], location: GO.plasmaMembrane })).toBeNull()
+    expect(membraneCrossing({ ...current, location: GO.cytoplasm, from: null })).toBeNull()
+    expect(
+      membraneCrossing({ ...current, property: OPB.molarFlowRate, location: GO.cytoplasm, from: GO.extracellularRegion })
+    ).toBeNull()
+    expect(membraneCrossing({ ...current, location: 'GO:0005739', from: GO.cytoplasm })).toBeNull()
+  })
+
+  it('is matched as a flow into the plasma membrane with no species, keeping its ions', () => {
+    expect(matchedAs({ ...current, location: GO.cytoplasm, from: GO.extracellularRegion })).toEqual({
+      species: [],
+      at: GO.plasmaMembrane,
+      ions: [CHEBI.sodium],
+      direction: 'inward',
+    })
+    expect(matchedAs({ property: OPB.molarFlowRate, species: [CHEBI.sodium], location: GO.cytoplasm })).toEqual({
+      species: [CHEBI.sodium],
+      at: GO.cytoplasm,
+    })
   })
 })
 
@@ -234,6 +268,31 @@ describe('matching the toy model placed on an epithelial cell', () => {
       'wall_bas->porter_out:i_tot->j_A',
       'wall_bas->porter_out:u->u',
     ])
+  })
+
+  it('matches a current its ion carries across the membrane as it does a net current', async () => {
+    const netCurrent = `local:process_vp3vtnv5k semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:plasma_membrane ] .
+local:plasma_membrane bqbiol:is <http://purl.obolibrary.org/obo/GO_0005886> .`
+    const ionCurrent = `local:process_vp3vtnv5k semsim:hasSourceParticipant [ semsim:hasPhysicalEntityReference local:Na_out ] ;
+    semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:Na_in ] .`
+    const text = readToy('porter.ttl')
+    expect(text).toContain(netCurrent)
+    const porter = await parseSidecar(text.replace(netCurrent, ionCurrent), {
+      mathRef: 'porter.cellml:porter',
+      cellml: readToy('porter.cellml'),
+    })
+    const carried = instances.map((instance) => (TOY_MODULES[instance.name] === 'porter' ? { ...instance, sidecar: porter } : instance))
+    const porterIn = carried.find((instance) => instance.name === 'porter_in')
+    const current = quantitiesFor(porterIn, porter).find((entry) => entry.variable === 'j_A')
+    expect(current).toMatchObject({
+      species: [],
+      ions: ['CHEBI:29101'],
+      location: 'GO:0005737',
+      from: 'GO:0005576',
+      direction: 'inward',
+      role: 'contributor',
+    })
+    expect(tuples(matchCouplings(carried, { heldConstant: HELD }).matches)).toEqual(TOY_COUPLINGS)
   })
 
   it('ignores instances without places or a sidecar', () => {
