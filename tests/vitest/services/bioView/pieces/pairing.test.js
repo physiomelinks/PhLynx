@@ -10,6 +10,7 @@ import {
   modulesOwed,
   owedSites,
   pieceNameOf,
+  piecesByModuleName,
   piecesOrphanedBy,
   piecesOwed,
 } from '../../../../../src/services/bioView/pieces/pairing.js'
@@ -103,6 +104,20 @@ describe('modulesOf', () => {
     const nodes = [node('saline', 'pieces/bath'), node('wall', 'pieces/pm'), node('pump', 'pieces/pm.apical')]
     expect([...modulesOf(scene(), nodes, ['pm', 'bath'])].sort()).toEqual(['saline', 'wall'])
     expect([...modulesOf(scene(), nodes, ['cell'])]).toEqual([])
+  })
+})
+
+describe('piecesByModuleName', () => {
+  it('labels a piece by its module’s name where the module was renamed, else leaves it', () => {
+    const named = (id, site, name) => ({ id, data: { name, bioView: { site } } })
+    const nodes = [
+      named('n1', 'pieces/bath', 'Sinusoid_bed'),
+      named('n2', 'pieces/cell', 'Cell_2'),
+      named('n3', 'pieces/pm', 'Plasma_membrane'),
+      named('n4', 'pieces/pm.apical', 'Pump'),
+    ]
+    const labels = Object.fromEntries(piecesByModuleName(scene(), nodes).map((piece) => [piece.id, piece.label]))
+    expect(labels).toEqual({ bath: 'Sinusoid bed', cell: 'Cell', pm: 'Plasma membrane', link: 'Link' })
   })
 })
 

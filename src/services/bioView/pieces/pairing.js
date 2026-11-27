@@ -10,6 +10,8 @@ import { SIZES } from './drops.js'
 import { addCompartment } from './edits.js'
 import { boundToPieces, layoutPieces, pieceSiteRef } from './layout.js'
 import { topologyOf } from './topology.js'
+import { LIMITS } from './constants.js'
+import { isPlaceholderNameFor } from '../placeholders.js'
 import { GAP } from '../layout.js'
 
 /**
@@ -76,6 +78,25 @@ export function pieceNameOf(pieces, nodes, id) {
   const [module] = modulesOf(pieces, nodes, [id])
   const name = module && nodes.find((node) => node.id === module)?.data?.name
   return name || pieces.find((piece) => piece.id === id)?.label || id
+}
+
+/**
+ * The pieces with each compartment, membrane and tube labelled by its module's name where the module was renamed, as
+ * a template file writes them: a piece goes by its module's name, and its label is only the name it was first given.
+ * A module still named for its piece leaves the label as it is.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @param {Array<{id: string, data?: Object}>} nodes
+ * @returns {Array<Object>} Copies of the pieces renamed, the rest as they are.
+ */
+export function piecesByModuleName(pieces, nodes) {
+  return pieces.map((piece) => {
+    const [module] = modulesOf(pieces, nodes, [piece.id])
+    const name = module && nodes.find((node) => node.id === module)?.data?.name
+    if (!name || isPlaceholderNameFor(name, piece.label)) return piece
+    const label = name.replace(/_/g, ' ').trim().slice(0, LIMITS.label)
+    return label ? { ...piece, label } : piece
+  })
 }
 
 /**

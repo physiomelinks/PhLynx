@@ -594,7 +594,7 @@ import { SYMBOL_HEIGHT, SYMBOL_WIDTH, MEMBRANE_BAND_HALF, roundedRectPath } from
 import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
 import { dropLabel, hasPorts, isPlacementEdge, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
 import { isPlaceholder, isPlaceholderNameFor, placeholderName } from '../../services/bioView/placeholders'
-import { isPieceModule, modulesOf, owedSites, pieceNameOf } from '../../services/bioView/pieces/pairing'
+import { isPieceModule, modulesOf, owedSites, pieceNameOf, piecesByModuleName } from '../../services/bioView/pieces/pairing'
 import { CARD, GAP, processSize } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
 import useDragAndDrop from '../../composables/useDnD'
@@ -3006,7 +3006,8 @@ async function onTemplateFile(event) {
 /** Downloads every piece of the view as a template file anyone can load. */
 function savePiecesAsTemplate() {
   // A template has no store for pictures, so it holds no images; nothing else depends on one.
-  const pieces = piecesStore.pieces.filter((piece) => piece.kind !== 'image')
+  // Each piece by the name it goes by now: its module's, where that was renamed.
+  const pieces = piecesByModuleName(piecesStore.pieces, main.nodes.value).filter((piece) => piece.kind !== 'image')
   const template = {
     schemaVersion: PIECES_SCHEMA_VERSION,
     id: 'physiology',
