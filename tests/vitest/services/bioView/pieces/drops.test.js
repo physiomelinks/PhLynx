@@ -89,6 +89,25 @@ describe('dropping a compartment', () => {
       { id: 'top', label: 'Top', from: 0.5, to: 1 },
     ])
   })
+
+  it('keeps the spans a stretch covers whole, with their ids, so the proteins on them stay', () => {
+    const spans = [
+      { id: 'top', label: 'Top', from: 0, to: 0.4 },
+      { id: 'x', label: 'X', from: 0.4, to: 0.6 },
+      { id: 'top-2', label: 'Top', from: 0.6, to: 1 },
+    ]
+    const ids = new Set(spans.map((span) => span.id))
+    // The whole side: every span kept, none added.
+    expect(splitSpans(spans, 0, 1, { id: 'new', label: 'New' }, new Set(ids))).toEqual(spans)
+    // Part of the side round the middle span: it is kept, and the stretch either side of it is new.
+    expect(splitSpans(spans, 0.3, 0.7, { id: 'new', label: 'New' }, new Set(ids))).toEqual([
+      { id: 'top', label: 'Top', from: 0, to: 0.3 },
+      { id: 'new', label: 'New', from: 0.3, to: 0.4 },
+      { id: 'x', label: 'X', from: 0.4, to: 0.6 },
+      { id: 'new-2', label: 'New', from: 0.6, to: 0.7 },
+      { id: 'top-2', label: 'Top', from: 0.7, to: 1 },
+    ])
+  })
 })
 
 describe('dropping a membrane', () => {

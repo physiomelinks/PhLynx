@@ -44,7 +44,9 @@ const written = (spans) =>
 
 /**
  * Cuts a side's spans at `from` and `to`, so the stretch between is a span of its own (a protein site for what is
- * docked there), named `label`. A span the stretch already is, exactly, stays as it is.
+ * docked there), named `label`. A span the stretch already is, exactly, stays as it is, and so does any span lying
+ * wholly within it: its proteins stay on it, and meet what is docked there. Only what is left of the stretch between
+ * such spans becomes new spans.
  *
  * @param {Array<{id: string, label: string, from: number, to: number}>} spans - The side's, validated.
  * @param {number} from
@@ -55,11 +57,15 @@ const written = (spans) =>
  */
 export function splitSpans(spans, from, to, stretch, ids) {
   if (spans.some((span) => span.from === from && span.to === to)) return spans
-  const out = [{ id: stretch.id, label: stretch.label, from, to }]
-  ids.add(stretch.id)
+  const out = []
+  const kept = []
   for (const span of spans) {
     if (span.to <= from || span.from >= to) {
       out.push(span)
+      continue
+    }
+    if (span.from >= from && span.to <= to) {
+      kept.push(span)
       continue
     }
     // The part before the stretch keeps the span's id, and so does the part after it where there is none before.
@@ -70,6 +76,22 @@ export function splitSpans(spans, from, to, stretch, ids) {
       out.push({ ...span, id, from: to })
     }
   }
+  // The stretch between the spans kept: the first gap takes the new span's id, any later one a free id from it.
+  let at = from
+  let first = true
+  const gap = (end) => {
+    if (end <= at) return
+    const id = first ? stretch.id : freeId(stretch.id, ids)
+    first = false
+    ids.add(id)
+    out.push({ id, label: stretch.label, from: at, to: end })
+  }
+  for (const span of kept.sort((a, b) => a.from - b.from)) {
+    gap(span.from)
+    out.push(span)
+    at = span.to
+  }
+  gap(to)
   return out.sort((a, b) => a.from - b.from)
 }
 
