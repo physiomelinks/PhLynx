@@ -374,6 +374,59 @@ describe('slideDock', () => {
     expect(topologyOf(slid).insideOf('pm.md')).toBe('md')
   })
 
+  it('takes its span along when a dock on the other face has cut it', () => {
+    // X outside over 0.283-0.417; Y inside over 0.335-0.465 cut X's span to 0.283-0.335.
+    const cut = valid([
+      { id: 'out', kind: 'compartment', label: 'Out', frame: { x: -100, y: -400, width: 900, height: 900 } },
+      { id: 'cell', kind: 'compartment', label: 'Cell', parent: 'out' },
+      {
+        id: 'pm',
+        kind: 'membrane',
+        label: 'PM',
+        parent: 'out',
+        encloses: ['cell'],
+        frame: { x: 0, y: 0, width: 400, height: 300 },
+        sides: {
+          top: [
+            { id: 'top', label: 'Top', to: 0.283 },
+            { id: 'x', label: 'X', to: 0.335 },
+            { id: 'y', label: 'Y', to: 0.465 },
+            { id: 'top-2', label: 'Top' },
+          ],
+        },
+      },
+      {
+        id: 'x',
+        kind: 'compartment',
+        label: 'X',
+        parent: 'out',
+        docks: [{ on: 'pm', side: 'top', face: 'outside', from: 0.283, to: 0.417 }],
+      },
+      {
+        id: 'y',
+        kind: 'compartment',
+        label: 'Y',
+        parent: 'cell',
+        docks: [{ on: 'pm', side: 'top', face: 'inside', from: 0.335, to: 0.465 }],
+      },
+    ])
+    const rects = rectsOf(cut)
+    const slid = valid(slideDock(cut, 'x', { x: rects.get('pm').width * 0.13, y: 0 }, rects))
+    expect(byId(slid, 'x').docks[0]).toMatchObject({ from: 0.413, to: 0.547 })
+    const top = topologyOf(slid)
+      .spansOf('pm')
+      .filter((span) => span.side === 'top')
+    expect(top.map(({ id, from, to }) => [id, from, to])).toEqual([
+      ['top', 0, 0.335],
+      ['y', 0.335, 0.413],
+      ['x', 0.413, 0.465],
+      ['top-2', 0.465, 1],
+    ])
+    // X's span is still X's: what lies outside it is X.
+    expect(topologyOf(slid).outsideOf('pm.x')).toEqual(['x'])
+    expect(topologyOf(slid).outsideOf('pm.y')).toEqual(['out'])
+  })
+
   it('stops short of leaving a span beside it too short', () => {
     const rects = rectsOf(withMicrodomain)
     const slid = valid(slideDock(withMicrodomain, 'md', { x: -2000, y: 0 }, rects))

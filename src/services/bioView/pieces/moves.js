@@ -7,6 +7,7 @@
 import { INNER_INSET, LIMITS, ROOM_INSIDE, containerIdOf, isWithinPiece } from './constants.js'
 import { fluxBetween, isDefaultTubeName, tubeName } from './edits.js'
 import { topologyOf } from './topology.js'
+import { freeId } from './stamp.js'
 
 /** How short a span another's slide may leave it, as a share of its side. */
 const LEAST_SPAN = 0.05
@@ -356,17 +357,74 @@ export function slideDock(pieces, id, delta, rects) {
   if (!dock.from) delete dock.from
   if (dock.to === 1) delete dock.to
   // Its span moves with it: the one before ends where it starts, and the one after starts where it ends.
+  let moved = spans
   if (own >= 0) {
     if (spans[own - 1]) spans[own - 1].to = next.from
     spans[own].from = next.from
     spans[own].to = next.to
     if (spans[own + 1]) spans[own + 1].from = next.to
+  } else {
+    // A dock on the other face cut its stretch: the spans it alone covers move with it, cut into what they pass.
+    const docksHere = raw
+      .flatMap((each) => each.docks ?? [])
+      .filter((each) => each !== dock && each.on === dock.on && each.side === dock.side)
+    moved = slideSpans(spans, from, to, fraction(next.from - from), docksHere, raw)
+    if (!moved) return null
   }
   // Written as a template writes spans: each with its end, the last running to the end of the side.
-  membrane.sides[dock.side] = spans.map(({ from: _, to: end, ...span }, index) =>
-    index === spans.length - 1 ? span : { ...span, to: end },
+  membrane.sides[dock.side] = moved.map(({ from: _, to: end, ...span }, index) =>
+    index === moved.length - 1 ? span : { ...span, to: end },
   )
   return raw
+}
+
+/** How narrow a stretch a slide may leave before it stops short. */
+const LEAST_CUT = 0.01
+
+/**
+ * The spans of a side once those lying within a dock's stretch, and within no other dock's on that side, are moved
+ * along it by `shift`: the stretch they leave goes to the span they leave it beside, and the spans they move over are
+ * cut round them, the part before each keeping its id.
+ *
+ * @param {Array<{id: string, from: number, to: number}>} spans - The side's, in order.
+ * @param {number} from - The dock's stretch, before the slide.
+ * @param {number} to
+ * @param {number} shift
+ * @param {Array<Object>} others - The other docks on the side, either face.
+ * @param {Array<Object>} raw - Every piece, for the span ids in use.
+ * @returns {Array<Object>|null} Null where a span would be lost or left too narrow.
+ */
+function slideSpans(spans, from, to, shift, others, raw) {
+  const within = (span, a, b) => span.from >= a - 1e-9 && span.to <= b + 1e-9
+  const isOwn = (span) =>
+    within(span, from, to) && !others.some((each) => within(span, each.from ?? 0, each.to ?? 1))
+  const block = spans.filter(isOwn)
+  if (!block.length || !shift) return spans
+  const [start, end] = [block[0].from, block.at(-1).to]
+  // The rest, the stretch the block leaves given to the span it leaves behind.
+  const rest = spans.filter((span) => !isOwn(span)).map((span) => ({ ...span }))
+  const behind = shift > 0 ? rest.findLast((span) => span.to <= start) : rest.find((span) => span.from >= end)
+  if (behind && shift > 0) behind.to = Math.max(behind.to, end)
+  else if (behind) behind.from = Math.min(behind.from, start)
+  const [a, b] = [start + shift, end + shift]
+  if (a < -1e-9 || b > 1 + 1e-9) return null
+  const ids = new Set(raw.flatMap((piece) => Object.values(piece.sides ?? {}).flat().map((span) => span.id)))
+  const out = block.map((span) => ({ ...span, from: fraction(span.from + shift), to: fraction(span.to + shift) }))
+  for (const span of rest) {
+    if (span.to <= a || span.from >= b) {
+      out.push(span)
+      continue
+    }
+    if (within(span, a, b)) return null
+    if (span.from < a) out.push({ ...span, to: fraction(a) })
+    if (span.to > b) {
+      const id = span.from < a ? freeId(span.id, ids) : span.id
+      ids.add(id)
+      out.push({ ...span, id, from: fraction(b) })
+    }
+  }
+  out.sort((x, y) => x.from - y.from)
+  return out.every((span) => span.to - span.from >= LEAST_CUT) ? out : null
 }
 
 /**
