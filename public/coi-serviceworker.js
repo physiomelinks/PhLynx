@@ -1,4 +1,5 @@
 /*! coi-serviceworker v0.1.7 - Guido Zuidhof and contributors, licensed under MIT */
+// Changed for PhLynx: reloads a page that loaded while the worker was still installing (see "PhLynx:" below).
 let coepCredentialless = false;
 if (typeof window === 'undefined') {
     self.addEventListener("install", () => self.skipWaiting());
@@ -107,6 +108,14 @@ if (typeof window === 'undefined') {
                     if (registration.active && !n.serviceWorker.controller) {
                         !coi.quiet && console.log("Reloading page to make use of COOP/COEP Service Worker.");
                         coi.doReload();
+                    } else if (!registration.active) {
+                        // PhLynx: a page loaded while the worker is still installing, as after the reload above on a
+                        // busy machine, sees no updatefound and no active worker, so would stay un-isolated. Reload it
+                        // once the worker is active.
+                        n.serviceWorker.ready.then(() => {
+                            !coi.quiet && console.log("Reloading page to make use of activated COOP/COEP Service Worker.");
+                            coi.doReload();
+                        });
                     }
                 },
                 (err) => {
