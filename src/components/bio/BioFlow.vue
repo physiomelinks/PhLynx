@@ -2607,6 +2607,18 @@ function imageMenu(piece) {
  * The Remove item of a piece's menu: the piece, or with a submenu, a cell whole or its membrane alone, and what is on
  * it (folds, process zones, tubes), each with what goes with it.
  */
+/** What a cell's membrane's own menu offers of its piece: its skin, and Remove as its cell's menu has it. */
+function membraneMenu(cellPlace) {
+  const piece = cellPlace?.piece && piecesStore.pieces.find((each) => each.id === cellPlace.piece)
+  if (piece?.kind !== 'membrane') return []
+  const skin = skinMenu(piece.id)
+  return [
+    { separator: true },
+    ...(skin.length ? [{ label: 'Skin', icon: 'pi pi-circle', items: skin }] : []),
+    ...removeMenu(cellPlace, piece),
+  ]
+}
+
 function removeMenu(place, piece) {
   const remove = (ids, label) => ({ label, command: () => removeThesePieces(ids) })
   const item = { label: 'Remove', icon: 'pi pi-minus-circle' }
@@ -3224,6 +3236,8 @@ function onNodeContextMenu({ event, node }) {
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
   // On a piece of the pieces: what can be done to the piece itself.
   if (place?.piece) items.push(...pieceMenu(place, node.id))
+  // A cell's membrane, which is a piece of its own: its skin, and what its cell's Remove offers.
+  else if (place?.kind === 'membrane') items.push(...membraneMenu(layout.value.get(place.cell)))
   // A tube's module, drawn on it as a card, its joint or its vessel: the tube's own menu too.
   else if (place?.kind === 'card' && layout.value.get(place.link)?.piece) {
     items.push(...pieceMenu(layout.value.get(place.link), node.id))
