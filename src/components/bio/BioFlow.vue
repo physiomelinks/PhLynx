@@ -2044,6 +2044,12 @@ let pendingPosition = null
  */
 const pieceRects = () => layoutPieces(piecesStore.pieces, sceneOptions()).rects
 
+/** How big a piece is drawn with some pieces, laid out as the view lays them out: for keeping it that size. */
+const drawnSizeOf = (id) => (raw) => {
+  const valid = validatePieces(raw).pieces
+  return (valid && layoutPieces(valid, sceneOptions()).rects.get(id)) || null
+}
+
 /**
  * Begins a drag of a piece, or of a grip on one, if the node is one that moves so. The piece follows the pointer, by
  * how far it has gone: the node's own position is the draft's, which a drag would otherwise move twice.
@@ -2500,7 +2506,7 @@ function pieceMenu(place, nodeId = null) {
     items.push({
       label: 'Fit to Contents',
       icon: 'pi pi-arrows-alt',
-      command: () => keepEdit(fitToContents(piecesStore.pieces, piece.id), 'bio-pieces-resize'),
+      command: () => keepEdit(fitToContents(piecesStore.pieces, piece.id, { sizeOf: drawnSizeOf(piece.id) }), 'bio-pieces-resize'),
     })
   }
   if (piece.kind === 'tube') {

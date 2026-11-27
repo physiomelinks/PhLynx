@@ -260,6 +260,21 @@ describe('resizeFrame and fitToContents', () => {
     const fitted = valid(fitToContents(big, 'sarcolemma'))
     expect(rectsOf(fitted).get('sarcolemma').width).toBeLessThan(cell.width)
   })
+
+  it('keeps the size its contents need when fitted, so it stays that size once they go', () => {
+    const nested = valid([
+      { id: 'outer', kind: 'compartment', label: 'Outer', frame: { x: 0, y: 0, width: 600, height: 400 } },
+      { id: 'inner', kind: 'compartment', label: 'Inner', parent: 'outer', frame: { x: 40, y: 60, width: 200, height: 120 } },
+    ])
+    const sizeOf = (raw) => rectsOf(valid(raw)).get('outer')
+    const fitted = valid(fitToContents(nested, 'outer', { sizeOf }))
+    const size = rectsOf(fitted).get('outer')
+    expect(byId(fitted, 'outer').frame).toMatchObject({ width: size.width, height: size.height })
+    expect(size.width).toBeLessThan(600)
+    // Its child gone, it is drawn as it was fitted, not as a dot.
+    const emptied = valid(fitted.filter((piece) => piece.id !== 'inner'))
+    expect(rectsOf(emptied).get('outer')).toMatchObject({ width: size.width, height: size.height })
+  })
 })
 
 describe('resizing a compartment beside a cell', () => {

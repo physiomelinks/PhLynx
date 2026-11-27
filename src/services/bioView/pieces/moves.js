@@ -305,13 +305,21 @@ export function resizeFrame(pieces, id, rect, rects, { rectsOf, pushed } = {}) {
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {string} id
+ * @param {{sizeOf?: (raw: Array<Object>) => {width: number, height: number}|null}} [options] - How big the piece is
+ *   drawn with the pieces so, to keep that as its size; without it, its size is left to its contents.
  * @returns {Array<Object>|null} Null for a piece with no frame.
  */
-export function fitToContents(pieces, id) {
+export function fitToContents(pieces, id, { sizeOf } = {}) {
   const raw = copy(pieces)
   const piece = raw.find((each) => each.id === id)
   if (!piece?.frame) return null
   piece.frame = { ...piece.frame, width: LIMITS.size.min, height: LIMITS.size.min }
+  // Kept at the size its contents need now, so it doesn't shrink further on its own once they go.
+  const fitted = sizeOf?.(raw)
+  if (fitted) {
+    piece.frame.width = round(clamp(fitted.width, LIMITS.size.min, LIMITS.size.max))
+    piece.frame.height = round(clamp(fitted.height, LIMITS.size.min, LIMITS.size.max))
+  }
   return raw
 }
 
