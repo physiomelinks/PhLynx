@@ -185,6 +185,27 @@ describe('docking a compartment to a second membrane side or fold', () => {
     expect(resolveExtraDock(scene, id, { x: -5000, y: -5000 })).toBeNull()
   })
 
+  it('refuses another cell’s side that doesn’t face the one it is against, and takes one that does', () => {
+    const cell = (id, x, y) => [
+      { id, kind: 'compartment', label: id.toUpperCase() },
+      { id: `${id}-pm`, kind: 'membrane', label: `${id.toUpperCase()} membrane`, encloses: [id], frame: { x, y, width: 300, height: 200 } },
+    ]
+    const pieces = valid([
+      ...cell('a', 0, 300),
+      ...cell('b', 500, 0),
+      ...cell('c', 500, 300),
+      { id: 'gap', kind: 'compartment', label: 'Gap', docks: [{ on: 'a-pm', side: 'right', face: 'outside' }] },
+    ])
+    const scene = dropScene(pieces)
+    const b = scene.rects.get('b-pm')
+    const top = resolveExtraDock(scene, 'gap', { x: b.x + b.width / 2, y: b.y - 6 })
+    expect(top.invalid).toBe('B membrane’s top doesn’t face the side Gap is against.')
+    const c = scene.rects.get('c-pm')
+    const left = resolveExtraDock(scene, 'gap', { x: c.x - 6, y: c.y + c.height / 2 })
+    expect(left.invalid).toBeUndefined()
+    expect(left.label).toBe('Also against C membrane’s left side, outside')
+  })
+
   it('says why where a compartment is already against that stretch', () => {
     const { pieces, id } = cleftAgainstSr()
     const scene = dropScene(pieces)

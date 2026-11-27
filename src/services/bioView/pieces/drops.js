@@ -475,6 +475,41 @@ function resolveZone(scene, point) {
 }
 
 /**
+ * Whether a compartment docked to membrane sides can be docked to another membrane's side as well: it is drawn as the
+ * gap between two sides only where they face each other across it (see the layout's sideGap), so the new side must face
+ * each side of another membrane it is against. More sides of a membrane it is against already, as a fluid round a
+ * cell is, and anything with a fold, are left to the layout.
+ *
+ * @param {Object} scene - From dropScene.
+ * @param {Object} compartment
+ * @param {{on: string, side: string, face: 'inside'|'outside'}} dock - The new one.
+ * @returns {boolean}
+ */
+function facesItsDocks(scene, compartment, dock) {
+  const others = compartment.docks.filter((each) => each.on !== dock.on)
+  if (!others.length || others.some((each) => !each.side)) return true
+  /** Where a side's line is across it, and which way from it the compartment lies. */
+  const line = ({ on, side, face }) => {
+    const rect = scene.rects.get(on)
+    if (!rect) return null
+    const at = { top: rect.y, bottom: rect.y + rect.height, left: rect.x, right: rect.x + rect.width }[side]
+    const outward = side === 'bottom' || side === 'right' ? 1 : -1
+    return { across: side === 'top' || side === 'bottom', at, toward: face === 'outside' ? outward : -outward }
+  }
+  const mine = line(dock)
+  return others.every((each) => {
+    const theirs = line(each)
+    return (
+      !!mine &&
+      !!theirs &&
+      mine.across === theirs.across &&
+      mine.toward === -theirs.toward &&
+      (mine.at - theirs.at) * theirs.toward > 0
+    )
+  })
+}
+
+/**
  * Where a docked compartment's far edge, dragged to a point, would dock it as well: the wall of a fold, or the side
  * of a membrane, nearest the point, within a band of it. Against a side, it takes the stretch of it that the
  * compartment spans, where that is free, else the free stretch round the point.
@@ -519,6 +554,12 @@ export function resolveExtraDock(scene, compartmentId, point) {
     return {
       key: `dock|${compartmentId}|full|${membrane.id}|${side}|${face}`,
       invalid: `A compartment is already against that stretch of ${membrane.label}, on that face.`,
+    }
+  }
+  if (!facesItsDocks(scene, compartment, { on: membrane.id, side, face })) {
+    return {
+      key: `dock|${compartmentId}|apart|${membrane.id}|${side}|${face}`,
+      invalid: `${membrane.label}’s ${SIDE_NAMES[side]} doesn’t face the side ${compartment.label} is against.`,
     }
   }
   // The stretch the compartment spans, as far as it is free: it lies across from it.
