@@ -21,10 +21,18 @@ const copy = writtenPieces
 /** The ids of every piece. */
 const taken = (pieces) => new Set(pieces.map((piece) => piece.id))
 
-/** A piece's label, numbered after the first of its kind: 'Compartment', 'Compartment 2', ... */
+/**
+ * A piece's label, numbered after the first of its kind: 'Compartment', 'Compartment 2', ...; one past the highest in
+ * use, so a label is never given twice, even once an earlier one has gone.
+ */
 function numbered(pieces, kind, base) {
-  const count = pieces.filter((piece) => piece.kind === kind && piece.label.startsWith(base)).length
-  return count ? `${base} ${count + 1}` : base
+  const pattern = new RegExp(`^${base.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&')}(?: (\\d+))?$`)
+  const numbers = pieces
+    .filter((piece) => piece.kind === kind)
+    .map((piece) => piece.label.match(pattern))
+    .filter(Boolean)
+    .map((match) => (match[1] ? Number(match[1]) : 1))
+  return numbers.length ? `${base} ${Math.max(...numbers) + 1}` : base
 }
 
 /** A frame rounded to whole pixels. */

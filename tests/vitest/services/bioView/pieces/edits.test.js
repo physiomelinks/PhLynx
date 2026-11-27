@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { getBuiltInPieceTemplate } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
 import {
+  addCompartment,
   mergeFreeSpans,
   relabelPiece,
   removePieces,
@@ -147,5 +148,24 @@ describe('mergeFreeSpans', () => {
       { id: 'x', kind: 'compartment', label: 'X', docks: [{ on: 'pm', side: 'top', face: 'outside', from: 0.3, to: 0.6 }] },
     ])
     expect(mergeFreeSpans(docked, new Set())).toBeNull()
+  })
+})
+
+describe('a new piece’s label', () => {
+  const frame = { x: 0, y: 0, width: 200, height: 100 }
+  const box = (id, label) => ({ id, kind: 'compartment', label, frame })
+
+  it('is one past the highest of its kind in use, never one in use already', () => {
+    const label = (pieces) => {
+      const { pieces: next, id } = addCompartment(valid(pieces), { frame })
+      return byId(next, id).label
+    }
+    // The first deleted: 2 and 3 are left, and the next is 4, not 3 again.
+    expect(label([box('compartment-2', 'Compartment 2'), box('compartment-3', 'Compartment 3')])).toBe(
+      'Compartment 4',
+    )
+    expect(label([])).toBe('Compartment')
+    // A renamed one that only starts like it does not count.
+    expect(label([box('a', 'Compartments of the gut')])).toBe('Compartment')
   })
 })
