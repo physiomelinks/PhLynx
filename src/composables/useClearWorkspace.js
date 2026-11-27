@@ -44,6 +44,8 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
     const oldBioPiecesState = bioPiecesStore.snapshot()
+    // The pictures the images are drawn with, which a snapshot of the pieces leaves out.
+    const oldImages = bioPiecesStore.images
     const oldSkinState = skinLibraryStore.snapshot()
     const oldThemeState = nodeThemeStore.snapshot()
     const oldSessionMetadata = sessionMetadataStore.getState()
@@ -56,6 +58,7 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
         bioPiecesStore.restoreSnapshot(oldBioPiecesState)
+        bioPiecesStore.images = Object.freeze({ ...bioPiecesStore.images, ...oldImages })
         skinLibraryStore.restoreSnapshot(oldSkinState)
         nodeThemeStore.restoreSnapshot(oldThemeState)
         inspectionStore.loadState(oldInspectStore)

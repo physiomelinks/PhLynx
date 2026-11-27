@@ -111,6 +111,24 @@ describe('useClearWorkspace', () => {
     expect(bioPiecesStore.getState()).toBeNull()
   })
 
+  it('brings the pictures back with the images when a clear is undone', async () => {
+    const bioPiecesStore = useBioPiecesStore()
+    const historyStore = useFlowHistoryStore()
+    const picture = bioPiecesStore.addImage({ type: 'image/png', data: 'data:image/png;base64,AAAA', width: 4, height: 2 })
+    bioPiecesStore.setPieces([
+      { id: 'pic', kind: 'image', label: 'Pic', image: picture, frame: { x: 0, y: 0, width: 40, height: 20 } },
+    ])
+    const before = bioPiecesStore.getState()
+    expect(before.images[picture]).toBeTruthy()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    expect(bioPiecesStore.imageOf(picture)).toBeNull()
+
+    await historyStore.undo()
+    expect(bioPiecesStore.getState()).toEqual(before)
+  })
+
   it('undoes a clear so that an earlier edit to the pieces can still be undone', async () => {
     const bioPiecesStore = useBioPiecesStore()
     const historyStore = useFlowHistoryStore()
