@@ -639,7 +639,7 @@ export function removedWith(pieces, ids) {
 /**
  * Removes pieces, and what goes with them (see removedWith). A membrane removed on its own leaves what it enclosed
  * standing where it was, its inside a compartment of its own the membrane's size, and each compartment docked inside
- * it standing where it was drawn, the tubes between them carrying what they would between compartments apart.
+ * it standing where it was drawn; the tubes to what it enclosed carry what a tube added between their ends would.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {Iterable<string>} ids
@@ -658,7 +658,10 @@ export function removePieces(pieces, ids, { rects } = {}) {
     const bulk = raw.find((piece) => piece.id === topology.bulkOf(membrane.id))
     if (bulk && !bulk.frame && membrane.frame) bulk.frame = { ...membrane.frame }
   }
-  const freed = new Set()
+  // What a membrane that goes enclosed is in no cell of its own any more: its tubes carry what they now would.
+  const freed = new Set(
+    pieces.filter((piece) => piece.kind === 'membrane' && removed.has(piece.id)).flatMap((piece) => piece.encloses),
+  )
   for (const piece of raw) {
     const docks = piece.docks?.filter((dock) => !removed.has(dock.on))
     if (!docks || docks.length === piece.docks.length) continue

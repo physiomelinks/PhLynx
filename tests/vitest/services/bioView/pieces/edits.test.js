@@ -77,6 +77,18 @@ describe('removePieces', () => {
     expect(ids(valid(removePieces(joined, ['b']).pieces))).toEqual(['a'])
   })
 
+  it('makes a gap junction a flow when one of its cells loses its membrane', () => {
+    const cells = valid([
+      { id: 'a', kind: 'compartment', label: 'A' },
+      { id: 'am', kind: 'membrane', label: 'AM', encloses: ['a'], frame: { x: 0, y: 0, width: 200, height: 120 } },
+      { id: 'b', kind: 'compartment', label: 'B' },
+      { id: 'bm', kind: 'membrane', label: 'BM', encloses: ['b'], frame: { x: 200, y: 0, width: 200, height: 120 } },
+      { id: 'gj', kind: 'tube', label: 'Gap junction', ends: ['a', 'b'], flux: 'junction' },
+    ])
+    const left = valid(removePieces(cells, ['bm']).pieces)
+    expect(byId(left, 'gj')).toMatchObject({ flux: 'flow', label: 'Tube' })
+  })
+
   it('leaves the pieces to say why when what is left doesn’t hold together', () => {
     // The rod's segments are docked along its membrane with no inside of its own: without one, a stretch meets nothing.
     const segment = rod.find((piece) => piece.kind === 'compartment' && piece.docks?.length)
