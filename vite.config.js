@@ -80,6 +80,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
-    exclude: ['tests/playwright/**', 'tests/e2e/**', 'node_modules/**'],
+    // .claude/ holds agent worktrees: other checkouts, whose tests aren't this one's.
+    exclude: ['tests/playwright/**', 'tests/e2e/**', 'node_modules/**', '.claude/**'],
   },
 })
