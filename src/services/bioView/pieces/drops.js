@@ -581,7 +581,8 @@ export function resolveCarry(scene, id, point, shift) {
     const own = scene.rects.get(id)
     const across = side === 'top' || side === 'bottom'
     const length = across ? rect.width : rect.height
-    const share = own ? (across ? own.width : own.height) / length : 1
+    // No shorter than an empty span needs, else the cell would grow until its stretch was that long.
+    const share = own ? Math.max(across ? own.width : own.height, EMPTY_SPAN) / length : 1
     let from = Math.max(free.from, Math.min(at - share / 2, free.to - share))
     let to = Math.min(free.to, from + share)
     const least = EMPTY_SPAN / length

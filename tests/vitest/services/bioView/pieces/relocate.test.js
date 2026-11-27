@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { getBuiltInPieceTemplate } from '../../../../../src/services/bioView/pieces/builtInTemplates.js'
 import { dropScene, previewDrop, resolveCarry } from '../../../../../src/services/bioView/pieces/drops.js'
 import { layoutPieces } from '../../../../../src/services/bioView/pieces/layout.js'
+import { EMPTY_SPAN } from '../../../../../src/services/bioView/geometry.js'
 import { validatePieces } from '../../../../../src/services/bioView/pieces/model.js'
 import {
   detachPiece,
@@ -245,6 +246,19 @@ describe('moveOut', () => {
 })
 
 describe('resolveCarry', () => {
+  it('docks a narrow compartment along no less than an empty span, so the cell keeps its size', () => {
+    const narrow = valid(
+      tissue.map((piece) => (piece.id === 'pool' ? { ...piece, frame: { ...piece.frame, width: 30 } } : piece)),
+    )
+    const scene = dropScene(narrow)
+    const c = scene.rects.get('c-membrane')
+    const point = { x: c.x + c.width * 0.3, y: c.y + c.height + 10 }
+    const { pieces } = previewDrop(scene, resolveCarry(scene, 'pool', point, { x: 0, y: 0 }))
+    const [dock] = byId(pieces, 'pool').docks
+    expect((dock.to - dock.from) * c.width).toBeGreaterThanOrEqual(EMPTY_SPAN - 1)
+    expect(layoutPieces(pieces).rects.get('c-membrane').width).toBe(c.width)
+  })
+
   it('docks a carried compartment to the membrane side it is by, along as much as it is long', () => {
     const scene = dropScene(tissue)
     const c = scene.rects.get('c-membrane')
