@@ -97,7 +97,7 @@ export async function deleteConnection(edgeId, { disconnectInstances, history })
 /**
  * What deleting some modules and pieces takes: the pieces chosen and those whose module is among the modules chosen,
  * everything that goes with them (see removedWith), and every module on what goes. What it takes that was not chosen
- * is for asking about: the pieces that go with those chosen (a fold, which has no node to choose, goes unasked), and
+ * is for asking about: the pieces that go with those chosen, a fold among them, and
  * the modules on the rows of what goes. The modules that are the pieces going are named by those pieces.
  *
  * @param {ReadonlyArray<Object>} pieces - Validated.
@@ -126,14 +126,13 @@ export function planDeletion(pieces, nodes, { instances = [], pieces: pieceIds =
       return parsed?.instance === PIECES_INSTANCE && offeredNow.has(parsed.path) && !offered.has(parsed.path)
     })
     .map((node) => node.id)
-  const kindOf = new Map(pieces.map((piece) => [piece.id, piece.kind]))
   const named = modulesOf(pieces, nodes, removed)
   return {
     next,
     errors: [],
     pieces: asked,
     going: [...new Set([...chosen, ...stranded])],
-    alongWith: [...removed].filter((id) => !asked.includes(id) && kindOf.get(id) !== 'fold'),
+    alongWith: [...removed].filter((id) => !asked.includes(id)),
     modulesToo: stranded.filter((id) => !chosen.has(id) && !named.has(id)),
   }
 }

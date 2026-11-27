@@ -156,6 +156,11 @@ describe('planDeletion on a cell with no single inside', () => {
     expect(plan.alongWith).toEqual(['extracellular'])
   })
 
+  it('names a fold that goes with its membrane', () => {
+    const cardiomyocyte = validatePieces(getBuiltInPieceTemplate('cardiomyocyte').pieces).pieces
+    expect(planDeletion(cardiomyocyte, [], { pieces: ['sarcolemma'] }).alongWith).toContain('t-tubule')
+  })
+
   it('says plainly why a segment can’t be deleted', () => {
     const plan = planDeletion(rod, [], { pieces: ['inner-segment'] })
     expect(plan.next).toBeNull()
