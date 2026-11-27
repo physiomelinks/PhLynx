@@ -1,17 +1,19 @@
-import os
 import unittest
 
 from playwright.sync_api import sync_playwright, expect
 
 try:
-    from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .config import HEADLESS_MODE
+    from .fixtures import open_chain, use_default_timeouts
 except ImportError:
-    from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from config import HEADLESS_MODE
+    from fixtures import open_chain, use_default_timeouts
 
 
-# The screen point a fraction of the way along the first edge's path.
-POINT_ALONG = """(fraction) => {
-    const path = document.querySelector('.vue-flow__edge-path')
+# The screen point a fraction of the way along an edge's path: the first edge's, or [fraction, index] for another.
+POINT_ALONG = """(arg) => {
+    const [fraction, index] = Array.isArray(arg) ? arg : [arg, 0]
+    const path = document.querySelectorAll('.vue-flow__edge-path')[index]
     const point = path.getPointAtLength(path.getTotalLength() * fraction)
     const m = path.getScreenCTM()
     return { x: point.x * m.a + m.e, y: point.y * m.d + m.f }
@@ -34,6 +36,25 @@ CROSSINGS = """() => {
     return hits
 }"""
 
+# Whether every edge path has held the same shape for several polls: the layout and fit view are done.
+PATHS_SETTLED = """() => {
+    const key = [...document.querySelectorAll('.vue-flow__edge-path')].map((path) => path.getAttribute('d')).join('|')
+    const last = window.__pathWatch
+    window.__pathWatch = { key, polls: last && last.key === key ? last.polls + 1 : 0 }
+    return window.__pathWatch.polls >= 4
+}"""
+
+
+def open_settled_chain(page):
+    """Opens the chain workspace and waits for its edges to stop moving."""
+    open_chain(page)
+    page.wait_for_function(PATHS_SETTLED, polling=100)
+
+
+def wait_for_undo(page):
+    """Waits for the history to record the last change, which enables the undo button."""
+    expect(page.locator("button:has(.pi-undo)")).to_be_enabled()
+
 
 class TestEdgeRouting(unittest.TestCase):
 
@@ -41,14 +62,10 @@ class TestEdgeRouting(unittest.TestCase):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
             page = browser.new_page(viewport={"width": 1400, "height": 900})
-
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
+            use_default_timeouts(page)
+            open_settled_chain(page)
 
             edge_path = page.locator(".vue-flow__edge-path").first
-            expect(edge_path).to_be_visible(timeout=60000)
-            page.wait_for_timeout(1500)
             original = edge_path.get_attribute("d")
 
             # Selecting the edge shows a handle on each segment.
@@ -69,8 +86,7 @@ class TestEdgeRouting(unittest.TestCase):
             expect(edge_path).not_to_have_attribute("d", original)
             routed = edge_path.get_attribute("d")
 
-            # Let the history store commit its batch first.
-            page.wait_for_timeout(300)
+            wait_for_undo(page)
             page.keyboard.press("ControlOrMeta+z")
             expect(edge_path).to_have_attribute("d", original)
             page.keyboard.press("ControlOrMeta+Shift+z")
@@ -104,27 +120,22 @@ class TestEdgeRouting(unittest.TestCase):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
             page = browser.new_page(viewport={"width": 1400, "height": 900})
+            use_default_timeouts(page)
+            open_settled_chain(page)
 
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}")
-            expect(page.locator(".vue-flow__edge-path").first).to_be_visible(timeout=60000)
-            page.wait_for_timeout(1500)
-
-            # Drag var_SN over the edges, so they run beneath it.
-            box = page.locator(".vue-flow__node", has_text="var_SN").bounding_box()
-            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 10)
+            # Centre sink on the middle of the source -> relay edge, clear of both, so that edge runs beneath it.
+            target = page.evaluate(POINT_ALONG, [0.5, 0])
+            box = page.locator(".vue-flow__node", has_text="sink").bounding_box()
+            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
             page.mouse.down()
-            page.mouse.move(610, 540, steps=10)
+            page.mouse.move(target["x"], target["y"], steps=10)
             page.mouse.up()
-            page.wait_for_timeout(500)
-            self.assertGreater(page.evaluate(CROSSINGS), 0)
+            page.wait_for_function(f"({CROSSINGS})() > 0")
 
-            page.mouse.click(1100, 250)
-            page.mouse.click(1100, 250, button="right")
+            page.mouse.click(1300, 250)
+            page.mouse.click(1300, 250, button="right")
             page.locator(".context-menu__item", has_text="Route Edges Around Modules").click()
-            page.wait_for_timeout(300)
-            self.assertEqual(page.evaluate(CROSSINGS), 0)
+            page.wait_for_function(f"({CROSSINGS})() === 0")
 
             browser.close()
 

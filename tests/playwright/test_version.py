@@ -6,8 +6,10 @@ from playwright.sync_api import sync_playwright, expect
 
 try:
     from .config import BASE_URL, HEADLESS_MODE
+    from .fixtures import use_default_timeouts
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE
+    from fixtures import use_default_timeouts
 
 
 class TestVersionInformation(unittest.TestCase):
@@ -17,6 +19,7 @@ class TestVersionInformation(unittest.TestCase):
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
             
             context = browser.new_context()
+            use_default_timeouts(context)
             page = context.new_page()
             page.goto(BASE_URL)
 

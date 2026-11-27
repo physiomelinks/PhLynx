@@ -15,9 +15,11 @@ from playwright.sync_api import sync_playwright
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
     from .test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, TRACK_APP_MODULES, evaluate_within_a_minute
+    from .fixtures import use_default_timeouts
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
     from test_simulator import APP_MOUNT_TIMEOUT, IS_DEV_SERVER, OPT_IN_TO_ISOLATION, TRACK_APP_MODULES, evaluate_within_a_minute
+    from fixtures import use_default_timeouts
 
 PARITY = os.path.join(RESOURCE_PATH, "protocols", "parity")
 
@@ -101,6 +103,7 @@ class TestProtocolParity(unittest.TestCase):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
             context = browser.new_context()
+            use_default_timeouts(context)
             context.add_init_script(OPT_IN_TO_ISOLATION)
             context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()
@@ -147,6 +150,7 @@ class TestProtocolParity(unittest.TestCase):
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=HEADLESS_MODE)
             context = browser.new_context()
+            use_default_timeouts(context)
             context.add_init_script(OPT_IN_TO_ISOLATION)
             context.add_init_script(TRACK_APP_MODULES)
             page = context.new_page()

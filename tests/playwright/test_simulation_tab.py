@@ -9,8 +9,10 @@ from playwright.sync_api import expect, sync_playwright
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .fixtures import node, use_default_timeouts, workspace_url
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from fixtures import node, use_default_timeouts, workspace_url
 
 
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
@@ -20,89 +22,88 @@ SHORTEN_SIMULATION = (
     "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s"
     ".get('simulationSettings').setSimulationSettings({ endingPoint: 1, pointInterval: 0.01 })"
 )
-# The model's full 10 s, which it fires late in, so a change of Cm moves its spikes. Its points are finer than
-# the workspace's 0.01 s, between which the solver runs out of steps.
-FULL_SIMULATION = (
-    "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s"
-    ".get('simulationSettings').setSimulationSettings({ endingPoint: 10, pointInterval: 0.001 })"
-)
 APP_MOUNT_TIMEOUT = 60000
 SIMULATOR_READY = "document.querySelector('#app').__vue_app__._context.provides.$libopencor.status === 'ready'"
 RESULTS_STORE = "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('simulationResults')"
-FINAL_SOMA_V = (
-    f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
+# source's x at the end of the shown run. source is the chain's first node.
+FINAL_SOURCE_X = (
+    f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::x');"
     " return store.results.variables.get(name).values.at(-1) })()"
 )
 
-# Gives the workspace an obs_data file as CUFLynx sends one, shaped as SN_simple's first two experiments are: a warm-up,
-# then two sub-experiments, the second with the M current's conductance doubled.
+# Gives the workspace an obs_data file as CUFLynx sends one: a warm-up, then two sub-experiments, the second
+# experiment with source's rate doubled. relay's relaxation time stays at its model value throughout.
 ADD_PROTOCOL = """(() => {
   const protocol = {
     pre_times: [0.05, 0.05],
     sim_times: [[0.1, 0.1], [0.1, 0.1]],
-    params_to_change: { 'soma_SN/I_in': [[0, 0], [0, 0]], 'soma_SN/g_M': [[0.00389, 0.00389], [0.00778, 0.00778]] },
-    experiment_labels: ['SHR', 'SHR M-activation'],
+    params_to_change: { 'relay/T_relax': [[1, 1], [1, 1]], 'source/k': [[2, 2], [4, 4]] },
+    experiment_labels: ['slow', 'fast'],
   }
   const payload = new TextEncoder().encode(JSON.stringify({ protocol_info: protocol, data_items: [] })).buffer
   document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex')
-    .setArchive({ extras: [{ location: 'SN_simple_obs_data.json', format: 'application/json', payload }] })
+    .setArchive({ extras: [{ location: 'chain_obs_data.json', format: 'application/json', payload }] })
 })()"""
-# The values of soma_SN's g_M the shown experiment ran with, and how many experiments ran.
-SHOWN_G_M = (
-    f"(() => {{ const store = {RESULTS_STORE}; const name = [...store.mapping].find(([key]) => key.endsWith('::g_M'))[1];"
+# The values of source's k the shown experiment ran with, and how many experiments ran.
+SHOWN_K = (
+    f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::k');"
     " return { experiments: store.protocolResults.experiments.length, values: [...new Set(store.results.variables.get(name).values)] } })()"
 )
 
-# A ramp of soma_SN's input current, which the model computes as a driver.
+# A ramp of source's rate, a constant of the model, which the protocol makes a driver it computes.
 ADD_RAMP_PROTOCOL = ADD_PROTOCOL.replace(
     """    pre_times: [0.05, 0.05],
     sim_times: [[0.1, 0.1], [0.1, 0.1]],
-    params_to_change: { 'soma_SN/I_in': [[0, 0], [0, 0]], 'soma_SN/g_M': [[0.00389, 0.00389], [0.00778, 0.00778]] },
-    experiment_labels: ['SHR', 'SHR M-activation'],""",
+    params_to_change: { 'relay/T_relax': [[1, 1], [1, 1]], 'source/k': [[2, 2], [4, 4]] },
+    experiment_labels: ['slow', 'fast'],""",
     """    pre_times: [0],
     sim_times: [[0.2]],
-    params_to_change: { 'soma_SN/I_in': [['up']] },
+    params_to_change: { 'source/k': [['up']] },
     protocol_shapes: { up: { type: 'ramp', from: 0, to: 0.02 } },""",
 )
-# The input current as the ramp ran it: at the start, halfway and the end.
-SHOWN_I_IN = (
-    f"(() => {{ const store = {RESULTS_STORE}; const values = store.results.variables.get(store.protocolInputs.get('soma_SN/I_in').name).values;"
+# source's rate as the ramp ran it: at the start, halfway and the end.
+SHOWN_RAMP = (
+    f"(() => {{ const store = {RESULTS_STORE}; const values = store.results.variables.get(store.protocolInputs.get('source/k').name).values;"
     " return [values[0], values[10], values.at(-1)] })()"
 )
 
+# source/k's value once its slider has moved 300 steps right from the model's 2.
+SLIDER_MOVED_K = "2.12 per_second"
+
 # Downloads go to the browser's save, not the File System Access picker, which Playwright can't answer.
 USE_DOWNLOADS = "delete window.showSaveFilePicker"
-# The prediction items added in Edit obs_data for ADD_PROTOCOL's experiments: the soma's voltage in the second
+# The prediction items added in Edit obs_data for ADD_PROTOCOL's experiments: relay's level in the second
 # sub-experiment of the first, its trace and its mean.
 PREDICTION_ITEMS = [
-    {"data_item_name": "soma_SN/V", "operands": ["soma_SN/V"], "unit": "milliV", "experiment_idx": 0, "subexperiment_idx": 1},
-    {"data_item_name": "soma_SN/V_2", "operands": ["soma_SN/V"], "unit": "milliV", "operation": "mean", "experiment_idx": 0, "subexperiment_idx": 1},
+    {"data_item_name": "relay/y", "operands": ["relay/y"], "unit": "mM", "experiment_idx": 0, "subexperiment_idx": 1},
+    {"data_item_name": "relay/y_2", "operands": ["relay/y"], "unit": "mM", "operation": "mean", "experiment_idx": 0, "subexperiment_idx": 1},
 ]
 # ADD_PROTOCOL's protocol, its first experiment's first sub-experiment shortened to 0.08 s in the editor.
 SAVED_PROTOCOL_INFO = {
     "pre_times": [0.05, 0.05],
     "sim_times": [[0.08, 0.1], [0.1, 0.1]],
-    "params_to_change": {"soma_SN/I_in": [[0, 0], [0, 0]], "soma_SN/g_M": [[0.00389, 0.00389], [0.00778, 0.00778]]},
-    "experiment_labels": ["SHR", "SHR M-activation"],
+    "params_to_change": {"relay/T_relax": [[1, 1], [1, 1]], "source/k": [[2, 2], [4, 4]]},
+    "experiment_labels": ["slow", "fast"],
 }
 # The workspace's obs_data, as saved.
 SAVED_OBS_DATA = (
     "(() => { const extras = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('omex').preservedExtras;"
-    " return JSON.parse(new TextDecoder().decode(extras.find(({ location }) => location === 'SN_simple_obs_data.json').payload)) })()"
+    " return JSON.parse(new TextDecoder().decode(extras.find(({ location }) => location === 'chain_obs_data.json').payload)) })()"
 )
-# ADD_PROTOCOL's obs_data with data items as CUFLynx writes them: the soma's peak voltage in the second sub-experiment
+# ADD_PROTOCOL's obs_data with data items as CUFLynx writes them: relay's peak level in the second sub-experiment
 # of each experiment, with what a calibration fits it with.
 ADD_DATA_ITEMS_PROTOCOL = ADD_PROTOCOL.replace(
     "data_items: []",
     "data_items: "
     + json.dumps([
-        {"data_item_name": f"V_peak_{label}", "operands": ["soma_SN/V"], "unit": "milliV", "operation": "max",
-         "data_type": "constant", "value": 30, "std": 2, "weight": 1, "experiment_idx": e, "subexperiment_idx": 1}
-        for e, label in enumerate(["SHR", "SHR_M_activation"])
+        {"data_item_name": f"y_peak_{label}", "operands": ["relay/y"], "unit": "mM", "operation": "max",
+         "data_type": "constant", "value": 0.2, "std": 0.02, "weight": 1, "experiment_idx": e, "subexperiment_idx": 1}
+        for e, label in enumerate(["slow", "fast"])
     ]),
 )
 
-# The SN features case of the protocol parity checks (tests/resources/protocols/parity/features.json), whose model the
+# The one test on a real model: PhLynx's protocol features against circulatory autogen's for the SN model, which
+# needs that model. The SN features case of the protocol parity checks (tests/resources/protocols/parity/features.json), whose model the
 # workspace's SN model is, with CA's values for it, and a data item measuring what its V_peak_e1 computes: V's max in
 # the first experiment's second sub-experiment.
 PARITY = os.path.join(RESOURCE_PATH, "protocols", "parity")
@@ -219,33 +220,32 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.click(button="right")
+            source.click(button="right")
             expect(page.get_by_text("Simulate Instance")).to_be_visible()
             page.keyboard.press("Escape")
-            soma.click()
+            source.click()
 
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
 
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            plot_variable(page, "soma_SN/V")
+            plot_variable(page, "source/x")
             expect(page.locator(".simulation-plot canvas")).to_have_count(1)
-            expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("source/x")
             expect(page.locator(".instance-node--simulated")).to_have_count(1)
 
             # A variable in another unit gets its own chart, which the tab scrolls to.
-            plot_variable(page, "soma_SN/m")
+            plot_variable(page, "source/k")
             expect(page.locator(".simulation-plot")).to_have_count(2)
             second_chart = page.locator(".simulation-plot").nth(1)
             second_chart.scroll_into_view_if_needed()
@@ -262,41 +262,40 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.click()
+            source.click()
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            before = page.evaluate(FINAL_SOMA_V)
+            before = page.evaluate(FINAL_SOURCE_X)
 
-            add_slider(page, "soma_SN/g_Na")
-            page.get_by_role("slider", name="g_Na value").focus()
+            add_slider(page, "source/k")
+            page.get_by_role("slider", name="k value").focus()
             for _ in range(300):
                 page.keyboard.press("ArrowRight")
-            expect(page.locator(".slider-value--changed")).to_have_text("2.438 microS")
+            expect(page.locator(".slider-value--changed")).to_have_text(SLIDER_MOVED_K)
             # The slider asks for a run, which gives a different end value.
             page.wait_for_function(
-                f"{RESULTS_STORE}.status === 'done' && {FINAL_SOMA_V} !== {before!r}",
+                f"{RESULTS_STORE}.status === 'done' && {FINAL_SOURCE_X} !== {before!r}",
                 timeout=120000,
             )
 
-            page.get_by_role("button", name="More for g_Na").click()
+            page.get_by_role("button", name="More for k").click()
             page.get_by_role("menuitem", name="Apply this value to the model").click()
             expect(page.locator(".slider-value--changed")).to_have_count(0)
-            expect(page.locator(".slider-value")).to_have_text("2.438 microS")
+            expect(page.locator(".slider-value")).to_have_text(SLIDER_MOVED_K)
             expect(page.get_by_text("The model or settings have changed since this run.")).to_have_count(0)
             # Its range opens from its menu, and changes as typed.
-            page.get_by_role("button", name="More for g_Na").click()
+            page.get_by_role("button", name="More for k").click()
             page.get_by_role("menuitem", name="Edit range…").click()
             page.get_by_label("Maximum").fill("3")
             page.get_by_label("Maximum").press("Tab")
@@ -317,46 +316,45 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.click()
+            source.click()
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            plot_variable(page, "soma_SN/V")
+            plot_variable(page, "source/x")
 
             # The sweep is set in its view, then played with the Sweep run mode.
             page.get_by_role("button", name=re.compile(r"^Sweep \(")).click()
             page.get_by_role("button", name="Sweep a parameter").click()
-            pick_path(page, "Choose a parameter to sweep", "soma_SN/g_Na")
+            pick_path(page, "Choose a parameter to sweep", "source/k")
             page.get_by_test_id("sim-sweep-points").fill("3")
             page.get_by_test_id("sim-sweep-points").press("Tab")
             page.get_by_test_id("sim-sweep-mode").click()
 
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && {RESULTS_STORE}.results.isSweep", timeout=120000)
             results = page.evaluate(
-                f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::V');"
+                f"(() => {{ const store = {RESULTS_STORE}; const name = store.mapping.get('dndnode_0::x');"
                 " return { readout: store.results.readout, isSteadyState: store.results.isSteadyState,"
                 " points: store.results.voi.values.length, values: store.results.variables.get(name).values.length } })()"
             )
             self.assertEqual(results, {"readout": "end", "isSteadyState": False, "points": 3, "values": 3})
-            expect(page.get_by_text(re.compile(r"at 3 values of soma_SN/g_Na.*reading the end of each time course"))).to_be_visible()
-            expect(page.locator(".simulation-plot .plot-title-against")).to_have_text(" vs soma_SN/g_Na (end of each run)")
+            expect(page.get_by_text(re.compile(r"at 3 values of source/k.*reading the end of each time course"))).to_be_visible()
+            expect(page.locator(".simulation-plot .plot-title-against")).to_have_text(" vs source/k (end of each run)")
 
             # Another reading, saved with the sweep, reads each time course again.
             page.get_by_test_id("sim-sweep-readout").get_by_text("Min", exact=True).click()
             page.keyboard.press("F9")
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && {RESULTS_STORE}.results.readout === 'min'", timeout=120000)
-            expect(page.locator(".simulation-plot .plot-title-against")).to_have_text(" vs soma_SN/g_Na (min of each run)")
+            expect(page.locator(".simulation-plot .plot-title-against")).to_have_text(" vs source/k (min of each run)")
 
             # Back on the time course, play runs it again.
             page.get_by_test_id("sim-run-mode").click()
@@ -373,44 +371,43 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.click()
+            source.click()
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            plot_variable(page, "soma_SN/V")
-            plot_variable(page, "soma_SN/m")
+            plot_variable(page, "source/x")
+            plot_variable(page, "source/k")
 
             page.get_by_role("button", name=re.compile(r"^Sweep \(")).click()
             page.get_by_role("button", name="Sweep a parameter").click()
-            pick_path(page, "Choose a parameter to sweep", "soma_SN/g_Na")
+            pick_path(page, "Choose a parameter to sweep", "source/k")
             page.get_by_test_id("sim-sweep-points").fill("3")
             page.get_by_test_id("sim-sweep-points").press("Tab")
-            page.get_by_role("button", name="More for the g_Na sweep").click()
+            page.get_by_role("button", name="More for the k sweep").click()
             page.get_by_role("menuitem", name="Add a curve for each value of…").click()
-            pick_path(page, "Choose a parameter for the curves", "soma_SN/Ko")
-            page.get_by_test_id("sim-sweep-family-values").fill("3, 6")
+            pick_path(page, "Choose a parameter for the curves", "source/x_init")
+            page.get_by_test_id("sim-sweep-family-values").fill("1, 2")
             page.get_by_test_id("sim-sweep-family-values").press("Enter")
             expect(page.get_by_test_id("sim-sweep-cost")).to_contain_text("3 × 2 = 6 time courses")
             expect(page.get_by_role("button", name="Sweep (2)")).to_be_visible()
             page.get_by_test_id("sim-sweep-mode").click()
 
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done' && {RESULTS_STORE}.results.family?.curves?.length === 2", timeout=120000)
-            # A chart per variable, a curve per value of Ko in its own colour, keyed by the value.
+            # A chart per variable, a curve per value of x_init in its own colour, keyed by the value.
             expect(page.locator(".simulation-plot")).to_have_count(2)
             first = page.locator(".simulation-plot").first
-            expect(first.locator(".plot-key .plot-key-toggle")).to_have_text(["soma_SN/Ko = 3 millimolar", "soma_SN/Ko = 6 millimolar"])
-            expect(page.get_by_text(re.compile(r"a curve for each of 2 values of soma_SN/Ko"))).to_be_visible()
+            expect(first.locator(".plot-key .plot-key-toggle")).to_have_text(["source/x_init = 1 mM", "source/x_init = 2 mM"])
+            expect(page.get_by_text(re.compile(r"a curve for each of 2 values of source/x_init"))).to_be_visible()
             # ----------- END ------------
 
             context.close()
@@ -423,23 +420,22 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
-            page.evaluate(FULL_SIMULATION)
-            soma.click()
+            page.evaluate(SHORTEN_SIMULATION)
+            source.click()
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            plot_variable(page, "soma_SN/V")
-            add_slider(page, "soma_SN/Cm")
+            plot_variable(page, "source/x")
+            add_slider(page, "source/k")
             page.wait_for_function(f"{RESULTS_STORE}.status === 'done'", timeout=120000)
 
             page.get_by_role("button", name=re.compile(r"^Runs \(0\)")).click()
@@ -451,40 +447,40 @@ class TestSimulationTab(unittest.TestCase):
             run_key = page.locator(".simulation-plot .plot-key[aria-label=Runs] li")
             expect(run_key).to_have_text(["Live", "#1"])
 
-            before = page.evaluate(FINAL_SOMA_V)
+            before = page.evaluate(FINAL_SOURCE_X)
             page.get_by_role("button", name=re.compile(r"^Sliders \(")).click()
-            page.get_by_role("slider", name="Cm value").focus()
+            page.get_by_role("slider", name="k value").focus()
             for _ in range(300):
                 page.keyboard.press("ArrowRight")
             page.wait_for_function(
-                f"{RESULTS_STORE}.status === 'done' && {FINAL_SOMA_V} !== {before!r}",
+                f"{RESULTS_STORE}.status === 'done' && {FINAL_SOURCE_X} !== {before!r}",
                 timeout=120000,
             )
-            # The tracked run keeps its own values, whose spikes the larger Cm has moved.
+            # The tracked run keeps its own values, which decay slower than the larger k's.
             tracked, largest_difference = page.evaluate(
                 f"(() => {{ const store = {RESULTS_STORE}; const run = store.trackedRuns[0];"
-                " const read = (results, mapping) => results.variables.get(mapping.get('dndnode_0::V')).values;"
+                " const read = (results, mapping) => results.variables.get(mapping.get('dndnode_0::x')).values;"
                 " const tracked = read(run.results, run.mapping); const live = read(store.results, store.mapping);"
                 " let largest = 0; for (let i = 0; i < tracked.length; i++) largest = Math.max(largest, Math.abs(tracked[i] - live[i]));"
                 " return [tracked.at(-1), largest] })()"
             )
             self.assertEqual(tracked, before)
-            self.assertGreater(largest_difference, 10)
+            self.assertGreater(largest_difference, 0.01)
             expect(run_key).to_have_text(["Live", "#1"])
 
             page.get_by_role("button", name=re.compile(r"^Runs \(1\)")).click()
             expect(page.locator(".run-item").nth(1)).to_contain_text("The model’s values")
-            expect(page.locator(".run-item").nth(0)).to_contain_text("soma_SN/Cm = 31.8 picoF")
+            expect(page.locator(".run-item").nth(0)).to_contain_text(f"source/k = {SLIDER_MOVED_K}")
             # A tracked run named in the list goes by its name on the chart.
             page.locator(".run-name--editable").click()
-            page.get_by_role("textbox", name="Run name").fill("Small Cm")
+            page.get_by_role("textbox", name="Run name").fill("Fast decay")
             page.keyboard.press("Enter")
-            expect(run_key).to_have_text(["Live", "Small Cm"])
-            page.get_by_role("button", name="Hide Small Cm", exact=True).click()
+            expect(run_key).to_have_text(["Live", "Fast decay"])
+            page.get_by_role("button", name="Hide Fast decay", exact=True).click()
             expect(run_key).to_have_count(0)
-            page.get_by_role("button", name="Show Small Cm", exact=True).click()
-            expect(run_key).to_have_text(["Live", "Small Cm"])
-            page.get_by_role("button", name="Stop tracking Small Cm", exact=True).click()
+            page.get_by_role("button", name="Show Fast decay", exact=True).click()
+            expect(run_key).to_have_text(["Live", "Fast decay"])
+            page.get_by_role("button", name="Stop tracking Fast decay", exact=True).click()
             expect(page.get_by_role("button", name=re.compile(r"^Runs \(0\)"))).to_be_visible()
             expect(run_key).to_have_count(0)
             # ----------- END ------------
@@ -499,43 +495,42 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            axon = page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            relay = node(page, "relay")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.click()
-            axon.click(modifiers=["ControlOrMeta"])
+            source.click()
+            relay.click(modifiers=["ControlOrMeta"])
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
 
-            for instance in ("soma_SN", "axon_SN"):
-                plot_variable(page, f"{instance}/V")
+            for path in ("source/x", "relay/y"):
+                plot_variable(page, path)
 
             # Same plot and unit, so both lines share a chart, named by instance.
             expect(page.locator(".simulation-plot")).to_have_count(1)
-            expect(page.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V, axon_SN/V")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("source/x, relay/y")
 
             # Clicking a line's name hides it, leaving it out of the hover readout, and clicking it again shows it.
             chart = page.locator(".simulation-plot")
-            axon_toggle = chart.get_by_role("button", name="axon_SN/V", exact=True)
+            relay_toggle = chart.get_by_role("button", name="relay/y", exact=True)
             box = chart.locator(".u-over").bounding_box()
             hover = (box["x"] + box["width"] * 0.6, box["y"] + box["height"] / 2)
-            axon_toggle.click()
-            expect(axon_toggle).to_have_attribute("aria-pressed", "false")
+            relay_toggle.click()
+            expect(relay_toggle).to_have_attribute("aria-pressed", "false")
             page.mouse.move(*hover)
             expect(chart.locator(".plot-readout-row")).to_have_count(1)
-            expect(chart.locator(".plot-readout-label")).to_have_text("soma_SN/V")
-            axon_toggle.click()
-            expect(axon_toggle).to_have_attribute("aria-pressed", "true")
+            expect(chart.locator(".plot-readout-label")).to_have_text("source/x")
+            relay_toggle.click()
+            expect(relay_toggle).to_have_attribute("aria-pressed", "true")
             page.mouse.move(*hover)
             expect(chart.locator(".plot-readout-row")).to_have_count(2)
             # ----------- END ------------
@@ -549,22 +544,21 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000}, accept_downloads=True)
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.click()
+            source.click()
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_selection(page)
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
-            plot_variable(page, "soma_SN/V")
+            plot_variable(page, "source/x")
 
             page.get_by_role("link", name="Simulation", exact=True).click()
             expect(page).to_have_url(re.compile(r"/simulation$"))
@@ -572,11 +566,11 @@ class TestSimulationTab(unittest.TestCase):
             charts = sim_page.locator(".simulation-plot")
             expect(charts).to_have_count(1)
             # Variables can be plotted from beside the charts too.
-            plot_variable(page, "soma_SN/m", within=sim_page)
+            plot_variable(page, "source/k", within=sim_page)
             expect(charts).to_have_count(2)
 
             # So can sliders be added and moved, rerunning the simulation.
-            add_slider(page, "soma_SN/g_Na", within=sim_page)
+            add_slider(page, "source/k", within=sim_page)
             page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
             sim_page.locator(".p-slider-handle").first.focus()
             for _ in range(10):
@@ -597,7 +591,7 @@ class TestSimulationTab(unittest.TestCase):
             with open(download.value.path()) as f:
                 lines = f.read().splitlines()
             # The first column is the variable of integration, named after the model's first ODE's: t.
-            self.assertEqual(lines[0], "t (second),soma_SN/V (milliV),soma_SN/m (dimensionless)")
+            self.assertEqual(lines[0], "t (second),source/x (mM),source/k (per_second)")
             self.assertEqual(len(lines), 1 + 101)
             self.assertEqual(lines[1].split(",")[0], "0")
 
@@ -622,13 +616,12 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
@@ -637,9 +630,9 @@ class TestSimulationTab(unittest.TestCase):
             protocol_button = page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode")
             # Shown before there is a protocol, disabled, saying why.
             expect(protocol_button).to_have_attribute("aria-disabled", "true")
-            # A slider tried out before the protocol turns on.
-            add_slider(page, "soma_SN/g_Na")
-            slider = page.get_by_role("slider", name="g_Na value")
+            # A slider tried out before the protocol turns on, on a parameter the protocol doesn't set.
+            add_slider(page, "sink/k")
+            slider = page.get_by_role("slider", name="k value")
             slider.focus()
             for _ in range(10):
                 page.keyboard.press("ArrowRight")
@@ -655,7 +648,7 @@ class TestSimulationTab(unittest.TestCase):
             expect(protocol_button).to_have_attribute("aria-pressed", "true")
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
-            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
+            self.assertEqual(page.evaluate(SHOWN_K), {"experiments": 2, "values": [2]})
             # The protocol runs the model as it is: the sliders are off, and keys don't move them or run anything.
             expect(slider_note).to_be_visible()
             expect(slider).to_have_attribute("aria-disabled", "true")
@@ -674,20 +667,20 @@ class TestSimulationTab(unittest.TestCase):
             titles = page.locator(".simulation-plot .plot-title")
             expect(titles).to_have_count(0)
             page.get_by_role("button", name="Show the values the protocol set").first.click()
-            expect(titles.last).to_have_text(re.compile(r"soma_SN/(I_in|g_M)"))
+            expect(titles.last).to_have_text(re.compile(r"relay/T_relax|source/k"))
 
-            # The second experiment ran with the M current raised.
+            # The second experiment ran with source's rate doubled.
             page.get_by_role("combobox", name="Experiment to show").click()
-            page.get_by_role("option", name="SHR M-activation").click()
-            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00778]})
+            page.get_by_role("option", name="fast").click()
+            self.assertEqual(page.evaluate(SHOWN_K), {"experiments": 2, "values": [4]})
 
             # The simulation page switches between them too, once the sidebar's list has gone.
             expect(page.get_by_role("listbox")).to_have_count(0)
             page.get_by_role("link", name="Simulation", exact=True).click()
             sim_page = page.locator(".simulation-view")
             sim_page.get_by_role("combobox", name="Experiment to show").click()
-            page.get_by_role("option", name="SHR", exact=True).click()
-            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389]})
+            page.get_by_role("option", name="slow", exact=True).click()
+            self.assertEqual(page.evaluate(SHOWN_K), {"experiments": 2, "values": [2]})
             # It switches between the time course and the protocol too, running each at once.
             run_mode = sim_page.get_by_role("group", name="What play runs")
             page_protocol = run_mode.get_by_role("button", name="Protocol")
@@ -721,13 +714,12 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
@@ -738,12 +730,12 @@ class TestSimulationTab(unittest.TestCase):
             page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode").click()
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
-            start, middle, end = page.evaluate(SHOWN_I_IN)
+            start, middle, end = page.evaluate(SHOWN_RAMP)
             self.assertAlmostEqual(start, 0, places=9)
             self.assertAlmostEqual(middle, 0.01, places=9)
             self.assertAlmostEqual(end, 0.02, places=9)
             page.get_by_role("button", name="Show the values the protocol set").first.click()
-            expect(page.locator(".simulation-plot .plot-title").last).to_have_text("soma_SN/I_in")
+            expect(page.locator(".simulation-plot .plot-title").last).to_have_text("source/k")
             # ----------- END ------------
 
             context.close()
@@ -755,33 +747,32 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
 
-            # A protocol of two sub-experiments, the second doubling the M current's conductance, then a copy of it.
+            # A protocol of two sub-experiments, the second doubling source's rate, then a copy of it.
             page.get_by_role("button", name="Edit protocol", exact=True).click()
             dialog = page.get_by_role("dialog", name="Edit obs_data")
             dialog.get_by_role("button", name="Add protocol_info").click()
             dialog.get_by_role("button", name="Add parameter to set").click()
-            pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
+            pick_path(page, "Add a parameter for the protocol to set", "source/k", within=dialog)
             dialog.get_by_role("button", name=re.compile(r"^Edit sub-experiment 1 length")).click()
             dialog.get_by_label("Sub-experiment 1 length", exact=True).fill("0.1")
             dialog.get_by_label("Sub-experiment 1 length", exact=True).press("Enter")
             dialog.get_by_role("button", name="Add a sub-experiment").click()
-            dialog.get_by_role("button", name="Change how soma_SN/g_M varies in sub-experiment 2").click()
-            page.locator(".cell-editor").get_by_label("Value").fill("0.00778")
+            dialog.get_by_role("button", name="Change how source/k varies in sub-experiment 2").click()
+            page.locator(".cell-editor").get_by_label("Value").fill("4")
             page.locator(".cell-editor").get_by_label("Value").press("Enter")
-            expect(dialog.get_by_role("button", name="How soma_SN/g_M varies in sub-experiment 2: Number")).to_contain_text("0.00778")
+            expect(dialog.get_by_role("button", name="How source/k varies in sub-experiment 2: Number")).to_contain_text("4")
             dialog.get_by_role("button", name="More for Experiment 1").click()
             page.get_by_role("menuitem", name="Duplicate").click()
             expect(dialog.get_by_role("button", name="Experiment 2", exact=True)).to_have_attribute("aria-pressed", "true")
@@ -793,7 +784,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             expect(page.get_by_text("Ran 2 protocol experiments on the whole model")).to_be_visible()
-            self.assertEqual(page.evaluate(SHOWN_G_M), {"experiments": 2, "values": [0.00389, 0.00778]})
+            self.assertEqual(page.evaluate(SHOWN_K), {"experiments": 2, "values": [2, 4]})
             # ----------- END ------------
 
             context.close()
@@ -805,13 +796,12 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
@@ -825,31 +815,31 @@ class TestSimulationTab(unittest.TestCase):
             dialog.get_by_label("Sub-experiment 1 length", exact=True).fill("0.1")
             dialog.get_by_label("Sub-experiment 1 length", exact=True).press("Enter")
             dialog.get_by_role("button", name="Add parameter to set").click()
-            pick_path(page, "Add a parameter for the protocol to set", "soma_SN/g_M", within=dialog)
+            pick_path(page, "Add a parameter for the protocol to set", "source/k", within=dialog)
             dialog.get_by_role("button", name="Add parameter to set").click()
-            pick_path(page, "Add a parameter for the protocol to set", "soma_SN/I_in", within=dialog)
+            pick_path(page, "Add a parameter for the protocol to set", "sink/k", within=dialog)
 
-            # g_M doubles from 0.02 to 0.06 into the sub-experiment.
+            # source's k doubles from 0.02 to 0.06 into the sub-experiment.
             # Its segment's chip says what it is, and picks another kind.
-            chip = dialog.get_by_role("button", name="How soma_SN/g_M varies in sub-experiment 1: Number")
+            chip = dialog.get_by_role("button", name="How source/k varies in sub-experiment 1: Number")
             chip.click()
             page.get_by_role("menuitem", name="Pulse").click()
             cell = page.locator(".cell-editor")
             expect(cell.locator(".p-togglebutton-checked")).to_have_text("Pulse")
             expect(cell.get_by_label("Pulse starts", exact=True)).to_be_visible()
-            for label, value in (("Baseline value", "0.00389"), ("Pulse value", "0.00778"), ("Pulse starts", "0.02"), ("Pulse ends", "0.06")):
+            for label, value in (("Baseline value", "2"), ("Pulse value", "4"), ("Pulse starts", "0.02"), ("Pulse ends", "0.06")):
                 cell.get_by_label(label, exact=True).fill(value)
                 cell.get_by_label(label, exact=True).press("Tab")
             cell.get_by_role("button", name="Apply").click()
-            expect(dialog.get_by_role("button", name="How soma_SN/g_M varies in sub-experiment 1: Pulse")).to_be_visible()
+            expect(dialog.get_by_role("button", name="How source/k varies in sub-experiment 1: Pulse")).to_be_visible()
 
-            # The input current follows a recorded trace.
-            dialog.get_by_role("button", name="Change how soma_SN/I_in varies in sub-experiment 1").click()
+            # sink's rate follows a recorded trace.
+            dialog.get_by_role("button", name="Change how sink/k varies in sub-experiment 1").click()
             cell.get_by_text("Trace", exact=True).click()
             cell.locator("input[type=file]").set_input_files(os.path.join(RESOURCE_PATH, "protocols", "input_trace.csv"))
             expect(cell.get_by_text("3 points from 0 to 0.1")).to_be_visible()
             cell.get_by_role("button", name="Apply").click()
-            expect(dialog.get_by_role("button", name="How soma_SN/I_in varies in sub-experiment 1: Trace")).to_be_visible()
+            expect(dialog.get_by_role("button", name="How sink/k varies in sub-experiment 1: Trace")).to_be_visible()
             dialog.get_by_role("button", name="Save").click()
 
             page.locator(".simulation-panel").get_by_test_id("sim-protocol-mode").click()
@@ -857,13 +847,13 @@ class TestSimulationTab(unittest.TestCase):
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             inputs = page.evaluate(
                 f"(() => {{ const store = {RESULTS_STORE}; const read = (name) => [...store.results.variables.get(store.protocolInputs.get(name).name).values];"
-                " return { g: read('soma_SN/g_M'), i: read('soma_SN/I_in') } })()"
+                " return { pulse: read('source/k'), trace: read('sink/k') } })()"
             )
-            self.assertEqual(inputs["g"][1], 0.00389)
-            self.assertEqual(inputs["g"][4], 0.00778)
-            self.assertEqual(inputs["g"][7], 0.00389)
-            self.assertAlmostEqual(inputs["i"][5], 0.01, places=9)
-            self.assertAlmostEqual(inputs["i"][10], 0, places=9)
+            self.assertEqual(inputs["pulse"][1], 2)
+            self.assertEqual(inputs["pulse"][4], 4)
+            self.assertEqual(inputs["pulse"][7], 2)
+            self.assertAlmostEqual(inputs["trace"][5], 0.01, places=9)
+            self.assertAlmostEqual(inputs["trace"][10], 0, places=9)
             # ----------- END ------------
 
             context.close()
@@ -876,13 +866,12 @@ class TestSimulationTab(unittest.TestCase):
             context = browser.new_context(viewport={"width": 1600, "height": 1000}, accept_downloads=True)
             context.add_init_script(OPT_IN_TO_ISOLATION)
             context.add_init_script(USE_DOWNLOADS)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(SIMULATOR_READY, timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
@@ -896,38 +885,38 @@ class TestSimulationTab(unittest.TestCase):
             expect(dialog.get_by_role("region", name="prediction_items")).to_be_visible()
             expect(dialog.get_by_role("region", name="data_items")).to_contain_text("No data_items")
             expect(dialog.get_by_text("0 data item(s)")).to_be_visible()
-            # The input current, at its model value throughout, is tucked away until asked for.
+            # relay's relaxation time, at its model value throughout, is tucked away until asked for.
             show = dialog.get_by_role("button", name="Show 1 parameter at its model value")
             expect(dialog.get_by_text("1 parameter at its model value", exact=True)).to_be_visible()
-            expect(dialog.get_by_role("button", name="Stop setting soma_SN/I_in")).to_have_count(0)
-            expect(dialog.get_by_role("button", name="Stop setting soma_SN/g_M")).to_be_visible()
+            expect(dialog.get_by_role("button", name="Stop setting relay/T_relax")).to_have_count(0)
+            expect(dialog.get_by_role("button", name="Stop setting source/k")).to_be_visible()
             expect(show).to_have_attribute("aria-expanded", "false")
             show.click()
             hide = dialog.get_by_role("button", name="Hide 1 parameter at its model value")
             expect(hide).to_have_attribute("aria-expanded", "true")
-            expect(dialog.get_by_role("button", name="Stop setting soma_SN/I_in")).to_be_visible()
+            expect(dialog.get_by_role("button", name="Stop setting relay/T_relax")).to_be_visible()
             hide.click()
-            expect(dialog.get_by_role("button", name="Stop setting soma_SN/I_in")).to_have_count(0)
+            expect(dialog.get_by_role("button", name="Stop setting relay/T_relax")).to_have_count(0)
             dialog.get_by_role("button", name=re.compile(r"^Edit sub-experiment 1 length")).click()
             dialog.get_by_label("Sub-experiment 1 length", exact=True).fill("0.08")
             dialog.get_by_label("Sub-experiment 1 length", exact=True).press("Enter")
 
-            # Two prediction items, a row each: the voltage's trace in the second sub-experiment, and its mean there.
+            # Two prediction items, a row each: relay's level in the second sub-experiment, and its mean there.
             section = dialog.get_by_role("region", name="prediction_items")
             rows = section.get_by_test_id("od-prediction-row")
             for position, operation in ((0, ""), (1, "mean")):
                 section.get_by_role("button", name="Add prediction").click()
                 row = rows.nth(position)
                 row.get_by_role("button", name="variable").click()
-                pick_path(page, "variable", "soma_SN/V", within=row)
-                expect(row.get_by_role("button", name="variable")).to_have_text("soma_SN/V")
-                expect(row.get_by_label("unit", exact=True)).to_have_value("milliV")
+                pick_path(page, "variable", "relay/y", within=row)
+                expect(row.get_by_role("button", name="variable")).to_have_text("relay/y")
+                expect(row.get_by_label("unit", exact=True)).to_have_value("mM")
                 row.get_by_label("sub", exact=True).select_option("1")
                 if operation:
                     row.get_by_label("operation", exact=True).select_option(operation)
             expect(rows).to_have_count(2)
             # Its name follows the variable's, apart from the first's.
-            expect(rows.nth(1).get_by_label("name", exact=True)).to_have_value("soma_SN/V_2")
+            expect(rows.nth(1).get_by_label("name", exact=True)).to_have_value("relay/y_2")
             # An undo takes the operation back, and a redo brings it again.
             dialog.get_by_role("button", name="Undo").click()
             expect(rows.nth(1).get_by_label("operation", exact=True)).to_have_value("")
@@ -936,7 +925,7 @@ class TestSimulationTab(unittest.TestCase):
             dialog.get_by_role("button", name="Save").click()
             expect(dialog).to_be_hidden()
             saved = page.evaluate(SAVED_OBS_DATA)
-            # The protocol as it was but the length changed, the input current at its model value included.
+            # The protocol as it was but the length changed, relay's relaxation time at its model value included.
             self.assertEqual(saved["protocol_info"], SAVED_PROTOCOL_INFO)
             self.assertEqual(saved["prediction_items"], PREDICTION_ITEMS)
 
@@ -944,7 +933,7 @@ class TestSimulationTab(unittest.TestCase):
             page.wait_for_function(f"['done', 'error', 'blocked'].includes({RESULTS_STORE}.status)", timeout=120000)
             self.assertEqual(page.evaluate(f"{RESULTS_STORE}.status"), "done", page.evaluate(f"JSON.stringify([{RESULTS_STORE}.report, {RESULTS_STORE}.error])"))
             page.get_by_role("button", name=re.compile(r"^Plots \(")).click()
-            plot_variable(page, "soma_SN/V")
+            plot_variable(page, "relay/y")
             page.get_by_role("link", name="Simulation", exact=True).click()
             results = page.locator(".simulation-view")
             with page.expect_download() as download:
@@ -958,7 +947,7 @@ class TestSimulationTab(unittest.TestCase):
             self.assertIn("protocol_clock", bundle.read("protocol_model.cellml").decode())
             sedml = bundle.read("protocol.sedml").decode()
             self.assertIn('source="protocol_model.cellml"', sedml)
-            self.assertIn("soma_SN", sedml)
+            self.assertIn("relay", sedml)
             # ----------- END ------------
 
             context.close()
@@ -970,13 +959,12 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             page.evaluate(ADD_DATA_ITEMS_PROTOCOL)
@@ -988,15 +976,15 @@ class TestSimulationTab(unittest.TestCase):
             section = dialog.get_by_role("region", name="data_items")
             rows = section.get_by_test_id("od-data-row")
             expect(rows).to_have_count(2)
-            expect(rows.first).to_contain_text("V_peak_SHR")
+            expect(rows.first).to_contain_text("y_peak_slow")
             expect(rows.first).to_contain_text("max")
-            expect(rows.nth(1)).to_contain_text("V_peak_SHR_M_activation")
+            expect(rows.nth(1)).to_contain_text("y_peak_fast")
             expect(section.locator("input, select")).to_have_count(0)
             expect(section.get_by_role("button", name="remove")).to_have_count(0)
             expect(dialog.get_by_text("2 data item(s)")).to_be_visible()
             # Its details show its operands, but not its weight.
             rows.first.get_by_role("button", name="details").click()
-            expect(rows.first).to_contain_text("soma_SN/V")
+            expect(rows.first).to_contain_text("relay/y")
             expect(rows.first).not_to_contain_text("weight")
             expect(section.locator("input, select")).to_have_count(0)
             # Listing them changes nothing to save.
@@ -1028,6 +1016,7 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
             with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
                 workspace_json = f.read().strip()
@@ -1105,14 +1094,13 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             page.locator(".context-panel .library-toggle").click()
@@ -1128,12 +1116,16 @@ class TestSimulationTab(unittest.TestCase):
             switch.uncheck()
             expect(page.get_by_role("button", name=re.compile(r"^Simulate the selection"))).to_be_disabled()
             switch.check()
-            page.get_by_role("button", name="Simulate the whole model").focus()
+            # Play is off until the simulator has loaded, and F9 with it: a key press, unlike a click, doesn't wait.
+            play = page.get_by_role("button", name="Simulate the whole model")
+            expect(play).to_be_enabled(timeout=APP_MOUNT_TIMEOUT)
+            play.focus()
             page.keyboard.press("F9")
             expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
 
-            # The context menu simulates the instance on its own, switching to the selection.
-            soma.click(button="right")
+            # The context menu simulates the instance on its own, switching to the selection. relay, as the open
+            # sidebar covers source.
+            node(page, "relay").click(button="right")
             page.get_by_text("Simulate Instance").click()
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
             expect(switch).not_to_be_checked()
@@ -1148,17 +1140,16 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            source = node(page, "source")
+            source.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.dblclick()
+            source.dblclick()
             page.get_by_role("tab", name=re.compile(r"Plot \(")).click()
             dialog = page.get_by_role("dialog")
 
@@ -1166,15 +1157,15 @@ class TestSimulationTab(unittest.TestCase):
             expect(dialog.get_by_role("button", name="Float the results over the canvas")).to_have_count(0)
             dialog.get_by_role("button", name="Simulate the whole model").click()
             expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
-            plot_variable(page, "soma_SN/V", within=dialog)
-            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+            plot_variable(page, "source/x", within=dialog)
+            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("source/x")
             expect(dialog.get_by_role("tab", name="Plot (1)")).to_be_visible()
 
             # Clicking a variable in the math plots it in place of what the plot showed.
             dialog.locator(".plot-variable .remove-button").click()
             expect(dialog.get_by_role("tab", name="Plot (0)")).to_be_visible()
-            click_math_variable(page, dialog, "V")
-            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+            click_math_variable(page, dialog, "x")
+            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("source/x")
 
             # Apply saves and keeps the editor open, on the Plot tab.
             page.get_by_role("button", name="Apply").click()
@@ -1192,17 +1183,16 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            relay = node(page, "relay")
+            relay.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
-            soma.dblclick()
+            relay.dblclick()
             dialog = page.get_by_role("dialog")
             dialog.get_by_role("tab", name="Math Editor").click()
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
@@ -1210,23 +1200,23 @@ class TestSimulationTab(unittest.TestCase):
             expect(dialog.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
 
             # A typeset name in the Math Editor plots the variable it names.
-            name = dialog.locator("[data-name]").filter(has_text=re.compile(r"^Vsensed")).first
+            name = dialog.locator("[data-name]").filter(has_text=re.compile(r"^uin")).first
             name.scroll_into_view_if_needed()
             name.click()
-            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V_sensed")
+            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("relay/u_in")
             expect(dialog.get_by_role("tab", name="Plot (1)")).to_be_visible()
 
             # A single-letter name isn't wrapped as a name, but its letter still plots it.
-            letter = dialog.locator("[data-atom]:not([data-name] [data-atom])").filter(has_text=re.compile(r"^V$")).first
+            letter = dialog.locator("[data-atom]:not([data-name] [data-atom])").filter(has_text=re.compile(r"^y$")).first
             letter.scroll_into_view_if_needed()
             letter.click()
-            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("relay/y")
 
             # A name in a denominator is clicked too, and a constant plots like any variable.
-            denominator = dialog.locator('[data-row$=".den"] [data-name]').filter(has_text=re.compile(r"^RdiffSensed")).first
+            denominator = dialog.locator('[data-row$=".den"] [data-name]').filter(has_text=re.compile(r"^Trelax")).first
             denominator.scroll_into_view_if_needed()
             denominator.click()
-            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/R_diffSensed")
+            expect(dialog.locator(".simulation-plot .plot-title")).to_have_text("relay/T_relax")
             # ----------- END ------------
 
             context.close()
@@ -1238,27 +1228,26 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
             simulate_whole_model(page)
             expect(page.get_by_text("Simulated the whole model")).to_be_visible(timeout=120000)
-            plot_variable(page, "soma_SN/V")
+            plot_variable(page, "source/x")
 
-            add_slider(page, "soma_SN/g_Na")
+            add_slider(page, "source/k")
 
             # Floating the results closes the sidebar, leaving the viewer up, and its sliders still rerun the model.
             page.get_by_role("button", name="Float the results over the canvas").click()
             viewer = page.locator(".simulation-floating-viewer")
-            expect(viewer.locator(".simulation-plot .plot-title")).to_have_text("soma_SN/V")
+            expect(viewer.locator(".simulation-plot .plot-title")).to_have_text("source/x")
             expect(page.locator(".context-panel.resizable-library-panel--collapsed")).to_have_count(1)
             expect(viewer).to_be_visible()
             # Showing the sliders makes the window taller rather than squeezing the plot.
@@ -1293,15 +1282,15 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            soma = page.get_by_text("SN_somacell_modules.cellmlsoma_SN")
-            axon = page.get_by_text("SN_axoncell_modules.cellmlaxon_SN")
-            soma.wait_for(timeout=APP_MOUNT_TIMEOUT)
+            # sink and relay, which the open sidebar leaves in view.
+            sink = node(page, "sink")
+            relay = node(page, "relay")
+            sink.wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(f"{SIMULATOR_READY}", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
@@ -1316,16 +1305,15 @@ class TestSimulationTab(unittest.TestCase):
 
             # In Selection mode, picking an instance runs it once chosen.
             switch.uncheck()
-            soma.click()
+            sink.click()
             expect(page.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=120000)
 
             # A Cmd/Ctrl-click adds to the selection, which runs it.
-            axon.click(modifiers=["ControlOrMeta"])
+            relay.click(modifiers=["ControlOrMeta"])
             expect(page.get_by_text("Simulated 2 instances on their own")).to_be_visible(timeout=120000)
 
             # A selection box dragged with Shift runs only once the pointer comes up.
-            var = page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").locator("xpath=ancestor::*[contains(@class,'vue-flow__node')][1]")
-            box = var.bounding_box()
+            box = relay.bounding_box()
             page.evaluate(f"window.__shownResults = {RESULTS_STORE}.results")
             page.keyboard.down("Shift")
             page.mouse.move(box["x"] - 20, box["y"] - 20)
@@ -1347,19 +1335,18 @@ class TestSimulationTab(unittest.TestCase):
 
             context = browser.new_context(viewport={"width": 1600, "height": 1000})
             context.add_init_script(OPT_IN_TO_ISOLATION)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
-            page.get_by_text("SN_somacell_modules.cellmlsoma_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            node(page, "source").wait_for(timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             page.evaluate(SHORTEN_SIMULATION)
             page.evaluate(
                 "document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('inspectionModules')"
-                ".addModule({ name: 'Soma voltage', units: 'milliV',"
-                " variables: [{ key: 'dndnode_0::V', nodeId: 'dndnode_0', nodeName: 'soma_SN', variableName: 'V', units: 'milliV' }] })"
+                ".addModule({ name: 'Relay level', units: 'mM',"
+                " variables: [{ key: 'dndnode_1::y', nodeId: 'dndnode_1', nodeName: 'relay', variableName: 'y', units: 'mM' }] })"
             )
             page.locator(".context-panel .library-toggle").click()
             page.locator(".context-tabs [role=tab]").filter(has=page.locator(".pi-chart-line")).click()
@@ -1370,9 +1357,9 @@ class TestSimulationTab(unittest.TestCase):
             expect(page.locator(".simulation-plot")).to_have_count(0)
 
             # They can be put on a plot from the search, like any variable.
-            plot_variable(page, "inspection_modules/Soma voltage")
-            expect(page.locator(".simulation-plot .plot-title")).to_have_text("inspection_modules/Soma voltage")
-            page.get_by_role("button", name="Stop plotting Soma voltage").click()
+            plot_variable(page, "inspection_modules/Relay level")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("inspection_modules/Relay level")
+            page.get_by_role("button", name="Stop plotting Relay level").click()
             expect(page.locator(".simulation-plot")).to_have_count(0)
 
             # Turned on in Settings, they plot as a plot of their own.
@@ -1381,7 +1368,7 @@ class TestSimulationTab(unittest.TestCase):
             settings.get_by_role("tab", name="Simulation", exact=True).click()
             page.get_by_role("switch", name="Plot inspection modules").check()
             settings.get_by_role("button", name="Done").click()
-            expect(page.locator(".simulation-plot .plot-title")).to_have_text("Soma voltage")
+            expect(page.locator(".simulation-plot .plot-title")).to_have_text("Relay level")
             # ----------- END ------------
 
             context.close()

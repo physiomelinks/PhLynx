@@ -1,0 +1,1264 @@
+{
+  "id": "phlynx-project",
+  "version": "1.4.0",
+  "flow": {
+    "nodes": [
+      {
+        "id": "dndnode_0",
+        "type": "instanceNode",
+        "initialized": false,
+        "position": {
+          "x": 90.21102865120304,
+          "y": 324.11550106441234
+        },
+        "data": {
+          "name": "source",
+          "mathRef": "chain.cellml:source",
+          "moduleRef": "source:cellml_import_ro2f5kgsz",
+          "variables": [
+            {
+              "name": "t",
+              "units": "second",
+              "access": "access",
+              "value": "",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "x",
+              "units": "mM",
+              "access": "access",
+              "value": "",
+              "type": "variable",
+              "data_reference": null,
+              "initialiser": "x_init",
+              "stateRole": "state"
+            },
+            {
+              "name": "k",
+              "units": "per_second",
+              "access": "access",
+              "value": "2",
+              "type": "constant",
+              "data_reference": null
+            },
+            {
+              "name": "x_init",
+              "units": "mM",
+              "access": "access",
+              "value": "1",
+              "type": "constant",
+              "data_reference": null
+            }
+          ],
+          "ports": [
+            {
+              "portType": "general_ports",
+              "label": "x__source",
+              "multiportType": "True",
+              "variables": [
+                "x"
+              ]
+            }
+          ],
+          "handles": [
+            {
+              "uid": "b17bdb44-2987-4b07-8fd2-8e1d5562b559",
+              "side": "left",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "c670daa9-316d-474f-92fb-496bd4f14ab6",
+              "side": "left",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "698b7381-7794-48db-9ebe-fc532d4642b1",
+              "side": "left",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "2d8c24df-dd6e-4ed7-8cb9-6200eaec55e5",
+              "side": "left",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "4b1365cf-adc8-4315-b38b-417b959e9229",
+              "side": "left",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "28546f1e-126d-47f1-99d0-a0e6c86c06af",
+              "side": "right",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "2232af6c-187d-418d-a506-9bb89eca5bf5",
+              "side": "right",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "ec47e511-bb8c-48f8-bb8e-5409479438b3",
+              "side": "right",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "5a9ba32e-b6d5-4626-8315-20a79b5cc5a9",
+              "side": "right",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "1208f42a-dba4-47f3-b06b-ea0a861eafc9",
+              "side": "right",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "836595e9-082a-4e27-86c0-18a3e6b2b7b5",
+              "side": "top",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "0b78a734-b691-412b-a94c-d174cab9573d",
+              "side": "top",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "5bdd3231-282d-4f76-b896-4ade7e5b353f",
+              "side": "top",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "6ca61ee4-117c-4ff6-a56f-99b945e93948",
+              "side": "top",
+              "name": "relay",
+              "slotIndex": 3,
+              "variant": "default",
+              "type": "source"
+            },
+            {
+              "uid": "932b0ee1-6bac-4aaa-8102-fd38b5b18a33",
+              "side": "top",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "52f3a4dd-101d-4ff8-9a7e-f71356045c6d",
+              "side": "top",
+              "name": "",
+              "slotIndex": 5,
+              "variant": "ghost"
+            },
+            {
+              "uid": "295b64f0-25fc-4262-8915-5a87be2fcdec",
+              "side": "top",
+              "name": "",
+              "slotIndex": 6,
+              "variant": "ghost"
+            },
+            {
+              "uid": "b210e894-0d67-4d89-a2e9-e2dfabb5b5df",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "d26ca637-8045-4cab-b912-9db8082df7da",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "438dfaa1-c018-4995-a335-fb4fb1049585",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "096c2c95-4fbb-4627-a36c-d0521cfb4dfc",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "f590873e-4c9f-445f-b766-2b9ac74444e6",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "85ab042d-4f8d-4b60-a035-93133d9f5bc4",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 5,
+              "variant": "ghost"
+            },
+            {
+              "uid": "79e6767f-7b11-4025-8213-504565a364b9",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 6,
+              "variant": "ghost"
+            }
+          ]
+        },
+        "style": {
+          "opacity": 1
+        }
+      },
+      {
+        "id": "dndnode_1",
+        "type": "instanceNode",
+        "initialized": false,
+        "position": {
+          "x": -290.21102865120304,
+          "y": -57.48351830119426
+        },
+        "data": {
+          "name": "relay",
+          "mathRef": "chain.cellml:relay",
+          "moduleRef": "relay:cellml_import_ro2f5kgsz",
+          "variables": [
+            {
+              "name": "t",
+              "units": "second",
+              "access": "access",
+              "value": "",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "y",
+              "units": "mM",
+              "access": "access",
+              "value": "",
+              "type": "variable",
+              "data_reference": null,
+              "initialiser": "y_init",
+              "stateRole": "state"
+            },
+            {
+              "name": "u_in",
+              "units": "mM",
+              "access": "access",
+              "value": "",
+              "type": "boundary_condition",
+              "data_reference": null
+            },
+            {
+              "name": "T_relax",
+              "units": "second",
+              "access": "access",
+              "value": "1",
+              "type": "constant",
+              "data_reference": null
+            },
+            {
+              "name": "y_init",
+              "units": "mM",
+              "access": "access",
+              "value": "0",
+              "type": "constant",
+              "data_reference": null
+            }
+          ],
+          "ports": [
+            {
+              "portType": "general_ports",
+              "label": "x__source",
+              "multiportType": "True",
+              "variables": [
+                "u_in"
+              ]
+            },
+            {
+              "portType": "general_ports",
+              "label": "y__relay",
+              "multiportType": "True",
+              "variables": [
+                "y"
+              ]
+            }
+          ],
+          "handles": [
+            {
+              "uid": "c359c59f-69a5-41b8-856e-52bfdc900b26",
+              "side": "left",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "45daed5b-fa77-4d90-b570-5733edc6eda4",
+              "side": "left",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "c4362c87-9dd0-4670-ab62-50cc5d93aae9",
+              "side": "left",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "d52d6d8e-375f-40d2-b7b4-3af3c74677e1",
+              "side": "left",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "f7b633b2-a503-4218-905a-fc60062b8971",
+              "side": "left",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "a851beed-736a-448a-aa9a-ddfb102082c6",
+              "side": "right",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "deb16d6c-3ba5-4636-9af8-d6805458957a",
+              "side": "right",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "93cbfc96-2350-4deb-afee-ce8bd6cc1e2c",
+              "side": "right",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "c4bc70fc-66d6-4a3e-8e88-ab7533757f5b",
+              "side": "right",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "19719325-a0fb-4651-a0b0-69b8a421d82f",
+              "side": "right",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "2ce57842-2d27-41d0-ade0-4936958ff1c4",
+              "side": "top",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "158b808a-083d-49cc-846d-f9e9acc5e99d",
+              "side": "top",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "bef4df9c-fa7d-49d4-bbf0-64ee28bef7da",
+              "side": "top",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "0a68000e-d59f-4ba6-a913-6b2e020eedf7",
+              "side": "top",
+              "name": "sink",
+              "slotIndex": 3,
+              "variant": "default",
+              "type": "source"
+            },
+            {
+              "uid": "3a99e55f-95b1-4767-8613-f351224a53d5",
+              "side": "top",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "362afc88-1c9a-4d7c-a505-2fa67c660d00",
+              "side": "top",
+              "name": "",
+              "slotIndex": 5,
+              "variant": "ghost"
+            },
+            {
+              "uid": "cf998430-9533-4263-a512-49cc2073b596",
+              "side": "top",
+              "name": "",
+              "slotIndex": 6,
+              "variant": "ghost"
+            },
+            {
+              "uid": "85dd1dda-0a05-4e06-b9d7-ad726b0789bd",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "0f3c8506-d096-40ba-8dec-904c9021a930",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "c9a6fb22-6d25-4702-9ebd-2bb408142c77",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "cf97bf3c-b28e-4975-9783-49f1d43d04c6",
+              "side": "bottom",
+              "name": "source",
+              "slotIndex": 3,
+              "variant": "default",
+              "type": "target"
+            },
+            {
+              "uid": "620e705e-ac74-4236-a7a9-896c1bb00ee9",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "be04addc-7831-457e-ba50-f7a5553c2f1e",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 5,
+              "variant": "ghost"
+            },
+            {
+              "uid": "e453f988-045e-4319-bb95-55da4eb22da0",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 6,
+              "variant": "ghost"
+            }
+          ]
+        },
+        "style": {
+          "opacity": 1
+        }
+      },
+      {
+        "id": "dndnode_2",
+        "type": "instanceNode",
+        "initialized": false,
+        "position": {
+          "x": 85.08337844769557,
+          "y": -444.11550106441234
+        },
+        "data": {
+          "name": "sink",
+          "mathRef": "chain.cellml:sink",
+          "moduleRef": "sink:cellml_import_ro2f5kgsz",
+          "variables": [
+            {
+              "name": "t",
+              "units": "second",
+              "access": "access",
+              "value": "",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "z",
+              "units": "mM",
+              "access": "access",
+              "value": "",
+              "type": "variable",
+              "data_reference": null,
+              "initialiser": "z_init",
+              "stateRole": "state"
+            },
+            {
+              "name": "k",
+              "units": "per_second",
+              "access": "access",
+              "value": "1",
+              "type": "constant",
+              "data_reference": null
+            },
+            {
+              "name": "v",
+              "units": "mM",
+              "access": "access",
+              "value": "",
+              "type": "boundary_condition",
+              "data_reference": null
+            },
+            {
+              "name": "z_init",
+              "units": "mM",
+              "access": "access",
+              "value": "0",
+              "type": "constant",
+              "data_reference": null
+            }
+          ],
+          "ports": [
+            {
+              "portType": "general_ports",
+              "label": "y__relay",
+              "multiportType": "True",
+              "variables": [
+                "v"
+              ]
+            }
+          ],
+          "handles": [
+            {
+              "uid": "6f64cffa-c875-4eb3-b8e9-1bcd1a3ea75a",
+              "side": "left",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "95a99b8e-9390-4d17-8893-51a89f7eefe4",
+              "side": "left",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "fa281dd4-7e79-4062-815e-4390653939e7",
+              "side": "left",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "89c48a8f-cb24-42c2-8461-d3fc6dc54d30",
+              "side": "left",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "2ec8167e-5243-4b2a-bb55-1f6ead6ee27d",
+              "side": "left",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "3eb679f6-a97f-4b8b-b3e0-fd9510efd69d",
+              "side": "right",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "ddb9c125-ae53-4eb5-b70d-9086bd4ebbd7",
+              "side": "right",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "bfb5597f-afa7-411a-9150-e43dd7509a35",
+              "side": "right",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "dc30e710-19ff-4bdb-8c33-7f7f3a6752b4",
+              "side": "right",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "867148c5-3d89-4bbe-adbf-4fa571be332e",
+              "side": "right",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "6af3b888-d81e-45e7-bcba-8eeec8537afe",
+              "side": "top",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "34b19ec5-0a7b-415b-ad8a-729eacea0331",
+              "side": "top",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "2e97d79c-9cc7-4cf9-9956-ba1ec716bc63",
+              "side": "top",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "70c5c7d8-a6e5-442f-9591-09835de31428",
+              "side": "top",
+              "name": "",
+              "slotIndex": 3,
+              "variant": "ghost"
+            },
+            {
+              "uid": "aae3dffb-41ff-48eb-8c27-11938b295002",
+              "side": "top",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "f1f42226-db45-432f-95bb-652a7bb9f94b",
+              "side": "top",
+              "name": "",
+              "slotIndex": 5,
+              "variant": "ghost"
+            },
+            {
+              "uid": "6ecab694-5e04-4d3d-8b5c-ec8fa89cf7d5",
+              "side": "top",
+              "name": "",
+              "slotIndex": 6,
+              "variant": "ghost"
+            },
+            {
+              "uid": "947f6647-0e9d-4150-9c69-75ac203a046f",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 0,
+              "variant": "ghost"
+            },
+            {
+              "uid": "61ebe4c8-87af-406b-b0bb-5db8ed1c6e6a",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 1,
+              "variant": "ghost"
+            },
+            {
+              "uid": "f71de46c-7c1b-4e0e-8145-c24493bb277f",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 2,
+              "variant": "ghost"
+            },
+            {
+              "uid": "571de9a1-c1ca-48ad-987b-9f2d77c41b1d",
+              "side": "bottom",
+              "name": "relay",
+              "slotIndex": 3,
+              "variant": "default",
+              "type": "target"
+            },
+            {
+              "uid": "53a07338-286e-4c05-b4b3-09d4c01f18ca",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 4,
+              "variant": "ghost"
+            },
+            {
+              "uid": "2dd8dd2d-6ae1-424e-a52d-e96f2359dbab",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 5,
+              "variant": "ghost"
+            },
+            {
+              "uid": "9f4f3b38-17b0-4132-8e8d-a40b2d1d09f7",
+              "side": "bottom",
+              "name": "",
+              "slotIndex": 6,
+              "variant": "ghost"
+            }
+          ]
+        },
+        "style": {
+          "opacity": 1
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "dndnode_0--dndnode_1",
+        "type": "smoothstep",
+        "source": "dndnode_0",
+        "target": "dndnode_1",
+        "sourceHandle": "handle_6ca61ee4-117c-4ff6-a56f-99b945e93948",
+        "targetHandle": "handle_cf97bf3c-b28e-4975-9783-49f1d43d04c6",
+        "data": {
+          "couplings": [
+            {
+              "sourcePort": {
+                "portType": "general_ports",
+                "label": "x__source",
+                "multiportType": "True",
+                "variables": [
+                  "x"
+                ]
+              },
+              "targetPort": {
+                "portType": "general_ports",
+                "label": "x__source",
+                "multiportType": "True",
+                "variables": [
+                  "u_in"
+                ]
+              }
+            }
+          ]
+        },
+        "label": "",
+        "markerEnd": "arrowclosed",
+        "style": {
+          "strokeWidth": 5
+        },
+        "sourceX": 190.21102865120304,
+        "sourceY": 318.11550106441234,
+        "targetX": -190.21102865120304,
+        "targetY": 68.51647788410847
+      },
+      {
+        "id": "dndnode_1--dndnode_2",
+        "type": "smoothstep",
+        "source": "dndnode_1",
+        "target": "dndnode_2",
+        "sourceHandle": "handle_0a68000e-d59f-4ba6-a913-6b2e020eedf7",
+        "targetHandle": "handle_571de9a1-c1ca-48ad-987b-9f2d77c41b1d",
+        "data": {
+          "couplings": [
+            {
+              "sourcePort": {
+                "portType": "general_ports",
+                "label": "y__relay",
+                "multiportType": "True",
+                "variables": [
+                  "y"
+                ]
+              },
+              "targetPort": {
+                "portType": "general_ports",
+                "label": "y__relay",
+                "multiportType": "True",
+                "variables": [
+                  "v"
+                ]
+              }
+            }
+          ]
+        },
+        "label": "",
+        "markerEnd": "arrowclosed",
+        "style": {
+          "strokeWidth": 5
+        },
+        "sourceX": -190.21102865120304,
+        "sourceY": -63.48351830119426,
+        "targetX": 185.08337081830103,
+        "targetY": -318.11550106441234
+      }
+    ],
+    "position": [
+      700,
+      404
+    ],
+    "zoom": 0.8286132754159983,
+    "viewport": {
+      "x": 700,
+      "y": 404,
+      "zoom": 0.8286132754159983
+    }
+  },
+  "store": {
+    "availableCollections": [
+      [
+        "chain.cellml:environment",
+        [
+          "environment:default"
+        ]
+      ],
+      [
+        "chain.cellml:source",
+        [
+          "source:default",
+          "source:cellml_import_ro2f5kgsz"
+        ]
+      ],
+      [
+        "chain.cellml:relay",
+        [
+          "relay:default",
+          "relay:cellml_import_ro2f5kgsz"
+        ]
+      ],
+      [
+        "chain.cellml:sink",
+        [
+          "sink:default",
+          "sink:cellml_import_ro2f5kgsz"
+        ]
+      ]
+    ],
+    "availableMath": [
+      [
+        "chain.cellml:environment",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model xmlns=\"http://www.cellml.org/cellml/2.0#\" name=\"PhLynxComponent\">\n  <component name=\"environment\">\n    <variable name=\"time\" units=\"second\" interface=\"public_and_private\"/>\n  </component>\n</model>\n"
+      ],
+      [
+        "chain.cellml:source",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model xmlns=\"http://www.cellml.org/cellml/2.0#\" name=\"PhLynxComponent\">\n  <component name=\"source\">\n    <variable name=\"t\" units=\"second\" interface=\"public\"/>\n    <variable name=\"x\" units=\"mM\" initial_value=\"x_init\" interface=\"public\"/>\n    <variable name=\"x_init\" units=\"mM\"/>\n    <variable name=\"k\" units=\"per_second\"/>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\">\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>x</ci>\n        </apply>\n        <apply>\n          <times/>\n          <apply>\n            <minus/>\n            <ci>k</ci>\n          </apply>\n          <ci>x</ci>\n        </apply>\n      </apply>\n    </math>\n  </component>\n</model>\n"
+      ],
+      [
+        "chain.cellml:relay",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model xmlns=\"http://www.cellml.org/cellml/2.0#\" name=\"PhLynxComponent\">\n  <component name=\"relay\">\n    <variable name=\"t\" units=\"second\" interface=\"public\"/>\n    <variable name=\"u_in\" units=\"mM\" interface=\"public\"/>\n    <variable name=\"y\" units=\"mM\" initial_value=\"y_init\" interface=\"public\"/>\n    <variable name=\"y_init\" units=\"mM\"/>\n    <variable name=\"T_relax\" units=\"second\"/>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\">\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>y</ci>\n        </apply>\n        <apply>\n          <divide/>\n          <apply>\n            <minus/>\n            <ci>u_in</ci>\n            <ci>y</ci>\n          </apply>\n          <ci>T_relax</ci>\n        </apply>\n      </apply>\n    </math>\n  </component>\n</model>\n"
+      ],
+      [
+        "chain.cellml:sink",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model xmlns=\"http://www.cellml.org/cellml/2.0#\" name=\"PhLynxComponent\">\n  <component name=\"sink\">\n    <variable name=\"t\" units=\"second\" interface=\"public\"/>\n    <variable name=\"v\" units=\"mM\" interface=\"public\"/>\n    <variable name=\"z\" units=\"mM\" initial_value=\"z_init\" interface=\"public\"/>\n    <variable name=\"z_init\" units=\"mM\"/>\n    <variable name=\"k\" units=\"per_second\"/>\n    <math xmlns=\"http://www.w3.org/1998/Math/MathML\">\n      <apply>\n        <eq/>\n        <apply>\n          <diff/>\n          <bvar>\n            <ci>t</ci>\n          </bvar>\n          <ci>z</ci>\n        </apply>\n        <apply>\n          <times/>\n          <ci>k</ci>\n          <apply>\n            <minus/>\n            <ci>v</ci>\n            <ci>z</ci>\n          </apply>\n        </apply>\n      </apply>\n    </math>\n  </component>\n</model>\n"
+      ]
+    ],
+    "availableModules": [
+      [
+        "environment:default",
+        {
+          "moduleRef": "environment:default",
+          "mathRef": "chain.cellml:environment",
+          "ports": [],
+          "variables": []
+        }
+      ],
+      [
+        "source:default",
+        {
+          "moduleRef": "source:default",
+          "mathRef": "chain.cellml:source",
+          "ports": [],
+          "variables": [
+            {
+              "name": "x",
+              "units": "mM",
+              "value": "",
+              "type": "variable",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "x_init",
+              "units": "mM",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "k",
+              "units": "per_second",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            }
+          ]
+        }
+      ],
+      [
+        "relay:default",
+        {
+          "moduleRef": "relay:default",
+          "mathRef": "chain.cellml:relay",
+          "ports": [],
+          "variables": [
+            {
+              "name": "u_in",
+              "units": "mM",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "y",
+              "units": "mM",
+              "value": "",
+              "type": "variable",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "y_init",
+              "units": "mM",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "T_relax",
+              "units": "second",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            }
+          ]
+        }
+      ],
+      [
+        "sink:default",
+        {
+          "moduleRef": "sink:default",
+          "mathRef": "chain.cellml:sink",
+          "ports": [],
+          "variables": [
+            {
+              "name": "v",
+              "units": "mM",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "z",
+              "units": "mM",
+              "value": "",
+              "type": "variable",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "z_init",
+              "units": "mM",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            },
+            {
+              "name": "k",
+              "units": "per_second",
+              "value": "",
+              "type": "constant",
+              "access": "access",
+              "data_reference": "unknown"
+            }
+          ]
+        }
+      ],
+      [
+        "source:cellml_import_ro2f5kgsz",
+        {
+          "moduleRef": "source:cellml_import_ro2f5kgsz",
+          "mathRef": "chain.cellml:source",
+          "name": "source",
+          "variables": [
+            {
+              "name": "t",
+              "value": null,
+              "units": "second",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "x",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "x_init",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "k",
+              "value": null,
+              "units": "per_second",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            }
+          ],
+          "ports": [
+            {
+              "portType": "general_ports",
+              "label": "x__source",
+              "multiportType": "True",
+              "variables": [
+                "x"
+              ]
+            }
+          ]
+        }
+      ],
+      [
+        "relay:cellml_import_ro2f5kgsz",
+        {
+          "moduleRef": "relay:cellml_import_ro2f5kgsz",
+          "mathRef": "chain.cellml:relay",
+          "name": "relay",
+          "variables": [
+            {
+              "name": "t",
+              "value": null,
+              "units": "second",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "u_in",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "y",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "y_init",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "T_relax",
+              "value": null,
+              "units": "second",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            }
+          ],
+          "ports": [
+            {
+              "portType": "general_ports",
+              "label": "x__source",
+              "multiportType": "True",
+              "variables": [
+                "u_in"
+              ]
+            },
+            {
+              "portType": "general_ports",
+              "label": "y__relay",
+              "multiportType": "True",
+              "variables": [
+                "y"
+              ]
+            }
+          ]
+        }
+      ],
+      [
+        "sink:cellml_import_ro2f5kgsz",
+        {
+          "moduleRef": "sink:cellml_import_ro2f5kgsz",
+          "mathRef": "chain.cellml:sink",
+          "name": "sink",
+          "variables": [
+            {
+              "name": "t",
+              "value": null,
+              "units": "second",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "v",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "z",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "z_init",
+              "value": null,
+              "units": "mM",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            },
+            {
+              "name": "k",
+              "value": null,
+              "units": "per_second",
+              "access": "access",
+              "type": "variable",
+              "data_reference": null
+            }
+          ],
+          "ports": [
+            {
+              "portType": "general_ports",
+              "label": "y__relay",
+              "multiportType": "True",
+              "variables": [
+                "v"
+              ]
+            }
+          ]
+        }
+      ]
+    ],
+    "availableUnits": [
+      {
+        "componentFile": "chain.cellml",
+        "model": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<model xmlns=\"http://www.cellml.org/cellml/2.0#\" name=\"OnlyUnitsFrom_chain\">\n  <units name=\"mM\">\n    <unit prefix=\"milli\" units=\"mole\"/>\n    <unit exponent=\"-1\" units=\"litre\"/>\n  </units>\n  <units name=\"per_second\">\n    <unit exponent=\"-1\" units=\"second\"/>\n  </units>\n</model>\n"
+      }
+    ],
+    "globalConstants": [],
+    "mathDefaults": [
+      [
+        "chain.cellml:source",
+        [
+          [
+            "x_init",
+            "1"
+          ],
+          [
+            "k",
+            "2"
+          ]
+        ]
+      ],
+      [
+        "chain.cellml:relay",
+        [
+          [
+            "y_init",
+            "0"
+          ],
+          [
+            "T_relax",
+            "1"
+          ]
+        ]
+      ],
+      [
+        "chain.cellml:sink",
+        [
+          [
+            "z_init",
+            "0"
+          ],
+          [
+            "k",
+            "1"
+          ]
+        ]
+      ]
+    ],
+    "mathLayouts": [],
+    "mathSources": []
+  },
+  "simulation": {
+    "simulationSettings": {
+      "pointInterval": 0.001,
+      "startingPoint": 0,
+      "endingPoint": 10,
+      "initialPoint": 0,
+      "solver": "CVODE",
+      "timeStep": 0,
+      "relativeTolerance": 1e-07,
+      "absoluteTolerance": 1e-07,
+      "maxSteps": 500
+    },
+    "plotConfig": {},
+    "parameterScanConfig": {}
+  },
+  "inspectionModules": [],
+  "workspace": {
+    "archiveHash": 0,
+    "archiveName": "",
+    "archiveType": "omex",
+    "cellmlFileName": "model.cellml",
+    "manifestXml": "",
+    "preservedExtras": []
+  },
+  "parameters": {
+    "sets": [],
+    "unlinked": []
+  },
+  "nodeTheme": {
+    "id": "plain"
+  }
+}

@@ -8,10 +8,12 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, expect, 
 
 try:
     from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from .test_simulator import IS_DEV_SERVER, TRACK_APP_MODULES
+    from .test_simulator import IS_DEV_SERVER, SIMULATOR_STATUS, TRACK_APP_MODULES
+    from .fixtures import use_default_timeouts
 except ImportError:
     from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
-    from test_simulator import IS_DEV_SERVER, TRACK_APP_MODULES
+    from test_simulator import IS_DEV_SERVER, SIMULATOR_STATUS, TRACK_APP_MODULES
+    from fixtures import use_default_timeouts
 
 
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
@@ -109,6 +111,7 @@ def open_app(playwright, engine="chromium"):
     context = browser.new_context(viewport={"width": 1600, "height": 1000})
     context.add_init_script(OPT_IN_TO_ISOLATION)
     context.add_init_script(TRACK_APP_MODULES)
+    use_default_timeouts(context)
     page = context.new_page()
     page.goto(BASE_URL, wait_until="commit")
     page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
@@ -680,6 +683,8 @@ class TestCelldl(unittest.TestCase):
 
             # With the Plot tab shown, clicking the junction plots its potential, and the tab stays.
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            # Flipping the switch runs at once, but only once the simulator has loaded.
+            page.wait_for_function(f"{SIMULATOR_STATUS} === 'ready'", timeout=APP_MOUNT_TIMEOUT)
             dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()
             expect(dialog.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=SIMULATION_TIMEOUT)
             click_element(page, JUNCTION)
@@ -915,6 +920,8 @@ class TestCelldl(unittest.TestCase):
 
             # Run this instance on its own, as saved.
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            # Flipping the switch runs at once, but only once the simulator has loaded.
+            page.wait_for_function(f"{SIMULATOR_STATUS} === 'ready'", timeout=APP_MOUNT_TIMEOUT)
             dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()
             dialog.get_by_role("button", name="Simulate this instance").click()
             expect(dialog.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=SIMULATION_TIMEOUT)
@@ -939,6 +946,8 @@ class TestCelldl(unittest.TestCase):
             expect(parameter_value(dialog, "kappa_Rx_r1_c")).to_have_value("1")
 
             dialog.get_by_role("tab", name=re.compile(r"Plot \(")).click()
+            # Flipping the switch runs at once, but only once the simulator has loaded.
+            page.wait_for_function(f"{SIMULATOR_STATUS} === 'ready'", timeout=APP_MOUNT_TIMEOUT)
             dialog.get_by_role("switch", name="Simulate the whole model, not this instance").uncheck()
             dialog.get_by_role("button", name="Simulate this instance").click()
             expect(dialog.get_by_text("Simulated 1 instance on their own")).to_be_visible(timeout=SIMULATION_TIMEOUT)

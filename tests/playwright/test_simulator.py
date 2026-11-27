@@ -1,14 +1,15 @@
 import json
 import math
-import os
 import unittest
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 try:
-    from .config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from .config import BASE_URL, HEADLESS_MODE
+    from .fixtures import CHAIN_NODES, use_default_timeouts, workspace_url
 except ImportError:
-    from config import BASE_URL, HEADLESS_MODE, RESOURCE_PATH
+    from config import BASE_URL, HEADLESS_MODE
+    from fixtures import CHAIN_NODES, use_default_timeouts, workspace_url
 
 
 # Automated browsers skip the isolation service worker unless they opt in (see index.html).
@@ -90,7 +91,7 @@ MAP_WORKSPACE_RESULTS = """async () => {
   const settings = { initialPoint: 0, startingPoint: 0, endingPoint: 1, pointInterval: 0.1 }
   const results = await (await whenLibOpenCORReady()).startSimulation({ cellml, settings }).promise
   const mapping = buildVariableMapping({ libcellml, cellml, nodes: scope.nodes, results })
-  const soma = scope.nodes.find((node) => node.data.name === 'soma_SN')
+  const relay = scope.nodes.find((node) => node.data.name === 'relay')
   return {
     rows: scope.nodes.reduce((total, node) => total + node.data.variables.length, 0),
     mapped: mapping.size,
@@ -98,8 +99,8 @@ MAP_WORKSPACE_RESULTS = """async () => {
       const [nodeId, variableName] = key.split('::')
       return name !== scope.nodes.find((node) => node.id === nodeId).data.name + '/' + variableName
     }).length,
-    somaCurrentOut: mapping.get(mappingKey(soma.id, 'I_out')),
-    somaTime: mapping.get(mappingKey(soma.id, 't')),
+    relayInput: mapping.get(mappingKey(relay.id, 'u_in')),
+    relayTime: mapping.get(mappingKey(relay.id, 't')),
   }
 }"""
 
@@ -199,22 +200,22 @@ class TestSimulator(unittest.TestCase):
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
             context.add_init_script(TRACK_APP_MODULES)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             if not page.evaluate(IS_DEV_SERVER):
                 self.skipTest("The app's source modules aren't served here; run against the dev server.")
-            page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            expect(page.locator(".vue-flow__node")).to_have_count(len(CHAIN_NODES), timeout=APP_MOUNT_TIMEOUT)
             result = evaluate_within_a_minute(page, MAP_WORKSPACE_RESULTS)
             self.assertEqual(result["mapped"], result["rows"])
             self.assertGreater(result["underAnotherName"], 0)
-            self.assertEqual(result["somaCurrentOut"], "axon_SN/I")
+            # relay's input is source's x, which the flattened model keeps under source's name.
+            self.assertEqual(result["relayInput"], "source/x")
             # The environment's variable is named after the first ODE's variable of integration.
-            self.assertRegex(result["somaTime"], r"^phlynx_environment/[^/]+$")
+            self.assertRegex(result["relayTime"], r"^phlynx_environment/[^/]+$")
             # ----------- END ------------
 
             context.close()
@@ -227,24 +228,22 @@ class TestSimulator(unittest.TestCase):
             context = browser.new_context()
             context.add_init_script(OPT_IN_TO_ISOLATION)
             context.add_init_script(TRACK_APP_MODULES)
+            use_default_timeouts(context)
             page = context.new_page()
-            with open(os.path.join(RESOURCE_PATH, "workspace-json.base64")) as f:
-                workspace_json = f.read().strip()
-            page.goto(BASE_URL + f"?open=workspace_json#{workspace_json}", wait_until="commit")
+            page.goto(workspace_url(), wait_until="commit")
 
             # ---------- START -----------
             page.wait_for_function("window.crossOriginIsolated === true", timeout=APP_MOUNT_TIMEOUT)
             if not page.evaluate(IS_DEV_SERVER):
                 self.skipTest("The app's source modules aren't served here; run against the dev server.")
-            page.get_by_text("SN_varicositycell_modules.cellmlvar_SN").wait_for(timeout=APP_MOUNT_TIMEOUT)
+            expect(page.locator(".vue-flow__node")).to_have_count(len(CHAIN_NODES), timeout=APP_MOUNT_TIMEOUT)
             page.wait_for_function(f"{SIMULATOR_STATUS} === 'ready'", timeout=APP_MOUNT_TIMEOUT)
             time_course = {"initialPoint": 0, "startingPoint": 0, "endingPoint": 1, "pointInterval": 0.01}
             final_values = []
             for solver in (
                 {},
                 {"solver": "CVODE", "relativeTolerance": 1e-9, "maxSteps": 5000, "timeStep": 0.001},
-                # This neuron model is stiff: explicit solvers need a step this small to stay finite.
-                {"solver": "RungeKutta4", "timeStep": 1e-6, "endingPoint": 0.1},
+                {"solver": "RungeKutta4", "timeStep": 0.001},
             ):
                 with self.subTest(**solver):
                     settings = json.dumps({**time_course, **solver})
@@ -255,7 +254,11 @@ class TestSimulator(unittest.TestCase):
                     final_values.append(result["finalValues"])
             # Each solver setting reached both runs: they don't all give the same results.
             self.assertNotEqual(final_values[1], final_values[0])
-            self.assertTrue(all(math.isfinite(value) for value in final_values[2]))
+            # And each solved the chain: at t = 1, source/x = e^-2, relay/y = e^-1 - e^-2 and sink/z = e^-1 - relay/y.
+            relay = math.exp(-1) - math.exp(-2)
+            for values in final_values:
+                for value, expected in zip(sorted(values), sorted([math.exp(-2), relay, math.exp(-1) - relay])):
+                    self.assertAlmostEqual(value, expected, places=5)
             # ----------- END ------------
 
             context.close()
