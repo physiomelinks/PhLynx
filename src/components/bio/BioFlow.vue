@@ -2021,8 +2021,11 @@ let pieceResize = null
 let moveFrameRequest = 0
 let pendingPosition = null
 
-/** Where each piece is drawn, from the pieces as they are (not as a draft has them). */
-const pieceRects = () => layoutPieces(piecesStore.pieces).rects
+/**
+ * Where each piece is drawn, from the pieces as they are (not as a draft has them), with the modules on them: a cell
+ * the proteins on it widen is measured as wide as it is drawn, so a grip dragged on it goes as far as the pointer.
+ */
+const pieceRects = () => layoutPieces(piecesStore.pieces, sceneOptions()).rects
 
 /**
  * Begins a drag of a piece, or of a grip on one, if the node is one that moves so. The piece follows the pointer, by
