@@ -2499,7 +2499,11 @@ function pieceMenu(place, nodeId = null) {
     items.push({ label: place.kind === 'cell' ? 'Membrane Skin' : 'Skin', icon: 'pi pi-circle', items: membraneItems })
   }
   // A tube's joint, where its ends touch; the vessel along a conduit between compartments apart is the view's.
-  const jointItems = piece.kind === 'tube' && place.joint && place.joint !== 'conduit' ? skinMenu(piece.id) : []
+  // Not again on the menu of the module drawn as the joint, which offers it already.
+  const jointItems =
+    piece.kind === 'tube' && place.joint && place.joint !== 'conduit' && !(nodeId && isJointNode(nodeId))
+      ? skinMenu(piece.id)
+      : []
   if (jointItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: jointItems })
   if (piece.kind === 'image') items.push(...imageMenu(piece))
   if (piece.frame && piece.kind !== 'zone' && piece.kind !== 'image') {
@@ -3359,14 +3363,32 @@ function deleteSelection() {
 function onEdgeContextMenu({ event, edge }) {
   event.preventDefault()
   if (!props.disconnectInstances || !main.findEdge(edge.id)) return
-  menuItems.value = [
-    {
-      label: 'Delete Connection',
-      icon: 'pi pi-trash',
-      command: () => deleteConnection(edge.id, { disconnectInstances: props.disconnectInstances, history }),
-    },
-  ]
+  const remove = {
+    label: 'Delete Connection',
+    icon: 'pi pi-trash',
+    command: () => deleteConnection(edge.id, { disconnectInstances: props.disconnectInstances, history }),
+  }
+  // A selected tube's connections cross its joint: on the joint, it is the tube's menu, with the connection's too.
+  const joint = jointUnder(event, [edge.source, edge.target])
+  if (joint) {
+    onNodeContextMenu({ event, node: joint })
+    menuItems.value = [...menuItems.value, { separator: true }, remove]
+    return
+  }
+  menuItems.value = [remove]
   contextMenu.value.show(event)
+}
+
+/** The node of one of some modules drawn as their tube's joint that lies under the pointer, if any. */
+function jointUnder(event, ids) {
+  const under = new Set(
+    document
+      .elementsFromPoint(event.clientX, event.clientY)
+      .map((element) => element.closest?.('.vue-flow__node')?.dataset?.id)
+      .filter(Boolean),
+  )
+  const id = ids.find((each) => under.has(each) && isJointNode(each))
+  return id ? main.findNode(id) : null
 }
 
 function onPaneContextMenu(event) {
