@@ -1122,7 +1122,7 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
   /** Places a docked compartment, once what it is docked to has a place; false while it hasn't. */
   function placeDocked(compartment) {
     const parts = []
-    const face = compartment.docks[0].face
+    const face = compartment.docks.every((dock) => dock.face === 'outside') ? 'outside' : 'inside'
     const sides = new Set(compartment.docks.map((dock) => dock.side).filter(Boolean))
     for (const dock of compartment.docks) {
       const target = byId.get(dock.on)
@@ -1369,8 +1369,10 @@ export function layoutPieces(pieces, { nodes = [], widthOf = () => 0 } = {}) {
     if (bulks.has(compartment.id)) continue
     const rect = rects.get(compartment.id)
     if (!rect) continue
-    const inner = isDocked(compartment) && compartment.docks[0].face === 'inside'
-    const host = inner && byId.get(compartment.docks[0].on)
+    // Inside a membrane or fold on any of its docks, whatever order they were made in, as a cleft is.
+    const innerDock = isDocked(compartment) && compartment.docks.find((dock) => dock.face === 'inside')
+    const inner = !!innerDock
+    const host = inner && byId.get(innerDock.on)
     const hostMembrane = host && (host.kind === 'fold' ? host.membrane : host.id)
     const key = keyOfCompartment(compartment.id)
     places.set(key, {

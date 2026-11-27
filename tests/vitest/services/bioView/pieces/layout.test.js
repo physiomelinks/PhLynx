@@ -854,3 +854,15 @@ describe('the skins tubes’ joints are drawn with', () => {
     expect(skinOf(laidOut(raw('junction', 'dashed-way')))).toBe('connexon-pair')
   })
 })
+
+describe('a compartment docked to a membrane side and a fold', () => {
+  it('is drawn the same whichever dock was made first', () => {
+    const template = getBuiltInPieceTemplate('cardiomyocyte').pieces
+    const reversed = template.map((piece) =>
+      piece.id === 'cleft' ? { ...piece, docks: [...piece.docks].reverse() } : piece,
+    )
+    const placeOf = (raw) => laidOut(raw).places.get(pieceKey('cleft'))
+    expect(placeOf(reversed)).toMatchObject({ form: placeOf(template).form, rect: placeOf(template).rect })
+    expect(placeOf(template).form).toBe('inner')
+  })
+})
