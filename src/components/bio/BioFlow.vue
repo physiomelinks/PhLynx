@@ -3527,16 +3527,22 @@ const hasDroppedPictures = (event) => {
 
 /**
  * Adds pictures dropped from the desktop as images on the canvas there, each a little below and right of the one
- * before.
+ * before, as one step.
  *
  * @param {File[]} files
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 async function placePictureFiles(files, point) {
   isViewSet = isViewChosen = true
-  for (const [index, file] of files.entries()) {
-    const picture = await keepImageFile(file)
-    if (picture) await placePieceAt('image', { x: point.x + 24 * index, y: point.y + 24 * index }, { picture })
+  // One drop, one step, however many pictures it brings.
+  history.startBatch()
+  try {
+    for (const [index, file] of files.entries()) {
+      const picture = await keepImageFile(file)
+      if (picture) await placePieceAt('image', { x: point.x + 24 * index, y: point.y + 24 * index }, { picture })
+    }
+  } finally {
+    history.endBatch('bio-pieces-image')
   }
 }
 
