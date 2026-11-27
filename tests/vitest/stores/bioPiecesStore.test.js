@@ -78,10 +78,12 @@ describe('bioPiecesStore', () => {
   it('drops saved pieces that don’t validate, and loads empty without any', () => {
     const store = useBioPiecesStore()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    store.loadState({ pieces: [{ id: 'z', kind: 'zone', label: 'Z', compartment: 'nowhere' }] })
+    const errors = store.loadState({ pieces: [{ id: 'z', kind: 'zone', label: 'Z', compartment: 'nowhere' }] })
     expect(store.pieces).toEqual([])
     expect(warn).toHaveBeenCalled()
-    store.loadState(undefined)
+    // Why, for the load to tell the user.
+    expect(errors).not.toEqual([])
+    expect(store.loadState(undefined)).toEqual([])
     expect(store.pieces).toEqual([])
     warn.mockRestore()
   })

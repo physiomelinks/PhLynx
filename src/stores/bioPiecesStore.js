@@ -112,10 +112,11 @@ export const useBioPiecesStore = defineStore('bioPieces', () => {
    * Restores saved pieces; pieces that don't validate are dropped whole, with a warning.
    *
    * @param {Object} [state] - From getState.
+   * @returns {string[]} Why the saved pieces were dropped; empty when they were kept, or there were none.
    */
   function loadState(state) {
     resetState()
-    if (!state) return
+    if (!state) return []
     const { pieces: valid, errors } = validatePieces(state.pieces ?? [])
     if (valid) pieces.value = valid
     else console.warn('Skipping the saved physiology pieces:', errors)
@@ -130,6 +131,7 @@ export const useBioPiecesStore = defineStore('bioPieces', () => {
       kept[imageIdOf(entry.data)] = Object.freeze({ ...entry })
     }
     images.value = Object.freeze(kept)
+    return valid ? [] : errors
   }
 
   /**

@@ -226,7 +226,7 @@ export function useWorkspaceSaveLoad({
       inspectionModuleStore.loadState(migratedState.inspectionModules)
       omexStore.loadState(migratedState.workspace)
       defaultParametersStore.loadState(migratedState.parameters)
-      bioPiecesStore.loadState(migratedState.bioPieces)
+      const piecesDropped = bioPiecesStore.loadState(migratedState.bioPieces)
       skinLibraryStore.loadState(migratedState.bioSkins)
       nodeThemeStore.loadState(migratedState.nodeTheme)
       appearanceStore.loadState(migratedState.appearance)
@@ -246,6 +246,17 @@ export function useWorkspaceSaveLoad({
         title: source === 'recovery' ? 'Unsaved work restored' : 'Workflow loaded successfully!',
         ...(driven ? { message: driven } : {}),
       })
+      // Its physiology pieces are kept whole or not at all: say why they weren't.
+      if (piecesDropped.length) {
+        notify.warning({
+          title: 'Physiology pieces not loaded',
+          // Long enough to read: what was lost is not shown anywhere else.
+          duration: 10000,
+          message: `The file’s physiology pieces are not valid, so none were loaded. ${piecesDropped[0]}${
+            piecesDropped.length > 1 ? ` (and ${piecesDropped.length - 1} more)` : ''
+          }`,
+        })
+      }
     } catch (error) {
       trackEvent('workflow_load_action', {
         category: 'Workflow',

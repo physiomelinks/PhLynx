@@ -263,6 +263,26 @@ describe('applyWorkspaceState', () => {
     })
   })
 
+  it('says so when the physiology pieces it saved don’t validate, and loads none of them', async () => {
+    fillStores()
+    await view.onSaveConfirm('bad-pieces')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    saved.bioPieces = { pieces: [{ id: 'z', kind: 'zone', label: 'Z', compartment: 'nowhere' }] }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved, { source: 'file' })
+    warn.mockRestore()
+
+    expect(useBioPiecesStore().pieces).toEqual([])
+    expect(notify.warning).toHaveBeenCalledWith({
+      title: 'Physiology pieces not loaded',
+      duration: 10000,
+      message: expect.stringMatching(/^The file’s physiology pieces are not valid, so none were loaded\. ./),
+    })
+  })
+
   it('round trips module sidecars', async () => {
     const sidecar = '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n'
     const data = { name: 'cell' }
