@@ -6,7 +6,7 @@
 
 import { GO } from './iris.js'
 import { locateAll } from './locate.js'
-import { matchCouplings, pairing, roleOf } from './match.js'
+import { matchCouplings, matchedAs, pairing, roleOf } from './match.js'
 import { variableNamesOf } from './nodeData.js'
 import { multiportTypeFor, portFor } from './ports.js'
 
@@ -59,6 +59,23 @@ export function placesOf(node, context) {
 const locateAt = (node, location, context) =>
   location ? (context?.source?.locate ?? locateAll)(placesOf(node, context), location) : []
 
+/**
+ * What the spaces either side of a placed node's membrane are, named after the places there.
+ *
+ * @param {Object} node
+ * @param {Object} context - From buildCouplingContext.
+ * @returns {Object<string, string>} The places' labels by GO term, for the cytoplasm and extracellular sides that
+ *   resolve; empty for a node not placed.
+ */
+export function sideNamesOf(node, context) {
+  const names = {}
+  for (const side of [GO.cytoplasm, GO.extracellularRegion]) {
+    const labels = [...new Set(locateAt(node, side, context).filter((l) => !l.unresolved && l.label).map((l) => l.label))]
+    if (labels.length) names[side] = labels.join(' / ')
+  }
+  return names
+}
+
 // The side-car entry a side-car-sourced annotation came from, as the side-car is now.
 function sidecarEntry(annotation, node, context) {
   if (annotation.source?.kind !== 'sidecar') return null
@@ -83,18 +100,20 @@ export function quantityOfPort(port, node, context) {
   if (known && (port.variables ?? []).some((name) => name && !known.includes(name))) return null
   const entry = sidecarEntry(annotation, node, context)
   const { property, location } = entry ?? annotation
-  const species = [...new Set(entry?.species ?? annotation.species ?? [])].sort()
+  const from = (entry ?? annotation).from ?? null
+  const { at, ...matched } = matchedAs({ property, location, from, species: entry?.species ?? annotation.species })
   const role = entry || !annotation.role ? roleOf({ property, location }) : annotation.role
   return {
     instance: node?.id,
     variable: port.variables?.[0] ?? annotation.variable,
     subject: annotation.subject,
     property,
-    species,
+    ...matched,
     location,
+    from,
     role,
     mathRef: annotation.source?.mathRef ?? node?.data?.mathRef,
-    locations: annotation.absoluteLocation ? [annotation.absoluteLocation] : locateAt(node, location, context),
+    locations: annotation.absoluteLocation ? [annotation.absoluteLocation] : locateAt(node, at, context),
   }
 }
 

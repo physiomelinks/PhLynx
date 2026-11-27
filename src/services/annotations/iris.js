@@ -207,6 +207,17 @@ export function takesSpecies(property) {
   return SPECIES_PROPERTIES.has(property)
 }
 
+/**
+ * Whether an annotation of an OPB property may name a species: a property of one, or a charge flow, which may say
+ * which ion carries it (as SemSim does) or, for a net current of several ions, none.
+ *
+ * @param {string|null} property - A canonical OPB CURIE.
+ * @returns {boolean}
+ */
+export function allowsSpecies(property) {
+  return takesSpecies(property) || property === OPB.chargeFlowRate
+}
+
 export const CHEBI = {
   sodium: 'CHEBI:29101',
   potassium: 'CHEBI:29103',

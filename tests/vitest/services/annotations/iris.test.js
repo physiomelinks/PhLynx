@@ -8,6 +8,7 @@ import {
   OPB,
   splitCurie,
   takesSpecies,
+  allowsSpecies,
 } from '../../../../src/services/annotations/iris.js'
 
 describe('canonicalCurie', () => {
@@ -75,6 +76,15 @@ describe('CURIE helpers', () => {
     expect(isFlowProperty(OPB.amountDensityFlowRate)).toBe(true)
     expect(isFlowProperty(OPB.chargeFlowRate)).toBe(true)
     expect(isFlowProperty(OPB.concentration)).toBe(false)
+  })
+})
+
+describe('allowsSpecies', () => {
+  it('lets a charge flow name its ion, besides the properties of a species', () => {
+    expect(allowsSpecies(OPB.chargeFlowRate)).toBe(true)
+    expect(allowsSpecies(OPB.concentration)).toBe(true)
+    expect(allowsSpecies(OPB.electricalPotential)).toBe(false)
+    expect(allowsSpecies(null)).toBe(false)
   })
 })
 

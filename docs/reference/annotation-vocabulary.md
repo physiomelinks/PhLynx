@@ -125,7 +125,17 @@ A flow always means the rate **into its sink**. The toy porter's inner flux (sin
 
 ### No Multipliers {#no-multipliers}
 
-Every contribution is added ×1. There is no `semsim:hasMultiplier`, and no factor in a sidecar. A factor belongs in the math, in a variable of its own. A charge flow is the clearest case: each transporter defines it per ion flux from the ion's charge number, `I_X = z·v_X_i`, and annotates that variable as charge flow rate (`OPB:00318`) into the plasma membrane. The membrane module's total, annotated as the charge flow rate into itself, sums these.
+Every contribution is added ×1. There is no `semsim:hasMultiplier`, and no factor in a sidecar. A factor belongs in the math, in a variable of its own. A charge flow is the clearest case: each transporter defines it per ion flux from the ion's charge number, `I_X = z·v_X_i`, and annotates that variable as charge flow rate (`OPB:00318`). The membrane module's total, annotated as the charge flow rate into itself, sums these.
+
+As in SemSim, a current of one ion is a process with the ion as participants, from one side of the membrane into the other, like the ion's molar flow:
+
+```turtle
+m:I_Na bqbiol:isVersionOf opb:00318 ; bqbiol:isPropertyOf local:process_I_Na .
+local:process_I_Na semsim:hasSourceParticipant [ semsim:hasPhysicalEntityReference local:Na_out ] ;
+    semsim:hasSinkParticipant [ semsim:hasPhysicalEntityReference local:Na_in ] .
+```
+
+PhLynx couples such a current, whatever its ion, to the charge flow into the membrane it crosses. A net current of several ions, such as a pump's, names no ion: its sink is the plasma membrane. Each ion of a multi-ion transporter keeps a process of its own; no process carries stoichiometry.
 
 ## How Places Resolve {#resolution}
 

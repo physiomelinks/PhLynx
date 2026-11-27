@@ -278,6 +278,9 @@ class TestAnnotationsTab(unittest.TestCase):
         tab = editor.get_by_role("tab", name=re.compile(r"Annotations \("))
         expect(tab).to_have_text(re.compile(r"Annotations \(0/"))
         tab.click()
+        # The tab suggests annotations the first time it shows; start from none.
+        editor.locator("[data-test=clear-suggestions]").click()
+        expect(tab).to_have_text(re.compile(r"Annotations \(0/"))
 
         row = editor.locator(".annotation-row[data-variable=c_A]")
         row.locator("[data-test=what]").click()
@@ -303,6 +306,38 @@ class TestAnnotationsTab(unittest.TestCase):
         expect(editor.get_by_role("tab", name=re.compile(r"Annotations \("))).to_have_text(re.compile(r"Annotations \(1/"))
         editor.get_by_role("button", name="Cancel").click()
         expect(editor).to_be_hidden()
+
+    def test_suggests_a_pool_s_annotations_and_saves_them(self):
+        page = self.page
+        open_app(page)
+        import_files(page, "CellML File", [toy(name) for name in POOL_FILES])
+        place(page, "pool")
+
+        editor = self.open_editor()
+        tab = editor.get_by_role("tab", name=re.compile(r"Annotations \("))
+        tab.click()
+        expect(editor.locator("[data-test=suggestions]")).to_contain_text("the module kind")
+        expect(editor.locator("[data-test=module-kind] [aria-pressed=true]")).to_have_text("Compartment")
+        row = editor.locator(".annotation-row[data-variable=volume]")
+        expect(row.locator("[data-test=suggested]")).to_be_visible()
+        expect(row.locator("[data-test=what]")).to_contain_text("Fluid volume")
+
+        # Making a row one's own drops its mark.
+        c_a = editor.locator(".annotation-row[data-variable=c_A]")
+        species = c_a.locator("[data-test=species] input")
+        species.fill("Na")
+        page.locator(".p-autocomplete-option").filter(has_text="CHEBI:29101").first.click()
+        expect(c_a.locator("[data-test=suggested]")).to_have_count(0)
+
+        editor.get_by_role("button", name="Save", exact=True).click()
+        expect(editor).to_be_hidden()
+        editor = self.open_editor()
+        tab = editor.get_by_role("tab", name=re.compile(r"Annotations \("))
+        expect(tab).not_to_have_text(re.compile(r"Annotations \(0/"))
+        tab.click()
+        # Saved suggestions are annotations like any other: nothing is marked.
+        expect(editor.locator("[data-test=suggested]")).to_have_count(0)
+        editor.get_by_role("button", name="Cancel").click()
 
     def test_flags_malformed_and_unknown_terms_without_changing_them(self):
         page = self.page

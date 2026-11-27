@@ -22,9 +22,9 @@ The Instance Editor's **Annotations** tab edits the module's sidecar for you. It
 - **Module kind** says what the module is: **Compartment** (with the kind of **Space** it is), **Membrane**, **Transporter** (with its UniProt accession) or **None**. The physiology view draws the module from this.
 - Each row is a variable, with its **Units**. **All**, **Unannotated** and **Annotated** filter the rows, and **Show constants** adds the constants. The variable of integration is never listed.
   - **What**: the property, such as concentration (`OPB:00340`), molar flow rate (`OPB:00592`) or electrical potential (`OPB:00506`). A property whose units disagree with the variable's units is flagged.
-  - **Of what**: the species. Type a name: common species and those other sidecars in the workspace use come first, then ChEBI results [looked up online](#ontology-lookup). You can also paste a ChEBI CURIE or IRI.
-  - **Whose**: where the quantity is, relative to the instance. The choices follow the module kind: **This compartment**, **Its membrane**, **This membrane**, **Cytoplasm**, **Extracellular** or **Plasma membrane**.
-  - **From**: for a flow, where it comes from.
+  - **Of what**: the species, or for a charge flow the ion that carries it (left empty for a net current of several ions). Type a name: common species and those other sidecars in the workspace use come first, then ChEBI results [looked up online](#ontology-lookup). You can also paste a ChEBI CURIE or IRI.
+  - **Whose**: where the quantity is, relative to the instance. The choices follow the module kind: **This compartment**, **Its membrane**, **This membrane**, **Cytoplasm**, **Extracellular** or **Plasma membrane**. Once the instance is placed, **Cytoplasm** and **Extracellular** also name the spaces there.
+  - **From**: for a flow, where it comes from. A transporter's flow crosses its membrane, so choosing one side fills the other.
   - **Port** shows whether the variable has an annotated port, and its role.
 - Tick rows to set **What**, **Of what** or **Whose** for all of them at once, or **Clear** them.
 - **Import** reads a sidecar file into the tab, after asking (**Import annotations**); **Export .ttl** saves the module's sidecar.
@@ -34,7 +34,15 @@ To annotate several library modules at once, use **Import ▸ Module Annotations
 
 Edits are a draft until you click **Apply** or **Save**; **Cancel** asks before discarding them. A transporter can't be saved without a UniProt accession. Annotating a template module's math asks for a new component name first, as other math edits do. One undo reverts the sidecar and every instance's ports together.
 
-Terms are only ever chosen by you: PhLynx never guesses an annotation.
+### Suggestions {#suggestions}
+
+The first time the tab shows, PhLynx fills its empty rows with suggestions, and the **Module kind** if it has none. A suggested row has a light-bulb mark; hover over it to see why:
+
+- **What** comes from the units (`mM` is a concentration, `pA` a current). Where the units fit more than one property, the name decides: `I_Na` in `fmol/s` is a current.
+- **Of what** comes from the species the name spells (`Na`, `K`, `glc`), and from names that other sidecars in the workspace have already annotated.
+- **Whose** and **From** come from the name's side suffix (`_i`, `_o`) and the module kind. A transporter's flow comes from the other side of its membrane, and its current of one ion crosses the same way as that ion's flow. In a compartment, a flow added in a derivative flows in; one taken away leaves, and where it goes is left for you to choose.
+
+Suggestions are a starting point. Editing a cell makes the row yours, and **Clear suggestions** removes the rows still as suggested. Anything still suggested is saved as it is, so check each row before you save.
 
 ### Ontology Lookup {#ontology-lookup}
 

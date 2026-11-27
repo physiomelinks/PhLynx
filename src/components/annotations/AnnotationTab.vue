@@ -126,6 +126,33 @@
         </span>
       </div>
 
+      <div v-if="suggested.size || suggestedKind" class="annotation-tab__suggestions" role="status" data-test="suggestions">
+        <i class="pi pi-lightbulb" aria-hidden="true" />
+        <span>
+          {{ suggestionSummary }}
+          Check each before saving; editing a row makes it yours.
+        </span>
+        <Button
+          label="Clear suggestions"
+          text
+          size="small"
+          severity="secondary"
+          data-test="clear-suggestions"
+          @click="clearSuggestions"
+        />
+      </div>
+      <div v-else-if="active && hasEmptyRows" class="annotation-tab__suggestions annotation-tab__suggestions--idle">
+        <Button
+          label="Suggest annotations"
+          icon="pi pi-lightbulb"
+          text
+          size="small"
+          severity="secondary"
+          data-test="suggest"
+          @click="suggest"
+        />
+      </div>
+
       <Message
         v-if="moduleTermProblems.length"
         severity="warn"
@@ -236,7 +263,13 @@
           <tr
             v-for="row in shownRows"
             :key="row.name"
-            :class="['annotation-row', { 'annotation-row--incomplete': row.port.kind === 'incomplete' }]"
+            :class="[
+              'annotation-row',
+              {
+                'annotation-row--incomplete': row.port.kind === 'incomplete',
+                'annotation-row--suggested': suggested.has(row.name),
+              },
+            ]"
             :data-variable="row.name"
           >
             <td class="annotation-table__check">
@@ -255,6 +288,13 @@
                 class="pi pi-exclamation-triangle annotation-row__term-warning"
                 :aria-label="row.termProblems.join('; ')"
                 data-test="term-warning"
+              />
+              <i
+                v-if="suggested.has(row.name)"
+                v-tooltip.top="suggestionText(row.name)"
+                class="pi pi-lightbulb annotation-row__suggested"
+                :aria-label="suggestionText(row.name)"
+                data-test="suggested"
               />
               <span class="annotation-row__name-text">{{ row.name }}</span>
               <span class="annotation-row__units-suffix" aria-hidden="true">{{ row.units }}</span>
@@ -291,7 +331,7 @@
                 fluid
                 size="small"
                 :delay="120"
-                :disabled="!takesSpecies(row.entry?.property)"
+                :disabled="!allowsSpecies(row.entry?.property)"
                 :placeholder="takesSpecies(row.entry?.property) && !row.entry.species.length ? 'Species' : ''"
                 :aria-label="`Of what for ${row.name}`"
                 data-test="species"
@@ -449,8 +489,8 @@
 /**
  * The instance editor's Annotations tab: the module's kind, and a table of its variables in math order whose cells
  * say what each one is, of what and whose, as a draft the editor saves with the instance. The sidecar belongs to the
- * math, so every instance of it shares it. Nothing is filled in for the user: bulk edits apply chosen values to
- * ticked rows only.
+ * math, so every instance of it shares it. The first time it shows, empty rows are filled with suggestions from
+ * units, names, equations and placement, marked until edited; bulk edits apply chosen values to ticked rows only.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -475,13 +515,23 @@ import {
   setDraftKind,
   setDraftSpaceKind,
 } from '../../services/annotations/draft'
-import { GO, GO_LOCATIONS, OPB, canonicalCurie, hasPrefix, isFlowProperty, takesSpecies } from '../../services/annotations/iris'
+import {
+  GO,
+  GO_LOCATIONS,
+  OPB,
+  allowsSpecies,
+  canonicalCurie,
+  hasPrefix,
+  isFlowProperty,
+  takesSpecies,
+} from '../../services/annotations/iris'
 import { displayLabel } from '../../services/annotations/labels'
 import { aggregatorVariables } from '../../services/annotations/heldConstant'
 import { isCompleteAnnotation } from '../../services/annotations/match'
 import { parseSidecar } from '../../services/annotations/sidecar'
 import { editSidecar, listOtherTriples } from '../../services/annotations/sidecarEdit'
 import { propertyUnitsProblem } from '../../services/annotations/propertyUnits'
+import { suggestAnnotations } from '../../services/annotations/suggest'
 import { parseSpeciesTerm, searchSpecies } from '../../services/annotations/species'
 import { variableIdsOf } from '../../services/math/variableIds'
 import { createDebouncedSearch, lookupTerm, searchCellularComponents, searchChebi } from '../../services/ontology/ols'
@@ -542,6 +592,12 @@ const props = defineProps({
   isPlaced: { type: Boolean, default: false },
   // Whether the instance's summed flows are held at 0 (annotationOverlay.heldConstant).
   heldConstant: { type: Boolean, default: false },
+  // Whether the tab is showing: suggestions fill its empty rows the first time it is.
+  active: { type: Boolean, default: false },
+  // Other parsed side-cars in the workspace, whose species teach the names suggestions read.
+  workspaceSidecars: { type: Array, default: () => [] },
+  // What the spaces either side of a placed module are, by GO term, e.g. { 'GO:0005737': 'Enterocyte cytosol' }.
+  sideNames: { type: Object, default: () => ({}) },
 })
 
 const emit = defineEmits(['update:draft', 'update:heldConstant'])
@@ -699,7 +755,10 @@ const accession = computed(() => parseAccession(accessionText.value))
 function setKind(value) {
   const componentKind = value === 'none' ? null : value
   const transporter = componentKind === 'transporter' ? accession.value : null
-  emit('update:draft', setDraftKind(props.draft, base.value, componentKind, transporter))
+  suggestedKind.value = null
+  const draft = setDraftKind(props.draft, base.value, componentKind, transporter)
+  // The places suggested for the old kind follow the new one.
+  emit('update:draft', suggested.value.size ? fillSuggestions(draft, { replace: true }) : draft)
 }
 
 const spaceKindValue = computed(() => getDraftSpaceKind(props.draft, base.value) ?? 'none')
@@ -785,12 +844,17 @@ const mathOrder = computed(() => {
 })
 
 const selfName = computed(() => SELF_NAMES[kindValue.value])
-const kindLocations = computed(() => LOCATION_OPTIONS[kindValue.value])
+// The kind's places, a placed module's sides named after the spaces there.
+const withSideNames = (options) =>
+  options.map((option) =>
+    props.sideNames[option.value] ? { ...option, label: `${option.label} · ${props.sideNames[option.value]}` } : option
+  )
+const kindLocations = computed(() => withSideNames(LOCATION_OPTIONS[kindValue.value]))
 const isSelfLocation = (location) => !!location && (location === 'self' || location.startsWith('self+'))
 
 /** A place as the table reads it, e.g. 'cytoplasm' or 'this compartment'. */
 function placeName(location) {
-  const option = kindLocations.value.find(({ value }) => value === location)
+  const option = LOCATION_OPTIONS[kindValue.value].find(({ value }) => value === location)
   return option ? option.label.toLowerCase() : locationText(location, selfName.value)
 }
 
@@ -937,6 +1001,15 @@ const listedRows = computed(() =>
 
 const annotatedCount = computed(() => listedRows.value.filter((row) => row.entry).length)
 
+const hasEmptyRows = computed(() => annotationRows.value.some((row) => !row.entry))
+
+const suggestionSummary = computed(() => {
+  const rows = suggested.value.size ? `Suggested ${plural(suggested.value.size, 'row')}` : ''
+  const kindText = suggestedKind.value ? `the module kind (${suggestedKind.value.why.toLowerCase()})` : ''
+  if (rows && kindText) return `${rows} and ${kindText}.`
+  return rows ? `${rows}.` : `Suggested ${kindText}.`
+})
+
 const shownRows = computed(() =>
   listedRows.value.filter((row) => {
     if (filter.value === 'annotated') return !!row.entry
@@ -947,7 +1020,7 @@ const shownRows = computed(() =>
 
 // ── Cell edits ──────────────────────────────────────────────────────────────
 /**
- * A row's entry with a change, keeping it consistent: species only for a property of a species, and a source only
+ * A row's entry with a change, keeping it consistent: species only for a property that may name one, and a source only
  * for a flow into a side other than the source. Null once it says nothing.
  *
  * @param {Object|null} entry
@@ -956,7 +1029,7 @@ const shownRows = computed(() =>
  */
 function changedEntry(entry, change) {
   const next = { property: null, species: [], location: null, from: null, ...entry, ...change }
-  if (!takesSpecies(next.property)) next.species = []
+  if (!allowsSpecies(next.property)) next.species = []
   const keepsFrom = isFlowProperty(next.property) && next.location && !isSelfLocation(next.location)
   if (!keepsFrom || next.from === next.location) next.from = null
   return isAnnotatedEntry(next) ? next : null
@@ -971,8 +1044,97 @@ function draftEntries(edits) {
   let draft = props.draft
   for (const [name, entry] of edits) draft = setDraftEntry(draft, base.value, name, entry)
   touched.value = new Set([...touched.value, ...edits.map(([name]) => name)])
+  dropSuggested(edits.map(([name]) => name))
   emit('update:draft', draft)
 }
+
+// ── Suggestions ─────────────────────────────────────────────────────────────
+// The rows filled by a suggestion and not edited since, with what each rests on; and the suggested module kind.
+const suggested = ref(new Map())
+const suggestedKind = ref(null)
+let hasSuggested = false
+
+const BASIS_TEXT = { units: 'units', name: 'name', equations: 'equations', topology: 'placement' }
+
+/** A suggested row's reasons, for its marker's tooltip. */
+const suggestionText = (name) => {
+  const suggestion = suggested.value.get(name)
+  if (!suggestion) return ''
+  const basis = suggestion.basis.map((key) => BASIS_TEXT[key]).join(', ')
+  return `Suggested from its ${basis}: ${suggestion.why.join('; ')}. Edit any cell to make it yours.`
+}
+
+function dropSuggested(names) {
+  if (!names.some((name) => suggested.value.has(name))) return
+  const next = new Map(suggested.value)
+  for (const name of names) next.delete(name)
+  suggested.value = next
+}
+
+/**
+ * Fills a draft's empty rows with suggestions, and the module's kind when it has none.
+ *
+ * @param {Object} draft
+ * @param {{ replace?: boolean }} [options] - replace refills the rows still as suggested, e.g. for a new kind.
+ * @returns {Object} The new draft.
+ */
+function fillSuggestions(draft, { replace = false } = {}) {
+  const sidecar = draftBaseSidecar(draft, props.sidecar)
+  const refill = replace ? suggested.value : new Map()
+  const annotated = new Set(
+    props.rows.map((row) => row.name).filter((name) => !refill.has(name) && getDraftEntry(draft, sidecar, name))
+  )
+  const current = getDraftKind(draft, sidecar).componentKind
+  const result = suggestAnnotations({
+    rows: props.rows,
+    kinds: props.variableKinds,
+    cellml: props.cellml,
+    componentName: props.mathRef.split(':').pop(),
+    componentKind: current,
+    unitDefinitions: units.value.definitions,
+    annotated,
+    sidecars: [sidecar, ...props.workspaceSidecars],
+  })
+  let next = draft
+  if (!current && result.componentKind) {
+    next = setDraftKind(next, sidecar, result.componentKind.kind)
+    suggestedKind.value = result.componentKind
+  }
+  const marks = new Map()
+  for (const name of refill.keys()) if (!result.variables.has(name)) next = setDraftEntry(next, sidecar, name, null)
+  for (const [name, { entry, why, basis }] of result.variables) {
+    next = setDraftEntry(next, sidecar, name, entry)
+    marks.set(name, { why, basis })
+  }
+  suggested.value = marks
+  return next
+}
+
+/** Fills the empty rows with suggestions. */
+function suggest() {
+  emit('update:draft', fillSuggestions(props.draft))
+}
+
+/** Clears every row still as suggested, and a suggested module kind. */
+function clearSuggestions() {
+  let draft = props.draft
+  for (const name of suggested.value.keys()) draft = setDraftEntry(draft, base.value, name, null)
+  if (suggestedKind.value) draft = setDraftKind(draft, base.value, null)
+  suggested.value = new Map()
+  suggestedKind.value = null
+  emit('update:draft', draft)
+}
+
+// Suggests once, the first time the tab shows rows.
+watch(
+  () => props.active && props.rows.length > 0,
+  (isReady) => {
+    if (!isReady || hasSuggested) return
+    hasSuggested = true
+    suggest()
+  },
+  { immediate: true }
+)
 
 const editRow = (row, change) => draftEntries([[row.name, changedEntry(row.entry, change)]])
 
@@ -1052,8 +1214,33 @@ function choosePlace(row, field, item) {
 /** Closes the search as its field is left, once a pick made with the pointer has landed. */
 const closePlaceSearch = () => setTimeout(() => (placeSearch.value = null), 150)
 
-const setLocation = (row, location) => (location === OTHER_PLACE ? openPlaceSearch(row, 'location') : editRow(row, { location: location ?? null }))
-const setFrom = (row, from) => (from === OTHER_PLACE ? openPlaceSearch(row, 'from') : editRow(row, { from: from ?? null }))
+const setLocation = (row, location) =>
+  location === OTHER_PLACE ? openPlaceSearch(row, 'location') : editRow(row, withOtherSide(row, { location: location ?? null }))
+const setFrom = (row, from) =>
+  from === OTHER_PLACE ? openPlaceSearch(row, 'from') : editRow(row, withOtherSide(row, { from: from ?? null }))
+
+// The other side of the membrane a transporter sits in.
+const OTHER_SIDE = { [GO.cytoplasm]: GO.extracellularRegion, [GO.extracellularRegion]: GO.cytoplasm }
+
+/**
+ * A transporter's flow crosses its membrane, so choosing one side of a flow fills the other when it is empty or the
+ * same side.
+ *
+ * @param {{ entry: Object|null }} row
+ * @param {{ location?: string|null, from?: string|null }} change
+ * @returns {Object} The change, with the other side when it follows.
+ */
+function withOtherSide(row, change) {
+  const entry = row.entry ?? {}
+  if (kindValue.value !== 'transporter' || !isFlowProperty(entry.property)) return change
+  if ('location' in change && OTHER_SIDE[change.location] && (!entry.from || entry.from === change.location)) {
+    return { ...change, from: OTHER_SIDE[change.location] }
+  }
+  if ('from' in change && OTHER_SIDE[change.from] && (!entry.location || entry.location === change.from)) {
+    return { ...change, location: OTHER_SIDE[change.from] }
+  }
+  return change
+}
 
 /** The label of the option with this value, for a cell's title; undefined when there is none. */
 const optionLabel = (options, value) => options.find((option) => option.value === value)?.label
@@ -1095,7 +1282,7 @@ const unusualLocationOf = (row, value) =>
 function fromOptionsOf(row) {
   const { location, from } = row.entry
   if (!location || isSelfLocation(location)) return []
-  const usual = FROM_OPTIONS.filter(({ value }) => value !== location)
+  const usual = withSideNames(FROM_OPTIONS.filter(({ value }) => value !== location))
   // The place it has, if it is one that was searched for.
   const own = from && !usual.some(({ value }) => value === from) ? [{ value: from, label: capitalise(placeName(from)) }] : []
   return [...usual, ...own, OTHER_PLACE_OPTION]
@@ -1156,7 +1343,7 @@ function applyBulk(field, value) {
     if (field === 'clear') edits.push([row.name, null])
     else if (field === 'what') edits.push([row.name, changedEntry(row.entry, { property: value })])
     else if (field === 'whose') edits.push([row.name, changedEntry(row.entry, { location: value })])
-    else if (takesSpecies(row.entry?.property)) edits.push([row.name, changedEntry(row.entry, { species: [value] })])
+    else if (allowsSpecies(row.entry?.property)) edits.push([row.name, changedEntry(row.entry, { species: [value] })])
     else skipped++
   }
   if (edits.length) draftEntries(edits)
@@ -1780,6 +1967,31 @@ defineExpose({ importFile })
 }
 
 /* Leads the name, so a long name can't push it out of sight */
+.annotation-row__suggested {
+  margin-right: 0.25rem;
+  color: var(--p-primary-color);
+  font-size: 0.875rem;
+}
+
+.annotation-row--suggested td {
+  background: color-mix(in srgb, var(--p-primary-color) 6%, transparent);
+}
+
+.annotation-tab__suggestions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--p-border-radius-sm, 4px);
+  background: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
+  font-size: 0.8125rem;
+}
+
+.annotation-tab__suggestions--idle {
+  background: none;
+  padding: 0;
+}
+
 .annotation-row__term-warning {
   margin-right: 0.25rem;
   color: var(--p-orange-500);
