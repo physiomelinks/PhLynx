@@ -2817,6 +2817,7 @@ function tubeGhostBottom(ghosts, point) {
   const boxes = ghosts.flatMap((ghost) => {
     if (ghost.type === 'joint') return [ghost.rect]
     if (ghost.type !== 'conduit' && ghost.type !== 'path') return []
+    if (!ghost.points?.length) return []
     const xs = ghost.points.map((p) => p.x)
     const ys = ghost.points.map((p) => p.y)
     const half = ghost.type === 'conduit' ? VESSEL_HALF : 4

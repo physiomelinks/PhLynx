@@ -725,6 +725,8 @@ export function previewDrop(scene, drop, choice) {
   for (const place of places.values()) {
     // A grip is a handle on a piece, not part of it, and a membrane's band is drawn by its cell.
     if (place.kind === 'grip' || place.kind === 'membrane') continue
+    // A module on a site (a protein, a process, a tube's card) is no piece: a drop adds none, so it has no ghost.
+    if (!place.piece) continue
     if (drop.lifted?.has(place.piece)) {
       // A piece carried somewhere else is drawn where it would go, what goes with it left to follow.
       if (drop.carried.includes(place.piece) && place.rect) {

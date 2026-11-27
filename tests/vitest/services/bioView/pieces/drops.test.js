@@ -228,6 +228,22 @@ describe('dropping a tube, fold or zone', () => {
     expect(ghosts.some((ghost) => ghost.type === 'rect' && ghost.kind === 'link')).toBe(false)
   })
 
+  it('previews a drop beside a flow tube with its module without a ghost for the module', () => {
+    const start = valid([
+      { id: 'a', kind: 'compartment', label: 'A', frame: { x: 0, y: 0, width: 200, height: 100 } },
+      { id: 'b', kind: 'compartment', label: 'B', frame: { x: 400, y: 0, width: 200, height: 100 } },
+      { id: 't', kind: 'tube', label: 'T', ends: ['a', 'b'], flux: 'flow' },
+    ])
+    const nodes = [{ id: 'vessel', data: { name: 'vessel', bioView: { site: 'pieces/t' } } }]
+    const scene = dropScene(start, { nodes })
+    const drop = resolveDrop('compartment', { x: 300, y: 400 }, scene)
+    expect(drop.invalid).toBeUndefined()
+    const { ghosts, errors } = previewDrop(scene, drop)
+    expect(errors).toEqual([])
+    // Only the compartment added: no ghost for the tube's module card, which has no way of its own.
+    expect(ghosts).toEqual([expect.objectContaining({ type: 'rect', kind: 'region' })])
+  })
+
   // The two cells alone, without the fluids round them, which are nearer; moved together, B against A's right side.
   const twoCells = (touching) =>
     valid(
