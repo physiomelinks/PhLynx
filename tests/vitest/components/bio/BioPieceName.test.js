@@ -31,6 +31,19 @@ describe('a piece’s name in the physiology view', () => {
     expect(name().exists()).toBe(true)
   })
 
+  it('leaves a press that moves to drag the piece, and renames nothing', async () => {
+    expect(name().classes()).not.toContain('nodrag')
+    await name().trigger('pointerdown', { clientX: 10, clientY: 10 })
+    await name().trigger('click', { detail: 1, clientX: 40, clientY: 30 })
+    await vi.advanceTimersByTimeAsync(250)
+    expect(field().exists()).toBe(false)
+    // A press that stays put still renames.
+    await name().trigger('pointerdown', { clientX: 10, clientY: 10 })
+    await name().trigger('click', { detail: 1, clientX: 11, clientY: 10 })
+    await vi.advanceTimersByTimeAsync(250)
+    expect(field().exists()).toBe(true)
+  })
+
   it('leaves a double-click to the view, and the name as it was on Escape or unchanged', async () => {
     await name().trigger('click', { detail: 1 })
     await name().trigger('dblclick')
