@@ -614,12 +614,16 @@ export function skinPiece(pieces, id, skin) {
  */
 export function removedWith(pieces, ids) {
   const going = new Set(ids)
+  const byId = new Map(pieces.map((piece) => [piece.id, piece]))
+  // A compartment a membrane encloses, docked inside it (a segment of a cell with no single inside), stays when the
+  // membrane goes, as the compartment it encloses does.
+  const enclosedBy = (on, id) => byId.get(on)?.kind === 'membrane' && byId.get(on).encloses.includes(id)
   const dependsOnGoing = (piece) =>
     going.has(piece.parent) ||
     (piece.kind === 'tube' && piece.ends.some((end) => going.has(end))) ||
     (isWithinPiece(piece) && going.has(piece.compartment)) ||
     (piece.kind === 'fold' && going.has(piece.membrane)) ||
-    (piece.docks ?? []).some((dock) => going.has(dock.on)) ||
+    (piece.docks ?? []).some((dock) => going.has(dock.on) && !enclosedBy(dock.on, piece.id)) ||
     (piece.kind === 'membrane' && piece.encloses.every((id) => going.has(id)))
   for (let grew = true; grew;) {
     grew = false
@@ -634,13 +638,15 @@ export function removedWith(pieces, ids) {
 
 /**
  * Removes pieces, and what goes with them (see removedWith). A membrane removed on its own leaves what it enclosed
- * standing where it was, its inside a compartment of its own the membrane's size.
+ * standing where it was, its inside a compartment of its own the membrane's size, and each compartment docked inside
+ * it standing where it was drawn, the tubes between them carrying what they would between compartments apart.
  *
  * @param {ReadonlyArray<Object>} pieces
  * @param {Iterable<string>} ids
+ * @param {{rects?: Map<string, Object>}} [options] - Where each piece is drawn, for those left standing.
  * @returns {{pieces: Array<Object>, removed: Set<string>}}
  */
-export function removePieces(pieces, ids) {
+export function removePieces(pieces, ids, { rects } = {}) {
   const removed = removedWith(pieces, ids)
   const topology = topologyOf(pieces)
   const raw = copy(pieces).filter((piece) => !removed.has(piece.id))
@@ -652,5 +658,21 @@ export function removePieces(pieces, ids) {
     const bulk = raw.find((piece) => piece.id === topology.bulkOf(membrane.id))
     if (bulk && !bulk.frame && membrane.frame) bulk.frame = { ...membrane.frame }
   }
+  const freed = new Set()
+  for (const piece of raw) {
+    const docks = piece.docks?.filter((dock) => !removed.has(dock.on))
+    if (!docks || docks.length === piece.docks.length) continue
+    if (docks.length) {
+      piece.docks = docks
+      continue
+    }
+    const membrane = pieces.find((each) => each.id === piece.docks[0].on)
+    delete piece.docks
+    const rect = rects?.get(piece.id)
+    if (rect) piece.frame = whole(rect)
+    if (membrane?.parent) piece.parent = membrane.parent
+    freed.add(piece.id)
+  }
+  refluxTubes(raw, freed, { keepBends: true })
   return { pieces: raw, removed }
 }

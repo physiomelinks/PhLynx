@@ -13,6 +13,8 @@ import {
   planDeletion,
 } from '../../../../src/services/bioView/deletion.js'
 import { validatePieces } from '../../../../src/services/bioView/pieces/model.js'
+import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
+import { layoutPieces } from '../../../../src/services/bioView/pieces/layout.js'
 import { useFlowHistoryStore } from '../../../../src/stores/historyStore.js'
 
 const nodes = ref([])
@@ -127,6 +129,38 @@ describe('deleteConnection', () => {
     expect(disconnectInstances).toHaveBeenCalledWith(['a--c'])
     expect(history.undoLabel).toBe('Disconnect')
     expect(history.pointerIndex).toBe(0)
+  })
+})
+
+describe('planDeletion on a cell with no single inside', () => {
+  const rod = validatePieces(getBuiltInPieceTemplate('rod-photoreceptor').pieces).pieces
+
+  it('leaves the segments standing where they were drawn when the membrane goes alone, their bridge a flow', () => {
+    const rects = layoutPieces(rod).rects
+    const plan = planDeletion(rod, [], { pieces: ['plasma-membrane'] })
+    expect(plan.errors).toEqual([])
+    const left = new Map(plan.next.map((piece) => [piece.id, piece]))
+    expect([...left.keys()].sort()).toEqual(['cilium', 'inner-segment', 'outer-segment'])
+    for (const id of ['outer-segment', 'inner-segment']) {
+      expect(left.get(id).docks).toBeUndefined()
+      const rect = rects.get(id)
+      expect(left.get(id).frame).toEqual({
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      })
+    }
+    expect(left.get('cilium').flux).toBe('flow')
+    // Asked about: only the extracellular space docked outside it, not the segments.
+    expect(plan.alongWith).toEqual(['extracellular'])
+  })
+
+  it('says plainly why a segment can’t be deleted', () => {
+    const plan = planDeletion(rod, [], { pieces: ['inner-segment'] })
+    expect(plan.next).toBeNull()
+    expect(plan.errors).toHaveLength(1)
+    expect(plan.errors[0]).toMatch(/^It is part of the inside of a cell with no other inside/)
   })
 })
 

@@ -5,7 +5,7 @@
  */
 
 import { removePieces } from './pieces/edits.js'
-import { PIECES_INSTANCE } from './pieces/layout.js'
+import { PIECES_INSTANCE, layoutPieces } from './pieces/layout.js'
 import { validatePieces } from './pieces/model.js'
 import { modulesOf, piecesOrphanedBy } from './pieces/pairing.js'
 import { topologyOf } from './pieces/topology.js'
@@ -114,9 +114,10 @@ export function planDeletion(pieces, nodes, { instances = [], pieces: pieceIds =
   const asked = [...new Set([...pieceIds, ...piecesOrphanedBy(pieces, nodes, chosen)])].filter((id) => known.has(id))
   const none = { next: null, errors: [], pieces: asked, going: [...chosen], alongWith: [], modulesToo: [] }
   if (!asked.length) return none
-  const { pieces: raw, removed } = removePieces(pieces, asked)
+  // What a membrane deleted alone leaves standing stands where it is drawn.
+  const { pieces: raw, removed } = removePieces(pieces, asked, { rects: layoutPieces(pieces).rects })
   const { pieces: next, errors } = validatePieces(raw)
-  if (!next) return { ...none, errors }
+  if (!next) return { ...none, errors: plainProblems(errors) }
   const offeredNow = new Set(topologyOf(pieces).sites.map((site) => site.path))
   const offered = new Set(topologyOf(next).sites.map((site) => site.path))
   const stranded = nodes
@@ -135,6 +136,25 @@ export function planDeletion(pieces, nodes, { instances = [], pieces: pieceIds =
     alongWith: [...removed].filter((id) => !asked.includes(id) && kindOf.get(id) !== 'fold'),
     modulesToo: stranded.filter((id) => !chosen.has(id) && !named.has(id)),
   }
+}
+
+/** A problem left by taking away part of a cell's inside, where the cell has no other inside along that stretch. */
+const EMPTIED = /meets no compartment inside/
+
+/**
+ * Why a deletion can't be done, in the user's words: the validation's own, but for part of a cell's inside that would
+ * leave a stretch of its membrane with nothing inside, which is said once, plainly.
+ *
+ * @param {string[]} errors - From validatePieces.
+ * @returns {string[]}
+ */
+function plainProblems(errors) {
+  const others = errors.filter((error) => !EMPTIED.test(error))
+  if (others.length === errors.length) return errors
+  return [
+    'It is part of the inside of a cell with no other inside along that stretch of its membrane. Delete the membrane on its own first, or the whole cell.',
+    ...others,
+  ]
 }
 
 /**
