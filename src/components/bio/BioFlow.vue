@@ -1166,6 +1166,12 @@ function onNodeDragStart({ event, node, nodes }) {
   dragStartPointer = pointerAt(event)
   dragStarts.clear()
   for (const moved of nodes) dragStarts.set(moved.id, { ...moved.position })
+  // A cell's outline moves the cell, as its inside does.
+  const cell = node.type === 'bioMembrane' && main.findNode(layout.value.get(node.id)?.cell)
+  if (cell) {
+    startPieceMove(cell, event)
+    return
+  }
   // A piece, or a grip on one, moves as its own drag says; a tube or its module with Alt down moves one of its ends
   // (see startTubeRetarget); a module moves alone.
   if (!startPieceMove(node, event) && event?.altKey) startTubeRetarget(node)
@@ -1921,7 +1927,7 @@ function skinMenu(id) {
     ...(allowsNoSkin(context.target)
       ? [{ label: 'None', icon: mark(!drawn), command: () => setSkin(id, { ref: NO_SKIN }) }]
       : []),
-    ...skinsFor(context).map((skin) => ({
+    ...skinsFor(context, piece.skin).map((skin) => ({
       label: skin.name,
       icon: mark(drawn?.id === skin.id),
       command: () => setSkin(id, pieceSkinFor(piece, skin.id)),

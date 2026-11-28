@@ -454,7 +454,7 @@ export function bioFlowNodes(nodes, roles, layout, transport = new Map(), { sele
         const own = base(id)
         children.push({
           ...own,
-          ...(layout.get(place.cell).piece && { draggable: false }),
+          // Dragged, it hands the drag to its cell (see BioFlow's onNodeDragStart), and is itself never moved.
           type: 'bioMembrane',
           parentNode: place.cell,
           position: { x: 0, y: 0 },

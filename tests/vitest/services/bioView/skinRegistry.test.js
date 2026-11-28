@@ -74,6 +74,23 @@ describe('the skin a thing is drawn with', () => {
     expect(resolveSkin(segment(), { ref: 'local:outer' }).id).toBe('local:outer')
   })
 
+  it('is the one chosen for another kind of area or membrane, once the thing becomes this kind, and is offered', () => {
+    setLoadedSkins([area('local:art', ['extracellular'])])
+    const cytosol = { family: 'area', target: 'cytosol', terms: [] }
+    expect(resolveSkin(cytosol, { ref: 'local:art' }).id).toBe('local:art')
+    expect(skinsFor(cytosol, { ref: 'local:art' }).map((skin) => skin.id)).toContain('local:art')
+    const plasma = { family: 'membrane', target: 'plasmaMembrane', terms: [] }
+    expect(resolveSkin(plasma, { ref: 'double-membrane' }).id).toBe('double-membrane')
+    expect(skinsFor(plasma, { ref: 'double-membrane' }).map((skin) => skin.id)).toEqual([
+      'bilayer',
+      'wall',
+      'double-membrane',
+    ])
+    // Not across families, nor for a tube or module.
+    expect(resolveSkin(cytosol, { ref: 'bilayer' })).toBeNull()
+    expect(skinsFor(plasma)).toHaveLength(2)
+  })
+
   it('is none for a process only where chosen, and never for a protein', () => {
     expect(resolveSkin(process(), NO_SKIN)).toBeNull()
     expect(resolveSkin(protein(), NO_SKIN).id).toBe('generic')

@@ -116,7 +116,7 @@ describe('physiological view nodes', () => {
     expect(byId.p.zIndex ?? 0).toBeGreaterThan(byId.wall.zIndex)
     expect(bio.findIndex((n) => n.id === 'cell')).toBeLessThan(bio.findIndex((n) => n.id === 'wall'))
     // A piece's membrane moves only with its piece.
-    expect(byId.wall.draggable).toBe(false)
+    expect(byId.wall.draggable).toBe(true)
   })
 
   it('makes proteins in a membrane and processes in a cell children of it, after it', () => {

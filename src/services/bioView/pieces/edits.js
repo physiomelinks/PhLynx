@@ -732,5 +732,15 @@ export function removePieces(pieces, ids, { rects } = {}) {
     freed.add(piece.id)
   }
   refluxTubes(raw, freed, { keepBends: true })
+  for (const membrane of raw.filter((piece) => piece.kind === 'membrane')) {
+    const was = pieces.find((piece) => piece.id === membrane.id).encloses
+    if (membrane.encloses.length !== 1 || was.length === 1) continue
+    const inside = raw.find((piece) => piece.id === membrane.encloses[0])
+    const docks = inside?.docks?.filter((dock) => !(dock.on === membrane.id && dock.face === 'inside'))
+    if (!docks) continue
+    if (docks.length) inside.docks = docks
+    else delete inside.docks
+  }
+
   return { pieces: raw, removed }
 }

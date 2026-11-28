@@ -17,6 +17,7 @@ import { shallowRef } from 'vue'
 import builtInLibrary from '../../assets/bio_skins/builtin.skins.json'
 import manifest from '../../assets/bio_skins/manifest.json'
 import { rendererOf, validateAreaSkin, validateSkinLibrary } from './skinLibrary.js'
+import { FAMILY_OF } from './skinContext.js'
 
 /** The choice of no skin, where a target allows it. */
 export const NO_SKIN = 'none'
@@ -138,10 +139,29 @@ const meets = (skin, context) => !!skin.terms?.some((term) => context.terms?.inc
  * @param {{target: string, terms?: string[]}|null} context - From contextOfModule or contextOfPiece.
  * @returns {Array<Object>}
  */
-export function skinsFor(context) {
+export function skinsFor(context, stored) {
   if (!context) return []
   const offered = allSkins().filter((skin) => skin.appliesTo.includes(context.target))
-  return [...offered.filter((skin) => meets(skin, context)), ...offered.filter((skin) => !meets(skin, context))]
+  // The one chosen for what the thing was, which it is drawn with still (see resolveSkin), after the rest.
+  const kept = keptSkin(context, getSkin(storedId(stored)))
+  return [
+    ...offered.filter((skin) => meets(skin, context)),
+    ...offered.filter((skin) => !meets(skin, context)),
+    ...(kept ? [kept] : []),
+  ]
+}
+
+/** The families a skin chosen for one target goes on drawing when its thing becomes another of them. */
+const KEPT_FAMILIES = new Set(['area', 'membrane'])
+
+/**
+ * A skin chosen for another target of the same family as a thing, which an area or membrane goes on drawing when it
+ * becomes another kind of one: artwork loaded for a fluid, kept once it is moved into a cell; an organelle's double
+ * membrane, kept once it is moved out of its cell.
+ */
+function keptSkin(context, chosen) {
+  if (!chosen || chosen.appliesTo.includes(context.target) || !KEPT_FAMILIES.has(context.family)) return null
+  return chosen.appliesTo.some((target) => FAMILY_OF[target] === context.family) ? chosen : null
 }
 
 /** A stored choice as a skin id: a module keeps the id, a piece `{ ref }`. */
@@ -150,7 +170,8 @@ const storedId = (stored) => (typeof stored === 'string' ? stored : (stored?.ref
 /**
  * The skin a thing is drawn with: the one chosen, if there is one and it applies to the thing; else the first for its
  * target whose terms meet its own, built-ins before loaded ones; else its target's default. A choice that no longer
- * applies is left where it is, to be drawn again should the thing become what it applies to.
+ * applies is left where it is, to be drawn again should the thing become what it applies to; an area's or membrane's
+ * choice for another of its kind (see keptSkin) is drawn still.
  *
  * @param {{target: string, terms?: string[]}|null} context
  * @param {string|{ref: string}|null} [stored] - The choice: a skin id, a piece's skin, or NO_SKIN.
@@ -162,6 +183,8 @@ export function resolveSkin(context, stored) {
   if (id === NO_SKIN && allowsNoSkin(context.target)) return null
   const chosen = getSkin(id)
   if (chosen?.appliesTo.includes(context.target)) return chosen
+  const kept = keptSkin(context, chosen)
+  if (kept) return kept
   const offered = allSkins().filter((skin) => skin.appliesTo.includes(context.target))
   return offered.find((skin) => meets(skin, context)) ?? getSkin(DEFAULT_SKINS[context.target]) ?? null
 }
