@@ -17,7 +17,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  round-trip:
+    uses: physiomelinks/CUFLynx/.github/workflows/phlynx-round-trip.yml@main
+    with:
+      phlynx_ref: ${{ github.sha }}
+    secrets: inherit
+
   build:
+    needs: round-trip
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
