@@ -13,6 +13,8 @@ const sidecars = {
       annotated('v_Na', OPB.molarFlowRate, CHEBI.sodium, 'self'),
     ],
   },
+  // A pool that holds its sodium as an amount, as a bond-graph module does.
+  'store.cellml:store': { variables: [annotated('q_Na', OPB.amount, CHEBI.sodium, 'self')] },
   'porter.cellml:porter': {
     component: { kind: 'transporter', isVersionOf: [] },
     variables: [
@@ -32,9 +34,12 @@ vi.mock('../../../src/stores/libraryStore', () => ({
     ensureModuleAnnotations: vi.fn(),
   }),
 }))
-vi.mock('../../../src/stores/bioTemplateStore', () => ({
-  useBioTemplateStore: () => ({ instances: [], definitions: new Map() }),
-}))
+// One epithelial cell, its apical fluid docked outside its apical membrane.
+vi.mock('../../../src/stores/bioPiecesStore', async () => {
+  const { getBuiltInPieceTemplate } = await import('../../../src/services/bioView/pieces/builtInTemplates.js')
+  const { pieces } = getBuiltInPieceTemplate('epithelial-cell')
+  return { useBioPiecesStore: () => ({ pieces, draft: null, shapes: new Map() }) }
+})
 vi.mock('../../../src/stores/simulationResultsStore', () => ({ useSimulationResultsStore: () => run }))
 
 const { useBioNodes } = await import('../../../src/composables/useBioNodes.js')
@@ -50,9 +55,9 @@ const couple = (source, target, pairs) => ({
 
 describe('species mode in the physiological view', () => {
   const nodes = ref([
-    node('cell', 'pool', { role: 'cytosol' }),
-    node('lumen', 'pool', { role: 'region', adjacent: [{ cell: 'cell', facet: 'apical' }] }),
-    node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
+    node('cell', 'pool', { site: 'pieces/cell' }),
+    node('lumen', 'pool', { site: 'pieces/apical-fluid' }),
+    node('porter', 'porter', { site: 'pieces/plasma-membrane.apical' }),
   ])
   const edges = ref([
     couple('lumen', 'porter', [
@@ -166,8 +171,8 @@ describe('species mode in the physiological view', () => {
   it('points a process’s exchange the way its flow goes: out while it gives the species away', () => {
     // A porter inside the cell is a process; its flow into the cytoplasm is what it gives the cell's pool.
     const inside = ref([
-      node('cell', 'pool', { role: 'cytosol' }),
-      node('works', 'porter', { role: 'cytosolic', cell: 'cell' }),
+      node('cell', 'pool', { site: 'pieces/cell' }),
+      node('works', 'porter', { site: 'pieces/metabolism' }),
     ])
     const coupled = ref([couple('works', 'cell', [['v_Na_i', 'v_Na']])])
     run.results = {
@@ -185,9 +190,9 @@ describe('species mode in the physiological view', () => {
 
 describe('a focused species’ concentration tint', () => {
   const nodes = ref([
-    node('cell', 'pool', { role: 'cytosol' }),
-    node('lumen', 'pool', { role: 'region', adjacent: [{ cell: 'cell', facet: 'apical' }] }),
-    node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
+    node('cell', 'pool', { site: 'pieces/cell' }),
+    node('lumen', 'pool', { site: 'pieces/apical-fluid' }),
+    node('porter', 'porter', { site: 'pieces/plasma-membrane.apical' }),
   ])
   const edges = ref([
     couple('lumen', 'porter', [['c_Na', 'c_Na_o']]),
@@ -248,13 +253,66 @@ describe('a focused species’ concentration tint', () => {
   })
 })
 
+describe('a focused species’ tint where it is held as an amount', () => {
+  const amounts = (lumenModule) => {
+    const lumenVariable = lumenModule === 'store' ? 'q_Na' : 'c_Na'
+    run.results = {
+      voi: { name: 't', unit: 's', values: Float64Array.from([0, 1, 2]) },
+      variables: new Map([
+        [`lumen/${lumenVariable}`, { unit: lumenModule === 'store' ? 'fmol' : 'mM', values: Float64Array.from([100, 120, 140]) }],
+        ['cell/q_Na', { unit: 'fmol', values: Float64Array.from([10, 14, 12]) }],
+      ]),
+    }
+    run.mapping = new Map([
+      [mappingKey('lumen', lumenVariable), `lumen/${lumenVariable}`],
+      [mappingKey('cell', 'q_Na'), 'cell/q_Na'],
+    ])
+    return ref([node('cell', 'store', { site: 'pieces/cell' }), node('lumen', lumenModule, { site: 'pieces/apical-fluid' })])
+  }
+  const tintsOf = (bioNodes) =>
+    Object.fromEntries(bioNodes.value.filter((n) => n.data.tint !== undefined).map((n) => [n.id, n.data.tint]))
+  const options = (tintMode) => ({
+    speciesMode: ref({ all: true }),
+    focusedSpecies: ref({ nodeId: 'cell', species: CHEBI.sodium }),
+    tintMode: ref(tintMode),
+  })
+
+  it('scales each compartment against itself, whatever scale is chosen, with only amounts to tint', () => {
+    const { bioNodes, concentrationTint, tintsOnlyAmounts } = useBioNodes(amounts('store'), ref([]), options('linear'))
+    expect(tintsOnlyAmounts.value).toBe(true)
+    expect(tintsOf(bioNodes)).toEqual({ lumen: 1, cell: 0.5 })
+    expect(concentrationTint.value.tints.find((tint) => tint.nodeId === 'cell')).toMatchObject({ value: 12, unit: 'fmol' })
+  })
+
+  it('tints every species’ chips by what its compartment holds while none is focused, and none once one is', () => {
+    const focusedSpecies = ref(null)
+    const voiCursor = ref(null)
+    const { chipTints, bioNodes } = useBioNodes(amounts('store'), ref([]), { ...options('linear'), focusedSpecies, voiCursor })
+    expect(chipTints.value.get('cell').get(CHEBI.sodium)).toMatchObject({ intensity: 0.5, value: 12, unit: 'fmol' })
+    expect(chipTints.value.get('lumen').get(CHEBI.sodium).intensity).toBe(1)
+    // The compartments themselves are tinted only by a focused species.
+    expect(tintsOf(bioNodes)).toEqual({})
+    voiCursor.value = { index: 1, range: [0, 2] }
+    expect(chipTints.value.get('cell').get(CHEBI.sodium)).toMatchObject({ intensity: 1, value: 14 })
+    focusedSpecies.value = { nodeId: 'cell', species: CHEBI.sodium }
+    expect(chipTints.value.size).toBe(0)
+  })
+
+  it('leaves an amount out of a shared scale, and tints it beside concentrations each against itself', () => {
+    const shared = useBioNodes(amounts('pool'), ref([]), options('linear'))
+    expect(shared.tintsOnlyAmounts.value).toBe(false)
+    expect(tintsOf(shared.bioNodes)).toEqual({ lumen: 1 })
+    expect(tintsOf(useBioNodes(amounts('pool'), ref([]), options('compartment')).bioNodes)).toEqual({ lumen: 1, cell: 0.5 })
+  })
+})
+
 describe('uncoupled modules in the physiological view', () => {
   it('marks a protein or process no edge couples, as a new module is until its math has ports', () => {
     const nodes = ref([
-      node('cell', 'pool', { role: 'cytosol' }),
-      node('porter', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
-      node('fresh', 'porter', { role: 'membraneProtein', cell: 'cell', facet: 'apical' }),
-      node('works', 'porter', { role: 'cytosolic', cell: 'cell' }),
+      node('cell', 'pool', { site: 'pieces/cell' }),
+      node('porter', 'porter', { site: 'pieces/plasma-membrane.apical' }),
+      node('fresh', 'porter', { site: 'pieces/plasma-membrane.apical' }),
+      node('works', 'porter', { site: 'pieces/metabolism' }),
     ])
     // Joined to the cell by its drop, but coupled through nothing.
     const edges = ref([

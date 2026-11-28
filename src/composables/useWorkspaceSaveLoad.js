@@ -2,8 +2,8 @@ import { useGtm } from './useGtm'
 import { useClearWorkspace } from './useClearWorkspace'
 import { useDefaultParametersStore } from '../stores/defaultParametersStore'
 import { useCouplingContext } from './useCouplingContext'
-import { useBioTemplateStore } from '../stores/bioTemplateStore'
-import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
+import { useSkinLibraryStore } from '../stores/skinLibraryStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useFlowHistoryStore } from '../stores/historyStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
@@ -33,6 +33,8 @@ import { ensureExtension, legacyDownload, saveFileHandle, writeFileHandle } from
  * @param {Function} options.setViewport - Vue Flow `setViewport`.
  * @param {Function} options.rebuildNodeEdgeIndex - Rebuilds the view's node-to-edge index.
  * @param {Function} options.recomputeMissingCouplings - Recomputes the view's missing couplings.
+ * @param {() => Promise<void>|void} [options.fillOwedModules] - Pairs the pieces and modules loaded, outside the
+ *   history, once the nodes, library and pieces are all in (see pieces/pairing.js).
  * @returns {{
  *   handleSaveWorkspace: () => Promise<void>,
  *   onSaveConfirm: (fileName: string) => Promise<void>,
@@ -49,6 +51,7 @@ export function useWorkspaceSaveLoad({
   setViewport,
   rebuildNodeEdgeIndex,
   recomputeMissingCouplings,
+  fillOwedModules,
 }) {
   const libraryStore = useLibraryStore()
   const sessionMetadataStore = useSessionMetadataStore()
@@ -56,8 +59,8 @@ export function useWorkspaceSaveLoad({
   const simulationSettingsStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
   const defaultParametersStore = useDefaultParametersStore()
-  const bioTemplateStore = useBioTemplateStore()
-  const glyphLibraryStore = useGlyphLibraryStore()
+  const bioPiecesStore = useBioPiecesStore()
+  const skinLibraryStore = useSkinLibraryStore()
   const nodeThemeStore = useNodeThemeStore()
   const appearanceStore = useWorkspaceAppearanceStore()
   const { trackEvent } = useGtm()
@@ -116,8 +119,8 @@ export function useWorkspaceSaveLoad({
       inspectionModules: inspectionModuleStore,
       omex: omexStore,
       parameters: defaultParametersStore,
-      bioTemplates: bioTemplateStore,
-      bioGlyphs: glyphLibraryStore,
+      bioPieces: bioPiecesStore,
+      bioSkins: skinLibraryStore,
       nodeTheme: nodeThemeStore,
       appearance: appearanceStore,
     })
@@ -223,12 +226,13 @@ export function useWorkspaceSaveLoad({
       inspectionModuleStore.loadState(migratedState.inspectionModules)
       omexStore.loadState(migratedState.workspace)
       defaultParametersStore.loadState(migratedState.parameters)
-      bioTemplateStore.loadState(migratedState.bioTemplates)
-      glyphLibraryStore.loadState(migratedState.bioGlyphs)
+      const piecesDropped = bioPiecesStore.loadState(migratedState.bioPieces)
+      skinLibraryStore.loadState(migratedState.bioSkins)
       nodeThemeStore.loadState(migratedState.nodeTheme)
       appearanceStore.loadState(migratedState.appearance)
       // After the templates, which place the nodes.
       const driven = await driveLoadedEdges()
+      await fillOwedModules?.()
       // A loaded workspace is as saved as its file.
       historyStore.markSaved()
 
@@ -242,6 +246,17 @@ export function useWorkspaceSaveLoad({
         title: source === 'recovery' ? 'Unsaved work restored' : 'Workflow loaded successfully!',
         ...(driven ? { message: driven } : {}),
       })
+      // Its physiology pieces are kept whole or not at all: say why they weren't.
+      if (piecesDropped.length) {
+        notify.warning({
+          title: 'Physiology pieces not loaded',
+          // Long enough to read: what was lost is not shown anywhere else.
+          duration: 10000,
+          message: `The file’s physiology pieces are not valid, so none were loaded. ${piecesDropped[0]}${
+            piecesDropped.length > 1 ? ` (and ${piecesDropped.length - 1} more)` : ''
+          }`,
+        })
+      }
     } catch (error) {
       trackEvent('workflow_load_action', {
         category: 'Workflow',

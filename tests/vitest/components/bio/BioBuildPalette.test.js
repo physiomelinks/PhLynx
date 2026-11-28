@@ -9,7 +9,7 @@ import { useViewModeStore } from '../../../../src/stores/viewModeStore.js'
 
 let wrapper
 let viewMode
-const tile = (kind) => wrapper.find(`[data-testid="bio-palette-tile"][data-kind="${kind}"]`)
+const tile = (piece) => wrapper.find(`[data-testid="bio-palette-piece"][data-piece="${piece}"]`)
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -19,26 +19,33 @@ beforeEach(() => {
 afterEach(() => wrapper.unmount())
 
 describe('the build palette', () => {
-  it('offers the empty pieces a view is built from', () => {
-    expect(wrapper.findAll('[data-testid="bio-palette-tile"]').map((each) => each.attributes('data-kind'))).toEqual(['cell', 'tube', 'link', 'compartment', 'organelle', 'microdomain', 'junction', 'fold', 'zone'])
+  it('offers the five pieces a view is built from, and an image', () => {
+    expect(wrapper.findAll('[data-testid="bio-palette-piece"]').map((each) => each.attributes('data-piece'))).toEqual([
+      'compartment',
+      'membrane',
+      'tube',
+      'fold',
+      'zone',
+      'image',
+    ])
   })
 
   it('arms a tile on a click, for the view to place, and lets go of it on another', async () => {
     await tile('zone').trigger('click')
-    expect(viewMode.armedTile).toEqual({ kind: 'zone' })
+    expect(viewMode.armedTile).toEqual({ kind: 'piece', piece: 'zone' })
     expect(tile('zone').attributes('aria-pressed')).toBe('true')
     await tile('zone').trigger('click')
     expect(viewMode.armedTile).toBeNull()
   })
 
   it('carries a dragged tile, lets go of the one armed, and forgets it as the drag ends', async () => {
-    viewMode.armedTile = { kind: 'zone' }
+    viewMode.armedTile = { kind: 'piece', piece: 'zone' }
     const data = {}
-    await tile('cell').trigger('dragstart', { dataTransfer: { setData: (type, value) => (data[type] = value) } })
-    expect(JSON.parse(data[TILE_DRAG_TYPE])).toEqual({ kind: 'cell' })
+    await tile('membrane').trigger('dragstart', { dataTransfer: { setData: (type, value) => (data[type] = value) } })
+    expect(JSON.parse(data[TILE_DRAG_TYPE])).toEqual({ kind: 'piece', piece: 'membrane' })
     expect(viewMode.armedTile).toBeNull()
-    expect(viewMode.draggedTile).toEqual({ kind: 'cell' })
-    await tile('cell').trigger('dragend')
+    expect(viewMode.draggedTile).toEqual({ kind: 'piece', piece: 'membrane' })
+    await tile('membrane').trigger('dragend')
     expect(viewMode.draggedTile).toBeNull()
   })
 
@@ -52,7 +59,7 @@ describe('the build palette', () => {
   })
 
   it('leaves nothing armed once it is gone', () => {
-    viewMode.armedTile = { kind: 'cell' }
+    viewMode.armedTile = { kind: 'piece', piece: 'compartment' }
     wrapper.unmount()
     expect(viewMode.armedTile).toBeNull()
     wrapper = mount(BioBuildPalette)

@@ -2,7 +2,7 @@
 
 Usually ports couple when their [labels](../reference/glossary.md#port-label) match. Annotations replace the label with what a variable means: its **property** (for example a concentration), its **species** (Na⁺) and **whose** it is (this compartment, or the cytoplasm next to it). Once instances are placed in the [physiology view](./physiology-view.md), PhLynx couples their annotated ports wherever the meanings match at the same place.
 
-Annotations live in a **sidecar**: a Turtle file beside a module's math that says what each of its variables means, relative to wherever an instance of it sits. Where each instance sits comes from the physiology view: the template site it is dropped on, or the cell and facet it is drawn on. The exact terms are in the [Annotation Vocabulary](../reference/annotation-vocabulary.md).
+Annotations live in a **sidecar**: a Turtle file beside a module's math that says what each of its variables means, relative to wherever an instance of it sits. Where each instance sits comes from the physiology view: the site of the pieces it is dropped on, or the cell and facet it is drawn on. The exact terms are in the [Annotation Vocabulary](../reference/annotation-vocabulary.md).
 
 This guide uses a small synthetic model, whose files are in `tests/resources/annotations/toy/` in the PhLynx repository:
 
@@ -60,8 +60,8 @@ Hover or click the chips for the detail: each term's IRI, the place the annotati
 
 An instance's place comes from where it sits in the [physiology view](./physiology-view.md):
 
-- **On a template site**, the site says it: a module dropped on the apical membrane of the epithelial cell template is in that membrane, with the cell's cytoplasm on one side and the apical fluid on the other.
-- **Off templates**, its role and the cell it is drawn on say it: a transporter on a cell's basolateral facet faces whatever compartment lies against that facet.
+- **On a site of the pieces**, the site says it: a module dropped on the apical membrane of an epithelial cell is in that membrane, with the cell's cytoplasm on one side and the apical fluid on the other. Sides are relative: on an organelle's membrane, its lumen is the inside and the cytoplasm around it the outside.
+- **Off the pieces** it has no place, and couples by placement with nothing until it is dropped on a site.
 
 Two annotated ports couple when their property and species are equal, their places are the same, and their roles complement each other: a concentration's owner with a reader, or a sum of flows with a flow into it. See [Roles](../reference/annotation-vocabulary.md#roles).
 

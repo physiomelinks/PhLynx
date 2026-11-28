@@ -186,6 +186,12 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
     }
   }
 
+  /**
+   * Pastes what was copied, selected, offset or at the mouse.
+   *
+   * @param {boolean} [atMouse=false]
+   * @returns {Promise<Array<{id: string, from: Object}>>} Each copy's id and the node copied, as it was copied.
+   */
   const pasteSelection = async (atMouse = false) => {
     let sourceClipboard = clipboard.value
 
@@ -200,7 +206,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
       // Ignore clipboard read errors
     }
 
-    if (!sourceClipboard.nodes || sourceClipboard.nodes.length === 0) return
+    if (!sourceClipboard.nodes || sourceClipboard.nodes.length === 0) return []
 
     // Nodes copied from an older version keep values in their math; they move into the rows here.
     const clipboardMath = Object.values(sourceClipboard.storeSnapshot ?? {}).map((entry) => [
@@ -303,6 +309,7 @@ export function useWorkspaceClipboard({ mousePosition, allNodeNames, flowId = FL
 
     addNodes(newNodes)
     addEdges(newEdges)
+    return newNodes.map((node, index) => ({ id: node.id, from: clipboardNodes[index] }))
   }
 
   return { copySelection, pasteSelection, selectAllNodes }

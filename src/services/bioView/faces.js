@@ -50,17 +50,17 @@ const OUTWARD = {
 }
 
 /**
- * Gives the point on a protein's cartoon where a face's couplings start, and which way they leave. The
- * cartoon is drawn with the outside up and turned to its facet, so by default its outer and inner edges lie
- * half its height from its centre, and its sides half its width. A glyph can anchor a face elsewhere, as a
+ * Gives the point on a protein's symbol where a face's couplings start, and which way they leave. The
+ * symbol is drawn with the outside up and turned to its facet, so by default its outer and inner edges lie
+ * half its height from its centre, and its sides half its width. A symbol skin can anchor a face elsewhere, as a
  * receptor does at its binding cleft.
  *
  * @param {{x: number, y: number, outward: string}} place - The protein's centre and the side facing out.
  * @param {'outside'|'inside'|'membrane'|null} face
- * @param {{width: number, height: number}} size - The cartoon, unturned.
- * @param {Object<string, {x: number, y: number}>} [anchors] - The glyph's face points, in its unturned box.
+ * @param {{width: number, height: number}} size - The symbol, unturned.
+ * @param {Object<string, {x: number, y: number}>} [anchors] - The symbol's face points, in its unturned box.
  * @param {number} [offset=0] - How far along the face to move the point, as the unturned box's x runs: so the
- *   point under one of the cartoon's arrows, however it is turned.
+ *   point under one of the symbol's arrows, however it is turned.
  * @returns {{point: {x: number, y: number}, direction: {x: number, y: number}}}
  */
 export function facePoint(place, face, { width, height }, anchors, offset = 0) {

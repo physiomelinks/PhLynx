@@ -42,6 +42,12 @@
               </small>
             </div>
 
+            <!-- A choice's "remember this" box: what the caller does with it is its own -->
+            <label v-if="message.remember" class="confirm-remember">
+              <Checkbox v-model="message.remember.checked" binary data-testid="confirm-remember" />
+              <span>{{ message.remember.label }}</span>
+            </label>
+
             <!-- Issues that name an element link to it: following one closes the dialog first. -->
             <ul v-if="message.issues?.length" class="confirm-issues">
               <li v-for="issue in message.issues" :key="issue.key">
@@ -107,6 +113,7 @@
 <script setup lang="ts">
 import ConfirmDialog from 'primevue/confirmdialog'
 import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 
@@ -170,6 +177,16 @@ function getButtonSeverity(severity?: string) {
   flex-direction: column;
   gap: 6px;
   margin-top: 12px;
+}
+
+.confirm-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 0.875rem;
+  color: var(--p-text-color);
+  cursor: pointer;
 }
 
 .confirm-input-field {

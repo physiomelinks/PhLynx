@@ -1,0 +1,1180 @@
+{
+  "cardiomyocyte": {
+    "myocyte": [
+      {
+        "key": "myocyte",
+        "kind": "cytosol",
+        "as": [
+          "self"
+        ]
+      },
+      {
+        "key": "myocyte-membrane",
+        "kind": "membrane",
+        "as": [
+          "self+GO:0005886"
+        ],
+        "facets": [
+          "sarcolemma",
+          "t-tubule"
+        ]
+      }
+    ],
+    "myocyte-membrane": [
+      {
+        "key": "myocyte-membrane",
+        "kind": "membrane",
+        "as": [
+          "self"
+        ],
+        "facets": [
+          "sarcolemma",
+          "t-tubule"
+        ]
+      },
+      {
+        "key": "myocyte",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "myocyte-membrane.sarcolemma": [
+      {
+        "key": "myocyte-membrane.sarcolemma",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "sarcolemma"
+        ]
+      },
+      {
+        "key": "myocyte",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "myocyte-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "sarcolemma"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "t-tubule": [
+      {
+        "key": "t-tubule",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "t-tubule"
+        ]
+      },
+      {
+        "key": "cleft",
+        "kind": "region",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "myocyte-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "t-tubule"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "myofilaments": [
+      {
+        "key": "myofilaments",
+        "kind": "cytosolic",
+        "as": []
+      },
+      {
+        "key": "myocyte",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "mitochondria": [
+      {
+        "key": "mitochondria",
+        "kind": "cytosolic",
+        "as": []
+      },
+      {
+        "key": "myocyte",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "sr": [
+      {
+        "key": "sr",
+        "kind": "cytosol",
+        "as": [
+          "self"
+        ]
+      },
+      {
+        "key": "sr-membrane",
+        "kind": "membrane",
+        "as": [
+          "self+GO:0005886"
+        ],
+        "facets": [
+          "junctional",
+          "network"
+        ]
+      }
+    ],
+    "sr-membrane": [
+      {
+        "key": "sr-membrane",
+        "kind": "membrane",
+        "as": [
+          "self"
+        ],
+        "facets": [
+          "junctional",
+          "network"
+        ]
+      },
+      {
+        "key": "sr",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "sr-membrane.junctional": [
+      {
+        "key": "sr-membrane.junctional",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "junctional"
+        ]
+      },
+      {
+        "key": "sr",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "sr-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "junctional"
+        ]
+      },
+      {
+        "key": "cleft",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "sr-membrane.network": [
+      {
+        "key": "sr-membrane.network",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "network"
+        ]
+      },
+      {
+        "key": "sr",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "sr-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "network"
+        ]
+      },
+      {
+        "key": "myocyte",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "extracellular": [
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "self"
+        ]
+      }
+    ],
+    "cleft": [
+      {
+        "key": "cleft",
+        "kind": "region",
+        "as": [
+          "self"
+        ]
+      }
+    ]
+  },
+  "chemical-synapse": {
+    "pre": [
+      {
+        "key": "pre",
+        "kind": "cytosol",
+        "as": [
+          "self"
+        ]
+      },
+      {
+        "key": "pre-membrane",
+        "kind": "membrane",
+        "as": [
+          "self+GO:0005886"
+        ],
+        "facets": [
+          "active-zone",
+          "perisynaptic"
+        ]
+      }
+    ],
+    "pre-membrane": [
+      {
+        "key": "pre-membrane",
+        "kind": "membrane",
+        "as": [
+          "self"
+        ],
+        "facets": [
+          "active-zone",
+          "perisynaptic"
+        ]
+      },
+      {
+        "key": "pre",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "pre-membrane.perisynaptic": [
+      {
+        "key": "pre-membrane.perisynaptic",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "perisynaptic"
+        ]
+      },
+      {
+        "key": "pre",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "pre-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "perisynaptic"
+        ]
+      },
+      {
+        "key": "ecs",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "pre-membrane.active-zone": [
+      {
+        "key": "pre-membrane.active-zone",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "active-zone"
+        ]
+      },
+      {
+        "key": "pre",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "pre-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "active-zone"
+        ]
+      },
+      {
+        "key": "cleft",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "vesicle-cycle": [
+      {
+        "key": "vesicle-cycle",
+        "kind": "cytosolic",
+        "as": []
+      },
+      {
+        "key": "pre",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "post": [
+      {
+        "key": "post",
+        "kind": "cytosol",
+        "as": [
+          "self"
+        ]
+      },
+      {
+        "key": "post-membrane",
+        "kind": "membrane",
+        "as": [
+          "self+GO:0005886"
+        ],
+        "facets": [
+          "psd"
+        ]
+      }
+    ],
+    "post-membrane": [
+      {
+        "key": "post-membrane",
+        "kind": "membrane",
+        "as": [
+          "self"
+        ],
+        "facets": [
+          "psd"
+        ]
+      },
+      {
+        "key": "post",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "post-membrane.psd": [
+      {
+        "key": "post-membrane.psd",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "psd"
+        ]
+      },
+      {
+        "key": "post",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "post-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "psd"
+        ]
+      },
+      {
+        "key": "cleft",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "ca-signalling": [
+      {
+        "key": "ca-signalling",
+        "kind": "cytosolic",
+        "as": []
+      },
+      {
+        "key": "post",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "cleft": [
+      {
+        "key": "cleft",
+        "kind": "region",
+        "as": [
+          "self"
+        ]
+      }
+    ],
+    "ecs": [
+      {
+        "key": "ecs",
+        "kind": "region",
+        "as": [
+          "self"
+        ]
+      }
+    ]
+  },
+  "two-cell-epithelium": {
+    "a": [
+      {
+        "key": "a",
+        "kind": "cytosol",
+        "as": [
+          "self"
+        ]
+      },
+      {
+        "key": "a-membrane",
+        "kind": "membrane",
+        "as": [
+          "self+GO:0005886"
+        ],
+        "facets": [
+          "apical",
+          "basolateral",
+          "lateral-left",
+          "lateral-right"
+        ]
+      }
+    ],
+    "a-membrane": [
+      {
+        "key": "a-membrane",
+        "kind": "membrane",
+        "as": [
+          "self"
+        ],
+        "facets": [
+          "apical",
+          "basolateral",
+          "lateral-left",
+          "lateral-right"
+        ]
+      },
+      {
+        "key": "a",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "a-membrane.apical": [
+      {
+        "key": "a-membrane.apical",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "apical"
+        ],
+        "sides": [
+          "apical"
+        ]
+      },
+      {
+        "key": "a",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "a-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "apical"
+        ]
+      },
+      {
+        "key": "apical-fluid",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ],
+        "sides": [
+          "apical"
+        ]
+      }
+    ],
+    "a-membrane.basolateral": [
+      {
+        "key": "a-membrane.basolateral",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "basolateral"
+        ],
+        "sides": [
+          "basolateral"
+        ]
+      },
+      {
+        "key": "a",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "a-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "basolateral"
+        ]
+      },
+      {
+        "key": "basolateral-fluid",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ],
+        "sides": [
+          "basolateral"
+        ]
+      }
+    ],
+    "a-membrane.lateral-left": [
+      {
+        "key": "a-membrane.lateral-left",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "lateral-left"
+        ],
+        "sides": [
+          "lateral"
+        ]
+      },
+      {
+        "key": "a",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "a-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "lateral-left"
+        ]
+      }
+    ],
+    "a-membrane.lateral-right": [
+      {
+        "key": "a-membrane.lateral-right",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "lateral-right"
+        ],
+        "sides": [
+          "lateral"
+        ]
+      },
+      {
+        "key": "a",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "a-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "lateral-right"
+        ]
+      },
+      {
+        "key": "paracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ],
+        "sides": [
+          "lateral"
+        ]
+      }
+    ],
+    "b": [
+      {
+        "key": "b",
+        "kind": "cytosol",
+        "as": [
+          "self"
+        ]
+      },
+      {
+        "key": "b-membrane",
+        "kind": "membrane",
+        "as": [
+          "self+GO:0005886"
+        ],
+        "facets": [
+          "apical",
+          "basolateral",
+          "lateral-left",
+          "lateral-right"
+        ]
+      }
+    ],
+    "b-membrane": [
+      {
+        "key": "b-membrane",
+        "kind": "membrane",
+        "as": [
+          "self"
+        ],
+        "facets": [
+          "apical",
+          "basolateral",
+          "lateral-left",
+          "lateral-right"
+        ]
+      },
+      {
+        "key": "b",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      }
+    ],
+    "b-membrane.apical": [
+      {
+        "key": "b-membrane.apical",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "apical"
+        ],
+        "sides": [
+          "apical"
+        ]
+      },
+      {
+        "key": "b",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "b-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "apical"
+        ]
+      },
+      {
+        "key": "apical-fluid",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ],
+        "sides": [
+          "apical"
+        ]
+      }
+    ],
+    "b-membrane.basolateral": [
+      {
+        "key": "b-membrane.basolateral",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "basolateral"
+        ],
+        "sides": [
+          "basolateral"
+        ]
+      },
+      {
+        "key": "b",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "b-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "basolateral"
+        ]
+      },
+      {
+        "key": "basolateral-fluid",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ],
+        "sides": [
+          "basolateral"
+        ]
+      }
+    ],
+    "b-membrane.lateral-left": [
+      {
+        "key": "b-membrane.lateral-left",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "lateral-left"
+        ],
+        "sides": [
+          "lateral"
+        ]
+      },
+      {
+        "key": "b",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "b-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "lateral-left"
+        ]
+      },
+      {
+        "key": "paracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ],
+        "sides": [
+          "lateral"
+        ]
+      }
+    ],
+    "b-membrane.lateral-right": [
+      {
+        "key": "b-membrane.lateral-right",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "lateral-right"
+        ],
+        "sides": [
+          "lateral"
+        ]
+      },
+      {
+        "key": "b",
+        "kind": "cytosol",
+        "as": [
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "b-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "lateral-right"
+        ]
+      }
+    ],
+    "apical-fluid": [
+      {
+        "key": "apical-fluid",
+        "kind": "region",
+        "as": [
+          "self"
+        ],
+        "sides": [
+          "apical"
+        ]
+      }
+    ],
+    "basolateral-fluid": [
+      {
+        "key": "basolateral-fluid",
+        "kind": "region",
+        "as": [
+          "self"
+        ],
+        "sides": [
+          "basolateral"
+        ]
+      }
+    ],
+    "paracellular": [
+      {
+        "key": "paracellular",
+        "kind": "region",
+        "as": [
+          "self"
+        ],
+        "sides": [
+          "lateral"
+        ]
+      }
+    ]
+  },
+  "rod-photoreceptor": {
+    "rod-membrane.os-upper": [
+      {
+        "key": "rod-membrane.os-upper",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "os-upper"
+        ]
+      },
+      {
+        "key": "outer-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001750",
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "rod-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "os-upper"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "rod-membrane.is-upper": [
+      {
+        "key": "rod-membrane.is-upper",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "is-upper"
+        ]
+      },
+      {
+        "key": "inner-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001917",
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "rod-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "is-upper"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "rod-membrane.os-lower": [
+      {
+        "key": "rod-membrane.os-lower",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "os-lower"
+        ]
+      },
+      {
+        "key": "outer-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001750",
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "rod-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "os-lower"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "rod-membrane.is-lower": [
+      {
+        "key": "rod-membrane.is-lower",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "is-lower"
+        ]
+      },
+      {
+        "key": "inner-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001917",
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "rod-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "is-lower"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "rod-membrane.os-tip": [
+      {
+        "key": "rod-membrane.os-tip",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "os-tip"
+        ]
+      },
+      {
+        "key": "outer-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001750",
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "rod-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "os-tip"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "rod-membrane.terminal": [
+      {
+        "key": "rod-membrane.terminal",
+        "kind": "membraneProtein",
+        "as": [],
+        "facets": [
+          "terminal"
+        ]
+      },
+      {
+        "key": "inner-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001917",
+          "GO:0005737"
+        ]
+      },
+      {
+        "key": "rod-membrane",
+        "kind": "membrane",
+        "as": [
+          "GO:0005886"
+        ],
+        "facets": [
+          "terminal"
+        ]
+      },
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "GO:0005576"
+        ]
+      }
+    ],
+    "cilium": [
+      {
+        "key": "cilium",
+        "kind": "cytosolic",
+        "as": []
+      },
+      {
+        "key": "outer-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001750"
+        ]
+      },
+      {
+        "key": "inner-segment",
+        "kind": "region",
+        "as": [
+          "GO:0001917"
+        ]
+      }
+    ],
+    "extracellular": [
+      {
+        "key": "extracellular",
+        "kind": "region",
+        "as": [
+          "self"
+        ]
+      }
+    ],
+    "outer-segment": [
+      {
+        "key": "outer-segment",
+        "kind": "region",
+        "as": [
+          "self"
+        ]
+      }
+    ],
+    "inner-segment": [
+      {
+        "key": "inner-segment",
+        "kind": "region",
+        "as": [
+          "self"
+        ]
+      }
+    ]
+  }
+}

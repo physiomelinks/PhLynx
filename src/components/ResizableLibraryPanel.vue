@@ -17,14 +17,10 @@
       @click="toggleCollapsed"
       v-hint.left="toggleLabel"
     >
-      <svg class="library-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <line v-for="line in toggleLines" :key="line.y" v-bind="line" pathLength="100" />
-      </svg>
+      <HamburgerTornadoIcon :open="!isCollapsed" side="right" />
     </button>
     <button v-else v-bind="toggleAttrs" @click="toggleCollapsed" v-hint.right="toggleLabel">
-      <svg class="library-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
-        <line v-for="line in toggleLines" :key="line.y" v-bind="line" pathLength="100" />
-      </svg>
+      <HamburgerTornadoIcon :open="!isCollapsed" />
     </button>
 
     <Transition name="library-drop">
@@ -57,6 +53,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useResizableAside } from '../composables/useResizableAside'
+import HamburgerTornadoIcon from './icons/HamburgerTornadoIcon.vue'
 import { PANEL_RESIZE_HANDLE_WIDTH } from '../utils/constants'
 
 const props = defineProps({
@@ -115,18 +112,6 @@ const toggleAttrs = computed(() => ({
   'aria-label': toggleLabel.value,
   'aria-expanded': String(!isCollapsed.value),
 }))
-
-/** The three bars, drawn from the panel's outer edge so the tornado tapers toward the canvas. */
-const toggleLines = computed(() => {
-  const [x1, x2] = props.side === 'right' ? [20, 4] : [4, 20]
-  return [7, 12, 17].map((y, i) => ({
-    class: `library-toggle-line library-toggle-line--${i + 1}`,
-    x1,
-    y1: y,
-    x2,
-    y2: y,
-  }))
-})
 
 /** The open panel's width: none while it is closed, when at most its hamburger's strip shows. */
 const effectiveWidth = computed(() => (isCollapsed.value ? 0 : width.value))
@@ -312,56 +297,6 @@ defineExpose({ isCollapsed, toggleCollapsed })
   outline-offset: 2px;
 }
 
-.library-toggle-icon {
-  width: 1.25rem;
-  height: 1.25rem;
-  overflow: visible;
-}
-
-/* Each line is drawn as one dash along a 0–100 path, so the dash's length and
-   offset can shorten and shift it while the round caps stay round. */
-.library-toggle-line {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-dasharray: 100 200;
-  stroke-dashoffset: 0;
-  transform-box: view-box;
-  transform: translateX(0);
-  transition:
-    stroke-dasharray 260ms cubic-bezier(0.5, 0, 0.2, 1),
-    stroke-dashoffset 260ms cubic-bezier(0.5, 0, 0.2, 1),
-    transform 260ms cubic-bezier(0.5, 0, 0.2, 1);
-}
-
-.library-toggle-line--2 {
-  transition-delay: 40ms;
-}
-
-.library-toggle-line--3 {
-  transition-delay: 80ms;
-}
-
-/* Tornado: each line shorter than the one above, drifting away from the panel's
-   outer edge (bars 16 units long, so 100 path units = 16). */
-.library-toggle--open .library-toggle-line--1 {
-  stroke-dasharray: 100 200;
-  transform: translateX(-1px);
-}
-
-.library-toggle--open .library-toggle-line--2 {
-  stroke-dasharray: 62 200;
-  stroke-dashoffset: -22;
-  transform: translateX(0.5px);
-}
-
-.library-toggle--open .library-toggle-line--3 {
-  stroke-dasharray: 25 200;
-  stroke-dashoffset: -50;
-  transform: translateX(1.5px);
-}
-
 .resize-handle {
   width: v-bind('PANEL_RESIZE_HANDLE_WIDTH + "px"');
   flex-shrink: 0;
@@ -374,19 +309,6 @@ defineExpose({ isCollapsed, toggleCollapsed })
 
 .resize-handle:hover {
   background-color: var(--p-primary-color);
-}
-
-/* Mirrored drift for the right-docked tornado. */
-.resizable-library-panel--right .library-toggle--open .library-toggle-line--1 {
-  transform: translateX(1px);
-}
-
-.resizable-library-panel--right .library-toggle--open .library-toggle-line--2 {
-  transform: translateX(-0.5px);
-}
-
-.resizable-library-panel--right .library-toggle--open .library-toggle-line--3 {
-  transform: translateX(-1.5px);
 }
 
 /* Drop-down reveal anchored at the top corner where the toggle sits. */
@@ -412,8 +334,7 @@ defineExpose({ isCollapsed, toggleCollapsed })
 
 @media (prefers-reduced-motion: reduce) {
   .library-drop-enter-active,
-  .library-drop-leave-active,
-  .library-toggle-line {
+  .library-drop-leave-active {
     transition: none;
   }
 }

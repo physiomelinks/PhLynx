@@ -28,17 +28,25 @@ const { useAppSettings } = await import('../../../src/composables/useAppSettings
 const { useSimulationResultsStore } = await import('../../../src/stores/simulationResultsStore.js')
 const { useSimulationSettingsStore } = await import('../../../src/stores/simulationSettingsStore.js')
 const { useViewModeStore } = await import('../../../src/stores/viewModeStore.js')
+const { useBioPiecesStore } = await import('../../../src/stores/bioPiecesStore.js')
+const { getBuiltInPieceTemplate } = await import('../../../src/services/bioView/pieces/builtInTemplates.js')
 
-const instance = (id, name, mathRef, role) => ({ id, selected: false, data: { name, mathRef, bioView: { role } } })
+/** An instance on a site of the epithelial cell's pieces, or on none. */
+const instance = (id, name, mathRef, site) => ({
+  id,
+  selected: false,
+  data: { name, mathRef, ...(site && { bioView: { site: `pieces/${site}` } }) },
+})
 
 describe('the physiological view’s selection plot', () => {
   let nodes
   beforeEach(() => {
     setActivePinia(createPinia())
+    useBioPiecesStore().setPieces(getBuiltInPieceTemplate('epithelial-cell').pieces)
     nodes = ref([
-      instance('p', 'NKA', 'NKA.cellml:NKA', 'membraneProtein'),
-      instance('c', 'epithelial', 'compartment.cellml:compartment', 'cytosol'),
-      instance('k', 'note', 'note.cellml:note', 'none'),
+      instance('p', 'NKA', 'NKA.cellml:NKA', 'plasma-membrane.apical'),
+      instance('c', 'epithelial', 'compartment.cellml:compartment', 'cell'),
+      instance('k', 'note', 'note.cellml:note', null),
     ])
     useSimulationResultsStore().finishRun({
       results: {

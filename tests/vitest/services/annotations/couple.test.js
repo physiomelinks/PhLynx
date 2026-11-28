@@ -175,13 +175,13 @@ describe('annotated ports on placed nodes', () => {
   const TOY_NAMES = ['outside', 'cell', 'wall', 'porter_in', 'porter_out', 'vessel']
   const keysOf = (quantity) => quantity.locations.map((location) => location.key)
 
-  it('places a node where its template site is, its own place first', () => {
+  it('places a node where its site of the pieces is, its own place first', () => {
     const [own, ...next] = placesOf(toy.node('porter_in'), toy.context())
-    expect(own).toMatchObject({ key: 'site:bt-toy/cell.apical', kind: 'membraneProtein', facets: ['apical'] })
+    expect(own).toMatchObject({ key: 'site:pieces/plasma-membrane.apical', kind: 'membraneProtein', facets: ['apical'] })
     expect(next.map((place) => place.key)).toEqual([
-      'site:bt-toy/cell',
-      'site:bt-toy/cell.membrane',
-      'site:bt-toy/apical-fluid',
+      'site:pieces/cell',
+      'site:pieces/plasma-membrane',
+      'site:pieces/apical-fluid',
     ])
     expect(isLocatedNode(toy.node('porter_in'), toy.context())).toBe(true)
     expect(isLocatedNode(toy.unplaced('porter_in'), toy.context())).toBe(false)
@@ -189,9 +189,9 @@ describe('annotated ports on placed nodes', () => {
 
   it('locates a port’s quantity at its node’s places, named by their labels', () => {
     const porterIn = toy.node('porter_in')
-    expect(keysOf(quantityOfPort(toy.port('porter_in', 'c_A_i'), porterIn, toy.context()))).toEqual(['site:bt-toy/cell'])
+    expect(keysOf(quantityOfPort(toy.port('porter_in', 'c_A_i'), porterIn, toy.context()))).toEqual(['site:pieces/cell'])
     const [outside] = quantityOfPort(toy.port('porter_in', 'c_A_o'), porterIn, toy.context()).locations
-    expect(outside).toMatchObject({ key: 'site:bt-toy/apical-fluid', label: 'Apical fluid (lumen)' })
+    expect(outside).toMatchObject({ key: 'site:pieces/apical-fluid', label: 'Apical fluid (lumen)' })
   })
 
   it('couples complementary ports at the same place, and nothing else', () => {

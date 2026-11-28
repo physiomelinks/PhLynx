@@ -7,9 +7,11 @@ import { computed, ref, unref } from 'vue'
 
 import { useAppSettings } from './useAppSettings'
 import { SELECTION_PLOT_LIMIT, buildSelectionPlot } from '../services/bioView/autoPlot'
+import { siteRolesOf } from '../services/bioView/pieces/layout'
 import { resolveBioRole } from '../services/bioView/roles'
 import { speciesFocus, speciesNetwork } from '../services/bioView/species'
 import { locationSource } from '../services/annotations/locationSources'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
 import { useLibraryStore } from '../stores/libraryStore'
 import { useViewModeStore } from '../stores/viewModeStore'
 
@@ -30,6 +32,7 @@ const EMPTY_CONFIG = Object.freeze({ groups: [], selections: [] })
 export function useSelectionPlot(nodes, edges = ref([])) {
   const viewMode = useViewModeStore()
   const libraryStore = useLibraryStore()
+  const piecesStore = useBioPiecesStore()
   const { settings, saveAppSettings } = useAppSettings()
 
   const isShown = computed(() => viewMode.isBio)
@@ -42,9 +45,11 @@ export function useSelectionPlot(nodes, edges = ref([])) {
   const plot = computed(() => {
     if (!selected.value.length && !focused.value) return null
     const all = unref(nodes)
+    const siteRoles = siteRolesOf(piecesStore.pieces, all)
     const roleOf = (node) => {
       const sidecar = sidecarOf(node)
-      return resolveBioRole(node.data, { sidecar, worked: locationSource().workedRole(node, { sidecar }) }).role
+      const worked = locationSource().workedRole(node, { sidecar })
+      return resolveBioRole(node.data, { sidecar, worked, siteRole: siteRoles.get(node.id) }).role
     }
     if (!focused.value) return buildSelectionPlot(selected.value, { roleOf, sidecarOf })
     const byId = new Map(all.map((node) => [node.id, node]))

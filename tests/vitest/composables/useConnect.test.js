@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useConnect } from '../../../src/composables/useConnect.js'
 import { useNodeDataHistory } from '../../../src/composables/useNodeDataHistory.js'
-import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
+import { getBuiltInPieceTemplate } from '../../../src/services/bioView/pieces/builtInTemplates.js'
+import { useBioPiecesStore } from '../../../src/stores/bioPiecesStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { TOY_MODULES, readToy } from '../services/annotations/toyModel.js'
@@ -390,11 +391,11 @@ describe('useConnect', () => {
   })
 
   describe('between placed nodes with annotated math', () => {
-    let toy, templateId
+    let toy
 
-    /** A toy node placed at its site on the epithelial-cell template instance. */
+    /** A toy node placed at its site on the epithelial cell's pieces. */
     const placedNode = (name, ports = []) =>
-      toy.node(name, ports, { bioView: { site: `${templateId}/${TOY_PLACEMENTS[name]}` } })
+      toy.node(name, ports, { bioView: { site: `pieces/${TOY_PLACEMENTS[name]}` } })
 
     beforeEach(async () => {
       toy ??= await loadToyNodes()
@@ -404,7 +405,7 @@ describe('useConnect', () => {
         library.addMath(mathRef, readToy(`${module}.cellml`))
         library.setModuleAnnotations(mathRef, readToy(`${module}.ttl`))
       }
-      templateId = useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 }).id
+      useBioPiecesStore().addTemplate(getBuiltInPieceTemplate('epithelial-cell'), { x: 0, y: 0 })
       nodes.value = [placedNode('porter_in', [port('general_ports', 'flow', ['q'])]), placedNode('cell')]
     })
 
@@ -498,7 +499,7 @@ describe('useConnect', () => {
       expect(nodes.value[1].data.ports).toEqual([])
     })
 
-    it('joins placed nodes dropped on a template by the matcher rather than the link', async () => {
+    it('joins placed nodes dropped on the pieces by the matcher rather than the link', async () => {
       const { connectNodes } = useConnect({ ...deps, recordEdit: vi.fn(async ({ apply }) => apply()) })
       const edge = await connectNodes({ source: 'node_cell', target: 'node_porter_in' }, { link: 'across' })
       // The given way round, as the matcher couples as many either way.

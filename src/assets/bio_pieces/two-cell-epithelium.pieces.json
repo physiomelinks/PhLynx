@@ -1,0 +1,187 @@
+{
+  "$schema": "./bio-pieces.schema.json",
+  "schemaVersion": 4,
+  "id": "two-cell-epithelium",
+  "name": "Two-cell epithelium",
+  "description": "Two neighbouring epithelial cells sharing apical and basolateral fluids, with the paracellular space between them.",
+  "pieces": [
+    {
+      "id": "a",
+      "kind": "compartment",
+      "label": "Epithelial cell A"
+    },
+    {
+      "id": "a-membrane",
+      "kind": "membrane",
+      "label": "Plasma membrane (A)",
+      "encloses": [
+        "a"
+      ],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 260
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "apical",
+            "label": "Apical membrane (A)",
+            "annotation": {
+              "facet": "apical"
+            }
+          }
+        ],
+        "bottom": [
+          {
+            "id": "basolateral",
+            "label": "Basolateral membrane (A)",
+            "annotation": {
+              "facet": "basolateral"
+            }
+          }
+        ],
+        "left": [
+          {
+            "id": "lateral-left",
+            "label": "Lateral membrane (A, left)",
+            "group": "lateral",
+            "annotation": {
+              "facet": "lateral",
+              "at": "left"
+            }
+          }
+        ],
+        "right": [
+          {
+            "id": "lateral-right",
+            "label": "Lateral membrane (A, right)",
+            "group": "lateral",
+            "annotation": {
+              "facet": "lateral",
+              "at": "right"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "b",
+      "kind": "compartment",
+      "label": "Epithelial cell B"
+    },
+    {
+      "id": "b-membrane",
+      "kind": "membrane",
+      "label": "Plasma membrane (B)",
+      "encloses": [
+        "b"
+      ],
+      "frame": {
+        "x": 440,
+        "y": 0,
+        "width": 320,
+        "height": 260
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "apical",
+            "label": "Apical membrane (B)",
+            "annotation": {
+              "facet": "apical"
+            }
+          }
+        ],
+        "bottom": [
+          {
+            "id": "basolateral",
+            "label": "Basolateral membrane (B)",
+            "annotation": {
+              "facet": "basolateral"
+            }
+          }
+        ],
+        "left": [
+          {
+            "id": "lateral-left",
+            "label": "Lateral membrane (B, left)",
+            "group": "lateral",
+            "annotation": {
+              "facet": "lateral",
+              "at": "left"
+            }
+          }
+        ],
+        "right": [
+          {
+            "id": "lateral-right",
+            "label": "Lateral membrane (B, right)",
+            "group": "lateral",
+            "annotation": {
+              "facet": "lateral",
+              "at": "right"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "apical-fluid",
+      "kind": "compartment",
+      "label": "Apical fluid (lumen)",
+      "tone": "sky",
+      "docks": [
+        {
+          "on": "a-membrane",
+          "side": "top",
+          "face": "outside"
+        },
+        {
+          "on": "b-membrane",
+          "side": "top",
+          "face": "outside"
+        }
+      ]
+    },
+    {
+      "id": "basolateral-fluid",
+      "kind": "compartment",
+      "label": "Basolateral fluid (interstitium)",
+      "tone": "rose",
+      "docks": [
+        {
+          "on": "a-membrane",
+          "side": "bottom",
+          "face": "outside"
+        },
+        {
+          "on": "b-membrane",
+          "side": "bottom",
+          "face": "outside"
+        }
+      ]
+    },
+    {
+      "id": "paracellular",
+      "kind": "compartment",
+      "label": "Paracellular space",
+      "tone": "teal",
+      "docks": [
+        {
+          "on": "a-membrane",
+          "side": "right",
+          "face": "outside"
+        },
+        {
+          "on": "b-membrane",
+          "side": "left",
+          "face": "outside"
+        }
+      ]
+    }
+  ],
+  "author": "PhLynx",
+  "license": "CC0-1.0"
+}

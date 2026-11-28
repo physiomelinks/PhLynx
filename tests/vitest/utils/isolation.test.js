@@ -11,6 +11,16 @@ describe('getIsolationStatus', () => {
     ['an insecure page', { crossOriginIsolated: false, isSecureContext: false, navigator: {} }, /secure/],
     ['a window without service workers', { crossOriginIsolated: false, isSecureContext: true, navigator: {} }, /service workers/],
     [
+      'a window the service worker skips',
+      { crossOriginIsolated: false, isSecureContext: true, navigator: { serviceWorker: {} }, coi: { shouldRegister: () => false } },
+      /turned off in this browser window/,
+    ],
+    [
+      'a page the service worker loaded without isolating it',
+      { crossOriginIsolated: false, isSecureContext: true, navigator: { serviceWorker: {} }, coi: { wasControlledAtLoad: true } },
+      /Try another browser/,
+    ],
+    [
       'a page the service worker hasn’t reloaded yet',
       { crossOriginIsolated: false, isSecureContext: true, navigator: { serviceWorker: {} } },
       /Save your work first/,
@@ -22,8 +32,12 @@ describe('getIsolationStatus', () => {
   })
 
   it('says only a page awaiting its worker needs a reload', () => {
-    const scope = (navigator) => ({ crossOriginIsolated: false, isSecureContext: true, navigator })
+    const scope = (navigator, coi) => ({ crossOriginIsolated: false, isSecureContext: true, navigator, coi })
     expect(getIsolationStatus(scope({ serviceWorker: {} })).needsReload).toBe(true)
+    expect(getIsolationStatus(scope({ serviceWorker: {} }, { shouldRegister: () => true })).needsReload).toBe(true)
+    expect(getIsolationStatus(scope({ serviceWorker: {} }, { shouldRegister: () => false })).needsReload).toBeUndefined()
+    expect(getIsolationStatus(scope({ serviceWorker: {} }, { wasControlledAtLoad: false })).needsReload).toBe(true)
+    expect(getIsolationStatus(scope({ serviceWorker: {} }, { wasControlledAtLoad: true })).needsReload).toBeUndefined()
     expect(getIsolationStatus(scope({})).needsReload).toBeUndefined()
   })
 })

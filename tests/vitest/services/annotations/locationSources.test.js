@@ -23,7 +23,7 @@ describe('location sources', () => {
       id: 'stub',
       prepare: () => ({ placed: new Set(['a']) }),
       placeOf: (node, prepared) => (prepared.placed.has(node.id) ? [{ key: `stub:${node.id}`, kind: 'cytosol', as: ['self'] }] : []),
-      workedRole: (node) => (node.data?.stubPlace ? { role: 'cytosol' } : null),
+      workedRole: (node) => (node.data?.stubPlace ? 'cytosol' : null),
       nodeKeys: ['stubPlace'],
     }
     unregister = registerLocationSource(stub)
@@ -35,7 +35,7 @@ describe('location sources', () => {
     const context = buildCouplingContext({ nodes: [{ id: 'a' }, { id: 'b' }], source })
     expect(placesOf({ id: 'a' }, context).map((place) => place.key)).toEqual(['stub:a'])
     expect(placesOf({ id: 'b' }, context)).toEqual([])
-    expect(source.workedRole({ id: 'a', data: { stubPlace: 'x' } }, { sidecar: null })).toEqual({ role: 'cytosol' })
+    expect(source.workedRole({ id: 'a', data: { stubPlace: 'x' } }, { sidecar: null })).toBe('cytosol')
 
     unregister()
     expect(locationSource()).toBe(PLACEMENT_SOURCE)
@@ -45,6 +45,6 @@ describe('location sources', () => {
     unregister = registerLocationSource({ id: 'stub', nodeKeys: ['stubPlace'] })
     const data = { name: 'a', stubPlace: 'p', bioView: { role: 'region', site: 'bt/x' } }
     expect(withAnnotationData({ name: 'a' }, data)).toEqual({ name: 'a', stubPlace: 'p', bioView: data.bioView })
-    expect(nodeDataForCopy(data)).toEqual({ name: 'a', bioView: { role: 'region' } })
+    expect(nodeDataForCopy(data)).toEqual({ name: 'a' })
   })
 })

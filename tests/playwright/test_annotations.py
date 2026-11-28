@@ -1,6 +1,6 @@
 """Annotation end-to-end tests, on the synthetic toy model in tests/resources/annotations/toy.
 
-Toy modules dropped on an epithelial-cell template couple through their annotations once their side-cars are imported,
+Toy modules dropped on an epithelial cell's pieces couple through their annotations once their side-cars are imported,
 and a reservoir's summed flows can be held at 0. A module's variables are annotated by hand in the instance editor's
 Annotations tab, with OLS mocked.
 """
@@ -90,7 +90,12 @@ def toy(name):
 
 
 # The toy instance each epithelial-cell site holds in the coupling test.
-TOY_SITES = {"apical-fluid": "outside", "basolateral-fluid": "vessel", "cell.apical": "porter_in", "cell.basolateral": "porter_out"}
+TOY_SITES = {
+    "apical-fluid": "outside",
+    "basolateral-fluid": "vessel",
+    "plasma-membrane.apical": "porter_in",
+    "plasma-membrane.basolateral": "porter_out",
+}
 
 
 def toy_names(flow):
@@ -139,8 +144,12 @@ RUN_WITH_RISING_CONCENTRATIONS = """(ids) => {
 }"""
 
 def piece(page, path):
-    """An empty piece of the placed template, by its path in the template ('cell', 'apical-fluid', ...)."""
-    return page.locator(f'{BIO_NODE}[data-id^="tpl:"][data-id$="/{path}"]')
+    """The node drawing a site of the pieces, by its path ('cell', 'apical-fluid', ...)."""
+    return page.locator(f'{BIO_NODE}:has([data-site="pieces/{path}"])').first
+
+
+# The view's nodes that are diagram instances: not a piece with no module on it, a process zone or a grip.
+PLACED = f'{BIO_NODE}:not([data-id^="pc:"]):not([data-id^="grip:"])'
 
 
 def mock_ontology_services(target, requests):
@@ -162,6 +171,24 @@ def mock_ontology_services(target, requests):
 
     target.route(OLS_ROUTE, answer_ols)
     target.route(UNIPROT_ROUTE, lambda route: route.fulfill(status=503, body=""))
+
+
+def empty_spot(page):
+    """A screen point of the physiological view with nothing drawn on it, for the pane's own menu: the first, in a
+    grid from the view's top-left, where the pane itself is under the pointer."""
+    point = page.evaluate(
+        """(selector) => {
+            const pane = document.querySelector(selector)
+            const { left, top, width, height } = pane.getBoundingClientRect()
+            for (let y = top + 20; y < top + height - 20; y += 20)
+                for (let x = left + 20; x < left + width - 20; x += 20)
+                    if (document.elementFromPoint(x, y) === pane) return [x, y]
+            return null
+        }""",
+        f"{BIO} .vue-flow__pane",
+    )
+    assert point, "No empty spot in the physiological view"
+    return tuple(point)
 
 
 def open_menu(page, index, label):
@@ -191,6 +218,68 @@ def open_app(page):
     expect(page.locator(".vue-flow__pane")).to_be_visible(timeout=APP_MOUNT_TIMEOUT)
     # Drops and the library's cards wait for the built-in library.
     wait_for_library(page)
+
+
+def placed_ids(page):
+    """The ids of the modules drawn in the physiological view."""
+    return page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)")
+
+
+def added_modules(page, before):
+    """The new, empty modules a template has just come with, one on each compartment, membrane and tube of it: those
+    not in before, once they stop coming."""
+    added, steady = [], 0
+    while steady < 3:
+        page.wait_for_timeout(100)
+        now = [node_id for node_id in placed_ids(page) if node_id not in before]
+        steady = steady + 1 if now and now == added else 0
+        added = now
+    return added
+
+
+def add_template(page, name, at=(450, 200)):
+    """Place a template from the physiological view's menu, each compartment, membrane and tube of it with the new,
+    empty module it comes with. Gives their ids."""
+    before = set(placed_ids(page))
+    page.mouse.click(*at, button="right")
+    menu = page.locator(".p-contextmenu")
+    menu.get_by_text("Add Template", exact=True).hover()
+    menu.get_by_text(name, exact=True).click()
+    expect(menu).to_be_hidden()
+    return added_modules(page, before)
+
+
+def inside_of(page, path, margin=40):
+    """A screen point on a cell's or compartment's own inside, clear of what is drawn in it (its process zones, the
+    compartments in it), of its name and of its edges: where a drop goes to its inside."""
+    node = piece(page, path)
+    node_id = node.get_attribute("data-id")
+    point = page.evaluate(
+        """([id, margin]) => {
+            const node = document.querySelector(`.bio-flow .vue-flow__node[data-id="${id}"]`)
+            const { left, top, width, height } = node.getBoundingClientRect()
+            for (let y = top + margin; y < top + height - margin; y += 10)
+                for (let x = left + margin; x < left + width - margin; x += 10) {
+                    const el = document.elementFromPoint(x, y)
+                    if (el?.closest('.vue-flow__node') === node && !el.closest('[data-testid=bio-piece-name]')) return [x, y]
+                }
+            return null
+        }""",
+        [node_id, margin],
+    )
+    assert point, f"No clear point inside {path}"
+    return tuple(point)
+
+
+def wait_for_new_module(page, before):
+    """Waits for a module not in before to be drawn in the physiological view: a drop on a compartment, membrane or tube
+    replaces its module, so the count alone may not change. Gives its id."""
+    for _ in range(100):
+        new = [node_id for node_id in placed_ids(page) if node_id not in before]
+        if new:
+            return new[0]
+        page.wait_for_timeout(100)
+    raise AssertionError("No new module was placed")
 
 
 def place(page, name, x=700, y=450):
@@ -351,21 +440,25 @@ class TestAnnotationCoupling(unittest.TestCase):
     def flow(self):
         return self.page.evaluate(READ_FLOW)
 
-    def open_physiology_with_template(self):
+    def open_physiology_with_cell(self):
         """Import the toy maths, switch to the physiological view and place an epithelial cell."""
         page = self.page
         open_app(page)
         import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(450, 200, button="right")
+        add_template(page, "Epithelial cell")
         menu = page.locator(".p-contextmenu")
-        menu.get_by_text("Add Template", exact=True).hover()
-        menu.get_by_text("Epithelial cell", exact=True).click()
-        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        expect(piece(page, "cell")).to_be_visible()
         page.keyboard.press("Escape")
         expect(page.locator(".p-contextmenu")).to_be_hidden()
         page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
+
+    def drop_placed(self, name, point):
+        """Drop the named library module on a screen point and wait for it to be placed."""
+        before = set(placed_ids(self.page))
+        self.drop_module(name, point)
+        return wait_for_new_module(self.page, before)
 
     def drop_module(self, name, point):
         """Drag the named library module onto a screen point of the physiological view."""
@@ -422,13 +515,12 @@ class TestAnnotationCoupling(unittest.TestCase):
             ("porter", (cell["x"] + cell["width"] / 2, cell["y"])),
             ("porter", (cell["x"] + cell["width"] / 2, cell["y"] + cell["height"])),
         ]
-        for count, (module, point) in enumerate(drops, start=1):
-            self.drop_module(module, point)
-            expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count)
+        for module, point in drops:
+            self.drop_placed(module, point)
 
     def test_imports_module_side_cars_from_the_menu_and_shows_species_mode(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         self.assertEqual(coupling_pairs(self.flow()), [])
 
@@ -445,13 +537,13 @@ class TestAnnotationCoupling(unittest.TestCase):
         )
 
         # Species mode is offered without leaving the view.
-        page.mouse.click(450, 200, button="right")
+        page.mouse.click(*empty_spot(page), button="right")
         expect(page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True)).to_be_visible()
 
-    def show_species(self, scope, at=(450, 200)):
+    def show_species(self, scope, at=None):
         """Turn species mode on from the pane menu, showing the coupled species, those with fluxes, or every one."""
         page = self.page
-        page.mouse.click(*at, button="right")
+        page.mouse.click(*(at or empty_spot(page)), button="right")
         menu = page.locator(".p-contextmenu")
         menu.get_by_text("Species Mode", exact=True).hover()
         menu.get_by_text(scope, exact=True).click()
@@ -459,7 +551,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_focusing_a_species_sets_the_others_back(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         # The pools also hold glucose, uncoupled.
         import_files(page, "Module Annotations", [pool_with_glucose(), toy("porter.ttl")])
@@ -488,7 +580,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_a_held_reservoir_shows_as_a_dependence_of_its_protein(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
         self.show_species("Coupled Species")
@@ -515,10 +607,7 @@ class TestAnnotationCoupling(unittest.TestCase):
     def place_cell_pool(self):
         """Drop a pool inside the cell, under its name, so the porters carry species between it and the fluids."""
         page = self.page
-        hint = piece(page, "cell").get_by_text("Drop a module").bounding_box()
-        count = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])').count()
-        self.drop_module("pool", (hint["x"] + hint["width"] / 2, hint["y"] + hint["height"] / 2))
-        expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count + 1)
+        self.drop_placed("pool", inside_of(page, "cell"))
 
     def test_a_cardiomyocyte_couples_each_protein_to_the_spaces_either_side_of_it(self):
         page = self.page
@@ -526,20 +615,16 @@ class TestAnnotationCoupling(unittest.TestCase):
         import_files(page, "CellML File", [toy(name) for name in TOY_MATHS])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(450, 200, button="right")
+        add_template(page, "Cardiomyocyte")
         menu = page.locator(".p-contextmenu")
-        menu.get_by_text("Add Template", exact=True).hover()
-        menu.get_by_text("Cardiomyocyte", exact=True).click()
-        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        expect(piece(page, "myocyte")).to_be_visible()
         page.keyboard.press("Escape")
         expect(menu).to_be_hidden()
         fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
-        placed = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')
+        placed = page.locator(PLACED)
 
         def drop(name, point):
-            count = placed.count()
-            self.drop_module(name, point)
-            expect(placed).to_have_count(count + 1)
+            self.drop_placed(name, point)
             fit.click()
             wait_until_still(page)
 
@@ -558,8 +643,9 @@ class TestAnnotationCoupling(unittest.TestCase):
         # A pool in each space: the cleft, the SR, the cytosol and outside the cell.
         drop("pool", centre(piece(page, "cleft").bounding_box()))
         drop("pool", centre(piece(page, "sr").bounding_box()))
-        hint = piece(page, "myocyte").get_by_text("Drop a module").last.bounding_box()
-        drop("pool", (hint["x"] + hint["width"] / 2, hint["y"] + 6))
+        # The cytosol, low in the myocyte, clear of the SR, its zones and its slots.
+        myocyte = cells()[-1]
+        drop("pool", (myocyte["x"] + myocyte["width"] * 0.5, myocyte["y"] + myocyte["height"] * 0.85))
         outside = piece(page, "extracellular").bounding_box()
         drop("pool", (outside["x"] + 40, outside["y"] + 40))
         # A porter on the T-tubule, and one on each side of the SR.
@@ -582,15 +668,15 @@ class TestAnnotationCoupling(unittest.TestCase):
 
         expected = {
             # The T-tubule's porter: the space outside the cell beyond it, the cleft within, and its cell's membrane.
-            "extracellular:c_A - myocyte.t-tubule:c_A_o",
-            "cleft:c_A - myocyte.t-tubule:c_A_i",
-            "myocyte.t-tubule:area - myocyte:area",
+            "extracellular:c_A - t-tubule:c_A_o",
+            "cleft:c_A - t-tubule:c_A_i",
+            "myocyte:area - t-tubule:area",
             # The junctional SR's: the cleft outside it, the SR's lumen within.
-            "cleft:c_A - sr.junctional:c_A_o",
-            "sr.junctional:c_A_i - sr:c_A",
+            "cleft:c_A - sr-membrane.junctional:c_A_o",
+            "sr-membrane.junctional:c_A_i - sr:c_A",
             # The network SR's: the cytosol outside it.
-            "myocyte:c_A - sr.network:c_A_o",
-            "sr.network:c_A_i - sr:c_A",
+            "myocyte:c_A - sr-membrane.network:c_A_o",
+            "sr-membrane.network:c_A_i - sr:c_A",
         }
         self.assertTrue(expected <= couplings(), expected - couplings())
 
@@ -600,20 +686,21 @@ class TestAnnotationCoupling(unittest.TestCase):
         import_files(page, "CellML File", [toy(name) for name in [*TOY_MATHS, "duct.cellml"]])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        # A rod: an outer and an inner segment inside one cell, each with its own GO term, and a cilium between them.
+        # A rod: an outer and an inner segment inside one cell, each with its own GO term, and a tube between them, the
+        # cilium.
         page.locator("[data-testid=library-tab-build]").click()
+        before = set(placed_ids(page))
         with page.expect_file_chooser() as chooser:
             page.locator("[data-testid=bio-palette-load-template]").click()
-        chooser.value.set_files(toy("rod.template.json"))
-        expect(page.locator("[data-testid=bio-template-title]")).to_have_count(1)
+        chooser.value.set_files(toy("rod.pieces.json"))
+        expect(piece(page, "outer-segment")).to_be_visible()
+        added_modules(page, before)
         page.locator("[data-testid=library-tab-modules]").click()
         fit = page.locator(f"{BIO} .vue-flow__controls-fitview")
-        placed = page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')
+        placed = page.locator(PLACED)
 
         def drop(name, box):
-            count = placed.count()
-            self.drop_module(name, (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2))
-            expect(placed).to_have_count(count + 1)
+            self.drop_placed(name, (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2))
             fit.click()
             wait_until_still(page)
 
@@ -621,7 +708,10 @@ class TestAnnotationCoupling(unittest.TestCase):
         wait_until_still(page)
         drop("pool", piece(page, "outer-segment").bounding_box())
         drop("pool", piece(page, "inner-segment").bounding_box())
-        drop("duct", page.locator("[data-testid=bio-process-zone]").bounding_box())
+        # The duct on the cilium, the tube between them.
+        # The tube's new module, drawn as the tube, takes the duct's drop.
+        cilium = next(n["id"] for n in self.flow()["nodes"] if n["site"] == "pieces/cilium")
+        drop("duct", page.locator(f'{BIO_NODE}[data-id="{cilium}"]').bounding_box())
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("duct.ttl")])
 
         flow = self.flow()
@@ -632,10 +722,10 @@ class TestAnnotationCoupling(unittest.TestCase):
                 found.add(" - ".join(sorted([f"{site[edge['source']]}:{c['source']}", f"{site[edge['target']]}:{c['target']}"])))
         # Each end of the duct finds its own segment by the segment's term, though both are cytoplasm.
         expected = {
-            "outer-segment:c_A - rod.cilium:c_A_a",
-            "inner-segment:c_A - rod.cilium:c_A_b",
-            "outer-segment:v_A - rod.cilium:v_A_a",
-            "inner-segment:v_A - rod.cilium:v_A_b",
+            "cilium:c_A_a - outer-segment:c_A",
+            "cilium:c_A_b - inner-segment:c_A",
+            "cilium:v_A_a - outer-segment:v_A",
+            "cilium:v_A_b - inner-segment:v_A",
         }
         self.assertTrue(expected <= found, (expected - found, found))
 
@@ -646,7 +736,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_the_species_menu_hides_a_species_with_its_paths_and_still_lists_it(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         self.place_cell_pool()
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
@@ -680,14 +770,18 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_species_mode_joins_a_process_in_the_cell_to_the_species_it_exchanges(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
-        cell = piece(page, "cell").bounding_box()
         self.place_cell_pool()
-        # A porter dropped in the cell's process area is a process, coupled to the cell's pool.
-        self.drop_module("porter", (cell["x"] + cell["width"] * 0.3, cell["y"] + cell["height"] * 0.42))
-        card = page.locator(f"{BIO} .vue-flow__node-bioCard")
-        expect(card).to_have_count(1)
+        # A porter dropped in the cell's process zone is a process, coupled to the cell's pool.
+        before = set(page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)"))
+        zone = page.locator(f'{BIO_NODE}[data-id="pc:metabolism"]').bounding_box()
+        # On its hint: an empty zone takes a drop anywhere in it.
+        self.drop_module("porter", (zone["x"] + zone["width"] / 2, zone["y"] + zone["height"] / 2))
+        expect(page.locator(PLACED)).to_have_count(len(before) + 1)
+        added = set(page.locator(PLACED).evaluate_all("(els) => els.map((el) => el.dataset.id)")) - before
+        card = page.locator(f'{BIO_NODE}[data-id="{added.pop()}"]')
+        expect(card).to_have_class(re.compile("vue-flow__node-bioProtein"))
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
         pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
         self.show_species("Species with Fluxes", (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2))
@@ -701,7 +795,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_species_mode_scrubs_and_plays_a_run_s_flows(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         self.place_cell_pool()
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
@@ -736,7 +830,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_focusing_a_species_tints_its_compartments_by_its_concentration(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         self.place_cell_pool()
         import_files(page, "Module Annotations", [toy("pool.ttl"), toy("porter.ttl")])
@@ -778,7 +872,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_species_with_fluxes_hides_tokens_with_no_path_but_keeps_the_focused_one(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         self.place_cell_pool()
         # The pools also hold glucose, uncoupled: tokens with no path.
@@ -786,10 +880,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         tokens = page.locator("[data-testid=bio-species-token]")
         glucose = tokens.and_(page.locator('[data-species="CHEBI:17634"]'))
         paths = page.locator("[data-testid=bio-species-path]")
-        # The pane's right, clear of the template and the minimap.
-        pane = page.locator(f"{BIO} .vue-flow__pane").bounding_box()
-        spare = (pane["x"] + pane["width"] - 40, pane["y"] + pane["height"] / 2)
-        self.show_species("Coupled Species", spare)
+        self.show_species("Coupled Species")
         expect(tokens).to_have_count(3)
         expect(paths).to_have_count(2)
 
@@ -804,22 +895,22 @@ class TestAnnotationCoupling(unittest.TestCase):
         expect(lumen).to_have_count(1)
 
         # Glucose has no path: shown with every annotated species, gone with only those with fluxes.
-        self.show_species("All Annotated Species", spare)
+        self.show_species("All Annotated Species")
         expect(glucose).to_have_count(3)
-        self.show_species("Species with Fluxes", spare)
+        self.show_species("Species with Fluxes")
         expect(glucose).to_have_count(0)
         expect(lumen).to_have_count(1)
         expect(paths).to_have_count(2)
 
         # Focused, it stays: from All Annotated Species into Species with Fluxes, until the focus is cleared.
-        self.show_species("All Annotated Species", spare)
+        self.show_species("All Annotated Species")
         lumen_glucose = glucose.and_(page.locator(f'[data-node="{ids["outside"]}"]'))
         lumen_glucose.click()
         expect(page.locator(".bio-species-token--focused")).to_have_count(1)
-        self.show_species("Species with Fluxes", spare)
+        self.show_species("Species with Fluxes")
         expect(glucose).to_have_count(1)
         expect(lumen_glucose).to_have_class(re.compile(r"bio-species-token--focused"))
-        page.mouse.click(*spare)
+        page.mouse.click(*empty_spot(page))
         expect(glucose).to_have_count(0)
 
     def chip_order(self, node_id):
@@ -840,7 +931,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_dragging_a_species_chip_reorders_its_compartment_in_one_undo_step(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         import_files(page, "Module Annotations", [pool_with_glucose(), toy("porter.ttl")])
         self.show_species("All Annotated Species")
@@ -891,7 +982,7 @@ class TestAnnotationCoupling(unittest.TestCase):
     def species_with_glucose(self):
         """An epithelial cell with the toys placed, glucose in the pools, and every annotated species shown."""
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
         self.place_toys()
         self.place_cell_pool()
         import_files(page, "Module Annotations", [pool_with_glucose(), toy("porter.ttl")])
@@ -907,7 +998,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         """The screen points a species' paths' legs end at, nearest the given compartment's token first."""
         return self.page.evaluate(LEG_ENDS_JS, [species, node_id])
 
-    def test_species_move_with_a_template_while_it_is_dragged(self):
+    def test_species_move_with_a_cell_while_it_is_dragged(self):
         page = self.page
         ids = self.species_with_glucose()
         lumen = ids["outside"]
@@ -918,18 +1009,21 @@ class TestAnnotationCoupling(unittest.TestCase):
         path = page.locator(f'[data-testid=bio-species-path][data-species="{species}"] > path.bio-species-leg').first
         token_at, path_at = self.centre(token), self.centre(path)
 
-        # Partway through a drag of the template's name, the tokens and their paths have gone with it.
-        title = page.locator("[data-testid=bio-template-title]")
-        x, y = self.centre(title)
+        # Partway through a drag of the cell, by its inside clear of what is in it, the fluid against it, its tokens
+        # and their paths have gone with it.
+        cell = page.locator(f"{BIO} .vue-flow__node-bioCell").first
+        box = cell.bounding_box()
+        x, y = box["x"] + 30, box["y"] + box["height"] - 40
+        cell_at = (box["x"], box["y"])
         dx, dy = 120, 60
         page.mouse.move(x, y)
         page.mouse.down()
         for step in range(1, 11):
             page.mouse.move(x + dx * step / 10, y + dy * step / 10)
         wait_until_still(page)
-        # As far as the template's name went (the drag's threshold takes a little of the pointer's way).
-        title_now = self.centre(title)
-        dx, dy = title_now[0] - x, title_now[1] - y
+        # As far as the cell went (the drag's threshold takes a little of the pointer's way).
+        box = cell.bounding_box()
+        dx, dy = box["x"] - cell_at[0], box["y"] - cell_at[1]
         self.assertGreater(dx, 60)
         moved, path_moved = self.centre(token), self.centre(path)
         self.assertAlmostEqual(moved[0] - token_at[0], dx, delta=2)
@@ -946,7 +1040,7 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.assertAlmostEqual(dropped[1], moved[1], delta=4)
         self.assertIsNone(token.evaluate("(el) => el.style.transform || null"))
 
-        # One undo puts the template, and its species, back.
+        # One undo puts the cell, and its species, back.
         page.locator("button:has(.pi-undo)").first.click()
         wait_until_still(page)
         back = self.centre(token)
@@ -1028,7 +1122,7 @@ class TestAnnotationCoupling(unittest.TestCase):
 
     def test_placed_modules_couple_by_their_annotations_and_a_held_reservoir_sums_nothing(self):
         page = self.page
-        self.open_physiology_with_template()
+        self.open_physiology_with_cell()
 
         # The pools in the apical and basolateral fluids, the porters on the apical and basolateral facets.
         cell = piece(page, "cell").bounding_box()
@@ -1040,19 +1134,21 @@ class TestAnnotationCoupling(unittest.TestCase):
             ("porter", (cell["x"] + cell["width"] / 2, cell["y"])),
             ("porter", (cell["x"] + cell["width"] / 2, cell["y"] + cell["height"])),
         ]
-        for count, (module, point) in enumerate(drops, start=1):
-            self.drop_module(module, point)
-            expect(page.locator(f'{BIO_NODE}:not([data-id^="tpl:"])')).to_have_count(count)
+        for module, point in drops:
+            self.drop_placed(module, point)
         flow = self.flow()
-        self.assertEqual(sorted(toy_names(flow).values()), ["outside", "porter_in", "porter_out", "vessel"])
+        # The cell's inside and its membrane keep the new, empty modules they came with.
+        names = toy_names(flow)
+        self.assertEqual(sorted(name for name in names.values() if name), ["outside", "porter_in", "porter_out", "vessel"])
         # Each porter is joined to the fluid it faces; nothing couples them yet.
-        self.assertEqual(len(flow["edges"]), 2)
+        toys = [e for e in flow["edges"] if names[e["source"]] and names[e["target"]]]
+        self.assertEqual(len(toys), 2)
         self.assertEqual(coupling_pairs(flow), [])
 
         # With the side-cars, the placed instances couple by property, species and place.
         self.import_sidecar("outside", "pool.ttl")
         # A side-car saved from the editor shows in the view at once: species mode is offered.
-        page.mouse.click(450, 200, button="right")
+        page.mouse.click(*empty_spot(page), button="right")
         expect(page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True)).to_be_visible()
         page.locator(".p-contextmenu").get_by_text("Species Mode", exact=True).hover()
         expect(page.locator(".p-contextmenu").get_by_text("Show Species", exact=True)).to_be_visible()
@@ -1081,12 +1177,6 @@ class TestAnnotationCoupling(unittest.TestCase):
         self.assertIn("outside.c_A - porter_in.c_A_o", coupling_pairs(flow))
 
 
-def pick(page, testid, pattern):
-    """Choose the first option matching a pattern in one of the placing dialog's dropdowns."""
-    page.locator(f"[data-testid={testid}]").click()
-    page.get_by_role("option").filter(has_text=re.compile(pattern)).first.click()
-
-
 def edge_pairs(flow):
     """Each edge's two ends by name, in name order, with its couplings as 'a.x - b.y' in name order."""
     pairs = {}
@@ -1099,15 +1189,18 @@ def edge_pairs(flow):
 
 
 class TestAddedCellMembrane(unittest.TestCase):
-    """A membrane and the proteins on a cell added by hand join up, whichever comes first."""
+    """A membrane and the proteins on a plain cell join up, whichever comes first."""
 
     setUp = TestAnnotationCoupling.setUp
     tearDown = TestAnnotationCoupling.tearDown
     flow = TestAnnotationCoupling.flow
     drop_module = TestAnnotationCoupling.drop_module
+    drop_placed = TestAnnotationCoupling.drop_placed
+    place_cell_pool = TestAnnotationCoupling.place_cell_pool
 
     def add_cell(self, sidecars, membrane):
-        """Import the toys (and their side-cars), then add a pool cell, with the wall as its membrane if asked."""
+        """Import the toys (and their side-cars), place the plain Cell template with a pool inside it, and the wall
+        on its membrane if asked."""
         page = self.page
         open_app(page)
         import_files(page, "CellML File", [toy(name) for name in [*TOY_MATHS, "wall.cellml"]])
@@ -1115,24 +1208,31 @@ class TestAddedCellMembrane(unittest.TestCase):
             import_files(page, "Module Annotations", [toy(name) for name in ["pool.ttl", "porter.ttl", "wall.ttl"]])
         page.locator("[data-testid=view-mode]").get_by_text("Physiology").click()
         expect(page.locator(f"{BIO} .vue-flow__pane")).to_be_visible()
-        page.mouse.click(600, 400, button="right")
-        page.locator(".p-contextmenu").get_by_text("Add Cell…").click()
-        dialog = page.locator("[data-testid=bio-place-dialog]")
-        expect(dialog).to_be_visible()
-        pick(page, "bio-place-module", r"^pool")
+        add_template(page, "Cell")
+        menu = page.locator(".p-contextmenu")
+        expect(piece(page, "cell")).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(menu).to_be_hidden()
+        page.locator(f"{BIO} .vue-flow__controls-zoomout").click()
+        self.place_cell_pool()
         if membrane:
-            pick(page, "bio-place-membrane", r"^wall")
-        page.locator("[data-testid=bio-place-confirm]").click()
-        expect(dialog).to_be_hidden()
+            self.drop_wall()
+
+    def drop_wall(self):
+        """Drop the wall just inside the cell's outline, clear of its slots: the cell's membrane."""
+        page = self.page
+        box = piece(page, "cell").bounding_box()
+        wall = self.drop_placed("wall", (box["x"] + box["width"] * 0.15, box["y"] + 4))
+        expect(page.locator(f'{BIO} .vue-flow__node-bioMembrane')).to_have_attribute("data-id", wall)
 
     def drop_porters(self):
         """Drop a porter on the cell's top facet and one on its bottom facet."""
         page = self.page
-        cell = page.locator(f"{BIO} .vue-flow__node-bioCell").first.bounding_box()
+        cell = piece(page, "cell").bounding_box()
         middle = cell["x"] + cell["width"] / 2
         for count, y in enumerate([cell["y"], cell["y"] + cell["height"]], start=1):
             self.drop_module("porter", (middle, y))
-            expect(page.locator(f"{BIO} .vue-flow__node-bioProtein")).to_have_count(count)
+            expect(page.locator(f'{BIO} .vue-flow__node-bioProtein:not([data-id^="pc:"])')).to_have_count(count)
 
     def wait_for_edges(self, count):
         self.page.wait_for_function(f"() => ({READ_FLOW})().edges.length === {count}", timeout=10000)
@@ -1153,17 +1253,11 @@ class TestAddedCellMembrane(unittest.TestCase):
             }
         )
 
-    def test_proteins_first_then_membrane_joins_them_in_one_step(self):
+    def test_proteins_first_then_a_membrane_module_joins_them_in_one_step(self):
         page = self.page
         self.add_cell(sidecars=True, membrane=False)
         self.drop_porters()
-        self.drop_module("wall", (1400, 850))
-        dialog = page.locator("[data-testid=bio-place-dialog]")
-        expect(dialog).to_be_visible()
-        pick(page, "bio-place-role", r"^A cell.s membrane")
-        pick(page, "bio-place-cell", r"^pool")
-        page.locator("[data-testid=bio-place-confirm]").click()
-        expect(dialog).to_be_hidden()
+        self.drop_wall()
         pairs = self.wait_for_edges(5)
         # Coupled through the side-cars' annotations.
         self.assertEqual(pairs[("porter", "wall")], ["porter.j_A - wall.i_tot", "porter.u - wall.u"])
@@ -1172,12 +1266,15 @@ class TestAddedCellMembrane(unittest.TestCase):
         # and charge flow, share no quantity.
         self.assertEqual(pairs[("pool", "wall")], [])
 
-        # Adding the membrane and joining it is one step.
+        # Putting the wall in place of the membrane's new, empty module, and joining it, is one step: undone, the
+        # new module is back in its place.
         button = page.locator("button:has(.pi-undo)").first
         expect(button).to_be_enabled()
         button.click()
-        self.assertEqual(set(self.wait_for_edges(2)), {("pool", "porter"), ("pool", "porter_1")})
-        self.assertNotIn("wall", [n["name"] for n in self.flow()["nodes"]])
+        page.wait_for_function(f"() => !({READ_FLOW})().nodes.some((n) => n.name === 'wall')", timeout=10000)
+        pairs = edge_pairs(self.flow())
+        self.assertNotIn("wall", {name for pair in pairs for name in pair})
+        self.assertIn(("pool", "porter"), pairs)
 
 
 if __name__ == "__main__":

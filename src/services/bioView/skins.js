@@ -4,13 +4,14 @@
  * elements, so nothing in it can run or reach outside the drawing.
  */
 
-import { isShapeId, readShape } from './shapeGeometry.js'
+/** The most an area skin's SVG may hold. */
+export const SKIN_LIMITS = Object.freeze({ bytes: 256 * 1024 })
 
-/** The most a skin file may hold, and the most skins a workspace keeps. */
-export const SKIN_LIMITS = Object.freeze({ bytes: 256 * 1024, count: 24, name: 64 })
-
-/** A skin's id: a lower-case letter, then lower-case letters, digits and hyphens. */
-export const SKIN_ID = /^[a-z][a-z0-9-]{0,47}$/
+/**
+ * A skin's id, as a piece names it: a lower-case letter, then lower-case letters, digits and hyphens; 'local:' first
+ * for one of the user's own.
+ */
+export const SKIN_ID = /^(?:local:)?[a-z][a-z0-9-]{0,47}$/
 
 /**
  * How a skin fills its piece: 'contain' shows all of it, as big as fits; 'cover' fills the piece, cut where it
@@ -30,20 +31,6 @@ const ALLOWED = new Set([
 
 /** Whether an attribute's value reaches outside the drawing or could run. */
 const isUnsafeValue = (value) => /javascript:|data:|@import|expression\(|url\(\s*['"]?(?!#)/i.test(value)
-
-/**
- * Makes an id for a skin from its file's name.
- *
- * @param {string} name
- * @param {Iterable<string>} taken - Ids in use.
- * @returns {string}
- */
-export function freeSkinId(name, taken) {
-  const used = new Set(taken)
-  const base = (String(name).toLowerCase().replace(/\.svg$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+|-+$/g, '') || 'skin').slice(0, 40)
-  if (!used.has(base)) return base
-  for (let n = 2; ; n++) if (!used.has(`${base}-${n}`)) return `${base}-${n}`
-}
 
 /**
  * Cleans SVG text for use as a skin: only drawing elements are kept, and nothing that runs or points outside the
@@ -99,26 +86,6 @@ export function sanitiseSkin(text, dom = {}) {
     return { svg: null, errors: ['Nothing is left to draw once the SVG is cleaned: it may hold only images or scripts.'] }
   }
   return { svg: serialise(root), errors: [] }
-}
-
-/**
- * Splits a cleaned skin into the geometry it names (see readShape) and its artwork: the same drawing without the
- * named elements, which say where things are, not how the cell looks.
- *
- * @param {string} svg - Cleaned SVG text, from sanitiseSkin.
- * @param {{ parse?: (text: string) => Document, serialise?: (node: Node) => string }} [dom] - As for sanitiseSkin.
- * @returns {{ shape: Object|null, art: string|null, warnings: string[] }} art: null when nothing but geometry is
- *   drawn.
- */
-export function skinParts(svg, dom = {}) {
-  const parse = dom.parse ?? ((source) => new DOMParser().parseFromString(source, 'image/svg+xml'))
-  const serialise = dom.serialise ?? ((node) => new XMLSerializer().serializeToString(node))
-  const root = parse(svg).documentElement
-  const { shape, warnings } = readShape(root)
-  if (!shape) return { shape: null, art: svg, warnings }
-  for (const element of [...root.querySelectorAll('[id]')]) if (isShapeId(element.getAttribute('id'))) element.remove()
-  const isDrawn = !!root.querySelector('path, rect, circle, ellipse, line, polyline, polygon, text, use')
-  return { shape, art: isDrawn ? serialise(root) : null, warnings }
 }
 
 /**

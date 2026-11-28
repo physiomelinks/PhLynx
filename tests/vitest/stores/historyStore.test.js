@@ -139,16 +139,20 @@ describe('naming and rolling back steps', () => {
     const history = reactive(createHistory())
     history.startBatch()
     await history.executeAndAddCommand(loggedCommand('add', log))
-    await history.executeAndAddCommand(loggedCommand('bio-role', log))
+    await history.executeAndAddCommand(loggedCommand('bio-bind', log))
     history.endBatch('bio-add')
     expect(history.undoLabel).toBe('Add module')
 
     history.startBatch()
-    await history.executeAndAddCommand(loggedCommand('bio-glyph', log))
+    await history.executeAndAddCommand(loggedCommand('bio-skin', log))
     await history.executeAndAddCommand(loggedCommand('select', log))
     history.endBatch()
-    expect(history.undoLabel).toBe('Cartoon')
-    expect(stepLabel({ type: 'bio-template-move' })).toBe('Move template')
+    expect(history.undoLabel).toBe('Skin')
+    expect(stepLabel({ type: 'bio-pieces-move' })).toBe('Move piece')
+    expect(stepLabel({ type: 'bio-pieces-undock' })).toBe('Detach compartment')
+    expect(stepLabel({ type: 'bio-pieces-move-out' })).toBe('Move piece out')
+    expect(stepLabel({ type: 'bio-pieces-straighten' })).toBe('Straighten tube')
+    expect(stepLabel({ type: 'bio-species-order' })).toBe('Reorder species')
     expect(stepLabel({ type: 'add-annotated-ports' })).toBe('Add annotated ports')
   })
 
@@ -156,6 +160,23 @@ describe('naming and rolling back steps', () => {
     expect(stepLabel({ type: 'something-new' })).toBe('Edit')
     expect(stepLabel({ type: 'apply-parameter-set' })).toBe('Apply parameter set')
     expect(stepLabel(undefined)).toBeNull()
+  })
+
+  it('makes a batch inside another part of the outer step, named by the outer one', async () => {
+    const log = []
+    const history = reactive(createHistory())
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('add', log))
+    history.startBatch()
+    await history.executeAndAddCommand(loggedCommand('bio-bind', log))
+    history.endBatch('bio-bind')
+    await history.executeAndAddCommand(loggedCommand('add-edge', log))
+    history.endBatch('bio-pieces-compartment')
+    expect(history.pointerIndex).toBe(0)
+    expect(history.undoLabel).toBe('Add compartment')
+
+    await history.undo()
+    expect(log.slice(3)).toEqual(['undo add-edge', 'undo bio-bind', 'undo add'])
   })
 
   it('rolls back a batch, leaving no step', async () => {

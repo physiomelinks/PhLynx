@@ -21,10 +21,24 @@ import {
   obstaclesOf,
   placeSpeciesTokens,
   placeTokens,
+  regionNameAt,
   spreadAlong,
   tokenWidth,
 } from '../../../../src/services/bioView/speciesLayout.js'
-import { BUILT_IN_TEMPLATES } from '../../../../src/services/bioView/builtInTemplates.js'
+import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
+import { boundToPieces, layoutPieces, pieceKey } from '../../../../src/services/bioView/pieces/layout.js'
+import { validatePieces } from '../../../../src/services/bioView/pieces/model.js'
+
+/** Lays out an epithelial cell's pieces with the nodes bound to them, and the rest beside them, as useBioNodes does. */
+function epithelialPieces(nodes, roles) {
+  const pieces = getBuiltInPieceTemplate('epithelial-cell').pieces
+  const placedElsewhere = new Set(boundToPieces(pieces, nodes).bound.keys())
+  const places = new Map([
+    ...layoutPhysiology(nodes, roles, { placedElsewhere }).places,
+    ...layoutPieces(pieces, { nodes }).places,
+  ])
+  return { places }
+}
 import { layoutPhysiology } from '../../../../src/services/bioView/layout.js'
 
 // A cell with a lumen above it and a protein in its top membrane, carrying Na⁺ from the lumen into the cell.
@@ -48,17 +62,40 @@ const network = {
 
 describe('spreading tokens along a line', () => {
   it('keeps them where they want to be when they don’t overlap', () => {
-    expect(spreadAlong([{ want: 0, size: 10 }, { want: 100, size: 10 }], 8, [-1000, 1000])).toEqual([0, 100])
+    expect(
+      spreadAlong(
+        [
+          { want: 0, size: 10 },
+          { want: 100, size: 10 },
+        ],
+        8,
+        [-1000, 1000],
+      ),
+    ).toEqual([0, 100])
   })
 
   it('pushes overlapping ones apart, about where they wanted to be', () => {
-    const [a, b] = spreadAlong([{ want: 50, size: 40 }, { want: 50, size: 40 }], 8, [-1000, 1000])
+    const [a, b] = spreadAlong(
+      [
+        { want: 50, size: 40 },
+        { want: 50, size: 40 },
+      ],
+      8,
+      [-1000, 1000],
+    )
     expect(b - a).toBe(48)
     expect((a + b) / 2).toBe(50)
   })
 
   it('keeps a run within its bounds when it fits', () => {
-    const centres = spreadAlong([{ want: 0, size: 40 }, { want: 0, size: 40 }], 8, [0, 200])
+    const centres = spreadAlong(
+      [
+        { want: 0, size: 40 },
+        { want: 0, size: 40 },
+      ],
+      8,
+      [0, 200],
+    )
     expect(Math.min(...centres) - 20).toBeGreaterThanOrEqual(0)
   })
 })
@@ -111,8 +148,16 @@ describe('where species mode draws its network', () => {
     expect(arrowHead(5)).toBeGreaterThan(arrowHead(1.5))
     expect(arrowHead(1.5)).toBeGreaterThan(2 * 1.5)
     // The inside leg comes up to the inner face at y 224, heading straight on.
-    const end = (d) => d.match(/(-?[\d.]+),(-?[\d.]+)$/).slice(1).map(Number)
-    const control = (d) => d.match(/ (-?[\d.]+),(-?[\d.]+) -?[\d.]+,-?[\d.]+$/).slice(1).map(Number)
+    const end = (d) =>
+      d
+        .match(/(-?[\d.]+),(-?[\d.]+)$/)
+        .slice(1)
+        .map(Number)
+    const control = (d) =>
+      d
+        .match(/ (-?[\d.]+),(-?[\d.]+) -?[\d.]+,-?[\d.]+$/)
+        .slice(1)
+        .map(Number)
     expect(end(moving.legs.inside)).toEqual([300, 224])
     expect(control(moving.legs.inside)[0]).toBe(300)
     expect(control(moving.legs.inside)[1]).toBeGreaterThan(224)
@@ -151,11 +196,25 @@ describe('where species mode draws its network', () => {
         ['lumen', [token('Na', 'Na⁺'), token('Glc', 'glucose')]],
         ['cell', [token('Na', 'Na⁺'), token('Glc', 'glucose')]],
       ]),
-      paths: ['Na', 'Glc'].map((species) => ({ protein: 'porter', species, label: species, outside: 'lumen', inside: 'cell' })),
+      paths: ['Na', 'Glc'].map((species) => ({
+        protein: 'porter',
+        species,
+        label: species,
+        outside: 'lumen',
+        inside: 'cell',
+      })),
     }
     const arrows = { species: ['Glc', 'Na'], room: { left: 18, right: 46 } }
-    const start = (d) => d.match(/^M(-?[\d.]+),(-?[\d.]+)/).slice(1).map(Number)
-    const end = (d) => d.match(/(-?[\d.]+),(-?[\d.]+)$/).slice(1).map(Number)
+    const start = (d) =>
+      d
+        .match(/^M(-?[\d.]+),(-?[\d.]+)/)
+        .slice(1)
+        .map(Number)
+    const end = (d) =>
+      d
+        .match(/(-?[\d.]+),(-?[\d.]+)$/)
+        .slice(1)
+        .map(Number)
     const legsOf = (place) => {
       const { paths } = layoutSpecies(both, new Map([...layout, ['porter', { ...layout.get('porter'), ...place }]]), {
         arrowsOf: (id) => (id === 'porter' ? arrows : undefined),
@@ -212,7 +271,11 @@ describe('where species mode draws its network', () => {
   })
 
   it('ends a dependence under its species’ arrow where the cartoon has one', () => {
-    const reads = { ...network, paths: [], dependences: [{ protein: 'porter', compartment: 'lumen', species: 'Na', side: 'outside' }] }
+    const reads = {
+      ...network,
+      paths: [],
+      dependences: [{ protein: 'porter', compartment: 'lumen', species: 'Na', side: 'outside' }],
+    }
     const arrowsOf = () => ({ species: ['K', 'Na'], room: { left: 18, right: 46 } })
     expect(layoutSpecies(reads, layout, { arrowsOf }).dependences[0].end.x).toBe(314)
   })
@@ -233,8 +296,16 @@ describe('where species mode draws its network', () => {
       ['works', 'Na', 'in'],
       ['works', 'K', 'out'],
     ])
-    const start = (d) => d.match(/^M([-\d.]+),([-\d.]+)/).slice(1).map(Number)
-    const end = (d) => d.match(/([-\d.]+),([-\d.]+)$/).slice(1).map(Number)
+    const start = (d) =>
+      d
+        .match(/^M([-\d.]+),([-\d.]+)/)
+        .slice(1)
+        .map(Number)
+    const end = (d) =>
+      d
+        .match(/([-\d.]+),([-\d.]+)$/)
+        .slice(1)
+        .map(Number)
     const onCard = ([x, y]) => x >= 60 && x <= 240 && y >= 260 && y <= 332
     const [taken, given] = paths.map((path) => path.legs.process)
     // Taken in, the leg ends on the card; given out, it starts there. Each stops a head short of its end.
@@ -245,7 +316,9 @@ describe('where species mode draws its network', () => {
     expect(paths[0].ends.process.face.point).not.toEqual(paths[1].ends.process.face.point)
 
     // Moved with its cell, a leg is drawn again from its ends.
-    const moved = driftSpecies({ tokens, paths, dependences: [] }, inCell, { moved: new Map([['cell', { x: 10, y: 0 }]]) })
+    const moved = driftSpecies({ tokens, paths, dependences: [] }, inCell, {
+      moved: new Map([['cell', { x: 10, y: 0 }]]),
+    })
     expect(start(moved.paths[1].legs.process)[0]).toBe(start(given)[0] + 10)
     // Without a run it is drawn still.
     expect(layoutSpecies(exchanging, inCell).paths.map((path) => path.direction)).toEqual([null, null])
@@ -293,7 +366,7 @@ const cellNetwork = (order = species) => ({
     ...['ATP', 'ADP'].map((id) => ({ protein: 'nka', compartment: 'cell', species: id })),
   ],
   paths: order.flatMap(([id, , proteins]) =>
-    proteins.map((p) => ({ protein: p, species: id, outside: 'outside', inside: 'cell' }))
+    proteins.map((p) => ({ protein: p, species: id, outside: 'outside', inside: 'cell' })),
   ),
 })
 const labelOf = (id) => ({ name: id === 'cell' ? 'epithelial' : id, detail: id === 'cell' ? '' : 'D-glucose · Na⁺' })
@@ -321,13 +394,56 @@ describe('placing a cell’s name', () => {
   })
 })
 
+describe('placing a name clear of what is nested in its cell or compartment', () => {
+  const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  /** Pieces laid out, an inner compartment moved up into its parent's corner. */
+  const laidOut = (raw) => {
+    const { pieces, errors } = validatePieces(raw)
+    expect(errors).toEqual([])
+    return layoutPieces(pieces).places
+  }
+  const labelOf = (id) => ({ name: id === pieceKey('outer') ? 'Outer compartment' : 'Inner' })
+  const inCorner = { x: 12, y: 12, width: 200, height: 120 }
+
+  it('moves a compartment’s name out of the way of one in its corner', () => {
+    const places = laidOut([
+      { id: 'outer', kind: 'compartment', label: 'Outer', frame: { x: 0, y: 0, width: 320, height: 200 } },
+      { id: 'inner', kind: 'compartment', label: 'Inner', parent: 'outer', frame: inCorner },
+    ])
+    const name = regionNameAt(pieceKey('outer'), places, labelOf)
+    expect(name).not.toBeNull()
+    expect(overlaps(name, places.get(pieceKey('inner')).rect)).toBe(false)
+  })
+
+  it('leaves a compartment with nothing in it to put its name as it always does', () => {
+    const places = laidOut([{ id: 'outer', kind: 'compartment', label: 'Outer' }])
+    expect(regionNameAt(pieceKey('outer'), places, labelOf)).toBeNull()
+  })
+
+  it('moves a cell’s name out of the way of a compartment in its corner', () => {
+    const places = laidOut([
+      { id: 'outer', kind: 'compartment', label: 'Outer' },
+      { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['outer'], frame: { x: 0, y: 0, width: 400, height: 260 } },
+      { id: 'inner', kind: 'compartment', label: 'Inner', parent: 'outer', frame: { ...inCorner, x: 20, y: 20 } },
+    ])
+    const name = cellNameBox(pieceKey('pm'), places, () => ({ name: 'Outer compartment' }))
+    expect(overlaps(name, places.get(pieceKey('inner')).rect)).toBe(false)
+  })
+})
+
 describe('placing an empty cell’s hint', () => {
   const emptyCell = (extra = []) =>
     new Map([
-      ['tpl:t/cell', { kind: 'cell', rect: { x: 100, y: 50, width: 320, height: 240 }, hintAt: { x: 160, y: 140 }, zones: [] }],
+      [
+        'tpl:t/cell',
+        { kind: 'cell', rect: { x: 100, y: 50, width: 320, height: 240 }, hintAt: { x: 160, y: 140 }, zones: [] },
+      ],
       ...extra,
     ])
-  const named = (id) => ({ name: id === 'tpl:t/cell' ? 'Cell' : 'Sodium_glucose_cotransporter', detail: 'D-glucose · Na⁺' })
+  const named = (id) => ({
+    name: id === 'tpl:t/cell' ? 'Cell' : 'Sodium_glucose_cotransporter',
+    detail: 'D-glucose · Na⁺',
+  })
   const hintBox = (at) => ({ x: 100 + at.x - 49, y: 50 + at.y - 18, width: 98, height: 36 })
 
   it('keeps it where the layout put it while nothing is in the way', () => {
@@ -349,13 +465,14 @@ describe('placing an empty cell’s hint', () => {
 
   it('finds room below the process area of an epithelial cell with a two-line name on each membrane', () => {
     const porter = (id, site) => ({ id, data: { name: id, bioView: { role: 'membraneProtein', site } } })
-    const nodes = [porter('porter', 'bt-1/cell.apical'), porter('porter_1', 'bt-1/cell.basolateral')]
-    const { places } = layoutPhysiology(nodes, new Map(nodes.map((n) => [n.id, { role: 'membraneProtein' }])), {
-      instances: [{ id: 'bt-1', template: 'epithelial-cell', at: { x: 0, y: 0 } }],
-      definitions: new Map(BUILT_IN_TEMPLATES.map((template) => [template.id, template])),
-    })
-    const labelOf = (id) => (places.get(id)?.kind === 'protein' ? { name: id, detail: 'Na⁺' } : { name: 'Epithelial cell' })
-    const id = 'tpl:bt-1/cell'
+    const nodes = [
+      porter('porter', 'pieces/plasma-membrane.apical'),
+      porter('porter_1', 'pieces/plasma-membrane.basolateral'),
+    ]
+    const { places } = epithelialPieces(nodes, new Map(nodes.map((n) => [n.id, { role: 'membraneProtein' }])))
+    const labelOf = (id) =>
+      places.get(id)?.kind === 'protein' ? { name: id, detail: 'Na⁺' } : { name: 'Epithelial cell' }
+    const id = 'pc:plasma-membrane'
     const { rect, zones } = places.get(id)
     const at = cellHintAt(id, places, labelOf)
     const hint = { x: rect.x + at.x - 71, y: rect.y + at.y - 18, width: 142, height: 36 }
@@ -406,7 +523,7 @@ describe('placing a cell’s tokens around what else is in it', () => {
   it('places the same however the species are listed', () => {
     const at = (order) =>
       Object.fromEntries(
-        layoutSpecies(cellNetwork(order), epithelialCell(), { labelOf }).tokens.map((t) => [t.key, [t.x, t.y]])
+        layoutSpecies(cellNetwork(order), epithelialCell(), { labelOf }).tokens.map((t) => [t.key, [t.x, t.y]]),
       )
     expect(at([...species].reverse())).toEqual(at(species))
     expect(at(species)).toEqual(at(species))
@@ -419,7 +536,7 @@ describe('placing a cell’s tokens around what else is in it', () => {
     ]
     const at = (order) =>
       Object.fromEntries(
-        layoutSpecies(cellNetwork(order), epithelialCell(), { labelOf }).tokens.map((t) => [t.key, [t.x, t.y]])
+        layoutSpecies(cellNetwork(order), epithelialCell(), { labelOf }).tokens.map((t) => [t.key, [t.x, t.y]]),
       )
     expect(at([...pumped].reverse())).toEqual(at(pumped))
   })
@@ -579,28 +696,32 @@ describe('a compartment’s own order of its tokens', () => {
   })
 })
 
-describe('placing a template cell’s facet names', () => {
+describe('placing the names of a membrane’s stretches', () => {
   const porter = (id, site) => ({ id, data: { name: id, bioView: { role: 'membraneProtein', site } } })
-  const draw = (nodes) =>
-    layoutPhysiology(nodes, new Map(nodes.map((n) => [n.id, { role: 'membraneProtein' }])), {
-      instances: [{ id: 'bt-1', template: 'epithelial-cell', at: { x: 0, y: 0 } }],
-      definitions: new Map(BUILT_IN_TEMPLATES.map((template) => [template.id, template])),
-    }).places
+  const draw = (nodes) => epithelialPieces(nodes, new Map(nodes.map((n) => [n.id, { role: 'membraneProtein' }]))).places
   const named = (places) => (id) =>
     places.get(id)?.kind === 'protein' ? { name: id, detail: 'Na⁺' } : { name: places.get(id)?.label ?? id }
-  const id = 'tpl:bt-1/cell'
+  const id = 'pc:plasma-membrane'
   const onCanvas = (rect, label) => ({ ...label, x: rect.x + label.x, y: rect.y + label.y })
 
   it('puts each name just outside its edge, clear of the proteins’ cartoons and names', () => {
-    const nodes = [porter('porter', 'bt-1/cell.apical'), porter('porter_1', 'bt-1/cell.basolateral')]
+    const nodes = [
+      porter('porter', 'pieces/plasma-membrane.apical'),
+      porter('porter_1', 'pieces/plasma-membrane.basolateral'),
+    ]
     const places = draw(nodes)
     const labelOf = named(places)
     const { rect } = places.get(id)
     const labels = facetLabelBoxes(id, places, labelOf).map((label) => onCanvas(rect, label))
-    expect(labels.map((label) => label.edge)).toEqual(['top', 'bottom', 'left', 'right'])
+    // Clockwise from the top, as the membrane's sides go.
+    expect(labels.map((label) => label.edge)).toEqual(['top', 'right', 'bottom', 'left'])
     const proteins = nodes.flatMap((n) => proteinBoxes(places.get(n.id), labelOf(n.id)))
-    for (const label of labels) expect(proteins.some((p) => hits(label, p)), label.label).toBe(false)
-    const [top, bottom, left, right] = labels
+    for (const label of labels)
+      expect(
+        proteins.some((p) => hits(label, p)),
+        label.label,
+      ).toBe(false)
+    const [top, right, bottom, left] = labels
     expect(rect.y - (top.y + top.height)).toBe(FACET_LABEL_OFFSET)
     expect(bottom.y - (rect.y + rect.height)).toBe(FACET_LABEL_OFFSET)
     expect(rect.x - (left.x + left.width)).toBe(FACET_LABEL_OFFSET)
@@ -620,7 +741,7 @@ describe('placing a template cell’s facet names', () => {
     const { rect } = places.get(id)
     const labels = facetLabelBoxes(id, places, named(places))
     expect(labels[0].x + labels[0].width / 2).toBeCloseTo(rect.width / 2, 0)
-    expect(labels[2].y + labels[2].height / 2).toBeCloseTo(rect.height / 2, 0)
+    expect(labels[3].y + labels[3].height / 2).toBeCloseTo(rect.height / 2, 0)
     labels.forEach((a, i) => labels.slice(i + 1).forEach((b) => expect(hits(a, b)).toBe(false)))
   })
 
@@ -628,7 +749,7 @@ describe('placing a template cell’s facet names', () => {
     const places = draw([])
     const { rect } = places.get(id)
     const [top] = facetLabelBoxes(id, places, named(places))
-    const obstacles = obstaclesOf('tpl:bt-1/apical-fluid', places, named(places))
+    const obstacles = obstaclesOf('pc:apical-fluid', places, named(places))
     expect(obstacles).toContainEqual({ x: rect.x + top.x, y: rect.y + top.y, width: top.width, height: top.height })
   })
 
@@ -648,9 +769,10 @@ describe('species drawn while something is dragged', () => {
       [...layout].map(([id, place]) => {
         const shift = moved[id] ?? moved[place.cell]
         if (!shift) return [id, place]
-        if (place.rect) return [id, { ...place, rect: { ...place.rect, x: place.rect.x + shift.x, y: place.rect.y + shift.y } }]
+        if (place.rect)
+          return [id, { ...place, rect: { ...place.rect, x: place.rect.x + shift.x, y: place.rect.y + shift.y } }]
         return [id, { ...place, x: place.x + shift.x, y: place.y + shift.y }]
-      })
+      }),
     )
 
   it('gives back what was laid out while nothing moved', () => {
@@ -679,7 +801,12 @@ describe('species drawn while something is dragged', () => {
   it('moves the legs whole when the compartments at both ends move together', () => {
     const species = layoutSpecies(reads, layout)
     const shift = { x: -25, y: 10 }
-    const drawn = driftSpecies(species, layout, { moved: new Map([['cell', shift], ['lumen', shift]]) })
+    const drawn = driftSpecies(species, layout, {
+      moved: new Map([
+        ['cell', shift],
+        ['lumen', shift],
+      ]),
+    })
     const after = layoutSpecies(reads, relaid({ cell: shift, lumen: shift }))
     expect(drawn.paths[0].legs).toEqual(after.paths[0].legs)
     expect(drawn.dependences[0].d).toBe(after.dependences[0].d)
@@ -721,7 +848,11 @@ describe('the flow drawn widest for each species', () => {
 
   it('compares each path with itself or with every flow instead, and scales to spikes when asked', async () => {
     const { flowScales } = await import('../../../../src/services/bioView/speciesLayout.js')
-    const big = { key: 'big', species: 'Ca', values: Float64Array.from({ length: 200 }, (_, i) => (i === 0 ? 1000 : 8)) }
+    const big = {
+      key: 'big',
+      species: 'Ca',
+      values: Float64Array.from({ length: 200 }, (_, i) => (i === 0 ? 1000 : 8)),
+    }
     const small = { key: 'small', species: 'Ca', values: Float64Array.from({ length: 200 }, () => 2) }
     const other = { key: 'other', species: 'Na', values: Float64Array.from({ length: 200 }, () => 50) }
     const flows = [big, small, other]
@@ -747,7 +878,14 @@ describe('species in a cell with pieces inside it', () => {
   it('keeps the cell’s tokens clear of its organelles, microdomains and folds', async () => {
     const { obstaclesOf } = await import('../../../../src/services/bioView/speciesLayout.js')
     const boxes = obstaclesOf('cell', layout)
-    const covers = (rect) => boxes.some((box) => box.x <= rect.x && box.y <= rect.y && box.x + box.width >= rect.x + rect.width && box.y + box.height >= rect.y + rect.height)
+    const covers = (rect) =>
+      boxes.some(
+        (box) =>
+          box.x <= rect.x &&
+          box.y <= rect.y &&
+          box.x + box.width >= rect.x + rect.width &&
+          box.y + box.height >= rect.y + rect.height,
+      )
     expect(covers(layout.get('sr').rect)).toBe(true)
     expect(covers(layout.get('cleft').rect)).toBe(true)
     expect(covers({ x: 662, y: 0, width: 76, height: 400 })).toBe(true)
@@ -758,7 +896,11 @@ describe('species in a cell with pieces inside it', () => {
 
   it('runs the path to the outside of a fold’s protein in at the fold’s mouth and down its lumen', async () => {
     const { routeSpecies } = await import('../../../../src/services/bioView/speciesLayout.js')
-    const network = { paths: [{ protein: 'lcc', species: 'Ca', outside: 'outside', inside: 'cleft' }], dependences: [], exchanges: [] }
+    const network = {
+      paths: [{ protein: 'lcc', species: 'Ca', outside: 'outside', inside: 'cleft' }],
+      dependences: [],
+      exchanges: [],
+    }
     const tokens = [
       { key: 'outside::Ca', x: 400, y: -70, width: 40, height: 22 },
       { key: 'cleft::Ca', x: 580, y: 330, width: 40, height: 22 },

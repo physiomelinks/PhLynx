@@ -8,9 +8,17 @@
     :position="Position.Top"
     :connectable="false"
     class="bio-handle"
-    :style="{ left: `${handle.x}px`, top: `${handle.y}px` }"
+    :style="{ left: `${handle.x}px`, top: `${handle.y}px`, width: `${HANDLE_SIZE}px`, height: `${HANDLE_SIZE}px` }"
   />
 </template>
+
+<script>
+/**
+ * The handle's side in px. Vue Flow ends an edge at a Top handle's top-centre,
+ * so BioCouplingEdge moves its ends down by half of this to meet the dot's centre.
+ */
+export const HANDLE_SIZE = 7
+</script>
 
 <script setup>
 import { Handle, Position } from '@vue-flow/core'
@@ -23,8 +31,6 @@ defineProps({
 
 <style scoped>
 .bio-handle {
-  width: 7px;
-  height: 7px;
   min-width: 0;
   min-height: 0;
   border: none;

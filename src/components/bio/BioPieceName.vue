@@ -4,9 +4,10 @@
     v-if="!isEditing"
     role="button"
     tabindex="0"
-    class="bio-piece-name nodrag"
+    class="bio-piece-name"
     :aria-label="`Rename ${name}`"
     data-testid="bio-piece-name"
+    @pointerdown="onPress"
     @click="onClick"
     @dblclick="cancelPending"
     @keydown.enter.prevent="startEditing"
@@ -46,7 +47,7 @@ const props = defineProps({
   name: { type: String, required: true },
 })
 
-/** The view's `(id, name) => void`, which names the piece: a template's own, or the module on it. */
+/** The view's `(id, name) => void`, which names the piece: the piece itself, or the module on it. */
 const rename = inject('bioRenamePiece', null)
 
 // As the diagram's name: short enough to feel immediate, and dropped by a double-click, which opens the instance editor.
@@ -62,9 +63,20 @@ function cancelPending() {
   pending = null
 }
 
+// A press on the name that moves further than this drags the piece, as a press anywhere on it does, and renames nothing.
+const DRAG_DISTANCE = 4
+let pressedAt = null
+
+function onPress(event) {
+  pressedAt = { x: event.clientX, y: event.clientY }
+}
+
 /** Starts renaming a moment after a single click; a keyboard activation, which has no click count, at once. */
 function onClick(event) {
   cancelPending()
+  const moved = pressedAt && Math.hypot(event.clientX - pressedAt.x, event.clientY - pressedAt.y) > DRAG_DISTANCE
+  pressedAt = null
+  if (moved) return
   if (event.detail === 0) startEditing()
   else if (event.detail === 1) pending = setTimeout(startEditing, RENAME_CLICK_DELAY_MS)
 }

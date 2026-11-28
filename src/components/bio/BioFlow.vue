@@ -3,6 +3,7 @@
   <div
     :class="['bio-flow-root', { 'bio-flow-root--dragging': draggingId, 'bio-flow-root--placing': armedTile }]"
     @click.capture="onArmedClick"
+    @pointermove="onArmedMove"
     @dragover="onModuleDragOver"
     @dragleave="onModuleDragLeave"
     @drop="onModuleDrop"
@@ -56,13 +57,15 @@
           title="Choose which species are shown"
           aria-haspopup="dialog"
           data-testid="bio-species-menu-button"
+          :aria-expanded="String(isSpeciesMenuOpen)"
           @click="speciesMenuRef?.toggle($event)"
         >
-          <i class="pi pi-angle-right"></i>
+          <HamburgerTornadoIcon :open="isSpeciesMenuOpen" class="bio-species-menu-icon" />
         </ControlButton>
       </Controls>
       <SpeciesMenu
         ref="speciesMenuRef"
+        @update:open="isSpeciesMenuOpen = $event"
         :species="menuSpecies"
         :hidden="viewMode.hiddenSpecies"
         :scope="viewMode.speciesScope"
@@ -97,7 +100,13 @@
             :data-species="path.species"
             :data-direction="path.direction ?? ''"
           >
-            <path v-for="(d, side) in path.legs" :key="side" class="bio-species-leg" :d="d" :stroke-width="path.width" />
+            <path
+              v-for="(d, side) in path.legs"
+              :key="side"
+              class="bio-species-leg"
+              :d="d"
+              :stroke-width="path.width"
+            />
             <!-- Arrowheads, sized to its width, running with the dashes but spaced further apart -->
             <template v-if="path.head">
               <template v-for="(d, side) in path.legs" :key="`arrows-${side}`">
@@ -142,11 +151,17 @@
                 'bio-species-token--focused': isFocused(token),
                 'bio-species-token--dragging': draggingChip === token.key,
                 'bio-species--dimmed': isDimmed(token.species),
+                'bio-species-token--tinted': !!chipTintOf(token),
               },
             ]"
-            :style="{ '--species': colourOf(token.species), transform: offsetOf(token) }"
+            :style="{
+              '--species': colourOf(token.species),
+              '--chip-tint': chipTintOf(token) ? chipTintShare(chipTintOf(token).intensity) : undefined,
+              transform: offsetOf(token),
+            }"
             role="button"
             data-testid="bio-species-token"
+            :data-tint="chipTintOf(token)?.intensity"
             :data-node="token.nodeId"
             :data-species="token.species"
             @click.stop="onTokenClick(token)"
@@ -154,7 +169,9 @@
           >
             <title>
               {{
-                `${token.label} in ${nameOf(token.nodeId)}${concentrationText(token)}: click to plot it and the flows into it, drag to reorder`
+                `${token.label} in ${nameOf(token.nodeId)}${concentrationText(
+                  token
+                )}: click to plot it and the flows into it, drag to reorder`
               }}
             </title>
             <rect
@@ -187,7 +204,11 @@
           <g
             v-for="prompt in sitePrompts.areas"
             :key="prompt.key"
-            :class="['bio-site-prompt', `bio-site-prompt--${prompt.area}`, { 'bio-site-prompt--active': prompt.active }]"
+            :class="[
+              'bio-site-prompt',
+              `bio-site-prompt--${prompt.area}`,
+              { 'bio-site-prompt--active': prompt.active },
+            ]"
             data-testid="bio-site-prompt"
             :data-site="prompt.ref"
             :mask="prompt.area === 'compartment' ? 'url(#bio-site-prompt-cells)' : undefined"
@@ -225,12 +246,111 @@
             />
           </g>
         </svg>
+        <!-- While a piece is carried: what it would go on, and where it would be drawn -->
+        <svg v-if="piecePreview" class="bio-piece-preview" data-testid="bio-piece-preview">
+          <template v-for="(mark, index) in piecePreview.highlights" :key="`target-${index}`">
+            <line
+              v-if="mark.type === 'line'"
+              class="bio-piece-preview__target bio-piece-preview__target--line"
+              :x1="mark.from.x"
+              :y1="mark.from.y"
+              :x2="mark.to.x"
+              :y2="mark.to.y"
+            />
+            <rect v-else class="bio-piece-preview__target" v-bind="mark.rect" rx="12" />
+          </template>
+          <template v-for="(ghost, index) in piecePreview.ghosts" :key="`ghost-${index}`">
+            <!-- A flow tube between compartments apart: the vessel it is drawn as, not a card's room -->
+            <BioConduit
+              v-if="ghost.type === 'conduit'"
+              :points="ghost.points"
+              ghost
+              data-testid="bio-piece-ghost"
+              :data-kind="ghost.kind"
+            />
+            <!-- A tube whose ends touch: the joint it is drawn as, in its room -->
+            <g
+              v-else-if="ghost.type === 'joint'"
+              :transform="`translate(${ghost.rect.x} ${ghost.rect.y})`"
+              data-testid="bio-piece-ghost"
+              :data-kind="ghost.kind"
+            >
+              <BioJointSymbol :kind="ghost.joint" :width="ghost.rect.width" :height="ghost.rect.height" ghost />
+            </g>
+            <polyline
+              v-else-if="ghost.type === 'path'"
+              class="bio-piece-preview__way"
+              :points="ghost.points.map((point) => `${point.x},${point.y}`).join(' ')"
+            />
+            <!-- A compartment or cell already there, grown to fit what is added: the room it gains, its new outline -->
+            <g v-else-if="ghost.type === 'grows'" data-testid="bio-piece-ghost-grown" :data-kind="ghost.kind">
+              <mask :id="`bio-ghost-grown-${index}`" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
+                <path :d="roundedRectPath(ghost.rect, cornerOf(ghost))" fill="white" />
+                <path :d="roundedRectPath(ghost.was, cornerOf(ghost))" fill="black" />
+              </mask>
+              <rect class="bio-piece-preview__grows" v-bind="ghost.rect" :mask="`url(#bio-ghost-grown-${index})`" />
+              <path class="bio-piece-preview__outline" :d="roundedRectPath(ghost.rect, cornerOf(ghost))" />
+            </g>
+            <!-- A compartment or cell pushed out of the way of one that grows: where it goes -->
+            <path
+              v-else-if="ghost.type === 'moves'"
+              class="bio-piece-preview__moved"
+              :d="roundedRectPath(ghost.rect, cornerOf(ghost))"
+              data-testid="bio-piece-ghost-moved"
+              :data-kind="ghost.kind"
+            />
+            <!-- A membrane round what is there: the room the cell adds, the corners it rounds off, and its band -->
+            <g v-else-if="ghost.was" data-testid="bio-piece-ghost" :data-kind="ghost.kind" :data-grows="ghost.grows">
+              <mask :id="`bio-ghost-grows-${index}`" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
+                <path :d="roundedRectPath(ghost.rect, CELL_RADIUS)" fill="white" />
+                <rect v-bind="ghost.was" rx="12" fill="black" />
+              </mask>
+              <mask :id="`bio-ghost-trims-${index}`" maskUnits="userSpaceOnUse" v-bind="EVERYWHERE">
+                <rect v-bind="ghost.was" rx="12" fill="white" />
+                <path :d="roundedRectPath(ghost.rect, CELL_RADIUS)" fill="black" />
+              </mask>
+              <rect
+                class="bio-piece-preview__grows"
+                v-bind="ghost.rect"
+                :mask="`url(#bio-ghost-grows-${index})`"
+                data-testid="bio-piece-ghost-grows"
+              />
+              <rect
+                class="bio-piece-preview__trims"
+                v-bind="ghost.was"
+                rx="12"
+                :mask="`url(#bio-ghost-trims-${index})`"
+                data-testid="bio-piece-ghost-trims"
+              />
+              <path
+                class="bio-piece-preview__band"
+                :d="roundedRectPath(ghost.rect, CELL_RADIUS)"
+                :style="{ strokeWidth: 2 * MEMBRANE_BAND_HALF }"
+              />
+              <path class="bio-piece-preview__outline" :d="roundedRectPath(ghost.rect, CELL_RADIUS)" />
+            </g>
+            <rect
+              v-else
+              :class="['bio-piece-preview__ghost', `bio-piece-preview__ghost--${ghost.kind}`]"
+              v-bind="ghost.rect"
+              :rx="ghost.kind === 'cell' ? CELL_RADIUS : 10"
+              data-testid="bio-piece-ghost"
+              :data-kind="ghost.kind"
+            />
+          </template>
+        </svg>
       </template>
       <template #edge-bioCoupling="props">
         <BioCouplingEdge v-bind="props" />
       </template>
       <template #node-bioCell="props">
-        <BioCell :id="props.id" :data="props.data" :selected="props.selected" :width="props.data.width" :height="props.data.height" />
+        <BioCell
+          :id="props.id"
+          :data="props.data"
+          :selected="props.selected"
+          :width="props.data.width"
+          :height="props.data.height"
+        />
       </template>
       <template #node-bioMembrane="props">
         <BioMembrane :data="props.data" :selected="props.selected" />
@@ -239,7 +359,7 @@
         <BioRegion :id="props.id" :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioLink="props">
-        <BioLink :data="props.data" />
+        <BioLink :data="props.data" :selected="props.selected" />
       </template>
       <template #node-bioJoint="props">
         <BioJoint :id="props.id" :data="props.data" :selected="props.selected" />
@@ -250,12 +370,18 @@
       <template #node-bioCard="props">
         <BioCard :data="props.data" :selected="props.selected" />
       </template>
-      <template #node-bioTemplateTitle="props">
-        <BioTemplateTitle :data="props.data" />
+      <template #node-bioZone="props">
+        <BioZone :id="props.id" :data="props.data" :selected="props.selected" />
+      </template>
+      <template #node-bioImage="props">
+        <BioImage :id="props.id" :data="props.data" :selected="props.selected" />
+      </template>
+      <template #node-bioGrip="props">
+        <BioGrip :data="props.data" />
       </template>
     </VueFlow>
     <!-- Species mode after a run: play its flows through the run, or scrub to a point of it -->
-    <SpeciesPlaybackBar v-if="isSpeciesOn && species" />
+    <SpeciesPlaybackBar v-if="isSpeciesOn && species" :amounts-only="tintsOnlyAmounts" />
     <div
       v-if="pointerLabel"
       class="bio-drop-label"
@@ -265,12 +391,18 @@
       <div>{{ pointerLabel.text }}</div>
       <div v-if="pointerLabel.replace" class="bio-drop-label__replace">{{ pointerLabel.replace }}</div>
     </div>
-    <ContextMenu
-      ref="contextMenu"
-      :model="menuItems"
-      @show="isMenuOpen = true"
-      @hide="isMenuOpen = false"
+    <div
+      v-if="pieceLabel"
+      :class="['bio-drop-label', { 'bio-drop-label--invalid': pieceLabel.invalid }]"
+      data-testid="bio-piece-drop-label"
+      :style="{ left: `${pieceLabel.left}px`, top: `${pieceLabel.top}px` }"
     >
+      <div>{{ pieceLabel.text }}</div>
+      <div v-if="pieceLabel.note" class="bio-drop-label__replace" data-testid="bio-piece-drop-note">
+        {{ pieceLabel.note }}
+      </div>
+    </div>
+    <ContextMenu ref="contextMenu" :model="menuItems" @show="isMenuOpen = true" @hide="isMenuOpen = false">
       <template #item="{ item, props: menu, hasSubmenu, label }">
         <BioConnectionPanel v-if="item.connection" :connection="item.connection" />
         <a v-else v-bind="menu.action">
@@ -288,23 +420,30 @@
       data-testid="bio-template-file-input"
       @change="onTemplateFile"
     />
-    <input ref="skinFileInput" type="file" accept=".svg,image/svg+xml" hidden data-testid="bio-skin-file-input" @change="onSkinFile" />
     <input
-      ref="glyphFileInput"
+      ref="skinFileInput"
+      type="file"
+      accept=".svg,image/svg+xml"
+      hidden
+      data-testid="bio-skin-file-input"
+      @change="onSkinFile"
+    />
+    <input
+      ref="skinLibraryInput"
       type="file"
       accept=".json,application/json"
       hidden
-      data-testid="bio-glyph-file-input"
-      @change="onGlyphFile"
+      data-testid="bio-skin-library-input"
+      @change="onSkinLibraryFile"
     />
     <Dialog
       v-if="renaming"
       :visible="true"
       modal
-      header="Rename Template"
+      header="Rename Piece"
       :style="{ width: '360px' }"
       class="compact-dialog"
-      data-testid="bio-template-rename"
+      data-testid="bio-piece-rename"
       @update:visible="(visible) => !visible && (renaming = null)"
     >
       <InputText
@@ -312,12 +451,12 @@
         class="w-full"
         autofocus
         :placeholder="renaming.placeholder"
-        data-testid="bio-template-rename-input"
+        data-testid="bio-piece-rename-input"
         @keydown.enter="onRenameConfirm"
       />
       <template #footer>
         <Button label="Cancel" severity="secondary" text @click="renaming = null" />
-        <Button label="Rename" data-testid="bio-template-rename-confirm" @click="onRenameConfirm" />
+        <Button label="Rename" data-testid="bio-piece-rename-confirm" @click="onRenameConfirm" />
       </template>
     </Dialog>
     <Dialog
@@ -351,38 +490,6 @@
         />
       </template>
     </Dialog>
-    <Dialog
-      v-if="naming"
-      :visible="true"
-      modal
-      header="Add Compartment"
-      :style="{ width: '360px' }"
-      class="compact-dialog"
-      data-testid="bio-template-name"
-      @update:visible="(visible) => !visible && (naming = null)"
-    >
-      <InputText
-        v-model="naming.label"
-        class="w-full"
-        autofocus
-        placeholder="Compartment"
-        data-testid="bio-template-name-input"
-        @keydown.enter="onNamingConfirm"
-      />
-      <template #footer>
-        <Button label="Cancel" severity="secondary" text @click="naming = null" />
-        <Button label="Add" data-testid="bio-template-name-confirm" @click="onNamingConfirm" />
-      </template>
-    </Dialog>
-    <BioPlaceDialog
-      v-if="placing"
-      :mode="placing.mode"
-      :name="placing.name"
-      :initial-role="placing.initialRole"
-      :cells="cellChoices"
-      @confirm="onPlaceConfirm"
-      @cancel="onPlaceCancel"
-    />
   </div>
 </template>
 
@@ -400,94 +507,102 @@ import InputText from 'primevue/inputtext'
 import BioCard from './BioCard.vue'
 import BioCell from './BioCell.vue'
 import BioConnectionPanel from './BioConnectionPanel.vue'
+import BioConduit from './BioConduit.vue'
 import BioCouplingEdge from './BioCouplingEdge.vue'
 import BioMembrane from './BioMembrane.vue'
 import BioProtein from './BioProtein.vue'
 import BioRegion from './BioRegion.vue'
 import BioLink from './BioLink.vue'
 import BioJoint from './BioJoint.vue'
-import BioTemplateTitle from './BioTemplateTitle.vue'
+import BioJointSymbol from './BioJointSymbol.vue'
+import BioZone from './BioZone.vue'
+import BioImage from './BioImage.vue'
+import BioGrip from './BioGrip.vue'
+import HamburgerTornadoIcon from '../icons/HamburgerTornadoIcon.vue'
 import SpeciesMenu from './SpeciesMenu.vue'
 import SpeciesPlaybackBar from './SpeciesPlaybackBar.vue'
 import SanitisedInput from '../SanitisedInput.vue'
-import { bioViewForMove, useBioNodes } from '../../composables/useBioNodes'
+import { useBioNodes } from '../../composables/useBioNodes'
 import { useBioEdits } from '../../composables/useBioEdits'
+import { useBioImages } from '../../composables/useBioImages'
+import { isImageFileDrag } from '../../services/bioView/images'
 import {
   STRUCTURE_TYPES,
-  cellSites,
-  dragCompanions,
   dropSites,
-  dropTargets,
   nearestSite,
   neighbourNodes,
-  ownedNeighbours,
   replacedOccupant,
   patchBioView,
-  planCellArea,
-  planCellMove,
   planRelayout,
   planSiteBind,
-  planSlotDrop,
   planUnbind,
-  planUnplace,
   whole,
 } from '../../services/bioView/drop'
 import { speciesFocus } from '../../services/bioView/species'
-import { chipOrder, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
+import { chipOrder, chipTintShare, driftSpecies, legArrows } from '../../services/bioView/speciesLayout'
 import {
-  cellContents,
   deleteConnection,
   deleteInstances,
   deletionLabel,
+  deletionMessage,
   deletionScope,
-  releaseFromCell,
+  planDeletion,
 } from '../../services/bioView/deletion'
 import { connectionsMenu } from '../../services/bioView/connections'
 import { primeMenuItems } from '../../services/bioView/menus'
 import { SKIN_ASPECT, SKIN_LIMITS, SKIN_MODES, skinHref } from '../../services/bioView/skins'
-import { BLANK_CELL_TEMPLATE, BLANK_TUBE_TEMPLATE, TILE_DRAG_TYPE, linkEndsAt, nearestEdge, templateCellAt } from '../../services/bioView/palette'
-import { ROLE_LABELS } from '../../services/bioView/roles'
-import { BUILT_IN_GLYPHS, NO_GLYPH, loadedGlyphs } from '../../services/bioView/glyphs'
-import { glyphLibraryFile } from '../../services/bioView/glyphLibrary'
+import { PIECES_INSTANCE, boundToPieces, layoutPieces, pieceKey, pieceSiteRef } from '../../services/bioView/pieces/layout'
+import { topologyOf } from '../../services/bioView/pieces/topology'
+import { stampTemplate } from '../../services/bioView/pieces/stamp'
 import {
-  GLYPH_HEIGHT,
-  GLYPH_WIDTH,
-  MEMBRANE_BAND_HALF,
-  MIN_CELL,
-  partOf,
-  roundedRectPath,
-} from '../../services/bioView/geometry'
-import { EPITHELIAL_SHAPE, annotationOfFacet } from '../../services/bioView/shape'
-import { readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
+  compartmentAtPoint,
+  dropScene,
+  previewDrop,
+  resolveCarry,
+  resolveDrop,
+  resolveExtraDock,
+  resolveTubeEnd,
+} from '../../services/bioView/pieces/drops'
 import {
-  EDGES,
-  LIMITS,
-  MEMBRANE,
-  TONES,
-  addToEdits,
-  labelInEdits,
-  skinInEdits,
-  editedTemplate,
-  freePieceId,
-  instanceTemplate,
-  isLocalTemplateId,
-  normaliseEdits,
-  parseSiteRef,
-  placeInEdits,
-  removeFromEdits,
-  siteNeighbours,
-  siteRef,
-} from '../../services/bioView/templates'
-import { dropLabel, hasPorts, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
-import { isPlaceholder, placeholderName, takesPlaceholder } from '../../services/bioView/placeholders'
-import { CARD, GAP, REGION_HEIGHT, TUBE } from '../../services/bioView/layout'
+  mergeFreeSpans,
+  relabelPiece,
+  removeDock,
+  replaceImage,
+  setImageOpacity,
+  skinPiece,
+} from '../../services/bioView/pieces/edits'
+import {
+  bendTube,
+  reverseTube,
+  fitToContents,
+  moveFold,
+  moveFrame,
+  resizeFrame,
+  reachTo,
+  slideDock,
+} from '../../services/bioView/pieces/moves'
+import { detachPiece, moveOut, outOf } from '../../services/bioView/pieces/relocate'
+import { PIECES_SCHEMA_VERSION } from '../../services/bioView/pieces/constants'
+import { validatePieces } from '../../services/bioView/pieces/model'
+import { useBioPiecesStore } from '../../stores/bioPiecesStore'
+import { TILE_DRAG_TYPE } from '../../services/bioView/palette'
+import { isLocalTemplateId } from '../../services/bioView/localIds'
+import { parseSiteRef } from '../../services/bioView/siteRefs'
+import { contextOfPiece } from '../../services/bioView/skinContext'
+import { NO_SKIN, allSkins, allowsNoSkin, resolveSkin, skinsFor } from '../../services/bioView/skinRegistry'
+import { skinLibraryFile } from '../../services/bioView/skinLibrary'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH, MEMBRANE_BAND_HALF, roundedRectPath } from '../../services/bioView/geometry'
+import { problemLabel, readTemplateFile, summariseProblems, templateFile } from '../../services/bioView/templateFiles'
+import { dropLabel, hasPorts, isPlacementEdge, siteLabel, siteLinks, staleLinks } from '../../services/bioView/links'
+import { isPlaceholder, isPlaceholderNameFor, placeholderName } from '../../services/bioView/placeholders'
+import { isPieceModule, modulesOf, owedSites, pieceNameOf, piecesByModuleName } from '../../services/bioView/pieces/pairing'
+import { CARD, GAP, processSize } from '../../services/bioView/layout'
 import { CELL_RADIUS } from '../../services/bioView/metrics'
-import BioPlaceDialog from './BioPlaceDialog.vue'
 import useDragAndDrop from '../../composables/useDnD'
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { useAppSettings } from '../../composables/useAppSettings'
-import { useBioTemplateStore } from '../../stores/bioTemplateStore'
-import { useGlyphLibraryStore } from '../../stores/glyphLibraryStore'
+import { useBioTemplateLibraryStore } from '../../stores/bioTemplateLibraryStore'
+import { useSkinLibraryStore } from '../../stores/skinLibraryStore'
 import { useFlowHistoryStore } from '../../stores/historyStore'
 import { useLibraryStore } from '../../stores/libraryStore'
 import { useViewModeStore } from '../../stores/viewModeStore'
@@ -522,13 +637,15 @@ const main = useVueFlow(FLOW_IDS.MAIN)
 const libraryDrag = useDragAndDrop()
 const history = useFlowHistoryStore()
 const libraryStore = useLibraryStore()
-const templateStore = useBioTemplateStore()
-const glyphStore = useGlyphLibraryStore()
+const templateLibrary = useBioTemplateLibraryStore()
+const piecesStore = useBioPiecesStore()
+const skinStore = useSkinLibraryStore()
 const { choose } = useConfirmDialog()
 const {
   applyNodeChanges,
   findNode,
   fitView,
+  getSelectedNodes,
   onMoveStart,
   screenToFlowCoordinate,
   setViewport,
@@ -560,13 +677,16 @@ const cursor = useVoiCursorStore()
 const voiCursor = computed(() => (cursor.isActive ? { index: cursor.index, range: cursor.range } : null))
 const {
   bioNodes,
+  concentrationTint,
+  tintsOnlyAmounts,
+  chipTints,
   couplingEdges,
   layout,
   roles,
   sites,
+  pieceLayoutOptions,
   hasSpecies,
   species,
-  concentrationTint,
   speciesOrderPreview,
   loadSidecars,
 } = useBioNodes(main.nodes, main.edges, {
@@ -578,22 +698,18 @@ const {
 })
 const {
   applyPlan,
-  templateMoves,
-  placeTemplate,
-  renameTemplate,
+  placePiecesTemplate,
+  editPieces: editPiecesOnly,
   nameError,
   renameInstance,
-  editTemplate,
-  strandedBy,
-  relayoutTemplate,
-  removeTemplate,
-} = useBioEdits(roles)
+} = useBioEdits()
+const { chooseImage, keepImageFile } = useBioImages()
 
 onMounted(() => loadSidecars())
 
 // vue-flow measures a node's handles when they mount, so a node whose handles change (a selection's
 // couplings come and go) is measured again, or its lines would keep to the old points. So is one whose
-// parent changes, as a template piece's id does when a module binds to it or leaves it.
+// parent changes, as a piece's key does when a module binds to it or leaves it.
 const handlesOf = computed(
   () =>
     new Map(
@@ -643,7 +759,9 @@ const fitLayout = () => fitView({ ...props.fitViewParams, duration: 0 })
 const extent = computed(() =>
   bioNodes.value
     .filter((node) => !node.parentNode)
-    .map((node) => `${Math.round(node.position.x)},${Math.round(node.position.y)},${node.width ?? ''},${node.height ?? ''}`)
+    .map(
+      (node) => `${Math.round(node.position.x)},${Math.round(node.position.y)},${node.width ?? ''},${node.height ?? ''}`
+    )
     .join(';')
 )
 watch(extent, async () => {
@@ -662,35 +780,23 @@ watch(
   { flush: 'sync' }
 )
 
-// ── Dragging into a membrane or onto a template site ───────────────────
+// ── Dragging into a membrane or onto a site of the pieces ──────────────
 const draggingId = ref(null)
 // A selection's coupling lines end where things were laid out, so they wait for a drag to end.
 const shownCouplings = computed(() => (draggingId.value ? [] : couplingEdges.value))
-/**
- * Where the drag would go: { slot } in a node-owned cell's membrane, { area } of a node-owned cell (its membrane
- * or inside), or { site } of a template.
- */
+/** Where the drag would go: { site } of the pieces. */
 const activeTarget = ref(null)
-const targets = computed(() => dropTargets(layout.value, draggingId.value))
-const ownedTargets = computed(() => cellSites(targets.value))
 const siteTargets = computed(() => dropSites(sites.value, draggingId.value))
 
 /**
- * Finds where a point drops: the nearer of a node-owned cell's slot and a template's slot, else a node-owned
- * cell's membrane or inside, found as on a template's cell, else the template area holding it.
+ * Finds where a point drops on the pieces: a slot, else the area holding it (see nearestSite).
  *
  * @param {{x: number, y: number}} point
  * @param {{ membrane?: boolean }} [options] - For nearestSite.
- * @returns {{slot: Object}|{area: Object}|{site: Object}|null}
+ * @returns {{site: Object}|null}
  */
 function targetAt(point, options) {
-  const owned = nearestSite(ownedTargets.value, point, SNAP_DISTANCE, options)
   const site = nearestSite(siteTargets.value, point, SNAP_DISTANCE, options)
-  const slotDistance = owned?.type === 'slot' ? owned.distance : Infinity
-  if (site?.type === 'slot' && site.distance < slotDistance) return { site }
-  if (owned?.type === 'slot') return { slot: owned.slot }
-  // A hand-added cell lies over any template compartment under it.
-  if (owned && (!site || site.area === 'compartment')) return { area: owned }
   return site ? { site } : null
 }
 
@@ -703,8 +809,6 @@ const pointer = ref(null)
 /** Says which drop target a target is, so the same one found again on the next frame is known as the same. */
 function targetKey(target) {
   if (!target) return ''
-  if (target.slot) return `slot ${target.slot.cellId} ${target.slot.part} ${target.slot.order}`
-  if (target.area) return `area ${target.area.cellId} ${target.area.area}`
   const { ref, type, order, area } = target.site
   return `site ${ref} ${type} ${order ?? ''} ${area ?? ''}`
 }
@@ -722,31 +826,18 @@ function trackDrag(point, target) {
   if (targetKey(target) !== targetKey(activeTarget.value)) activeTarget.value = target
 }
 
-/** The node-owned cells near the pointer, as their ids: unchanged while the pointer moves within reach of them. */
-const nearCells = computed(() => {
-  const at = pointer.value
-  if (!at) return ''
-  return targets.value
-    .filter((cell) => isNear(cell.rect, at, SNAP_DISTANCE))
-    .map((cell) => cell.id)
-    .join('\n')
-})
-
 /**
- * The template sites next to a site, which a module dropped there connects to.
+ * The sites of the pieces next to a site, which a module dropped there connects to: the topology's neighbours.
  *
  * @param {Object} site - A drop target.
  * @returns {Array<{ref: string, relation: string}>}
  */
 function neighbourSites(site) {
   const parsed = parseSiteRef(site.ref)
-  const instance = parsed && templateStore.getInstance(parsed.instance)
-  const template = instance && instanceTemplate(instance, templateStore.definitions)
-  if (!template) return []
-  return siteNeighbours(template, parsed.path).map(({ path, relation }) => ({
-    ref: siteRef(parsed.instance, path),
-    relation,
-  }))
+  if (parsed?.instance !== PIECES_INSTANCE || !piecesStore.pieces.length) return []
+  return topologyOf(piecesStore.pieces)
+    .neighbours(parsed.path)
+    .map(({ path, relation }) => ({ ref: pieceSiteRef(path), relation }))
 }
 
 /** The nodes a node dropped on a site connects to: those on the sites next to it not joined to it yet. */
@@ -754,7 +845,7 @@ const neighboursAt = (site, id) =>
   neighbourNodes(siteTargets.value, neighbourSites(site), { id, edges: main.edges.value })
 
 /**
- * Joins a node just bound to a template site to the nodes on the sites next to it, in the current step, by the
+ * Joins a node just bound to a site of the pieces to the nodes on the sites next to it, in the current step, by the
  * links the site's relationships make (see siteLinks).
  *
  * @param {string} id
@@ -768,36 +859,16 @@ async function connectToNeighbours(id, site) {
 }
 
 /**
- * Joins a node just placed on a node-owned cell (not a template's) to its neighbours there, in the current step,
- * as connectToNeighbours does on a template: a membrane and the cell's proteins, a protein and its cell, membrane
- * and the compartments against it, in whichever order they came (see ownedNeighbours).
- *
- * @param {string} id
- * @returns {Promise<void>}
- */
-async function connectToCellNeighbours(id) {
-  if (!props.connectInstances || !id) return
-  // The layout as the plan just applied leaves it.
-  await nextTick()
-  const { role, neighbours } = ownedNeighbours(layout.value, id, { edges: main.edges.value })
-  const links = role ? siteLinks(id, role, neighbours) : []
-  if (links.length) await props.connectInstances(links)
-}
-
-/**
  * Every node a node lies next to where it is placed now, joined to it or not: those on the sites next to its
- * template site, or its neighbours on a node-owned cell (see ownedNeighbours).
+ * site of the pieces.
  *
  * @param {string} id
  * @returns {Array<string>}
  */
 function placedNeighbours(id) {
   const place = layout.value.get(id)
-  if (place?.instance) {
-    if (!place.site) return []
-    return neighbourNodes(siteTargets.value, neighbourSites({ ref: place.site }), { id }).map((n) => n.id)
-  }
-  return ownedNeighbours(layout.value, id).neighbours.map((n) => n.id)
+  if (!place?.instance || !place.site) return []
+  return neighbourNodes(siteTargets.value, neighbourSites({ ref: place.site }), { id }).map((n) => n.id)
 }
 
 /**
@@ -840,11 +911,62 @@ async function dropStaleLinks(before) {
   })
 }
 
+/** Each tube's label, by its id. */
+const labelsOfTubes = () =>
+  new Map(piecesStore.pieces.filter((piece) => piece.kind === 'tube').map((piece) => [piece.id, piece.label]))
+
+/**
+ * Renames the module of each tube an edit renamed for what it now carries (a gap junction become a bridge), where
+ * the module still has the name it was given for the tube's old label: one the user named keeps its name.
+ *
+ * @param {Map<string, string>} before - From labelsOfTubes, taken before the edit.
+ * @returns {Promise<void>}
+ */
+async function renameTubeModules(before) {
+  for (const [id, label] of labelsOfTubes()) {
+    const was = before.get(id)
+    const module = was && was !== label ? moduleOfPiece(id) : null
+    if (!module || !isPlaceholderNameFor(nameOf(module), was)) continue
+    const others = main.nodes.value.filter((node) => node.id !== module).map((node) => node.data?.name)
+    const name = placeholderName(label, others)
+    if (name) await renameInstance(module, name)
+  }
+}
+
+/** The modules on a site of the pieces. */
+const placedModuleIds = () =>
+  [...layout.value].filter(([id, place]) => place?.instance && place.site && main.findNode(id)).map(([id]) => id)
+
+/**
+ * Brings the placement edges in line with the pieces after an edit of them moved what lies next to what, as a
+ * reparented cell, a re-docked compartment or a re-ended tube does: the placement edges to neighbours a module
+ * left go (see dropStaleLinks), and it is joined to the ones it gained, by the links its site makes (see
+ * siteLinks). Only new neighbours are joined, so an edge the user took away between neighbours that stay is not
+ * put back. Run in the edit's step.
+ *
+ * @param {Map<string, Array<string>>} before - From neighboursOf, taken before the edit.
+ * @returns {Promise<void>}
+ */
+async function relinkPlaced(before) {
+  await dropStaleLinks(before)
+  if (!props.connectInstances) return
+  for (const id of placedModuleIds()) {
+    const ref = layout.value.get(id)?.site
+    const site = ref && siteTargets.value.find((target) => target.ref === ref)
+    if (!site) continue
+    const was = new Set(before.get(id) ?? [])
+    const gained = neighboursAt(site, id).filter((other) => !was.has(other.id))
+    const links = siteLinks(id, site.role, gained)
+    // Each made in turn, so its far end sees it as joined and doesn't make it again.
+    if (links.length) await props.connectInstances(links)
+  }
+}
+
 /** Whether a replace confirmation is open, so the workspace's shortcuts wait. */
 const isConfirming = ref(false)
 
 /**
- * Asks before a drop replaces what is on a one-module site; any other drop goes ahead.
+ * Asks before a drop replaces what is on a compartment, membrane or tube, which deletes it; any other drop goes ahead.
  *
  * @param {Object} site - The drop target.
  * @param {string|null} id - The node dropped, or null for a new one.
@@ -860,8 +982,8 @@ async function confirmReplace(site, id, name) {
     const answer = await choose({
       header: 'Replace module?',
       message:
-        `${site.label} holds ${nameOf(occupant)}. Put ${name} there instead? ` +
-        `${nameOf(occupant)} stays in the diagram, with its connections, as a card.`,
+        `${siteLabel(site, nameOf)} is ${nameOf(occupant)}. Put ${name} there instead? ` +
+        `${nameOf(occupant)} is deleted from the diagram, with its connections.`,
       severity: 'warning',
       acceptLabel: 'Replace',
       rejectLabel: 'Cancel',
@@ -872,17 +994,14 @@ async function confirmReplace(site, id, name) {
   }
 }
 
-/** The template piece a site belongs to, '<instance>/<cell or compartment>', so prompts show only its sites. */
+/** The piece a site belongs to, 'pieces/<piece>', so prompts show only its sites. */
 function pieceOfRef(ref) {
   const parsed = parseSiteRef(ref)
   return parsed ? `${parsed.instance}/${parsed.path.split('.')[0]}` : null
 }
 
-const isNear = (rect, { x, y }, margin) =>
-  x >= rect.x - margin &&
-  x <= rect.x + rect.width + margin &&
-  y >= rect.y - margin &&
-  y <= rect.y + rect.height + margin
+/** The piece a drop target's site is drawn on: a site of the pieces names its group, the place drawing it. */
+const groupOf = (target) => (target.group ? `group ${target.group}` : pieceOfRef(target.ref))
 
 /**
  * The outline a cell's membrane or inside is prompted with: the membrane along the cell's outline, drawn as wide
@@ -910,38 +1029,25 @@ const sitePrompts = computed(() => {
   const empty = { slots: [], areas: [], cells: [] }
   if (!draggingId.value) return empty
   const active = activeTarget.value
-  const glyph = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
-  // A node-owned cell's slots, membrane and inside, while the pointer is over or near that cell.
-  const near = new Set(nearCells.value ? nearCells.value.split('\n') : [])
-  const activeCell = (active?.slot ?? active?.area)?.cellId
-  if (activeCell !== undefined && targets.value.some((cell) => cell.id === activeCell)) near.add(activeCell)
+  const symbol = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
+  const piece = active?.site ? groupOf(active.site) : null
+  if (!piece) return empty
   const slots = []
   const areas = []
-  for (const target of ownedTargets.value) {
-    if (!near.has(target.cellId)) continue
-    if (target.type === 'slot') {
-      const { cellId, part, order } = target.slot
-      const isActive = active?.slot?.cellId === cellId && active.slot.part === part && active.slot.order === order
-      const { x, y, spare } = target
-      slots.push({ key: `${cellId}/${part}/${order}`, x, y, spare, ...glyph, active: isActive })
-      continue
-    }
-    const { cellId, area, rect } = target
-    const isActive = active?.area?.cellId === cellId && active.area.area === area
-    areas.push({ key: `${cellId}#${area}`, ref: cellId, area, rect, path: areaPath(target), active: isActive })
-  }
-  const piece = active?.site ? pieceOfRef(active.site.ref) : null
-  if (!piece) return { ...empty, slots, areas: sortAreas(areas) }
-  const isActive = ({ ref, type, order }) =>
-    active.site.ref === ref && active.site.type === type && active.site.order === order
+  // A process area's row is prompted by its slots alone: a drop on the row goes last, so its spare slot is marked.
+  const toRow = active.site.type === 'area' && active.site.area === 'process'
+  const isActive = ({ ref, type, order, spare }) =>
+    active.site.ref === ref &&
+    (toRow ? type === 'slot' && spare : active.site.type === type && active.site.order === order)
   for (const target of siteTargets.value) {
-    if (pieceOfRef(target.ref) !== piece) continue
+    if (groupOf(target) !== piece) continue
     if (target.type === 'slot') {
-      const size = target.role === 'cytosolic' ? CARD : glyph
+      const size = target.role === 'cytosolic' ? processSize(target) : symbol
       const { ref, x, y, order, spare } = target
       slots.push({ key: `${ref}#${order}`, ref, x, y, spare, ...size, active: isActive(target) })
       continue
     }
+    if (target.area === 'process') continue
     areas.push({
       key: target.ref,
       ref: target.ref,
@@ -963,9 +1069,7 @@ const sortAreas = (areas) =>
  * The label that follows the pointer: where the drop goes and what it connects to, and what it would replace.
  */
 const dropText = computed(() => {
-  const owned = activeTarget.value?.area
-  // A node-owned cell's area is said by the cell's name.
-  const site = owned ? { ...owned, label: nameOf(owned.cellId) } : activeTarget.value?.site
+  const site = activeTarget.value?.site
   if (!draggingId.value || !site) return null
   const id = draggingId.value === 'library' ? null : draggingId.value
   const labels = new Map(siteTargets.value.map((target) => [target.ref, target.label]))
@@ -975,14 +1079,14 @@ const dropText = computed(() => {
   const isPorted = (data) => hasPorts(data) || (!id && !!libraryStore.getModuleAnnotations(data?.mathRef))
   const text = dropLabel(
     siteLabel(site, nameOf),
-    { name: id ? nameOf(id) : (dragged?.moduleRef?.split(':')[0] ?? 'the module'), hasPorts: isPorted(dragged) },
-    (owned ? [] : neighboursAt(site, id)).map(({ id: other, ref }) => ({
+    { name: id ? nameOf(id) : dragged?.moduleRef?.split(':')[0] ?? 'the module', hasPorts: isPorted(dragged) },
+    neighboursAt(site, id).map(({ id: other, ref }) => ({
       label: labels.get(ref) ?? ref,
       name: nameOf(other),
       hasPorts: hasPorts(main.findNode(other)?.data),
     }))
   )
-  const replaced = owned ? null : replacedOccupant(site, id)
+  const replaced = replacedOccupant(site, id)
   return { text, replace: replaced ? `Replaces ${nameOf(replaced)}` : null }
 })
 /** The label that follows the pointer, where it is: only its place changes as the pointer moves. */
@@ -999,8 +1103,8 @@ function parentOffset(node) {
 }
 
 /**
- * Snaps a dragged node's position to the nearest slot, and remembers where it would go for the drop: a slot,
- * or a template area, which it doesn't snap to.
+ * Snaps a dragged node's position to the nearest slot of the pieces, and remembers where it would go for the drop:
+ * a slot, or an area, which it doesn't snap to.
  */
 function snapToSlot(change) {
   const node = findNode(change.id)
@@ -1015,7 +1119,7 @@ function snapToSlot(change) {
   // A protein moved along its membrane keeps finding slots, not the membrane between them.
   const target = targetAt(centre, { membrane: roles.value.get(change.id)?.role !== 'membraneProtein' })
   trackDrag(centre, target)
-  const slot = target?.slot ?? (target?.site?.type === 'slot' ? target.site : null)
+  const slot = target?.site?.type === 'slot' ? target.site : null
   if (slot)
     change.position = {
       x: slot.x - width / 2 - offset.x,
@@ -1024,13 +1128,10 @@ function snapToSlot(change) {
 }
 
 function onNodesChange(changes) {
-  // A membrane is dragged only to move its cell (see onNodeDrag), so it stays on the cell's outline, and a
-  // structure grabbed on its own leaves whatever else was selected where it is.
-  changes = changes.filter(
-    (change) =>
-      change.type !== 'position' ||
-      (findNode(change.id)?.type !== 'bioMembrane' && (!structureDrag?.alone || structureDrag.alone.has(change.id)))
-  )
+  // A piece being moved or resized is laid out from its draft, not where the drag or resizer would put its node.
+  changes = changes.filter((change) => !takesPieceChange(change))
+  // A membrane is drawn on its cell's outline and never dragged.
+  changes = changes.filter((change) => change.type !== 'position' || findNode(change.id)?.type !== 'bioMembrane')
   for (const change of changes) {
     if (change.type === 'select') {
       const node = main.findNode(change.id)
@@ -1046,22 +1147,11 @@ function onNodesChange(changes) {
 
 const bioViews = () => new Map(main.nodes.value.map((node) => [node.id, node.data?.bioView]))
 
-/** The template instance a cell or region of the view is a piece of, if any. */
-function pieceOf(id) {
-  const place = layout.value.get(id)
-  return place?.instance && ['cell', 'region', 'link'].includes(place.kind) ? place.instance : null
-}
-
 /** The context every plan reads: the layout as drawn, the roles and the bioViews. */
 const planContext = () => ({ layout: layout.value, roles: roles.value, bioViews: bioViews() })
 
 /** Where each dragged node started, so a drop the user cancels puts it back. */
 const dragStarts = new Map()
-/**
- * The structure being dragged, if any: the node that leads it (a membrane's cell), where the pointer started,
- * and where each of its top-level pieces started. Grabbed unselected, it moves `alone`: only these pieces.
- */
-let structureDrag = null
 
 /** Where a drag's pointer is, in flow coordinates. */
 function pointerAt(event) {
@@ -1069,66 +1159,32 @@ function pointerAt(event) {
   return Number.isFinite(point?.clientX) ? screenToFlowCoordinate({ x: point.clientX, y: point.clientY }) : null
 }
 
+/** Where the pointer was when a drag began, for which end of a tube an Alt-drag takes (see startTubeRetarget). */
+let dragStartPointer = null
+
 function onNodeDragStart({ event, node, nodes }) {
+  dragStartPointer = pointerAt(event)
   dragStarts.clear()
   for (const moved of nodes) dragStarts.set(moved.id, { ...moved.position })
-  structureDrag = null
-  // A structure's handle takes its other pieces along; a part, such as a protein or card, moves alone.
-  const lead = node.type === 'bioMembrane' ? findNode(node.parentNode) : node
-  const companions = dragCompanions(layout.value, node)
-  if (!lead || (lead === node && !companions.length)) return
-  const pieces = [lead, ...companions.map((id) => findNode(id))].filter(Boolean)
-  const starts = new Map(pieces.map((piece) => [piece.id, { ...piece.position }]))
-  structureDrag = {
-    lead: lead.id,
-    from: pointerAt(event),
-    starts,
-    alone: node.selected ? null : new Set([node.id, ...starts.keys()]),
+  // A cell's outline moves the cell, as its inside does.
+  const cell = node.type === 'bioMembrane' && main.findNode(layout.value.get(node.id)?.cell)
+  if (cell) {
+    startPieceMove(cell, event)
+    return
   }
+  // A piece, or a grip on one, moves as its own drag says; a tube or its module with Alt down moves one of its ends
+  // (see startTubeRetarget); a module moves alone.
+  if (!startPieceMove(node, event) && event?.altKey) startTubeRetarget(node)
 }
 
-/** Moves the rest of a dragged structure with it, as the drag goes, and the species drawn over what moved. */
-function onNodeDrag({ event, node, nodes }) {
-  moveStructure(event, node)
-  driftWithDrag(nodes ?? [node])
-}
-
-/** Moves the rest of a dragged structure with the node dragged. */
-function moveStructure(event, node) {
-  if (!structureDrag) return
-  const { lead, from, starts } = structureDrag
-  let delta
-  if (node.id === lead) {
-    const start = starts.get(lead)
-    delta = { x: node.position.x - start.x, y: node.position.y - start.y }
-  } else {
-    // A membrane's drag moves its cell by how far the pointer went.
-    const at = pointerAt(event)
-    if (!at || !from) return
-    delta = { x: at.x - from.x, y: at.y - from.y }
-  }
-  applyNodeChanges(
-    [...starts]
-      .filter(([id]) => id !== node.id)
-      .map(([id, start]) => ({ id, type: 'position', position: { x: start.x + delta.x, y: start.y + delta.y } }))
-  )
-}
-
-/**
- * Shifts the species of the cells and regions a drag has moved by as far as each has gone, redrawing only the legs
- * to what moved, so they keep with their compartments and proteins without laying the species out again.
- */
-function driftWithDrag(nodes) {
-  if (!species.value) return
-  const moved = new Map()
-  for (const id of new Set([...(structureDrag?.starts.keys() ?? []), ...nodes.map((moving) => moving.id)])) {
-    const place = layout.value.get(id)
-    const position = findNode(id)?.position
-    if ((place?.kind !== 'cell' && place?.kind !== 'region') || !position) continue
-    const shift = { x: position.x - place.rect.x, y: position.y - place.rect.y }
-    if (shift.x || shift.y) moved.set(id, shift)
-  }
-  speciesDrift.value = moved.size ? { moved } : null
+/** Follows a piece's drag as it goes. */
+function onNodeDrag({ event, node }) {
+  // A tube, or its module, dragged with Alt takes the end nearer where the drag began to another compartment.
+  if (!pieceMove && event?.altKey && !startTubeRetarget(node)) return
+  if (!pieceMove) return
+  pieceMove.alt = pieceMove.liftable && !!event?.altKey
+  const pointer = pointerAt(event)
+  if (pointer) followPiece(pointer)
 }
 
 /** Puts dragged nodes back where their drag started. */
@@ -1140,11 +1196,11 @@ function putBack(nodes) {
 }
 
 /**
- * Keeps dragged nodes where they were put: in a membrane slot or on a template site, out of one, or just
- * moved. A dragged template piece moves its whole instance, in the same step. A node bound to a template site
- * is joined to the nodes on the sites next to it in that step too, once the user agrees to any replace.
+ * Keeps dragged nodes where they were put: on a site of the pieces, out of one, or just moved. A node bound to a site is joined to the nodes on the sites next to it in that step too, once the user
+ * agrees to any replace. The pieces themselves move through their own drags (see startPieceMove).
  */
 async function onNodeDragStop(event) {
+  if (pieceMove) return endPieceMove(event)
   try {
     await settleNodeDrag(event)
   } finally {
@@ -1154,13 +1210,7 @@ async function onNodeDragStop(event) {
   }
 }
 
-async function settleNodeDrag({ nodes: dragged }) {
-  // A membrane dragged moved its cell; a structure grabbed on its own left the rest of the selection alone.
-  const alone = structureDrag?.alone
-  const nodes = dragged
-    .filter((moved) => !alone || alone.has(moved.id))
-    .map((moved) => (moved.type === 'bioMembrane' ? (findNode(moved.parentNode) ?? moved) : moved))
-  structureDrag = null
+async function settleNodeDrag({ nodes }) {
   const target = activeTarget.value
   const dropped = draggingId.value
   draggingId.value = null
@@ -1168,7 +1218,6 @@ async function settleNodeDrag({ nodes: dragged }) {
   pointer.value = null
 
   const plan = new Map()
-  const moves = new Map()
   // The nodes that leave their place, whose placement edges to the neighbours they leave go.
   const relocated = []
   const add = (entries) => entries.forEach((bioView, id) => plan.set(id, bioView))
@@ -1176,92 +1225,55 @@ async function settleNodeDrag({ nodes: dragged }) {
     const node = findNode(moved.id) ?? moved
     return node.computedPosition ?? node.position
   }
-  // A piece with a place of its own moves alone, with its block: its place in its template changes.
-  const blockMoves = new Map()
-  for (const moved of nodes) {
-    const place = layout.value.get(moved.id)
-    if (moved.type === 'bioTemplateTitle' || !place?.instance || !place.block) continue
-    const key = `${place.instance}/${place.block}`
-    if (blockMoves.has(key)) continue
-    const at = positionOf(moved)
-    const delta = whole({ x: at.x - place.rect.x, y: at.y - place.rect.y })
-    blockMoves.set(key, { instance: place.instance, path: layout.value.get(place.block)?.path, delta })
-  }
-  if (blockMoves.size) return moveBlocks(blockMoves, nodes)
-  for (const moved of nodes) {
-    const isTitle = moved.type === 'bioTemplateTitle'
-    const instance = isTitle ? moved.data?.instance : pieceOf(moved.id)
-    if (!instance || moves.has(instance)) continue
-    const at = positionOf(moved)
-    const from = isTitle ? dragStarts.get(moved.id) : layout.value.get(moved.id).rect
-    if (from) moves.set(instance, { x: at.x - from.x, y: at.y - from.y })
-  }
-  const binds =
-    !!target?.site &&
-    nodes.some((moved) => moved.id === dropped && !moves.has(layout.value.get(moved.id)?.instance))
+  const binds = !!target?.site && nodes.some((moved) => moved.id === dropped)
   if (binds && !(await confirmReplace(target.site, dropped, nameOf(dropped)))) return putBack(nodes)
-  // A placeholder on the site goes, for the node dropped there to take its place.
+  // What is on a compartment, membrane or tube goes, for the node dropped there to take its place.
   const replaced = binds ? replacedOccupant(target.site, dropped) : null
-  const placeholder = replaced && isPlaceholder(main.findNode(replaced), main.edges.value) ? replaced : null
+  // A compartment's, membrane's or tube's module is that piece, so it is never set loose: let go off a site, it goes
+  // back.
+  const kept = []
 
   for (const moved of nodes) {
-    const node = findNode(moved.id) ?? moved
     const at = positionOf(moved)
     const place = layout.value.get(moved.id)
-    // A template's name and pieces, and nodes bound to a template dragged with them, go with the template's move.
-    if (moved.type === 'bioTemplateTitle' || moves.has(place?.instance)) continue
-    const isPlaced = moved.id === dropped && !!(target?.site || target?.slot || target?.area)
-    if (isPlaced || place?.instance || place?.kind === 'protein') relocated.push(moved.id)
-    if (moved.id === dropped && target?.site) {
+    const isDropped = moved.id === dropped && !!target?.site
+    if (!isDropped && place?.instance && isPieceModuleNode(moved.id)) {
+      kept.push(moved)
+      continue
+    }
+    if (isDropped || place?.instance) relocated.push(moved.id)
+    if (isDropped) {
       add(planSiteBind({ id: moved.id, site: target.site, ...planContext() }))
-    } else if (moved.id === dropped && target?.slot) {
-      add(planSlotDrop({ id: moved.id, slot: target.slot, ...planContext() }))
-    } else if (moved.id === dropped && target?.area) {
-      add(planCellArea({ id: moved.id, area: target.area, layout: layout.value, bioViews: bioViews() }))
     } else if (place?.instance) {
-      // Out of its template site, to where it was dropped.
+      // Out of its site, to where it was dropped.
       add(planUnbind({ id: moved.id, position: { x: at.x, y: at.y }, ...planContext() }))
-    } else if (place?.kind === 'protein') {
-      add(
-        planUnplace({
-          id: moved.id,
-          position: { x: at.x, y: at.y },
-          layout: layout.value,
-          bioViews: bioViews(),
-        })
-      )
-    } else if (place?.kind === 'region' && place.anchored) {
-      // A compartment lying against cells is placed by them: it goes back, and moves when they do.
-      putBack([moved])
-    } else {
-      plan.set(moved.id, {
-        ...main.findNode(moved.id)?.data?.bioView,
-        ...bioViewForMove(node, at),
-      })
-      // A cell's cards and the regions against it that keep places of their own go with it.
-      if (place?.kind === 'cell') {
-        const delta = { x: at.x - place.rect.x, y: at.y - place.rect.y }
-        add(planCellMove({ id: moved.id, delta, layout: layout.value, bioViews: bioViews() }))
-      }
+    } else if (!place?.piece) {
+      // A loose module stays where it was put; a piece moves only by its own drag (see startPieceMove).
+      plan.set(moved.id, patchBioView(main.findNode(moved.id)?.data?.bioView, { position: whole(at) }))
     }
   }
-  const type = moves.size ? 'bio-template-move' : 'bio-layout'
-  const owned = !binds && !!(target?.slot || target?.area) && nodes.some((moved) => moved.id === dropped)
+  if (kept.length) putBack(kept)
   const before = neighboursOf(relocated)
-  if (!binds && !owned && !before.size) return applyPlan(plan, type, templateMoves(moves))
-  // Out of the places they left, and onto a template site or node-owned cell joined to the neighbours there, in
-  // the same step.
+  if (!binds && !before.size) return applyPlan(plan, 'bio-layout')
+  // Out of the places they left, and onto a site of the pieces joined to the neighbours there, in the same step. A
+  // piece whose module moved to another is given a new one.
   history.startBatch()
   try {
-    if (placeholder) main.removeNodes([placeholder], true)
-    if (await applyPlan(plan, type, templateMoves(moves))) {
+    if (replaced) main.removeNodes([replaced], true)
+    if (await applyPlan(plan, 'bio-layout')) {
       await dropStaleLinks(before)
       if (binds) await connectToNeighbours(dropped, target.site)
-      else if (owned) await connectToCellNeighbours(dropped)
+      await fillOwedModules()
     }
   } finally {
-    history.endBatch(moves.size ? type : binds ? 'bio-bind' : 'bio-layout')
+    history.endBatch(binds ? 'bio-bind' : 'bio-layout')
   }
+}
+
+/** Whether a node is a compartment's, membrane's or tube's module: on a site that takes one module. */
+function isPieceModuleNode(id) {
+  const ref = layout.value.get(id)?.site
+  return !!ref && isPieceModule(sites.value.find((site) => site.ref === ref))
 }
 
 function onNodeDoubleClick({ node }) {
@@ -1370,23 +1382,31 @@ const SPECIES_COLOURS = [
 /** Every species in scope, hidden ones too, so hiding one leaves the others their colours. */
 const scopedSpecies = computed(() => species.value?.network.species ?? [])
 const colourIndex = (curie) =>
-  Math.max(0, scopedSpecies.value.findIndex((entry) => entry.species === curie)) % SPECIES_COLOURS.length
+  Math.max(
+    0,
+    scopedSpecies.value.findIndex((entry) => entry.species === curie)
+  ) % SPECIES_COLOURS.length
 const colourOf = (curie) => SPECIES_COLOURS[colourIndex(curie)]
 /** What colour the focused species' concentration tints its compartments (see BioCell and BioRegion). */
 provide(
   'bioTintColour',
   computed(() => (concentrationTint.value ? colourOf(concentrationTint.value.species) : null))
 )
-/** A tinted compartment's concentration of the focused species at the cursor, for its token's tooltip. */
+/** How strongly a chip is tinted by what its compartment holds, with no species focused; undefined when it isn't. */
+const chipTintOf = (token) => chipTints.value.get(token.nodeId)?.get(token.species)
+/** What a token's compartment holds of its species at the cursor, where that tints it or its chip, for its tooltip. */
 function concentrationText(token) {
   const tinted = concentrationTint.value
-  if (tinted?.species !== token.species) return ''
-  const value = tinted.tints.find((tint) => tint.nodeId === token.nodeId)?.value
-  return Number.isFinite(value) ? ` (${Number(value.toPrecision(4))}${tinted.unit ? ` ${tinted.unit}` : ''})` : ''
+  const held =
+    tinted?.species === token.species ? tinted.tints.find((tint) => tint.nodeId === token.nodeId) : chipTintOf(token)
+  if (!Number.isFinite(held?.value)) return ''
+  return ` (${Number(held.value.toPrecision(4))}${held.unit ? ` ${held.unit}` : ''})`
 }
 /** The species menu's rows. */
 const menuSpecies = computed(() => scopedSpecies.value.map((entry) => ({ ...entry, colour: colourOf(entry.species) })))
 const speciesMenuRef = ref(null)
+/** Whether the species menu is open, which turns its button's hamburger into a tornado. */
+const isSpeciesMenuOpen = ref(false)
 const isFocused = (token) =>
   viewMode.focusedSpecies?.nodeId === token.nodeId && viewMode.focusedSpecies?.species === token.species
 /** Whether a species is set back while another is focused. */
@@ -1611,24 +1631,36 @@ function setChoices(ids, patch, type) {
   return applyPlan(new Map(ids.map((id) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])), type)
 }
 
-/** Shows nodes as a role. */
-const chooseRole = (ids, role) => setChoices(ids, { role }, 'bio-role')
-
-/** Draws nodes with a glyph, NO_GLYPH taking a process's away; a glyph from a loaded library joins the workspace. */
-function chooseGlyph(ids, glyph) {
-  glyphStore.adoptGlyph(glyph)
-  return setChoices(ids, { glyph }, 'bio-glyph')
+/**
+ * Draws nodes with a skin, NO_SKIN for none, as one step: a protein or process by its own choice, any other node by
+ * its piece's (see skinnedPieceOfNode). A skin from a loaded library joins the workspace.
+ *
+ * @param {string[]} ids - Nodes of the view; all one thing, as the properties panel and menus choose for.
+ * @param {string} skin - A skin's id, or NO_SKIN.
+ */
+function chooseSkin(ids, skin) {
+  const modules = ids.filter((id) => main.findNode(id) && !isJointNode(id) && roles.value.get(id)?.skinContext)
+  if (!modules.length) {
+    let pieces = piecesStore.pieces
+    for (const id of new Set(ids.map(skinnedPieceOfNode).filter(Boolean))) {
+      const piece = pieces?.find((each) => each.id === id)
+      pieces = piece ? skinPiece(pieces, id, pieceSkinFor(piece, skin)) : pieces
+    }
+    return keepEdit(pieces === piecesStore.pieces ? null : pieces, 'bio-pieces-skin', 'Could not change its skin')
+  }
+  skinStore.adoptSkin(skin)
+  return setChoices(modules, { skin }, 'bio-skin')
 }
 
-/** Somewhere left of the cells, below any proteins already there, for one taken out of its membrane. */
+/** Somewhere left of the cells, below any proteins already there, for a module taken off its site. */
 function trayPosition() {
   const cells = [...layout.value.values()].filter((place) => place.kind === 'cell').map((place) => place.rect)
   const left = cells.length ? Math.min(...cells.map((rect) => rect.x)) : 0
   const top = cells.length ? Math.min(...cells.map((rect) => rect.y)) : 0
   const loose = [...layout.value.values()].filter((place) => place.kind === 'tray').length
   return {
-    x: left - 2 * GAP - GLYPH_WIDTH,
-    y: top + loose * (GLYPH_HEIGHT + 32),
+    x: left - 2 * GAP - SYMBOL_WIDTH,
+    y: top + loose * (SYMBOL_HEIGHT + 32),
   }
 }
 
@@ -1636,7 +1668,7 @@ function trayPosition() {
  * Takes a node out of its place by a plan, without the placement edges to the neighbours it leaves, as one step.
  *
  * @param {string} id
- * @param {Map<string, Object>} plan - From planUnbind or planUnplace.
+ * @param {Map<string, Object>} plan - From planUnbind.
  * @param {string} type - The command type.
  * @returns {Promise<void>}
  */
@@ -1650,107 +1682,211 @@ async function takeOut(id, plan, type) {
   }
 }
 
-/** Menu wording for the epithelial cell's facets; any other facet uses its own label. */
-const AGAINST_LABELS = {
-  apical: 'Apical side',
-  basolateral: 'Basolateral side',
-  'lateral-left': 'Left side (paracellular)',
-  'lateral-right': 'Right side (paracellular)',
-}
-
-/** Where a region can lie: against each annotated facet of a cell, such as its top, bottom or either side. */
-const AGAINST = EPITHELIAL_SHAPE.facets
-  .filter((facet) => facet.annotation)
-  .map((facet) => ({
-    ...annotationOfFacet(EPITHELIAL_SHAPE, facet.id),
-    label: AGAINST_LABELS[facet.id] ?? facet.label,
-  }))
-
-/** The menu choosing what a region lies against, one part of one cell at a time. */
-function liesAgainstMenu(id, role) {
-  const current = role.adjacent?.[0]
-  const cells = targets.value.map((cell) => cell.id)
-  const name = (cellId) => main.findNode(cellId)?.data?.name ?? cellId
-  const isCurrent = (cellId, choice) =>
-    current?.cell === cellId && current.facet === choice.facet && (current.at ?? undefined) === choice.at
-  return {
-    label: 'Lies Against',
-    icon: 'pi pi-arrows-h',
-    disabled: !cells.length,
-    items: cells.flatMap((cellId) =>
-      AGAINST.map(({ label, ...against }) => ({
-        label: cells.length > 1 ? `${name(cellId)}: ${label}` : label,
-        icon: isCurrent(cellId, against) ? 'pi pi-check' : undefined,
-        // A new place for the region clears where it was dragged to.
-        command: () => setChoice(id, { adjacent: [{ cell: cellId, ...against }], rect: undefined }, 'bio-adjacent'),
-      }))
-    ),
+// ── Editing the pieces ─────────────────────────────────────────────────
+/**
+ * Makes an edit and gives each compartment, membrane and tube it leaves with no module a new, empty one, all as one
+ * step: none is ever without a module (see pieces/pairing.js).
+ *
+ * @param {string} type - The step's type.
+ * @param {() => Promise<boolean>} edit - Whether it made a change.
+ * @returns {Promise<boolean>}
+ */
+async function withOwedModules(type, edit) {
+  history.startBatch()
+  try {
+    const before = neighboursOf(placedModuleIds())
+    const tubeLabels = labelsOfTubes()
+    const done = await edit()
+    if (done) {
+      await fillOwedModules()
+      await relinkPlaced(before)
+      await renameTubeModules(tubeLabels)
+    }
+    return done
+  } finally {
+    history.endBatch(type)
   }
 }
 
-/** Renaming a template instance: { id, label, placeholder }. */
-const renaming = ref(null)
+/**
+ * Replaces the pieces with an edit of them, as one step, each compartment, membrane and tube left with no module
+ * given one (see withOwedModules). Every edit of the pieces made here goes through it.
+ *
+ * @param {ReadonlyArray<Object>} next - Validated.
+ * @param {string} [type='bio-pieces-edit']
+ * @returns {Promise<boolean>}
+ */
+const editPieces = (next, type = 'bio-pieces-edit') =>
+  withOwedModules(type, () => editPiecesOnly(joinFreeStretches(next), type))
 
-function onRenameConfirm() {
-  const { id, label } = renaming.value
-  renaming.value = null
-  renameTemplate(id, label)
+/**
+ * The pieces with the stretches of each membrane side that nothing keeps apart any more joined back up (see
+ * mergeFreeSpans), as a dock that left, or a compartment that went, leaves them: so docking and undocking again
+ * leaves a side as it was.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @returns {ReadonlyArray<Object>}
+ */
+function joinFreeStretches(pieces) {
+  const { occupants } = boundToPieces(pieces, main.nodes.value)
+  const occupied = new Set([...occupants].filter(([, ids]) => ids.length).map(([path]) => path))
+  const raw = mergeFreeSpans(pieces, occupied)
+  return (raw && validatePieces(raw).pieces) || pieces
 }
 
 /**
- * Names a cell or compartment from the field its name becomes on a click: the module on it, as the diagram renames
- * an instance, or an empty piece of a placed template, in that placement's changes.
+ * Gives each compartment, membrane and tube with no module a new, empty one, named for it and joined to what is next
+ * to it, in the step already open.
+ *
+ * @returns {Promise<void>}
+ */
+async function fillOwedModules() {
+  const module = newModule()
+  if (!module || !props.createInstance) return
+  for (const site of owedSites(piecesStore.pieces, main.nodes.value)) {
+    const ref = pieceSiteRef(site.path)
+    // Named for the piece, which is drawn by its module's name.
+    const name = placeholderName(
+      site.label,
+      main.nodes.value.map((node) => node.data?.name)
+    )
+    const id = props.createInstance(module, { site: ref }, { name })
+    // The layout takes it in before it is joined to its neighbours, as the next one is to it.
+    await nextTick()
+    await connectToNeighbours(id, { ref, role: site.role })
+  }
+}
+
+/**
+ * Keeps an edit to the pieces as one step, or says why it can't be made.
+ *
+ * @param {Array<Object>|null} raw - What an edit gives (see pieces/edits.js), or null when it can't be made.
+ * @param {string} type - The step's type.
+ * @param {string} [failed] - The title of what went wrong.
+ * @returns {Promise<boolean>}
+ */
+async function keepEdit(raw, type, failed = 'Could not change it') {
+  if (!raw) return false
+  const { pieces, errors } = validatePieces(raw)
+  if (!pieces) {
+    notify.error({ title: failed, message: summariseProblems(errors) })
+    return false
+  }
+  return editPieces(pieces, type)
+}
+
+/** The piece a cell's or region's name is: a cell's inside, else its membrane; a region's compartment. */
+const namedPieceOf = (place) => (place.kind === 'cell' ? place.bulk ?? place.piece : place.piece)
+
+/**
+ * The compartment a cell's or region's area skin is on: a cell's inside, a region's compartment. A cell with no
+ * inside of its own (all of it docked compartments) has none.
+ */
+const skinnedPieceOf = (place) => (place.kind === 'cell' ? place.bulk : place.piece)
+
+/**
+ * The module a piece is, if it has one: a compartment's, membrane's or tube's, which is its one name.
+ *
+ * @param {string} pieceId
+ * @returns {string|null} Its node id.
+ */
+const moduleOfPiece = (pieceId) => [...modulesOf(piecesStore.pieces, main.nodes.value, [pieceId])][0] ?? null
+
+/**
+ * Names a cell or compartment from the field its name becomes on a click: its module, as the diagram renames an
+ * instance, since the two have one name; else (a zone, or a piece for the moment it is made before its module) the
+ * piece itself.
  *
  * @param {string} id - The piece's node id.
  * @param {string} name
  */
 async function renamePiece(id, name) {
-  if (main.findNode(id)) {
-    const error = await renameInstance(id, name)
+  const place = layout.value.get(id)
+  const module = main.findNode(id) ? id : place?.piece && moduleOfPiece(namedPieceOf(place))
+  if (module) {
+    const error = await renameInstance(module, name)
     if (error) notify.error({ title: 'Could not rename it', message: error })
     return
   }
-  const place = layout.value.get(id)
-  const instance = place?.instance && templateStore.getInstance(place.instance)
-  const template = instance && templateStore.definitions.get(instance.template)
-  if (!template || !place.path) return
-  const { edits, errors } = labelInEdits(template, instance.edits ?? null, place.path, name)
-  if (errors.length) return notify.error({ title: 'Could not rename it', message: summariseProblems(errors) })
-  editTemplate(instance.id, edits, 'bio-template-rename-piece')
+  if (!place?.piece) return
+  keepEdit(relabelPiece(piecesStore.pieces, namedPieceOf(place), name), 'bio-pieces-rename', 'Could not rename it')
 }
 provide('bioRenamePiece', renamePiece)
 
 // ── Skins ──────────────────────────────────────────────────────────────
 /** The artwork a piece's skin names, as its node draws it: nothing where the workspace has no such skin. */
 const skinArt = computed(
-  () => new Map([...templateStore.allSkins].filter(([, skin]) => skin.art).map(([id, skin]) => [id, { href: skinHref(skin.art), isShape: !!skin.shape }]))
+  () => new Map(allSkins().filter((skin) => skin.renderer === 'area').map((skin) => [skin.id, skinHref(skin.svg)]))
 )
 provide('bioSkinOf', (skin) => {
-  const art = skin && skinArt.value.get(skin.ref)
-  if (!art) return null
-  // A skin that gives the cell its shape is drawn exactly where its geometry is: stretched to the cell's own box.
-  const aspect = art.isShape ? SKIN_ASPECT.stretch : (SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain)
-  return { href: art.href, aspect, opacity: skin.opacity ?? 1 }
+  const href = skin && skinArt.value.get(skin.ref)
+  if (!href) return null
+  return { href, aspect: SKIN_ASPECT[skin.mode] ?? SKIN_ASPECT.contain, opacity: skin.opacity ?? 1 }
 })
 
 /**
- * Sets, or with null takes away, the skin a cell or compartment of a placed template is drawn with, as one step.
+ * Sets, or with null takes away, the skin a membrane or compartment is drawn with, as one step.
  *
- * @param {string} instanceId
- * @param {string} path
+ * @param {string} id - The piece's.
  * @param {{ref: string, mode?: string, opacity?: number}|null} skin
  */
-function setSkin(instanceId, path, skin) {
-  const instance = templateStore.getInstance(instanceId)
-  const template = instance && templateStore.definitions.get(instance.template)
-  if (!template) return
-  const { edits, errors } = skinInEdits(template, instance.edits ?? null, path, skin)
-  if (errors.length) return notify.error({ title: 'Could not change its skin', message: summariseProblems(errors) })
-  return editTemplate(instanceId, edits, 'bio-template-skin')
+function setSkin(id, skin) {
+  return keepEdit(skinPiece(piecesStore.pieces, id, skin), 'bio-pieces-skin', 'Could not change its skin')
+}
+
+/**
+ * A piece that has a skin of its own (a compartment, a membrane, a tube or an image), what it is for its skin, and the
+ * skin it is drawn with; null for any other.
+ *
+ * @param {string|null} id - The piece's.
+ * @returns {{piece: Object, context: Object, drawn: Object|null}|null}
+ */
+function pieceSkinChoice(id) {
+  const piece = id && piecesStore.pieces.find((each) => each.id === id)
+  const context = piece && contextOfPiece(topologyOf(piecesStore.pieces), id)
+  if (!context || !['area', 'membrane', 'tube', 'image'].includes(context.family)) return null
+  return { piece, context, drawn: resolveSkin(context, piece.skin) }
+}
+
+/** The skin a piece keeps for a choice: NO_SKIN for none, else the skin, filling as it did while it is the same one. */
+const pieceSkinFor = (piece, skinId) =>
+  skinId === NO_SKIN ? { ref: NO_SKIN } : { ...(piece.skin?.ref === skinId ? piece.skin : {}), ref: skinId }
+
+/**
+ * The piece whose skin a node of the view chooses: a cell's inside, a region's compartment, a membrane's band's
+ * membrane, a tube's (by its room, or the module drawn as its joint); null for any other node.
+ */
+function skinnedPieceOfNode(nodeId) {
+  const place = layout.value.get(nodeId)
+  if (place?.kind === 'cell' || place?.kind === 'region') return skinnedPieceOf(place)
+  if (place?.kind === 'membrane') return place.piece ?? layout.value.get(place.cell)?.piece ?? null
+  if (place?.kind === 'link') return (place.joint && place.piece) || null
+  if (place?.kind === 'card' && place.joint && place.joint !== 'conduit') return layout.value.get(place.link)?.piece ?? null
+  return null
+}
+
+/** Whether a node is a module drawn as its tube's joint, whose skin is the tube's. */
+const isJointNode = (nodeId) => {
+  const place = layout.value.get(nodeId)
+  return place?.kind === 'card' && !!place.joint
+}
+
+/**
+ * What a node of the view is, for its skin, and the skin it is drawn with: a protein's or process's, else the piece's
+ * it draws (see skinnedPieceOfNode).
+ *
+ * @param {string} nodeId
+ * @returns {{context: Object, skin: string|null}|null} skin: null for none; null for a node with no skin.
+ */
+function skinOf(nodeId) {
+  const role = main.findNode(nodeId) && !isJointNode(nodeId) && roles.value.get(nodeId)
+  if (role?.skinContext) return { context: role.skinContext, skin: role.skin }
+  const choice = pieceSkinChoice(skinnedPieceOfNode(nodeId))
+  return choice && { context: choice.context, skin: choice.drawn?.id ?? null }
 }
 
 const skinFileInput = ref(null)
-/** The piece a loaded skin is for: { instance, path }. */
+/** The piece a loaded skin is for. */
 let skinFileFor = null
 
 /** Adds the chosen SVG file to the workspace's skins and draws the piece it was loaded for with it. */
@@ -1761,27 +1897,42 @@ async function onSkinFile(event) {
   skinFileFor = null
   if (!file) return
   if (file.size > SKIN_LIMITS.bytes) {
-    return notify.error({ title: `Could not load ${file.name}`, message: `A skin must be at most ${SKIN_LIMITS.bytes / 1024} KB.` })
+    return notify.error({
+      title: `Could not load ${file.name}`,
+      message: `A skin must be at most ${SKIN_LIMITS.bytes / 1024} KB.`,
+    })
   }
-  const { skin, errors } = templateStore.addSkin(file.name, await file.text())
+  // It is offered for what the piece it was loaded for is.
+  const context = target && contextOfPiece(topologyOf(piecesStore.pieces), target)
+  const { skin, errors, warnings } = skinStore.addSvg(file.name, await file.text(), { appliesTo: [context?.target] })
   if (!skin) return notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
-  if (target) setSkin(target.instance, target.path, { ref: skin.id })
+  if (warnings.length) notify.warning({ title: `Loaded ${file.name}`, message: summariseProblems(warnings) })
+  if (target) setSkin(target, { ref: skin.id })
 }
 
-/** The Skin submenu of a placed template's cell or compartment: none, each of the workspace's, how it fills, a file. */
-function skinMenu(instanceId, path) {
-  const piece = [...(placedTemplate(instanceId)?.cells ?? []), ...(placedTemplate(instanceId)?.compartments ?? [])].find((entry) => entry.id === path)
-  if (!piece) return []
-  const current = piece.skin ?? null
+/**
+ * The Skin submenu of a compartment, membrane, tube or image: none where it can have none, the skins for what it is
+ * (those its term matches first), and for an area or image how the one it is drawn with fills it, and a file.
+ */
+function skinMenu(id) {
+  const choice = pieceSkinChoice(id)
+  if (!choice) return []
+  const { piece, context, drawn } = choice
+  // Drawn with SVG artwork: an area, or an image, which is offered only skins made for images.
+  const isArea = context.family === 'area' || context.family === 'image'
+  // How it fills, kept while the skin it is drawn with is the one chosen.
+  const current = isArea && drawn ? pieceSkinFor(piece, drawn.id) : null
   const mark = (isOn) => (isOn ? 'pi pi-check' : 'pi')
   return [
-    { label: 'None', icon: mark(!current), command: () => setSkin(instanceId, path, null) },
-    ...[...templateStore.allSkins.values()].map((skin) => ({
+    ...(allowsNoSkin(context.target)
+      ? [{ label: 'None', icon: mark(!drawn), command: () => setSkin(id, { ref: NO_SKIN }) }]
+      : []),
+    ...skinsFor(context, piece.skin).map((skin) => ({
       label: skin.name,
-      icon: mark(current?.ref === skin.id),
-      command: () => setSkin(instanceId, path, { ...current, ref: skin.id }),
+      icon: mark(drawn?.id === skin.id),
+      command: () => setSkin(id, pieceSkinFor(piece, skin.id)),
     })),
-    { separator: true },
+    ...(isArea ? [{ separator: true }] : []),
     ...(current
       ? [
           {
@@ -1790,7 +1941,7 @@ function skinMenu(instanceId, path) {
             items: SKIN_MODES.map((mode) => ({
               label: { contain: 'Fit Inside', cover: 'Cover', stretch: 'Stretch' }[mode],
               icon: mark((current.mode ?? SKIN_MODES[0]) === mode),
-              command: () => setSkin(instanceId, path, { ...current, mode }),
+              command: () => setSkin(id, { ...current, mode }),
             })),
           },
           {
@@ -1799,19 +1950,23 @@ function skinMenu(instanceId, path) {
             items: [1, 0.75, 0.5, 0.25].map((opacity) => ({
               label: `${opacity * 100}%`,
               icon: mark((current.opacity ?? 1) === opacity),
-              command: () => setSkin(instanceId, path, { ...current, opacity }),
+              command: () => setSkin(id, { ...current, opacity }),
             })),
           },
         ]
       : []),
-    {
-      label: 'Load SVG…',
-      icon: 'pi pi-upload',
-      command: () => {
-        skinFileFor = { instance: instanceId, path }
-        skinFileInput.value?.click()
-      },
-    },
+    ...(isArea
+      ? [
+          {
+            label: 'Load SVG…',
+            icon: 'pi pi-upload',
+            command: () => {
+              skinFileFor = id
+              skinFileInput.value?.click()
+            },
+          },
+        ]
+      : []),
   ]
 }
 
@@ -1826,190 +1981,27 @@ async function onRenameNodeConfirm() {
   renamingNode.value = null
 }
 
-// ── Adding to a placed template ────────────────────────────────────────
-/** How the edges a protein site can be added along read in the menu. */
-const EDGE_LABELS = { top: 'Top', bottom: 'Bottom', left: 'Left', right: 'Right' }
-
-/** Naming a compartment added to a placed template: { instance, against, label }. */
-const naming = ref(null)
-
-/** The template a placed instance draws, with its own changes. */
-const placedTemplate = (instanceId) => {
-  const instance = templateStore.getInstance(instanceId)
-  return instance ? instanceTemplate(instance, templateStore.definitions) : null
+// ── Removing pieces ────────────────────────────────────────────────────
+/** How a piece is named in a menu or question: a compartment, membrane or tube by its module's name. */
+const pieceName = (id) => {
+  const [pieceId, spanId] = id.split('.')
+  if (!spanId) return pieceNameOf(piecesStore.pieces, main.nodes.value, pieceId)
+  return (
+    topologyOf(piecesStore.pieces)
+      .spansOf(pieceId)
+      .find((span) => span.id === spanId)?.label ?? id
+  )
 }
 
 /**
- * Adds an empty piece to one placed template, as one step, or says why it doesn't fit.
+ * Removes pieces from a piece's menu, with everything on them and the modules there, as Delete does (see
+ * deleteWithPieces).
  *
- * @param {string} instanceId
- * @param {'cells'|'facets'|'processes'|'compartments'} kind
- * @param {Object} piece - As in a template file, with `cell` for a facet or process.
- * @returns {Promise<boolean>|undefined}
+ * @param {string[]} ids
+ * @returns {Promise<boolean>}
  */
-function addPiece(instanceId, kind, piece) {
-  const instance = templateStore.getInstance(instanceId)
-  const template = instance && templateStore.definitions.get(instance.template)
-  if (!template) return
-  const { edits, errors } = addToEdits(template, instance.edits ?? null, kind, piece)
-  if (!edits) return notify.error({ title: 'Could not add it to the template', message: summariseProblems(errors) })
-  return editTemplate(instanceId, edits)
-}
-
-function onNamingConfirm() {
-  const { instance, against, label } = naming.value
-  naming.value = null
-  addCompartment(instance, against, label)
-}
-
-/**
- * Adds a compartment against a facet of a placed template's cell, in a tone no other of its compartments has.
- *
- * @param {string} instance
- * @param {string|string[]} against - '<cell>.<facet>', or several along one side.
- * @param {string} [label] - Its name; unnamed, it is 'Compartment' and numbered after the first.
- */
-function addCompartment(instance, against, label = '') {
-  const template = placedTemplate(instance)
-  if (!template) return
-  const used = new Set(template.compartments.map((compartment) => compartment.tone))
-  const id = freePieceId(template, 'compartment', undefined, templateStore.getInstance(instance)?.edits?.removed)
-  const number = id.split('-')[1]
-  return addPiece(instance, 'compartments', {
-    id,
-    label: label.trim() || (number && number !== '1' ? `Compartment ${number}` : 'Compartment'),
-    against: [against].flat(),
-    tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
-  })
-}
-
-/** What can be added to a placed template's cell: a protein site on a free edge, a compartment, a process zone. */
-function addToCellMenu(instanceId, cellId) {
-  const template = placedTemplate(instanceId)
-  const cell = template?.cells.find((entry) => entry.id === cellId)
-  if (!cell) return []
-  const free = EDGES.filter((edge) => !cell.facets.some((facet) => facet.edge === edge))
-  return [
-    {
-      label: 'Add Protein Site',
-      icon: 'pi pi-plus',
-      disabled: !free.length,
-      items: free.map((edge) => ({
-        label: EDGE_LABELS[edge],
-        command: () => addSite(instanceId, cellId, edge),
-      })),
-    },
-    {
-      label: 'Add Compartment…',
-      icon: 'pi pi-stop',
-      items: cell.facets.map((facet) => ({
-        label: facet.label,
-        command: () => (naming.value = { instance: instanceId, against: `${cellId}.${facet.id}`, label: '' }),
-      })),
-    },
-    {
-      label: 'Add Process Zone',
-      icon: 'pi pi-box',
-      disabled: cell.processes.length >= LIMITS.processes,
-      command: () => addZone(instanceId, cellId),
-    },
-  ]
-}
-
-/** Adds a protein site along one side of a placed template's cell. */
-function addSite(instanceId, cellId, edge) {
-  const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
-  const id = freePieceId(placedTemplate(instanceId), 'site', cellId, removed)
-  return addPiece(instanceId, 'facets', { cell: cellId, id, label: `Protein site (${edge})`, edge })
-}
-
-/** Adds an empty organelle inside a placed template's cell, with a protein site along its top and bottom. */
-function addOrganelle(instanceId, cellId) {
-  const template = placedTemplate(instanceId)
-  const id = freePieceId(template, 'organelle', undefined, templateStore.getInstance(instanceId)?.edits?.removed)
-  const number = id.split('-')[1]
-  return addPiece(instanceId, 'cells', {
-    id,
-    label: number === '1' ? 'Organelle' : `Organelle ${number}`,
-    in: cellId,
-    facets: [
-      { id: 'top', label: 'Membrane (top)', edge: 'top' },
-      { id: 'bottom', label: 'Membrane (bottom)', edge: 'bottom' },
-    ],
-  })
-}
-
-/**
- * Adds an empty microdomain to a placed template's cell: under the side of the cell nearest the drop, and, dropped
- * between that side and an organelle, between the two.
- *
- * @param {{key: string, instance: string, path: string, rect: Object}} found - The cell, from templateCellAt.
- * @param {{x: number, y: number}} point - Where it was dropped.
- */
-function addMicrodomain(found, point) {
-  const template = placedTemplate(found.instance)
-  const cell = template.cells.find((entry) => entry.id === found.path)
-  const taken = new Set(template.compartments.filter((entry) => entry.in !== undefined).flatMap((entry) => entry.against))
-  const edge = nearestEdge(found.rect, point, cell.facets.filter((facet) => !taken.has(`${cell.id}.${facet.id}`)).map((facet) => facet.edge))
-  if (!edge) return notify.info({ title: 'Every protein site of this cell already has a microdomain' })
-  const against = [`${cell.id}.${cell.facets.find((facet) => facet.edge === edge).id}`]
-  // An organelle the drop lies between and that side, with a protein site facing it.
-  const isBetween = (rect) =>
-    ({
-      top: point.y < rect.y && point.x >= rect.x && point.x <= rect.x + rect.width,
-      bottom: point.y > rect.y + rect.height && point.x >= rect.x && point.x <= rect.x + rect.width,
-      left: point.x < rect.x && point.y >= rect.y && point.y <= rect.y + rect.height,
-      right: point.x > rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height,
-    })[edge]
-  for (const [, place] of layout.value) {
-    if (place.kind !== 'cell' || place.parent !== found.key || !isBetween(place.rect)) continue
-    const facet = template.cells.find((entry) => entry.id === place.path)?.facets.find((entry) => entry.edge === edge)
-    if (facet && !taken.has(`${place.path}.${facet.id}`)) against.push(`${place.path}.${facet.id}`)
-    break
-  }
-  const used = new Set(template.compartments.map((compartment) => compartment.tone))
-  const id = freePieceId(template, 'microdomain', undefined, templateStore.getInstance(found.instance)?.edits?.removed)
-  const number = id.split('-')[1]
-  return addPiece(found.instance, 'compartments', {
-    id,
-    label: number === '1' ? 'Microdomain' : `Microdomain ${number}`,
-    in: cell.id,
-    against,
-    tone: TONES.find((tone) => !used.has(tone)) ?? TONES[0],
-  })
-}
-
-/**
- * Adds an empty junction to a placed template's cell, between the two microdomains nearest the drop, or, with one
- * microdomain, between it and the cell's own inside.
- *
- * @param {{key: string, instance: string, path: string}} found - The cell, from templateCellAt.
- * @param {{x: number, y: number}} point - Where it was dropped.
- */
-function addJunction(found, point) {
-  const template = placedTemplate(found.instance)
-  const cell = template.cells.find((entry) => entry.id === found.path)
-  const distance = (rect) => Math.hypot(point.x - rect.x - rect.width / 2, point.y - rect.y - rect.height / 2)
-  const nearest = [...layout.value.values()]
-    .filter((place) => place.form === 'inner' && place.parent === found.key && place.rect)
-    .sort((a, b) => distance(a.rect) - distance(b.rect))
-    .map((place) => place.path)
-  // The cell's own inside is the other space only where it is one a module can be.
-  const spaces = cell.site === false ? nearest.slice(0, 2) : [nearest[0], cell.id]
-  if (spaces.length < 2 || !spaces[0]) {
-    return notify.info({ title: 'A junction joins two spaces', message: 'Add a microdomain to the cell first, from the palette.' })
-  }
-  const removed = templateStore.getInstance(found.instance)?.edits?.removed ?? []
-  const id = freePieceId(template, 'junction', cell.id, removed)
-  const number = id.split('-')[1]
-  return addPiece(found.instance, 'processes', { cell: cell.id, id, label: number === '1' ? 'Junction' : `Junction ${number}`, between: spaces })
-}
-
-/** Adds a process zone inside a placed template's cell. */
-function addZone(instanceId, cellId) {
-  const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
-  const id = freePieceId(placedTemplate(instanceId), 'zone', cellId, removed)
-  return addPiece(instanceId, 'processes', { cell: cellId, id, label: `Process zone ${id.split('-')[1]}` })
+function removeThesePieces(ids) {
+  return deleteWithPieces([], ids, { header: 'Remove piece?', acceptLabel: 'Remove' })
 }
 
 // ── The build palette ──────────────────────────────────────────────────
@@ -2021,183 +2013,972 @@ watch(
   () => viewMode.templateFileRequests,
   () => loadTemplateFile(viewCentre())
 )
-/**
- * Moves the pieces with places of their own that were dragged, each by how far it went, as one step; where one
- * can't move so, the drag is undone.
- *
- * @param {Map<string, {instance: string, path: string, delta: {x: number, y: number}}>} blockMoves
- * @param {Array<Object>} nodes - The dragged nodes, to put back.
- */
-async function moveBlocks(blockMoves, nodes) {
-  const problems = []
-  history.startBatch()
-  try {
-    for (const { instance, path, delta } of blockMoves.values()) {
-      const piece = placedPiece(instance, path)
-      if (!piece?.at || (!delta.x && !delta.y)) continue
-      problems.push(...(await placePiece(instance, path, { x: piece.at.x + delta.x, y: piece.at.y + delta.y })))
-    }
-  } finally {
-    history.endBatch('bio-template-place')
-  }
-  if (problems.length) putBack(nodes)
-}
-
-/** A cell or compartment of a placed template, with its changes. */
-function placedPiece(instanceId, path) {
-  const template = placedTemplate(instanceId)
-  return template && [...template.cells, ...template.compartments].find((piece) => piece.id === path)
-}
 
 /**
- * Gives a placed template's cell or compartment a place of its own, from the template's corner, or with null takes
- * it back into its row or below its cells.
+ * Adds copies of a template's pieces where it is dropped, saying why where it can't.
  *
- * @returns {Promise<string[]>} Why it couldn't, if it couldn't.
+ * @param {string} templateId - One of the template library's.
+ * @param {{x: number, y: number}} point - Its corner, in flow coordinates.
+ * @param {{ inCompartment?: boolean }} [options] - Whether it goes in the compartment the point is in, if any, as a
+ *   template dropped from the palette does; else on the canvas.
  */
-async function placePiece(instanceId, path, at) {
-  const instance = templateStore.getInstance(instanceId)
-  const template = instance && templateStore.definitions.get(instance.template)
-  if (!template) return ['There is no such template.']
-  const { edits, errors } = placeInEdits(template, instance.edits ?? null, path, at && whole(at))
-  if (errors.length) {
-    notify.error({ title: 'Could not move it there', message: summariseProblems(errors) })
-    return errors
-  }
-  await editTemplate(instanceId, edits, 'bio-template-place')
-  return []
-}
-
-/** Puts a placed template's piece where it is drawn now, as a place of its own, so it can be dragged alone. */
-function placeFreely(instanceId, place) {
-  const origin = templateStore.getInstance(instanceId)?.at ?? { x: 0, y: 0 }
-  return placePiece(instanceId, place.path, { x: place.rect.x - origin.x, y: place.rect.y - origin.y })
-}
-
-/** The kind of link two spaces take unless chosen: a junction between cells, a flow along a tube, else diffusion. */
-function linkKindFor(template, between) {
-  const pieces = between.map((id) => [...template.cells, ...template.compartments].find((piece) => piece.id === id))
-  if (pieces.every((piece) => template.cells.includes(piece))) return 'junction'
-  return pieces.some((piece) => piece?.shape === 'tube') ? 'flow' : 'diffusion'
-}
-
-/**
- * Adds an empty link between two spaces of a placed template, as one step.
- *
- * @param {string} instanceId
- * @param {[string, string]} between - The two spaces' paths, the first upstream of a flow.
- * @param {'flow'|'junction'|'diffusion'} [kind] - Unless given, the kind the two spaces take (see linkKindFor).
- */
-function addLink(instanceId, between, kind) {
-  const template = placedTemplate(instanceId)
+async function placePiecesAt(templateId, point, { inCompartment = false } = {}) {
+  const template = templateLibrary.getTemplate(templateId)
   if (!template) return
-  const removed = templateStore.getInstance(instanceId)?.edits?.removed ?? []
-  const id = freePieceId(template, 'link', undefined, removed)
-  const number = id.split('-')[1]
-  const chosen = kind ?? linkKindFor(template, between)
-  const word = { flow: 'Flow', junction: 'Junction', diffusion: 'Diffusion' }[chosen]
-  return addPiece(instanceId, 'links', { id, label: number === '1' ? word : `${word} ${number}`, between, kind: chosen })
+  const into = inCompartment ? templateHost(dropScene(piecesStore.pieces, sceneOptions()), point) : null
+  let errors = []
+  await withOwedModules('bio-pieces-add', async () => {
+    errors = await placePiecesTemplate(template, point, { into })
+    return !errors.length
+  })
+  if (errors.length) notify.error({ title: 'Could not add the template', message: summariseProblems(errors) })
 }
 
-/** What a placed template's cell or compartment can be linked to: each other space of its template not yet linked to it. */
-function linkToMenu(instanceId, path) {
-  const template = placedTemplate(instanceId)
-  if (!template) return []
-  const linked = new Set((template.links ?? []).filter((link) => link.between.includes(path)).flatMap((link) => link.between))
-  const others = [...template.cells.filter((cell) => !cell.in), ...template.compartments.filter((piece) => piece.in === undefined)].filter(
-    (piece) => piece.id !== path && !linked.has(piece.id)
+// ── Moving and resizing the pieces ─────────────────────────────────────
+// A piece dragged, or resized, is laid out as the drag would leave it (the store's draft), worked out once a frame,
+// so everything in, against or joined to it follows; the drop keeps the draft as one step. See pieces/moves.js.
+/** The piece being dragged: its node, the piece, how it moves, where its node started, and the pieces then. */
+let pieceMove = null
+/** The piece being resized, likewise. */
+let pieceResize = null
+let moveFrameRequest = 0
+let pendingPosition = null
+
+/**
+ * Where each piece is drawn, from the pieces as they are (not as a draft has them), with the modules on them: a cell
+ * the proteins on it widen is measured as wide as it is drawn, so a grip dragged on it goes as far as the pointer.
+ */
+const pieceRects = () => layoutPieces(piecesStore.pieces, sceneOptions()).rects
+
+/** How big a piece is drawn with some pieces, laid out as the view lays them out: for keeping it that size. */
+const drawnSizeOf = (id) => (raw) => {
+  const valid = validatePieces(raw).pieces
+  return (valid && layoutPieces(valid, sceneOptions()).rects.get(id)) || null
+}
+
+/**
+ * Begins a drag of a piece, or of a grip on one, if the node is one that moves so. The piece follows the pointer, by
+ * how far it has gone: the node's own position is the draft's, which a drag would otherwise move twice.
+ */
+function startPieceMove(node, event) {
+  const place = layout.value.get(node.id)
+  const pointer = pointerAt(event)
+  if (!place?.piece || !pointer) return false
+  // A compartment, cell or process zone can be lifted out of where it is with Alt, even one with no way to move
+  // otherwise, which is held still until then.
+  const liftable = node.type !== 'bioGrip' && LIFTED_KINDS.includes(place.kind)
+  const mode = node.type === 'bioGrip' ? `grip:${place.grip}` : (place.drag ?? (liftable ? 'held' : null))
+  if (!mode) return false
+  // The view stays where the user is working, however the layout's extent changes.
+  isViewChosen = true
+  pieceMove = {
+    nodeId: node.id,
+    piece: place.piece,
+    mode,
+    pointer,
+    grip: place.kind === 'grip' ? { x: place.x, y: place.y } : null,
+    base: piecesStore.pieces,
+    rects: pieceRects(),
+    end: place.end,
+    below: place.below ?? 0,
+    // A compartment's far edge can be dropped on another membrane's side or a fold: what it could go on, read once.
+    scene:
+      mode === 'grip:reach' || mode === 'grip:start' || mode === 'grip:end'
+        ? dropScene(piecesStore.pieces, sceneOptions())
+        : null,
+    dock: null,
+    liftable,
+    // Whether Alt is down, lifting it; what it could go on, read once it is lifted; and the pieces as letting go
+    // of it where it is would leave them.
+    alt: liftable && !!event?.altKey,
+    lifting: false,
+    lift: null,
+    lifted: null,
+  }
+  if (liftable) {
+    window.addEventListener('keydown', onLiftKey, true)
+    window.addEventListener('keyup', onLiftKey, true)
+  }
+  return true
+}
+
+/** The kinds of place whose piece Alt lifts out of where it is, to stand or dock somewhere else. */
+const LIFTED_KINDS = ['cell', 'region', 'zone']
+
+/** Alt pressed or let go of while a piece is dragged lifts it, or puts it back to move as it does without. */
+function onLiftKey(event) {
+  if (event.key !== 'Alt' || !pieceMove?.liftable) return
+  event.preventDefault()
+  pieceMove.alt = event.type === 'keydown'
+  if (pendingPosition) followPiece(pendingPosition)
+}
+
+function stopLiftKeys() {
+  window.removeEventListener('keydown', onLiftKey, true)
+  window.removeEventListener('keyup', onLiftKey, true)
+}
+onBeforeUnmount(stopLiftKeys)
+
+/**
+ * The pieces as a lifted piece let go of at a point would leave them: docked to the membrane side there, or standing
+ * in the compartment there or on the view, with the target outlined, where it would be drawn, and the label by the
+ * pointer saying so; null where it can't go there (the label says why).
+ *
+ * @param {Object} move - The drag (see startPieceMove), which keeps the last target's result.
+ * @param {{x: number, y: number}} point
+ * @returns {ReadonlyArray<Object>|null}
+ */
+function carryDraft(move, point) {
+  move.lifting = true
+  move.lift ??= dropScene(move.base, sceneOptions())
+  const shift = { x: point.x - move.pointer.x, y: point.y - move.pointer.y }
+  const drop = resolveCarry(move.lift, move.piece, point, shift)
+  piecePointer.value = point
+  if (drop.key === piecePreview.value?.key) return move.lifted
+  if (drop.invalid) {
+    piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
+    move.lifted = null
+    return null
+  }
+  const { pieces, ghosts, errors } = previewDrop(move.lift, drop)
+  piecePreview.value = pieces
+    ? { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts }
+    : { key: drop.key, invalid: problemLabel(errors), highlights: drop.highlights, ghosts: [] }
+  move.lifted = pieces
+  return pieces
+}
+
+/** The key that lifts a piece, as the keyboard names it. */
+const ALT_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Option' : 'Alt'
+
+/** Says by the pointer, while a piece that Alt can lift is dragged without it, that it can. */
+function showLiftHint(point) {
+  piecePointer.value = point
+  if (piecePreview.value?.key === 'lift-hint') return
+  piecePreview.value = {
+    key: 'lift-hint',
+    label: `Hold ${ALT_KEY} to move it into another compartment, or out onto the view`,
+    highlights: [],
+    ghosts: [],
+  }
+}
+
+/** Puts a piece that was lifted back to moving as it does without Alt. */
+function setDown(move) {
+  if (!move.lifting) return
+  move.lifting = false
+  move.lifted = null
+  clearPiecePreview()
+}
+
+/** Whether a node change is one a piece's move or resize stands in for, and so is left unapplied. */
+function takesPieceChange(change) {
+  if (pieceMove && change.type === 'position') {
+    // A tube's end follows the pointer, to be dropped on another compartment.
+    if (
+      change.id === pieceMove.nodeId &&
+      !pieceMove.retarget &&
+      (pieceMove.mode === 'grip:start' || pieceMove.mode === 'grip:end')
+    )
+      return false
+    return true
+  }
+  return (
+    !!pieceResize && change.id === pieceResize.nodeId && (change.type === 'position' || change.type === 'dimensions')
   )
-  if (!others.length) return []
-  const kinds = [
-    ['flow', 'Flow (from here)'],
-    ['junction', 'Junction'],
-    ['diffusion', 'Diffusion'],
-  ]
+}
+
+/**
+ * The pieces as a move with the pointer here leaves them, validated; null where it can't go there. A grip goes as far
+ * as the pointer has, but a compartment's far edge goes to the pointer itself, where what it would dock to is looked
+ * for (see dockDraft).
+ */
+function moveDraft(pointer) {
+  const { mode, piece, base, rects, below } = pieceMove
+  const delta = { x: pointer.x - pieceMove.pointer.x, y: pointer.y - pieceMove.pointer.y }
+  const grip = pieceMove.grip && { x: pieceMove.grip.x + delta.x, y: pieceMove.grip.y + delta.y }
+  const raw =
+    mode === 'frame'
+      ? moveFrame(base, piece, delta, rects)
+      : mode === 'slide'
+      ? slideDock(base, piece, delta, rects)
+      : mode === 'grip:fold'
+      ? moveFold(base, piece, grip, rects)
+      : mode === 'grip:bend'
+      ? bendTube(base, piece, { x: grip.x, y: grip.y + below })
+      : mode === 'grip:reach'
+      ? reachTo(base, piece, pointer, rects)
+      : null
+  return raw && validatePieces(raw).pieces
+}
+
+/** Lays the dragged piece out for where the pointer is now, once a frame. */
+function followPiece(pointer) {
+  pendingPosition = pointer
+  if (moveFrameRequest) return
+  moveFrameRequest = requestAnimationFrame(() => {
+    moveFrameRequest = 0
+    if (!pieceMove || !pendingPosition) return
+    // A tube's end: what it would join is outlined, and where the tube would run.
+    if (isTubeEndMove(pieceMove)) {
+      tubeEndDraft(pieceMove, pendingPosition)
+      return
+    }
+    // Lifted, it stays where it is until let go of: only where it would go is drawn.
+    if (pieceMove.alt) {
+      carryDraft(pieceMove, pendingPosition)
+      piecesStore.draft = null
+      return
+    }
+    setDown(pieceMove)
+    if (pieceMove.liftable) showLiftHint(pendingPosition)
+    // It reaches as far as it is dragged, and what it would dock to there is outlined.
+    if (pieceMove.scene) dockDraft(pieceMove, pendingPosition)
+    const draft = moveDraft(pendingPosition)
+    if (draft) piecesStore.draft = draft
+  })
+}
+
+/**
+ * Ends a drag of a piece: keeps where it went, as one step, joins a tube's end to the compartment it is on, or docks
+ * a compartment whose far edge is on another membrane's side or a fold there too.
+ */
+async function endPieceMove({ event, node }) {
+  const lifting = pieceMove.liftable && !!event?.altKey
+  // Where the pointer was let go, which the frame still to come would have laid it out for.
+  const last = !lifting && moveFrameRequest && pendingPosition
+  if (last) {
+    const draft = moveDraft(last)
+    if (draft) piecesStore.draft = draft
+  }
+  const move = pieceMove
+  pieceMove = null
+  cancelAnimationFrame(moveFrameRequest)
+  moveFrameRequest = 0
+  pendingPosition = null
+  stopLiftKeys()
+  // Let go of with Alt down, it goes where its label said: somewhere else, as one step.
+  if (lifting) {
+    const point = pointerAt(event)
+    const next = point && carryDraft(move, point)
+    clearPiecePreview()
+    piecesStore.draft = null
+    if (next) await editPieces(next, 'bio-pieces-relocate')
+    return
+  }
+  setDown(move)
+  if (move.liftable) clearPiecePreview()
+  if (move.mode === 'grip:reach') {
+    const docked = dockDraft(move, pointerAt(event))
+    clearPiecePreview()
+    if (docked) {
+      try {
+        await editPieces(docked, 'bio-pieces-dock')
+      } finally {
+        piecesStore.draft = null
+      }
+      return
+    }
+  }
+  if (isTubeEndMove(move)) {
+    const point = pointerAt(event)
+    const join = point && resolveTubeEnd(move.scene, move.piece, move.end, point)
+    clearPiecePreview()
+    if (join?.invalid) notify.info({ title: 'It can’t go there', message: join.invalid })
+    // Between two touching cells, it carries what the user says, as a tube dropped between them does.
+    const flux = join?.cells && !join.invalid ? await cellTubeFlux(join.cells) : undefined
+    const raw = join?.apply && (!join.cells || flux) && join.apply(move.base, { flux })
+    const next = raw && validatePieces(raw).pieces
+    if (next) await editPieces(next, 'bio-pieces-tube-end')
+    // Back where its layout puts it: on the end it is joined to now.
+    putBack([node])
+    return
+  }
+  const draft = piecesStore.draft
+  try {
+    if (draft && draft !== move.base) await editPieces(draft, 'bio-pieces-move')
+  } finally {
+    piecesStore.draft = null
+  }
+}
+
+/** Whether a drag moves one end of a tube: by its grip, or Alt-dragging the tube or its module. */
+const isTubeEndMove = (move) => move?.mode === 'grip:start' || move?.mode === 'grip:end'
+
+/**
+ * Begins an Alt-drag of a tube, or of the module drawn on it, as a drag of one of its ends: the end nearer where the
+ * drag began. The tube and its module stay where they are; what the end would join is outlined as it goes.
+ *
+ * @param {Object} node - The dragged node.
+ * @returns {boolean} Whether it is a tube's.
+ */
+function startTubeRetarget(node) {
+  const place = layout.value.get(node.id)
+  const tubePlace = place?.kind === 'link' ? place : place?.kind === 'card' ? layout.value.get(place.link) : null
+  const tube = tubePlace?.piece && piecesStore.pieces.find((piece) => piece.id === tubePlace.piece)
+  const start = dragStartPointer
+  if (tube?.kind !== 'tube' || !start) return false
+  const rects = pieceRects()
+  // The end on the side of the tube's middle the drag began on, along the way from one end to the other: so a joint
+  // whose ends touch is split down its middle.
+  const [a, b] = tube.ends.map((id) => centreOf(rects.get(id)))
+  const middle = centreOf(tubePlace.zone ?? tubePlace.rect)
+  if (!a || !b || !middle) return false
+  const end = (start.x - middle.x) * (b.x - a.x) + (start.y - middle.y) * (b.y - a.y) > 0 ? 1 : 0
+  // Held where it was: its module is not dropped on a site, as a plain drag of it would be.
+  draggingId.value = activeTarget.value = pointer.value = null
+  isViewChosen = true
+  pieceMove = {
+    nodeId: node.id,
+    piece: tube.id,
+    mode: end ? 'grip:end' : 'grip:start',
+    retarget: true,
+    pointer: start,
+    grip: null,
+    base: piecesStore.pieces,
+    rects,
+    end,
+    below: 0,
+    scene: dropScene(piecesStore.pieces, sceneOptions()),
+    dock: null,
+    liftable: false,
+    alt: false,
+    lifting: false,
+    lift: null,
+    lifted: null,
+  }
+  return true
+}
+
+/** A rect's centre; null for none. */
+const centreOf = (rect) => rect && { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+
+/**
+ * Shows what letting go of a tube's end here would do: the compartment it would join outlined, the tube as it would
+ * run, and the label by the pointer saying so, or why it can't.
+ *
+ * @param {Object} move - The drag (see startPieceMove and startTubeRetarget).
+ * @param {{x: number, y: number}} point
+ */
+function tubeEndDraft(move, point) {
+  const join = resolveTubeEnd(move.scene, move.piece, move.end, point)
+  piecePointer.value = join ? point : null
+  if (!join) {
+    piecePreview.value = null
+    return
+  }
+  if (join.key === piecePreview.value?.key) return
+  if (join.invalid) {
+    piecePreview.value = { key: join.key, invalid: join.invalid, highlights: [], ghosts: [] }
+    return
+  }
+  const raw = join.apply(move.base)
+  const { pieces, errors } = raw ? validatePieces(raw) : { pieces: null, errors: ['It can’t go there.'] }
+  piecePreview.value = pieces
+    ? { key: join.key, label: join.label, highlights: join.highlights, ghosts: tubeGhosts(pieces, move.piece) }
+    : { key: join.key, invalid: problemLabel(errors), highlights: join.highlights, ghosts: [] }
+}
+
+/** A tube's ghost, as the pieces would lay it out: its vessel, its way, or its joint's room. */
+function tubeGhosts(pieces, tubeId) {
+  const place = layoutPieces(pieces, sceneOptions()).places.get(pieceKey(tubeId))
+  if (!place) return []
+  if (place.conduit) return [{ type: 'conduit', kind: place.kind, points: place.points }]
+  if (place.joint && !place.channel && place.zone) {
+    return [{ type: 'joint', kind: place.kind, joint: place.joint, rect: place.zone }]
+  }
+  if (place.points) return [{ type: 'path', points: place.points }]
+  return place.zone ? [{ type: 'rect', kind: place.kind, rect: place.zone }] : []
+}
+
+/**
+ * The pieces as a compartment's far edge dropped at a point would leave them, docked there too, with the target
+ * outlined and the label by the pointer saying so; null where it is by nothing to dock to, or can't dock there (the
+ * label says why).
+ *
+ * @param {Object} move - The drag of its reach grip (see startPieceMove), which keeps the last target's result.
+ * @param {{x: number, y: number}|null} point
+ * @returns {ReadonlyArray<Object>|null}
+ */
+function dockDraft(move, point) {
+  if (!point) return null
+  const drop = resolveExtraDock(move.scene, move.piece, point)
+  piecePointer.value = drop ? point : null
+  if (!drop) {
+    piecePreview.value = null
+    move.dock = null
+    return null
+  }
+  if (drop.key !== piecePreview.value?.key) {
+    if (drop.invalid) {
+      piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
+      move.dock = null
+    } else {
+      const { pieces, errors } = previewDrop(move.scene, drop)
+      piecePreview.value = pieces
+        ? { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts: [] }
+        : { key: drop.key, invalid: problemLabel(errors), highlights: drop.highlights, ghosts: [] }
+      move.dock = pieces
+    }
+  }
+  return move.dock
+}
+
+/** Resizes a piece from its handle (see BioPieceResize): its frame. */
+function onPieceResize(nodeId, phase, params) {
+  if (phase === 'start') {
+    const place = layout.value.get(nodeId)
+    if (!place?.piece || !place.resize) return
+    const base = piecesStore.pieces
+    isViewChosen = true
+    pieceResize = {
+      nodeId,
+      piece: place.piece,
+      resize: place.resize,
+      base,
+      rects: pieceRects(),
+      // How far what stands beside it has been pushed out of its way, which shrinking it again doesn't undo.
+      pushed: new Map(),
+    }
+    return
+  }
+  if (pieceResize?.nodeId !== nodeId) return
+  if (phase === 'resize') {
+    const draft = resizeDraft(params)
+    if (draft) piecesStore.draft = draft
+    return
+  }
+  const draft = piecesStore.draft
+  const base = pieceResize.base
+  pieceResize = null
+  const keep = draft && draft !== base ? editPieces(draft, 'bio-pieces-resize') : Promise.resolve()
+  keep.finally(() => (piecesStore.draft = null))
+}
+provide('bioPieceResize', onPieceResize)
+
+/** The pieces as a resize to these bounds leaves them, validated. */
+function resizeDraft(params) {
+  const { piece, base, rects, pushed } = pieceResize
+  // A cell's junction partners stay against it, and what stands beside it out of its way, as far as it is drawn
+  // resized.
+  const rectsOf = (resized) => {
+    const valid = validatePieces(resized).pieces
+    return valid && layoutPieces(valid).rects
+  }
+  const raw = resizeFrame(base, piece, params, rects, { rectsOf, pushed })
+  return raw && validatePieces(raw).pieces
+}
+
+/**
+ * What can be done to a piece from its menu: rename it, change its skin, fit it to its contents, straighten a bent
+ * tube, and remove it or what is on it.
+ *
+ * @param {Object} place - The piece's place.
+ * @returns {Array<Object>} Menu items, after a separator; none for a place that is no piece.
+ */
+function pieceMenu(place, nodeId = null) {
+  const piece = place?.piece && piecesStore.pieces.find((each) => each.id === place.piece)
+  if (!piece) return []
+  const isStructure = place.kind === 'cell' || place.kind === 'region'
+  const named = isStructure ? namedPieceOf(place) : piece.id
+  // A compartment, membrane or tube is renamed as its module, which the menu of that module's own node already does.
+  const module = moduleOfPiece(named)
+  const items = []
+  if (module && module !== nodeId) {
+    items.push({
+      label: `Rename ${nameOf(module)}…`,
+      icon: 'pi pi-pencil',
+      command: () => (renamingNode.value = { id: module, name: nameOf(module) }),
+    })
+  } else if (!module) {
+    items.push({
+      label: 'Rename Piece…',
+      icon: 'pi pi-pencil',
+      command: () => (renaming.value = { id: named, label: pieceName(named), placeholder: pieceName(named) }),
+    })
+  }
+  // A cell's inside and its membrane each have their own skins.
+  const areaItems = isStructure && skinnedPieceOf(place) ? skinMenu(skinnedPieceOf(place)) : []
+  if (areaItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: areaItems })
+  const membraneItems = place.kind === 'cell' || place.kind === 'membrane' ? skinMenu(place.piece) : []
+  if (membraneItems.length) {
+    items.push({ label: place.kind === 'cell' ? 'Membrane Skin' : 'Skin', icon: 'pi pi-circle', items: membraneItems })
+  }
+  // A tube's joint, where its ends touch; the vessel along a conduit between compartments apart is the view's.
+  // Not again on the menu of the module drawn as the joint, which offers it already.
+  const jointItems =
+    piece.kind === 'tube' && place.joint && place.joint !== 'conduit' && !(nodeId && isJointNode(nodeId))
+      ? skinMenu(piece.id)
+      : []
+  if (jointItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: jointItems })
+  if (piece.kind === 'image') items.push(...imageMenu(piece))
+  if (piece.frame && piece.kind !== 'zone' && piece.kind !== 'image') {
+    items.push({
+      label: 'Fit to Contents',
+      icon: 'pi pi-arrows-alt',
+      command: () => keepEdit(fitToContents(piecesStore.pieces, piece.id, { sizeOf: drawnSizeOf(piece.id) }), 'bio-pieces-resize'),
+    })
+  }
+  if (piece.kind === 'tube') {
+    items.push({ label: 'Reverse Flow', icon: 'pi pi-arrow-right-arrow-left', command: () => reverseFlow(piece.id) })
+  }
+  if (piece.kind === 'tube' && piece.bends?.length) {
+    items.push({
+      label: 'Straighten Tube',
+      icon: 'pi pi-minus',
+      command: () => keepEdit(bendTube(piecesStore.pieces, piece.id, null), 'bio-pieces-straighten'),
+    })
+  }
+  if (piece.kind === 'compartment' && piece.docks?.length > 1) items.push(detachMenu(piece))
+  items.push(...relocateMenu(piece))
+  items.push(...removeMenu(place, piece))
+  return [{ separator: true }, ...items]
+}
+
+/**
+ * Reverses a tube, as one step: its ends swap, and the placement edges between its module and theirs are made again
+ * the other way. An edge drawn or edited by hand is left as it is.
+ *
+ * @param {string} tubeId
+ * @returns {Promise<boolean>}
+ */
+async function reverseFlow(tubeId) {
+  const raw = reverseTube(piecesStore.pieces, tubeId)
+  const pieces = raw && validatePieces(raw).pieces
+  if (!pieces) return false
+  const module = moduleOfPiece(tubeId)
+  return withOwedModules('bio-pieces-reverse', async () => {
+    if (!(await editPiecesOnly(pieces, 'bio-pieces-reverse'))) return false
+    if (!module || !props.disconnectInstances) return true
+    await nextTick()
+    const ref = layout.value.get(module)?.site
+    const site = ref && siteTargets.value.find((target) => target.ref === ref)
+    if (!site) return true
+    const ends = new Set(neighbourNodes(siteTargets.value, neighbourSites(site), { id: module }).map((n) => n.id))
+    const flipped = main.edges.value.filter(
+      (edge) =>
+        isPlacementEdge(edge) &&
+        ((edge.source === module && ends.has(edge.target)) || (edge.target === module && ends.has(edge.source)))
+    )
+    if (flipped.length) await props.disconnectInstances(flipped.map((edge) => edge.id))
+    await connectToNeighbours(module, site)
+    return true
+  })
+}
+
+/** How solid an image can be drawn, from its menu. */
+const IMAGE_OPACITIES = [1, 0.75, 0.5, 0.25]
+
+/**
+ * Asks for a picture file and gives an image it, as one step. Called from a click, as a browser only opens its file
+ * picker on one: the placeholder's button (see BioImage), or the image's menu.
+ *
+ * @param {string} pieceId
+ */
+async function choosePictureFor(pieceId) {
+  const picture = await chooseImage()
+  if (picture) await keepEdit(replaceImage(piecesStore.pieces, pieceId, picture.id, picture), 'bio-pieces-image-edit')
+}
+provide('bioImagePick', choosePictureFor)
+
+/**
+ * What an image's menu offers: a picture, chosen or another, and how solid it is drawn; or a skin made for images,
+ * which takes the picture's place.
+ */
+function imageMenu(piece) {
+  const opacity = piece.opacity ?? 1
+  const choose = {
+    label: piece.image ? 'Replace Picture…' : 'Choose Picture…',
+    icon: 'pi pi-upload',
+    command: () => choosePictureFor(piece.id),
+  }
+  const skin = { label: 'Skin', icon: 'pi pi-palette', items: skinMenu(piece.id) }
+  if (!piece.image) return [choose, skin]
   return [
+    choose,
+    skin,
     {
-      label: 'Link To',
-      icon: 'pi pi-arrow-right-arrow-left',
-      items: others.map((piece) => ({
-        label: piece.label,
-        items: kinds.map(([kind, label]) => ({ label, command: () => addLink(instanceId, [path, piece.id], kind) })),
+      label: 'Opacity',
+      icon: 'pi pi-sun',
+      items: IMAGE_OPACITIES.map((each) => ({
+        label: `${Math.round(each * 100)}%`,
+        icon: each === opacity ? 'pi pi-check' : undefined,
+        command: () => keepEdit(setImageOpacity(piecesStore.pieces, piece.id, each), 'bio-pieces-image-edit'),
       })),
     },
   ]
 }
 
-/** Whether a placed template's piece has a place of its own, or can be given one. */
-function placementMenu(instanceId, place) {
-  if (place.kind !== 'cell' && place.kind !== 'region') return []
-  if (place.parent || place.form === 'inner') return []
-  const piece = placedPiece(instanceId, place.path)
-  if (!piece) return []
-  if (piece.at) {
-    const label = place.kind === 'cell' ? 'Put Back in Row' : 'Put Back Below the Cells'
-    return [{ label, icon: 'pi pi-th-large', command: () => placePiece(instanceId, place.path, null) }]
+/**
+ * The Remove item of a piece's menu: the piece, or with a submenu, a cell whole or its membrane alone, and what is on
+ * it (folds, process zones, tubes), each with what goes with it.
+ */
+/** What a cell's membrane's own menu offers of its piece: its skin, and Remove as its cell's menu has it. */
+function membraneMenu(cellPlace) {
+  const piece = cellPlace?.piece && piecesStore.pieces.find((each) => each.id === cellPlace.piece)
+  if (piece?.kind !== 'membrane') return []
+  const skin = skinMenu(piece.id)
+  return [
+    { separator: true },
+    ...(skin.length ? [{ label: 'Skin', icon: 'pi pi-circle', items: skin }] : []),
+    ...removeMenu(cellPlace, piece),
+  ]
+}
+
+function removeMenu(place, piece) {
+  const remove = (ids, label) => ({ label, command: () => removeThesePieces(ids) })
+  const item = { label: 'Remove', icon: 'pi pi-minus-circle' }
+  if (place.kind !== 'cell' && place.kind !== 'region') return [{ ...item, command: remove([piece.id]).command }]
+  const all = piecesStore.pieces
+  const inside = place.kind === 'cell' ? place.bulk : piece.id
+  const enclosed = place.kind === 'cell' ? piece.encloses : []
+  const parts = [
+    ...all.filter((each) => each.kind === 'fold' && each.membrane === piece.id),
+    ...all.filter((each) => each.kind === 'zone' && each.compartment === inside),
+    ...all.filter((each) => each.kind === 'tube' && each.ends.some((end) => end === inside || enclosed.includes(end))),
+  ].map((each) => remove([each.id], pieceName(each.id)))
+  const whole =
+    place.kind === 'cell'
+      ? [
+          remove([piece.id, ...enclosed], `${pieceName(namedPieceOf(place))} (whole cell)`),
+          remove([piece.id], `${piece.label} only`),
+        ]
+      : [remove([piece.id], piece.label)]
+  if (whole.length === 1 && !parts.length) return [{ ...item, command: whole[0].command }]
+  return [{ ...item, items: [...whole, ...(parts.length ? [{ separator: true }, ...parts] : [])] }]
+}
+
+/**
+ * Keeps a piece put somewhere else (see pieces/relocate.js) as one step, or says why it can't go there.
+ *
+ * @param {{pieces: Array<Object>|null, error?: string}} result
+ * @param {string} failed - The title of what went wrong.
+ * @param {string} [type='bio-pieces-relocate'] - The step's type, which names it for undo.
+ * @returns {Promise<boolean>}
+ */
+async function keepRelocation(result, failed, type = 'bio-pieces-relocate') {
+  if (!result.pieces) {
+    notify.error({ title: failed, message: result.error ?? 'It can’t go there.' })
+    return false
   }
-  // A compartment against cells goes where they do.
-  if (place.kind === 'region' && place.form !== 'free') return []
-  return [{ label: 'Place Freely', icon: 'pi pi-arrows-alt', command: () => placeFreely(instanceId, place) }]
+  return keepEdit(result.pieces, type, failed)
 }
 
-/** How far outside a cell a piece dropped for it still lands on it; a compartment, dropped beside it, from further. */
-const TILE_REACH = 40
-const COMPARTMENT_REACH = 320
-/** How far from a template a tube dropped still joins it, and a link still finds its first space. */
-const TUBE_REACH = 400
-const LINK_REACH = 200
-/** How far from a template a cell dropped still joins it. */
-const CELL_REACH = 300
+/** Where each piece is drawn in the view, with the modules on them. */
+const drawnRects = () => dropScene(piecesStore.pieces, sceneOptions()).rects
 
 /**
- * Adds an empty cell where it is dropped: beside a placed template, to it, with a place of its own, so a link can
- * join it to the template's other cells; else, or on a cell, as a template of its own.
+ * What a piece's menu offers of what Alt and a drag do: Detach, for a compartment against one membrane side or fold,
+ * which leaves it standing where it is; and Move Out, for a compartment or cell standing in a compartment, which
+ * stands it beside that one.
+ */
+function relocateMenu(piece) {
+  const items = []
+  if (piece.kind === 'compartment' && piece.docks?.length === 1) {
+    items.push({
+      label: 'Detach',
+      icon: 'pi pi-link',
+      command: () =>
+        keepRelocation(
+          detachPiece(piecesStore.pieces, piece.id, drawnRects()),
+          'Could not detach it',
+          'bio-pieces-undock',
+        ),
+    })
+  }
+  const from = outOf(piecesStore.pieces, piece.id)
+  if (from) {
+    items.push({
+      label: `Move Out of ${from.label}`,
+      icon: 'pi pi-sign-out',
+      command: () =>
+        keepRelocation(
+          moveOut(piecesStore.pieces, piece.id, drawnRects()),
+          'Could not move it out',
+          'bio-pieces-move-out',
+        ),
+    })
+  }
+  return items
+}
+
+/**
+ * Takes one of the docks of a compartment docked to several membranes or folds away: one item for each, and one for
+ * them all, which leaves it standing where it is.
+ */
+function detachMenu(piece) {
+  const SIDE_WORDS = { top: 'top', bottom: 'bottom', left: 'left side', right: 'right side' }
+  return {
+    label: 'Detach From',
+    icon: 'pi pi-link',
+    items: piece.docks.map((dock, index) => {
+      const target = piecesStore.pieces.find((each) => each.id === dock.on)
+      const name = target?.label ?? dock.on
+      return {
+        label: dock.side ? `${name} (${SIDE_WORDS[dock.side]})` : name,
+        command: () =>
+          keepEdit(removeDock(piecesStore.pieces, piece.id, index), 'bio-pieces-undock', 'Could not detach it'),
+      }
+    }).concat([
+      { separator: true },
+      {
+        label: 'All of Them',
+        command: () =>
+          keepRelocation(
+            detachPiece(piecesStore.pieces, piece.id, drawnRects()),
+            'Could not detach it',
+            'bio-pieces-undock',
+          ),
+      },
+    ]),
+  }
+}
+
+/** Renaming a piece from its menu: { id, label, placeholder }. */
+const renaming = ref(null)
+
+function onRenameConfirm() {
+  const { id, label } = renaming.value
+  renaming.value = null
+  if (label.trim()) keepEdit(relabelPiece(piecesStore.pieces, id, label), 'bio-pieces-rename', 'Could not rename it')
+}
+
+// ── The five pieces ────────────────────────────────────────────────────
+// A piece carried from the palette, dragged or armed, shows what it would go on and where it would be drawn, worked
+// out again only when its target changes (see pieces/drops.js).
+const isPieceTile = (tile) => tile?.kind === 'piece'
+const isTemplateTile = (tile) => tile?.kind === 'template'
+/** A tile that previews where it would go: one of the five pieces, or a template's pieces. */
+const isPreviewedTile = (tile) => isPieceTile(tile) || isTemplateTile(tile)
+const carriedTile = computed(() => [draggedTile.value, armedTile.value].find(isPreviewedTile) ?? null)
+/** The pieces and where each is drawn, read once while a piece is carried. */
+/** The pieces are found and previewed laid out as the view draws them, with the modules on them. */
+const sceneOptions = () => {
+  const { nodes, widthOf } = pieceLayoutOptions.value
+  return { nodes, widthOf }
+}
+
+const pieceScene = computed(() => (carriedTile.value ? dropScene(piecesStore.pieces, sceneOptions()) : null))
+/** What the carried piece would do where the pointer is: { key, label | invalid, highlights, ghosts }. */
+const piecePreview = shallowRef(null)
+const piecePointer = ref(null)
+
+/** Follows a carried piece: works out its drop where the target is a new one, and moves its label. */
+function trackPiece(point) {
+  const tile = carriedTile.value
+  const scene = pieceScene.value
+  if (!tile || !scene) return
+  const drop = isTemplateTile(tile)
+    ? templateDrop(tile.template, point, scene)
+    : resolveDrop(tile.piece, point, scene, { picture: tile.picture })
+  if (drop) showPieceDrop({ scene, drop }, point)
+}
+
+/**
+ * Shows what a piece's drop at a point would do, worked out again only where its target is a new one, with its label
+ * by the pointer.
  *
+ * @param {{scene: Object, drop: Object}} carried - The scene it was found in, and the drop (see resolveDrop).
+ * @param {{x: number, y: number}} point
+ */
+function showPieceDrop({ scene, drop }, point) {
+  if (point.x !== piecePointer.value?.x || point.y !== piecePointer.value?.y) piecePointer.value = point
+  if (drop.key === piecePreview.value?.key) return
+  if (drop.invalid) {
+    piecePreview.value = { key: drop.key, invalid: drop.invalid, highlights: [], ghosts: [] }
+    return
+  }
+  const preview = previewDrop(scene, drop)
+  piecePreview.value = preview.errors.length
+    ? { key: drop.key, invalid: problemLabel(preview.errors), highlights: drop.highlights, ghosts: [] }
+    : { key: drop.key, label: drop.label, highlights: drop.highlights, ghosts: preview.ghosts }
+}
+
+/**
+ * The compartment a template dropped at a point goes in: the innermost drawn round it, with where it is drawn; null on
+ * the canvas.
+ *
+ * @param {Object} scene - From dropScene.
  * @param {{x: number, y: number}} point - In flow coordinates.
+ * @returns {{id: string, label: string, rect: Object, corner: {x: number, y: number}}|null}
  */
-function addCell(point) {
-  const near = !templateCellAt(layout.value, point) && linkEndsAt(layout.value, point, CELL_REACH)
-  if (!near) return placeTemplate(BLANK_CELL_TEMPLATE, point)
-  const template = placedTemplate(near.instance)
-  const blank = templateStore.getDefinition(BLANK_CELL_TEMPLATE)?.cells[0]
-  if (!blank) return placeTemplate(BLANK_CELL_TEMPLATE, point)
-  if (template.cells.length >= LIMITS.cells) return notify.info({ title: 'This template has all the cells it can hold' })
-  const origin = templateStore.getInstance(near.instance)?.at ?? { x: 0, y: 0 }
-  const id = freePieceId(template, 'cell', undefined, templateStore.getInstance(near.instance)?.edits?.removed)
-  const count = template.cells.filter((cell) => !cell.in).length
-  return addPiece(near.instance, 'cells', {
-    id,
-    label: `Cell ${count + 1}`,
-    // Centred where it is dropped.
-    at: whole({ x: point.x - blank.size.width / 2 - origin.x, y: point.y - blank.size.height / 2 - origin.y }),
-    facets: blank.facets.map(({ id: facetId, label, edge }) => ({ id: facetId, label, edge })),
-  })
+function templateHost(scene, point) {
+  const host = compartmentAtPoint(scene, point)
+  const rect = host && scene.rects.get(host.id)
+  return rect ? { id: host.id, label: host.label, rect, corner: { x: rect.x, y: rect.y } } : null
 }
 
 /**
- * Adds a tube where it is dropped: to the placed template nearest, with a place of its own, or else as a template
- * of its own.
+ * A template carried to a point, as a drop previewDrop can show: its pieces stamped there, as placePiecesTemplate
+ * would add them: in the compartment the point is in, highlighted, else on the canvas.
  *
- * @param {{x: number, y: number}} point - Its middle, in flow coordinates.
+ * @param {string} templateId
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @param {Object} scene - From dropScene.
+ * @returns {Object|null}
  */
-function addTube(point) {
-  const near = linkEndsAt(layout.value, point, TUBE_REACH)
-  const corner = { x: point.x - TUBE.width / 2, y: point.y - TUBE.height / 2 }
-  if (!near) return placeTemplate(BLANK_TUBE_TEMPLATE, corner)
-  const template = placedTemplate(near.instance)
-  const origin = templateStore.getInstance(near.instance)?.at ?? { x: 0, y: 0 }
-  const used = new Set(template.compartments.map((compartment) => compartment.tone))
-  // In the colour of the tubes already there, so a vessel reads as one lumen.
-  const tubeTone = template.compartments.find((compartment) => compartment.shape === 'tube')?.tone
-  const id = freePieceId(template, 'segment', undefined, templateStore.getInstance(near.instance)?.edits?.removed)
-  return addPiece(near.instance, 'compartments', {
-    id,
-    // Numbered on from the tubes already there, the first being plain 'Segment'.
-    label: `Segment ${template.compartments.filter((compartment) => compartment.shape === 'tube').length + 1}`,
-    shape: 'tube',
-    at: whole({ x: corner.x - origin.x, y: corner.y - origin.y }),
-    tone: tubeTone ?? TONES.find((tone) => !used.has(tone)) ?? TONES[0],
+function templateDrop(templateId, point, scene) {
+  const template = templateLibrary.getTemplate(templateId)
+  if (!template) return null
+  const at = whole(point)
+  const into = templateHost(scene, point)
+  return {
+    key: `template ${templateId} ${into?.id ?? ''} ${at.x} ${at.y}`,
+    label: into ? `Add ${template.name} in ${into.label}` : `Add ${template.name}`,
+    highlights: into ? [{ type: 'rect', rect: into.rect }] : [],
+    apply: (pieces) => {
+      const { pieces: next, errors } = stampTemplate(pieces, template, at, { into })
+      return errors.length ? { pieces: null, error: errors[0] } : { pieces: next, id: null }
+    },
+  }
+}
+
+function clearPiecePreview() {
+  piecePreview.value = null
+  piecePointer.value = null
+}
+watch(carriedTile, (tile) => {
+  if (!tile) clearPiecePreview()
+})
+
+/** How round a ghost's corners are drawn: a cell's as a cell's, a compartment's as its target outline's. */
+const cornerOf = (ghost) => (ghost.kind === 'cell' ? CELL_RADIUS : 12)
+
+/**
+ * What a drop does to what is there, under its label: a membrane round it makes it a cell, its corners rounded and
+ * grown where a cell needs more room; anything else may grow a compartment or cell to fit it.
+ */
+function growthNote(ghosts) {
+  const cell = ghosts.find((ghost) => ghost.was && ghost.type === 'rect')
+  if (cell) return cell.grows ? 'Rounds its corners, and grows to fit a cell' : 'Rounds its corners as a cell'
+  const said = (type, one, many) => {
+    const names = ghosts.filter((ghost) => ghost.type === type).map((ghost) => ghost.label)
+    if (!names.length) return null
+    const listed = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
+    return `${listed} ${names.length > 1 ? many : one}`
+  }
+  const notes = [
+    said('grows', 'grows to fit it', 'grow to fit it'),
+    said('moves', 'moves out of the way', 'move out of the way'),
+  ]
+  return notes.filter(Boolean).join('; ') || null
+}
+
+/** The label that follows a carried piece: what it would do there, or why it can't go there. */
+/** How wide a vessel's ghost is either side of its way, as BioConduit draws it, and room for the label's line. */
+const VESSEL_HALF = 34
+const LABEL_LINE = 28
+
+/**
+ * Where the label by the pointer goes below a tube's ghost, when it would otherwise sit on it: the ghost's bottom,
+ * where the label's line, just right of and below the pointer, overlaps it; else null.
+ *
+ * @param {Array<Object>} ghosts
+ * @param {{x: number, y: number}} point
+ * @returns {number|null} In flow coordinates.
+ */
+function tubeGhostBottom(ghosts, point) {
+  const boxes = ghosts.flatMap((ghost) => {
+    if (ghost.type === 'joint') return [ghost.rect]
+    if (ghost.type !== 'conduit' && ghost.type !== 'path') return []
+    if (!ghost.points?.length) return []
+    const xs = ghost.points.map((p) => p.x)
+    const ys = ghost.points.map((p) => p.y)
+    const half = ghost.type === 'conduit' ? VESSEL_HALF : 4
+    const [left, top] = [Math.min(...xs) - half, Math.min(...ys) - half]
+    return [{ x: left, y: top, width: Math.max(...xs) + half - left, height: Math.max(...ys) + half - top }]
   })
+  const line = { left: point.x, top: point.y, bottom: point.y + LABEL_LINE }
+  const hit = boxes.filter(
+    (box) => box.x + box.width > line.left && box.y < line.bottom + 18 && box.y + box.height > line.top
+  )
+  return hit.length ? Math.max(...hit.map((box) => box.y + box.height)) : null
+}
+
+const pieceLabel = computed(() => {
+  if (!piecePreview.value || !piecePointer.value) return null
+  const { x, y, zoom } = viewport.value
+  const { invalid, label, ghosts = [] } = piecePreview.value
+  // Clear of a tube's ghost it would sit on, below it.
+  const below = tubeGhostBottom(ghosts, piecePointer.value)
+  return {
+    left: piecePointer.value.x * zoom + x + 18,
+    top: (below ?? piecePointer.value.y) * zoom + y + 18,
+    text: invalid ?? label,
+    ...(!invalid && { note: growthNote(ghosts) }),
+    invalid: !!invalid,
+  }
+})
+
+/** An armed piece previews where the pointer is over the view, as a dragged one does. */
+function onArmedMove(event) {
+  if (!isPreviewedTile(armedTile.value)) return
+  if (
+    !event.target.closest('.vue-flow') ||
+    event.target.closest('.vue-flow__controls, .vue-flow__minimap, .vue-flow__panel')
+  ) {
+    clearPiecePreview()
+    return
+  }
+  trackPiece(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+}
+
+/**
+ * Adds one of the five pieces where it is dropped, as one step, saying why where it can't go there.
+ *
+ * @param {'compartment'|'membrane'|'tube'|'fold'|'zone'|'image'} kind
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ * @param {{picture?: Object}} [options] - For an image, its picture, where it has one already (a file dropped from
+ *   the desktop); else it is placed empty, to choose one.
+ */
+async function placePieceAt(kind, point, { picture } = {}) {
+  const scene = dropScene(piecesStore.pieces, sceneOptions())
+  const drop = resolveDrop(kind, point, scene, { picture })
+  if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
+  let choice
+  if (drop.cells) {
+    const flux = await cellTubeFlux(drop.cells)
+    if (!flux) return
+    choice = { flux }
+  }
+  const { pieces, errors } = previewDrop(scene, drop, choice)
+  if (!pieces) return notify.error({ title: 'It can’t go there', message: summariseProblems(errors) })
+  await editPieces(pieces, `bio-pieces-${kind}`)
+}
+
+/** The flux each answer to "A tube between two cells" gives. */
+const CELL_TUBE_FLUX = Object.freeze({ gap: 'junction', bridge: 'bridge' })
+
+/**
+ * What a tube between two touching cells joins them by: the setting's choice, else the user's, asked with a box to
+ * remember it as the setting. Between two apart, the drop makes it a bridge, asking nothing (see resolveDrop).
+ *
+ * @param {[string, string]} cells - Their names.
+ * @returns {Promise<'junction'|'bridge'|null>} null when cancelled.
+ */
+async function cellTubeFlux([first, second]) {
+  const set = CELL_TUBE_FLUX[settings.bioCellTube]
+  if (set) return set
+  isConfirming.value = true
+  try {
+    const { action, remember } = await choose({
+      header: 'Join two cells',
+      message:
+        `${first} and ${second} touch. How does the tube join them? A gap junction is where their two membranes ` +
+        'meet, with a connexon in each; a bridge is an open channel of cytoplasm between them, walled by membrane. ' +
+        'Between cells apart, a tube is always a bridge.',
+      extraLabel: 'Gap junction',
+      acceptLabel: 'Bridge',
+      rejectLabel: 'Cancel',
+      remember: 'Remember this choice',
+    })
+    const answer = { extra: 'gap', accept: 'bridge' }[action]
+    if (!answer) return null
+    if (remember) saveAppSettings({ bioCellTube: answer })
+    return CELL_TUBE_FLUX[answer]
+  } finally {
+    isConfirming.value = false
+  }
 }
 
 const isTileDrag = (event) => [...(event.dataTransfer?.types ?? [])].includes(TILE_DRAG_TYPE)
@@ -2209,93 +2990,32 @@ function viewCentre() {
 }
 
 /**
- * Places what a palette tile stands for at a point of the view: a template, an empty cell (a template of one plain
- * cell), a piece added to the cell there, a compartment against the side of the cell it is dropped beside, or a
- * new module, as a drop of one from the library would be.
+ * Places what a palette tile stands for at a point of the view: a template's pieces, one of the five pieces, or a new
+ * module, as a drop of one from the library would be.
  *
- * @param {{kind: string, template?: string}} tile
+ * @param {{kind: string, template?: string, piece?: string}} tile
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
 function applyTile(tile, point) {
-  if (tile.kind === 'template') return placeTemplate(tile.template, point)
+  if (tile.kind === 'template') return placePiecesAt(tile.template, point, { inCompartment: true })
+  if (isPieceTile(tile)) return placePieceAt(tile.piece, point, { picture: tile.picture })
   if (tile.kind === 'module') {
     const module = libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF)
     return module && props.createInstance ? placeModuleAt(module, point) : null
   }
-  if (tile.kind === 'cell') return addCell(point)
-  if (tile.kind === 'tube') return addTube(point)
-  if (tile.kind === 'link') {
-    const ends = linkEndsAt(layout.value, point, LINK_REACH)
-    if (!ends || ends.between.length < 2) {
-      return notify.info({ title: 'Drop it between two spaces', message: 'A link joins two cells or compartments of one template.' })
-    }
-    return addLink(ends.instance, ends.between)
-  }
-  // An organelle goes in a cell, and a compartment beside one; a site or zone on an organelle too.
-  const isForCell = ['compartment', 'organelle', 'microdomain', 'fold', 'junction'].includes(tile.kind)
-  const reach = tile.kind === 'compartment' ? COMPARTMENT_REACH : TILE_REACH
-  const found = templateCellAt(layout.value, point, reach, { organelles: !isForCell })
-  const cell = found && placedTemplate(found.instance)?.cells.find((entry) => entry.id === found.path)
-  if (!cell) {
-    const where = tile.kind === 'compartment' ? 'beside a cell' : 'on a cell'
-    return notify.info({ title: `Drop it ${where}`, message: 'Add a cell first, from the palette.' })
-  }
-  if (tile.kind === 'organelle') return addOrganelle(found.instance, found.path)
-  if (tile.kind === 'microdomain') return addMicrodomain(found, point)
-  if (tile.kind === 'junction') return addJunction(found, point)
-  if (tile.kind === 'fold') {
-    const edge = nearestEdge(found.rect, point, EDGES.filter((each) => !cell.facets.some((facet) => facet.fold === each)))
-    if (!edge) return notify.info({ title: 'Every side of this cell has a fold' })
-    const removed = templateStore.getInstance(found.instance)?.edits?.removed ?? []
-    const id = freePieceId(placedTemplate(found.instance), 'fold', found.path, removed)
-    return addPiece(found.instance, 'facets', { cell: found.path, id, label: 'Fold', fold: edge })
-  }
-  if (tile.kind === 'zone') {
-    if (cell.processes.length >= LIMITS.processes) return notify.info({ title: 'This cell has all the process zones it can hold' })
-    return addZone(found.instance, found.path)
-  }
-  // A compartment lies against the cell's side nearest the drop, which needs a protein site to lie against.
-  const edge = nearestEdge(found.rect, point, EDGES)
-  // Every protein site along that side meets it.
-  const facets = cell.facets.filter((each) => each.edge === edge)
-  if (!facets.length) {
-    return notify.info({ title: 'Add a protein site to that side first', message: 'A compartment lies against a protein site of the cell: add one from the cell’s menu.' })
-  }
-  // Unnamed: a click on its name names it.
-  return addCompartment(found.instance, facets.map((facet) => `${found.path}.${facet.id}`))
 }
 
 /**
- * Places what a palette tile stands for, as applyTile does, with a new, empty module on each site it adds that takes
- * one module, all as one step, so a model built from the palette is whole, each module there to replace later.
+ * Places what a palette tile stands for, as applyTile does, where the user chose: each compartment, membrane and tube
+ * it adds comes with a new, empty module (see withOwedModules), there to be replaced later.
  *
  * @param {{kind: string, template?: string}} tile
  * @param {{x: number, y: number}} point - In flow coordinates.
  */
-async function placeTile(tile, point) {
-  // A new module adds no sites, and keeps its own step: a drop asking what it is holds that step open past here.
-  if (tile.kind === 'module') return applyTile(tile, point)
-  const before = new Set(siteTargets.value.map((target) => target.ref))
-  history.startBatch()
-  try {
-    await applyTile(tile, point)
-    const module = newModule()
-    if (!module || !props.createInstance) return
-    await nextTick()
-    const fresh = siteTargets.value.filter((target) => !before.has(target.ref) && takesPlaceholder(target)).map((target) => target.ref)
-    for (const ref of fresh) {
-      // Found again each time, as the sites before it took their modules.
-      await nextTick()
-      const site = siteTargets.value.find((target) => target.ref === ref && target.type === 'area')
-      if (!site || !takesPlaceholder(site)) continue
-      const id = await addModuleIn(module, { site })
-      // Named for the piece, which is drawn by its module's name while it holds one.
-      const name = placeholderName(site.label, main.nodes.value.filter((node) => node.id !== id).map((node) => node.data?.name))
-      if (id && name) await renameInstance(id, name)
-    }
-  } finally {
-    history.endBatch('bio-build')
-  }
+function placeTile(tile, point) {
+  // As its preview showed: the view stays where it is, not fitted to what is added.
+  isViewSet = isViewChosen = true
+  return applyTile(tile, point)
 }
 
 /** Places the armed tile where the view is clicked; a click on the view's own controls is theirs. */
@@ -2319,102 +3039,6 @@ watch(armedTile, (tile) => {
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onArmedKey))
 
-// ── Removing from a placed template ────────────────────────────────────
-/**
- * Removes a piece from one placed template, as one step, asking first when modules are bound to it or to what
- * goes with it. They stay in the diagram: proteins go to the tray, the rest where their roles put them.
- *
- * @param {string} instanceId
- * @param {string} path - The piece's path in the template.
- * @param {string} label - What the piece is called.
- * @returns {Promise<void>}
- */
-async function removePiece(instanceId, path, label) {
-  const instance = templateStore.getInstance(instanceId)
-  const template = instance && templateStore.definitions.get(instance.template)
-  if (!template) return
-  const { edits, errors } = removeFromEdits(template, instance.edits ?? null, path)
-  if (errors.length) {
-    notify.error({ title: `Could not remove ${label}`, message: summariseProblems(errors) })
-    return
-  }
-  const stranded = strandedBy(instanceId, edits)
-  if (stranded.length) {
-    const names = stranded.map((node) => nameOf(node.id)).join(', ')
-    isConfirming.value = true
-    try {
-      const answer = await choose({
-        header: 'Remove from template?',
-        message:
-          `Modules are placed on ${label}: ${names}. They stay in the diagram, without the connections ` +
-          'their places there made; proteins go to the tray.',
-        severity: 'warning',
-        acceptLabel: 'Remove',
-        rejectLabel: 'Cancel',
-      })
-      if (answer !== 'accept') return
-    } finally {
-      isConfirming.value = false
-    }
-  }
-  // The modules it strands lose the placement edges to the neighbours they had there, in the same step.
-  const before = neighboursOf(stranded.map((node) => node.id))
-  history.startBatch()
-  try {
-    if (await editTemplate(instanceId, edits, 'bio-template-remove-piece')) await dropStaleLinks(before)
-  } finally {
-    history.endBatch('bio-template-remove-piece')
-  }
-}
-
-/** Brings back what was removed from a placed template, keeping what was added, as one step. */
-function restorePieces(instanceId) {
-  const instance = templateStore.getInstance(instanceId)
-  const template = instance && templateStore.definitions.get(instance.template)
-  if (!template) return
-  const edits = normaliseEdits({ added: instance.edits?.added })
-  const { errors } = editedTemplate(template, edits)
-  if (errors.length) {
-    notify.error({ title: 'Could not restore the removed elements', message: summariseProblems(errors) })
-    return
-  }
-  editTemplate(instanceId, edits, 'bio-template-restore')
-}
-
-/** What can be removed from a placed template's piece: a compartment, or a cell or any of its parts. */
-function removeFromTemplateMenu(instanceId, place) {
-  const template = placedTemplate(instanceId)
-  const remove = (path, label) => ({ label, command: () => removePiece(instanceId, path, label) })
-  const item = { label: 'Remove from This Template', icon: 'pi pi-minus-circle' }
-  if (place.kind === 'link') {
-    const link = template?.links?.find((entry) => entry.id === place.path)
-    return link ? [{ ...item, command: remove(place.path, link.label).command }] : []
-  }
-  // The links from a space can be removed from its menu, as one with a module on it shows no menu of its own.
-  const links = (template?.links ?? []).filter((link) => link.between.includes(place.path)).map((link) => remove(link.id, link.label))
-  if (place.kind === 'region') {
-    const compartment = template?.compartments.find((entry) => entry.id === place.path)
-    if (!compartment) return []
-    if (!links.length) return [{ ...item, command: remove(place.path, compartment.label).command }]
-    return [{ ...item, items: [remove(place.path, compartment.label), ...links] }]
-  }
-  const cell = template?.cells.find((entry) => entry.id === place.path)
-  if (!cell) return []
-  const part = (piece) => remove(`${cell.id}.${piece.id}`, piece.label)
-  return [
-    {
-      ...item,
-      items: [
-        remove(cell.id, `${cell.label} (whole cell)`),
-        ...(cell.membrane ? [remove(`${cell.id}.${MEMBRANE}`, cell.membrane.label)] : []),
-        ...cell.facets.map(part),
-        ...cell.processes.map(part),
-        ...links,
-      ],
-    },
-  ]
-}
-
 // ── Template files ─────────────────────────────────────────────────────
 const templateFileInput = ref(null)
 /** Where a template loaded from a file goes, in flow coordinates. */
@@ -2425,7 +3049,10 @@ function loadTemplateFile(at) {
   templateFileInput.value?.click()
 }
 
-/** Adds the chosen template file to the user's templates and places it, or says what is wrong with it. */
+/**
+ * Adds the chosen template file to the user's templates and places it as a Build tab drop would, or says what is wrong
+ * with it.
+ */
 async function onTemplateFile(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -2434,26 +3061,41 @@ async function onTemplateFile(event) {
   const { raw, errors: parseErrors } = await readTemplateFile(file)
   const { template, errors, warnings } = parseErrors.length
     ? { template: null, errors: parseErrors, warnings: [] }
-    : templateStore.addLocalTemplate(raw)
-  if (!template) {
-    notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
-    return
-  }
-  placeTemplate(template.id, at)
+    : templateLibrary.addLocalTemplate(raw)
+  if (!template) return notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
+  await placeTile({ kind: 'template', template: template.id }, at)
   if (warnings.length) notify.warning({ title: `Loaded ${template.name}`, message: summariseProblems(warnings) })
 }
 
-/** Downloads a template as a file anyone can load. */
-function saveTemplateFile(template) {
+/** Downloads every piece of the view as a template file anyone can load. */
+function savePiecesAsTemplate() {
+  // A template has no store for pictures, so it holds no images; nothing else depends on one.
+  // Each piece by the name it goes by now: its module's, where that was renamed.
+  const pieces = piecesByModuleName(piecesStore.pieces, main.nodes.value).filter((piece) => piece.kind !== 'image')
+  const template = {
+    schemaVersion: PIECES_SCHEMA_VERSION,
+    id: 'physiology',
+    name: 'Physiology',
+    pieces,
+  }
   const { filename, text } = templateFile(template)
   legacyDownload(filename, new Blob([text], { type: 'application/json' }))
+  if (pieces.length < piecesStore.pieces.length) {
+    notify.info({ title: 'Images left out', message: 'A template can’t hold images, so they were left out of it.' })
+  }
 }
 
-/** The Add Template submenu: built-ins, then the user's own, then loading and removing theirs. */
+/**
+ * The Add Template submenu: built-ins, then the user's own, then loading and removing theirs. A template chosen here is
+ * placed as one dropped from the Build tab would be, with its modules.
+ */
 function addTemplateMenu(at) {
-  const place = (template) => ({ label: template.name, command: () => placeTemplate(template.id, at) })
-  const builtIn = templateStore.library.filter((template) => !isLocalTemplateId(template.id))
-  const own = templateStore.localTemplates
+  const place = (template) => ({
+    label: template.name,
+    command: () => placeTile({ kind: 'template', template: template.id }, at),
+  })
+  const builtIn = templateLibrary.library.filter((template) => !isLocalTemplateId(template.id))
+  const own = templateLibrary.localTemplates
   return [
     ...builtIn.map(place),
     { separator: true },
@@ -2462,11 +3104,16 @@ function addTemplateMenu(at) {
     ...(own.length
       ? [
           {
+            label: 'Save My Template As File…',
+            icon: 'pi pi-download',
+            items: own.map((template) => ({ label: template.name, command: () => saveTemplate(template) })),
+          },
+          {
             label: 'Remove from My Templates',
             icon: 'pi pi-trash',
             items: own.map((template) => ({
               label: template.name,
-              command: () => templateStore.removeLocalTemplate(template.id),
+              command: () => templateLibrary.removeLocalTemplate(template.id),
             })),
           },
         ]
@@ -2474,133 +3121,98 @@ function addTemplateMenu(at) {
   ]
 }
 
-// ── Glyph libraries ────────────────────────────────────────────────────
-const glyphFileInput = ref(null)
+/** Downloads one of the user's templates as a file anyone can load. */
+function saveTemplate(template) {
+  const { filename, text } = templateFile(template)
+  legacyDownload(filename, new Blob([text], { type: 'application/json' }))
+}
 
-/** Adds the chosen glyph library file to the user's own, or says what is wrong with it. */
-async function onGlyphFile(event) {
+// ── Skin libraries ─────────────────────────────────────────────────────
+const skinLibraryInput = ref(null)
+
+/** Adds the chosen skin library file to the user's own, or says what is wrong with it. */
+async function onSkinLibraryFile(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
-  const { raw, errors: parseErrors } = await readTemplateFile(file, { what: 'a glyph library' })
+  const { raw, errors: parseErrors } = await readTemplateFile(file, { what: 'a skin library' })
   const { library, errors, warnings } = parseErrors.length
     ? { library: null, errors: parseErrors, warnings: [] }
-    : glyphStore.addLocalLibrary(raw)
+    : skinStore.addLocalLibrary(raw)
   if (!library) {
     notify.error({ title: `Could not load ${file.name}`, message: summariseProblems(errors) })
     return
   }
-  const count = `${library.glyphs.length} cartoon${library.glyphs.length === 1 ? '' : 's'}`
+  const count = `${library.skins.length} skin${library.skins.length === 1 ? '' : 's'}`
   if (warnings.length) notify.warning({ title: `Loaded ${library.name}`, message: summariseProblems(warnings) })
-  else notify.success({ title: `Loaded ${library.name}`, message: `${count} added to the Cartoon menu.` })
+  else notify.success({ title: `Loaded ${library.name}`, message: `${count} added to the Skin menus.` })
 }
 
-/** Downloads a glyph library as a file anyone can load. */
-function saveGlyphFile(library) {
-  const { filename, text } = glyphLibraryFile(library)
+/** Downloads a skin library as a file anyone can load. */
+function saveSkinLibraryFile(library) {
+  const { filename, text } = skinLibraryFile(library)
   legacyDownload(filename, new Blob([text], { type: 'application/json' }))
 }
 
-/** Loading, saving and removing the user's own glyph libraries. */
-function glyphLibraryMenu() {
-  const own = glyphStore.localLibraries
+/** Loading, saving and removing the user's own skin libraries. */
+function skinLibraryMenu() {
+  const own = skinStore.localLibraries
   const each = (icon, label, act) => ({
     label,
     icon,
     items: own.map((library) => ({ label: library.name, command: () => act(library) })),
   })
   return [
-    { label: 'Load Glyph Library…', icon: 'pi pi-upload', command: () => glyphFileInput.value?.click() },
+    { label: 'Load Skin Library…', icon: 'pi pi-upload', command: () => skinLibraryInput.value?.click() },
     ...(own.length
       ? [
-          each('pi pi-download', 'Save Glyph Library As File…', saveGlyphFile),
-          each('pi pi-trash', 'Remove Glyph Library', (library) => glyphStore.removeLocalLibrary(library.id)),
+          each('pi pi-download', 'Save Skin Library As File…', saveSkinLibraryFile),
+          each('pi pi-trash', 'Remove Skin Library', (library) => skinStore.removeLocalLibrary(library.id)),
         ]
       : []),
   ]
 }
 
 /**
- * The Cartoon submenu for a protein or process: the built-ins, then the loaded glyphs, then the libraries. A
- * process's starts with None, since a plain card is its default.
+ * The Skin submenu for a protein or process: None for a process, then the skins for what it is, those its
+ * annotations match first, then the libraries.
+ *
+ * @param {string} nodeId
+ * @param {Object} role - From resolveBioRole: its skinContext and the skin it is drawn with.
  */
-function cartoonMenu(nodeId, chosen, { none = false } = {}) {
-  const item = (glyph) => ({
-    label: glyph.name,
-    icon: chosen === glyph.id ? 'pi pi-check' : undefined,
-    command: () => chooseGlyph([nodeId], glyph.id),
+function moduleSkinMenu(nodeId, role) {
+  const context = role.skinContext
+  const item = (skin) => ({
+    label: skin.name,
+    icon: role.skin === skin.id ? 'pi pi-check' : undefined,
+    command: () => chooseSkin([nodeId], skin.id),
   })
-  const loaded = loadedGlyphs()
   return [
-    ...(none
+    ...(allowsNoSkin(context.target)
       ? [
           {
             label: 'None',
-            icon: chosen ? undefined : 'pi pi-check',
-            command: () => chooseGlyph([nodeId], NO_GLYPH),
+            icon: role.skin ? undefined : 'pi pi-check',
+            command: () => chooseSkin([nodeId], NO_SKIN),
           },
           { separator: true },
         ]
       : []),
-    ...BUILT_IN_GLYPHS.map(item),
+    ...skinsFor(context).map(item),
     { separator: true },
-    ...loaded.map(item),
-    ...(loaded.length ? [{ separator: true }] : []),
-    ...glyphLibraryMenu(),
-  ]
-}
-
-/**
- * The menu items for the template instance a piece belongs to.
- *
- * @param {string} instanceId
- * @param {Object} [place] - The piece's place, for what can be added to it.
- * @returns {Array<Object>}
- */
-function templateMenu(instanceId, place = null) {
-  const instance = templateStore.getInstance(instanceId)
-  if (!instance) return []
-  const definition = placedTemplate(instanceId)
-  const name = definition?.name ?? instance.template
-  const isPiece = place?.instance === instanceId && !!place.path
-  return [
-    { separator: true },
-    ...(isPiece && (place.kind === 'cell' || place.kind === 'region')
-      ? [{ label: 'Skin', icon: 'pi pi-image', items: skinMenu(instanceId, place.path) }]
-      : []),
-    ...(place?.kind === 'cell' && isPiece ? addToCellMenu(instanceId, place.path) : []),
-    ...(isPiece ? placementMenu(instanceId, place) : []),
-    ...(isPiece && !place.parent && place.form !== 'inner' && place.kind !== 'link' ? linkToMenu(instanceId, place.path) : []),
-    ...(isPiece ? removeFromTemplateMenu(instanceId, place) : []),
-    ...(instance.edits?.removed?.length
-      ? [{ label: 'Restore Removed Elements', icon: 'pi pi-undo', command: () => restorePieces(instanceId) }]
-      : []),
-    ...(isPiece || instance.edits?.removed?.length ? [{ separator: true }] : []),
-    {
-      label: 'Rename Template…',
-      icon: 'pi pi-pencil',
-      command: () => (renaming.value = { id: instanceId, label: instance.label ?? '', placeholder: name }),
-    },
-    { label: 'Re-layout Template', icon: 'pi pi-th-large', command: () => relayoutTemplate(instanceId) },
-    {
-      label: 'Save Template As File…',
-      icon: 'pi pi-download',
-      disabled: !definition,
-      command: () => saveTemplateFile(definition),
-    },
-    { label: 'Delete Template', icon: 'pi pi-trash', command: () => removeTemplate(instanceId) },
+    ...skinLibraryMenu(),
   ]
 }
 
 function onNodeContextMenu({ event, node }) {
   event.preventDefault()
-  const instance = pieceOf(node.id) ?? (node.type === 'bioTemplateTitle' ? node.data.instance : null)
-  // An empty template piece, or a template's name, is no diagram node: only its template's menu.
+  // A piece with no module on it, a zone or a grip, is no diagram node: only the piece's menu.
   const place = layout.value.get(node.id)
   if (!main.findNode(node.id)) {
-    if (!instance) return
     const here = newModuleItem(event)
-    menuItems.value = [...here, ...templateMenu(instance, place).slice(here.length ? 0 : 1)]
+    const items = pieceMenu(place)
+    menuItems.value = [...here, ...items.slice(here.length ? 0 : 1)]
+    if (!menuItems.value.length) return
     contextMenu.value.show(event)
     return
   }
@@ -2614,48 +3226,39 @@ function onNodeContextMenu({ event, node }) {
       icon: 'pi pi-pencil',
       command: () => (renamingNode.value = { id: node.id, name: nameOf(node.id) }),
     },
-    {
-      label: 'Show As',
-      icon: 'pi pi-sitemap',
-      items: Object.entries(ROLE_LABELS).map(([value, label]) => ({
-        label,
-        icon: role?.role === value ? 'pi pi-check' : undefined,
-        command: () => chooseRole([node.id], value),
-      })),
-    },
   ]
-  if (role?.role === 'membraneProtein') {
+  if (role?.skinContext && !isJointNode(node.id)) {
     items.push({
-      label: 'Cartoon',
+      label: 'Skin',
       icon: 'pi pi-palette',
-      items: cartoonMenu(node.id, role.glyph),
-    })
-  } else if (role?.role === 'cytosolic') {
-    items.push({
-      label: 'Cartoon',
-      icon: 'pi pi-palette',
-      items: cartoonMenu(node.id, role.glyph, { none: true }),
+      items: moduleSkinMenu(node.id, role),
     })
   }
+  // A module drawn as its tube's joint is drawn by the tube's skin.
+  const jointTube = isJointNode(node.id) ? skinnedPieceOfNode(node.id) : null
+  const jointItems = jointTube ? skinMenu(jointTube) : []
+  if (jointItems.length) items.push({ label: 'Skin', icon: 'pi pi-image', items: jointItems })
   items.push(connectionsMenu(node.id, main.nodes.value, main.edges.value, (edgeId) => emit('open-edge-dialog', edgeId)))
   items.push(...primeMenuItems(props.parameterSetMenu?.(node.id) ?? [], { 'Apply Parameter Set': 'pi pi-sliders-h' }))
-  if (role?.role === 'region' && !role.site) items.push(liesAgainstMenu(node.id, role))
-  // Bound to a template site that is there: unbinding goes where its role puts it, a protein to the tray.
-  const site = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
-  const unbind = (type) =>
-    takeOut(node.id, planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), type)
-  if (place?.kind === 'protein') {
-    items.push({
-      label: 'Take Out of Membrane',
-      icon: 'pi pi-sign-out',
-      command: () =>
-        site
-          ? unbind('bio-unbind')
-          : takeOut(node.id, planUnplace({ id: node.id, position: trayPosition(), ...planContext() }), 'bio-take-out'),
-    })
+  // On a piece of the pieces: what can be done to the piece itself.
+  if (place?.piece) items.push(...pieceMenu(place, node.id))
+  // A cell's membrane, which is a piece of its own: its skin, and what its cell's Remove offers.
+  else if (place?.kind === 'membrane') items.push(...membraneMenu(layout.value.get(place.cell)))
+  // A tube's module, drawn on it as a card, its joint or its vessel: the tube's own menu too.
+  else if (place?.kind === 'card' && layout.value.get(place.link)?.piece) {
+    items.push(...pieceMenu(layout.value.get(place.link), node.id))
+  }
+  // Bound to a row of a membrane or zone: unbound, it is drawn as its annotations say, beside the pieces. A
+  // compartment's, membrane's or tube's module is that piece, and is never unbound.
+  const bound = role?.site && place?.instance ? sites.value.find((entry) => entry.ref === role.site) : null
+  const site = bound && !isPieceModule(bound) ? bound : null
+  const unbind = () =>
+    takeOut(node.id, planUnbind({ id: node.id, position: trayPosition(), ...planContext() }), 'bio-unbind')
+  if (site && place?.kind === 'protein') {
+    items.push({ label: 'Take Out of Membrane', icon: 'pi pi-sign-out', command: unbind })
   }
   if (site) {
-    items.push({ label: `Unbind from "${site.label}"`, icon: 'pi pi-link', command: () => unbind('bio-unbind') })
+    items.push({ label: `Unbind from "${site.label}"`, icon: 'pi pi-link', command: unbind })
   }
   if (main.findNode(node.id)?.data?.bioView?.speciesOrder) {
     items.push({
@@ -2664,25 +3267,14 @@ function onNodeContextMenu({ event, node }) {
       command: () => setChoice(node.id, { speciesOrder: undefined }, 'bio-species-order'),
     })
   }
-  if (main.findNode(node.id)?.data?.bioView && !role?.site) {
-    items.push(
-      { separator: true },
-      {
-        label: 'Reset to Annotations',
-        icon: 'pi pi-replay',
-        command: () => applyPlan(new Map([[node.id, undefined]]), 'bio-reset'),
-      }
-    )
-  }
   items.push(
     { separator: true },
     {
       label: deletionLabel(node.id, main.nodes.value),
       icon: 'pi pi-trash',
-      command: () => deleteNodes(deletionScope(node.id, main.nodes.value)),
+      command: () => deleteWithPieces(deletionScope(node.id, main.nodes.value)),
     }
   )
-  if (instance) items.push(...templateMenu(instance, place))
   menuItems.value = items
   contextMenu.value.show(event)
 }
@@ -2694,80 +3286,144 @@ function onNodeContextMenu({ event, node }) {
  * @returns {Promise<boolean>} Whether anything was asked to go.
  */
 async function deleteNodes(ids) {
-  let going = ids.filter((id) => main.findNode(id))
-  // A cell's contents are asked about: left behind they have no cell, which looked as if they had gone too.
-  const contents = cellContents(going, layout.value)
-  let before
-  if (contents.length) {
-    const cells = going.filter((id) => layout.value.get(id)?.kind === 'cell')
-    const subject = cells.length === 1 ? nameOf(cells[0]) : `These ${cells.length} cells`
-    const holds = cells.length === 1 ? 'holds' : 'hold'
-    const listed = contents.slice(0, 6).map(nameOf).join(', ') + (contents.length > 6 ? `, and ${contents.length - 6} more` : '')
+  const going = ids.filter((id) => main.findNode(id))
+  return deleteInstances(going, { removeNodes: main.removeNodes, history })
+}
+
+/**
+ * The pieces a node of the view draws, with or without a module on it: a cell's inside (its compartment, or all its
+ * membrane encloses where no one of them is its inside), a region's compartment, a membrane's band's membrane, a
+ * process zone, a tube (by its room, or the module on it). None for a grip, or a module that is on a piece but does
+ * not draw it: a protein, or a process in a zone.
+ *
+ * @param {string} nodeId
+ * @returns {string[]}
+ */
+function piecesDrawnBy(nodeId) {
+  const place = layout.value.get(nodeId)
+  switch (place?.kind) {
+    case 'cell': {
+      if (place.bulk) return [place.bulk]
+      const membrane = piecesStore.pieces.find((each) => each.id === place.piece)
+      return membrane ? [membrane.id, ...(membrane.encloses ?? [])] : []
+    }
+    case 'region':
+    case 'zone':
+    case 'image':
+    case 'link':
+      return place.piece ? [place.piece] : []
+    case 'membrane': {
+      const id = place.piece ?? layout.value.get(place.cell)?.piece
+      return id ? [id] : []
+    }
+    case 'card': {
+      const id = place.link && layout.value.get(place.link)?.piece
+      return id ? [id] : []
+    }
+    default:
+      return []
+  }
+}
+
+/** The selected nodes Delete acts on: grips are handles on a piece, not the piece, so they are left out. */
+const selectedForDeletion = () =>
+  getSelectedNodes.value.filter((node) => layout.value.get(node.id)?.kind !== 'grip')
+
+/**
+ * Deletes nodes of the view, the pieces they draw, everything that goes with those pieces (see removedWith) and the
+ * modules on all of it, in one undo step. A compartment, membrane or tube is its module, so deleting either takes
+ * both. It asks first only when that takes what was not chosen: a piece that goes with one chosen, or a module on a
+ * span, fold or zone of what goes.
+ *
+ * @param {string[]} ids - Nodes of the view: modules, and the nodes of pieces such as zones.
+ * @param {string[]} [pieceIds=[]] - Pieces chosen too, as a piece's Remove chooses them.
+ * @param {{header?: string, acceptLabel?: string}} [question] - How the question is put.
+ * @returns {Promise<boolean>} Whether anything was asked to go.
+ */
+async function deleteWithPieces(ids, pieceIds = [], { header = 'Delete selection?', acceptLabel = 'Delete' } = {}) {
+  const plan = planDeletion(piecesStore.pieces, main.nodes.value, {
+    instances: ids.filter((id) => main.findNode(id)),
+    pieces: [...ids.flatMap(piecesDrawnBy), ...pieceIds],
+  })
+  if (plan.errors.length) {
+    notify.error({ title: `Could not delete ${plan.pieces.map(pieceName).join(', ')}`, message: summariseProblems(plan.errors) })
+    return false
+  }
+  if (!plan.next) return deleteNodes(plan.going)
+  const message = deletionMessage(plan, { pieceName, nodeName: nameOf })
+  if (message) {
     isConfirming.value = true
     let answer
     try {
-      answer = await choose({
-        header: cells.length === 1 ? 'Delete cell?' : 'Delete cells?',
-        message:
-          `${subject} ${holds} ${listed}. Delete only the cell, leaving them where they are and in the diagram ` +
-          'without a cell, or delete them with it, from the diagram too?',
-        severity: 'warning',
-        acceptLabel: 'Delete Cell Only',
-        extraLabel: 'Delete Cell and Contents',
-        rejectLabel: 'Cancel',
-      })
+      answer = await choose({ header, message, severity: 'warning', acceptLabel, rejectLabel: 'Cancel' })
     } finally {
       isConfirming.value = false
     }
-    if (answer === 'reject') return false
-    if (answer === 'extra') going = [...going, ...contents]
-    else {
-      const patches = releaseFromCell(contents, layout.value, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT })
-      before = () =>
-        applyPlan(new Map([...patches].map(([id, patch]) => [id, patchBioView(main.findNode(id)?.data?.bioView, patch)])))
-    }
+    if (answer !== 'accept') return false
   }
-  return deleteInstances(going, { removeNodes: main.removeNodes, history, before })
+  const going = plan.going.filter((id) => main.findNode(id))
+  const takePieces = () => editPieces(plan.next, 'bio-pieces-remove')
+  if (going.length) return deleteInstances(going, { removeNodes: main.removeNodes, history, after: takePieces })
+  return takePieces()
 }
 
-/** Deletes the selected instances, for the workspace's Delete and Backspace keys. */
-const deleteSelection = () => deleteNodes(main.nodes.value.filter((node) => node.selected).map((node) => node.id))
+/**
+ * Deletes the selection, for the workspace's Delete and Backspace keys, in one press: each selected module, each
+ * piece a selected node draws, and everything on those pieces (see deleteWithPieces).
+ *
+ * @returns {Promise<boolean>}
+ */
+function deleteSelection() {
+  const chosen = new Set(selectedForDeletion().map((node) => node.id))
+  for (const node of main.nodes.value) if (node.selected) chosen.add(node.id)
+  return deleteWithPieces([...chosen])
+}
 
 /** A shown connection's menu: delete it, as the diagram would. */
 function onEdgeContextMenu({ event, edge }) {
   event.preventDefault()
   if (!props.disconnectInstances || !main.findEdge(edge.id)) return
-  menuItems.value = [
-    {
-      label: 'Delete Connection',
-      icon: 'pi pi-trash',
-      command: () => deleteConnection(edge.id, { disconnectInstances: props.disconnectInstances, history }),
-    },
-  ]
+  const remove = {
+    label: 'Delete Connection',
+    icon: 'pi pi-trash',
+    command: () => deleteConnection(edge.id, { disconnectInstances: props.disconnectInstances, history }),
+  }
+  // A selected tube's connections cross its joint: on the joint, it is the tube's menu, with the connection's too.
+  const joint = jointUnder(event, [edge.source, edge.target])
+  if (joint) {
+    onNodeContextMenu({ event, node: joint })
+    menuItems.value = [...menuItems.value, { separator: true }, remove]
+    return
+  }
+  menuItems.value = [remove]
   contextMenu.value.show(event)
+}
+
+/** The node of one of some modules drawn as their tube's joint that lies under the pointer, if any. */
+function jointUnder(event, ids) {
+  const under = new Set(
+    document
+      .elementsFromPoint(event.clientX, event.clientY)
+      .map((element) => element.closest?.('.vue-flow__node')?.dataset?.id)
+      .filter(Boolean),
+  )
+  const id = ids.find((each) => under.has(each) && isJointNode(each))
+  return id ? main.findNode(id) : null
 }
 
 function onPaneContextMenu(event) {
   event.preventDefault()
   const at = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   menuItems.value = [
-    ...(props.createInstance
-      ? [
-          { label: 'Add Cell…', icon: 'pi pi-circle', command: () => (placing.value = { mode: 'cell', at }) },
-          {
-            label: 'Add Compartment…',
-            icon: 'pi pi-stop',
-            command: () => (placing.value = { mode: 'compartment', at }),
-          },
-          { separator: true },
-        ]
-      : []),
     {
       label: 'Add Template',
       icon: 'pi pi-objects-column',
       items: addTemplateMenu(at),
     },
-    { label: 'Glyph Libraries', icon: 'pi pi-palette', items: glyphLibraryMenu() },
+    ...(piecesStore.pieces.length
+      ? [{ label: 'Save Pieces As Template File…', icon: 'pi pi-download', command: savePiecesAsTemplate }]
+      : []),
+    { label: 'Skin Libraries', icon: 'pi pi-palette', items: skinLibraryMenu() },
     ...(hasSpecies.value ? [{ label: 'Species Mode', icon: 'pi pi-share-alt', items: speciesMenu() }] : []),
     { separator: true },
     {
@@ -2780,25 +3436,6 @@ function onPaneContextMenu(event) {
 }
 
 // ── Adding instances ───────────────────────────────────────────────────
-/** The open placing dialog: { mode, at, id?, name?, initialRole? }. */
-const placing = ref(null)
-const cellChoices = computed(() =>
-  targets.value.map((cell) => ({ id: cell.id, name: main.findNode(cell.id)?.data?.name ?? cell.id }))
-)
-
-/** Puts a new protein in a slot, moving the proteins after it along, as part of the current step. */
-function slotPlan(id, slot) {
-  return planSlotDrop({ id, slot, layout: layout.value, roles: roles.value, bioViews: bioViews() })
-}
-
-/** The slot at the end of a part of a cell's membrane. */
-function endSlot({ cell, facet, at }) {
-  const part = partOf(facet, at)
-  const count = targets.value.find((target) => target.id === cell)?.counts[part] ?? 0
-  // Only a facet with a side keeps one; a lateral protein given no side stays sideless.
-  const sided = annotationOfFacet(EPITHELIAL_SHAPE, part)?.at !== undefined
-  return { cellId: cell, part, facet, at: sided ? at : undefined, order: count }
-}
 
 /**
  * Whether a drag is a module from the library: its data says so and it carries no files. The library's
@@ -2810,20 +3447,43 @@ function isLibraryDrag(event) {
 }
 
 function onModuleDragOver(event) {
+  if (isImageFileDrag(event)) {
+    // A picture from the desktop goes on the bare canvas, as the Image tile's does: the label says why it can't go
+    // on a piece.
+    const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+    const scene = (libraryScene ??= dropScene(piecesStore.pieces, sceneOptions()))
+    const drop = resolveDrop('image', point, scene)
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'copy'
+    showPieceDrop({ scene, drop }, point)
+    return
+  }
   if (isTileDrag(event)) {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
+    if (isPreviewedTile(draggedTile.value)) trackPiece(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
     return
   }
   if (!isLibraryDrag(event)) return
   event.preventDefault()
   const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   draggingId.value = 'library'
-  trackDrag(point, targetAt(point))
+  const module = libraryDrag.draggedType.value
+  // One that makes a piece shows the piece, as its tile does; a membrane's off a compartment shows why it can't go.
+  const made = libraryPieceDrop(module, point, () => (libraryScene ??= dropScene(piecesStore.pieces, sceneOptions())))
+  trackDrag(point, made ? null : libraryTargetAt(module, point))
+  if (made) showPieceDrop(made, point)
+  else clearPiecePreview()
 }
+
+/** The pieces as drawn, read once while a library module is dragged over them. */
+let libraryScene = null
 
 function onModuleDragLeave(event) {
   if (event.currentTarget.contains(event.relatedTarget)) return
+  libraryScene = null
+  clearPiecePreview()
   if (draggingId.value === 'library') draggingId.value = activeTarget.value = pointer.value = null
 }
 
@@ -2832,6 +3492,16 @@ function onModuleDragLeave(event) {
  * one step, or where it was dropped, asking what it is. Files dropped here go on to the workspace.
  */
 async function onModuleDrop(event) {
+  if (isImageFileDrag(event) || hasDroppedPictures(event)) {
+    const point = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+    libraryScene = null
+    clearPiecePreview()
+    event.preventDefault()
+    event.stopPropagation()
+    const drop = resolveDrop('image', point, dropScene(piecesStore.pieces, sceneOptions()))
+    if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
+    return placePictureFiles([...event.dataTransfer.files], point)
+  }
   if (isTileDrag(event)) {
     event.preventDefault()
     event.stopPropagation()
@@ -2850,69 +3520,160 @@ async function onModuleDrop(event) {
   libraryDrag.isDragging.value = false
   libraryDrag.isDragOver.value = false
   draggingId.value = activeTarget.value = pointer.value = null
+  libraryScene = null
+  clearPiecePreview()
   return placeModuleAt(module, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
+}
+
+/** Whether a drop carries files, every one a picture. */
+const hasDroppedPictures = (event) => {
+  const files = [...(event.dataTransfer?.files ?? [])]
+  return files.length > 0 && files.every((file) => file.type.startsWith('image/'))
+}
+
+/**
+ * Adds pictures dropped from the desktop as images on the canvas there, each a little below and right of the one
+ * before, as one step.
+ *
+ * @param {File[]} files
+ * @param {{x: number, y: number}} point - In flow coordinates.
+ */
+async function placePictureFiles(files, point) {
+  isViewSet = isViewChosen = true
+  // One drop, one step, however many pictures it brings.
+  history.startBatch()
+  try {
+    for (const [index, file] of files.entries()) {
+      const picture = await keepImageFile(file)
+      if (picture) await placePieceAt('image', { x: point.x + 24 * index, y: point.y + 24 * index }, { picture })
+    }
+  } finally {
+    history.endBatch('bio-pieces-image')
+  }
 }
 
 /** The library's new, empty module, which the Module tile and "New Module Here" add. */
 const newModule = () => libraryStore.availableModules.get(NEW_INSTANCE_MODULE_REF) ?? null
 
 /**
- * Adds a library module where it was dropped or the armed New Module tile put: into the membrane slot or onto the
- * template site there, as one step, or loose, asking what it is. A new module opens in the instance editor once
- * placed, its math being what is wanted of it.
+ * What a library module's annotations say its component is, which decides whether a drop of it makes a piece: a
+ * compartment's or a membrane's, else null.
+ *
+ * @param {Object|null} module - A library module.
+ * @returns {'compartment'|'membrane'|null}
+ */
+function pieceKindOf(module) {
+  const kind = module?.mathRef ? libraryStore.getParsedModuleAnnotations(module.mathRef)?.component?.kind : null
+  return kind === 'compartment' || kind === 'membrane' ? kind : null
+}
+
+/**
+ * Where a library module dropped at a point goes on the pieces: the site there, except that a membrane's module on a
+ * cell's inside goes to the cell's membrane.
+ *
+ * @param {Object|null} module
+ * @param {{x: number, y: number}} point
+ * @returns {{site: Object}|null}
+ */
+function libraryTargetAt(module, point) {
+  const target = targetAt(point)
+  if (pieceKindOf(module) !== 'membrane' || target?.site.role !== 'cytosol') return target
+  const path = parseSiteRef(target.site.ref)?.path
+  const membrane = path && topologyOf(piecesStore.pieces).enclosureOf(path)
+  const ring = membrane && siteTargets.value.find((each) => each.ref === pieceSiteRef(membrane) && each.type === 'area')
+  return ring ? { site: ring } : target
+}
+
+/**
+ * The piece a library module dropped at a point makes, as the Compartment or Membrane tile would: a compartment's
+ * module on the bare canvas makes a compartment; a membrane's module on a compartment with no membrane goes round it
+ * as its membrane, and anywhere else off the pieces can't go (`invalid` says why). Null where it goes on a site
+ * there, or loose.
+ *
+ * @param {Object|null} module
+ * @param {{x: number, y: number}} point
+ * @param {() => Object} [sceneOf] - Gives the pieces as drawn (see dropScene), which a drag reads once.
+ * @returns {{kind: string, scene: Object, drop: Object}|null} drop: from resolveDrop.
+ */
+function libraryPieceDrop(module, point, sceneOf = () => dropScene(piecesStore.pieces, sceneOptions())) {
+  const kind = pieceKindOf(module)
+  if (!kind) return null
+  const target = libraryTargetAt(module, point)
+  if (kind === 'compartment' && target) return null
+  if (kind === 'membrane' && target && !['region', 'cytosol'].includes(target.site.role)) return null
+  const scene = sceneOf()
+  const drop = resolveDrop(kind, point, scene)
+  // On a compartment that has a membrane, or is against one, it takes the place of what is there.
+  if (kind === 'membrane' && target && drop.invalid) return null
+  return { kind, scene, drop }
+}
+
+/**
+ * Adds a library module where it was dropped or the armed New Module tile put: as a new compartment or membrane (see
+ * libraryPieceDrop), in place of what is on the compartment, membrane or tube there, into the slot there, or loose
+ * where it was put, drawn as its annotations say; each as one step.
  *
  * @param {Object} module - A library module.
  * @param {{x: number, y: number}} point - In flow coordinates.
  * @returns {Promise<void>}
  */
 async function placeModuleAt(module, point) {
-  const isNew = module.moduleRef === NEW_INSTANCE_MODULE_REF
-  const target = targetAt(point)
+  const name = module.moduleRef?.split(':')[0] ?? 'the new module'
+  const made = libraryPieceDrop(module, point)
+  if (made) return placePieceWith(module, made)
+  const target = libraryTargetAt(module, point)
   if (target) {
-    const { site } = target
-    if (site && !(await confirmReplace(site, null, module.moduleRef?.split(':')[0] ?? 'the new module'))) return
-    const id = await addModuleAt(module, target)
-    if (isNew) openEditor(id)
+    if (!(await confirmReplace(target.site, null, name))) return
+    await addModuleAt(module, target)
     return
   }
-  const position = whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 })
-  // Adding it and saying what it is make one step, which Cancel takes back (see endAssign).
-  history.startBatch()
-  let id
-  try {
-    id = props.createInstance(module, { position })
-    // Its module's annotations say what it most likely is, once read.
-    await libraryStore.ensureModuleAnnotations(module.mathRef)
-    await nextTick()
-  } catch (error) {
-    await history.rollbackBatch()
-    throw error
-  }
-  placing.value = {
-    mode: 'assign',
-    id,
-    at: point,
-    name: main.findNode(id)?.data?.name ?? id,
-    initialRole: roles.value.get(id)?.role ?? 'none',
-    openEditor: isNew,
-  }
+  props.createInstance(module, { position: whole({ x: point.x - CARD.width / 2, y: point.y - CARD.height / 2 }) })
 }
 
 /**
- * Adds an instance of a library module on a template site, or in a node-owned cell's slot, membrane or inside,
- * joined to its neighbours there, as one step.
+ * Adds the compartment or membrane a library module dropped makes, with an instance of the module as its module, as
+ * one step, saying why where it can't go.
  *
  * @param {Object} module - A library module.
- * @param {{site: Object}|{slot: Object}|{area: Object}} target - From targetAt.
+ * @param {{kind: string, scene: Object, drop: Object}} made - From libraryPieceDrop.
+ * @returns {Promise<void>}
+ */
+async function placePieceWith(module, { kind, scene, drop }) {
+  if (drop.invalid) return notify.info({ title: 'It can’t go there', message: drop.invalid })
+  const { pieces, id, errors } = previewDrop(scene, drop)
+  if (!pieces || !id) return notify.error({ title: 'It can’t go there', message: summariseProblems(errors) })
+  const type = `bio-pieces-${kind}`
+  await withOwedModules(type, async () => {
+    if (!(await editPiecesOnly(pieces, type))) return false
+    const site = topologyOf(piecesStore.pieces).sites.find((each) => each.path === id)
+    const ref = pieceSiteRef(id)
+    const instance = props.createInstance(module, { site: ref })
+    await nextTick()
+    if (site) await connectToNeighbours(instance, { ref, role: site.role })
+    return true
+  })
+}
+
+/**
+ * Adds an instance of a library module on a site of the pieces, joined to its neighbours there, as one step.
+ *
+ * @param {Object} module - A library module.
+ * @param {{site: Object}} target - From targetAt.
  * @returns {Promise<string>} The instance's id.
  */
 async function addModuleAt(module, target) {
   history.startBatch()
   try {
-    // A placeholder there goes, for the module to take its place.
-    const replaced = target.site && replacedOccupant(target.site, null)
-    if (replaced && isPlaceholder(main.findNode(replaced), main.edges.value)) main.removeNodes([replaced], true)
-    return await addModuleIn(module, target)
+    // The compartment's, membrane's or tube's module there goes, for this one to take its place: once this one is
+    // made, so it never takes the id the other had.
+    const replaced = replacedOccupant(target.site, null)
+    const id = await addModuleIn(module, target)
+    if (replaced) {
+      main.removeNodes([replaced], true)
+      // The handles at the far ends of its edges turn ghost a tick later, which belongs in this step.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    return id
   } finally {
     history.endBatch('bio-add')
   }
@@ -2923,30 +3684,18 @@ async function addModuleAt(module, target) {
  *
  * @returns {Promise<string>} The new instance's id.
  */
-async function addModuleIn(module, { site, slot, area }) {
-  if (area) {
-    // A node-owned cell's membrane, or a process in it.
-    const id = props.createInstance(module, { role: area.role, cell: area.cellId })
-    await connectToCellNeighbours(id)
-    return id
-  } else if (site) {
-    // An instance of the module, bound to the site; planned against the sites as they were drawn.
-    const id = props.createInstance(module, { role: site.role, facet: null })
-    await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
-    await connectToNeighbours(id, site)
-    return id
-  } else {
-    // Made outside any membrane first, so the slot is planned against the membranes as they were drawn.
-    const id = props.createInstance(module, { role: 'membraneProtein', facet: null })
-    await applyPlan(slotPlan(id, slot), 'bio-add')
-    await connectToCellNeighbours(id)
-    return id
-  }
+async function addModuleIn(module, { site }) {
+  // An instance of the module, bound to the site; planned against the sites as they were drawn.
+  const id = props.createInstance(module, {})
+  await applyPlan(planSiteBind({ id, site, ...planContext() }), 'bio-add')
+  await connectToNeighbours(id, site)
+  return id
 }
 
 /**
- * The "New Module Here" item, where the menu opened on an empty template site or a slot: it adds a new module
- * there, as a drop of one would. The first save of its maths makes it a module of its own.
+ * The "New Module Here" item, where the menu opened on a slot of a membrane's or zone's row: it adds a new module
+ * there, as a drop of one would. A compartment, membrane or tube always has its module. The first save of its maths
+ * makes it a module of its own.
  *
  * @param {MouseEvent} event - The menu's.
  * @returns {Array<Object>} The item, or none.
@@ -2954,124 +3703,24 @@ async function addModuleIn(module, { site, slot, area }) {
 function newModuleItem(event) {
   const module = newModule()
   if (!module || !props.createInstance) return []
-  const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }))
-  if (!target || (target.site && replacedOccupant(target.site, null))) return []
+  // A slot, not the membrane it is on: a membrane always has its module.
+  const target = targetAt(screenToFlowCoordinate({ x: event.clientX, y: event.clientY }), { membrane: false })
+  if (!target || isPieceModule(target.site)) return []
   return [
-    { label: 'New Module Here', icon: 'pi pi-file-plus', command: async () => openEditor(await addModuleAt(module, target)) },
+    {
+      label: 'New Module Here',
+      icon: 'pi pi-file-plus',
+      command: async () => openEditor(await addModuleAt(module, target)),
+    },
   ]
 }
 
-/**
- * Ends the step a dropped instance's dialog holds open: its choice applied, or, cancelled, the instance taken
- * away again so the drop leaves nothing.
- *
- * @param {Function|null} choose - Applies the choice; null cancels.
- * @returns {Promise<void>}
- */
-async function endAssign(choose) {
-  if (!choose) return history.rollbackBatch()
-  try {
-    await choose()
-  } finally {
-    history.endBatch('bio-add')
-  }
-}
-
-/** Closes the placing dialog with nothing chosen. */
-function onPlaceCancel() {
-  const { mode } = placing.value ?? {}
-  placing.value = null
-  if (mode === 'assign') endAssign(null)
-}
-
-// A drop's dialog left open as the view goes leaves no half-made step.
-onBeforeUnmount(() => {
-  if (placing.value?.mode === 'assign') onPlaceCancel()
-})
-
 /** Whether one of the view's dialogs is open, so the workspace's shortcuts wait. */
-const isDialogOpen = computed(
-  () => !!placing.value || !!renaming.value || !!renamingNode.value || !!naming.value || isConfirming.value
-)
-/** What the properties panel reads and sets while this view is open: the roles, and the choices the menus make. */
-const properties = { roles, chooseRole, chooseGlyph }
+const isDialogOpen = computed(() => !!renaming.value || !!renamingNode.value || isConfirming.value)
+/** What the properties panel reads and sets while this view is open: the roles, the skins, and the choices the menus make. */
+const properties = { roles, chooseSkin, skinOf }
 
 defineExpose({ isDialogOpen, isMenuOpen, deleteSelection, properties })
-
-/** A new cell's rect, centred where it was put. */
-const cellRectAt = (at) => ({ x: at.x - MIN_CELL.width / 2, y: at.y - MIN_CELL.height / 2, ...MIN_CELL })
-/** A new compartment's rect, centred where it was put. */
-const regionRectAt = (at) => ({ x: at.x - 160, y: at.y - REGION_HEIGHT / 2, width: 320, height: REGION_HEIGHT })
-
-/** Applies the placing dialog: what a dropped instance is, or a new cell or compartment. */
-async function onPlaceConfirm(choice) {
-  const { mode } = placing.value
-  if (mode === 'assign') {
-    const { id, at, openEditor: isNew } = placing.value
-    placing.value = null
-    await endAssign(async () => {
-      await assignRole(id, at, choice)
-      // Put on a node-owned cell, it joins its neighbours there in the same step.
-      if (choice.cell || choice.placement) await connectToCellNeighbours(id)
-    })
-    if (isNew) openEditor(id)
-    return
-  }
-  const { moduleRef, membraneRef, placement } = choice
-  const { at } = placing.value
-  placing.value = null
-  if (mode === 'cell') {
-    history.startBatch()
-    try {
-      const cellId = props.createInstance(libraryStore.availableModules.get(moduleRef), {
-        role: 'cytosol',
-        rect: cellRectAt(at),
-        added: true,
-      })
-      if (membraneRef) {
-        const membraneId = props.createInstance(libraryStore.availableModules.get(membraneRef), {
-          role: 'membrane',
-          cell: cellId,
-        })
-        await connectToCellNeighbours(membraneId)
-      }
-    } finally {
-      history.endBatch()
-    }
-    return
-  }
-  if (mode === 'compartment') {
-    props.createInstance(
-      libraryStore.availableModules.get(moduleRef),
-      placement ? { role: 'region', adjacent: [placement] } : { role: 'region', rect: regionRectAt(at) }
-    )
-  }
-}
-
-/**
- * Applies what a dropped instance is, as chosen in the placing dialog.
- *
- * @param {string} id
- * @param {{x: number, y: number}} at - Where it was dropped.
- * @param {Object} choice - From the dialog: role, cell and placement.
- * @returns {Promise<boolean>}
- */
-function assignRole(id, at, { role, cell, placement }) {
-  const cellRect = cellRectAt(at)
-  const regionRect = regionRectAt(at)
-  if (role === 'membraneProtein' && placement) return applyPlan(slotPlan(id, endSlot(placement)), 'bio-role')
-  const patches = {
-    membraneProtein: { role, facet: null },
-    cytosol: { role, rect: cellRect, position: undefined, added: true },
-    membrane: { role, cell },
-    cytosolic: { role, cell, position: undefined },
-    region: placement
-      ? { role, adjacent: [placement], position: undefined }
-      : { role, rect: regionRect, position: undefined },
-    none: { role },
-  }
-  return setChoice(id, patches[role], 'bio-role')
-}
 </script>
 
 <style scoped>
@@ -3194,6 +3843,11 @@ function assignRole(id, at, { role, cell, placement }) {
   stroke-width: 1.5;
 }
 
+/* With no species focused, a chip is as strong as what its compartment holds of its species */
+.bio-species-token--tinted rect {
+  fill: color-mix(in srgb, var(--species) var(--chip-tint), var(--p-content-background));
+}
+
 .bio-species-token text {
   fill: var(--p-text-color);
   font-size: 12px;
@@ -3250,6 +3904,14 @@ function assignRole(id, at, { role, cell, placement }) {
   margin-left: 2px;
   border-radius: 4px;
   box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.08);
+}
+
+.bio-species-menu-icon {
+  /* Sized past the controls' own svg limit, which is too small for its lines to read. */
+  max-width: none;
+  max-height: none;
+  --hamburger-tornado-size: 14px;
+  --hamburger-tornado-stroke-width: 2.5;
 }
 
 /* The selection's coupling lines are hidden while dragging, and so are their ends. */
@@ -3348,6 +4010,79 @@ function assignRole(id, at, { role, cell, placement }) {
 
 .bio-rename-error {
   color: var(--p-red-500);
+}
+
+/* A piece's resize handle shows while the pointer is over it. */
+.bio-flow :deep(.vue-flow__node:not(:hover) .bio-piece-resize) {
+  opacity: 0;
+}
+
+/* Where a carried piece can't go: said in red. */
+.bio-drop-label--invalid {
+  border-color: var(--p-red-500);
+  color: var(--p-red-600);
+}
+
+/* A carried piece's preview: what it would go on, solid, and where it would be drawn, a dashed ghost. */
+.bio-piece-preview {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bio-piece-preview__target {
+  fill: none;
+  stroke: var(--bio-drop-active);
+  stroke-width: 2;
+  opacity: 0.7;
+}
+
+.bio-piece-preview__target--line {
+  stroke-width: 8;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+.bio-piece-preview__ghost {
+  fill: color-mix(in srgb, var(--bio-drop-active) 12%, transparent);
+  stroke: var(--bio-drop-active);
+  stroke-width: 2;
+  stroke-dasharray: 8 5;
+}
+
+/* A membrane round what is there: the room it adds, shaded; the corners it rounds off, hatched out; its band. */
+.bio-piece-preview__grows {
+  fill: color-mix(in srgb, var(--bio-drop-active) 22%, transparent);
+}
+
+.bio-piece-preview__trims {
+  fill: color-mix(in srgb, var(--p-text-muted-color) 30%, transparent);
+}
+
+.bio-piece-preview__moved {
+  fill: color-mix(in srgb, var(--p-text-muted-color) 10%, transparent);
+  stroke: var(--p-text-muted-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.bio-piece-preview__band {
+  fill: none;
+  stroke: color-mix(in srgb, var(--bio-drop-active) 25%, transparent);
+}
+
+.bio-piece-preview__outline {
+  fill: none;
+  stroke: var(--bio-drop-active);
+  stroke-width: 2;
+  stroke-dasharray: 8 5;
+}
+
+.bio-piece-preview__way {
+  fill: none;
+  stroke: var(--bio-drop-active);
+  stroke-width: 3;
+  stroke-dasharray: 8 5;
 }
 
 .bio-drop-label__replace {

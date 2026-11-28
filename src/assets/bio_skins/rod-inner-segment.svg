@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 220">
+  <title>Rod inner segment</title>
+  <!-- The inner segment's mitochondria, near the cilium, and the nucleus beyond them. -->
+  <g fill="#34d399" opacity="0.45">
+    <ellipse cx="50" cy="60" rx="13" ry="26"/><ellipse cx="60" cy="165" rx="13" ry="26"/><ellipse cx="110" cy="110" rx="13" ry="26"/>
+  </g>
+  <ellipse cx="240" cy="110" rx="58" ry="64" fill="#93c5fd" opacity="0.55"/>
+  <circle cx="228" cy="98" r="14" fill="#3b82f6" opacity="0.5"/>
+</svg>

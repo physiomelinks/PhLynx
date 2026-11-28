@@ -7,8 +7,8 @@ import { useLibraryStore } from '../stores/libraryStore'
 import { useSimulationSettingsStore } from '../stores/simulationSettingsStore'
 import { useInspectionModuleStore } from '../stores/inspectionModuleStore'
 import { useOmexStore } from '../stores/omexStore'
-import { useBioTemplateStore } from '../stores/bioTemplateStore'
-import { useGlyphLibraryStore } from '../stores/glyphLibraryStore'
+import { useBioPiecesStore } from '../stores/bioPiecesStore'
+import { useSkinLibraryStore } from '../stores/skinLibraryStore'
 import { useNodeThemeStore } from '../stores/nodeThemeStore'
 import { useSimulationResultsStore } from '../stores/simulationResultsStore'
 import { useProtocolStore } from '../stores/protocolStore'
@@ -28,8 +28,8 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
   const inspectionStore = useInspectionModuleStore()
   const simStore = useSimulationSettingsStore()
   const omexStore = useOmexStore()
-  const bioTemplateStore = useBioTemplateStore()
-  const glyphLibraryStore = useGlyphLibraryStore()
+  const bioPiecesStore = useBioPiecesStore()
+  const skinLibraryStore = useSkinLibraryStore()
   const nodeThemeStore = useNodeThemeStore()
   const sessionMetadataStore = useSessionMetadataStore()
   const defaultParametersStore = useDefaultParametersStore()
@@ -43,8 +43,10 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
     const oldGlobalConstants = Array.from(libraryStore.globalVariables.entries())
     const oldViewport = getViewport()
     const oldOmexState = omexStore.getState()
-    const oldBioTemplateState = bioTemplateStore.snapshot()
-    const oldGlyphState = glyphLibraryStore.snapshot()
+    const oldBioPiecesState = bioPiecesStore.snapshot()
+    // The pictures the images are drawn with, which a snapshot of the pieces leaves out.
+    const oldImages = bioPiecesStore.images
+    const oldSkinState = skinLibraryStore.snapshot()
     const oldThemeState = nodeThemeStore.snapshot()
     const oldSessionMetadata = sessionMetadataStore.getState()
     const oldParameters = defaultParametersStore.getState()
@@ -55,8 +57,9 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
       edges.value = oldEdges
       if (flowId === FLOW_IDS.MAIN) {
         omexStore.loadState(oldOmexState)
-        bioTemplateStore.restoreSnapshot(oldBioTemplateState)
-        glyphLibraryStore.restoreSnapshot(oldGlyphState)
+        bioPiecesStore.restoreSnapshot(oldBioPiecesState)
+        bioPiecesStore.images = Object.freeze({ ...bioPiecesStore.images, ...oldImages })
+        skinLibraryStore.restoreSnapshot(oldSkinState)
         nodeThemeStore.restoreSnapshot(oldThemeState)
         inspectionStore.loadState(oldInspectStore)
         sessionMetadataStore.loadState(oldSessionMetadata)
@@ -84,8 +87,8 @@ export function useClearWorkspace(flowId = FLOW_IDS.MAIN) {
         useProtocolStore().resetState()
         inspectionStore.resetState()
         omexStore.resetState()
-        bioTemplateStore.resetState()
-        glyphLibraryStore.resetState()
+        bioPiecesStore.resetState()
+        skinLibraryStore.resetState()
         nodeThemeStore.resetState()
         sessionMetadataStore.resetState()
         // Another workspace's species are not this one's to hide.

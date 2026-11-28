@@ -1,0 +1,28 @@
+{
+  "rod-outer-segment": {
+    "name": "Rod outer segment",
+    "appliesTo": ["cytosol", "subcompartment"],
+    "terms": ["GO:0001750"]
+  },
+  "rod-inner-segment": {
+    "name": "Rod inner segment",
+    "appliesTo": ["cytosol", "subcompartment"],
+    "terms": ["GO:0001917"]
+  },
+  "heart": {
+    "name": "Heart",
+    "appliesTo": ["image"]
+  },
+  "red-blood-cell": {
+    "name": "Red blood cell",
+    "appliesTo": ["image"]
+  },
+  "neuron": {
+    "name": "Neuron",
+    "appliesTo": ["image"]
+  },
+  "blood-vessel": {
+    "name": "Blood vessel",
+    "appliesTo": ["image"]
+  }
+}

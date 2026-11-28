@@ -1,0 +1,117 @@
+{
+  "$schema": "../../../../src/assets/bio_pieces/bio-pieces.schema.json",
+  "schemaVersion": 4,
+  "id": "rod",
+  "name": "Toy rod",
+  "pieces": [
+    {
+      "id": "outer-segment",
+      "kind": "compartment",
+      "label": "Outer segment",
+      "term": "GO:0001750",
+      "tone": "violet",
+      "docks": [
+        {
+          "on": "rod-membrane",
+          "side": "top",
+          "face": "inside",
+          "to": 0.5
+        },
+        {
+          "on": "rod-membrane",
+          "side": "bottom",
+          "face": "inside",
+          "to": 0.5
+        },
+        {
+          "on": "rod-membrane",
+          "side": "left",
+          "face": "inside"
+        }
+      ]
+    },
+    {
+      "id": "inner-segment",
+      "kind": "compartment",
+      "label": "Inner segment",
+      "term": "GO:0001917",
+      "tone": "teal",
+      "docks": [
+        {
+          "on": "rod-membrane",
+          "side": "top",
+          "face": "inside",
+          "from": 0.5
+        },
+        {
+          "on": "rod-membrane",
+          "side": "bottom",
+          "face": "inside",
+          "from": 0.5
+        },
+        {
+          "on": "rod-membrane",
+          "side": "right",
+          "face": "inside"
+        }
+      ]
+    },
+    {
+      "id": "rod-membrane",
+      "kind": "membrane",
+      "label": "Plasma membrane",
+      "encloses": ["outer-segment", "inner-segment"],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 760,
+        "height": 300
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "os-membrane",
+            "label": "Outer segment membrane",
+            "to": 0.5
+          },
+          {
+            "id": "is-upper",
+            "label": "Inner segment membrane"
+          }
+        ],
+        "bottom": [
+          {
+            "id": "os-lower",
+            "label": "Outer segment membrane",
+            "to": 0.5
+          },
+          {
+            "id": "is-membrane",
+            "label": "Inner segment membrane"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cilium",
+      "kind": "tube",
+      "label": "Connecting cilium",
+      "ends": ["outer-segment", "inner-segment"],
+      "flux": "junction"
+    },
+    {
+      "id": "subretinal",
+      "kind": "compartment",
+      "label": "Subretinal space",
+      "tone": "sky",
+      "docks": [
+        {
+          "on": "rod-membrane",
+          "side": "top",
+          "face": "outside",
+          "to": 0.5
+        }
+      ]
+    }
+  ]
+}

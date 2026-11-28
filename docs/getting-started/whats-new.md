@@ -6,10 +6,10 @@ PhLynx 0.7 adds a whole new way to look at your model, makes your work harder to
 
 Alongside the diagram there is now a **Physiology** view: your model drawn as the biology it describes, with compartments, cells, membranes and the proteins that move things between them.
 
-- **Start from a template.** Four built-in templates lay out common arrangements, and you can keep your own under **My Templates**.
+- **Build it from pieces.** Five pieces (compartment, membrane, tube, fold and process zone) build any arrangement, and you can move and resize them once placed. Six built-in templates start you off with common ones, and you can keep your own under **My Templates**.
 - **Drop modules where they belong.** Drag a module onto a compartment, a cell or a slot on its membrane, and PhLynx couples it to its neighbours by where it sits.
 - **See what flows where.** Species mode shows each compartment's species and the paths they take through the proteins.
-- **Draw it your way.** Proteins are drawn from a glyph library that you can extend, now with new intracellular glyphs and a generic process glyph.
+- **Draw it your way.** Proteins, processes, compartments and membranes are each drawn with a skin that suits what they are. Extend them with skin libraries or your own SVG artwork.
 
 The physiology view is in beta. See [The Physiology View](../guides/physiology-view.md).
 

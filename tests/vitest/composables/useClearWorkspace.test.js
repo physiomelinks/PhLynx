@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useClearWorkspace } from '../../../src/composables/useClearWorkspace.js'
 import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore.js'
 import { useFlowHistoryStore } from '../../../src/stores/historyStore.js'
-import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore.js'
+import { getBuiltInPieceTemplate } from '../../../src/services/bioView/pieces/builtInTemplates.js'
+import { useBioPiecesStore } from '../../../src/stores/bioPiecesStore.js'
+import { useSkinLibraryStore } from '../../../src/stores/skinLibraryStore.js'
 import { useLibraryStore } from '../../../src/stores/libraryStore.js'
 import { useSessionMetadataStore } from '../../../src/stores/sessionMetadataStore.js'
 import { useWorkspaceAppearanceStore } from '../../../src/stores/workspaceAppearanceStore.js'
@@ -85,28 +87,52 @@ describe('useClearWorkspace', () => {
     expect(parameters.getSet('NKA.cellml:NKA', 'NKA').values.get('K').value).toBe('1')
   })
 
-  it('resets the template store, and undo brings the placed templates back', async () => {
-    const bioTemplateStore = useBioTemplateStore()
+  it('resets the pieces and their skins, and undo brings them back', async () => {
+    const bioPiecesStore = useBioPiecesStore()
     const historyStore = useFlowHistoryStore()
-    bioTemplateStore.addInstance('epithelial-cell', { x: 10, y: 20 }, 'Gut')
-    const before = bioTemplateStore.getState()
+    bioPiecesStore.addTemplate(getBuiltInPieceTemplate('epithelial-cell'), { x: 10, y: 20 })
+    const skinStore = useSkinLibraryStore()
+    skinStore.addSvg('art.svg', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect/></svg>', {
+      appliesTo: ['cytosol'],
+    })
+    const before = bioPiecesStore.getState()
+    const skins = skinStore.snapshot()
 
     const { clearWorkspace } = useClearWorkspace()
     await clearWorkspace()
-    expect(bioTemplateStore.getState()).toBeNull()
-    expect(bioTemplateStore.definitions.size).toBe(0)
+    expect(bioPiecesStore.getState()).toBeNull()
+    expect(skinStore.definitions.size).toBe(0)
 
     await historyStore.undo()
-    expect(bioTemplateStore.getState()).toEqual(before)
+    expect(bioPiecesStore.getState()).toEqual(before)
+    expect(skinStore.snapshot()).toEqual(skins)
 
     await historyStore.redo()
-    expect(bioTemplateStore.getState()).toBeNull()
+    expect(bioPiecesStore.getState()).toBeNull()
   })
 
-  it('undoes a clear so that an earlier template edit can still be undone', async () => {
-    const bioTemplateStore = useBioTemplateStore()
+  it('brings the pictures back with the images when a clear is undone', async () => {
+    const bioPiecesStore = useBioPiecesStore()
     const historyStore = useFlowHistoryStore()
-    const add = bioTemplateStore.edit(() => bioTemplateStore.addInstance('epithelial-cell', { x: 0, y: 0 }))
+    const picture = bioPiecesStore.addImage({ type: 'image/png', data: 'data:image/png;base64,AAAA', width: 4, height: 2 })
+    bioPiecesStore.setPieces([
+      { id: 'pic', kind: 'image', label: 'Pic', image: picture, frame: { x: 0, y: 0, width: 40, height: 20 } },
+    ])
+    const before = bioPiecesStore.getState()
+    expect(before.images[picture]).toBeTruthy()
+
+    const { clearWorkspace } = useClearWorkspace()
+    await clearWorkspace()
+    expect(bioPiecesStore.imageOf(picture)).toBeNull()
+
+    await historyStore.undo()
+    expect(bioPiecesStore.getState()).toEqual(before)
+  })
+
+  it('undoes a clear so that an earlier edit to the pieces can still be undone', async () => {
+    const bioPiecesStore = useBioPiecesStore()
+    const historyStore = useFlowHistoryStore()
+    const add = bioPiecesStore.edit(() => bioPiecesStore.addTemplate(getBuiltInPieceTemplate('cell'), { x: 0, y: 0 }))
     add.apply()
 
     const { clearWorkspace } = useClearWorkspace()

@@ -4,11 +4,10 @@ import { describe, expect, it } from 'vitest'
 import {
   FACET_INSET,
   FACET_PARTS,
-  GLYPH_WIDTH,
+  SYMBOL_WIDTH,
   MIN_CELL,
   SLOT_PITCH,
   fitCellRect,
-  nearestSlot,
   proteinPlacement,
   slotPositions,
 } from '../../../../src/services/bioView/geometry.js'
@@ -17,11 +16,11 @@ import {
   annotationOfFacet,
   facetOfAnnotation,
   facetsInGroup,
-  shapeFromTemplateCell,
+  shapeOf,
 } from '../../../../src/services/bioView/shape.js'
 
 /** A cell with membrane only along its top and bottom. */
-const SLAB = shapeFromTemplateCell({
+const SLAB = shapeOf({
   id: 'slab',
   label: 'Slab',
   facets: [
@@ -33,7 +32,7 @@ const SLAB = shapeFromTemplateCell({
 const rect = { x: 0, y: 0, width: 400, height: 300 }
 
 describe('cell shapes', () => {
-  it('reads the epithelial shape from the built-in template', () => {
+  it('gives the epithelial shape the cells modules own are drawn with', () => {
     expect(EPITHELIAL_SHAPE.facets.map(({ id, edge, group }) => ({ id, edge, group }))).toEqual([
       { id: 'apical', edge: 'top', group: undefined },
       { id: 'basolateral', edge: 'bottom', group: undefined },
@@ -91,25 +90,10 @@ describe('geometry of another shape', () => {
     expect(() => slotPositions(rect, 'lateral-left', 1, SLAB)).toThrow()
   })
 
-  it('snaps only to slots on its facets', () => {
-    const cells = [{ id: 's', rect, counts: { outer: 1 }, shape: SLAB }]
-    expect(nearestSlot(cells, { x: 200 + SLOT_PITCH, y: 5 })).toMatchObject({
-      cellId: 's',
-      part: 'outer',
-      facet: 'outer',
-      at: undefined,
-      order: 1,
-    })
-    expect(nearestSlot(cells, { x: 200, y: 295 })).toMatchObject({ part: 'inner', order: 0 })
-    // Where an epithelial cell would have its lateral slots, this one has none.
-    expect(nearestSlot(cells, { x: 0, y: 150 })).toBeNull()
-    expect(nearestSlot(cells, { x: 400, y: 150 })).toBeNull()
-  })
-
   it('grows only across for facets along its top and bottom', () => {
     expect(fitCellRect({ x: 1, y: 2, width: 0, height: 0 }, {}, SLAB)).toEqual({ x: 1, y: 2, ...MIN_CELL })
     const wide = fitCellRect({ x: 0, y: 0, width: 0, height: 0 }, { outer: 2, inner: 6 }, SLAB)
-    expect(wide.width).toBe(6.5 * SLOT_PITCH + GLYPH_WIDTH + 2 * FACET_INSET)
+    expect(wide.width).toBe(6.5 * SLOT_PITCH + SYMBOL_WIDTH + 2 * FACET_INSET)
     expect(wide.height).toBe(MIN_CELL.height)
     // Counts for facets it doesn't have are ignored.
     expect(fitCellRect({ x: 0, y: 0, width: 0, height: 0 }, { 'lateral-left': 9 }, SLAB)).toMatchObject(MIN_CELL)

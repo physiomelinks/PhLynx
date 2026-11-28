@@ -1,158 +1,41 @@
 /**
- * Where instances sit in the physiology view, as the places their annotated quantities resolve against: the
- * template site a node is bound to, else the cell, facet and adjacent region its bioView and role give.
+ * Where instances sit in the physiology view, as the places their annotated quantities resolve against: the site of
+ * the pieces a node is bound to. A node on no piece has no places, so takes no part in coupling by location.
  *
  * A place is { key, label, kind, as, facets?, sides? }:
- * - key: 'site:<instance>/<path>' for a template piece, 'node:<id>' for a cell or region a node owns, with
- *   '.membrane' after a cell's key for its membrane;
+ * - key: 'site:pieces/<path>';
  * - kind: the role of the piece, e.g. 'cytosol' or 'region';
  * - as: the side-car locations that resolve to it from the node: 'self', 'self+GO:…' or a GO term;
  * - facets: the parts of a membrane it spans, which two places must share to meet;
  * - sides: the facet names a membrane protein sits on or a region lies against, which rankPlace reads.
- * A node's own place comes first; a node with no places is not placed.
+ * A node's own place comes first.
  */
 
-import { GO } from '../annotations/iris.js'
-import { facetOfPart, partOf } from './geometry.js'
-import { resolveBioRole } from './roles.js'
-import { cellFinder, scaffoldFromNodes, scaffoldFromTemplates } from './scaffold.js'
-import { EPITHELIAL_SHAPE } from './shape.js'
-import { MEMBRANE, instanceTemplate, parseSiteRef, sitesOf } from './templates.js'
-
-const SELF = 'self'
-const SELF_MEMBRANE = `self+${GO.plasmaMembrane}`
-const ALL_PARTS = EPITHELIAL_SHAPE.facets.map((facet) => facet.id)
-
-const place = (key, label, kind, as, extra = {}) => ({ key, label, kind, as, ...extra })
-const unique = (values) => [...new Set(values.filter(Boolean))]
-
-/** The facet names a template compartment lies against. */
-function compartmentSides(template, compartment) {
-  return unique(
-    compartment.against.map((entry) => {
-      const [cellId, facetId] = entry.split('.')
-      const cell = template.cells.find((candidate) => candidate.id === cellId)
-      return cell?.facets.find((facet) => facet.id === facetId)?.annotation?.facet
-    })
-  )
-}
+import { parseSiteRef } from './siteRefs.js'
+import { PIECES_INSTANCE } from './pieces/layout.js'
+import { piecePlaces } from './pieces/placement.js'
 
 /**
- * The places of a node bound to a template site.
+ * The places of a node bound to a site of the pieces.
  *
- * @returns {Array<Object>|null} Null when the site is dangling: its instance, template or path is missing.
+ * @returns {Array<Object>|null} Null when the site is dangling: it is no site the pieces offer.
  */
-function sitePlaces(ref, { instances, definitions }) {
+function sitePlaces(ref, { pieces }) {
   const parsed = parseSiteRef(ref)
-  const instance = parsed && instances.find((candidate) => candidate.id === parsed.instance)
-  const template = instance && instanceTemplate(instance, definitions)
-  if (!template || !sitesOf(template).some((site) => site.path === parsed.path)) return null
-  const key = (path) => `site:${instance.id}/${path}`
-
-  const compartment = template.compartments.find((candidate) => candidate.id === parsed.path)
-  if (compartment) {
-    return [place(key(compartment.id), compartment.label, 'region', [SELF], { sides: compartmentSides(template, compartment) })]
-  }
-
-  // A link is between two spaces, as a junction is: each a cell's inside or a compartment, by its own term.
-  const link = template.links?.find((candidate) => candidate.id === parsed.path)
-  if (link) {
-    const spaces = link.between.map((id) => {
-      const space = template.compartments.find((candidate) => candidate.id === id)
-      if (space) {
-        const as = space.term ? [GO.extracellularRegion, space.term] : [GO.extracellularRegion]
-        return place(key(space.id), space.label, 'region', as, { sides: compartmentSides(template, space) })
-      }
-      const cell = template.cells.find((candidate) => candidate.id === id)
-      return place(key(cell.id), cell.label, 'cytosol', [GO.cytoplasm])
-    })
-    return [place(key(link.id), link.label, 'cytosolic', []), ...spaces]
-  }
-
-  const [cellId, pieceId] = parsed.path.split('.')
-  const cell = template.cells.find((candidate) => candidate.id === cellId)
-  const facets = cell.facets.map((facet) => facet.id)
-  const membraneLabel = cell.membrane?.label ?? `${cell.label} membrane`
-  const cytosol = (as) => place(key(cell.id), cell.label, 'cytosol', as)
-  const membrane = (as, on = facets) => place(key(`${cell.id}.${MEMBRANE}`), membraneLabel, 'membrane', as, { facets: on })
-
-  if (!pieceId) return [cytosol([SELF]), membrane([SELF_MEMBRANE])]
-  if (pieceId === MEMBRANE) return [membrane([SELF]), cytosol([GO.cytoplasm])]
-
-  const facet = cell.facets.find((candidate) => candidate.id === pieceId)
-  if (facet) {
-    // A space with a term of its own answers to it too, which tells it from the cell's other spaces.
-    const region = (candidate, as) =>
-      place(key(candidate.id), candidate.label, 'region', candidate.term ? [...as, candidate.term] : as, {
-        sides: compartmentSides(template, candidate),
-      })
-    // The microdomain against it stands where the cell's inside would: within a cell's facet, and outside an
-    // organelle's, whose own inside is its lumen.
-    const microdomain = template.compartments.find((candidate) => candidate.in !== undefined && candidate.against.includes(parsed.path))
-    const parent = cell.in && template.cells.find((candidate) => candidate.id === cell.in)
-    // A fold's outside is that of the side it dips in from.
-    const side = facet.fold ? cell.facets.find((candidate) => candidate.edge === facet.fold) : facet
-    const against = side && `${cell.id}.${side.id}`
-    const beyond = template.compartments
-      .filter((candidate) => candidate.in === undefined && candidate.against.includes(against))
-      .map((candidate) => region(candidate, [GO.extracellularRegion]))
-    const inside = !parent && microdomain ? region(microdomain, [GO.cytoplasm]) : cytosol([GO.cytoplasm])
-    const outside = !parent
-      ? beyond
-      : microdomain
-        ? [region(microdomain, [GO.extracellularRegion])]
-        : [place(key(parent.id), parent.label, 'cytosol', [GO.extracellularRegion])]
-    return [
-      place(key(parsed.path), facet.label, 'membraneProtein', [], { facets: [facet.id], sides: unique([facet.annotation?.facet]) }),
-      inside,
-      membrane([GO.plasmaMembrane], [facet.id]),
-      ...outside,
-    ]
-  }
-  const process = cell.processes.find((candidate) => candidate.id === pieceId)
-  // A junction is between two spaces: each by its own term where it has one, as both are cytoplasm.
-  if (process.between) {
-    const spaces = process.between.map((id) => {
-      const space = template.compartments.find((candidate) => candidate.id === id)
-      if (!space) return cytosol([GO.cytoplasm])
-      return place(key(space.id), space.label, 'region', [space.term ?? GO.cytoplasm], { sides: compartmentSides(template, space) })
-    })
-    return [place(key(parsed.path), process.label, 'cytosolic', []), ...spaces]
-  }
-  return [place(key(parsed.path), process.label, 'cytosolic', []), cytosol([GO.cytoplasm])]
+  if (parsed?.instance !== PIECES_INSTANCE || !pieces.length) return null
+  return piecePlaces(pieces, parsed.path)
 }
 
 /**
- * Prepares what locatePlace reads: each node's role and the cells and regions the nodes not bound to a template
- * site make.
+ * Prepares what locatePlace reads.
  *
  * @param {Array<{id: string, data?: Object}>} nodes - The flow's nodes.
  * @param {Object} [options]
- * @param {(mathRef: string) => Object|null} [options.sidecarFor] - A math's parsed side-car, for its role.
- * @param {Array<{id: string, template: string}>} [options.instances] - The template instances placed.
- * @param {Map<string, Object>} [options.definitions] - Template id -> its validated template.
- * @param {(node: Object, options: { sidecar: Object|null }) => Object|null} [options.workedRole] - A role worked
- *   out elsewhere (see resolveBioRole).
+ * @param {ReadonlyArray<Object>} [options.pieces] - The pieces the view is built from (schema 4), validated.
  * @returns {Object}
  */
-export function preparePlacement(nodes, { sidecarFor = () => null, instances = [], definitions = new Map(), workedRole } = {}) {
-  const roleOf = (node) => {
-    const sidecar = node.data?.mathRef ? (sidecarFor(node.data.mathRef) ?? null) : null
-    return resolveBioRole(node.data, { sidecar, worked: workedRole?.(node, { sidecar }) ?? null })
-  }
-  const roles = new Map(nodes.map((node) => [node.id, roleOf(node)]))
-  const { bound } = scaffoldFromTemplates(instances, definitions, nodes)
-  const free = nodes.filter((node) => !bound.has(node.id))
-  const scaffold = scaffoldFromNodes(free, roles)
-  return {
-    instances,
-    definitions,
-    roles,
-    roleOf,
-    scaffold,
-    onCell: cellFinder(scaffold, roles),
-    nameOf: new Map(nodes.map((node) => [node.id, node.data?.name ?? node.id])),
-  }
+export function preparePlacement(nodes, { pieces = [] } = {}) {
+  return { pieces }
 }
 
 /**
@@ -160,56 +43,13 @@ export function preparePlacement(nodes, { sidecarFor = () => null, instances = [
  *
  * @param {{id: string, data?: Object}} node
  * @param {Object} prepared - From preparePlacement.
- * @returns {Array<Object>} Empty when the node is not placed.
+ * @returns {Array<Object>} Empty when the node is not on a site the pieces offer.
  */
 export function locatePlace(node, prepared) {
   if (!node || !prepared) return []
-  const fromSite = node.data?.bioView?.site ? sitePlaces(node.data.bioView.site, prepared) : null
-  if (fromSite) return fromSite
-
-  const { id } = node
-  const role = prepared.roles.get(id) ?? prepared.roleOf(node)
-  const nameOf = (key) => prepared.nameOf.get(key) ?? key
-  const cytosol = (cell, as) => place(`node:${cell}`, nameOf(cell), 'cytosol', as)
-  const membrane = (cell, as, on = ALL_PARTS) =>
-    place(`node:${cell}.${MEMBRANE}`, `${nameOf(cell)} membrane`, 'membrane', as, { facets: on })
-
-  switch (role.role) {
-    case 'cytosol':
-      return [cytosol(id, [SELF]), membrane(id, [SELF_MEMBRANE])]
-    case 'membrane': {
-      const cell = prepared.onCell(id)
-      return cell ? [membrane(cell, [SELF]), cytosol(cell, [GO.cytoplasm])] : []
-    }
-    case 'membraneProtein': {
-      const cell = prepared.onCell(id)
-      if (!cell || !role.facet) return []
-      const part = partOf(role.facet, role.at)
-      const outside = prepared.scaffold.compartments
-        .filter((piece) => piece.against.some((entry) => entry.cellKey === cell && entry.facetId === part))
-        .map((piece) => place(`node:${piece.key}`, nameOf(piece.key), 'region', [GO.extracellularRegion], { sides: sidesOf(piece) }))
-      return [
-        place(`node:${id}`, nameOf(id), 'membraneProtein', [], { facets: [part], sides: [role.facet] }),
-        cytosol(cell, [GO.cytoplasm]),
-        membrane(cell, [GO.plasmaMembrane], [part]),
-        ...outside,
-      ]
-    }
-    case 'cytosolic': {
-      const cell = prepared.onCell(id)
-      return cell ? [place(`node:${id}`, nameOf(id), 'cytosolic', []), cytosol(cell, [GO.cytoplasm])] : []
-    }
-    case 'region': {
-      const piece = prepared.scaffold.compartments.find((candidate) => candidate.key === id)
-      return piece?.against.length ? [place(`node:${id}`, nameOf(id), 'region', [SELF], { sides: sidesOf(piece) })] : []
-    }
-    default:
-      return []
-  }
+  const ref = node.data?.bioView?.site
+  return (ref && sitePlaces(ref, prepared)) || []
 }
-
-// The facet names a node-owned region lies against.
-const sidesOf = (piece) => unique(piece.against.map((entry) => facetOfPart(entry.facetId).facet))
 
 /**
  * The places of every node.

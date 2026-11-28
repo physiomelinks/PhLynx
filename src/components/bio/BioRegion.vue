@@ -6,15 +6,13 @@
       edge && `bio-region--edge-${edge}`,
       {
         'bio-region--selected': selected,
-        'bio-region--empty': data.empty,
         'bio-region--template': data.instance,
-        'bio-region--inner': data.form === 'inner' && !data.clip,
-        'bio-region--drawn': !!data.clip,
+        'bio-region--inner': data.form === 'inner',
         'bio-region--tube': data.shape === 'tube',
         'bio-region--tinting': !!tintOf,
       },
     ]"
-    :style="[cutoutStyle, tintStyle]"
+    :style="[clipStyle, tintStyle]"
     :data-tint="tintStyle ? data.tint : undefined"
     data-testid="bio-region"
     :data-site="data.site ?? undefined"
@@ -32,9 +30,10 @@
       />
     </svg>
     <BioHandles :handles="data.handles ?? []" />
-    <span class="bio-region__label">
+    <!-- A piece of the pieces is resized from its handle -->
+    <BioPieceResize v-if="data.resize && id" :node-id="id" :position="data.resize.position" />
+    <span class="bio-region__label" :style="labelStyle">
       <BioPieceName :id="id" :name="data.name" />
-      <small v-if="data.empty" class="bio-region__hint" data-testid="bio-empty-hint">Drop a module</small>
     </span>
   </div>
 </template>
@@ -43,8 +42,8 @@
 import { computed, inject } from 'vue'
 import BioHandles from './BioHandles.vue'
 import BioPieceName from './BioPieceName.vue'
-import { partOf } from '../../services/bioView/geometry'
-import { EPITHELIAL_SHAPE, facetById } from '../../services/bioView/shape'
+import BioPieceResize from './BioPieceResize.vue'
+import { roundedRectPath } from '../../services/bioView/geometry'
 import { tintColour } from '../../services/bioView/speciesLayout'
 
 const props = defineProps({
@@ -54,34 +53,46 @@ const props = defineProps({
   selected: { type: Boolean, default: false },
 })
 
-/** The colour of a region against each of the epithelial cell's facets, or of a region against none. */
-const TONES = { apical: 'sky', basolateral: 'rose', lateral: 'teal' }
+/** Its corners' radius, as its style rounds them, where it has no clip to follow. */
+const REGION_RADIUS = 12
+
+/** The colour of a compartment with none of its own. */
 const DEFAULT_TONE = 'sky'
 
-/**
- * The edge of the cell the region lies against: a template's own, else the epithelial facet it faces, a left
- * one with no side given, as layout puts it.
- */
-const edge = computed(() => {
-  if (props.data.instance) return props.data.edge ?? null
-  if (!props.data.side) return null
-  return facetById(EPITHELIAL_SHAPE, partOf(props.data.side, props.data.at ?? undefined))?.edge ?? null
-})
+/** The edge of the membrane the compartment lies against, as the pieces' layout gives it. */
+const edge = computed(() => props.data.edge ?? null)
 /** The view's `(skin) => { href, aspect, opacity } | null`: the artwork a piece's skin names, if the workspace has it. */
 const skinOf = inject('bioSkinOf', () => null)
 const skin = computed(() => skinOf(props.data.skin))
 
-/** A microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it. */
-const cutoutStyle = computed(() => {
-  // An area a skin draws is drawn to its own outline, not its box.
-  const clip = props.data.clip
-  if (clip?.length) return { clipPath: `polygon(${clip.map((point) => `${point.x}px ${point.y}px`).join(', ')})` }
-  const hole = props.data.cutout
-  if (!hole) return undefined
-  const { x, y, width, height, radius } = hole
-  const r = Math.min(radius, width / 2, height / 2)
-  const cut = `M ${x + r} ${y} H ${x + width - r} A ${r} ${r} 0 0 1 ${x + width} ${y + r} V ${y + height - r} A ${r} ${r} 0 0 1 ${x + width - r} ${y + height} H ${x + r} A ${r} ${r} 0 0 1 ${x} ${y + height - r} V ${y + r} A ${r} ${r} 0 0 1 ${x + r} ${y} Z`
-  return { clipPath: `path(evenodd, "M -4 -4 H 100000 V 100000 H -4 Z ${cut}")` }
+/**
+ * Clipped to the inside of the membrane it lies within, so neither its colour nor its skin runs over the membrane's
+ * rounded corners; and a microdomain round a fold leaves the fold clear: the fold is the cell's, drawn under it.
+ */
+const clipStyle = computed(() => {
+  const { clip, cutout: hole } = props.data
+  if (!clip && !hole) return undefined
+  const keep = clip ? roundedRectPath(clip, clip.radius) : 'M -4 -4 H 100000 V 100000 H -4 Z'
+  const cut = hole ? ` ${roundedRectPath(hole, hole.radius)}` : ''
+  const style = { clipPath: `path(evenodd, "${keep}${cut}")` }
+  if (!clip) return style
+  // Its corners where they are the membrane's inside's too are rounded as those are, so its outline follows the clip.
+  const { width, height } = props.data
+  const at = (x, y) => Math.abs(x) < 0.5 && Math.abs(y) < 0.5
+  const round = (x, y) => (at(x, y) ? `${Math.min(clip.radius, width / 2, height / 2)}px` : `${REGION_RADIUS}px`)
+  style.borderRadius = [
+    round(clip.x, clip.y),
+    round(clip.x + clip.width - width, clip.y),
+    round(clip.x + clip.width - width, clip.y + clip.height - height),
+    round(clip.x, clip.y + clip.height - height),
+  ].join(' ')
+  return style
+})
+
+/** Where the layout found room for its name, clear of the compartments nested in it (see regionNameAt). */
+const labelStyle = computed(() => {
+  const at = props.data.nameAt
+  return at ? { position: 'absolute', left: `${at.x}px`, top: `${at.y}px`, whiteSpace: 'nowrap' } : undefined
 })
 
 /** The focused species' colour, which its concentration tints a compartment holding it with; null with none. */
@@ -93,7 +104,7 @@ const tintStyle = computed(() => {
   return { backgroundImage: `linear-gradient(${colour}, ${colour})` }
 })
 
-const tone = computed(() => (props.data.instance && props.data.tone) || TONES[props.data.side] || DEFAULT_TONE)
+const tone = computed(() => props.data.tone || DEFAULT_TONE)
 </script>
 
 <style scoped>
@@ -194,8 +205,7 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
 }
 
 /* A tube, a stretch of vessel or duct: walls along its length, open at its ends */
-.bio-region--tube,
-.bio-region--tube.bio-region--empty {
+.bio-region--tube {
   border-radius: 0;
   border-left: 0;
   border-right: 0;
@@ -206,27 +216,6 @@ const tone = computed(() => (props.data.instance && props.data.tone) || TONES[pr
 .bio-region--tube.bio-region--selected {
   border-top-color: var(--p-primary-color);
   border-bottom-color: var(--p-primary-color);
-}
-
-/* An area a skin draws shows the skin's artwork through its tint, and is outlined by the skin, not by a box */
-.bio-region--drawn,
-.bio-region--drawn.bio-region--empty {
-  border-color: transparent;
-}
-
-.bio-region--empty {
-  border: 2px dashed color-mix(in srgb, var(--p-text-muted-color) 45%, transparent);
-  opacity: 0.75;
-}
-
-.bio-region--empty.bio-region--selected {
-  border-color: var(--p-primary-color);
-}
-
-.bio-region__hint {
-  display: block;
-  font-weight: 400;
-  font-size: 0.75rem;
 }
 
 .bio-region__skin {

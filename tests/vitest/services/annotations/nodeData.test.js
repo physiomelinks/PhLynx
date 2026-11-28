@@ -14,7 +14,7 @@ describe('withAnnotationData', () => {
   })
 
   it('keeps a node’s place in the physiological view', () => {
-    const bioView = { facet: 'basolateral', order: 2, glyph: 'pump' }
+    const bioView = { facet: 'basolateral', order: 2, skin: 'pump' }
     const rebuilt = buildInstance('n1', 'pump', 'instanceNode', { name: 'pump', ports: [], variables: [], bioView }, [], { x: 0, y: 0 })
     withAnnotationData(rebuilt.data, { bioView })
     expect(rebuilt.data.bioView).toEqual(bioView)
@@ -27,9 +27,9 @@ describe('withAnnotationData', () => {
 })
 
 describe('nodeDataForCopy', () => {
-  it('keeps only the user’s role and glyph of a copy’s bioView', () => {
-    const data = { name: 'p', bioView: { role: 'membraneProtein', glyph: 'pump', cell: 'n2', facet: 'apical', order: 1 } }
-    expect(nodeDataForCopy(data)).toEqual({ name: 'p', bioView: { role: 'membraneProtein', glyph: 'pump' } })
+  it('keeps only the skin of a copy’s bioView', () => {
+    const data = { name: 'p', bioView: { role: 'membraneProtein', skin: 'pump', cell: 'n2', facet: 'apical', order: 1 } }
+    expect(nodeDataForCopy(data)).toEqual({ name: 'p', bioView: { skin: 'pump' } })
   })
 
   it('drops a bioView with nothing left in it', () => {

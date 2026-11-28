@@ -1,0 +1,117 @@
+{
+  "$schema": "./bio-pieces.schema.json",
+  "schemaVersion": 4,
+  "id": "epithelial-cell",
+  "name": "Epithelial cell",
+  "description": "A polarised epithelial cell between the apical fluid and the interstitium, with the paracellular space beside it.",
+  "pieces": [
+    {
+      "id": "cell",
+      "kind": "compartment",
+      "label": "Epithelial cell"
+    },
+    {
+      "id": "plasma-membrane",
+      "kind": "membrane",
+      "label": "Plasma membrane",
+      "encloses": [
+        "cell"
+      ],
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "width": 360,
+        "height": 300
+      },
+      "sides": {
+        "top": [
+          {
+            "id": "apical",
+            "label": "Apical membrane",
+            "annotation": {
+              "facet": "apical"
+            }
+          }
+        ],
+        "bottom": [
+          {
+            "id": "basolateral",
+            "label": "Basolateral membrane",
+            "annotation": {
+              "facet": "basolateral"
+            }
+          }
+        ],
+        "left": [
+          {
+            "id": "lateral-left",
+            "label": "Lateral membrane (left)",
+            "group": "lateral",
+            "annotation": {
+              "facet": "lateral",
+              "at": "left"
+            }
+          }
+        ],
+        "right": [
+          {
+            "id": "lateral-right",
+            "label": "Lateral membrane (right)",
+            "group": "lateral",
+            "annotation": {
+              "facet": "lateral",
+              "at": "right"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "metabolism",
+      "kind": "zone",
+      "label": "Metabolism",
+      "compartment": "cell"
+    },
+    {
+      "id": "apical-fluid",
+      "kind": "compartment",
+      "label": "Apical fluid (lumen)",
+      "tone": "sky",
+      "docks": [
+        {
+          "on": "plasma-membrane",
+          "side": "top",
+          "face": "outside"
+        }
+      ]
+    },
+    {
+      "id": "basolateral-fluid",
+      "kind": "compartment",
+      "label": "Basolateral fluid (interstitium)",
+      "tone": "rose",
+      "docks": [
+        {
+          "on": "plasma-membrane",
+          "side": "bottom",
+          "face": "outside"
+        }
+      ]
+    },
+    {
+      "id": "paracellular",
+      "kind": "compartment",
+      "label": "Paracellular space",
+      "tone": "teal",
+      "docks": [
+        {
+          "on": "plasma-membrane",
+          "side": "right",
+          "face": "outside"
+        }
+      ]
+    }
+  ],
+  "author": "PhLynx",
+  "license": "CC0-1.0"
+}

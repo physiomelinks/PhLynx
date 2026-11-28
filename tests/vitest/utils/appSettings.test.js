@@ -57,7 +57,7 @@ describe('app settings registry', () => {
 
   it('groups the physiological view\'s settings apart from the simulation\'s', () => {
     expect(sectionKeys('Simulation')).toEqual(['plotInspectionModules', 'showDataItems'])
-    expect(sectionKeys('Physiological view')).toEqual(['autoPlotSelection', 'speciesFlowContinuous'])
+    expect(sectionKeys('Physiological view')).toEqual(['autoPlotSelection', 'speciesFlowContinuous', 'bioCellTube'])
   })
 
   it('keeps species flows moving unless the user chooses otherwise', () => {

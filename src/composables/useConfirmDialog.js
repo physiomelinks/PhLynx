@@ -43,10 +43,14 @@ export function useConfirmDialog() {
    * Asks a question with a third, extra action between rejecting and accepting, which is the default: focused, so
    * Enter takes it, while Escape rejects.
    *
-   * @param {Object} options - As confirm's, with extraLabel naming the extra action.
-   * @returns {Promise<'accept'|'extra'|'reject'>} The action chosen; closing the dialog rejects.
+   * @param {Object} options - As confirm's, with extraLabel naming the extra action, and remember, where given, the
+   *   label of a checkbox below the message, such as 'Remember this choice'.
+   * @returns {Promise<'accept'|'extra'|'reject'>} The action chosen; closing the dialog rejects. With remember, it is
+   *   `{ action, remember }` instead, remember whether the box was ticked.
    */
   function choose(options) {
+    const remember = options.remember ? reactive({ label: options.remember, checked: false }) : null
+    const answer = (action) => (remember ? { action, remember: remember.checked } : action)
     return new Promise((resolve) => {
       confirm.require({
         group: 'app-confirm',
@@ -57,11 +61,12 @@ export function useConfirmDialog() {
         rejectLabel: options.rejectLabel ?? 'Cancel',
         extraLabel: options.extraLabel,
         issues: options.issues,
+        remember,
         closeOnEscape: true,
-        accept: () => resolve('accept'),
-        extra: () => resolve('extra'),
-        reject: () => resolve('reject'),
-        onHide: () => resolve('reject'),
+        accept: () => resolve(answer('accept')),
+        extra: () => resolve(answer('extra')),
+        reject: () => resolve(answer('reject')),
+        onHide: () => resolve(answer('reject')),
       })
     })
   }

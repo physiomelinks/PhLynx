@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <title>Blood vessel</title>
+  <!-- An artery in cross-section: adventitia, smooth muscle, endothelium and the lumen with red blood cells. -->
+  <circle cx="100" cy="100" r="94" fill="#f1d3b5" stroke="#b98a62" stroke-width="3"/>
+  <circle cx="100" cy="100" r="74" fill="#d97b6c" stroke="#a5493f" stroke-width="2"/>
+  <circle cx="100" cy="100" r="56" fill="#f3e3d8" stroke="#c9a28f" stroke-width="2"/>
+  <circle cx="100" cy="100" r="51" fill="#fdf1f1"/>
+  <g fill="#d23c3c" stroke="#8e1f24" stroke-width="1.5">
+    <ellipse cx="80" cy="86" rx="14" ry="9"/>
+    <ellipse cx="114" cy="78" rx="13" ry="8"/>
+    <ellipse cx="96" cy="112" rx="14" ry="9"/>
+    <ellipse cx="124" cy="110" rx="12" ry="8"/>
+    <ellipse cx="74" cy="118" rx="11" ry="7"/>
+  </g>
+</svg>

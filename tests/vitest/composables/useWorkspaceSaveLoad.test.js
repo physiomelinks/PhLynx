@@ -16,7 +16,9 @@ vi.mock('@vue-flow/core', async (importOriginal) => ({ ...(await importOriginal(
 import { useWorkspaceSaveLoad } from '../../../src/composables/useWorkspaceSaveLoad'
 import { loadWorkspaceFile } from '../../../src/services/workspaceFile'
 import { useDefaultParametersStore } from '../../../src/stores/defaultParametersStore'
-import { useBioTemplateStore } from '../../../src/stores/bioTemplateStore'
+import { getBuiltInPieceTemplate } from '../../../src/services/bioView/pieces/builtInTemplates'
+import { writtenPieces } from '../../../src/services/bioView/pieces/model'
+import { useBioPiecesStore } from '../../../src/stores/bioPiecesStore'
 import { useInspectionModuleStore } from '../../../src/stores/inspectionModuleStore'
 import { useLibraryStore } from '../../../src/stores/libraryStore'
 import { useOmexStore } from '../../../src/stores/omexStore'
@@ -59,8 +61,13 @@ function fillStores() {
   useInspectionModuleStore().addModule({ id: 'insp-1', name: 'Flow probe', units: 'mL', variables: [] })
   useOmexStore().setArchive({ archiveName: 'model.omex', cellmlFileName: 'model.cellml' })
   useDefaultParametersStore().addSet(
-    { ref: 'NKA', source: { file: 'NKA_parameters.json', importedAt: 'now' }, globals: new Map(), values: new Map([['K', PARAM]]) },
-    { mathRef: 'NKA.cellml:NKA' }
+    {
+      ref: 'NKA',
+      source: { file: 'NKA_parameters.json', importedAt: 'now' },
+      globals: new Map(),
+      values: new Map([['K', PARAM]]),
+    },
+    { mathRef: 'NKA.cellml:NKA' },
   )
 }
 
@@ -206,7 +213,7 @@ describe('applyWorkspaceState', () => {
     expect(notify.success).not.toHaveBeenCalled()
     expect(trackEvent).toHaveBeenCalledWith(
       'workflow_load_action',
-      expect.objectContaining({ label: 'Error: Invalid workflow file format.', file_type: 'json' })
+      expect.objectContaining({ label: 'Error: Invalid workflow file format.', file_type: 'json' }),
     )
   })
 
@@ -256,6 +263,26 @@ describe('applyWorkspaceState', () => {
     })
   })
 
+  it('says so when the physiology pieces it saved don’t validate, and loads none of them', async () => {
+    fillStores()
+    await view.onSaveConfirm('bad-pieces')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+    saved.bioPieces = { pieces: [{ id: 'z', kind: 'zone', label: 'Z', compartment: 'nowhere' }] }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    setActivePinia(createPinia())
+    setup()
+    await view.applyWorkspaceState(saved, { source: 'file' })
+    warn.mockRestore()
+
+    expect(useBioPiecesStore().pieces).toEqual([])
+    expect(notify.warning).toHaveBeenCalledWith({
+      title: 'Physiology pieces not loaded',
+      duration: 10000,
+      message: expect.stringMatching(/^The file’s physiology pieces are not valid, so none were loaded\. ./),
+    })
+  })
+
   it('round trips module sidecars', async () => {
     const sidecar = '@prefix bqbiol: <http://biomodels.net/biology-qualifiers/> .\n'
     const data = { name: 'cell' }
@@ -287,38 +314,52 @@ describe('applyWorkspaceState', () => {
     expect(useLibraryStore().moduleAnnotations.size).toBe(0)
   })
 
-  it('round trips placed templates and their embedded definitions', async () => {
-    const bound = { ...FLOW, nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: { bioView: { site: '' } } }] }
-    const instance = useBioTemplateStore().addInstance('two-cell-epithelium', { x: 30, y: 40 }, 'Sheet')
-    bound.nodes[0].data.bioView.site = `${instance.id}/a.apical`
+  it('round trips the pieces, and the modules bound to their sites', async () => {
+    const bound = {
+      ...FLOW,
+      nodes: [{ id: 'n1', position: { x: 1, y: 2 }, data: { bioView: { site: 'pieces/a-membrane.apical' } } }],
+    }
+    useBioPiecesStore().addTemplate(getBuiltInPieceTemplate('two-cell-epithelium'), { x: 30, y: 40 })
+    const pieces = useBioPiecesStore().pieces
     flow.toObject.mockReturnValue(bound)
-    await view.onSaveConfirm('templated')
+    await view.onSaveConfirm('built')
     const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
 
     expect(saved.version).toBe(PHLYNX_PROJECT_VERSION)
-    expect(saved.bioTemplates.instances).toEqual([instance])
-    expect(Object.keys(saved.bioTemplates.templates)).toEqual(['two-cell-epithelium'])
-    // As if the built-in changed after this workspace was saved: the embedded copy must still win.
-    saved.bioTemplates.templates['two-cell-epithelium'].name = 'Old sheet'
+    expect(saved.bioPieces).toEqual({ pieces: writtenPieces(pieces) })
 
     setActivePinia(createPinia())
     setup()
     await view.applyWorkspaceState(saved)
 
     expect(flow.fromObject).toHaveBeenCalledWith(expect.objectContaining({ nodes: bound.nodes }))
-    expect(useBioTemplateStore().getState()).toEqual(saved.bioTemplates)
-    expect(useBioTemplateStore().getDefinition('two-cell-epithelium').name).toBe('Old sheet')
+    expect(useBioPiecesStore().pieces).toEqual(pieces)
   })
 
-  it('saves a workspace without templates without the key, and loading one empties the template store', async () => {
+  it('fills the pieces loaded with no module once the pieces and library are in, outside the history', async () => {
+    useBioPiecesStore().addTemplate(getBuiltInPieceTemplate('cell'), { x: 0, y: 0 })
+    await view.onSaveConfirm('cell')
+    const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
+
+    setActivePinia(createPinia())
+    const seen = []
+    const fillOwedModules = vi.fn(() => seen.push(useBioPiecesStore().pieces.length))
+    view = useWorkspaceSaveLoad({ saveDialogVisible, nodes, edges, ...flow, fillOwedModules })
+    await view.applyWorkspaceState(saved)
+
+    expect(fillOwedModules).toHaveBeenCalledTimes(1)
+    expect(seen[0]).toBeGreaterThan(0)
+  })
+
+  it('saves a workspace without pieces without the key, and loading one empties the pieces store', async () => {
     fillStores()
     await view.onSaveConfirm('plain')
     const saved = await readBlob(save.legacyDownload.mock.calls[0][1])
-    expect(saved).not.toHaveProperty('bioTemplates')
+    expect(saved).not.toHaveProperty('bioPieces')
 
-    useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 })
+    useBioPiecesStore().addTemplate(getBuiltInPieceTemplate('cell'), { x: 0, y: 0 })
     await view.applyWorkspaceState(saved)
-    expect(useBioTemplateStore().getState()).toBeNull()
+    expect(useBioPiecesStore().getState()).toBeNull()
   })
 
   it('saves and restores the default for new connections and the edge appearances', async () => {
@@ -409,13 +450,13 @@ describe('loading a workspace with annotated ports', () => {
   const pairOf = ({ sourcePort, targetPort }) => `${sourcePort.variables[0]} -> ${targetPort.variables[0]}`
 
   /**
-   * Saves a porter and a cell joined by a manual coupling, placed on a template unless `placed` is false, then sets up
+   * Saves a porter and a cell joined by a manual coupling, placed on the pieces unless `placed` is false, then sets up
    * a fresh view to load it into.
    */
   async function saveToy({ placed = true } = {}) {
     const toy = await loadToyNodes()
-    const template = useBioTemplateStore().addInstance('epithelial-cell', { x: 0, y: 0 })
-    const at = (name) => (placed ? { bioView: { site: `${template.id}/${TOY_PLACEMENTS[name]}` } } : { bioView: undefined })
+    useBioPiecesStore().addTemplate(getBuiltInPieceTemplate('epithelial-cell'), { x: 0, y: 0 })
+    const at = (name) => (placed ? { bioView: { site: `pieces/${TOY_PLACEMENTS[name]}` } } : { bioView: undefined })
     const portsOf = (name, own, variables) => [manual(own), ...variables.map((v) => toy.port(name, v))]
     const porterIn = toy.node('porter_in', portsOf('porter_in', 'c_A_i', ['area', 'c_A_i', 'v_A_i']), at('porter_in'))
     const cell = toy.node('cell', portsOf('cell', 'c_A', ['area', 'c_A', 'v_A']), at('cell'))

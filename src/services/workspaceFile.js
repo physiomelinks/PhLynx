@@ -17,8 +17,8 @@ import { notify } from '../utils/notify'
  * @param {Object} sources.inspectionModules - inspectionModuleStore.
  * @param {Object} sources.omex - omexStore.
  * @param {Object} sources.parameters - defaultParametersStore.
- * @param {Object} [sources.bioTemplates] - bioTemplateStore.
- * @param {Object} [sources.bioGlyphs] - glyphLibraryStore.
+ * @param {Object} [sources.bioPieces] - bioPiecesStore.
+ * @param {Object} [sources.bioSkins] - skinLibraryStore.
  * @param {Object} [sources.nodeTheme] - nodeThemeStore.
  * @param {Object} [sources.appearance] - workspaceAppearanceStore; its block is left out while it is the default.
  * @returns {Object} The workspace, at PHLYNX_PROJECT_VERSION.
@@ -30,16 +30,21 @@ export function buildWorkspaceFile({
   inspectionModules,
   omex,
   parameters,
-  bioTemplates,
-  bioGlyphs,
+  bioPieces,
+  bioSkins,
   nodeTheme,
   appearance,
 }) {
-  // Older builds ignore the key, and nodes bound to a template's sites fall back to their role.
-  const templateState = bioTemplates?.getState() ?? null
-  // Likewise the user's own cartoons the nodes are drawn as: a copy of each, so the workspace looks the same
+  // The pieces the physiology view is built from; older builds ignore the key, and nodes bound to the pieces' sites
+  // fall back to their role there.
+  const piecesState = bioPieces?.getState() ?? null
+  // Likewise the user's own skins the nodes and pieces are drawn with: a copy of each, so the workspace looks the same
   // elsewhere.
-  const glyphState = bioGlyphs?.getState((flow?.nodes ?? []).map((node) => node.data?.bioView?.glyph)) ?? null
+  const used = [
+    ...(flow?.nodes ?? []).map((node) => node.data?.bioView?.skin),
+    ...(piecesState?.pieces ?? []).map((piece) => piece.skin?.ref),
+  ]
+  const skinState = bioSkins?.getState(used) ?? null
   // And the node colour theme: its id, with a copy unless it is built in, so categories keep their colours.
   const themeState = nodeTheme?.getState() ?? null
   return {
@@ -51,8 +56,8 @@ export function buildWorkspaceFile({
     inspectionModules: inspectionModules.getState(),
     workspace: omex.getState(),
     parameters: parameters.getState(),
-    ...(templateState ? { bioTemplates: templateState } : {}),
-    ...(glyphState ? { bioGlyphs: glyphState } : {}),
+    ...(piecesState ? { bioPieces: piecesState } : {}),
+    ...(skinState ? { bioSkins: skinState } : {}),
     ...(themeState ? { nodeTheme: themeState } : {}),
     ...(appearance && !appearance.isDefault ? { appearance: appearance.getState() } : {}),
   }

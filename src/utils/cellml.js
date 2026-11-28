@@ -1130,6 +1130,21 @@ export function prefixIdAttributes(xmlString, instanceName, idVariables = []) {
 }
 
 /**
+ * Removes every `id` attribute from a CellML string. Units files are flattened in as they are, so two files that
+ * were each given ids (`b4da55`, `b4da56`, …) would repeat them; nothing points at a units' id.
+ *
+ * @param {string} xmlString
+ * @returns {string} The string without ids (unchanged if it has none or doesn't parse).
+ */
+export function stripIdAttributes(xmlString) {
+  if (!/\sid\s*=/.test(xmlString)) return xmlString
+  const doc = parseXml(xmlString)
+  if (!doc) return xmlString
+  elementsWithId(doc).forEach((el) => el.removeAttribute('id'))
+  return new XMLSerializer().serializeToString(doc)
+}
+
+/**
  * Post-processes a printed CellML XML string, replacing all celsius unit references
  * with 'dimensionless' and removing the celsius unit definition.
  *
@@ -1308,7 +1323,7 @@ export function generateFlattenedModel(
     for (const entry of libraryStore.availableUnits) {
       // Parse library only if not already cached
       if (!unitsLibraryCache.has(entry.componentFile)) {
-        const libModel = parser.parseModel(entry.model)
+        const libModel = parser.parseModel(stripIdAttributes(entry.model))
         if (parser.errorCount() === 0) {
           unitsLibraryCache.set(entry.componentFile, libModel)
         } else {

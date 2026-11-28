@@ -1,25 +1,11 @@
 /**
- * Placeholders: the new, empty module the build palette puts on each one-module site of what it places, so a
- * model built from the palette's pieces is whole from the start. Each stands until a library module takes its
- * place.
+ * Placeholders: the new, empty module each compartment, membrane and tube is given when it is made without one (see
+ * pieces/pairing.js), since none is ever without a module. Each stands until a library module takes its place.
  */
 
 import { NEW_INSTANCE_MODULE_REF } from '../../utils/constants.js'
 import { sanitiseName } from '../../utils/identifiers.js'
 import { isPlacementEdge } from './links.js'
-
-/** The roles of the sites a placeholder goes on: one module each, a cell's or organelle's inside, a membrane,
- * a compartment, and a link. A protein site or process zone holds a row of modules, and stays empty. */
-const FILLED_ROLES = new Set(['cytosol', 'membrane', 'region', 'cytosolic'])
-
-/**
- * Whether a drop target is a site a placeholder goes on: one taking a single module, with none on it.
- *
- * @param {Object} target - From dropSites.
- * @returns {boolean}
- */
-export const takesPlaceholder = (target) =>
-  target.kind === 'single' && target.type === 'area' && !target.occupant && FILLED_ROLES.has(target.role)
 
 /**
  * Whether a node is a placeholder still: an instance of the new module, its maths never saved as a module of its
@@ -36,7 +22,7 @@ export function isPlaceholder(node, edges) {
 
 /**
  * Names a placeholder after the piece it is on, as instance names are written, so the piece keeps its name while
- * it holds one: 'Cell 2' is Cell_2, and Cell_2_1 where that is taken.
+ * it holds one: 'Cell 2' is Cell_2, and Cell_2_2 where that is taken.
  *
  * @param {string} label - The site's name.
  * @param {Iterable<string>} taken - Instance names in use.
@@ -47,6 +33,21 @@ export function placeholderName(label, taken) {
   if (!base) return null
   const used = new Set(taken)
   let name = base
-  for (let n = 1; used.has(name); n++) name = `${base}_${n}`
+  // Numbered from 2, as the pieces' own labels are (Compartment, Compartment 2, …).
+  for (let n = 2; used.has(name); n++) name = `${base}_${n}`
   return name
 }
+
+/**
+ * Whether a module's name is still one placeholderName gave it for a piece's label, numbered or not.
+ *
+ * @param {string} name
+ * @param {string} label
+ * @returns {boolean}
+ */
+export function isPlaceholderNameFor(name, label) {
+  const base = sanitiseName(label ?? '')
+  // An instance name is letters, digits and underscores only, so the base needs no escaping.
+  return !!base && (name === base || new RegExp(`^${base}_\\d+$`).test(name))
+}
+

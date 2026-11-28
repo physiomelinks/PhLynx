@@ -1,13 +1,14 @@
 /**
  * Template files the user loads and saves: reading their text, wording what is wrong with them, and writing a
- * template back out. The user's own library itself lives in the template store.
+ * template back out. The user's own library itself lives in the template library store.
  */
 
 import { escapeHtml } from '../../utils/importBatch.js'
-import { bareTemplateId } from './templates.js'
+import { bareTemplateId } from './localIds.js'
+import { writtenTemplate } from './pieces/model.js'
 
 /** The suffix template files are saved with. */
-export const TEMPLATE_FILE_SUFFIX = '.template.json'
+export const TEMPLATE_FILE_SUFFIX = '.pieces.json'
 
 /** How many problems a notification lists before it just counts the rest. */
 export const SHOWN_PROBLEMS = 3
@@ -31,7 +32,7 @@ export function parseTemplateText(text) {
 }
 
 /**
- * Reads and parses a template file the user picked, refusing ones too big to be a template unread. Glyph
+ * Reads and parses a template file the user picked, refusing ones too big to be a template unread. Skin
  * library files are read the same way.
  *
  * @param {Blob} file
@@ -67,14 +68,32 @@ export function summariseProblems(problems, max = SHOWN_PROBLEMS) {
   return (more > 0 ? [...shown, `…and ${more} more.`] : shown).join('<br>')
 }
 
+/** A side cut into more stretches than a membrane may have, as validatePieces says it. */
+const TOO_MANY_SPANS = /"sides\.(top|right|bottom|left)" must be a list of 1 to (\d+) spans/
+
 /**
- * Writes a template as a file anyone can load: its own id, without the `local:` prefix.
+ * The first of some problems as the label by the pointer shows it: plain text, not HTML, without the id of the piece
+ * it is about, and a side cut into too many stretches said in the user's words.
+ *
+ * @param {string[]} problems - From validatePieces.
+ * @returns {string}
+ */
+export function problemLabel(problems) {
+  const [first = 'It can’t go there.'] = problems
+  const spans = first.match(TOO_MANY_SPANS)
+  if (spans) return `That would cut the membrane’s ${spans[1]} side into more than ${spans[2]} stretches.`
+  return first.replace(/^Piece "[^"]*": /, '')
+}
+
+/**
+ * Writes a template as a file anyone can load: its own id, without the `local:` prefix, its pieces as they are
+ * written (see writtenPieces), and pointing to the schema that describes it.
  *
  * @param {Object} template - A validated template.
  * @returns {{ filename: string, text: string }}
  */
 export function templateFile(template) {
   const id = bareTemplateId(template.id)
-  const text = JSON.stringify({ ...template, id }, null, 2) + '\n'
+  const text = JSON.stringify({ $schema: './bio-pieces.schema.json', ...writtenTemplate(template), id }, null, 2) + '\n'
   return { filename: `${id}${TEMPLATE_FILE_SUFFIX}`, text }
 }

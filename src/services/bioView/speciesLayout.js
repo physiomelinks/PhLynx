@@ -4,18 +4,17 @@
  * tokens go towards its edge away from the cells, a cell's in a row across its middle; each sits under or over the
  * proteins its paths run to (midway between them), nudged along so none overlap, and the rest are split between
  * the two ends of the row so it sits evenly in the compartment. Tokens keep inside the membrane and clear of
- * names, cartoons and process zones, wrapping onto more rows where one is too long. A compartment whose tokens the
+ * names, symbols and process zones, wrapping onto more rows where one is too long. A compartment whose tokens the
  * user put in order keeps those places, filled in that order. Paths run from a token to the
- * protein's face on that side and stop there, as the cartoon shows what crosses; so does a dependence, ending in an
+ * protein's face on that side and stop there, as the symbol shows what crosses; so does a dependence, ending in an
  * open circle.
  */
 
 import { facePoint } from './faces.js'
-import { GLYPH_HEIGHT, GLYPH_WIDTH, HEAD_OFFSET, foldPoint, partOf, proteinLabelWidth } from './geometry.js'
-import { DEFAULT_ARROW_ROOM } from './glyphLibrary.js'
-import { CARD } from './layout.js'
+import { SYMBOL_HEIGHT, SYMBOL_WIDTH, HEAD_OFFSET, foldPoint, proteinLabelWidth } from './geometry.js'
+import { DEFAULT_ARROW_ROOM } from './skinLibrary.js'
+import { processSize } from './layout.js'
 import { CELL_RADIUS, FACET_BAND } from './metrics.js'
-import { EPITHELIAL_SHAPE, facetById } from './shape.js'
 
 /** A token's height, and the space between two in a row. */
 export const TOKEN = { height: 22, gap: 8 }
@@ -73,7 +72,9 @@ export function flowScales(flows, [first, last], { group = 'species', spikes = f
     const sorted = Float64Array.from(own).sort()
     const most = sorted[sorted.length - 1] ?? 0
     // The size at the quantile, or the largest where so few points flow that it is none.
-    const at = spikes ? most : (sorted[Math.min(sorted.length - 1, Math.floor(FLOW_SCALE_QUANTILE * sorted.length))] ?? 0)
+    const at = spikes
+      ? most
+      : (sorted[Math.min(sorted.length - 1, Math.floor(FLOW_SCALE_QUANTILE * sorted.length))] ?? 0)
     scales.set(name, at > 0 ? at : most)
   }
   return (flow) => scales.get(groupOf(flow)) ?? 0
@@ -98,6 +99,18 @@ export const TINT_MAX = 0.55
  */
 export const tintColour = (colour, intensity) =>
   `color-mix(in srgb, ${colour} ${Math.round(TINT_MAX * intensity * 1000) / 10}%, transparent)`
+
+/** How much of its species' colour a chip's fill takes, from the least to the most its compartment holds. */
+export const CHIP_TINT = Object.freeze({ min: 0.06, max: 0.6 })
+
+/**
+ * How much of its species' colour a chip's fill takes, as a CSS percentage: as strong as what its compartment holds.
+ *
+ * @param {number} intensity - From 0 to 1, from concentrationTints.
+ * @returns {string}
+ */
+export const chipTintShare = (intensity) =>
+  `${Math.round((CHIP_TINT.min + (CHIP_TINT.max - CHIP_TINT.min) * intensity) * 1000) / 10}%`
 
 /**
  * Gives how strongly each compartment is tinted by its concentration of a species over a stretch of a run, so a tint
@@ -276,26 +289,53 @@ const sum = (values) => values.reduce((total, value) => total + value, 0)
 const mean = (values) => (values.length ? sum(values) / values.length : null)
 
 /**
- * The boxes a membrane protein takes: its cartoon, and its name (and what it carries) on the cell's side of it.
+ * The boxes a membrane protein takes: its symbol, and its name (and what it carries) on the cell's side of it.
  *
  * @param {Object} place - The protein's, from layoutPhysiology.
  * @param {{name?: string, detail?: string}} [label]
- * @returns {[Object, Object]} The cartoon's box and the name's.
+ * @returns {[Object, Object]} The symbol's box and the name's.
  */
 export function proteinBoxes(place, { name = '', detail = '' } = {}) {
   const sideways = place.outward === 'left' || place.outward === 'right'
-  const [w, h] = sideways ? [GLYPH_HEIGHT, GLYPH_WIDTH] : [GLYPH_WIDTH, GLYPH_HEIGHT]
-  const glyph = box(place.x - w / 2, place.y - h / 2, w, h)
+  const [w, h] = sideways ? [SYMBOL_HEIGHT, SYMBOL_WIDTH] : [SYMBOL_WIDTH, SYMBOL_HEIGHT]
+  const symbol = box(place.x - w / 2, place.y - h / 2, w, h)
   const { height, detailHeight, gap } = TEXT.protein
   const width = proteinLabelWidth(name, detail)
   const tall = height + (detail ? detailHeight : 0)
-  const label = {
-    top: box(place.x - width / 2, glyph.y + h + gap, width, tall),
-    bottom: box(place.x - width / 2, glyph.y - gap - tall, width, tall),
-    left: box(glyph.x + w + gap, place.y - tall / 2, width, tall),
-    right: box(glyph.x - gap - width, place.y - tall / 2, width, tall),
-  }[place.outward] ?? box(place.x - width / 2, glyph.y + h + gap, width, tall)
-  return [glyph, label]
+  const label =
+    {
+      top: box(place.x - width / 2, symbol.y + h + gap, width, tall),
+      bottom: box(place.x - width / 2, symbol.y - gap - tall, width, tall),
+      left: box(symbol.x + w + gap, place.y - tall / 2, width, tall),
+      right: box(symbol.x - gap - width, place.y - tall / 2, width, tall),
+    }[place.outward] ?? box(place.x - width / 2, symbol.y + h + gap, width, tall)
+  return [symbol, label]
+}
+
+/**
+ * The boxes a process in a cell takes: its card, or its symbol with its name under it, as an upright protein's.
+ *
+ * @param {Object} place - The process's: its x and y are its top-left corner.
+ * @param {{name?: string, detail?: string}} [label]
+ * @returns {Array<Object>}
+ */
+function processBoxes(place, label) {
+  const { width, height } = processSize(place)
+  if (!place.symbol) return [box(place.x, place.y, width, height)]
+  return proteinBoxes({ x: place.x + width / 2, y: place.y + height / 2 }, label)
+}
+
+/**
+ * How far a membrane protein on one side of a cell reaches into it, from the middle of the membrane: half its
+ * symbol, and its name (with what it carries) on the cell's side of it, as proteinBoxes draws them.
+ *
+ * @param {'top'|'right'|'bottom'|'left'} side
+ * @param {number} labelWidth - How wide its name is drawn (see proteinLabelWidth).
+ * @returns {number}
+ */
+export function proteinReach(side, labelWidth) {
+  const { height, detailHeight, gap } = TEXT.protein
+  return SYMBOL_HEIGHT / 2 + gap + (side === 'left' || side === 'right' ? labelWidth : height + detailHeight)
 }
 
 /** How far a cell's name is moved at a time when looking for a clear corner. */
@@ -320,29 +360,147 @@ export function cellNameBox(cellId, layout, labelOf = () => undefined) {
   const name = labelOf(cellId)?.name ?? ''
   if (!place || !name) return null
   const { rect } = place
-  const width = [...name].length * TEXT.cell.char + 8
-  const height = TEXT.cell.height
-  const others = [...(place.zones ?? []).map((zone) => zone.rect)]
+  const others = [...(place.zones ?? []).map((zone) => zone.rect), ...nestedIn(cellId, layout)]
   for (const [id, other] of layout) {
     if (other.cell !== cellId) continue
     if (other.kind === 'protein') others.push(...proteinBoxes(other, labelOf(id)))
-    if (other.kind === 'cytosolic') others.push(box(other.x, other.y, CARD.width, CARD.height))
+    if (other.kind === 'cytosolic') others.push(...processBoxes(other, labelOf(id)))
   }
-  const [left, top] = [rect.x + CELL_INSET, rect.y + CELL_INSET]
-  const bottom = rect.y + rect.height - CELL_INSET - height
+  const [size, options] = nameFitting('cell', name)
+  return nameInCorners(rect, size, others, options)
+}
+
+/**
+ * The size of a cell's or a free compartment's name (with its hint, for an empty compartment), and how it is kept in
+ * from the edge, for nameInCorners.
+ *
+ * @param {'cell'|'region'} kind
+ * @param {string} name
+ * @param {boolean} [empty]
+ * @returns {[{width: number, height: number}, {inset: number, reachY: number}]}
+ */
+function nameFitting(kind, name, empty = false) {
+  if (kind === 'cell') {
+    const size = { width: [...name].length * TEXT.cell.char + 8, height: TEXT.cell.height }
+    return [size, { inset: CELL_INSET, reachY: NAME_DROP }]
+  }
+  const { char, height, padding } = TEXT.region
+  const width = Math.max([...name].length * char, empty ? TEXT.hint.width : 0) + 2 * padding.x
+  const tall = height + (empty ? TEXT.hint.height : 0) + 2 * padding.y
+  // The label's own padding keeps the name in from the edge.
+  return [
+    { width, height: tall },
+    { inset: 0, reachY: tall },
+  ]
+}
+
+/**
+ * Where a cell's or free compartment's name is drawn in its upper-left corner, clear of what else is drawn there (see
+ * nameInCorners), for what stands in it to make room for; nothing where it finds no room there.
+ *
+ * @param {'cell'|'region'} kind
+ * @param {Object} rect - The cell or compartment.
+ * @param {string} name
+ * @param {Array<Object>} others - What else is drawn in it.
+ * @param {boolean} [empty] - A compartment's: whether its hint is drawn with its name.
+ * @returns {Object|null} Its box.
+ */
+export function nameInUpperCorner(kind, rect, name, others, empty = false) {
+  if (!name) return null
+  const [size, options] = nameFitting(kind, name, empty)
+  return cornerSpot(rect, size, others, options, { lower: false })
+}
+
+/**
+ * Whether a cell's or free compartment's name finds a clear corner (see nameInCorners), so it needs no room made for it.
+ *
+ * @param {'cell'|'region'} kind
+ * @param {Object} rect - The cell or compartment.
+ * @param {string} name
+ * @param {Array<Object>} others - What is drawn in it.
+ * @param {boolean} [empty] - A compartment's: whether its hint is drawn with its name.
+ * @returns {boolean}
+ */
+export function nameFits(kind, rect, name, others, empty = false) {
+  if (!name) return true
+  const [size, options] = nameFitting(kind, name, empty)
+  return !!cornerSpot(rect, size, others, options)
+}
+
+/**
+ * The boxes of what is drawn within a cell or compartment: the compartments and organelles nested in it, with room
+ * for an organelle's bilayer.
+ *
+ * @param {string} id
+ * @param {Map<string, Object>} layout
+ * @returns {Array<Object>}
+ */
+function nestedIn(id, layout) {
+  return [...layout.values()]
+    .filter((other) => other.parent === id && other.rect)
+    .map((other) => (other.kind === 'cell' ? grow(other.rect, HEAD_OFFSET + 4) : other.rect))
+}
+
+/**
+ * Where a name goes in a cell or compartment: in its upper-left corner, moved in from it until clear of what else is
+ * drawn there; failing that, likewise in its lower-left, and failing both, right in the lower-left.
+ *
+ * @param {Object} rect - The cell or compartment.
+ * @param {{width: number, height: number}} size - The name's.
+ * @param {Array<Object>} others - What to keep clear of.
+ * @param {{inset: number, reachY: number}} options - How far in from the edge it goes, and how far further down (or
+ *   up) it may move.
+ * @returns {Object} Its box.
+ */
+function nameInCorners(rect, size, others, options) {
+  const { inset } = options
+  return (
+    cornerSpot(rect, size, others, options) ??
+    box(rect.x + inset, rect.y + rect.height - inset - size.height, size.width, size.height)
+  )
+}
+
+/** As nameInCorners, but nothing where neither corner is clear. */
+function cornerSpot(rect, { width, height }, others, { inset, reachY }, { lower = true } = {}) {
+  const [left, top] = [rect.x + inset, rect.y + inset]
+  const bottom = rect.y + rect.height - inset - height
   // The name stays in a corner or tries the next.
-  const [reachX, reachY] = [rect.width * CORNER - CELL_INSET, NAME_DROP]
+  const reachX = rect.width * CORNER - inset
   const clear = (candidate) => others.every((other) => !overlap(grow(candidate, CLEARANCE / 2), other))
   const steps = (reach) => Array.from({ length: Math.max(0, Math.floor(reach / NAME_STEP)) + 1 }, (_, i) => i)
   // Nearest the corner first, moving in from it down (or up) and across.
   const inCorner = (y0, way) => {
     const spots = steps(reachY).flatMap((i) => steps(reachX).map((j) => ({ i, j })))
     spots.sort((a, b) => a.i + a.j - (b.i + b.j) || a.i - b.i)
-    return spots
-      .map(({ i, j }) => box(left + j * NAME_STEP, y0 + way * i * NAME_STEP, width, height))
-      .find(clear)
+    return spots.map(({ i, j }) => box(left + j * NAME_STEP, y0 + way * i * NAME_STEP, width, height)).find(clear)
   }
-  return inCorner(top, 1) ?? inCorner(bottom, -1) ?? box(left, bottom, width, height)
+  return inCorner(top, 1) ?? (lower ? inCorner(bottom, -1) : null) ?? null
+}
+
+/**
+ * Where a compartment standing freely draws its name (and, while empty, its hint), when compartments are nested in
+ * it or process zones are within it: in a corner clear of them (see nameInCorners). Otherwise, and for a compartment
+ * along a cell, BioRegion puts it by its own rules.
+ *
+ * @param {string} regionId
+ * @param {Map<string, Object>} layout
+ * @param {(id: string) => {name?: string}|undefined} [labelOf]
+ * @returns {Object|null} The label's box, its padding included, or nothing where BioRegion places it.
+ */
+export function regionNameAt(regionId, layout, labelOf = () => undefined) {
+  const place = layout.get(regionId)
+  if (place?.kind !== 'region' || place.form !== 'free' || place.edge) return null
+  // What is nested in it, and the process zones within it.
+  const nested = [
+    ...nestedIn(regionId, layout),
+    ...[...layout.values()]
+      .filter((other) => other.kind === 'zone' && other.cell === regionId)
+      .map((zone) => zone.rect),
+  ]
+  if (!nested.length) return null
+  const name = labelOf(regionId)?.name ?? place.label ?? ''
+  const [size, options] = nameFitting('region', name, place.empty)
+  return nameInCorners(place.rect, size, nested, options)
 }
 
 /** How far an empty cell's name and hint are moved at a time when looking for somewhere clear. */
@@ -366,7 +524,7 @@ export function cellHintAt(cellId, layout, labelOf = () => undefined) {
   const name = labelOf(cellId)?.name ?? ''
   const width = Math.max([...name].length * TEXT.cell.char, TEXT.hint.width) + 8
   const height = TEXT.cell.height + TEXT.hint.height
-  const others = []
+  const others = nestedIn(cellId, layout)
   for (const [id, other] of layout) {
     if (other.cell === cellId && other.kind === 'protein') others.push(...proteinBoxes(other, labelOf(id)))
   }
@@ -388,7 +546,7 @@ export function cellHintAt(cellId, layout, labelOf = () => undefined) {
 
 /**
  * How far out from a cell's outline a facet's name sits: past the bilayer's outer head groups, on the outside,
- * where only the outer half of a protein's cartoon reaches and its name never does.
+ * where only the outer half of a protein's symbol reaches and its name never does.
  */
 export const FACET_LABEL_OFFSET = 14
 /** How far a facet's name is moved along its edge at a time when looking for somewhere clear. */
@@ -397,7 +555,7 @@ const FACET_LABEL_STEP = 4
 /**
  * Where a template cell's facets are named: each just outside its edge, beside the membrane. A name starts in the
  * middle of its edge and moves along it, either way and past its corners if need be, to the nearest spot clear of
- * the proteins' cartoons (any cell's), the facets named before it, the other cells and the regions' names; failing
+ * the proteins' symbols (any cell's), the facets named before it, the other cells and the regions' names; failing
  * that, clear of this cell's proteins and facet names only; failing both, in the middle.
  *
  * @param {string} cellId
@@ -416,7 +574,7 @@ export function facetLabelBoxes(cellId, layout, labelOf = () => undefined) {
     if (other.kind === 'protein') (other.cell === cellId ? own : others).push(proteinBoxes(other, labelOf(id))[0])
     if (other.kind === 'cell' && id !== cellId) others.push(grow(other.rect, HEAD_OFFSET + 4))
     const name = other.kind === 'region' && labelOf(id)?.name
-    if (name) others.push(regionNameBox(other, name))
+    if (name) others.push(regionNameBox(other, name, regionNameAt(id, layout, labelOf)))
   }
   const { char, height, padding } = TEXT.facet
   return place.facetLabels.map((facet) => {
@@ -425,7 +583,7 @@ export function facetLabelBoxes(cellId, layout, labelOf = () => undefined) {
     const [w, h] = sideways ? [height, length] : [length, height]
     // By the stretch of membrane a skin draws for it: out from the stretch's middle, clear of a protein there.
     if (facet.at) {
-      const out = GLYPH_HEIGHT / 2 + FACET_LABEL_OFFSET
+      const out = SYMBOL_HEIGHT / 2 + FACET_LABEL_OFFSET
       const corner = {
         top: { x: facet.at.x - w / 2, y: facet.at.y - out - h },
         bottom: { x: facet.at.x - w / 2, y: facet.at.y + out },
@@ -463,29 +621,27 @@ export function facetLabelBoxes(cellId, layout, labelOf = () => undefined) {
  *
  * @param {Object} place - The region's.
  * @param {string} name
+ * @param {Object|null} [at] - Where regionNameAt put it, if it did.
  * @returns {Object}
  */
-function regionNameBox(place, name) {
+function regionNameBox(place, name, at = null) {
+  if (at) return at
   const { rect } = place
   const { char, height, padding } = TEXT.region
   const length = [...name].length * char
-  const edge = place.instance
-    ? place.edge
-    : place.side && facetById(EPITHELIAL_SHAPE, partOf(place.side, place.adjacent?.[0]?.at ?? undefined))?.edge
+  const { edge } = place
   if (edge === 'left' || edge === 'right') {
     const middle = centreOf(rect)
-    if (place.instance) return box(middle.x - height / 2, middle.y - length / 2, height, length)
-    const width = height + 2 * padding.y
-    return box(edge === 'right' ? rect.x + rect.width - width : rect.x, rect.y, width, length + 2 * padding.x)
+    return box(middle.x - height / 2, middle.y - length / 2, height, length)
   }
   const [width, tall] = [length + 2 * padding.x, height + 2 * padding.y]
-  if (place.instance && edge) return box(rect.x, rect.y + rect.height / 2 - tall / 2, width, tall)
-  return box(rect.x, edge === 'bottom' ? rect.y + rect.height - tall : rect.y, width, tall)
+  if (edge) return box(rect.x, rect.y + rect.height / 2 - tall / 2, width, tall)
+  return box(rect.x, rect.y, width, tall)
 }
 
 /**
  * What else is drawn in a compartment, for its tokens to keep clear of: a cell's name, process zones and cards,
- * and its proteins with their names; a region's name, the cells over it with their facets' names, and the cartoons
+ * and its proteins with their names; a region's name, the cells over it with their facets' names, and the symbols
  * that stick into it.
  *
  * @param {string} nodeId - The compartment's.
@@ -513,11 +669,13 @@ export function obstaclesOf(nodeId, layout, labelOf = () => undefined) {
       if (other.parent === nodeId && other.rect) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
       if (other.cell !== nodeId) continue
       if (other.kind === 'protein') boxes.push(...proteinBoxes(other, labelOf(id)))
-      if (other.kind === 'cytosolic') boxes.push(box(other.x, other.y, CARD.width, CARD.height))
+      if (other.kind === 'cytosolic') boxes.push(...processBoxes(other, labelOf(id)))
     }
     return boxes
   }
-  if (name) boxes.push(regionNameBox(place, name))
+  if (name) boxes.push(regionNameBox(place, name, regionNameAt(nodeId, layout, labelOf)))
+  // What is nested in it.
+  boxes.push(...nestedIn(nodeId, layout))
   for (const [id, other] of layout) {
     // A microdomain lies within its cell, which is no obstacle to it; the cell's organelles are.
     if (other.kind === 'cell' && id !== place.parent) boxes.push(grow(other.rect, HEAD_OFFSET + 4))
@@ -690,7 +848,7 @@ export function placeTokens(items, { inner, across, line, obstacles = [], ordere
     centresAt(middle).map(([item, along, cross]) =>
       across
         ? box(along - item.size / 2, cross - item.cross / 2, item.size, item.cross)
-        : box(cross - item.cross / 2, along - item.size / 2, item.cross, item.size)
+        : box(cross - item.cross / 2, along - item.size / 2, item.cross, item.size),
     )
   const hits = obstacles.map((obstacle) => grow(obstacle, CLEARANCE))
   const cost = (middle) => sum(boxesAt(middle).flatMap((token) => hits.map((hit) => overlap(token, hit))))
@@ -734,11 +892,11 @@ function farEdge(rect, cells) {
 }
 
 /**
- * How far along a protein's faces a species' paths attach: under its arrow on the cartoon, which spreads them
- * evenly across its arrow room in the order they are carried (one alone down the middle). A species the cartoon
+ * How far along a protein's faces a species' paths attach: under its arrow on the symbol, which spreads them
+ * evenly across its arrow room in the order they are carried (one alone down the middle). A species the symbol
  * shows no arrow for attaches at the middle of the face.
  *
- * @param {{species: string[], room?: {left: number, right: number}}|undefined} arrows - What the cartoon's arrows
+ * @param {{species: string[], room?: {left: number, right: number}}|undefined} arrows - What the symbol's arrows
  *   carry, in order, and where it spreads them, in its unturned box.
  * @param {string} species
  * @returns {number} The offset from the face's middle, as the unturned box's x runs.
@@ -748,10 +906,10 @@ export function arrowOffset(arrows, species) {
   return index < 0 ? 0 : spreadOffset(index, arrows.species.length, arrows.room)
 }
 
-/** The offset from a face's middle of the index-th of count points spread evenly across a cartoon's arrow room. */
+/** The offset from a face's middle of the index-th of count points spread evenly across a symbol's arrow room. */
 function spreadOffset(index, count, { left, right } = DEFAULT_ARROW_ROOM) {
   const x = count > 1 ? left + ((right - left) * index) / (count - 1) : (left + right) / 2
-  return x - GLYPH_WIDTH / 2
+  return x - SYMBOL_WIDTH / 2
 }
 
 /**
@@ -760,8 +918,8 @@ function spreadOffset(index, count, { left, right } = DEFAULT_ARROW_ROOM) {
  * @param {Object} network - From speciesNetwork.
  * @param {Map<string, Object>} layout - From layoutPhysiology.
  * @param {Object} [options]
- * @param {(id: string) => Object|undefined} [options.facesOf] - A protein's glyph's face anchors.
- * @param {(id: string) => Object|undefined} [options.arrowsOf] - What a protein's cartoon's arrows carry, and
+ * @param {(id: string) => Object|undefined} [options.facesOf] - A protein's symbol's face anchors.
+ * @param {(id: string) => Object|undefined} [options.arrowsOf] - What a protein's symbol's arrows carry, and
  *   where (see arrowOffset), so each species' path attaches under its own arrow.
  * @param {(path: Object) => {direction: 'in'|'out'|null, size: number}|null} [options.flowOf] - Which way a path's
  *   species went in the last run, and how much.
@@ -783,7 +941,7 @@ export function layoutSpecies(
     flowOf = () => null,
     labelOf = () => undefined,
     orderOf = () => undefined,
-  } = {}
+  } = {},
 ) {
   const tokens = placeSpeciesTokens(network, layout, { labelOf, orderOf })
   return { tokens, ...routeSpecies(network, layout, tokens, { facesOf, arrowsOf, flowOf }) }
@@ -809,9 +967,21 @@ function foldWay(place, layout) {
   const fold = cell?.folds?.find((each) => each.facetId === place.part)
   if (!fold) return {}
   const { rect } = cell
-  const inward = { top: place.y - rect.y, bottom: rect.y + rect.height - place.y, left: place.x - rect.x, right: rect.x + rect.width - place.x }[fold.edge]
-  const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[fold.edge]
-  return { through: { mouth: { point: foldPoint(rect, fold.edge, fold.at, 0), direction }, lumen: foldPoint(rect, fold.edge, fold.at, inward) } }
+  const inward = {
+    top: place.y - rect.y,
+    bottom: rect.y + rect.height - place.y,
+    left: place.x - rect.x,
+    right: rect.x + rect.width - place.x,
+  }[fold.edge]
+  const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[
+    fold.edge
+  ]
+  return {
+    through: {
+      mouth: { point: foldPoint(rect, fold.edge, fold.at, 0), direction },
+      lumen: foldPoint(rect, fold.edge, fold.at, inward),
+    },
+  }
 }
 
 /** A process card's place in the layout: in a cell or free. Its x and y are its top-left corner. */
@@ -833,9 +1003,10 @@ const CARD_LEG_GAP = 20
  */
 export function cardFaces(legs) {
   const sideOf = ({ place, token }) => {
-    const dx = token.x - (place.x + CARD.width / 2)
-    const dy = token.y - (place.y + CARD.height / 2)
-    if (Math.abs(dy) * CARD.width >= Math.abs(dx) * CARD.height) return dy < 0 ? 'top' : 'bottom'
+    const { width, height } = processSize(place)
+    const dx = token.x - (place.x + width / 2)
+    const dy = token.y - (place.y + height / 2)
+    if (Math.abs(dy) * width >= Math.abs(dx) * height) return dy < 0 ? 'top' : 'bottom'
     return dx < 0 ? 'left' : 'right'
   }
   const groups = new Map()
@@ -848,18 +1019,21 @@ export function cardFaces(legs) {
   for (const group of groups.values()) {
     const { side, place } = group[0]
     const isFlat = side === 'top' || side === 'bottom'
-    const length = isFlat ? CARD.width : CARD.height
+    const { width, height } = processSize(place)
+    const length = isFlat ? width : height
     const gap = Math.min(CARD_LEG_GAP, (length - CARD_LEG_GAP) / group.length)
     const along = (entry) => (isFlat ? entry.token.x : entry.token.y)
     group.sort((a, b) => along(a) - along(b) || byLabel(a, b))
     for (const [index, entry] of group.entries()) {
       const offset = (index - (group.length - 1) / 2) * gap
-      const centre = { x: place.x + CARD.width / 2, y: place.y + CARD.height / 2 }
-      const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[side]
+      const centre = { x: place.x + width / 2, y: place.y + height / 2 }
+      const direction = { top: { x: 0, y: -1 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } }[
+        side
+      ]
       faces.set(entry.id, {
         point: {
-          x: centre.x + (direction.x * CARD.width) / 2 + (isFlat ? offset : 0),
-          y: centre.y + (direction.y * CARD.height) / 2 + (isFlat ? 0 : offset),
+          x: centre.x + (direction.x * width) / 2 + (isFlat ? offset : 0),
+          y: centre.y + (direction.y * height) / 2 + (isFlat ? 0 : offset),
         },
         direction,
       })
@@ -884,7 +1058,7 @@ export function cardFaces(legs) {
 export function placeSpeciesTokens(
   network,
   layout,
-  { labelOf = () => undefined, orderOf = () => undefined, only = null } = {}
+  { labelOf = () => undefined, orderOf = () => undefined, only = null } = {},
 ) {
   const proteinPlace = proteinPlaceIn(layout)
   const cells = [...layout.values()].filter((place) => place.kind === 'cell').map((place) => place.rect)
@@ -902,7 +1076,7 @@ export function placeSpeciesTokens(
         network.paths
           .filter((path) => path.species === species && (path.outside === nodeId || path.inside === nodeId))
           .map((path) => proteinPlace(path.protein))
-          .filter(Boolean)
+          .filter(Boolean),
       ),
     ]
     const others = cells.filter((cell) => cell !== rect)
@@ -1001,7 +1175,7 @@ export function routeSpecies(
   network,
   layout,
   tokens,
-  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null, largest: largestGiven = null } = {}
+  { facesOf = () => undefined, arrowsOf = () => undefined, flowOf = () => null, largest: largestGiven = null } = {},
 ) {
   const proteinPlace = proteinPlaceIn(layout)
   const tokenAt = new Map(tokens.map((token) => [token.key, token]))
@@ -1028,8 +1202,7 @@ export function routeSpecies(
   const cardFace = cardFaces([...exchanges, ...read])
   // Asked of the network's own exchange, as a path's flow is of its own path: a caller may know them by identity.
   const exchangeFlows = exchanges.map((exchange) => flowOf(exchange.source))
-  const largest =
-    largestGiven ?? Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
+  const largest = largestGiven ?? Math.max(0, ...[...flows, ...exchangeFlows].map((flow) => Math.abs(flow?.size ?? 0)))
   // In WIDTH_STEPS steps, so a flow followed through a run redraws its arrowheads only as it changes visibly.
   const widthOf = (flow, source) => {
     const most = typeof largest === 'function' ? largest(source) : largest
@@ -1042,7 +1215,7 @@ export function routeSpecies(
     const outer = tokenAt.get(`${path.outside}::${path.species}`)
     const inner = tokenAt.get(`${path.inside}::${path.species}`)
     if (!place || !outer || !inner) continue
-    const size = { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }
+    const size = { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }
     const anchors = facesOf(path.protein)
     const offset = arrowOffset(arrowsOf(path.protein), path.species)
     const out = { ...facePoint(place, 'outside', size, anchors, offset), ...foldWay(place, layout) }
@@ -1090,7 +1263,7 @@ export function routeSpecies(
     })
   }
 
-  // A dependence goes to the face on its compartment's side: under the species' arrow if the cartoon has one, else
+  // A dependence goes to the face on its compartment's side: under the species' arrow if the symbol has one, else
   // spread with the protein's other such dependences on that face, in the order of their tokens along it.
   const placedDependences = []
   for (const dependence of network.dependences ?? []) {
@@ -1120,7 +1293,7 @@ export function routeSpecies(
     const { protein, compartment, species, place, token, face } = dependence
     const arrows = arrowsOf(protein)
     const hasArrow = (entry) => !!arrows?.species?.includes(entry.species)
-    // Along the face as the cartoon's x runs: on screen, reversed where it is turned upside down or onto the left.
+    // Along the face as the symbol's x runs: on screen, reversed where it is turned upside down or onto the left.
     const along = (entry) =>
       ({ top: entry.token.x, bottom: -entry.token.x, left: -entry.token.y, right: entry.token.y })[place.outward] ??
       entry.token.x
@@ -1132,7 +1305,7 @@ export function routeSpecies(
       : shared.length > 1
         ? spreadOffset(shared.indexOf(dependence), shared.length, arrows?.room)
         : 0
-    const at = facePoint(place, face, { width: GLYPH_WIDTH, height: GLYPH_HEIGHT }, facesOf(protein), offset)
+    const at = facePoint(place, face, { width: SYMBOL_WIDTH, height: SYMBOL_HEIGHT }, facesOf(protein), offset)
     dependences.push({
       key: `${protein}::${species}::${compartment}`,
       protein,
@@ -1188,7 +1361,9 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
       ? {
           ...ends.face,
           point: move(ends.face.point),
-          ...(through && { through: { mouth: { ...through.mouth, point: move(through.mouth.point) }, lumen: move(through.lumen) } }),
+          ...(through && {
+            through: { mouth: { ...through.mouth, point: move(through.mouth.point) }, lumen: move(through.lumen) },
+          }),
         }
       : ends.face
     return leg(at, face, ends.toToken, ends.head)
@@ -1205,7 +1380,9 @@ export function driftSpecies(species, layout, { moved = new Map(), placed = new 
     const shift = faceShift(dependence.protein)
     const d = redraw(dependence.ends, dependence.d, shift)
     if (d === dependence.d) return dependence
-    const end = shift ? { ...dependence.end, x: dependence.end.x + shift.x, y: dependence.end.y + shift.y } : dependence.end
+    const end = shift
+      ? { ...dependence.end, x: dependence.end.x + shift.x, y: dependence.end.y + shift.y }
+      : dependence.end
     return { ...dependence, d, end }
   })
   return { ...species, tokens, paths, dependences }
@@ -1242,7 +1419,9 @@ function leg(token, face, toToken, head = 0) {
   const nearEdge = { x: edge.x + toward.x * reach, y: edge.y + toward.y * reach }
   const nearFace = { x: face.point.x + face.direction.x * reach, y: face.point.y + face.direction.y * reach }
   const round = (point) => `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`
-  const [start, c1, bend, tip] = toToken ? [face.point, nearFace, nearEdge, edge] : [edge, nearEdge, nearFace, face.point]
+  const [start, c1, bend, tip] = toToken
+    ? [face.point, nearFace, nearEdge, edge]
+    : [edge, nearEdge, nearFace, face.point]
   // Its last stretch moves back along itself, so it still meets the arrowhead's base head on.
   const along = Math.hypot(tip.x - bend.x, tip.y - bend.y)
   const back = along > 0 ? Math.min(head, Math.hypot(tip.x - start.x, tip.y - start.y) / 2) : 0

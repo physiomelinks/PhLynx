@@ -101,28 +101,20 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
   }
 
   /**
-   * Creates a new instance node at the given position and adds it to the flow.
-   * Returns the new node's id and type so the caller can handle any
-   * post-creation logic (e.g. opening the ghost setup dialog).
+   * Builds a new instance node, ready to add to the flow, seeded with its parameters and the ports its annotations
+   * give. Nothing is added or recorded, nor are its global constants assigned (see createInstanceNode).
    *
-   * @param {object} moduleData - The module descriptor (ports, mathRef, variables); its `parameterisation`, else its
-   *   `defaultParameterisation`, names the parameter set the instance is seeded with. A workspace instance dropped
-   *   with NO_PARAMETER_SET makes a new set of its math's values, named as the instance (see addInstanceSet).
-   * @param {{x: number, y: number}} position - Flow coordinates to place the node.
+   * @param {string} nodeId - One no node of the flow has (see getNextNodeId).
+   * @param {object} moduleData - As for createInstanceNode.
+   * @param {{x: number, y: number}} position - Its top-left.
    * @param {Array<Object>} [handles=[]]
-   * @param {Object} [extraData={}] - More node data, e.g. its bioView, so the add carries it.
-   * @param {Object} [options]
-   * @param {boolean} [options.centre=true] - Treat position as where the node's centre goes, as for a
-   *   drop at the mouse; otherwise it is the node's top-left.
-   * @returns {{ nodeId: string, nodeType: string }}
+   * @param {Object} [extraData={}] - More node data, e.g. its bioView; a name here replaces the one it is given.
+   * @returns {{ node: Object, nodeType: string }}
    */
-  function createInstanceNode(moduleData, position, handles = [], extraData = {}, { centre = true } = {}) {
-    const nodeId = getNextNodeId(getNodes.value.map((n) => n.id))
-    pendingHistoryNodes.add(nodeId)
-
+  function buildInstanceNode(nodeId, moduleData, position, handles = [], extraData = {}) {
     const existingNames = new Set(getNodes.value.map((n) => n.data.name))
     const instanceName = moduleData.moduleRef.includes(":") ? moduleData.moduleRef.split(":")[0] : moduleData.moduleRef
-    const finalName = generateUniqueInstanceName(instanceName, existingNames)
+    const finalName = extraData.name ?? generateUniqueInstanceName(instanceName, existingNames)
 
     const allHandles = [...handles, ...buildGhostHandles(NUM_GHOST_HANDLES_TOP_BOT, NUM_GHOST_HANDLES_LEFT_RIGHT)]
 
@@ -148,6 +140,31 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
         if (parsed) updateNode(nodeId, (node) => ({ data: { ...node.data, ports: buildSidecarPorts(node.data, parsed) } }))
       })
     }
+    return { node: newNode, nodeType }
+  }
+
+  /**
+   * Creates a new instance node at the given position and adds it to the flow.
+   * Returns the new node's id and type so the caller can handle any
+   * post-creation logic (e.g. opening the ghost setup dialog).
+   *
+   * @param {object} moduleData - The module descriptor (ports, mathRef, variables); its `parameterisation`, else its
+   *   `defaultParameterisation`, names the parameter set the instance is seeded with. A workspace instance dropped
+   *   with NO_PARAMETER_SET makes a new set of its math's values, named as the instance (see addInstanceSet).
+   * @param {{x: number, y: number}} position - Flow coordinates to place the node.
+   * @param {Array<Object>} [handles=[]]
+   * @param {Object} [extraData={}] - More node data, e.g. its bioView, so the add carries it; a name here replaces
+   *   the one it would be given.
+   * @param {Object} [options]
+   * @param {boolean} [options.centre=true] - Treat position as where the node's centre goes, as for a
+   *   drop at the mouse; otherwise it is the node's top-left.
+   * @returns {{ nodeId: string, nodeType: string }}
+   */
+  function createInstanceNode(moduleData, position, handles = [], extraData = {}, { centre = true } = {}) {
+    const nodeId = getNextNodeId(getNodes.value.map((n) => n.id))
+    pendingHistoryNodes.add(nodeId)
+
+    const { node: newNode, nodeType } = buildInstanceNode(nodeId, moduleData, position, handles, extraData)
 
     const globalConstants = extractGlobalConstants(newNode.data.variables)
     
@@ -218,6 +235,7 @@ export default function useDragAndDrop(pendingHistoryNodes, flowId = FLOW_IDS.MA
     onDragLeave,
     onDragOver,
     onDrop,
+    buildInstanceNode,
     createInstanceNode,
   }
 }

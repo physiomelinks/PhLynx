@@ -74,6 +74,20 @@ export const SETTING_SECTIONS = [
           'times and then rest, which is lighter on slower machines; a selected species’ paths always run.',
         default: true,
       },
+      {
+        key: 'bioCellTube',
+        type: 'select',
+        label: 'A tube between two touching cells',
+        description:
+          'What a tube dropped between two touching cells joins them by. Between two cells apart, it is always a ' +
+          'bridge, a gap junction needing their membranes to meet.',
+        options: [
+          { value: 'ask', label: 'Ask', hint: 'Choose each time' },
+          { value: 'gap', label: 'Gap junction', hint: 'The two membranes meet, with a connexon in each' },
+          { value: 'bridge', label: 'Bridge', hint: 'An open channel of cytoplasm, walled by membrane' },
+        ],
+        default: 'ask',
+      },
     ],
   },
   {

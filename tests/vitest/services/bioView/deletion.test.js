@@ -4,14 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useFlowHistory } from '../../../../src/composables/useFlowHistory.js'
 import {
-  cellContents,
   deleteConnection,
   deleteInstances,
   deletionLabel,
+  deletionMessage,
   deletionScope,
   isDeleteKey,
-  releaseFromCell,
+  planDeletion,
 } from '../../../../src/services/bioView/deletion.js'
+import { validatePieces } from '../../../../src/services/bioView/pieces/model.js'
+import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
+import { layoutPieces } from '../../../../src/services/bioView/pieces/layout.js'
 import { useFlowHistoryStore } from '../../../../src/stores/historyStore.js'
 
 const nodes = ref([])
@@ -129,32 +132,95 @@ describe('deleteConnection', () => {
   })
 })
 
-describe('a deleted cell’s contents', () => {
-  const layout = new Map([
-    ['cell', { kind: 'cell', rect: { x: 100, y: 50, width: 320, height: 240 } }],
-    ['wall', { kind: 'membrane', cell: 'cell' }],
-    ['pump', { kind: 'protein', cell: 'cell', x: 260, y: 50 }],
-    ['gly', { kind: 'cytosolic', cell: 'cell', x: 150, y: 120 }],
-    ['other', { kind: 'cell', rect: { x: 600, y: 50, width: 320, height: 240 } }],
-    ['theirs', { kind: 'protein', cell: 'other', x: 700, y: 50 }],
-    ['lumen', { kind: 'region', rect: { x: 0, y: 0, width: 10, height: 10 } }],
-    ['bound', { kind: 'cell', instance: 'bt-1', rect: { x: 0, y: 400, width: 320, height: 240 } }],
-    ['placed', { kind: 'protein', cell: 'bound', instance: 'bt-1', x: 50, y: 400 }],
-  ])
+describe('planDeletion on a cell with no single inside', () => {
+  const rod = validatePieces(getBuiltInPieceTemplate('rod-photoreceptor').pieces).pieces
 
-  it('is its membrane, proteins and processes that are not going with it', () => {
-    expect(cellContents(['cell'], layout)).toEqual(['wall', 'pump', 'gly'])
-    expect(cellContents(['cell', 'pump', 'lumen'], layout)).toEqual(['wall', 'gly'])
-    expect(cellContents(['pump', 'lumen'], layout)).toEqual([])
-    // A template's cell keeps its places, so what is on them is not left without one.
-    expect(cellContents(['bound'], layout)).toEqual([])
+  it('leaves the segments standing where they were drawn when the membrane goes alone, their bridge a flow', () => {
+    const rects = layoutPieces(rod).rects
+    const plan = planDeletion(rod, [], { pieces: ['plasma-membrane'] })
+    expect(plan.errors).toEqual([])
+    const left = new Map(plan.next.map((piece) => [piece.id, piece]))
+    expect([...left.keys()].sort()).toEqual(['cilium', 'inner-segment', 'outer-segment'])
+    for (const id of ['outer-segment', 'inner-segment']) {
+      expect(left.get(id).docks).toBeUndefined()
+      const rect = rects.get(id)
+      expect(left.get(id).frame).toEqual({
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      })
+    }
+    expect(left.get('cilium').flux).toBe('flow')
+    // Asked about: only the extracellular space docked outside it, not the segments.
+    expect(plan.alongWith).toEqual(['extracellular'])
   })
 
-  it('stays where it is drawn, out of any cell', () => {
-    const patches = releaseFromCell(['wall', 'pump', 'gly'], layout, { width: 64, height: 48 })
-    // A protein's place is its centre; a node's position is its corner.
-    expect(patches.get('pump')).toEqual({ cell: undefined, facet: undefined, at: undefined, order: undefined, position: { x: 228, y: 26 } })
-    expect(patches.get('gly').position).toEqual({ x: 150, y: 120 })
-    expect(patches.get('wall').position).toEqual({ x: 100, y: 50 })
+  it('names a fold that goes with its membrane', () => {
+    const cardiomyocyte = validatePieces(getBuiltInPieceTemplate('cardiomyocyte').pieces).pieces
+    expect(planDeletion(cardiomyocyte, [], { pieces: ['sarcolemma'] }).alongWith).toContain('t-tubule')
+  })
+
+  it('says plainly why a segment can’t be deleted', () => {
+    const plan = planDeletion(rod, [], { pieces: ['inner-segment'] })
+    expect(plan.next).toBeNull()
+    expect(plan.errors).toHaveLength(1)
+    expect(plan.errors[0]).toMatch(/^It is part of the inside of a cell with no other inside/)
+  })
+})
+
+describe('planDeletion', () => {
+  const pieces = validatePieces([
+    { id: 'bath', kind: 'compartment', label: 'Bath', frame: { x: 0, y: 0, width: 200, height: 120 } },
+    { id: 'cell', kind: 'compartment', label: 'Cell', frame: { x: 400, y: 0, width: 200, height: 120 } },
+    { id: 'pm', kind: 'membrane', label: 'PM', encloses: ['cell'], sides: { top: [{ id: 'apical', label: 'Apical' }] } },
+    { id: 'link', kind: 'tube', label: 'Link', ends: ['bath', 'cell'] },
+  ]).pieces
+  const on = (id, site) => ({ id, data: { name: id, bioView: { site } } })
+  const nodes = [
+    on('saline', 'pieces/bath'),
+    on('cytosol', 'pieces/cell'),
+    on('wall', 'pieces/pm'),
+    on('pump', 'pieces/pm.apical'),
+    on('conduit', 'pieces/link'),
+    on('stale', 'pieces/nowhere'),
+    { id: 'loose', data: { name: 'loose' } },
+  ]
+
+  it('takes a cell’s compartment with its membrane, tube and every module on them, asking about what was not chosen', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['cytosol'] })
+    expect(plan.pieces).toEqual(['cell'])
+    expect(plan.next.map((piece) => piece.id)).toEqual(['bath'])
+    expect(plan.going.sort()).toEqual(['conduit', 'cytosol', 'pump', 'wall'])
+    expect(plan.alongWith).toEqual(['pm', 'link'])
+    // The membrane's and tube's modules are those pieces, named by them; the protein is asked about.
+    expect(plan.modulesToo).toEqual(['pump'])
+  })
+
+  it('takes a membrane alone, leaving the compartment it enclosed', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['wall'] })
+    expect(plan.next.map((piece) => piece.id)).toEqual(['bath', 'cell', 'link'])
+    expect(plan.going.sort()).toEqual(['pump', 'wall'])
+    expect(plan.alongWith).toEqual([])
+    expect(plan.modulesToo).toEqual(['pump'])
+  })
+
+  it('takes a free compartment and its module without asking, and pieces chosen by id', () => {
+    const plan = planDeletion(pieces, nodes, { pieces: ['link'] })
+    expect(plan.going).toEqual(['conduit'])
+    expect(deletionMessage(plan, { pieceName: (id) => id, nodeName: (id) => id })).toBeNull()
+  })
+
+  it('takes no piece for a protein or a loose module, nor a module on a site no piece offers', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['pump', 'loose'] })
+    expect(plan.next).toBeNull()
+    expect(plan.going).toEqual(['pump', 'loose'])
+    expect(planDeletion(pieces, nodes, { instances: ['saline'] }).going).not.toContain('stale')
+  })
+
+  it('says what else goes', () => {
+    const plan = planDeletion(pieces, nodes, { instances: ['cytosol'] })
+    const names = { pieceName: (id) => id.toUpperCase(), nodeName: (id) => `<${id}>` }
+    expect(deletionMessage(plan, names)).toBe('PM, LINK go with it. These modules on it are deleted too: <pump>.')
   })
 })

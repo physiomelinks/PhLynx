@@ -4,33 +4,47 @@ import { describe, expect, it } from 'vitest'
 
 import { GO } from '../../../../src/services/annotations/iris.js'
 import { parseSidecar } from '../../../../src/services/annotations/sidecar.js'
-import { NO_GLYPH, glyphFor, processGlyphFor } from '../../../../src/services/bioView/glyphs.js'
 import { goLocationsOf, resolveBioRole } from '../../../../src/services/bioView/roles.js'
+import { contextOfModule } from '../../../../src/services/bioView/skinContext.js'
+import { NO_SKIN, resolveSkin } from '../../../../src/services/bioView/skinRegistry.js'
+
+/** The skin a module with a role and terms is drawn with, chosen or not. */
+const skinOf = (role, terms, chosen) => resolveSkin(contextOfModule(role, terms), chosen)?.id ?? null
 
 const TOY = resolve(__dirname, '../../fixtures/annotations/toy')
 const readToy = (name) => readFileSync(resolve(TOY, name), 'utf8')
 const toySidecar = (name) => parseSidecar(readToy(`${name}.ttl`), { mathRef: `${name}.cellml:${name}`, cellml: readToy(`${name}.cellml`) })
 
 describe('physiological roles', () => {
-  it('takes a role the location source worked out over the sidecar’s, and the user’s over both', async () => {
+  it('takes its site’s role on a piece, else a role the location source worked out, else the sidecar’s', async () => {
     const sidecar = await toySidecar('porter')
-    const worked = { role: 'membraneProtein', facet: 'basolateral', cell: 'c1' }
-    expect(resolveBioRole({ name: 'p' }, { sidecar, worked })).toMatchObject({
-      role: 'membraneProtein',
-      facet: 'basolateral',
-      cell: 'c1',
-      annotatedFacet: 'basolateral',
+    expect(resolveBioRole({ name: 'p' }, { sidecar, worked: 'cytosolic', siteRole: 'region' })).toMatchObject({
+      role: 'region',
+      source: 'site',
+    })
+    expect(resolveBioRole({ name: 'p' }, { sidecar, worked: 'cytosolic' })).toMatchObject({
+      role: 'cytosolic',
       source: 'location',
     })
-    expect(resolveBioRole({ bioView: { role: 'region' } }, { sidecar, worked })).toMatchObject({ role: 'region', source: 'override' })
     expect(resolveBioRole({}, { sidecar, worked: null }).source).toBe('sidecar')
+  })
+
+  it('ignores a stored role and where a retired field put it', async () => {
+    const data = { name: 'porter', bioView: { role: 'region', facet: 'lateral', cell: 'c', adjacent: [] } }
+    expect(resolveBioRole(data, { sidecar: await toySidecar('porter') })).toEqual({
+      role: 'membraneProtein',
+      skin: 'symporter',
+      skinContext: expect.any(Object),
+      source: 'sidecar',
+    })
+    expect(resolveBioRole({ bioView: { role: 'region' } })).toMatchObject({ role: 'none', source: 'none' })
   })
 
   it('reads the role from the module’s sidecar', async () => {
     const roleOf = async (name) => resolveBioRole({ name }, { sidecar: await toySidecar(name) })
-    expect(await roleOf('porter')).toMatchObject({ role: 'membraneProtein', facet: null, cell: null, glyph: 'symporter', source: 'sidecar' })
+    expect(await roleOf('porter')).toMatchObject({ role: 'membraneProtein', skin: 'symporter', source: 'sidecar' })
     expect(await roleOf('wall')).toMatchObject({ role: 'membrane', source: 'sidecar' })
-    expect(await roleOf('pool')).toMatchObject({ role: 'region', side: null, source: 'sidecar' })
+    expect(await roleOf('pool')).toMatchObject({ role: 'region', source: 'sidecar' })
   })
 
   it('reads where an unkinded module’s variables are', () => {
@@ -41,74 +55,43 @@ describe('physiological roles', () => {
     expect(goLocationsOf(sidecar('self', `self+${GO.plasmaMembrane}`, GO.cytoplasm))).toEqual(new Set([GO.plasmaMembrane, GO.cytoplasm]))
   })
 
-  it('lets the user’s choices win', async () => {
-    const data = { name: 'porter', bioView: { facet: 'lateral', glyph: 'pump', cell: 'other' } }
-    expect(resolveBioRole(data, { sidecar: await toySidecar('porter') })).toMatchObject({
-      role: 'membraneProtein',
-      facet: 'lateral',
-      glyph: 'pump',
-      cell: 'other',
-      source: 'sidecar',
-    })
-    // Taken out of the membrane, it has no facet.
-    const unplaced = { ...data, bioView: { facet: null } }
-    expect(resolveBioRole(unplaced, { sidecar: await toySidecar('porter') })).toMatchObject({ facet: null, annotatedFacet: null })
-    expect(resolveBioRole({ bioView: { role: 'region' } }).source).toBe('override')
-    // Choices that don't fit are ignored.
-    expect(resolveBioRole({ bioView: { role: 'mitochondrion', facet: 'top', glyph: 'blob' } })).toMatchObject({ role: 'none', facet: null, glyph: null })
-  })
-
-  it('keeps a lateral protein’s side and a region’s adjacency, dropping what doesn’t fit', () => {
-    const lateral = { bioView: { role: 'membraneProtein', facet: 'lateral', at: 'right' } }
-    expect(resolveBioRole(lateral)).toMatchObject({ facet: 'lateral', at: 'right' })
-    expect(resolveBioRole({ bioView: { role: 'membraneProtein', facet: 'apical', at: 'right' } }).at).toBeNull()
-    const region = {
-      bioView: {
-        role: 'region',
-        adjacent: [{ cell: 'c', facet: 'lateral', at: 'up' }, { cell: 'c', facet: 'roof' }, { facet: 'apical' }, { cell: 'd', facet: 'apical', at: 'left' }],
-      },
-    }
-    expect(resolveBioRole(region).adjacent).toEqual([
-      { cell: 'c', facet: 'lateral', at: 'left' },
-      { cell: 'd', facet: 'apical' },
-    ])
-    expect(resolveBioRole({ bioView: { role: 'region', adjacent: [] } }).adjacent).toBeNull()
-    expect(resolveBioRole({ bioView: { role: 'cytosol', adjacent: [{ cell: 'c', facet: 'apical' }] } }).adjacent).toBeNull()
+  it('draws a module with the skin chosen for it, ignoring one that doesn’t fit', async () => {
+    const sidecar = await toySidecar('porter')
+    expect(resolveBioRole({ bioView: { skin: 'pump' } }, { sidecar }).skin).toBe('pump')
+    expect(resolveBioRole({ bioView: { skin: 'blob' } }, { sidecar }).skin).toBe('symporter')
   })
 
   it('is nothing physiological without annotations', () => {
-    expect(resolveBioRole({ name: 'plain' })).toEqual({
-      role: 'none',
-      facet: null,
-      at: null,
-      annotatedFacet: null,
-      cell: null,
-      side: null,
-      adjacent: null,
-      glyph: null,
-      source: 'none',
-    })
+    expect(resolveBioRole({ name: 'plain' })).toEqual({ role: 'none', skin: null, skinContext: null, source: 'none' })
   })
 
-  it('draws each annotated protein function as its cartoon, and others as generic', () => {
+  it('draws each annotated protein function as its skin, and others as generic', () => {
+    const glyphFor = (terms, chosen) => skinOf('membraneProtein', terms, chosen)
     expect(glyphFor([GO.glucoseSodiumSymporter])).toBe('symporter')
     expect(glyphFor([GO.glucoseTransporter])).toBe('uniporter')
     expect(glyphFor([GO.sodiumPotassiumAtpase])).toBe('pump')
     expect(glyphFor([GO.inwardRectifierPotassiumChannel])).toBe('channel')
     expect(glyphFor(['GO:0000000'])).toBe('generic')
     expect(glyphFor([GO.glucoseTransporter], 'antiporter')).toBe('antiporter')
+    // A process's skin, or none, is not a protein's.
+    expect(glyphFor(['GO:0005739'])).toBe('generic')
+    expect(glyphFor([], 'mitochondrion')).toBe('generic')
+    expect(glyphFor([], NO_SKIN)).toBe('generic')
   })
 
   it('draws a process as the generic process unless chosen or annotated with a cartoon, or none', () => {
     // SBGN's process node, where nothing says more.
-    expect(resolveBioRole({ bioView: { role: 'cytosolic' } }).glyph).toBe('process')
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'mitochondrion' } }).glyph).toBe('mitochondrion')
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: 'blob' } }).glyph).toBe('process')
+    const process = { siteRole: 'cytosolic' }
+    expect(resolveBioRole({}, process).skin).toBe('process')
+    expect(resolveBioRole({ bioView: { skin: 'mitochondrion' } }, process).skin).toBe('mitochondrion')
+    expect(resolveBioRole({ bioView: { skin: 'blob' } }, process).skin).toBe('process')
+    const processGlyphFor = (terms, chosen) => skinOf('cytosolic', terms, chosen)
     expect(processGlyphFor(['GO:0030016'])).toBe('myofilament')
     expect(processGlyphFor(['GO:0005739'])).toBe('mitochondrion')
     expect(processGlyphFor(['GO:0000000'])).toBe('process')
+    expect(processGlyphFor([], 'pump')).toBe('process')
     // A plain card only by choice.
-    expect(processGlyphFor(['GO:0005739'], NO_GLYPH)).toBeNull()
-    expect(resolveBioRole({ bioView: { role: 'cytosolic', glyph: NO_GLYPH } }).glyph).toBeNull()
+    expect(processGlyphFor(['GO:0005739'], NO_SKIN)).toBeNull()
+    expect(resolveBioRole({ bioView: { skin: NO_SKIN } }, process).skin).toBeNull()
   })
 })

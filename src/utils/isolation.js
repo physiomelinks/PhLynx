@@ -20,6 +20,21 @@ export function getIsolationStatus(scope = globalThis) {
       reason: 'This browser window doesn’t allow service workers (a private window, for example), which the simulator needs.',
     }
   }
+  // The worker is skipped here (public/coi-config.js), so no reload would bring it.
+  if (scope.coi?.shouldRegister?.() === false) {
+    return {
+      isIsolated: false,
+      reason: 'The simulator is turned off in this browser window (an automated browser, for example).',
+    }
+  }
+  // The worker loaded this page and it still isn't isolated: the browser doesn't apply the worker's headers, so
+  // another reload would end up here again.
+  if (scope.coi?.wasControlledAtLoad) {
+    return {
+      isIsolated: false,
+      reason: 'This browser can’t set the simulator up, and a reload won’t help. Try another browser, such as Chrome.',
+    }
+  }
   return {
     isIsolated: false,
     reason: 'The simulator needs a reload to finish setting up. Save your work first.',

@@ -143,7 +143,7 @@ describe('matching the toy model placed on an epithelial cell', () => {
       location: 'GO:0005737',
       role: 'contributor',
       mathRef: 'porter.cellml:porter',
-      locations: [{ key: 'site:bt-toy/cell', label: 'Epithelial cell' }],
+      locations: [{ key: 'site:pieces/cell', label: 'Epithelial cell' }],
     })
   })
 

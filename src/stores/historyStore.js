@@ -28,24 +28,32 @@ export const STEP_LABELS = {
   'update-cellml-text-only': 'Edit maths',
   'bio-layout': 'Move',
   'bio-add': 'Add module',
-  'bio-bind': 'Place on template',
-  'bio-role': 'Show As',
-  'bio-glyph': 'Cartoon',
-  'bio-adjacent': 'Lies Against',
-  'bio-take-out': 'Take out of membrane',
+  'bio-bind': 'Place on piece',
+  'bio-skin': 'Skin',
+  'bio-species-order': 'Reorder species',
   'bio-unbind': 'Unbind',
-  'bio-reset': 'Reset to annotations',
   'bio-relayout': 'Re-layout physiology',
-  'bio-template-add': 'Add template',
-  'bio-template-move': 'Move template',
-  'bio-template-rename': 'Rename template',
-  'bio-template-add-piece': 'Add to template',
-  'bio-template-rename-piece': 'Rename in template',
-  'bio-template-skin': 'Change skin',
-  'bio-template-remove-piece': 'Remove from template',
-  'bio-template-restore': 'Restore template elements',
-  'bio-template-relayout': 'Re-layout template',
-  'bio-template-remove': 'Delete template',
+  'bio-pieces-add': 'Add template',
+  'bio-pieces-compartment': 'Add compartment',
+  'bio-pieces-membrane': 'Add membrane',
+  'bio-pieces-tube': 'Add tube',
+  'bio-pieces-fold': 'Add fold',
+  'bio-pieces-zone': 'Add process zone',
+  'bio-pieces-image': 'Add image',
+  'bio-pieces-image-edit': 'Change image',
+  'bio-pieces-edit': 'Edit pieces',
+  'bio-pieces-move': 'Move piece',
+  'bio-pieces-reverse': 'Reverse tube',
+  'bio-pieces-resize': 'Resize piece',
+  'bio-pieces-tube-end': 'Join tube',
+  'bio-pieces-dock': 'Dock compartment',
+  'bio-pieces-undock': 'Detach compartment',
+  'bio-pieces-relocate': 'Move piece elsewhere',
+  'bio-pieces-move-out': 'Move piece out',
+  'bio-pieces-straighten': 'Straighten tube',
+  'bio-pieces-rename': 'Rename piece',
+  'bio-pieces-skin': 'Change skin',
+  'bio-pieces-remove': 'Remove piece',
 }
 
 /** Stands for a save the history never reaches, so it never stands where the workspace was saved. */
@@ -92,6 +100,9 @@ export function createHistory() {
   // Manual batching flag, and how many commands were pending when it started (only a nested batch finds any).
   const isManualBatching = ref(false)
   let batchStart = 0
+  // How many batches are open inside the outermost one: an edit that batches its own steps can run inside another's
+  // batch, and is then part of that one step.
+  let batchDepth = 0
 
   const canUndo = computed(() => pointer.value >= 0)
   const canRedo = computed(() => pointer.value < stack.value.length - 1)
@@ -146,6 +157,7 @@ export function createHistory() {
     pendingCommands.value = []
     isManualBatching.value = false
     batchStart = 0
+    batchDepth = 0
     savedStep.value = null
   }
 
@@ -183,6 +195,10 @@ export function createHistory() {
    * timer are committed first as their own step, so the batch neither absorbs nor rolls them back.
    */
   function startBatch() {
+    if (isManualBatching.value) {
+      batchDepth++
+      return
+    }
     if (batchTimer) {
       clearTimeout(batchTimer)
       batchTimer = null
@@ -199,6 +215,11 @@ export function createHistory() {
    * @param {string} [type] - Names the step, when it is more than its last command.
    */
   function endBatch(type) {
+    // A batch inside another ends with it, named by the outer one.
+    if (batchDepth > 0) {
+      batchDepth--
+      return
+    }
     isManualBatching.value = false
     commitBatch(type)
   }
@@ -210,6 +231,7 @@ export function createHistory() {
    * @returns {Promise<void>}
    */
   async function rollbackBatch() {
+    batchDepth = 0
     const batch = pendingCommands.value.slice(batchStart)
     pendingCommands.value = pendingCommands.value.slice(0, batchStart)
     isManualBatching.value = false

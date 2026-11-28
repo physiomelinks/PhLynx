@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120">
+  <title>Red blood cell</title>
+  <!-- A biconcave disc seen face on: a darker rim round a paler, thinner middle. -->
+  <defs>
+    <radialGradient id="rbc-fill" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ef9a9a"/>
+      <stop offset="0.4" stop-color="#e06060"/>
+      <stop offset="0.8" stop-color="#c0353a"/>
+      <stop offset="1" stop-color="#8a1c22"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="100" cy="60" rx="92" ry="52" fill="url(#rbc-fill)" stroke="#7a1a1f" stroke-width="3"/>
+  <ellipse cx="100" cy="60" rx="40" ry="21" fill="#f6b9b9" fill-opacity="0.6"/>
+</svg>

@@ -10,10 +10,11 @@
     data-testid="bio-membrane"
   >
     <title>{{ data.name }}</title>
-    <path class="bio-membrane__band" :d="data.outline ?? leafletPath(data.width, data.height, 0, data.folds ?? [])" :stroke-width="BAND_WIDTH" />
-    <BioBilayer
-      v-if="(selected || data.coupled) && !data.outline"
+    <path class="bio-membrane__band" :d="leafletPath(data.width, data.height, 0, data.folds ?? [])" :stroke-width="BAND_WIDTH" />
+    <BioMembraneLine
+      v-if="selected || data.coupled"
       class="bio-membrane__heads"
+      :skin="data.membraneSkin"
       :width="data.width"
       :height="data.height"
       :folds="data.folds ?? []"
@@ -24,7 +25,7 @@
 
 <script setup>
 import { MEMBRANE_BAND_HALF, leafletPath } from '../../services/bioView/geometry'
-import BioBilayer from './BioBilayer.vue'
+import BioMembraneLine from './BioMembraneLine.vue'
 import BioHandles from './BioHandles.vue'
 
 defineProps({
@@ -56,6 +57,7 @@ const BAND_WIDTH = 2 * MEMBRANE_BAND_HALF
 
 .bio-membrane__heads {
   --bilayer-head: var(--p-primary-color);
+  --bilayer-tail: var(--p-primary-color);
   pointer-events: none;
 }
 </style>

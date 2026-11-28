@@ -1,63 +1,29 @@
 /**
- * What each instance is in the physiological view, worked out from its annotations unless the user has said.
+ * What each instance is in the physiological view. On a piece it is what its site is; off the pieces, what its
+ * annotations say, which decides only how the loose module is drawn: a protein in the tray, else a card.
  *
- * A node's data.bioView holds the user's choices and its place in that view, all optional:
- * - role, glyph, facet, cell: overrides of what is worked out here; a facet of null takes a protein out of
- *   its membrane;
- * - at: 'left' or 'right', which side of the cell a lateral protein is on;
- * - adjacent: [{ cell, facet, at? }], what a region lies against, e.g. one cell's lateral side for a
- *   paracellular space;
- * - order: its slot along its facet, for a membrane protein;
- * - site: '<instanceId>/<sitePath>', the template site it is bound to; one whose instance is gone leaves it
- *   unbound, falling back to its role;
- * - position, rect: where it is drawn, when not worked out from its cell;
+ * A node's data.bioView holds its place and look in that view, all optional:
+ * - site: '<owner>/<sitePath>', the site of the pieces it is bound to; one the pieces don't offer leaves it unbound;
+ * - order: its slot along a row of slots on its site;
+ * - position: where it is drawn, when it is on no site;
+ * - skin: the skin chosen for it;
  * - speciesOrder: the species of a compartment's tokens in species mode, in the order the user dragged them into.
  */
 
 import { GO } from '../annotations/iris.js'
-import { FACETS, LATERAL_SIDES as SIDES } from './facets.js'
-import { glyphFor, processGlyphFor } from './glyphs.js'
+import { contextOfModule } from './skinContext.js'
+import { resolveSkin } from './skinRegistry.js'
 
 /**
  * What an instance can be:
- * - membraneProtein: sits in a cell's membrane, on a facet;
+ * - membraneProtein: sits in a membrane;
  * - membrane: a cell's membrane itself;
  * - cytosol: a cell's inside;
  * - cytosolic: a process inside a cell, such as glycolysis;
- * - region: a space outside cells, such as a lumen or a vessel;
+ * - region: a compartment outside a cell's bulk, such as a lumen or a vessel;
  * - none: nothing physiological is known, drawn as a card.
  */
 export const ROLES = ['membraneProtein', 'membrane', 'cytosol', 'cytosolic', 'region', 'none']
-
-/** How the roles read where the user picks one: the Show As menu and the properties panel. */
-export const ROLE_LABELS = Object.freeze({
-  membraneProtein: 'Membrane protein',
-  membrane: 'Membrane',
-  cytosol: 'Cell',
-  cytosolic: 'Process in a cell',
-  region: 'Region outside cells',
-  none: 'Card',
-})
-
-/** The roles drawn with a cartoon: a protein in its membrane, and a process on its card. */
-export const GLYPH_ROLES = new Set(['membraneProtein', 'cytosolic'])
-
-/** Roles that belong to a cell. */
-const CELL_ROLES = new Set(['membraneProtein', 'membrane', 'cytosolic'])
-
-/**
- * Keeps the entries of a region's adjacency that name a cell and a facet of it (and a side, for lateral).
- *
- * @param {*} adjacent - data.bioView.adjacent.
- * @returns {Array<{cell: string, facet: string, at?: string}>|null} null when none are usable.
- */
-function validAdjacency(adjacent) {
-  if (!Array.isArray(adjacent)) return null
-  const valid = adjacent
-    .filter((entry) => typeof entry?.cell === 'string' && FACETS.includes(entry.facet))
-    .map(({ cell, facet, at }) => (facet === 'lateral' ? { cell, facet, at: SIDES.includes(at) ? at : 'left' } : { cell, facet }))
-  return valid.length ? valid : null
-}
 
 /**
  * Gives the GO cellular components a sidecar puts its variables in, leaving out ones only on the
@@ -79,67 +45,56 @@ export function goLocationsOf(sidecar) {
  * Works out a role from a module's sidecar: its component kind, else where its variables are.
  *
  * @param {Object} sidecar
- * @returns {Object|null}
+ * @returns {string|null}
  */
 function fromSidecar(sidecar) {
   switch (sidecar.component?.kind) {
     case 'transporter':
-      return { role: 'membraneProtein' }
+      return 'membraneProtein'
     case 'membrane':
-      return { role: 'membrane' }
+      return 'membrane'
     case 'compartment':
-      return { role: 'region' }
+      return 'region'
   }
   const locations = goLocationsOf(sidecar)
-  if (locations.has(GO.cytoplasm) && locations.has(GO.extracellularRegion)) return { role: 'membraneProtein' }
-  if (locations.size === 1 && locations.has(GO.cytoplasm)) return { role: 'cytosolic' }
+  if (locations.has(GO.cytoplasm) && locations.has(GO.extracellularRegion)) return 'membraneProtein'
+  if (locations.size === 1 && locations.has(GO.cytoplasm)) return 'cytosolic'
   return null
 }
 
 /**
- * Works out what an instance is in the physiological view. The user's bioView choices win, then a role the
- * location source worked out, then its module's sidecar.
+ * Works out what an instance is in the physiological view: its site's role on a piece, else a role the location
+ * source worked out, else its module's sidecar's.
  *
  * @param {Object} data - The node's data.
  * @param {Object} [context]
  * @param {Object|null} [context.sidecar] - The parsed sidecar of the node's math.
- * @param {Object|null} [context.worked] - A role the location source worked out (see locationSources.js), as
- *   { role, facet?, cell?, side? }.
- * @returns {{ role: string, facet: string|null, at: string|null, annotatedFacet: string|null, cell: string|null,
- *   side: string|null, adjacent: Array<Object>|null, glyph: string|null,
- *   source: 'override'|'location'|'sidecar'|'none',
- *   site?: string }}
- *   annotatedFacet is the facet the annotations give, whatever the user chose, and null for a node bound to a
- *   template site, which the template places; side is the facet a region faces as the annotations give it, and
- *   adjacent what the user said it lies against; site, only there when set, the template site it is bound to.
+ * @param {string|null} [context.worked] - A role the location source worked out (see locationSources.js).
+ * @param {string|null} [context.siteRole] - The role of the site of the pieces the node is bound to (see
+ *   siteRolesOf), which wins over everything.
+ * @returns {{ role: string, skin: string|null, skinContext: {family: string, target: string, terms: string[]}|null,
+ *   source: 'site'|'location'|'sidecar'|'none', site?: string }}
+ *   skin is the skin it is drawn with (see resolveSkin), null for a role drawn with none or a process chosen to have
+ *   none; skinContext, what it is for its skin (see contextOfModule), null for a role with no skin; site, only there
+ *   when set, the site it is bound to.
  */
-export function resolveBioRole(data, { sidecar = null, worked: located = null } = {}) {
-  const fromModule = !located && sidecar ? fromSidecar(sidecar) : null
-  const worked = located ?? fromModule
-  const source = located ? 'location' : fromModule ? 'sidecar' : 'none'
-  const override = data?.bioView ?? {}
-
-  const role = ROLES.includes(override.role) ? override.role : (worked?.role ?? 'none')
-  // A facet of null, as opposed to none at all, takes the protein out of its membrane.
-  const unplaced = override.facet === null
-  const facet = role !== 'membraneProtein' || unplaced ? null : FACETS.includes(override.facet) ? override.facet : (worked?.facet ?? null)
-  const cell = CELL_ROLES.has(role) ? (override.cell ?? worked?.cell ?? null) : null
-  const site = typeof override.site === 'string' && override.site ? override.site : null
+export function resolveBioRole(data, { sidecar = null, worked = null, siteRole = null } = {}) {
+  const bioView = data?.bioView ?? {}
+  const fromModule = sidecar ? fromSidecar(sidecar) : null
+  const [role, source] = ROLES.includes(siteRole)
+    ? [siteRole, 'site']
+    : ROLES.includes(worked)
+      ? [worked, 'location']
+      : fromModule
+        ? [fromModule, 'sidecar']
+        : ['none', 'none']
+  const site = typeof bioView.site === 'string' && bioView.site ? bioView.site : null
+  const skinContext = contextOfModule(role, sidecar?.component?.isVersionOf)
   return {
     role,
-    facet,
-    at: facet === 'lateral' && SIDES.includes(override.at) ? override.at : null,
-    annotatedFacet: role === 'membraneProtein' && !site ? (worked?.facet ?? null) : null,
-    cell,
-    side: role === 'region' ? (worked?.side ?? null) : null,
-    adjacent: role === 'region' ? validAdjacency(override.adjacent) : null,
-    glyph:
-      role === 'membraneProtein'
-        ? glyphFor(sidecar?.component?.isVersionOf, override.glyph)
-        : role === 'cytosolic'
-          ? processGlyphFor(sidecar?.component?.isVersionOf, override.glyph)
-          : null,
-    source: ROLES.includes(override.role) ? 'override' : source,
+    skin: resolveSkin(skinContext, bioView.skin)?.id ?? null,
+    skinContext,
+    source,
     ...(site && { site }),
   }
 }

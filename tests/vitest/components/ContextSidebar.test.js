@@ -232,7 +232,7 @@ describe('ContextSidebar opening and closing', () => {
     expect(wrapper.findComponent({ name: 'NodeColourPanel' }).exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'BioPropertiesPanel' }).exists()).toBe(false)
 
-    await wrapper.setProps({ bioProperties: { roles: ref(new Map()), chooseRole: () => {}, chooseGlyph: () => {} } })
+    await wrapper.setProps({ bioProperties: { roles: ref(new Map()), chooseSkin: () => {} } })
     expect(wrapper.findComponent({ name: 'NodeColourPanel' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'BioPropertiesPanel' }).exists()).toBe(true)
   })

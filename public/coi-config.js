@@ -14,4 +14,7 @@ window.coi = {
   shouldRegister: () =>
     !navigator.userAgent.includes('Electron') && (!navigator.webdriver || isolatesUnderAutomation()),
   coepCredentialless: () => !!(window.chrome || window.netscape),
+  // Whether the worker already controlled the page as it loaded. A page it loaded that still isn't isolated
+  // (see src/utils/isolation.js) is in a browser that doesn't apply the worker's headers, as DuckDuckGo's doesn't.
+  wasControlledAtLoad: !!(navigator.serviceWorker && navigator.serviceWorker.controller),
 }

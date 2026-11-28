@@ -3,9 +3,9 @@
  * them without importing the shapes the built-in templates define.
  */
 
-/** Size of a protein's cartoon, drawn with the outside up before it is turned to its facet. */
-export const GLYPH_WIDTH = 64
-export const GLYPH_HEIGHT = 48
+/** Size of a protein's symbol, drawn with the outside up before it is turned to its facet. */
+export const SYMBOL_WIDTH = 64
+export const SYMBOL_HEIGHT = 48
 
 /** Distance between neighbouring slots along a facet, at least: wider names along a top or bottom edge push it out. */
 export const SLOT_PITCH = 88

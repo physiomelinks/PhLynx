@@ -8,11 +8,10 @@
 
 import { Position } from '@vue-flow/core'
 
-import { CELL_RADIUS, FACET_INSET, GLYPH_WIDTH, LABEL_GAP, MIN_CELL, SLOT_PITCH, proteinLabelWidth } from './metrics.js'
+import { CELL_RADIUS, FACET_INSET, SYMBOL_WIDTH, LABEL_GAP, MIN_CELL, SLOT_PITCH, proteinLabelWidth } from './metrics.js'
 import { EPITHELIAL_SHAPE, annotationOfFacet, facetById, facetOfAnnotation } from './shape.js'
-import { isInside, lengthOf, pointAlong } from './shapeGeometry.js'
 
-export { CELL_RADIUS, FACET_INSET, GLYPH_HEIGHT, GLYPH_WIDTH, MIN_CELL, SLOT_PITCH, proteinLabelWidth } from './metrics.js'
+export { CELL_RADIUS, FACET_INSET, SYMBOL_HEIGHT, SYMBOL_WIDTH, MIN_CELL, SLOT_PITCH, proteinLabelWidth } from './metrics.js'
 
 /**
  * Where each edge of a cell points, which way a protein on it is turned, and the axis its slots run along.
@@ -138,7 +137,7 @@ const FOLD_WALLS = Object.freeze({
  */
 export function foldDepthFor(count, { lead = FOLD.lead, facing = false } = {}) {
   const rows = facing ? count + 1 : Math.ceil((count + 1) / 2)
-  return lead + GLYPH_WIDTH / 2 + (rows - 1) * SLOT_PITCH + GLYPH_WIDTH / 2 + FOLD.width / 2 + 8
+  return lead + SYMBOL_WIDTH / 2 + (rows - 1) * SLOT_PITCH + SYMBOL_WIDTH / 2 + FOLD.width / 2 + 8
 }
 
 /**
@@ -155,7 +154,10 @@ export function foldPocket(rect, facet) {
   const along = EDGES[facet.fold].axis === 'x' ? rect.width : rect.height
   const across = EDGES[facet.fold].axis === 'x' ? rect.height : rect.width
   const depth = Math.min(facet.depth ?? FOLD.depth, Math.max(FOLD.width, across - CELL_RADIUS))
-  return { edge: facet.fold, at: along - CELL_RADIUS - FOLD.margin - half, half, depth }
+  // Where its piece puts it along the side (`at`, 0 to 1), kept clear of the corners; else near the far end.
+  const end = along - CELL_RADIUS - FOLD.margin - half
+  const at = Number.isFinite(facet.at) ? Math.min(end, Math.max(CELL_RADIUS + FOLD.margin + half, facet.at * along)) : end
+  return { edge: facet.fold, at, half, depth }
 }
 
 /**
@@ -189,34 +191,8 @@ function foldSlotPositions(rect, facet, count) {
     // Down the wall facing an organelle alone, where a microdomain lies between the two.
     const wall = !facet.facing && order % 2 ? 'high' : 'low'
     const along = pocket.at + (wall === 'low' ? -pocket.half : pocket.half)
-    const inward = lead + GLYPH_WIDTH / 2 + (facet.facing ? order : Math.floor(order / 2)) * SLOT_PITCH
+    const inward = lead + SYMBOL_WIDTH / 2 + (facet.facing ? order : Math.floor(order / 2)) * SLOT_PITCH
     return { ...foldPoint(rect, pocket.edge, along, inward), faces: FOLD_WALLS[pocket.edge][wall] }
-  })
-}
-
-/**
- * Gives the centres of the slots along a stretch of membrane a skin draws: spaced along it about its middle, each
- * facing out of the cell the nearest way a protein is drawn, up, down, left or right.
- *
- * @param {Object} rect - The cell.
- * @param {{path: Array<{x: number, y: number}>}} facet - With the stretch, in the cell's own coordinates.
- * @param {number} count
- * @param {{outline?: Array<Object>}} shape - With the cell's outline, which says which way is out.
- * @returns {Array<{x: number, y: number, faces: string}>}
- */
-function pathSlotPositions(rect, facet, count, shape) {
-  const total = lengthOf(facet.path)
-  // Closer together where the stretch is short, down to a glyph's width.
-  const pitch = count > 1 ? Math.max(GLYPH_WIDTH, Math.min(SLOT_PITCH, total / count)) : 0
-  const first = total / 2 - ((count - 1) * pitch) / 2
-  return Array.from({ length: count }, (_, order) => {
-    const at = pointAlong(facet.path, Math.min(total, Math.max(0, first + order * pitch)))
-    const heading = (at.angle * Math.PI) / 180
-    // One of the two ways across the membrane leads out of the outline.
-    let normal = { x: Math.sin(heading), y: -Math.cos(heading) }
-    if (shape.outline && isInside(shape.outline, { x: at.x + normal.x * 14, y: at.y + normal.y * 14 })) normal = { x: -normal.x, y: -normal.y }
-    const faces = Math.abs(normal.x) > Math.abs(normal.y) ? (normal.x > 0 ? 'right' : 'left') : normal.y > 0 ? 'bottom' : 'top'
-    return { x: rect.x + at.x, y: rect.y + at.y, faces }
   })
 }
 
@@ -244,14 +220,16 @@ function foldReserve(shape, edge) {
 export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, widths = []) {
   const { x, y, width, height } = rect
   const fold = facetById(shape, part)
-  if (fold?.path) return pathSlotPositions(rect, fold, count, shape).map((slot) => ({ x: slot.x, y: slot.y }))
   if (fold?.fold) return foldSlotPositions(rect, fold, count).map((slot) => ({ x: slot.x, y: slot.y }))
   const edge = edgeOf(shape, part)
   // A fold in from this side takes its far end.
   const reserve = foldReserve(shape, edge.name)
   // Facets that share a side take a stretch of it each, in the order the shape lists them.
-  const sharing = shape.facets.filter((facet) => facet.edge === edge.name && !facet.path)
+  const sharing = shape.facets.filter((facet) => facet.edge === edge.name)
   const share = (from, to) => {
+    // A span of a piece's membrane says which stretch of the side it takes (0 to 1).
+    const own = facetById(shape, part)
+    if (Number.isFinite(own?.from) && Number.isFinite(own?.to)) return [from + own.from * (to - from), from + own.to * (to - from)]
     const each = (to - from) / Math.max(1, sharing.length)
     const index = Math.max(0, sharing.findIndex((facet) => facet.id === part))
     return [from + index * each, from + (index + 1) * each]
@@ -279,8 +257,8 @@ export function slotPositions(rect, part, count, shape = EPITHELIAL_SHAPE, width
 export function facetSlots(rect, part, count, shape = EPITHELIAL_SHAPE, { spare = true, widths = [] } = {}) {
   const slots = slotPositions(rect, part, count, shape, widths).map((slot, order) => ({ ...slot, order, spare: false }))
   if (!spare) return slots
-  // A fold's spare is the next place down its walls, and a drawn stretch's the next along it.
-  if (facetById(shape, part)?.fold || facetById(shape, part)?.path) {
+  // A fold's spare is the next place down its walls.
+  if (facetById(shape, part)?.fold) {
     return [...slots, { ...slotPositions(rect, part, count + 1, shape)[count], order: count, spare: true }]
   }
   const last = slots.at(-1)
@@ -299,16 +277,11 @@ export function facetSlots(rect, part, count, shape = EPITHELIAL_SHAPE, { spare 
  * @param {number} count - Proteins on that part.
  * @param {Object} [shape=EPITHELIAL_SHAPE]
  * @param {number[]} [widths] - As for slotPositions.
- * @returns {{x: number, y: number, rotation: number, outward: string}} The centre of its cartoon, how far
+ * @returns {{x: number, y: number, rotation: number, outward: string}} The centre of its symbol, how far
  *   to turn it, and the side of it facing out of the cell.
  */
 export function proteinPlacement(rect, part, order, count, shape = EPITHELIAL_SHAPE, widths = []) {
   const fold = facetById(shape, part)
-  if (fold?.path) {
-    const slot = pathSlotPositions(rect, fold, Math.max(count, order + 1), shape)[order]
-    const { outward, rotation } = EDGES[slot.faces]
-    return { x: slot.x, y: slot.y, rotation, outward }
-  }
   if (fold?.fold) {
     const slot = foldSlotPositions(rect, fold, order + 1)[order]
     const { outward, rotation } = EDGES[slot.faces]
@@ -320,50 +293,10 @@ export function proteinPlacement(rect, part, order, count, shape = EPITHELIAL_SH
 }
 
 /**
- * Gives where a node-owned cell's part takes a drop. While a protein on that part is dragged, the slots are where
- * the row is drawn now, the dragged one's own included, and there is no spare.
- *
- * @param {{rect: Object, counts?: Object, held?: string, shape?: Object, widths?: Object}} cell - From dropTargets;
- *   widths: the names' widths per part, as the row is drawn.
- * @param {string} part - One of the shape's facet ids.
- * @returns {ReturnType<typeof facetSlots>}
+ * How long a stretch of a side an empty span needs, its spare's symbol clear of the rounded corners: shorter, and
+ * the cell grows until it is that long (see fitCellRect).
  */
-export function cellSlots(cell, part) {
-  const count = cell.counts?.[part] ?? 0
-  const shape = cell.shape ?? EPITHELIAL_SHAPE
-  const widths = cell.widths?.[part] ?? []
-  return cell.held === part
-    ? facetSlots(cell.rect, part, count + 1, shape, { spare: false, widths })
-    : facetSlots(cell.rect, part, count, shape, { widths })
-}
-
-/**
- * Finds the slot nearest a point, among every cell's cellSlots.
- *
- * @param {Array<{id: string, rect: Object, counts: Object, held?: string, shape?: Object}>} cells - From
- *   dropTargets: counts has proteins per part; shape defaults to EPITHELIAL_SHAPE.
- * @param {{x: number, y: number}} point
- * @param {number} [maxDistance=60]
- * @returns {{cellId: string, part: string, facet: string, at: string|undefined, order: number, spare: boolean,
- *   x: number, y: number}|null}
- */
-export function nearestSlot(cells, point, maxDistance = 60) {
-  let best = null
-  let bestDistance = maxDistance
-  for (const cell of cells) {
-    const shape = cell.shape ?? EPITHELIAL_SHAPE
-    for (const { id: part } of shape.facets) {
-      cellSlots(cell, part).forEach(({ x, y, order, spare }) => {
-        const distance = Math.hypot(x - point.x, y - point.y)
-        if (distance <= bestDistance) {
-          best = { cellId: cell.id, part, ...facetOfPart(part, shape), order, spare, x, y }
-          bestDistance = distance
-        }
-      })
-    }
-  }
-  return best
-}
+export const EMPTY_SPAN = SYMBOL_WIDTH + 2 * CELL_RADIUS
 
 /**
  * Grows a cell so every part of its membrane has room for its proteins and the spare slot past them, whose
@@ -384,10 +317,17 @@ export function fitCellRect(rect, counts, shape = EPITHELIAL_SHAPE, widths = {},
     const pitches = rowPitches(count + 1, axis === 'x' ? (widths[facet.id] ?? []) : null)
     const spare = pitches.pop() ?? 0
     const proteins = pitches.reduce((total, pitch) => total + pitch, 0)
-    return proteins + spare + Math.max(SLOT_PITCH / 2 + GLYPH_WIDTH, spare)
+    return proteins + spare + Math.max(SLOT_PITCH / 2 + SYMBOL_WIDTH, spare)
   }
-  const length = (axis) =>
-    Math.max(0, ...along(axis).map((facet) => row(facet, axis) + foldReserve(shape, facet.edge))) + 2 * FACET_INSET
+  // A span that takes only a stretch of its side needs the whole side long enough for its row to fit that stretch.
+  const share = (facet) => (Number.isFinite(facet.from) && Number.isFinite(facet.to) ? Math.max(0.05, facet.to - facet.from) : 1)
+  // An empty one with no fold in from its side has its spare in its middle, so it needs only its symbol's room
+  // clear of the rounded corners.
+  const need = (facet, axis) =>
+    counts[facet.id] || facet.fold || foldReserve(shape, facet.edge)
+      ? row(facet, axis) / share(facet) + foldReserve(shape, facet.edge) + 2 * FACET_INSET
+      : EMPTY_SPAN / share(facet)
+  const length = (axis) => Math.max(0, ...along(axis).map((facet) => need(facet, axis)))
   // A fold needs its side long enough to come in from, and the cell deep enough to hold it and its proteins.
   const folds = (axis) => shape.facets.filter((facet) => facet.fold && EDGES[facet.fold].axis === axis)
   const mouth = (axis) => (folds(axis).length ? 2 * CELL_RADIUS + 2 * FOLD.margin + FOLD.width : 0)
@@ -496,6 +436,12 @@ export function leafletPath(width, height, offset = 0, folds = []) {
 
 /** How far apart a bilayer's lipids are, along its leaflets. */
 export const LIPID_PITCH = 5
+
+/** A lipid's head group's radius; its tails reach TAIL_HALF either side of the membrane's middle, between the heads. */
+export const HEAD_RADIUS = 2.25
+export const TAIL_HALF = 4.5
+/** Half the width of a straight strip of bilayer: room for both rows of heads. */
+export const STRIP_HALF = HEAD_OFFSET + HEAD_RADIUS + 1
 
 /**
  * Gives the straight sides of a cell's outline, each as the transform that lays a strip along it: x runs along the

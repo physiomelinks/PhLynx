@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 140">
+  <title>Neuron</title>
+  <!-- Dendrites on the left, the cell body with its nucleus, and a myelinated axon ending in terminals. -->
+  <g fill="none" stroke="#5b6fb5" stroke-width="5" stroke-linecap="round">
+    <path d="M45 58 L22 34 M30 42 L12 44 M45 84 L20 108 M28 100 L10 98 M60 48 L58 18 M58 30 L44 14 M58 30 L74 12 M60 92 L62 124"/>
+    <path d="M82 70 L200 70"/>
+    <path d="M200 70 L224 50 M200 70 L226 70 M200 70 L224 90"/>
+  </g>
+  <g fill="#9aa9e0" stroke="#5b6fb5" stroke-width="2">
+    <rect x="96" y="61" width="24" height="18" rx="9"/>
+    <rect x="128" y="61" width="24" height="18" rx="9"/>
+    <rect x="160" y="61" width="24" height="18" rx="9"/>
+  </g>
+  <circle cx="60" cy="70" r="24" fill="#7f91d6" stroke="#4a5c9e" stroke-width="3"/>
+  <circle cx="64" cy="66" r="8" fill="#3d4d8a"/>
+  <g fill="#7f91d6" stroke="#4a5c9e" stroke-width="2">
+    <circle cx="227" cy="48" r="6"/>
+    <circle cx="230" cy="70" r="6"/>
+    <circle cx="227" cy="92" r="6"/>
+  </g>
+</svg>

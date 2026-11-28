@@ -1,22 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { getBuiltInTemplate } from '../../../../src/services/bioView/builtInTemplates.js'
+import { getBuiltInPieceTemplate } from '../../../../src/services/bioView/pieces/builtInTemplates.js'
+import { validatePiecesTemplate, writtenTemplate } from '../../../../src/services/bioView/pieces/model.js'
 import {
   MAX_TEMPLATE_FILE_BYTES,
   parseTemplateText,
+  problemLabel,
   readTemplateFile,
   summariseProblems,
   templateFile,
 } from '../../../../src/services/bioView/templateFiles.js'
-import {
-  bareTemplateId,
-  freeLocalId,
-  isLocalTemplateId,
-  validateTemplate,
-} from '../../../../src/services/bioView/templates.js'
+import { bareTemplateId, freeLocalId, isLocalTemplateId } from '../../../../src/services/bioView/localIds.js'
 
-const plain = (value) => JSON.parse(JSON.stringify(value))
-const epithelial = () => plain(getBuiltInTemplate('epithelial-cell'))
+/** The epithelial cell, as its file has it. */
+const epithelial = () => writtenTemplate(getBuiltInPieceTemplate('epithelial-cell'))
+const validateTemplate = validatePiecesTemplate
 
 describe('local template ids', () => {
   it('recognises and strips the local prefix', () => {
@@ -31,7 +29,7 @@ describe('local template ids', () => {
   it('accepts a local id only when asked to', () => {
     const raw = { ...epithelial(), id: 'local:my-cell' }
     expect(validateTemplate(raw).errors).toEqual([
-      'Template: "id" must start with a letter and use only lower-case letters, digits and hyphens (2-48 characters).',
+      '"id" must start with a letter and use only lower-case letters, digits and hyphens (2-48 characters).',
     ])
     expect(validateTemplate(raw, { allowLocalId: true }).template.id).toBe('local:my-cell')
     expect(validateTemplate(epithelial(), { allowLocalId: true }).template.id).toBe('epithelial-cell')
@@ -66,19 +64,27 @@ describe('template files', () => {
     expect(summariseProblems(['a', 'b'], 1)).toBe('a<br>…and 1 more.')
   })
 
+  it('gives the first problem as plain text for the label by the pointer, in the user’s words', () => {
+    expect(problemLabel(['Piece "pm": "sides.top" must be a list of 1 to 8 spans.', 'b'])).toBe(
+      'That would cut the membrane’s top side into more than 8 stretches.',
+    )
+    expect(problemLabel(['Piece "pm": "frame.x" must be a number.'])).toBe('"frame.x" must be a number.')
+    expect(problemLabel([])).toBe('It can’t go there.')
+  })
+
   it('escapes what the problems quote from the file', () => {
     expect(summariseProblems(['Cell "<img src=x onerror=alert(1)>" & co'])).toBe(
-      'Cell &quot;&lt;img src=x onerror=alert(1)&gt;&quot; &amp; co'
+      'Cell &quot;&lt;img src=x onerror=alert(1)&gt;&quot; &amp; co',
     )
   })
 
-  it('writes a template under its own id, without the local prefix or a $schema', () => {
+  it('writes a template under its own id, without the local prefix, pointing to its schema', () => {
     const template = validateTemplate({ ...epithelial(), id: 'local:my-cell' }, { allowLocalId: true }).template
     const { filename, text } = templateFile(template)
-    expect(filename).toBe('my-cell.template.json')
+    expect(filename).toBe('my-cell.pieces.json')
     const raw = JSON.parse(text)
     expect(raw.id).toBe('my-cell')
-    expect(raw).not.toHaveProperty('$schema')
+    expect(raw.$schema).toBe('./bio-pieces.schema.json')
     expect(text.endsWith('\n')).toBe(true)
     expect(validateTemplate(raw)).toEqual({ template: { ...template, id: 'my-cell' }, errors: [], warnings: [] })
   })

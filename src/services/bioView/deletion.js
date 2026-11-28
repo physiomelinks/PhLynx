@@ -1,7 +1,15 @@
 /**
  * Deleting in the physiological view: which instances a Delete key or menu item takes away, and taking them away
- * as the diagram's Delete does, as one undo step.
+ * as the diagram's Delete does, as one undo step. A compartment, membrane or tube is its module, so deleting either,
+ * in either view, takes both, with everything on the piece (see planDeletion).
  */
+
+import { removePieces } from './pieces/edits.js'
+import { PIECES_INSTANCE, layoutPieces } from './pieces/layout.js'
+import { validatePieces } from './pieces/model.js'
+import { modulesOf, piecesOrphanedBy } from './pieces/pairing.js'
+import { topologyOf } from './pieces/topology.js'
+import { parseSiteRef } from './siteRefs.js'
 
 /**
  * Whether a key press asks to delete: Delete or Backspace, without a modifier that would make it another shortcut.
@@ -38,59 +46,6 @@ export function deletionLabel(id, nodes) {
   return count > 1 ? `Delete Selection (${count})` : 'Delete'
 }
 
-/** A cell's contents, as the layout places them: its membrane, its membrane's proteins and its processes. */
-const CONTENT_KINDS = new Set(['membrane', 'protein', 'cytosolic'])
-
-/**
- * Finds what is in the cells among the instances to delete, and would be left without one: the membrane, proteins
- * and processes of each cell that is a node of its own. A template's cell keeps its places when the module on it
- * goes, so what is on them stays put and is not counted.
- *
- * @param {Array<string>} ids - The instances to delete.
- * @param {Map<string, Object>} layout - From layoutPhysiology.
- * @returns {Array<string>} The ids of the contents that are not themselves being deleted.
- */
-export function cellContents(ids, layout) {
-  const going = new Set(ids)
-  const cells = new Set(ids.filter((id) => layout.get(id)?.kind === 'cell' && !layout.get(id).instance))
-  if (!cells.size) return []
-  return [...layout]
-    .filter(([id, place]) => !going.has(id) && CONTENT_KINDS.has(place.kind) && cells.has(place.cell))
-    .map(([id]) => id)
-}
-
-/**
- * Works out the bioView changes that keep a deleted cell's contents where they are drawn, out of any cell: each
- * loses its cell and facet and takes its place as its own, so proteins wait in the tray and the rest as cards,
- * where the cell was.
- *
- * @param {Array<string>} contents - From cellContents.
- * @param {Map<string, Object>} layout - From layoutPhysiology.
- * @param {{width: number, height: number}} glyph - A protein's drawn size; its place is its centre.
- * @returns {Map<string, Object>} Node id -> the bioView fields to set (undefined removes one).
- */
-export function releaseFromCell(contents, layout, glyph) {
-  const patches = new Map()
-  for (const id of contents) {
-    const place = layout.get(id)
-    const cell = layout.get(place.cell)?.rect ?? { x: 0, y: 0 }
-    const at =
-      place.kind === 'protein'
-        ? { x: place.x - glyph.width / 2, y: place.y - glyph.height / 2 }
-        : place.kind === 'cytosolic'
-          ? { x: place.x, y: place.y }
-          : { x: cell.x, y: cell.y }
-    patches.set(id, {
-      cell: undefined,
-      facet: undefined,
-      at: undefined,
-      order: undefined,
-      position: { x: Math.round(at.x), y: Math.round(at.y) },
-    })
-  }
-  return patches
-}
-
 /** Waits out the handles that turn ghost a tick after their edges go, so they land in the same step. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -103,15 +58,17 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
  * @param {Function} options.removeNodes - The diagram flow's removeNodes.
  * @param {Object} options.history - The history store.
  * @param {() => Promise<*>} [options.before] - Edits to make first, in the same step.
+ * @param {() => Promise<*>} [options.after] - Edits to make once they have gone, in the same step.
  * @returns {Promise<boolean>} Whether anything was asked to go.
  */
-export async function deleteInstances(ids, { removeNodes, history, before }) {
+export async function deleteInstances(ids, { removeNodes, history, before, after }) {
   if (!ids.length) return false
   history.startBatch()
   try {
     await before?.()
     removeNodes(ids, true)
     await settle()
+    await after?.()
   } finally {
     history.endBatch('remove')
   }
@@ -135,4 +92,85 @@ export async function deleteConnection(edgeId, { disconnectInstances, history })
   } finally {
     history.endBatch('remove-edge')
   }
+}
+
+/**
+ * What deleting some modules and pieces takes: the pieces chosen and those whose module is among the modules chosen,
+ * everything that goes with them (see removedWith), and every module on what goes. What it takes that was not chosen
+ * is for asking about: the pieces that go with those chosen, a fold among them, and
+ * the modules on the rows of what goes. The modules that are the pieces going are named by those pieces.
+ *
+ * @param {ReadonlyArray<Object>} pieces - Validated.
+ * @param {Array<{id: string, data?: Object}>} nodes - The diagram's nodes.
+ * @param {{instances?: Iterable<string>, pieces?: Iterable<string>}} chosen - Node ids and piece ids.
+ * @returns {{next: ReadonlyArray<Object>|null, errors: string[], pieces: string[], going: string[],
+ *   alongWith: string[], modulesToo: string[]}} next: the pieces left, null where no piece goes or the removal is
+ *   invalid (errors say why); pieces: those asked to go; going: the node ids to delete; alongWith: piece ids;
+ *   modulesToo: node ids.
+ */
+export function planDeletion(pieces, nodes, { instances = [], pieces: pieceIds = [] }) {
+  const chosen = new Set(instances)
+  const known = new Set(pieces.map((piece) => piece.id))
+  const asked = [...new Set([...pieceIds, ...piecesOrphanedBy(pieces, nodes, chosen)])].filter((id) => known.has(id))
+  const none = { next: null, errors: [], pieces: asked, going: [...chosen], alongWith: [], modulesToo: [] }
+  if (!asked.length) return none
+  // What a membrane deleted alone leaves standing stands where it is drawn.
+  const { pieces: raw, removed } = removePieces(pieces, asked, { rects: layoutPieces(pieces).rects })
+  const { pieces: next, errors } = validatePieces(raw)
+  if (!next) return { ...none, errors: plainProblems(errors) }
+  const offeredNow = new Set(topologyOf(pieces).sites.map((site) => site.path))
+  const offered = new Set(topologyOf(next).sites.map((site) => site.path))
+  const stranded = nodes
+    .filter((node) => {
+      const parsed = parseSiteRef(node.data?.bioView?.site)
+      return parsed?.instance === PIECES_INSTANCE && offeredNow.has(parsed.path) && !offered.has(parsed.path)
+    })
+    .map((node) => node.id)
+  const named = modulesOf(pieces, nodes, removed)
+  return {
+    next,
+    errors: [],
+    pieces: asked,
+    going: [...new Set([...chosen, ...stranded])],
+    alongWith: [...removed].filter((id) => !asked.includes(id)),
+    modulesToo: stranded.filter((id) => !chosen.has(id) && !named.has(id)),
+  }
+}
+
+/** A problem left by taking away part of a cell's inside, where the cell has no other inside along that stretch. */
+const EMPTIED = /meets no compartment inside/
+
+/**
+ * Why a deletion can't be done, in the user's words: the validation's own, but for part of a cell's inside that would
+ * leave a stretch of its membrane with nothing inside, which is said once, plainly.
+ *
+ * @param {string[]} errors - From validatePieces.
+ * @returns {string[]}
+ */
+function plainProblems(errors) {
+  const others = errors.filter((error) => !EMPTIED.test(error))
+  if (others.length === errors.length) return errors
+  return [
+    'It is part of the inside of a cell with no other inside along that stretch of its membrane. Delete the membrane on its own first, or the whole cell.',
+    ...others,
+  ]
+}
+
+/**
+ * What to ask before a deletion that takes what was not chosen (see planDeletion), or null when it takes nothing more.
+ *
+ * @param {{alongWith: string[], modulesToo: string[]}} plan
+ * @param {Object} names
+ * @param {(id: string) => string} names.pieceName
+ * @param {(id: string) => string} names.nodeName
+ * @returns {string|null}
+ */
+export function deletionMessage({ alongWith, modulesToo }, { pieceName, nodeName }) {
+  if (!alongWith.length && !modulesToo.length) return null
+  return [
+    alongWith.length ? `${alongWith.map(pieceName).join(', ')} go${alongWith.length === 1 ? 'es' : ''} with it.` : '',
+    modulesToo.length ? `These modules on it are deleted too: ${modulesToo.map(nodeName).join(', ')}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
